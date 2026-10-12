@@ -101,6 +101,14 @@ describe("Handoff Kit host half", () => {
     expect(complete.mock.calls[0]![0].prompt).not.toContain("Something later.");
   });
 
+  it("hands over the user's request when the first turn failed before any answer", async () => {
+    threads.set("parent", thread("parent", [message("u1", "user", "Speed up the parser.")]));
+    const registry = await activate({ completionModels: async () => [] });
+    const created = await invoke(registry, "create-transfer", { threadId: "parent", target: "codex" }) as CreateTransferResult;
+    const resolved = await invoke(registry, "resolve-transfer", { transferId: created.transferId }) as ResolveTransferResult;
+    expect(resolved.context).toContain("Speed up the parser.");
+  });
+
   it("links the fork once its thread exists and publishes the lineage", async () => {
     threads.set("parent", thread("parent", [message("u1", "user", "Go."), message("a1", "assistant", "Went.")]));
     threads.set("fork", thread("fork", [], { backendKind: "codex" }));
@@ -156,7 +164,7 @@ describe("Handoff Kit host half", () => {
 
   it("refuses a thread that is running or has nothing to hand over", async () => {
     threads.set("busy", thread("busy", [message("a1", "assistant", "…")], { isStreaming: () => true }));
-    threads.set("empty", thread("empty", [message("u1", "user", "Hi")]));
+    threads.set("empty", thread("empty", []));
     const registry = await activate();
     await expect(invoke(registry, "create-transfer", { threadId: "busy", target: "codex" })).rejects.toThrow("Wait for the thread's turn");
     await expect(invoke(registry, "create-transfer", { threadId: "empty", target: "codex" })).rejects.toThrow("nothing to hand over");

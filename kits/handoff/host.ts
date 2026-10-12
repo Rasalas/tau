@@ -244,8 +244,10 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         const target = required(input, "target");
         const thread = openThread(required(input, "threadId"));
         const messages = await thread.transcript();
-        if (!messages.some((message) => message.role === "assistant" && message.text.trim())) {
-          throw new HostCommandError("There is nothing to hand over yet: the thread has no answer.");
+        const conversation = conversationText(messages);
+        // A failed first turn still has the user's request to continue elsewhere.
+        if (!conversation) {
+          throw new HostCommandError("There is nothing to hand over yet: the thread has no messages.");
         }
         const native = target === thread.backendKind && NATIVE_FORK_RUNTIMES.includes(target);
         const transfer: Transfer = {
@@ -259,7 +261,7 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
           createdAt: now(),
           strategy: native ? "native" : "portable",
           // Taken now: the fork continues the thread as it is, not as it may be later.
-          conversation: native ? "" : conversationText(messages),
+          conversation: native ? "" : conversation,
           excerpt: native ? "" : excerptSummary(messages),
         };
         state.transfers[transfer.id] = transfer;
