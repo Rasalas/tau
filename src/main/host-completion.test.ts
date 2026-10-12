@@ -1,5 +1,10 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { HostCompletions } from "./host-completion.js";
+import { isExpectedCommandError } from "./host-extension-errors.js";
 
 function makeCompletions(options: {
   runtime: {
@@ -126,5 +131,31 @@ describe("HostCompletions", () => {
       "x-opencode-session": options.sessionId,
       "x-opencode-client": "pi",
     });
+  });
+
+  it("asks to sign in again when Pi's stored login can no longer be refreshed", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-host-completion-"));
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify({ error: "invalid_grant", error_description: "Refresh token expired" }), { status: 400 });
+    }));
+    try {
+      await writeFile(join(dir, "auth.json"), JSON.stringify({ anthropic: { type: "oauth", access: "old", refresh: "stale", expires: 0 } }));
+      const pi = await ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json"), refreshOnCreate: false });
+      // As `createPiModelRuntime` does: the refresh is what tells Pi the provider signs in with OAuth.
+      await pi.refresh({ allowNetwork: false });
+      const model = pi.getModels("anthropic").find((entry) => /haiku/u.test(entry.id))!;
+      const completions = new HostCompletions({ agentDir: dir, cwd: () => dir, createRuntime: async () => pi });
+      const failure = await completions.complete({ system: "s", prompt: "p" }, { provider: "anthropic", id: model.id }).catch((error: unknown) => error);
+      expect((failure as Error).message).toBe("Pi's Anthropic login has expired. Sign in again on Pi's card under Settings → Providers.");
+      expect(isExpectedCommandError(failure)).toBe(true);
+      // Only the refresh went out; the request itself was never sent.
+      expect(urls).toHaveLength(1);
+      expect(urls[0]).toMatch(/oauth\/token$/u);
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

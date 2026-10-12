@@ -77,6 +77,16 @@ describe("Worktree Names host extension", () => {
     expect(registry.summaries().find((entry) => entry.id === WORKTREE_NAMES_HOST_EXTENSION_ID)?.error).toBeUndefined();
   });
 
+  it("stays on while the model's login needs the user", async () => {
+    // How the host's `complete` reports a Pi login whose refresh token expired.
+    const loginExpired = Object.assign(new Error("Pi's Anthropic login has expired. Sign in again on Pi's card under Settings → Providers."), { expected: true });
+    const registry = await registryWith(anyThread(), vi.fn(async () => { throw loginExpired; }));
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { description: "Fix the queue" })).rejects.toThrow(/login has expired/u);
+    }
+    expect(registry.isActive(WORKTREE_NAMES_HOST_EXTENSION_ID)).toBe(true);
+  });
+
   it("refuses without a task or a thread", async () => {
     const registry = await registryWith(anyThread());
     const suggest = (input: unknown) => registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", input);
