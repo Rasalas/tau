@@ -136,6 +136,20 @@ link only right after you clicked inside it. What an app tells the model
 (`ui/update-model-context`) goes with your next message as data from that
 server, marked untrusted. See [ADR 0032](adr/0032-sandbox-frame-and-mcp-apps.md).
 
+## Pages an agent writes
+
+An agent can answer with a page instead of text: a chart, a diagram, a mockup, a
+gallery. It writes one HTML document (or a file in the project) and calls
+`show_html_page`; the page appears in the thread above its reply, on every
+runtime and on the phone and web client too. Scripts run inside the page, but it
+is sandboxed away from Tau and your session, and it cannot reach the network:
+a chart library loads only from an https host the agent declared, and the card
+shows which. Local images are embedded when the page is made, so it keeps
+working after the files move. A link opens in your browser after you click it.
+The expand button shows the page full size without restarting it; "Open in a
+tab" puts it on the stage (it starts over there). Pages belong to their thread
+and go when the thread is deleted. See [ADR 0035](adr/0035-agent-pages-on-the-sandbox-frame.md).
+
 ## Reopen a closed tab
 
 `Cmd/Ctrl+Shift+T` brings back the stage tab closed last in this thread, and
