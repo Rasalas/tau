@@ -360,8 +360,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "set-model": async (params) => (await host()).setModel(
       decodeString("set-model", "provider", params[0]),
       decodeString("set-model", "id", params[1]),
+      decodeOptionalString("set-model", "expectedSessionId", params[2]),
     ),
-    "set-thinking": async (params) => (await host()).setThinkingLevel(decodeString("set-thinking", "level", params[0])),
+    "set-thinking": async (params) => (await host()).setThinkingLevel(
+      decodeString("set-thinking", "level", params[0]),
+      decodeOptionalString("set-thinking", "expectedSessionId", params[1]),
+    ),
     "set-mode": async (params) => (await host()).setMode(
       decodeString("set-mode", "mode", params[0]),
       decodeOptionalString("set-mode", "expectedSessionId", params[1]),

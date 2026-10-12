@@ -703,6 +703,8 @@ export interface NewThreadConfiguration {
   thinkingLevel?: string;
   /** The interaction mode the thread starts in; omitted means `default`. */
   mode?: string;
+  /** Sent from a draft the user has left: the thread starts without becoming the one on screen. */
+  background?: boolean;
 }
 
 /**

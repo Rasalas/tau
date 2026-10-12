@@ -112,6 +112,7 @@ export function decodeNewThreadConfiguration(channel: string, field: string, val
   const mode = item.mode === undefined ? undefined : decodeString(channel, `${field}.mode`, item.mode);
   const thinkingLevel = item.thinkingLevel === undefined ? undefined : decodeString(channel, `${field}.thinkingLevel`, item.thinkingLevel);
   const model = item.model === undefined ? undefined : record(channel, `${field}.model`, item.model);
+  const background = decodeOptionalBoolean(channel, `${field}.background`, item.background);
   return {
     ...(model ? {
       model: {
@@ -121,6 +122,7 @@ export function decodeNewThreadConfiguration(channel: string, field: string, val
     } : {}),
     ...(thinkingLevel ? { thinkingLevel } : {}),
     ...(mode ? { mode } : {}),
+    ...(background ? { background } : {}),
   };
 }
 

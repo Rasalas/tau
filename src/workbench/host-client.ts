@@ -107,9 +107,9 @@ export interface HostClient {
   /** A `tau-ext:` URL for a workspace PDF, image, audio or video; the window's own process serves it. */
   shareFile(path: string): Promise<UiSharedFile>;
 
-  // Model, thinking level, and context for the active thread.
-  setModel(provider: string, id: string): Promise<HostActionResult>;
-  setThinkingLevel(level: string): Promise<HostActionResult>;
+  // Model, thinking level, and context for the thread on screen; the host's active thread without `expectedSessionId`.
+  setModel(provider: string, id: string, expectedSessionId?: string): Promise<HostActionResult>;
+  setThinkingLevel(level: string, expectedSessionId?: string): Promise<HostActionResult>;
   /** The interaction mode the thread's next turns run in; the active thread without `expectedSessionId`. */
   setMode(mode: string, expectedSessionId?: string): Promise<HostActionResult>;
   compactContext(expectedSessionId?: string): Promise<HostActionResult>;
@@ -387,8 +387,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     readImagePreview: (path) => call<UiImagePreview | undefined>("read-image-preview", [path]),
     shareFile: (path) => call<UiSharedFile>("share-file", [path]),
 
-    setModel: (provider, id) => call<HostActionResult>("set-model", [provider, id]),
-    setThinkingLevel: (level) => call<HostActionResult>("set-thinking", [level]),
+    setModel: (provider, id, expectedSessionId) => call<HostActionResult>("set-model", [provider, id, expectedSessionId]),
+    setThinkingLevel: (level, expectedSessionId) => call<HostActionResult>("set-thinking", [level, expectedSessionId]),
     setMode: (mode, expectedSessionId) => call<HostActionResult>("set-mode", [mode, expectedSessionId]),
     compactContext: (expectedSessionId) => call<HostActionResult>("compact-context", [expectedSessionId]),
 

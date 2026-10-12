@@ -1,6 +1,7 @@
 import { LifecycleQueue, type LifecycleQueueOptions } from "./lifecycle-queue.js";
 
-export type HostActivationAdmission = "exclusive" | "unserialized";
+/** `detached` queues like `exclusive` but mints no epoch: its lease is never current, so it never takes the visible thread. */
+export type HostActivationAdmission = "exclusive" | "unserialized" | "detached";
 
 /** A visible activation's immutable token; its liveness is read from the owner. */
 export interface HostActivationLease {
@@ -49,7 +50,7 @@ export class HostLifecycleCoordinator {
     operation: (activation: HostActivationLease) => Promise<T>,
     admission: HostActivationAdmission = "exclusive",
   ): Promise<T> {
-    const activation = this.activation(this.beginActivation());
+    const activation = this.activation(admission === "detached" ? -1 : this.beginActivation());
     const run = () => operation(activation);
     return admission === "unserialized" ? run() : this.queue.run(name, run);
   }

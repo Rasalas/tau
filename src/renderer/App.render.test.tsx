@@ -808,7 +808,7 @@ describe("App render isolation", () => {
     fireEvent.click(screen.getByRole("button", { name: /Current model/u }));
     const modelPicker = await screen.findByRole("dialog", { name: "Select model" });
     fireEvent.click(within(modelPicker).getByText("Next model").closest("[role=option]")!);
-    await waitFor(() => expect(setModel).toHaveBeenCalledWith("provider", "next"));
+    await waitFor(() => expect(setModel).toHaveBeenCalledWith("provider", "next", "session"));
 
     resolvePage({
       sessionId: "session",
