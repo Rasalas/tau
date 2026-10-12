@@ -197,7 +197,7 @@ export class ThreadCommands {
     if (!this.requireWrite("Compaction")) return false;
     try {
       // The transcript draws the compaction where it happened.
-      this.ports.applyActionResult(await this.client!.compactContext());
+      this.ports.applyActionResult(await this.client!.compactContext(this.sessionId()));
       return true;
     } catch (error) {
       this.notify(errorMessage(error));
