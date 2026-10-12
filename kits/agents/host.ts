@@ -115,6 +115,8 @@ const requireThreadId = (input: unknown): string => requireText(input, "threadId
 
 /** Access Kit's command for narrowing one thread; it names this kit as a caller. */
 const ACCESS_KIT_ID = "tau.access";
+/** The one kit that may start an agent from a definition of its own (`spawn`), stop it and discard its worktree. */
+const REVIEW_KIT_ID = "tau.review";
 const ACCESS_THREAD_LEVEL_COMMAND = "thread-level";
 
 /**
@@ -164,6 +166,8 @@ interface PendingIntent {
   definition?: AgentDefinition;
   machine?: AgentThreadLink["machine"];
   clientRequestId?: string;
+  /** A revision the worktree starts from instead of the parent's state. */
+  startAt?: string;
 }
 
 interface CompletionNotice {
@@ -195,7 +199,8 @@ function decodeIntent(value: unknown): PendingIntent | undefined {
   if (item.machine !== undefined && (typeof machine.id !== "string" || typeof machine.name !== "string")) return undefined;
   return { version: 1, id: item.id, prompt: item.prompt, workspace: item.workspace, ...(typeof item.runtime === "string" ? { runtime: item.runtime } : {}), ...(definition ? { definition } : {}),
     ...(typeof machine.id === "string" && typeof machine.name === "string" ? { machine: { id: machine.id, name: machine.name } } : {}),
-    ...(typeof item.clientRequestId === "string" ? { clientRequestId: item.clientRequestId } : {}) };
+    ...(typeof item.clientRequestId === "string" ? { clientRequestId: item.clientRequestId } : {}),
+    ...(typeof item.startAt === "string" && item.startAt ? { startAt: item.startAt } : {}) };
 }
 
 function decodeNotice(value: unknown): CompletionNotice | undefined {
@@ -437,7 +442,7 @@ export function createAgentsHostExtension(options: {
         // save queued during an ACK must see its committed or retained notice.
         const writing = pendingSave.then(() => {
           const links = book.state().links.flatMap((link): StoredAgentLink[] => link.threadId || link.machine?.link || prompts.has(link.id) ? [{
-            ...(link.threadId ? { threadId: link.threadId } : link.machine?.link ? { remote: { id: link.id, machine: { id: link.machine.id, name: link.machine.name, link: link.machine.link } } } : { pending: { version: 1, id: link.id, prompt: prompts.get(link.id)!, workspace: wanted.get(link.id) ?? "shared", runtime: runtimes.get(link.id) ?? "pi", ...(definitions.has(link.id) ? { definition: definitions.get(link.id)! } : {}), ...(link.machine ? { machine: link.machine } : {}), ...(intentKeys.has(link.id) ? { clientRequestId: intentKeys.get(link.id)! } : {}) } }),
+            ...(link.threadId ? { threadId: link.threadId } : link.machine?.link ? { remote: { id: link.id, machine: { id: link.machine.id, name: link.machine.name, link: link.machine.link } } } : { pending: { version: 1, id: link.id, prompt: prompts.get(link.id)!, workspace: wanted.get(link.id) ?? "shared", runtime: runtimes.get(link.id) ?? "pi", ...(definitions.has(link.id) ? { definition: definitions.get(link.id)! } : {}), ...(link.machine ? { machine: link.machine } : {}), ...(intentKeys.has(link.id) ? { clientRequestId: intentKeys.get(link.id)! } : {}), ...(startPoints.has(link.id) ? { startAt: startPoints.get(link.id)! } : {}) } }),
             id: link.id,
             ...(link.model ? { model: link.model } : {}),
             ...(notices.has(link.id) && acknowledged.get(link.id) !== notices.get(link.id) ? { notice: notices.get(link.id)! } : {}),
@@ -585,6 +590,8 @@ export function createAgentsHostExtension(options: {
       /** The definition each queued agent was spawned with, until its thread is built. */
       const definitions = new Map<string, AgentDefinition>();
       const runtimes = new Map<string, string>();
+      /** The revision a queued agent's worktree starts from, for a spawn that names one. */
+      const startPoints = new Map<string, string>();
       /** What each queued agent asked for, until its thread is built. */
       const wanted = new Map<string, AgentWorkspaceMode>();
       const runGit: AgentGitRunner = (cwd, args, gitOptions) => {
@@ -602,8 +609,9 @@ export function createAgentsHostExtension(options: {
        * the parent is doing rather than the last commit.
        */
       const openWorktree = async (agent: AgentThreadLink): Promise<AgentWorkspace> => {
-        const worktree = await createAgentWorktree({ parentCwd: agent.projectPath, agentId: agent.id, runGit });
-        services.log("agents.worktree", `${worktree.branch} · ${worktree.withUncommitted ? "from HEAD and the parent's uncommitted work" : "from HEAD"}`);
+        const startAt = startPoints.get(agent.id);
+        const worktree = await createAgentWorktree({ parentCwd: agent.projectPath, agentId: agent.id, runGit, ...(startAt ? { startPoint: startAt } : {}) });
+        services.log("agents.worktree", `${worktree.branch} · ${startAt ? `from ${startAt.slice(0, 12)}` : worktree.withUncommitted ? "from HEAD and the parent's uncommitted work" : "from HEAD"}`);
         return { mode: "worktree", path: worktree.path, branch: worktree.branch };
       };
 
@@ -696,6 +704,7 @@ export function createAgentsHostExtension(options: {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
           runtimes.delete(agent.id);
+          startPoints.delete(agent.id);
           if (--starting === 0) acceptedEarly.clear();
         }
       };
@@ -801,12 +810,12 @@ export function createAgentsHostExtension(options: {
         });
       };
 
-      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread") => {
+      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread", extra: { definition?: AgentDefinition; startAt?: string } = {}) => {
         const request = decodeSpawnRequest(input);
         const depth = await depthOf(parent.sessionId);
         const projectPath = await resolveProject(request.projectPath, parent.cwd);
         // An unknown or broken definition fails this spawn only; the others go on.
-        const definition = request.agent ? findAgentDefinition(await definitionReader.read(projectPath), request.agent) : undefined;
+        const definition = extra.definition ?? (request.agent ? findAgentDefinition(await definitionReader.read(projectPath), request.agent) : undefined);
         // The parent's model belongs to the parent's runtime; another one picks its own.
         const parentThread = services.thread(parent.sessionId);
         const parentRuntime = parentThread?.backendKind ?? "pi";
@@ -837,6 +846,7 @@ export function createAgentsHostExtension(options: {
         prompts.set(id, request.prompt);
         runtimes.set(id, runtime);
         if (definition) definitions.set(id, definition);
+        if (extra.startAt) startPoints.set(id, extra.startAt);
         // A child writes by default, and two writers in one checkout collide;
         // a project that is not a repository has nowhere else to go.
         const mode: AgentWorkspaceMode = choice.machine ? "worktree"
@@ -868,7 +878,7 @@ export function createAgentsHostExtension(options: {
         admitting.add(id);
         // Never acknowledge a pending handle whose complete intent is only in RAM.
         try { await persistLinks(); } catch (error) {
-          book.forget(id); prompts.delete(id); definitions.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id);
+          book.forget(id); prompts.delete(id); definitions.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id); startPoints.delete(id);
           throw error;
         } finally { admitting.delete(id); }
         if (claimSlot(id)) await startAgent(book.linkFor(id)!);
@@ -1610,13 +1620,13 @@ export function createAgentsHostExtension(options: {
         context.registerCommand("state", state, { access: "read" }),
         // The panel's two row actions; the tools do the same from a turn.
         context.registerCommand("apply-changes", (input) => settleWorkspace(requireThreadId(input), "applied"), { long: true }),
-        context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded"), { long: true }),
+        context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded"), { long: true, callers: [REVIEW_KIT_ID] }),
         // The row's Stop: the agent and everything it started.
         context.registerCommand("stop-agent", async (input) => {
           const link = book.linkFor(requireThreadId(input));
           if (!link) throw new HostCommandError("That agent is gone.");
           return cancelChild(link.parentThreadId, { threadId: link.id });
-        }, { long: true }),
+        }, { long: true, callers: [REVIEW_KIT_ID] }),
         context.registerCommand("definitions", async (input): Promise<AgentDefinitionsState> => {
           const sessionId = record(input).sessionId;
           const thread = typeof sessionId === "string" && sessionId ? services.thread(sessionId) : undefined;
@@ -1660,6 +1670,29 @@ export function createAgentsHostExtension(options: {
           }
           return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt, agent }, undefined, "agents-panel");
         }, { long: true }),
+        // API 1.59.0: another kit starts an agent from a definition it carries itself, in a worktree of a revision it names.
+        context.registerCommand("spawn", async (input) => {
+          const fields = record(input);
+          const parent = services.thread(requireText(input, "parentThreadId"));
+          if (!parent) throw new HostCommandError("The thread this agent should belong to is not open.");
+          const spec = record(fields.definition);
+          const name = typeof spec.name === "string" ? spec.name : "";
+          if (!/^[a-z0-9][a-z0-9_-]{0,63}$/u.test(name) || typeof spec.systemPrompt !== "string" || !spec.systemPrompt.trim()) {
+            throw new HostCommandError("definition takes { name, description, systemPrompt, tools?, access?, runtime?, model? }.");
+          }
+          const access = spec.access === "read-only" || spec.access === "ask" || spec.access === "full" ? spec.access : undefined;
+          const tools = Array.isArray(spec.tools) ? spec.tools.filter((tool): tool is string => typeof tool === "string") : undefined;
+          const definition: AgentDefinition = {
+            name, file: "", description: typeof spec.description === "string" ? spec.description : name, systemPrompt: spec.systemPrompt,
+            ...(typeof spec.runtime === "string" && spec.runtime ? { runtime: spec.runtime } : {}),
+            ...(typeof spec.model === "string" && spec.model ? { model: spec.model } : {}),
+            ...(tools ? { tools } : {}), ...(access ? { access } : {}),
+          };
+          const startAt = typeof fields.startAt === "string" && /^[0-9a-f]{7,64}$/iu.test(fields.startAt) ? fields.startAt : undefined;
+          if (fields.startAt !== undefined && !startAt) throw new HostCommandError("startAt must be a commit id.");
+          const source = typeof fields.source === "string" && fields.source ? fields.source.slice(0, 64) : "tau.review";
+          return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt: fields.prompt, title: fields.title, model: fields.model, workspace: "worktree" }, undefined, source, { definition, ...(startAt ? { startAt } : {}) });
+        }, { long: true, callers: [REVIEW_KIT_ID] }),
       ];
 
       // Both reads finish before the extension is active, so the first thing
@@ -1676,6 +1709,7 @@ export function createAgentsHostExtension(options: {
           prompts.set(intent.id, intent.prompt);
           runtimes.set(intent.id, intent.runtime ?? intent.definition?.runtime ?? "pi");
           wanted.set(intent.id, intent.workspace);
+          if (intent.startAt) startPoints.set(intent.id, intent.startAt);
           if (intent.definition) definitions.set(intent.id, intent.definition);
           held.add(intent.id);
           if (intent.clientRequestId) {

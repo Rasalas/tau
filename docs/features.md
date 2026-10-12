@@ -163,6 +163,31 @@ matches, the file of the active one unfolds or is selected, and the switches
 match case, whole word or a regular expression. A diff that Tau loads in pages
 is searched as far as it is loaded.
 
+## Review a pull request with a guide (beta)
+
+Turn on **Settings → Review → Review guides** and a GitHub pull request gets a
+**Guide** tab. Opening it costs nothing; **Write guide** starts one run: a
+read-only agent, visible in the Agents panel, reads the request's head in a
+worktree of its own and writes a tour of two to eight stops in reading order. Each
+stop says what it accomplishes, shows only the lines that carry the idea, letters
+its notes A, B, C, and names the one call you should make there (a tradeoff, a
+contract, a product call, a risk, an accessibility call) where there is one. You
+can leave while it reads; Tau tells you when it is ready, and a phone that is away
+gets a push. **J** and **K** step through the stops, a line you select in an
+excerpt goes into the same review the Code tab collects, unchanged lines load from
+the bars above and below, **Ask about this stop** (or one of its questions) hands
+the stop to the thread you are reading, and **Finish review** on the last stop
+opens the review composer with everything you collected. On a phone the tour is an
+outline and one screen per stop.
+
+A guide is kept per request, not per thread. After a push the tab says "Written
+before the latest push" and offers **Rewrite**; nothing rewrites it by itself. The
+model that writes guides is chosen on Review Kit's page under Extensions, and
+**Guide instructions** in Settings → Review say what you want every guide to favour.
+Agents can start guides for up to twenty requests (`write_pull_request_guides`) and
+read them (`read_pull_request_guide`, with whether the guide is stale). A guide is
+written from a thread in a checkout of the request's repository.
+
 ## Watch a pull request
 
 The eye segment in a PR's existing strip or workspace card starts a GitHub

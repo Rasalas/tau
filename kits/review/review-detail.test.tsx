@@ -13,6 +13,9 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubDetail, parseGitHubThreads, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { PullRequestsPage } from "./pull-requests-page.js";
+import { GUIDE_ENABLED_OPTION } from "./guide-protocol.js";
+import { fakeGuideClient, sampleGuide, type FakeGuideClient } from "./guide-test-support.js";
+import { guideProgress } from "./guide-tour.js";
 import { RowRequests } from "./requests.js";
 import { ReviewDetailStore } from "./review-detail-store.js";
 import { ReviewsFilter } from "./reviews-filter.js";
@@ -401,16 +404,17 @@ function memoryStorage(): ClientStorage {
   return { get: (key) => values.get(key) ?? null, set: (key, value) => { values.set(key, value); }, remove: (key) => { values.delete(key); }, keys: () => [...values.keys()] };
 }
 
-function preferences(): PreferencesStore {
+function preferences(guides = false): PreferencesStore {
   const snapshot = {};
-  return { subscribe: () => () => undefined, getSnapshot: () => snapshot, optionValue: (_extension: string, _id: string, fallback: unknown) => fallback, setOption: vi.fn() } as unknown as PreferencesStore;
+  return { subscribe: () => () => undefined, getSnapshot: () => snapshot, optionValue: (_extension: string, id: string, fallback: unknown) => id === GUIDE_ENABLED_OPTION && guides ? true : fallback, setOption: vi.fn() } as unknown as PreferencesStore;
 }
 
-function setupRemote(passing = true, extra: Record<string, unknown> = {}) {
+function setupRemote(passing = true, extra: Record<string, unknown> = {}, guides?: FakeGuideClient) {
   const client = fakeClient(passing);
+  if (guides) client.guides = guides;
   const storage = memoryStorage();
   const sidebar = new ReviewDetailStore();
-  const shared = { links: new ThreadLinkRows(client), pending: new PendingReviewStore(() => storage, () => `held-${Math.random()}`), preferences: preferences(), dialogs: {} as never };
+  const shared = { links: new ThreadLinkRows(client), pending: new PendingReviewStore(() => storage, () => `held-${Math.random()}`), preferences: preferences(Boolean(guides)), dialogs: {} as never };
   const remote = { client, chips: () => undefined, rows: new RowRequests(async () => undefined), shared, sidebar };
   const parts: ReviewsPageParts = {
     store: new LocalReviewsStore({ invoke: async () => ({ branches: [], asks: {}, merged: [] }), onEvent: () => () => undefined } as unknown as HostExtensionClient),
@@ -545,5 +549,31 @@ describe("a pull request's detail (1e)", () => {
     expect(await within(article).findByRole("list", { name: "PR #7 timeline" })).toBeTruthy();
     fireEvent.click(within(article).getByRole("tab", { name: /^Checks/u }));
     expect(await within(article).findByRole("button", { name: /^smoke: Failed/u })).toBeTruthy();
+  });
+
+  it("has a Guide tab only with the beta switch on; the tour's Finish review opens the review composer", async () => {
+    setupRemote();
+    const plain = await screen.findByRole("article", { name: "PR #7" });
+    expect(within(plain).queryByRole("tab", { name: /^Guide/u })).toBeNull();
+    cleanup();
+
+    guideProgress.clear();
+    setupRemote(true, {}, fakeGuideClient({ guide: sampleGuide() }));
+    const article = await screen.findByRole("article", { name: "PR #7" });
+    fireEvent.click(await within(article).findByRole("tab", { name: "Guide" }));
+    expect(await within(article).findByRole("heading", { name: "The output helper" })).toBeTruthy();
+    fireEvent.click(within(article).getByRole("button", { name: "Next: The docs" }));
+    fireEvent.click(await within(article).findByRole("button", { name: "Next: The engine" }));
+    fireEvent.click(await within(article).findByRole("button", { name: "Finish review" }));
+    expect(await screen.findByRole("dialog", { name: /the pull request$/u })).toBeTruthy();
+  });
+
+  it("opens a stop's file in the Changes tab and at the guide when asked", async () => {
+    guideProgress.clear();
+    setupRemote(true, { focus: "guide" }, fakeGuideClient({ guide: sampleGuide() }));
+    const article = await screen.findByRole("article", { name: "PR #7" });
+    expect(within(article).getByRole("tab", { name: "Guide" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(await within(article).findByRole("button", { name: "Open kits/package.json in Code" }));
+    await waitFor(() => expect(within(article).getByRole("tab", { name: /^Changes/u }).getAttribute("aria-selected")).toBe("true"));
   });
 });

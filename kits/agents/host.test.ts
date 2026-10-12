@@ -1339,6 +1339,46 @@ describe("Agents Kit definitions", () => {
   });
 });
 
+describe("Agents Kit spawn for another kit", () => {
+  const definition = { name: "pr-guide", description: "Writes a guide", systemPrompt: "You write guides.", tools: ["read", "submit_pull_request_guide"], access: "read-only", runtime: "pi" };
+
+  it("starts an agent from a definition the caller carries, in a worktree of the revision it names", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-agent-spawn-"));
+    const project = join(root, "project");
+    const calls: string[][] = [];
+    const runGit: AgentGitRunner = async (cwd, args) => {
+      calls.push([cwd, ...args]);
+      const command = args.join(" ");
+      if (command.startsWith("rev-parse --is-inside-work-tree")) return "true\n";
+      if (command.startsWith("rev-parse --verify abc1234^{commit}")) return "abc1234full\n";
+      if (command.startsWith("rev-parse --path-format=absolute")) return `${project}/.git\n`;
+      return "";
+    };
+    const bench = await activated({ runGit });
+    bench.setProject(project);
+    try {
+      const spawned = await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", title: "Guide", startAt: "abc1234", model: "anthropic/haiku", source: "tau.review", definition }) as { threadId: string; branch: string; agent: string };
+      expect(spawned).toMatchObject({ threadId: "child-1", agent: "pr-guide" });
+      // The worktree starts from that commit, not from the parent's HEAD and uncommitted work.
+      expect(calls.some(([, ...args]) => args.join(" ").startsWith(`worktree add -b ${spawned.branch}`) && args.at(-1) === "abc1234full")).toBe(true);
+      expect(calls.some(([, ...args]) => args.join(" ").startsWith("commit-tree"))).toBe(false);
+      expect(bench.started[0]).toMatchObject({ title: "Guide", model: { provider: "anthropic", id: "haiku" }, parent: { threadId: "parent", details: expect.objectContaining({ spawnedBy: "tau.review", agent: "pr-guide", persona: expect.objectContaining({ name: "pr-guide", access: "read-only", tools: ["read", "submit_pull_request_guide"] }) }) } });
+      // No wake is owed to a parent that did not use its own tool.
+      expect((await bench.state()).links[0]).toMatchObject({ spawnedBy: "tau.review" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a definition without a usable name or prompt, a bad revision and a parent that is not open", async () => {
+    const bench = await activated();
+    await expect(bench.invoke("spawn", { parentThreadId: "parent", prompt: "x", definition: { name: "Bad Name", systemPrompt: "y" } })).rejects.toThrow("definition takes");
+    await expect(bench.invoke("spawn", { parentThreadId: "parent", prompt: "x", definition: { name: "ok", systemPrompt: " " } })).rejects.toThrow("definition takes");
+    await expect(bench.invoke("spawn", { parentThreadId: "parent", prompt: "x", startAt: "--upload-pack=x", definition })).rejects.toThrow("commit id");
+    await expect(bench.invoke("spawn", { parentThreadId: "gone", prompt: "x", definition })).rejects.toThrow("not open");
+  });
+});
+
 /** A settings file that lets a thread run `count` children at a time. */
 async function settingsWith(count: number): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "tau-agents-settings-"));

@@ -12,6 +12,7 @@ import { registerLocalRequestCommands } from "./local-request-host.js";
 import { registerLocalReviewCommands } from "./local-reviews-host.js";
 import { registerPullRequestWatches } from "./pr-watch-host.js";
 import { registerThreadLinks, type ThreadLinks } from "./thread-links-host.js";
+import { registerGuides, type GuideOptions } from "./guide-host.js";
 import { workspaceCommandContext } from "./workspace-host.js";
 
 const SYSTEM_PROMPTS: Record<CommitMessageStyle, string> = {
@@ -47,7 +48,7 @@ export function buildCommitPrompt(input: {
  * reads and writes of the pull-request view and the Pull Requests page, and
  * the requests each thread links, with the agent's tools for them.
  */
-export function createReviewHostExtension(options: RequestCommandOptions & SourceControlOptions = {}): HostExtension {
+export function createReviewHostExtension(options: RequestCommandOptions & SourceControlOptions & { guides?: GuideOptions } = {}): HostExtension {
   return {
     id: REVIEW_HOST_EXTENSION_ID,
     name: "Review Kit",
@@ -93,6 +94,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
       registerPullRequestListCommands(context, sources, workspace);
       links = registerThreadLinks(context, reads, workspace, sources);
       const stopWatches = await registerPullRequestWatches(context, sources, links);
+      const guides = registerGuides(context, sources, reads, workspace, options.guides);
       registerRequestCommands(context, sources, {
         ...options,
         // A request opened from the Changes panel belongs to the thread on screen.
@@ -135,7 +137,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         services.log("commit-message.suggested", message.split(/\r?\n/u)[0]);
         return { message };
       });
-      return async () => { await stopWatches(); links?.dispose(); await sources.dispose(); };
+      return async () => { await stopWatches(); guides.dispose(); links?.dispose(); await sources.dispose(); };
     },
   };
 }

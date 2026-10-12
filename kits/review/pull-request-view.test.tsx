@@ -10,6 +10,10 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubDetail, parseGitHubThreads, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 import type { PullRequestTabParams } from "./pull-request-logic.js";
 import { PullRequestView } from "./pull-request-view.js";
+import { GUIDE_ENABLED_OPTION } from "./guide-protocol.js";
+import { fakeGuideClient, sampleGuide } from "./guide-test-support.js";
+import { guideProgress } from "./guide-tour.js";
+import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
@@ -545,5 +549,66 @@ describe("merging, auto-merge, revert and stacks from the view", () => {
     expect(screen.getByRole("heading", { name: "Merge 2 pull requests?" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Merge stack" }));
     await waitFor(() => expect(client.stackAction).toHaveBeenCalledWith(REF.url, { action: "merge", seen: stack, method: "squash" }));
+  });
+});
+
+describe("the pull-request view's Guide tab", () => {
+  afterEach(() => guideProgress.clear());
+  const switchOn = (shared: { preferences: PreferencesStore }) => act(() => shared.preferences.setOption(REVIEW_HOST_EXTENSION_ID, GUIDE_ENABLED_OPTION, true));
+
+  it("is offered only when the beta switch is on", async () => {
+    const { shared } = renderView(fakeClient({ guides: fakeGuideClient({ guide: sampleGuide() }) }));
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    expect(screen.queryByRole("tab", { name: "Guide" })).toBeNull();
+    switchOn(shared);
+    expect(await screen.findByRole("tab", { name: "Guide" })).toBeTruthy();
+  });
+
+  it("is not offered by a provider that cannot write one, or by a client without guides", async () => {
+    const { shared } = renderView(fakeClient({ guides: fakeGuideClient() }), undefined, false, { ...PARAMS, service: "gitlab" });
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    switchOn(shared);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Summary", "Timeline", "Code"]);
+    cleanup();
+    const second = renderView(fakeClient());
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    switchOn(second.shared);
+    expect(screen.queryByRole("tab", { name: "Guide" })).toBeNull();
+  });
+
+  it("opens the empty state, reads the files for the excerpts only once there is a guide", async () => {
+    const guides = fakeGuideClient();
+    const { shared, client } = renderView(fakeClient({ guides }));
+    switchOn(shared);
+    fireEvent.click(await screen.findByRole("tab", { name: "Guide" }));
+    expect(await screen.findByText("No review guide yet")).toBeTruthy();
+    expect(client.files).not.toHaveBeenCalled();
+    act(() => guides.publish({ guide: sampleGuide() }));
+    expect(await screen.findByRole("heading", { name: "The output helper" })).toBeTruthy();
+    await waitFor(() => expect(client.files).toHaveBeenCalled());
+  });
+
+  it("holds an excerpt's line comment for the review and Finish review opens the composer with it", async () => {
+    const { shared } = renderView(fakeClient({ guides: fakeGuideClient({ guide: sampleGuide() }) }));
+    switchOn(shared);
+    fireEvent.click(await screen.findByRole("tab", { name: "Guide" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Comment on line 11" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Comment on line 11" }), { target: { value: "Count bytes." } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to review" }));
+    expect(await screen.findByLabelText("Pending comment on line 11")).toBeTruthy();
+    expect(shared.pending.comments(REF.url)).toEqual([expect.objectContaining({ path: "kits/terminal/output.ts", line: 11, side: "new", body: "Count bytes." })]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Next: The docs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Next: The engine" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Finish review" }));
+    const composer = await screen.findByRole("dialog", { name: "Review the pull request" });
+    expect(within(composer).getByRole("list", { name: "Line comments in this review" }).textContent).toContain("Count bytes.");
+  });
+
+  it("opens a stop's file in the Code tab, and the tab asked for with focus opens first", async () => {
+    const { shared } = renderView(fakeClient({ guides: fakeGuideClient({ guide: sampleGuide() }) }), undefined, false, { ...PARAMS, focus: "guide", at: 1 });
+    switchOn(shared);
+    fireEvent.click(await screen.findByRole("button", { name: "Open kits/package.json in Code" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Code" }).getAttribute("aria-selected")).toBe("true"));
   });
 });

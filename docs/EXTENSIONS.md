@@ -3325,6 +3325,25 @@ A review opens as one view (design 1e) for a local review and a remote pull requ
 
 Local reviews retain their target and completed tip in `local-reviews.json`. A linked request supplies its destination; otherwise the worktree's recorded target is inferred once. Switching the main checkout cannot retarget a review. Completed tips stay under Merged across restarts and worktree removal; later commits or uncommitted files reopen the work. Cleanup is a separate confirmed action and keeps the thread.
 
+### An agent started by another kit: Agents Kit's `spawn` (API 1.59.0)
+
+A kit that wants a visible, stoppable sub-agent for a job of its own asks Agents
+Kit instead of starting a thread itself, so the agent gets a row in the Agents
+panel, the running budget, a worktree and the access level of its definition.
+Review Kit's guided reviews (ADR 0034) are the first caller; the commands name
+`tau.review` in `callers` (ADR 0020), and the next kit asks for the same.
+
+| Command | What it does |
+|---|---|
+| `spawn { parentThreadId, prompt, definition, title?, model?, startAt?, source? }` | Starts a child of an open thread in a worktree. `definition` is `{ name, description?, systemPrompt, tools?, access?, runtime?, model? }`, the fields of a `.tau/agents/` file carried by the caller instead of read from the project (`access` only narrows, `tools` is the thread's allowlist, Pi names). `startAt` is a commit the worktree starts from instead of the parent's HEAD and uncommitted work; it must be in the repository already (fetch it first) and a queued spawn keeps it across a restart. `source` becomes the link's `spawnedBy`, so the panel and the thread index know who started it; unlike `tau_spawn_thread` it does not make the parent wait for the child's result. Answers like `tau_spawn_thread`. |
+| `stop-agent { threadId }`, `discard-changes { threadId }` | The panel's two row actions; the caller that started an agent may stop it and let its worktree go once it is done. |
+
+A kit's own tools for such an agent register as a Pi runtime extension for
+sub-agents whose persona is its definition (read from the thread's
+`PARENT_LINK_ENTRY`, which carries `persona.name`) and are named in the
+definition's `tools`; they are not offered over MCP, so the agent runs on Pi.
+Push Kit's `notify` also names `tau.review` as a caller now.
+
 ### A package's own settings: `services.settings(cwd?)` (new in API 1.12.0)
 
 A host half reads its own entries of `options` and `values` the way the

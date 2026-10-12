@@ -49,7 +49,7 @@ function toolResult(value: unknown) {
  */
 export function registerThreadLinks(
   context: HostExtensionContext,
-  reads: PullRequestReads,
+  reads: Pick<PullRequestReads, "detail" | "stackOf">,
   workspace: (command: string, input?: unknown) => Promise<unknown>,
   sources: SourceControl,
 ): ThreadLinks {

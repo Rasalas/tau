@@ -1,4 +1,5 @@
 import type { HostExtensionClient } from "tau";
+import { guideClient, type GuideClient } from "./guide-client.js";
 import type { PipelineFacts } from "./pipeline.js";
 import type { RequestMediaResult } from "./request-media.js";
 import {
@@ -69,11 +70,14 @@ export interface PullRequestClient {
   link(threadId: string, reference: string, cwd?: string): Promise<{ link: ThreadPullRequestLink; alreadyLinked: boolean }>;
   unlink(threadId: string, url: string): Promise<boolean>;
   onLinksChanged(listener: (threadId: string) => void): () => void;
+  /** Review guides of the request; absent where a client was built without them. */
+  guides?: GuideClient;
 }
 
 export function pullRequestClient(host: HostExtensionClient): PullRequestClient {
   const read = (fresh?: boolean) => fresh ? { fresh: true } : {};
   return {
+    guides: guideClient(host),
     media: async (url, source) => {
       if (!host.resourceUrl) throw new Error("This client does not support request uploads.");
       const result = await host.invoke("pr-media", { url, source }) as RequestMediaResult;

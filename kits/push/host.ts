@@ -557,7 +557,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         const value = (input ?? {}) as Partial<PushNotifyInput>;
         if (typeof value.threadId !== "string" || !KINDS.includes(value.kind as PushKind)) throw new HostCommandError("notify takes { threadId, kind, text? }.");
         await raise(value.threadId, value.kind as PushKind, typeof value.text === "string" ? value.text : undefined);
-      }, { callers: ["tau.takeover"] });
+      }, { callers: ["tau.takeover", "tau.review"] });
 
       return () => {
         for (const stop of stops) stop();
