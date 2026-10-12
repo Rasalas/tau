@@ -51,7 +51,6 @@ describe("a command Codex keeps running after its turn", () => {
     const { backend, events } = await open(space, { onBackgroundEnded: (command) => ended.push(command) });
     await backend.prompt({ text: "[scenario:background]", delivery: "prompt" });
     expect(events).toContainEqual(expect.objectContaining({ type: "tool-end", tool: expect.objectContaining({ status: "done", output: "watching\nKeeps running in the background." }) }));
-    expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "bg-item", kind: "command", label: "gh run watch 42" })]);
     await until(() => ended.length === 1);
     expect(ended).toEqual([{ label: "gh run watch 42", exitCode: 0, output: "watching\nrun 42 succeeded" }]);
     expect(backend.capabilities.background!.current()).toEqual([]);
@@ -63,6 +62,8 @@ describe("a command Codex keeps running after its turn", () => {
     const ended: unknown[] = [];
     const { backend } = await open(space, { onBackgroundEnded: (command) => ended.push(command) });
     await backend.prompt({ text: "[scenario:backgroundstop]", delivery: "prompt" });
+    // This scenario holds the command until stop; a timed exit may precede prompt's return.
+    expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "bg-item", kind: "command", label: "gh run watch 42" })]);
     await expect(backend.capabilities.background!.stop("other")).rejects.toThrow("no longer running");
     await backend.capabilities.background!.stop("bg-item");
     expect(backend.capabilities.background!.current()).toEqual([]);
