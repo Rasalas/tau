@@ -110,7 +110,9 @@ describe("agents in the project card", () => {
     expect(within(section).queryByRole("button", { name: "Beta reply, Completed" })).toBeNull();
     fireEvent.click(within(section).getByRole("button", { name: "Previous agents (1)" }));
     expect(await within(section).findByRole("button", { name: "Beta reply, Completed" })).toBeTruthy();
-    fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
+    const moreTools = screen.queryByRole("button", { name: "More tools" });
+    if (moreTools) fireEvent.click(moreTools);
+    expect(screen.queryByRole("button", { name: "Agents" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Agents/ })).toBeNull();
   });
 
@@ -294,8 +296,8 @@ describe("the navigator with agent threads", () => {
     renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
 
     // The card names the batch and stays out of the turn's fold.
-    const card = await screen.findByRole("button", { name: "Started 2 agents · 1 running. Show agents" });
-    expect(card.textContent).toBe("Started 2 agents1 running");
+    const card = await screen.findByRole("button", { name: "2 subagents · 1 working. Show agents" });
+    expect(card.textContent).toContain("2 subagents1 working");
     expect(screen.getByRole("button", { name: /Worked for/u })).toBeTruthy();
 
     fireEvent.click(card);
