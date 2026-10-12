@@ -68,7 +68,7 @@ export function threadRowStatus(
     return { activity: "working", label: "Working", ...(startedAt === undefined ? {} : { startedAt }) };
   }
   // A provider limit stopped the thread; it continues now, at the reset, or with the next message.
-  if (activity.limitedThreadIds.includes(id)) return { activity: "limited", label: "Rate limited", hint: threadLimitHint(thread?.limit) };
+  if (activity.limitedThreadIds.includes(id)) return { activity: "limited", label: "Limited", hint: threadLimitHint(thread?.limit) };
   if (activity.failedThreadIds.includes(id)) {
     return { activity: "failed", label: "Failed", hint: thread?.turnError ?? "The last message did not reach the agent." };
   }
