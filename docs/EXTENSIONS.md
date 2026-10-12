@@ -3330,7 +3330,7 @@ Local reviews retain their target and completed tip in `local-reviews.json`. A l
 A kit that wants a visible, stoppable sub-agent for a job of its own asks Agents
 Kit instead of starting a thread itself, so the agent gets a row in the Agents
 panel, the running budget, a worktree and the access level of its definition.
-Review Kit's guided reviews (ADR 0032) are the first caller; the commands name
+Review Kit's guided reviews (ADR 0034) are the first caller; the commands name
 `tau.review` in `callers` (ADR 0020), and the next kit asks for the same.
 
 | Command | What it does |

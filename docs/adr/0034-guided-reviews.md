@@ -1,4 +1,4 @@
-# ADR 0032: A guided review is written by a visible read-only sub-agent and stored per pull request
+# ADR 0034: A guided review is written by a visible read-only sub-agent and stored per pull request
 
 A review guide is a tour of one pull request for the person deciding whether it
 lands: two to eight stops in reading order, each showing only the lines that

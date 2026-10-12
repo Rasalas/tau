@@ -1,6 +1,6 @@
 /**
  * A review guide: a tour of one pull request for the person deciding whether
- * it lands (ADR 0032). Types and names shared by the host half that writes and
+ * it lands (ADR 0034). Types and names shared by the host half that writes and
  * stores it and the desktop half that reads it. Pure data, no imports.
  */
 

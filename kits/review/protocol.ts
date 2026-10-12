@@ -155,7 +155,7 @@ export interface ProviderCapabilities {
   deleteBranch: boolean;
   /** Requests stacked on one another, merged and rebased as one. */
   stacks: boolean;
-  /** A review guide can be written for the request (ADR 0032); the head fetch is written for GitHub first. */
+  /** A review guide can be written for the request (ADR 0034); the head fetch is written for GitHub first. */
   guides: boolean;
 }
 

@@ -77,7 +77,7 @@ export function isGuideSession(entries: readonly unknown[]): boolean {
 }
 
 /**
- * Guided reviews (ADR 0032): the store, the runs, the commands the window uses, the tools for agents
+ * Guided reviews (ADR 0034): the store, the runs, the commands the window uses, the tools for agents
  * and the two tools only the guide agent sees. A run is a visible read-only sub-agent in a throwaway
  * worktree of the request's head; it hands the guide in through `submit_pull_request_guide`.
  */

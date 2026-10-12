@@ -1263,7 +1263,7 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .review-pr-watch-list button { flex: none; }
 @media (max-width: 560px) { .review-pr-watch { min-height: 44px; } .review-pr-watch-popover button { min-height: 44px; } }
 
-/* --- Guide: a tour of the request, one stop at a time (ADR 0032). The panel around it scrolls. --- */
+/* --- Guide: a tour of the request, one stop at a time (ADR 0034). The panel around it scrolls. --- */
 .pr-body > .pr-guide-frame:not([hidden]) { display: flex; flex-direction: column; }
 .guide-tab { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; color: var(--ink-2); }
 .guide-empty { margin: auto; max-width: 440px; padding: var(--space-8) var(--space-6); display: flex; flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
