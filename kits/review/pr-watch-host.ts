@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { rename } from "node:fs/promises";
 import { join } from "node:path";
 import { HostCommandError, readPersistedJson, writePersistedJson, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
 import type { SourceControl } from "./provider-registry.js";
@@ -68,21 +69,35 @@ export function wakeText(events: readonly WatchEvent[], others: readonly Pick<Pu
     `${events.some((event) => event.snapshot) ? "If you pushed since, these results belong to the older commit. " : ""}Inspect the current state and decide what work is needed${events.length > 1 ? " for each of them in this turn" : ""}. The watch never merges; merge only when the user asked you to.`,
   ].join("\n\n");
 }
-function decode(value: unknown): PullRequestWatch[] {
+/** The watches it can read; one it cannot is left out and named in `skipped`, so it never stops the kit from starting. */
+function decode(value: unknown, skipped: string[]): PullRequestWatch[] {
   value = fields(value).watches;
   if (!Array.isArray(value) || value.length > 100) throw new HostCommandError("Invalid PR watch state.");
-  return value.map((input) => {
-    const w = fields(input), ref = parseRequestUrl(String(fields(w.ref).url ?? ""));
-    if (!ref || ref.service !== "github" || typeof w.threadId !== "string" || !w.threadId || !["watching", "unreadable", "ended"].includes(String(w.status)) || !Number.isFinite(w.startedAt) || !Number.isInteger(w.wakes) || !Number.isInteger(w.commentStreak) || Number(w.wakes) < 0 || Number(w.commentStreak) < 0) throw new HostCommandError("Invalid PR watch record.");
-    const baseline = w.baseline === undefined ? undefined : decodeSnapshot(w.baseline);
-    return { threadId: w.threadId, ref, status: w.status as PullRequestWatch["status"], startedAt: w.startedAt as number, wakes: w.wakes as number, commentStreak: w.commentStreak as number, ...(typeof w.lastReadAt === "number" ? { lastReadAt: w.lastReadAt } : {}), ...(baseline ? { baseline } : {}), ...(typeof w.reason === "string" ? { reason: w.reason.slice(0, 400) } : {}), ...(w.stoppedBy === "user" || w.stoppedBy === "settle" ? { stoppedBy: w.stoppedBy } : {}) };
+  return value.flatMap((input) => {
+    try { return [decodeWatch(input)]; } catch (error) {
+      skipped.push(`${String(fields(fields(input).ref).url ?? "?")}: ${message(error)}`);
+      return [];
+    }
   });
+}
+function decodeWatch(input: unknown): PullRequestWatch {
+  const w = fields(input), ref = parseRequestUrl(String(fields(w.ref).url ?? ""));
+  if (!ref || ref.service !== "github" || typeof w.threadId !== "string" || !w.threadId || !["watching", "unreadable", "ended"].includes(String(w.status)) || !Number.isFinite(w.startedAt) || !Number.isInteger(w.wakes) || !Number.isInteger(w.commentStreak) || Number(w.wakes) < 0 || Number(w.commentStreak) < 0) throw new HostCommandError("Invalid PR watch record.");
+  const baseline = w.baseline === undefined ? undefined : decodeSnapshot(w.baseline);
+  return { threadId: w.threadId, ref, status: w.status as PullRequestWatch["status"], startedAt: w.startedAt as number, wakes: w.wakes as number, commentStreak: w.commentStreak as number, ...(typeof w.lastReadAt === "number" ? { lastReadAt: w.lastReadAt } : {}), ...(baseline ? { baseline } : {}), ...(typeof w.reason === "string" ? { reason: w.reason.slice(0, 400) } : {}), ...(w.stoppedBy === "user" || w.stoppedBy === "settle" ? { stoppedBy: w.stoppedBy } : {}) };
 }
 /** Persistent watches send marked wakes; the host steers or queues them. They never merge a PR. */
 export async function registerPullRequestWatches(context: HostExtensionContext, sources: SourceControl, links: ThreadLinks, options: { period?: number; read?: typeof readWatchSnapshot; now?: () => number } = {}): Promise<() => Promise<void>> {
   const { services } = context, now = options.now ?? Date.now;
   const file = join(services.stateDir, "pr-watches.json");
-  const stored = await readPersistedJson<PullRequestWatch[]>(file, { expectedVersion: 1, decode });
+  const skipped: string[] = [];
+  const stored = await readPersistedJson<PullRequestWatch[]>(file, { expectedVersion: 1, decode: (value) => decode(value, skipped) }).catch(async (error: unknown) => {
+    // The whole Review Kit stopped on one bad file once; set it aside and start without watches.
+    services.log("review.watch-storage", `PR watches unreadable (${message(error)}); set aside as ${file}.unreadable.`);
+    await rename(file, `${file}.unreadable`).catch(() => undefined);
+    return undefined;
+  });
+  if (skipped.length) services.log("review.watch-skipped", `Left out ${skipped.length} unreadable PR watch${skipped.length === 1 ? "" : "es"}: ${skipped.join("; ")}`);
   const watches = new Map((stored?.data ?? []).map((watch) => [key(watch), watch]));
   let disposed = false, polling = false;
   let writes = Promise.resolve();

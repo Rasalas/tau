@@ -89,7 +89,11 @@ A package has up to two halves, sharing one `id`:
   `HostExtension`: `{ id?, name?, activate(context) }`. `activate` gets a
   `context` with `context.services` (a curated facade, `HostExtensionServices`
   in-process or `WorkerHostServices` in a worker), `context.registerCommand`,
-  `context.emit` and, in-process only, `context.fail`.
+  `context.emit` and, in-process only, `context.fail`. When `activate`
+  throws, the host releases what it had registered by then: its commands and,
+  in-process, every registration made through `context.services` (MCP tools,
+  runtime extensions, observers), so no agent reaches a half that never
+  started (new after API 1.59.0).
 - **The desktop half** (`desktop` in the manifest) runs in the renderer. Its
   default export is a `DesktopExtension`: `{ id, name, activate(context) }`,
   where `context` is the same `DesktopExtensionContext` every bundled kit

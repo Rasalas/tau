@@ -184,6 +184,33 @@ describe("HostExtensionRegistry", () => {
     expect(s.logs.some((line) => line.startsWith("host-extension.failed"))).toBe(true);
   });
 
+  it("releases what a failed activation registered through its services, and leaves a started extension's alone", async () => {
+    const { registry: r, services: s } = registry();
+    const tools = new Set<unknown>();
+    const observers = new Set<unknown>();
+    s.mcp.registerTools = (provider) => { tools.add(provider); return () => { tools.delete(provider); }; };
+    s.registerTurnObserver = (observer) => { observers.add(observer); return () => { observers.delete(observer); }; };
+    const ok = await r.activate({
+      id: "broken.kit",
+      name: "Broken Kit",
+      activate: (ctx) => {
+        ctx.services.mcp.registerTools(() => []);
+        ctx.services.registerTurnObserver({});
+        throw new Error("Invalid PR watch snapshot.");
+      },
+    });
+    expect(ok).toBe(false);
+    // An agent must not reach a tool of a kit that never started.
+    expect(tools.size).toBe(0);
+    expect(observers.size).toBe(0);
+
+    let off: (() => void) | undefined;
+    expect(await r.activate({ id: "good.kit", name: "Good Kit", activate: (ctx) => { off = ctx.services.mcp.registerTools(() => []); return () => off?.(); } })).toBe(true);
+    expect(tools.size).toBe(1);
+    await r.deactivate("good.kit");
+    expect(tools.size).toBe(0);
+  });
+
   it("refuses invalid ids and command names", async () => {
     const { registry: r } = registry();
     expect(await r.activate({ id: "Bad Id", name: "x", activate: () => undefined })).toBe(false);

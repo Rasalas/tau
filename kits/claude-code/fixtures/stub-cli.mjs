@@ -14,7 +14,7 @@
 // single-choice question (AskUserQuestion, through `can_use_tool`) instead and
 // says what was chosen. `long` in a prompt reports a 150k-token context;
 // `/compact` compacts it to 4k with the CLI's boundary and no reply. A prompt
-// with `mcp <tool>` calls that tool on the HTTP server the SDK registered over
+// with `mcp <tool> [{json arguments}]` calls that tool on the HTTP server the SDK registered over
 // the control channel (`mcp_set_servers`; none on the command line) and says
 // what came back. STUB_CLI_LOG gets the registered server names.
 // STUB_CLI_AI_TITLE (or the file stub-ai-title.txt in its home, for a host
@@ -72,6 +72,8 @@ function streamTurns() {
   };
   async function callMcp(prompt) {
     const tool = /\bmcp\s+(\S+)/iu.exec(prompt)?.[1] ?? "";
+    // `mcp <tool> {json}` passes the object as the call's arguments.
+    const input = /\bmcp\s+\S+\s+(\{.*\})/su.exec(prompt)?.[1];
     const server = Object.values(servers).find((entry) => entry.type === "http");
     let text;
     try {
@@ -80,7 +82,7 @@ function streamTurns() {
       await rpc(server, "notifications/initialized", {});
       const listed = await rpc(server, "tools/list", {}, 2);
       const names = (listed?.result?.tools ?? []).map((entry) => entry.name);
-      const called = tool ? await rpc(server, "tools/call", { name: tool, arguments: {} }, 3) : undefined;
+      const called = tool ? await rpc(server, "tools/call", { name: tool, arguments: input ? JSON.parse(input) : {} }, 3) : undefined;
       text = `Tools: ${names.length}. ${tool ? `${tool}: ${called?.result?.isError ? "error " : ""}${(called?.result?.content ?? [])[0]?.text ?? JSON.stringify(called?.error)}` : ""}`;
     } catch (error) {
       text = `MCP failed: ${error.message}`;

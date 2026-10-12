@@ -1398,6 +1398,38 @@ export function runtimeBackendOwner(provider: HostRuntimeBackendProvider): strin
   return backendOwners.get(provider);
 }
 
+/**
+ * The same services, reporting each release a call hands back (every
+ * registration returns one), nested plain service objects such as `mcp` too.
+ */
+function reportReleases<T extends object>(services: T, report: (release: () => void) => void): T {
+  const proxies = new WeakMap<object, object>();
+  const functions = new WeakMap<object, WeakMap<Function, Function>>();
+  const wrap = (value: unknown, owner: object): unknown => {
+    if (typeof value === "function") {
+      let byOwner = functions.get(owner);
+      if (!byOwner) functions.set(owner, byOwner = new WeakMap());
+      let wrapped = byOwner.get(value);
+      if (!wrapped) {
+        wrapped = (...args: unknown[]) => {
+          const result: unknown = Reflect.apply(value, owner, args);
+          if (typeof result === "function") report(result as () => void);
+          return result;
+        };
+        byOwner.set(value, wrapped);
+      }
+      return wrapped;
+    }
+    return value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype ? proxy(value) : value;
+  };
+  const proxy = (target: object): object => {
+    let found = proxies.get(target);
+    if (!found) proxies.set(target, found = new Proxy(target, { get: (object, prop, receiver) => wrap(Reflect.get(object, prop, receiver), object) }));
+    return found;
+  };
+  return proxy(services) as T;
+}
+
 export function extensionServices(services: HostExtensionServices, extension: Pick<HostExtension, "id" | "permissions">): HostExtensionServices {
   const guarded = guardedServices(services, extension.permissions, extension.id);
   const stateDir = services.stateDir ? join(services.stateDir, extension.id) : undefined;
@@ -1564,10 +1596,13 @@ export class HostExtensionRegistry {
       disposers: [],
     };
     this.invocationContexts.set(invocationContextId, { extensionId: extension.id, record });
+    // A failed activation leaves no MCP tool or observer behind: an agent would reach a kit that never started.
+    const registrations: Array<() => void | Promise<void>> = [];
+    let activating = true;
     const context: HostExtensionContext = {
       id: extension.id,
       invocationContextId,
-      services: extensionServices(this.services, extension),
+      services: reportReleases(extensionServices(this.services, extension), (release) => { if (activating) registrations.push(release); }),
       invokeHostExtension: (extensionId, command, input) => this.invoke(
         extensionId,
         command,
@@ -1614,6 +1649,9 @@ export class HostExtensionRegistry {
       const dispose = await extension.activate(context);
       if (dispose) record.disposers.push(dispose);
       if (record.fatal) throw new Error(record.fatal);
+      // From here the extension's own dispose releases them.
+      activating = false;
+      registrations.length = 0;
       record.startedAt = this.now();
       this.active.set(extension.id, record);
       this.services.log("host-extension.activated", `${extension.name} · ${[...record.commands.keys()].join(", ") || "no commands"}`);
@@ -1622,7 +1660,9 @@ export class HostExtensionRegistry {
       const message = error instanceof Error ? error.message : String(error);
       this.failures.set(extension.id, message);
       this.invocationContexts.delete(invocationContextId);
+      activating = false;
       await this.disposeAll(record.disposers).catch(() => undefined);
+      await this.disposeAll(registrations).catch(() => undefined);
       this.services.log("host-extension.failed", `${extension.name}: ${message}`);
       this.services.log("host-extension.activation-failed", JSON.stringify({ extensionId: extension.id, error: hostErrorDiagnostic(error) }));
       return false;
