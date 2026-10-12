@@ -18,12 +18,15 @@ When your next step waits on a GitHub pull request, such as its checks finishing
 One message names every watched request that changed and where the thread's other watched requests stand. Handle all of them in that turn rather than one per turn.
 A watch never merges or edits the request. Merge only when the user asked you to. An instruction such as "merge them once they are green" holds for every request it covers until the user withdraws it; follow it without asking again. Before you merge or close a watched request yourself, call unwatch_pull_request for it, so its end does not wake the thread. Call unwatch_pull_request when you no longer need a watch.
 </pull_request_watching>`;
-/** A baseline saved before failures were tracked held one combined `checks` string. */
+/**
+ * A baseline saved before failures were tracked held one combined `checks` string.
+ * Read once, it is saved again with the new states and still without `failed`.
+ */
 function decodeSnapshot(value: unknown): WatchSnapshot {
   const b = fields(value);
   if (!["OPEN", "CLOSED", "MERGED"].includes(String(b.state)) || typeof b.head !== "string" || typeof b.checks !== "string" || typeof b.comments !== "string" || typeof b.conflict !== "boolean") throw new HostCommandError("Invalid PR watch snapshot.");
   const snapshot = { state: b.state as WatchSnapshot["state"], head: b.head, comments: b.comments, conflict: b.conflict };
-  if (b.failed === undefined && !["none", "pending", "done"].includes(b.checks)) return { ...snapshot, checks: legacyChecks(b.checks) };
+  if (b.failed === undefined) return { ...snapshot, checks: ["none", "pending", "done"].includes(b.checks) ? b.checks as WatchSnapshot["checks"] : legacyChecks(b.checks) };
   if (!["none", "pending", "done"].includes(b.checks) || !Array.isArray(b.failed) || b.failed.length > 100 || !b.failed.every((check) => typeof fields(check).id === "string" && typeof fields(check).name === "string")) throw new HostCommandError("Invalid PR watch snapshot.");
   return { ...snapshot, checks: b.checks as WatchSnapshot["checks"], failed: b.failed.map((check) => ({ id: String(check.id), name: String(check.name).slice(0, 200) })) };
 }

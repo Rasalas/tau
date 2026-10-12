@@ -101,6 +101,18 @@ it("reads a baseline saved in the old combined format without a wake", async () 
   await vi.waitFor(() => expect(restored.send).toHaveBeenCalledTimes(1));
   expect(wakeLabel(restored.send, 0)).toBe("PR #42 · new comments or reviews");
 });
+it("activates again after saving a baseline it read in the old format", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "a", url: URL });
+  await h.registry.deactivate("tau.review");
+  const file = join(h.stateDir, "tau.review", "pr-watches.json");
+  const stored = JSON.parse(await readFile(file, "utf8"));
+  // What a migrated baseline looks like once saved again: new check states, failures never recorded.
+  stored.watches[0].baseline = { state: "MERGED", head: "head-1", checks: "done", comments: "0", conflict: false };
+  await writeFile(file, JSON.stringify(stored));
+  const restored = await harness(h.stateDir);
+  await expect(restored.call("watch-start", { threadId: "b", url: OTHER })).resolves.toBeDefined();
+});
 it("queues marked deduplicated wakes, persists before admission, survives restart, and Stop ends every watch", async () => {
   const h = await harness();
   await h.call("watch-start", { threadId: "a", url: URL });
