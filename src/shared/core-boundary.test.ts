@@ -102,6 +102,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   // How busy the machine is and what it could run, read when asked (plan H §4).
   "./host-resources.js",
   "./agent-scope.js", // Linux scopes for agent CLIs, terminals and Pi's bash (docs/CORE.md, memory pressure).
+  "./owned-process.js", // Runtime-neutral cleanup of CLI subprocesses when the CLI or its owner exits.
   // Files those machines' agents send in pieces, taken once by a kit (plan-H).
   "./host-blobs.js",
   "./machine-prompt-attachments.js", // Generic prompt-content transport over core's authenticated blobs.
