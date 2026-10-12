@@ -473,10 +473,10 @@ export class TranscriptScrollController {
       ? undefined
       : next < previous ? "older" : "newer";
     const userIntent = this.state.pointerDown || this.state.touchActive || this.intent.intent !== undefined;
-    // A direction observed in the actual scroll event outranks a stale wheel
-    // hint. This prevents a delayed downward timer from reviving following
-    // after the user has already moved upward.
-    const olderIntent = direction === "older" || (direction === undefined && this.intent.intent === "older");
+    // Either upward signal releases following. A batched tail write can make
+    // the offset increase even though the reader just wheeled upward; a stale
+    // downward hint must likewise never override an actual upward move.
+    const olderIntent = direction === "older" || this.intent.intent === "older";
     const newerIntent = direction === "newer" || (direction === undefined && this.intent.intent === "newer");
     if (userIntent && olderIntent) {
       stopFollowing(this.state, this.deps.onAnchorChange);

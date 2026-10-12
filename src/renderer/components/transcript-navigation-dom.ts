@@ -6,6 +6,7 @@ import {
   resolveTurnMessage,
   setAnchor,
   startTurn,
+  stopFollowing,
   type TranscriptMessageLookup,
   type TranscriptNavigationOptions,
   type TranscriptNavigationState,
@@ -129,10 +130,10 @@ export function useTranscriptNavigation(
     const turnStart = options.turnStart;
     if (!turnStart) {
       if (navigation.turnId !== undefined) {
-        // Clearing the send signal (for example after a failed send or a
-        // workspace switch) also clears its visual marker when the session ID
-        // itself did not change.
-        followTail(navigation, options.onAnchorChange);
+        // Release the marker when a send is withdrawn, retaining the reader's
+        // choice to browse history in this same transcript.
+        if (navigation.following) followTail(navigation, options.onAnchorChange);
+        else stopFollowing(navigation, options.onAnchorChange);
         navigation.turnId = undefined;
         controller.sync();
       }
