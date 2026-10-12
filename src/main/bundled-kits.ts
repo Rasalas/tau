@@ -318,6 +318,7 @@ export async function loadBundledKitDesktopHalves(
       bundles.push({
         id: kit.manifest.id,
         path: entry,
+        manifestId: kit.manifest.id,
         scope: "bundled",
         code: theme ? themeExtensionModule(kit.manifest) : await desktopHalf(kit, entry, options),
         ...(kit.stylesEntry ? { styles: await readFile(kit.stylesEntry, "utf8") } : {}),

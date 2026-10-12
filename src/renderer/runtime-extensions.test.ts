@@ -42,6 +42,19 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
 }
 
 describe("runtime desktop extensions", () => {
+  it("rejects a module whose id differs from its package manifest", async () => {
+    const activate = vi.fn();
+    const { host: h, notify } = host([]);
+    const registry = new ExtensionRegistry();
+    await new RuntimeExtensions(registry, {
+      ...h,
+      load: async () => ({ bundles: [{ id: "acme.expected", manifestId: "acme.expected", path: "/package/desktop.ts", scope: "global", code: "", permissions: [] }], errors: [], skipped: [] }),
+      importModule: async () => ({ default: { id: "acme.other", name: "Other", activate } }),
+    }).sync("/project");
+    expect(activate).not.toHaveBeenCalled();
+    expect(registry.getExtensionSummaries()).toEqual([]);
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("does not match manifest id"));
+  });
   it("re-reads the same workspace on resync, and does nothing before the first sync", async () => {
     const registry = new ExtensionRegistry();
     const activate = vi.fn();
@@ -160,7 +173,7 @@ describe("runtime desktop extensions", () => {
     expect(needsNewerClient(bundle("not a range"), "1.0.0")).toBe(false);
   });
 
-  it("keeps an ungranted bundle inactive while registering it as known", async () => {
+  it("does not evaluate an ungranted bundle, including on a narrowed resync", async () => {
     const registry = new ExtensionRegistry();
     const activate = vi.fn();
     const h = {
@@ -176,21 +189,19 @@ describe("runtime desktop extensions", () => {
         errors: [],
         skipped: [],
       }),
-      importModule: async () => ({ default: { id: "x.ungranted", name: "Ungranted", activate } }),
+      importModule: vi.fn(async () => ({ default: { id: "x.ungranted", name: "Ungranted", activate } })),
       isEnabled: () => true,
       notify: vi.fn(),
       toast: vi.fn(),
       openSettings: vi.fn(),
       log: vi.fn(),
     };
-    await new RuntimeExtensions(registry, h).sync("/project");
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    await runtime.resync(["x.ungranted"]);
+    expect(h.importModule).not.toHaveBeenCalled();
     expect(activate).not.toHaveBeenCalled();
-    const summaries = registry.getExtensionSummaries();
-    expect(summaries).toHaveLength(1);
-    expect(summaries[0].id).toBe("x.ungranted");
-    expect(summaries[0].active).toBe(false);
-    expect(summaries[0].granted).toBe(false);
-    expect(summaries[0].permissions).toEqual(["workspace:read"]);
+    expect(registry.getExtensionSummaries()).toEqual([]);
   });
 
   it("imports a bundle from the host's tau-ext URL, not from a blob", async () => {
@@ -395,6 +406,7 @@ describe("replacing one extension", () => {
   it("says a reloaded package waits for approval instead of saying it reloaded", async () => {
     const registry = new ExtensionRegistry();
     const { host: base, modules } = partialHost(["x.hello"]);
+    modules.set("x.hello", { default: { id: "x.hello", name: "Hello", activate: vi.fn() } });
     const toast = vi.fn();
     const openSettings = vi.fn();
     let granted = true;

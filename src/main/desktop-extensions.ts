@@ -317,14 +317,15 @@ export async function loadDesktopExtensions(
       const folder = entry.directory ?? dirname(entry.path);
       const attempt = { ...(entry.manifest ? { id: entry.manifest.id } : {}), directory: folder, half: "desktop" as const, entry: entry.path };
       try {
-        const code = entry.theme ? themeExtensionModule(entry.manifest!) : await bundleDesktopExtension(entry.path, options);
-        if (!entry.theme) packageBuilds.record({ ...attempt, at: Date.now(), ok: true });
-        const styles = entry.styles ? await readFile(entry.styles, "utf8") : undefined;
         const permissions = entry.manifest?.permissions ?? [];
         // A theme runs no code and asks for nothing, so there is no grant to wait for.
         const granted = entry.theme || !entry.manifest || isPackageGranted(entry.manifest, grantsFile.grants);
+        const code = !granted ? "" : entry.theme ? themeExtensionModule(entry.manifest!) : await bundleDesktopExtension(entry.path, options);
+        if (granted && !entry.theme) packageBuilds.record({ ...attempt, at: Date.now(), ok: true });
+        const styles = granted && entry.styles ? await readFile(entry.styles, "utf8") : undefined;
         bundles.push({
           id: desktopEntryId(entry),
+          ...(entry.manifest ? { manifestId: entry.manifest.id } : {}),
           path: entry.path,
           scope,
           projectPath: scope === "project" ? cwd : undefined,

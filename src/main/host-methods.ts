@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   DesktopExtensionLoadResult,
   ExtensionInspection,
+  ExtensionPackageSummary,
   HostBootstrap,
   UiImagePreview,
   UiSharedFile,
@@ -16,7 +17,7 @@ import { defaultHostConfigManager } from "./host-config.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
 import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
-import { WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
+import { isHostOwner, WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
 import { createConnectMethods, type HostConnect } from "./host-connect.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
@@ -27,7 +28,7 @@ import type { ClientCalls } from "./client-calls.js";
 import { createResourceMethods, type HostResourceSampler } from "./host-resources.js";
 import { createBlobMethods, type HostBlobStore } from "./host-blobs.js";
 import { createUpdateMethods, type HostUpdater } from "./host-updater.js";
-import { authorizeMethod } from "./host-method-access.js";
+import { authorizeMethod, ownerRefusal } from "./host-method-access.js";
 import { createEnvironmentMethods, type EnvironmentsService } from "./environment-methods.js";
 import {
   decodeBoolean,
@@ -70,6 +71,8 @@ export interface HostMethodPlatform {
   /** A URL the page may load a workspace file from; absent where no window serves files. */
   shareFile?(path: string): Promise<UiSharedFile>;
   inspectExtensions(cwd: string): Promise<ExtensionInspection>;
+  /** Native consent; undefined means no native window, false means refusal. */
+  confirmExtensionGrant?(pkg: ExtensionPackageSummary): Promise<boolean | undefined>;
   /** `only` narrows the build to those extension ids; the client keeps every other module it has. */
   loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[]): Promise<DesktopExtensionLoadResult>;
   rebuildWorkbench(context: HostMethodContext, activeWorkspace: string): Promise<WorkbenchBuildResult>;
@@ -417,10 +420,25 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeString("host-extension-active", "id", params[0]),
       decodeBoolean("host-extension-active", "active", params[1]),
     ),
-    "extension-grant": async (params) => (await host()).grantExtension(
-      decodeExtensionId("extension-grant", params[0]),
-      decodeBoolean("extension-grant", "grant", params[1]),
-    ),
+    "extension-grant": async (params, context) => {
+      const id = decodeExtensionId("extension-grant", params[0]);
+      const grant = decodeBoolean("extension-grant", "grant", params[1]);
+      const instance = await host();
+      if (grant) {
+        const cwd = instance.activeWorkspacePath();
+        const pkg = (await platform.inspectExtensions(cwd)).packages.find((entry) => entry.id === id && entry.scope !== "bundled");
+        if (!pkg) throw new Error(`Extension ${id} is not installed`);
+        const confirmed = await platform.confirmExtensionGrant?.(pkg);
+        if (confirmed === undefined) {
+          if (!isHostOwner(context.principal)) throw ownerRefusal();
+        } else if (confirmed !== true) {
+          throw Object.assign(new Error("Extension grant requires native confirmation on the host machine."), { code: HOST_ERROR.unauthorized });
+        }
+        const current = (await platform.inspectExtensions(cwd)).packages.find((entry) => entry.id === id);
+        if (instance.activeWorkspacePath() !== cwd || JSON.stringify(current) !== JSON.stringify(pkg)) throw new Error("The package changed during confirmation. Review it again.");
+      }
+      await instance.grantExtension(id, grant);
+    },
     "prepare-workbench-reload": async (params) =>
       (await host()).prepareWorkbenchReload(decodeWorkbenchReloadMode("prepare-workbench-reload", "mode", params[0])),
     "release-workbench-reload": async () => (await host()).releaseWorkbenchReload(),
