@@ -615,9 +615,7 @@ export default function App() {
     };
   }, [boundRuntime, draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
   const conversationSnapshot = useDraftCommands(draftConversation, pendingNewThread, boundRuntime);
-  const addDroppedFiles = useCallback((files: FileList | readonly File[]) => {
-    void composerAttachmentRef.current?.addFiles(files);
-  }, []);
+  const addDroppedFiles = useCallback((files: FileList | readonly File[]) => { void composerAttachmentRef.current?.addFiles(files); }, []);
   const composerScopeSubscribe = useCallback((onChange: () => void) => activeDraftKey
     ? composerScopeStore.subscribe(createDraftKey(activeDraftKey), onChange)
     : () => {}, [activeDraftKey, composerScopeStore]);
