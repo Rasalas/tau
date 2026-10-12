@@ -113,6 +113,29 @@ it("activates again after saving a baseline it read in the old format", async ()
   const restored = await harness(h.stateDir);
   await expect(restored.call("watch-start", { threadId: "b", url: OTHER })).resolves.toBeDefined();
 });
+it("leaves out a watch it cannot read and keeps the others, instead of failing to start", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "a", url: URL });
+  await h.call("watch-start", { threadId: "b", url: OTHER });
+  await h.registry.deactivate("tau.review");
+  const file = join(h.stateDir, "tau.review", "pr-watches.json");
+  const stored = JSON.parse(await readFile(file, "utf8"));
+  stored.watches[0].baseline = { state: "OPEN", head: "head-1", checks: 42, comments: "0", conflict: false };
+  await writeFile(file, JSON.stringify(stored));
+  const restored = await harness(h.stateDir);
+  expect((await restored.list()).watches.map((watch) => watch.ref.url)).toEqual([OTHER]);
+  await expect(restored.call("watch-start", { threadId: "a", url: URL })).resolves.toBeDefined();
+});
+it("sets an unreadable watch file aside and starts without watches", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "a", url: URL });
+  await h.registry.deactivate("tau.review");
+  const file = join(h.stateDir, "tau.review", "pr-watches.json");
+  await writeFile(file, JSON.stringify({ version: 1, watches: "not a list" }));
+  const restored = await harness(h.stateDir);
+  expect((await restored.list()).watches).toEqual([]);
+  expect(JSON.parse(await readFile(`${file}.unreadable`, "utf8"))).toEqual({ version: 1, watches: "not a list" });
+});
 it("queues marked deduplicated wakes, persists before admission, survives restart, and Stop ends every watch", async () => {
   const h = await harness();
   await h.call("watch-start", { threadId: "a", url: URL });
