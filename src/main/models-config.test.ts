@@ -62,6 +62,34 @@ describe("models-config", () => {
   });
 
   describe("loadModelsConfig and addModelProvider", () => {
+    it.each(["models.json", "auth.json"])("refuses to add a provider when %s is invalid, preserving both files", async (file) => {
+      const modelsPath = join(testDir, "models.json");
+      const authPath = join(testDir, "auth.json");
+      await fs.writeFile(modelsPath, '{"providers":{"existing":{"models":[]}}}');
+      await fs.writeFile(authPath, '{"existing":{"type":"oauth","refresh":"test-token"}}');
+      await fs.writeFile(join(testDir, file), '{"existing":true,}');
+      const before = await Promise.all([fs.readFile(modelsPath, "utf8"), fs.readFile(authPath, "utf8")]);
+
+      await expect(addModelProvider(testDir, { providerId: "new-provider", apiKey: "test-key", models: [{ id: "test-model" }] })).rejects.toThrow(join(testDir, file));
+      expect(await Promise.all([fs.readFile(modelsPath, "utf8"), fs.readFile(authPath, "utf8")])).toEqual(before);
+    });
+
+    it("preserves concurrent providers and existing credentials with private auth permissions", async () => {
+      const authPath = join(testDir, "auth.json");
+      const existing = { existing: { type: "oauth", refresh: "test-token" } };
+      await fs.writeFile(authPath, JSON.stringify(existing), { mode: 0o644 });
+      await Promise.all(["first", "second"].map((providerId) => addModelProvider(testDir, {
+        providerId, apiKey: `${providerId}-key`, models: [{ id: "test-model" }],
+      })));
+      expect((await loadModelsConfig(testDir)).map((provider) => provider.providerId)).toEqual(["first", "second"]);
+      expect(JSON.parse(await fs.readFile(authPath, "utf8"))).toEqual({
+        ...existing,
+        first: { type: "api_key", key: "first-key" },
+        second: { type: "api_key", key: "second-key" },
+      });
+      expect((await fs.stat(authPath)).mode & 0o777).toBe(0o600);
+    });
+
     it("returns empty array if models.json does not exist", async () => {
       const result = await loadModelsConfig(testDir);
       expect(result).toEqual([]);

@@ -37,6 +37,49 @@ describe("HostConfigManager", () => {
     expect(config.showCosts).toBe(false);
   });
 
+  it.each(["global", "project", "pi-global", "pi-project"])("refuses to overwrite invalid JSON in %s settings", async (level) => {
+    const project = level.endsWith("project");
+    const pi = level.startsWith("pi-");
+    const path = pi
+      ? join(project ? projectDir : join(tempDir, "pi"), ...(project ? [".pi"] : []), "settings.json")
+      : project ? join(projectDir, ".tau", "config.json") : globalPath;
+    await mkdir(join(path, ".."), { recursive: true });
+    const broken = '{"unrelated":true,}';
+    await writeFile(path, broken);
+
+    await expect(manager.update(pi ? { steeringMode: "all" } : { showCosts: false }, project ? "project" : "global", project ? projectDir : undefined)).rejects.toThrow(path);
+    expect(await readFile(path, "utf8")).toBe(broken);
+    await expect(manager.read(project ? projectDir : undefined)).rejects.toThrow(path);
+    expect(() => manager.readSync(project ? projectDir : undefined)).toThrow(path);
+    if (!pi) await expect(manager.clear(["showCosts"], project ? "project" : "global", project ? projectDir : undefined)).rejects.toThrow(path);
+  });
+
+  it("preserves concurrent patches from separate managers", async () => {
+    await manager.update({ theme: "dark" });
+    const other = new HostConfigManager({ globalFilePath: globalPath, piAgentDir: join(tempDir, "pi") });
+    await Promise.all([
+      manager.update({ options: { first: true } }),
+      other.update({ options: { second: true } }),
+    ]);
+    expect((await manager.read()).options).toEqual({ first: true, second: true });
+  });
+
+  it("reads both destinations before applying a mixed settings patch", async () => {
+    const original = '{"theme":"light"}';
+    await writeFile(globalPath, original);
+    const piPath = join(tempDir, "pi", "settings.json");
+    await mkdir(join(tempDir, "pi"));
+    await writeFile(piPath, '{"keep":true,}');
+    await expect(manager.update({ theme: "dark", steeringMode: "all" })).rejects.toThrow(piPath);
+    expect(await readFile(globalPath, "utf8")).toBe(original);
+  });
+
+  it("serializes resets with updates to preserve unrelated settings", async () => {
+    await manager.update({ showCosts: true, theme: "dark" });
+    await Promise.all([manager.clear(["showCosts"]), manager.update({ prewarm: false })]);
+    expect(await manager.read()).toEqual({ theme: "dark", prewarm: false });
+  });
+
   it("preserves an implicit nightly channel across a stable update without changing an explicit choice", async () => {
     await manager.update({ theme: "dark" });
     await manager.preserveNightlyChannel();

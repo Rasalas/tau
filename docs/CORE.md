@@ -514,6 +514,14 @@ then ignored — Pi's file is the one authority for those, and `read` lets it
 win. The names differ on one point: Tau calls a model `provider/modelId` in
 `models.default`, Pi wants `defaultProvider` and `defaultModel` apart.
 
+Config, runtime settings and provider edits treat only a missing JSON file as empty.
+An unreadable file or invalid JSON produces an error naming its path and stays
+untouched. `src/main/editable-json.ts` serializes read-modify-write operations
+per file within the host process and replaces files through private temporary
+files and rename. Adding a provider reads both `models.json` and, when adding
+a key, `auth.json` before writing either. These two replacements are separate
+operations, not a transaction across files.
+
 The one thing safe mode loses with the kits is `/install` and the Packages
 page — the package manager is a kit like any other now. Recovering from a
 window that cannot install is still `npm run start` or an edit to

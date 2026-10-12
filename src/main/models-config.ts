@@ -1,6 +1,6 @@
-import { existsSync, promises as fs } from "node:fs";
 import { join } from "node:path";
 import type { CustomModelDefinition, CustomProviderConfig, CustomProviderInput } from "../shared/contracts.js";
+import { editJsonFiles, readJson, writeJson } from "./editable-json.js";
 
 const PROVIDER_ID_REGEX = /^[a-zA-Z0-9_.-]+$/;
 
@@ -32,23 +32,8 @@ export async function loadModelsConfig(agentDir: string): Promise<CustomProvider
   const modelsPath = join(agentDir, "models.json");
   const authPath = join(agentDir, "auth.json");
 
-  let rawModels: Record<string, unknown> = {};
-  if (existsSync(modelsPath)) {
-    try {
-      rawModels = JSON.parse(await fs.readFile(modelsPath, "utf8")) as Record<string, unknown>;
-    } catch {
-      rawModels = {};
-    }
-  }
-
-  let rawAuth: Record<string, unknown> = {};
-  if (existsSync(authPath)) {
-    try {
-      rawAuth = JSON.parse(await fs.readFile(authPath, "utf8")) as Record<string, unknown>;
-    } catch {
-      rawAuth = {};
-    }
-  }
+  const rawModels = (await readJson<Record<string, unknown>>(modelsPath)) ?? {};
+  const rawAuth = (await readJson<Record<string, unknown>>(authPath)) ?? {};
 
   const providers = (rawModels.providers && typeof rawModels.providers === "object"
     ? rawModels.providers
@@ -85,55 +70,36 @@ export async function loadModelsConfig(agentDir: string): Promise<CustomProvider
 export async function addModelProvider(agentDir: string, input: CustomProviderInput): Promise<void> {
   validateProviderInput(input);
 
-  await fs.mkdir(agentDir, { recursive: true, mode: 0o700 });
-
   const modelsPath = join(agentDir, "models.json");
   const authPath = join(agentDir, "auth.json");
+  const apiKey = input.apiKey?.trim();
 
-  // Update models.json
-  let modelsJson: { providers?: Record<string, unknown> } = { providers: {} };
-  if (existsSync(modelsPath)) {
-    try {
-      modelsJson = JSON.parse(await fs.readFile(modelsPath, "utf8")) as { providers?: Record<string, unknown> };
-      if (!modelsJson.providers || typeof modelsJson.providers !== "object") {
-        modelsJson.providers = {};
-      }
-    } catch {
-      modelsJson = { providers: {} };
+  await editJsonFiles([modelsPath, ...(apiKey ? [authPath] : [])], async () => {
+    const modelsJson = (await readJson<{ providers?: Record<string, unknown> }>(modelsPath)) ?? {};
+    const authJson = apiKey ? (await readJson<Record<string, unknown>>(authPath)) ?? {} : undefined;
+    if (modelsJson.providers !== undefined && (!modelsJson.providers || typeof modelsJson.providers !== "object" || Array.isArray(modelsJson.providers))) {
+      throw new Error(`Cannot read providers from ${modelsPath}: expected a JSON object`);
     }
-  }
+    modelsJson.providers ??= {};
 
-  const pid = input.providerId.trim();
-  modelsJson.providers![pid] = {
-    name: input.name?.trim() || pid,
-    ...(input.baseUrl?.trim() ? { baseUrl: input.baseUrl.trim() } : {}),
-    api: input.api?.trim() || "openai-compatible",
-    models: input.models.map((model) => ({
-      id: model.id.trim(),
-      name: model.name?.trim() || model.id.trim(),
-      ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
-      ...(typeof model.contextWindow === "number" ? { contextWindow: model.contextWindow } : {}),
-      ...(typeof model.maxTokens === "number" ? { maxTokens: model.maxTokens } : {}),
-    })),
-  };
+    const pid = input.providerId.trim();
+    modelsJson.providers![pid] = {
+      name: input.name?.trim() || pid,
+      ...(input.baseUrl?.trim() ? { baseUrl: input.baseUrl.trim() } : {}),
+      api: input.api?.trim() || "openai-compatible",
+      models: input.models.map((model) => ({
+        id: model.id.trim(),
+        name: model.name?.trim() || model.id.trim(),
+        ...(model.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
+        ...(typeof model.contextWindow === "number" ? { contextWindow: model.contextWindow } : {}),
+        ...(typeof model.maxTokens === "number" ? { maxTokens: model.maxTokens } : {}),
+      })),
+    };
 
-  const modelsTmp = `${modelsPath}.${Date.now()}.tmp`;
-  await fs.writeFile(modelsTmp, `${JSON.stringify(modelsJson, null, 2)}\n`, "utf8");
-  await fs.rename(modelsTmp, modelsPath);
-
-  // Update auth.json if apiKey is provided
-  if (input.apiKey && input.apiKey.trim()) {
-    let authJson: Record<string, unknown> = {};
-    if (existsSync(authPath)) {
-      try {
-        authJson = JSON.parse(await fs.readFile(authPath, "utf8")) as Record<string, unknown>;
-      } catch {
-        authJson = {};
-      }
+    await writeJson(modelsPath, modelsJson);
+    if (authJson && apiKey) {
+      authJson[pid] = { type: "api_key", key: apiKey };
+      await writeJson(authPath, authJson);
     }
-    authJson[pid] = { type: "api_key", key: input.apiKey.trim() };
-    const authTmp = `${authPath}.${Date.now()}.tmp`;
-    await fs.writeFile(authTmp, `${JSON.stringify(authJson, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    await fs.rename(authTmp, authPath);
-  }
+  });
 }
