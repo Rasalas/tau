@@ -1,9 +1,25 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EvidenceStore, folderOf } from "./store.js";
 import type { EvidenceTrigger } from "./protocol.js";
+
+// Lets a test hold one index read open to choose which of two concurrent loads finishes last.
+const gate = vi.hoisted(() => ({ hold: undefined as Promise<void> | undefined }));
+vi.mock("tau/host-extension", async (original) => {
+  const real = await original<typeof import("tau/host-extension")>();
+  return {
+    ...real,
+    readPersistedJson: (async (...args: Parameters<typeof real.readPersistedJson>) => {
+      const hold = gate.hold;
+      gate.hold = undefined;
+      const read = await real.readPersistedJson(...args);
+      await hold;
+      return read;
+    }) as typeof real.readPersistedJson,
+  };
+});
 
 let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "tau-evidence-")); });
@@ -25,6 +41,21 @@ describe("EvidenceStore", () => {
     expect((await again.image("thread-1", frame!.id))?.length).toBe(100);
     expect((await again.image("thread-1", frame!.id, true))?.length).toBe(10);
     expect(await again.image("thread-1", "not-a-frame")).toBeUndefined();
+  });
+
+  it("sees a frame added while an earlier listing was still loading the index", async () => {
+    const store = new EvidenceStore(root);
+    let release!: () => void;
+    gate.hold = new Promise<void>((resolve) => { release = resolve; });
+    const early = store.list("t");
+    const adding = store.add("t", "", { turnId: "t1", startedAt: 1 }, shot(2), bytes(10), roomy);
+    // Gives a store with two loads time to start the second; a shared load passes however short this is.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    const [, frame] = await Promise.all([early, adding]);
+
+    expect((await store.list("t")).turns.flatMap((turn) => turn.frames)).toEqual([frame]);
+    expect(await store.endTurn("t", "t1", 5)).toBe(true);
   });
 
   it("thins a full turn from its second frame on, keeping the first and the agent's own", async () => {
