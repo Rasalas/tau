@@ -129,7 +129,7 @@ export const projectScriptsExtension: DesktopExtension = {
       if (typeof id === "string") setups.remove(id);
     });
     void host.setups().then((list) => setups.load(list), () => undefined);
-    const setupRegion = plugin.registerRegion({ id: "project-scripts.setup", placement: "transcript-footer", order: 5, profiles: ["desktop", "web"], Component: createSetupCards(setups, host) });
+    const setupRegion = plugin.registerRegion({ id: "project-scripts.setup", placement: "transcript-footer", order: 5, profiles: ["desktop", "web", "compact"], Component: createSetupCards(setups, host) });
 
     const offService = plugin.useService<PreviewBrowserService>(PREVIEW_BROWSER_SERVICE, (value) => {
       browser = value;

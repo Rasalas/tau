@@ -73,4 +73,19 @@ describe("the setup card", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(actions.dismiss).toHaveBeenCalledWith("s1"));
   });
+
+  it("folds a failed script to its headline and opens the steps with the script's last lines", () => {
+    const actions = { cancel: vi.fn(async () => undefined), release: vi.fn(async () => undefined), dismiss: vi.fn(async () => undefined) };
+    const failed = setup({
+      phase: "done",
+      endedAt: 5_000,
+      stages: [stage("checkout", "done"), stage("script:install", "failed", { detail: "exited with 1", tail: ["npm ERR! missing script"] })],
+    });
+    render(<SetupCard setup={failed} actions={actions} notify={() => undefined} />);
+    expect(screen.getByText("Worktree ready, setup script failed")).toBeTruthy();
+    expect(screen.queryByText("npm ERR! missing script")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Details/u }));
+    expect(screen.getByText("exited with 1")).toBeTruthy();
+    expect(screen.getByText("npm ERR! missing script")).toBeTruthy();
+  });
 });
