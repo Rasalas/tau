@@ -4,7 +4,10 @@ import { timeOf } from "./outside-logs.js";
 /**
  * OpenCode keeps its sessions in SQLite (`<data>/opencode.db`, or
  * `opencode-<channel>.db`): a message row per response, its JSON with the
- * tokens and OpenCode's own price. Read only, in pages, so the worker's
+ * tokens and OpenCode's own price. OpenCode 2 writes `session_v2` and
+ * `session_message` into the same file (a migrated 1.x database keeps its
+ * old tables beside them, with the same message ids); its rows carry the kind
+ * in the `type` column and a `model: { id, providerID }`. Read only, in pages, so the worker's
  * event loop breathes between them, and only the fields a count needs:
  * SQLite takes them out of the JSON, so a large row never reaches the heap.
  */
@@ -73,9 +76,11 @@ const FIELDS = {
 type Fields = Partial<Record<keyof typeof FIELDS, unknown>> & { type?: unknown };
 const NAMES = Object.keys(FIELDS) as Array<keyof typeof FIELDS>;
 
-/** A message row's response, or nothing when it is not an assistant's or used no tokens. */
+/** A message row's response, or nothing when it is neither an assistant's nor a compaction's request, or used no tokens. */
 export function openCodeRecord(id: string, row: Fields, created: number | undefined): OutsideRecord | undefined {
-  if ((row.role ?? row.kind ?? row.type) !== "assistant") return undefined;
+  const kind = row.role ?? row.kind ?? row.type;
+  // OpenCode 2 bills a compaction's own request on the message.
+  if (kind !== "assistant" && kind !== "compaction") return undefined;
   if (row.hasTokens === null || row.hasTokens === undefined) return undefined;
   const input = count(row.input);
   // OpenCode's own stats count reasoning as output.
@@ -134,11 +139,13 @@ export interface OpenCodeReadOptions {
 export async function readOpenCodeDatabase(path: string, options: OpenCodeReadOptions, open: Open, pause: () => Promise<void>, add: (sessionId: string, record: OutsideRecord, final: boolean) => void): Promise<OpenCodeRead> {
   const db = open(path);
   try {
-    const sessionColumns = columns(db, "session");
     const places = new Map<string, { cwd: string; parentId?: string }>();
-    if (sessionColumns.has("id") && sessionColumns.has("directory")) {
+    // OpenCode 2's table is read last: it is the one that is kept up to date.
+    for (const table of ["session", "session_v2"]) {
+      const sessionColumns = columns(db, table);
+      if (!sessionColumns.has("id") || !sessionColumns.has("directory")) continue;
       const parent = sessionColumns.has("parent_id") ? ", parent_id" : "";
-      for (const row of db.prepare(`SELECT id, directory${parent} FROM session`).all()) {
+      for (const row of db.prepare(`SELECT id, directory${parent} FROM ${table}`).all()) {
         const item = object(row);
         const id = text(item?.id);
         if (!id) continue;
