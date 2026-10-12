@@ -348,7 +348,13 @@ fraction? }`, the outcome as `job-done { jobId, result | error }`, and
 callers keep a promise. A job failure is a partial failure: the connection
 stays. Which calls are jobs is data: a host extension marks its long commands
 with `registerCommand(name, handler, { long: true })` (those also skip the
-command timeout), and the client asks with `job-methods`.
+command timeout), and the client asks with `job-methods`. Core lists the
+workbench rebuild and the calls that can wait on a runtime starting or
+reopening (`new-session`, `prompt`, `steer`, `follow-up`): on a busy host they
+outlast the socket's 30-second request timeout, and the client gave up on a
+thread the host still created. A job also survives a reconnect whose replay
+holds its `job-done`; after a resync the client fails the jobs it waits for,
+since their result may be among the pushes it skipped.
 
 Two transports implement this. Electron IPC uses two channels, `tau:request` and
 `tau:host-event`; `src/main/ipc-contract.test.ts` checks that the client and the

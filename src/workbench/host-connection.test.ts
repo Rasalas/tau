@@ -197,6 +197,31 @@ describe("host connection", () => {
     await expect(early.runJob<string>("rebuild-workbench")).resolves.toBe("early");
   });
 
+  it("does not keep another client's job result for a job of its own that later gets the same id", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    // Every client hears every job; this one was never started here.
+    link.push(1, { type: "job-done", jobId: "job-1", result: "someone else's" });
+    const own = connection.runJob<string>("new-session", []);
+    await settle();
+    link.push(2, { type: "job-done", jobId: "job-1", result: "mine" });
+    await expect(own).resolves.toBe("mine");
+  });
+
+  it("fails a waiting job when the gap that may hold its result fell out of the host's buffer", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const job = connection.runJob("new-session", []);
+    await settle();
+    link.buffered = [{ seq: 40, event: agentStatus(true) }];
+    link.nextSeq = 41;
+    link.push(40, agentStatus(true));
+    await expect(job).rejects.toThrow("reset before the job finished");
+    expect(connection.getState()).toBe("connected");
+  });
+
   it("rebuilds a tool's output from deltas and drops one against a push it never saw", async () => {
     const link = harness();
     const connection = new HostConnection(link.transport);

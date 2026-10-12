@@ -189,6 +189,8 @@ export interface HostMethodDeps {
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
+/** Calls that can wait on a runtime starting or reopening, which outlasts a remote request's timeout on a busy host. */
+const RUNTIME_START_METHODS = ["new-session", "prompt", "steer", "follow-up"];
 
 function decodePromptArgs(method: string, params: readonly unknown[]) {
   return {
@@ -548,6 +550,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const long = deps.host()?.longHostExtensionCommands() ?? [];
       return [
         "rebuild-workbench",
+        ...RUNTIME_START_METHODS,
         ...long.map((entry) => {
           const [extensionId = "", command = ""] = entry.split("/");
           return jobMethodKey("host-extension", extensionId, command);

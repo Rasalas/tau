@@ -185,3 +185,9 @@ it("reads visualization artifacts on their home host and publishes/releases on t
   expect(routes.routeOf).toHaveBeenCalledTimes(1);
   expect(invoke.mock.calls.map((call) => call[1])).toEqual(["publish-visualization", "release-visualization"]);
 });
+
+it("asks clients to start and send to a thread as jobs, since a runtime start can outlast a request", async () => {
+  const methods = methodsFor(undefined as unknown as PiHost);
+  const jobs = await invokeHostMethod(methods, "job-methods", []);
+  expect(jobs).toEqual(expect.arrayContaining(["new-session", "prompt", "steer", "follow-up"]));
+});
