@@ -22,5 +22,5 @@ Agents and tools produce interactive HTML: an MCP server's `ui://` view of its r
 
 ## Not decided here
 
-- Agent-written HTML pages (T3's "HTML renders") take the same `publishFrame` and `SandboxFrame`. They need an authoring path for the agent, which is a feature of its own, and are left for a kit after this one.
+- Agent-written HTML pages (T3's "HTML renders") take the same `publishFrame` and `SandboxFrame`. They need an authoring path for the agent, which is a feature of its own; [ADR 0035](0035-agent-pages-on-the-sandbox-frame.md) is that kit.
 - Apps for the Agent SDK runtime: not checked whether its SDK exposes resource reads.
