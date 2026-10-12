@@ -78,7 +78,7 @@ files:
   - "!node_modules/@earendil-works/pi-coding-agent/examples"
   - "!node_modules/@earendil-works/pi-coding-agent/CHANGELOG.md"
   - "!node_modules/@earendil-works/pi-coding-agent/npm-shrinkwrap.json"
-  # Computer use ships a driver binary per platform, ~30 MB each; `${platform}`
+  # Computer use ships a driver package per platform, ~30 MB each; `${platform}`
   # is the builder's own OS (darwin/linux/win32), which is always the target
   # since nothing here cross-compiles. This has to live in the one root `files`
   # list: a same-shaped `files` under `mac`/`linux`/`win` builds a *second*,
@@ -86,7 +86,8 @@ files:
   # the project twice concurrently into the same destination — the two copies
   # race on every file only one of them excludes, which is a hard-to-reproduce
   # `EEXIST` on whichever file loses the race, not necessarily this one.
-  - "!node_modules/@amaster.ai/pi-computer-use/bin/!(${platform}*)/**"
+  - "!node_modules/@amaster.ai/pi-computer-use-cua-driver-!(${platform}-*)"
+  - "!node_modules/@amaster.ai/pi-computer-use-cua-driver-!(${platform}-*)/**"
   # Each app carries only native files for its own OS and architecture
   # (scripts/packaging/mac-architectures.mjs). Both Mac apps pack from one
   # node_modules holding both architectures' platform packages...
@@ -117,8 +118,6 @@ asarUnpack:
   # Pi resizes images in a worker thread that instantiates WebAssembly from disk.
   - "node_modules/@earendil-works/pi-coding-agent/dist/utils/image-resize-worker.js"
   - "node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node/**"
-  # Computer use launches a driver app of its own.
-  - "node_modules/@amaster.ai/pi-computer-use/bin/**"
   # `tau app <path>`: a command line Node runs, so it must be a real file.
   - "bin/**"
   - "**/*.node"

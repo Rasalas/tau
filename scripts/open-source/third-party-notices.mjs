@@ -60,7 +60,7 @@ const bundleVersion = (plist) => { try { return /CFBundleShortVersionString<\/ke
 
 /** Programs vendored inside npm packages that bring no licence file of their own; listed when their package is installed. */
 const VENDORED = [
-  { name: "Cua Driver", version: bundleVersion("node_modules/@amaster.ai/pi-computer-use/bin/darwin-universal/CuaDriver.app/Contents/Info.plist"), license: "MIT", repository: "https://github.com/trycua/cua", within: "@amaster.ai/pi-computer-use (bin/)", path: "node_modules/@amaster.ai/pi-computer-use/bin" },
+  { name: "Cua Driver", version: bundleVersion("node_modules/@amaster.ai/pi-computer-use-cua-driver-darwin-universal/bin/CuaDriver.app/Contents/Info.plist"), license: "MIT", repository: "https://github.com/trycua/cua", within: "@amaster.ai/pi-computer-use-cua-driver-darwin-universal (bin/)", path: "node_modules/@amaster.ai/pi-computer-use-cua-driver-darwin-universal/bin" },
   { name: "ConPTY (conpty.dll, OpenConsole.exe)", version: newestEntry("node_modules/node-pty/third_party/conpty"), license: "MIT", repository: "https://github.com/microsoft/terminal", within: "node-pty (third_party/conpty, Windows)", path: "node_modules/node-pty/third_party/conpty" },
   { name: "GNU C Library, statically linked into apply-seccomp", version: undefined, license: "LGPL-2.1-or-later", repository: "https://sourceware.org/glibc/", within: "@anthropic-ai/sandbox-runtime (vendor/seccomp, Linux)", path: "node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp" },
 ].filter((entry) => existsSync(join(ROOT, entry.path))).map(({ path: _path, ...entry }) => {

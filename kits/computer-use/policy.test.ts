@@ -35,6 +35,17 @@ describe("shared Computer Use policy", () => {
     expect(mcpConfirm).not.toHaveBeenCalled();
     await expect(policy.approve("kill_app", {}, undefined, mcpConfirm)).rejects.toThrow("not approved");
   });
+  it("confirms the clipboard and a confirmed extension install, and nothing that only observes", async () => {
+    const confirm = vi.fn(async () => false);
+    const policy = new ComputerUsePolicy({ cwd: "/tmp", confirm });
+    await expect(policy.approve("clipboard_read", {})).rejects.toThrow("not approved");
+    await expect(policy.approve("clipboard_write", { text: "x" })).rejects.toThrow("not approved");
+    await expect(policy.approve("install_extension", { confirm: true })).rejects.toThrow("not approved");
+    await policy.approve("install_extension", {});
+    await policy.approve("get_screen_size", {});
+    await policy.approve("invoke_menu", { pid: 1, path: ["File", "Close"] });
+    expect(confirm).toHaveBeenCalledTimes(3);
+  });
   it("does not cache rejected or cancelled launch approvals", async () => {
     const confirm = vi.fn().mockResolvedValueOnce(false).mockImplementationOnce(async ({ signal }) => {
       abort.abort(new Error("cancelled"));

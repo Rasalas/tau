@@ -21,7 +21,7 @@ async function setup(allow: boolean | (() => Promise<boolean>) = true, loadingDe
   const callClient = vi.fn(async () => undefined);
   let closeThread: ((id: string) => Promise<void>) | undefined;
   const load = vi.fn(async () => { await loadingDelay; return ({
-    resolveDriverLayout: () => ({ appPath: join(dirname(createRequire(import.meta.url).resolve("@amaster.ai/pi-computer-use/package.json")), "bin/darwin-universal/CuaDriver.app") }),
+    resolveDriverLayout: () => ({ appPath: join(dirname(dirname(createRequire(import.meta.url).resolve("@amaster.ai/pi-computer-use/package.json"))), "pi-computer-use-cua-driver-darwin-universal/bin/CuaDriver.app") }),
     resolveConfig: () => ({ confirmAppLaunch: true, confirmDangerousActions: true }),
     loadConfigFromFile: () => ({}),
     CuaDriverClient: class {
