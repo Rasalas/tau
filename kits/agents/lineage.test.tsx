@@ -76,12 +76,11 @@ it("contributes lineage after Changes and no longer registers an Agents panel", 
   expect(release).toHaveBeenCalled();
 });
 
-it("expands the spawn card into chat links without opening the removed panel", () => {
+it("opens a single spawned child directly without opening the removed panel", () => {
   agentsStore.set({ maxRunning: 8, links: [link] });
   const actions = { switchSession: vi.fn(async () => true), openThread: vi.fn(), openPanel: vi.fn() } as unknown as WorkbenchActions;
   const tool = { id: "call", name: "tau_spawn_thread", args: {}, status: "done", output: JSON.stringify({ threadId: "child" }), startedAt: 1000, endedAt: 2000 } as UiToolRun;
   render(<TestProviders><TestThreadStore threads={sessions}><SpawnCard tools={[tool]} actions={actions} /></TestThreadStore></TestProviders>);
-  fireEvent.click(screen.getByRole("button", { name: /Show agents/ }));
   fireEvent.click(screen.getByRole("button", { name: "Review layout, Completed" }));
   expect(actions.switchSession).not.toHaveBeenCalled();
   expect(actions.openThread).toHaveBeenCalledWith("child");
