@@ -17,6 +17,9 @@
 // with `mcp <tool>` calls that tool on the HTTP server the SDK registered over
 // the control channel (`mcp_set_servers`; none on the command line) and says
 // what came back. STUB_CLI_LOG gets the registered server names.
+// STUB_CLI_AI_TITLE (or the file stub-ai-title.txt in its home, for a host
+// that passes the CLI a filtered environment) is the name the CLI gives the
+// session: written a second into the first turn, as the real CLI's `aiTitle`.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -35,7 +38,8 @@ function status() {
 }
 
 function streamTurns() {
-  const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+  // The SDK passes `--session-id=<id>` as one argument.
+  const flag = (name) => args.includes(name) ? args[args.indexOf(name) + 1] : args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
   const sessionId = flag("--resume") ?? flag("--session-id") ?? randomUUID();
   const models = process.env.STUB_CLI_MODELS ? JSON.parse(process.env.STUB_CLI_MODELS) : [{ value: "stub-1", displayName: "Stub 1", description: "Scripted by the stub CLI" }];
   const model = models[0].value;
@@ -47,6 +51,18 @@ function streamTurns() {
   let turn = Promise.resolve();
   const answers = new Map();
   let servers = {};
+  let titled = false;
+  const nameSession = () => {
+    const titleFile = join(home, "stub-ai-title.txt");
+    const title = process.env.STUB_CLI_AI_TITLE ?? (existsSync(titleFile) ? readFileSync(titleFile, "utf8").trim() : "");
+    if (titled || !title) return;
+    titled = true;
+    setTimeout(() => {
+      const folder = join(home, "projects", process.cwd().replace(/[^a-zA-Z0-9]/gu, "-"));
+      mkdirSync(folder, { recursive: true });
+      appendFileSync(join(folder, `${sessionId}.jsonl`), `${JSON.stringify({ type: "ai-title", aiTitle: title, sessionId })}\n`);
+    }, 1_000);
+  };
   const rpc = async (server, method, params, id) => {
     const response = await fetch(server.url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...server.headers }, body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }) });
     const text = await response.text();
@@ -102,6 +118,7 @@ function streamTurns() {
     if (prompt.trim() === "/compact") return compact();
     if (/\bask\b/iu.test(prompt)) return askColor();
     if (/\bmcp\b/iu.test(prompt)) return callMcp(prompt);
+    nameSession();
     const pause = Math.min(Number(/\bwait\s+(\d+)/u.exec(prompt)?.[1] ?? 150), 60_000);
     const step = async (write) => { await sleep(pause); write(); };
     const id = (n) => `toolu_stub_${randomUUID().slice(0, 8)}_${n}`;
