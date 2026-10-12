@@ -1,6 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TauConfig, TauThreadsConfig } from "../shared/contracts.js";
@@ -11,6 +9,7 @@ import { readModelPrices } from "../shared/model-prices.js";
 import { readRuntimeEnabled } from "../shared/runtime-enabled.js";
 import { PI_OWNED_CONFIG_KEYS, isPiOwnedSetting, withoutPiOwned, withoutSetting, type ConfigLayers } from "../shared/config-layers.js";
 import { tauHomeDir } from "./app-identity.js";
+import { editJsonFiles, readJson, readJsonSync, writeJson } from "./editable-json.js";
 
 export interface HostConfigPaths {
   globalFilePath?: string;
@@ -141,31 +140,6 @@ function tauConfigToPiSettings(patch: Partial<TauConfig>): Record<string, unknow
   return out;
 }
 
-async function readJson<T>(path: string): Promise<T | undefined> {
-  try {
-    if (!existsSync(path)) return undefined;
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
-  }
-}
-
-function readJsonSync<T>(path: string): T | undefined {
-  try {
-    if (!existsSync(path)) return undefined;
-    const raw = readFileSync(path, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
-  }
-}
-
-async function writeJson(path: string, data: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(data, null, 2), "utf8");
-}
-
 /**
  * Manages configuration as code for Tau.
  * Reads and merges global ~/.tau/config.json with optional project-level .tau/config.json.
@@ -245,12 +219,16 @@ export class HostConfigManager {
       else (tauPatch as Record<string, unknown>)[key] = value;
     }
 
-    if (Object.keys(tauPatch).length > 0) {
-      const targetPath = this.filePath(scope, cwd);
-      const existing = (await readJson<TauConfig>(targetPath)) ?? {};
-      await writeJson(targetPath, this.merge(existing, this.sanitizePatch(tauPatch)));
-    }
-    if (Object.keys(piPatch).length > 0) await this.writePiSettings(piPatch, scope, cwd);
+    const tauPath = this.filePath(scope, cwd);
+    const piPath = scope === "project" && cwd ? this.piProjectPathResolver(cwd) : this.piGlobalPath;
+    const writesTau = Object.keys(tauPatch).length > 0;
+    const writesPi = Object.keys(piPatch).length > 0;
+    await editJsonFiles([...(writesTau ? [tauPath] : []), ...(writesPi ? [piPath] : [])], async () => {
+      const existingTau = writesTau ? (await readJson<TauConfig>(tauPath)) ?? {} : undefined;
+      const existingPi = writesPi ? (await readJson<Record<string, unknown>>(piPath)) ?? {} : undefined;
+      if (existingTau) await writeJson(tauPath, this.merge(existingTau, this.sanitizePatch(tauPatch)));
+      if (existingPi) await writeJson(piPath, { ...existingPi, ...tauConfigToPiSettings(piPatch) });
+    });
     return this.read(cwd);
   }
 
@@ -271,23 +249,14 @@ export class HostConfigManager {
    */
   async clear(keys: readonly string[], scope: "global" | "project" = "global", cwd?: string): Promise<ConfigLayers> {
     const targetPath = this.filePath(scope, cwd);
-    const existing = await readJson<TauConfig>(targetPath);
-    if (existing) {
-      const next = keys.filter((key) => !isPiOwnedSetting(key)).reduce(withoutSetting, existing);
-      if (JSON.stringify(next) !== JSON.stringify(existing)) await writeJson(targetPath, next);
-    }
+    await editJsonFiles([targetPath], async () => {
+      const existing = await readJson<TauConfig>(targetPath);
+      if (existing) {
+        const next = keys.filter((key) => !isPiOwnedSetting(key)).reduce(withoutSetting, existing);
+        if (JSON.stringify(next) !== JSON.stringify(existing)) await writeJson(targetPath, next);
+      }
+    });
     return this.readLayers(cwd);
-  }
-
-  /**
-   * Writes the keys Pi owns into Pi's own settings file, merging into whatever
-   * is already there so unrelated Pi settings and unknown keys survive. A
-   * project write lands in `<cwd>/.pi/settings.json`, exactly where Pi looks.
-   */
-  private async writePiSettings(piPatch: Partial<TauConfig>, scope: "global" | "project", cwd?: string): Promise<void> {
-    const targetPath = scope === "project" && cwd ? this.piProjectPathResolver(cwd) : this.piGlobalPath;
-    const existing = (await readJson<Record<string, unknown>>(targetPath)) ?? {};
-    await writeJson(targetPath, { ...existing, ...tauConfigToPiSettings(piPatch) });
   }
 
   /**
