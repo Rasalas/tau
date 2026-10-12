@@ -1,0 +1,74 @@
+name: Stable candidate
+
+on:
+  schedule:
+    - cron: '15 10 * * 2'
+      timezone: Europe/Berlin
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional stable version, otherwise the next patch (also for urgent fixes)
+        type: string
+        required: false
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+concurrency:
+  group: stable-candidate
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.repository == 'Rasalas/tau' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          RELEASE_REVIEWER: ${{ vars.RELEASE_REVIEWER || github.repository_owner }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        with:
+          script: |
+            const { prepareCandidate } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/stable-candidate.mjs`);
+            const result = await prepareCandidate({ github, repo: context.repo, reviewer: process.env.RELEASE_REVIEWER, requestedVersion: process.env.REQUESTED_VERSION, runId: context.runId, scheduled: context.eventName === 'schedule' });
+            await core.summary.addHeading('Stable candidate').addRaw(result.skipped ? 'No shipped changes since the latest stable release.' : result.url).write();
+
+  publish:
+    if: github.repository == 'Rasalas/tau' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.user.login == 'github-actions[bot]' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'release/stable-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const { publishCandidate } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/stable-candidate.mjs`);
+            const result = await publishCandidate({ github, repo: context.repo, pr: context.payload.pull_request });
+            await core.summary.addHeading('Approved stable release').addRaw(JSON.stringify(result)).write();

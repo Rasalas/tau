@@ -19,8 +19,9 @@ on:
         default: false
 
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  # Publishing runs share one queue across main/nightly and stable tags.
+  group: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || inputs.publish) && 'release-publish' || format('release-build-{0}', github.ref) }}
+  queue: max
 
 # Write access only where a release is made (release, nightly).
 permissions:

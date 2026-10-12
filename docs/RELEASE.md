@@ -79,6 +79,62 @@ updater will compare against that one. Keep them equal.
 4. Once the release is published, update the package managers
    ([Package managers](#package-managers)).
 
+### Weekly stable candidates and urgent fixes
+
+Actions → **Stable candidate** prepares a release PR on Tuesdays at 10:15
+Europe/Berlin, including summer/winter time. GitHub may start scheduled runs
+later when its runners are busy. It opens nothing when only documentation,
+tests, workflow files or version numbers changed since the latest stable.
+
+The PR contains the next patch version in `package.json` and
+`package-lock.json`, a kits patch when shipped kits changed, and proposed
+release notes in its body. A deliberate version bump already on `main` is
+kept. `RELEASE_REVIEWER` names the reviewer and assignee; it defaults to the
+repository owner, `Rasalas`. Requesting review and assigning the PR puts it in
+the person's GitHub notifications. Email and mobile push depend on their own
+GitHub notification settings; the workflow does not change those settings.
+
+There is at most one open candidate. Each subsequent Tuesday adds an
+`@Rasalas` reminder to that PR, using `RELEASE_REVIEWER` when configured.
+Its branch is not rewritten, so an ongoing review is preserved. Close a
+candidate to defer it; a later run can prepare a fresh one. A manual run can
+also recreate a candidate after a newly landed hotfix, by closing the old PR
+first. Candidates for versions already released by hand are closed as obsolete.
+
+**Merging the candidate is the publishing approval.** Before merging, confirm
+CI and performance checks are green and try the relevant flows in an isolated
+Tau instance. Give larger changes at least a day of nightly use. An urgent,
+focused regression fix may go out immediately after its targeted checks.
+Leaving a PR open or closing it without merging publishes nothing.
+
+After a candidate is merged by a maintainer, the workflow validates that only
+version fields changed, creates `v<version>` on that exact merge commit and
+explicitly dispatches `release.yml` on the tag. The release workflow still
+runs its existing verification, signing and upload gates. This explicit
+dispatch is necessary because tags created with `GITHUB_TOKEN` do not trigger
+another workflow through a push event. A failed release can be retried through
+Actions → Release → Run workflow on the existing tag, with `publish=true`.
+Successful or still-running releases are not dispatched again by retrying the
+candidate workflow. Published stable release notes come from GitHub's source
+history, as with manually tagged releases.
+
+For a hotfix, run **Stable candidate** manually on `main` at any time. Its
+optional `version` input allows a minor/major release; leaving it blank uses
+the next patch. A different version cannot replace an open candidate silently.
+The same review and merge path applies, with no wait until Tuesday.
+
+Nightly and stable publishing runs share a concurrency queue, including their
+mobile uploads. They can be started immediately after each other; runs wait
+without cancelling the running release or replacing a pending one. Builds
+from non-publishing feature branches use separate groups.
+
+The repository's Actions setting **Allow GitHub Actions to create and approve
+pull requests** must be enabled for candidate PR creation. This workflow
+creates PRs and requests human review; it never approves or merges a PR.
+The jobs use narrowly scoped `GITHUB_TOKEN` permissions and explicitly
+dispatch candidate CI and performance checks, so they do not rely on push or
+PR events from the workflow token.
+
 ### How long a release takes
 
 About a quarter of an hour from the tag to the published release; 0.7.14 took
