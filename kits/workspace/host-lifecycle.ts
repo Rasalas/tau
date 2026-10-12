@@ -342,7 +342,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
 
   /**
    * A restore backup is a real recovery thread, not only a retention marker.
-   * Opening it replays its verified workspace pair while retaining a temporary
+   * Its first successful opening replays its verified pair with a temporary
    * rollback pair for the workspace that is currently on disk.
    */
   const restoreBackupWorkspaceOnOpen = async (thread: HostThread): Promise<HostActivationTransaction | undefined> => {
@@ -354,6 +354,14 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     const backup = turnRestoreBackupsFromEntries(thread.entries(), thread.sessionId).at(-1);
     if (!backup) return undefined;
     if (backup.cwd !== thread.cwd) throw new Error("This restore backup belongs to another workspace.");
+    const applied = turnRestoreTransactionsFromEntries(thread.entries(), thread.sessionId).some((transaction) =>
+      transaction.kind === "backup-open"
+      && transaction.state === "committed"
+      && transaction.targetSessionId === thread.sessionId
+      && transaction.sourceCheckpointId === backup.backupId
+      && transaction.targetAfterSnapshotId === backup.afterSnapshotId,
+    );
+    if (applied) return undefined;
     if (!thread.isIdle()) throw new Error("Wait for the backup thread to become idle before restoring its workspace.");
     const active = services.thread();
     if (active && active.sessionId !== thread.sessionId && active.isStreaming()) {

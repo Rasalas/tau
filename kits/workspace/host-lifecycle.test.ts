@@ -395,6 +395,53 @@ describe("rewinding to a checkpoint", () => {
     expect(fixture.activate).toHaveBeenCalledOnce();
   }, 90_000);
 
+  it.each([false, true])("preserves edits when reopening an applied backup, with lifecycle restarted: %s", async (restart) => {
+    const fixture = await rewindFixture();
+    await fixture.kit.restore(fixture.sessionId, "turn-1");
+    const backup = fixture.branches.find((created) => created.appended.some((entry) => entry.customType === TURN_RESTORE_BACKUP_CUSTOM_TYPE))!;
+    const backupThread = thread({
+      sessionId: backup.sessionId, cwd: fixture.cwd, sessionFile: backup.path,
+      entries: backup.entries, appendEntry: backup.appendEntry,
+    });
+    const first = await fixture.kit.lifecycle.beforeActivate!(backupThread);
+    expect(first).toBeDefined();
+    expect(await fixture.note()).toBe("later, uncommitted\n");
+    await first!.commit();
+
+    await writeFile(join(fixture.cwd, "note.txt"), "work after opening backup\n");
+    await writeFile(join(fixture.cwd, "new.txt"), "new untracked work\n");
+    const kit = restart
+      ? createWorkspaceKitLifecycle(services({ cwd: () => fixture.cwd }), { emit: () => undefined, maintenance: maintenance() })
+      : fixture.kit;
+    await kit.lifecycle.beforeActivate!(thread({ cwd: fixture.cwd, entries: () => [] }));
+    const second = await kit.lifecycle.beforeActivate!(backupThread);
+    // Finish the activation even on a regression, so the workspace lease is released.
+    await second?.commit();
+
+    expect(await fixture.note()).toBe("work after opening backup\n");
+    expect(await readFile(join(fixture.cwd, "new.txt"), "utf8")).toBe("new untracked work\n");
+    expect(second).toBeUndefined();
+  }, 90_000);
+
+  it("retries a backup open after activation rolled back", async () => {
+    const fixture = await rewindFixture();
+    await fixture.kit.restore(fixture.sessionId, "turn-1");
+    const backup = fixture.branches.find((created) => created.appended.some((entry) => entry.customType === TURN_RESTORE_BACKUP_CUSTOM_TYPE))!;
+    const backupThread = thread({
+      sessionId: backup.sessionId, cwd: fixture.cwd, sessionFile: backup.path,
+      entries: backup.entries, appendEntry: backup.appendEntry,
+    });
+    const first = await fixture.kit.lifecycle.beforeActivate!(backupThread);
+    expect(first).toBeDefined();
+    await first!.rollback();
+    expect(await fixture.note()).toBe("checkpoint\n");
+
+    const retry = await fixture.kit.lifecycle.beforeActivate!(backupThread);
+    expect(retry).toBeDefined();
+    await retry!.commit();
+    expect(await fixture.note()).toBe("later, uncommitted\n");
+  }, 90_000);
+
   it("refuses while the thread still works, and touches nothing", async () => {
     const fixture = await rewindFixture();
     const busy = createWorkspaceKitLifecycle(services({
