@@ -2152,13 +2152,15 @@ instance's own home, and `billing` is the instance's login where the kit knows i
 reads nothing for it. Usage reads the folders in its worker: only lines that carry usage
 (Codex's `token_usage_record` per response, or older `token_count` events counted by the
 step of their running total, without a fork's replayed start; one assistant response of
-the CLI once per message and request id; OpenCode's assistant messages), summed per
+the CLI once per message and request id; OpenCode's assistant messages and, from OpenCode 2, a compaction's own request), summed per
 session, model and quarter hour as they are read and cached per file by size and mtime in
 `outside-usage.json` (one JSON line per file, streamed, with sums and 53-bit hashes of the
 responses' ids only), over the last twelve months. A log that only grew is read from where
 the last read stopped; one written anew, from its start. OpenCode's database is read in
 insertion order past the rows that can no longer change, and SQLite pulls the few fields
-a count needs out of each row, so a large row never reaches the worker's heap. A response
+a count needs out of each row, so a large row never reaches the worker's heap. OpenCode 1.x and 2 write the same file name; the reader takes
+both generations' tables (`session` and `session_v2` for where a session ran, `message`
+and `session_message` for the responses), a message both hold once. A response
 another log holds too (an archived rollout, a resumed session) counts where it was read
 first. Nothing holds a whole file or every response, so years of logs fit the worker's
 256 MB heap (`kits/usage/scan-memory.test.ts` reads 400,000 responses in 64 MB). A summary waits a moment for a first read and otherwise answers with what

@@ -187,6 +187,40 @@ describe("OpenCode's database", () => {
     expect(records.get("ses-b")![0]!.cost).toBe(0.02);
   });
 
+  it("reads OpenCode 2's tables: sessions from session_v2, assistants by the type column, a compaction's own request", async () => {
+    const open = await openSqlite();
+    if (!open) return;
+    const path = join(await temp(), "opencode.db");
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path);
+    db.exec("CREATE TABLE session (id text PRIMARY KEY, project_id text, parent_id text, directory text NOT NULL)");
+    db.exec("CREATE TABLE session_v2 (id text PRIMARY KEY, project_id text NOT NULL, parent_id text, directory text NOT NULL, cost real DEFAULT 0 NOT NULL, tokens_input integer DEFAULT 0 NOT NULL, model text, time_created integer NOT NULL, time_updated integer NOT NULL)");
+    db.exec("CREATE TABLE session_message (id text PRIMARY KEY, session_id text NOT NULL, type text NOT NULL, seq integer NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL)");
+    // A session migrated from 1.x sits in both tables; the one OpenCode 2 keeps wins.
+    db.prepare("INSERT INTO session VALUES ('ses_old', 'p', NULL, '/work/old')").run();
+    db.prepare("INSERT INTO session_v2 VALUES ('ses_old', 'p', NULL, '/work/moved', 0, 0, NULL, ?, ?)").run(T0, T0);
+    db.prepare("INSERT INTO session_v2 VALUES ('ses_new', 'p', 'ses_old', '/work/delta', 0, 0, NULL, ?, ?)").run(T0, T0);
+    const insert = db.prepare("INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const model = { id: "space-bunny-free", providerID: "opencode", variant: "default" };
+    insert.run("msg_u", "ses_new", "user", 0, T0 + S, T0 + S, JSON.stringify({ time: { created: T0 + S }, text: "hi", files: [] }));
+    insert.run("msg_a", "ses_new", "assistant", 1, T0 + 2 * S, T0 + 3 * S, JSON.stringify({ time: { created: T0 + 2 * S }, agent: "build", model, content: [], cost: 0.5, tokens: { input: 3741, output: 3, reasoning: 2, cache: { read: 1693, write: 0 } } }));
+    insert.run("msg_pending", "ses_new", "assistant", 2, T0 + 4 * S, T0 + 4 * S, JSON.stringify({ time: { created: T0 + 4 * S }, agent: "build", model, content: [] }));
+    insert.run("msg_c", "ses_old", "compaction", 3, T0 + 5 * S, T0 + 5 * S, JSON.stringify({ time: { created: T0 + 5 * S }, status: "completed", reason: "auto", model, summary: "s", recent: "r", cost: 0.1, tokens: { input: 50, output: 7, reasoning: 0, cache: { read: 0, write: 0 } } }));
+    insert.run("msg_c_running", "ses_old", "compaction", 4, T0 + 6 * S, T0 + 6 * S, JSON.stringify({ time: { created: T0 + 6 * S }, status: "running", reason: "auto", summary: "", recent: "" }));
+    insert.run("msg_i", "ses_new", "idle", 5, T0 + 7 * S, T0 + 7 * S, JSON.stringify({ time: { created: T0 + 7 * S }, outcome: "succeeded" }));
+    db.close();
+
+    const records: Array<[string, OutsideRecord]> = [];
+    const read = await readOpenCodeDatabase(path, { since: T0 - S, finalBefore: T0 }, open, async () => undefined, (sessionId, record) => { records.push([sessionId, record]); });
+    expect(read.unsupported).toBeUndefined();
+    expect(read.sessions.get("ses_old")).toEqual({ cwd: "/work/moved" });
+    expect(read.sessions.get("ses_new")).toEqual({ cwd: "/work/delta", parentId: "ses_old" });
+    expect(records.map(([sessionId, record]) => [sessionId, record.key, record.input, record.output, record.cacheRead, record.total, record.cost, record.provider, record.model])).toEqual([
+      ["ses_new", "opencode:msg_a", 3741, 5, 1693, 5439, 0.5, "opencode", "space-bunny-free"],
+      ["ses_old", "opencode:msg_c", 50, 7, 0, 57, 0.1, "opencode", "space-bunny-free"],
+    ]);
+  });
+
   it("says so when the database has no table it knows", async () => {
     const open = await openSqlite();
     if (!open) return;
