@@ -77,7 +77,7 @@ describe("Worktree Names desktop extension", () => {
 
     invoke.mockRejectedValueOnce(new Error("The model did not answer with a usable branch name."));
     await expect(workspaceStore.suggestWorktreeName("")).resolves.toBeUndefined();
-    expect(notify).toHaveBeenCalledWith("The model did not answer with a usable branch name.");
+    expect(notify).toHaveBeenCalledWith("The model did not answer with a usable branch name.", "error");
 
     registry.deactivate(WORKTREE_NAMES_HOST_EXTENSION_ID);
     expect(workspaceStore.getSnapshot().canNameWorktrees).toBe(false);

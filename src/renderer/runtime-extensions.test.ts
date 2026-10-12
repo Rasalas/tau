@@ -53,7 +53,7 @@ describe("runtime desktop extensions", () => {
     }).sync("/project");
     expect(activate).not.toHaveBeenCalled();
     expect(registry.getExtensionSummaries()).toEqual([]);
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining("does not match manifest id"));
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("does not match manifest id"), "error");
   });
   it("re-reads the same workspace on resync, and does nothing before the first sync", async () => {
     const registry = new ExtensionRegistry();
