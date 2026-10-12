@@ -200,7 +200,7 @@ export class WorkbenchStore {
       return undefined;
     }
     if (update.type === "catalog") {
-      if (update.catalog.model?.provider) threads.setThreadModelProvider(threads.getSnapshot().activeThreadId, update.catalog.model.provider, update.catalog.model.id);
+      if (update.catalog.model?.provider) threads.setThreadModelProvider(update.catalog.sessionId ?? threads.getSnapshot().activeThreadId, update.catalog.model.provider, update.catalog.model.id);
       // The history cache is the base a later thread detail merges onto, so it
       // has to take the catalog too; otherwise the next detail restores the
       // model the thread had before this change.
