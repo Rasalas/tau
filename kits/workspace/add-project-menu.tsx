@@ -16,7 +16,7 @@ function folderName(path: string): string {
 }
 
 async function open(app: WorkbenchActions, workspace: string): Promise<void> {
-  if (!await app.openWorkspace(workspace)) app.notify("That folder could not be opened as a project.");
+  if (!await app.openWorkspace(workspace)) app.notify("That folder could not be opened as a project.", "error");
 }
 
 /**
@@ -71,7 +71,7 @@ export function addProjectMenu(host: AddProjectHost): PaletteMenu {
             const picked = await host.pickFolder();
             if (picked) await open(app, picked.workspaceId);
           } catch (error) {
-            app.notify(errorMessage(error));
+            app.notify(errorMessage(error), "error");
           }
         },
       },

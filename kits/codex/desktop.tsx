@@ -451,7 +451,7 @@ export function createThreadSettingsControl(host: HostExtensionClient) {
         const value = await host.invoke(command, { threadId, ...input }) as CodexThreadSettings;
         if (currentThread.current === threadId) setState(value);
       }
-      catch (failure) { const message = errorMessage(failure); if (currentThread.current === threadId) setError(message); actions?.notify(message); }
+      catch (failure) { const message = errorMessage(failure); if (currentThread.current === threadId) setError(message); actions?.notify(message, "error"); }
       finally { if (currentThread.current === threadId) setBusy(false); }
     };
     const disabled = busy || Boolean(snapshot?.isStreaming);

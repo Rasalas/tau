@@ -56,7 +56,7 @@ describe("message actions from extensions", () => {
   it("reports a failing action instead of throwing", async () => {
     const { actions } = renderMessages(vi.fn(() => { throw new Error("no composer"); }));
     fireEvent.click(screen.getByRole("button", { name: "Cite" }));
-    await vi.waitFor(() => expect(actions.notify).toHaveBeenCalledWith("no composer"));
+    await vi.waitFor(() => expect(actions.notify).toHaveBeenCalledWith("no composer", "error"));
   });
 });
 

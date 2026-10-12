@@ -101,7 +101,7 @@ function ProposalView({ tool, host, actions, compact }: { tool: UiToolRun; host:
       via: "card", threadId: proposal.threadId, ...(proposal.note ? { note: proposal.note } : {}),
     }).then(
       (value) => setStage({ kind: "done", result: value as DeployResult }),
-      (failure: unknown) => { actions.notify(errorMessage(failure)); setStage({ kind: "idle" }); },
+      (failure: unknown) => { actions.notify(errorMessage(failure), "error"); setStage({ kind: "idle" }); },
     );
   };
   const open = () => { openTarget(actions, proposal.workspace, proposal.target.id); };

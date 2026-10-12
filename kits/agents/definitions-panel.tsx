@@ -26,7 +26,7 @@ function DefinitionItem({ row, parentThreadId, actions }: {
         setOpen(false);
         actions.notify(`Started ${definition.name}.`);
       })
-      .catch((error: unknown) => actions.notify(errorMessage(error)))
+      .catch((error: unknown) => actions.notify(errorMessage(error), "error"))
       .finally(() => setBusy(false));
   };
 

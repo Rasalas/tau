@@ -293,7 +293,7 @@ export function addExcerptToPrompt(target: UiTerminalSession, text: string, acti
     actions?.focusComposer();
     return true;
   } catch (error) {
-    actions?.notify(errorMessage(error));
+    actions?.notify(errorMessage(error), "error");
     return false;
   }
 }

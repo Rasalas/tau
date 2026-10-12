@@ -204,7 +204,7 @@ export class StageTabController {
     if (!contribution) return false;
     const actions = this.ports.actions?.();
     if (contribution.reopen && actions) {
-      void Promise.resolve(contribution.reopen(tab.params, actions)).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+      void Promise.resolve(contribution.reopen(tab.params, actions)).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error), "error"));
       return true;
     }
     this.open(tab.tabKind, tab.params);

@@ -205,7 +205,7 @@ export default function workspacePiExtension(pi: ExtensionAPI, bridge: PiKitBrid
       });
       bridge.refreshSnapshot(ctx);
     } catch (error) {
-      ctx.ui.notify(`Turn checkpoint history could not be carried into the fork: ${String(error)}`, "error");
+      ctx.ui.notify(`Turn checkpoint history could not be carried into the fork: ${error instanceof Error ? error.message : String(error)}`, "error");
     }
   });
 

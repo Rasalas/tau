@@ -174,7 +174,7 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
         targets.submission.settleDelivery(event.clientMessageId, event.sessionId, { accepted: false, message: event.message });
       }
       if (event.sessionId === threadStore.getSnapshot().activeThreadId
-        || recoveryScope === targets.currentDraftKey()) view.setNotice(event.message);
+        || recoveryScope === targets.currentDraftKey()) view.setNotice(event.message, "error");
       // A supervisor watching a list of threads sees the refusal on the row,
       // not only in a toast the thread on screen gets.
       threadStore.markFailed(event.sessionId);

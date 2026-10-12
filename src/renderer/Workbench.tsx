@@ -652,7 +652,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           void create().then((project) => {
             closeNewThreadPicker();
             createThreadInProject(project, newThreadPick?.carry ? { carry: true } : undefined);
-          }).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+          }).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error), "error"));
         } : undefined}
         onBrowse={() => actions.openProjectSources()}
         onClose={closeNewThreadPicker}
@@ -1192,7 +1192,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   pendingNewThread: boolean;
   draftRuntime?: string | undefined;
   activeDraftKey?: string;
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   actions?: WorkbenchActions;
 }) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);

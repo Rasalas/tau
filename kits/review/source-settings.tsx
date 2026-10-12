@@ -48,7 +48,7 @@ function ProviderRow({ status }: { status: SourceProviderStatus }) {
  * server whose name does not say. Credentials stay with each provider's own
  * CLI or Git's credential helper; this page only reads whether they are there.
  */
-export function SourceControlSettings({ host, onNotify }: { host: HostExtensionClient; onNotify(message: string): void }) {
+export function SourceControlSettings({ host, onNotify }: { host: HostExtensionClient; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const [statuses, setStatuses] = useState<SourceProviderStatus[]>();
   const [hosts, setHosts] = useState<SourceHosts>({});
   const [loading, setLoading] = useState(false);
@@ -77,7 +77,7 @@ export function SourceControlSettings({ host, onNotify }: { host: HostExtensionC
       setHosts(await host.invoke("set-source-host", { host: name, service: kind }) as SourceHosts);
       if (kind) setServer("");
     } catch (reason) {
-      onNotify(`${kind ? `${name} was not added` : `${name} was not forgotten`}: ${errorMessage(reason)}`);
+      onNotify(`${kind ? `${name} was not added` : `${name} was not forgotten`}: ${errorMessage(reason)}`, "error");
     }
   };
   const add = () => {

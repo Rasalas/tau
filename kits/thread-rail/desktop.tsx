@@ -169,7 +169,7 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
     useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
     const settings = store.getState().settings;
     const readOnly = useHostCapabilities().readOnly ? READ_ONLY_REASON : undefined;
-    const change = (patch: Partial<Record<keyof RailSettings, unknown>>) => { update(patch).catch((error: unknown) => onNotify(errorMessage(error))); };
+    const change = (patch: Partial<Record<keyof RailSettings, unknown>>) => { update(patch).catch((error: unknown) => onNotify(errorMessage(error), "error")); };
     // The rules live with the host's sweep (its own state file), not in Tau's config, so these rows have no levels.
     const toggle = (key: "onMerged" | "onClosed" | "workingSection", label: string, hint: string) => (
       <SettingRow
@@ -221,7 +221,7 @@ function createSettleRow(store: RailStore, update: (settings: Partial<Record<key
     return (
       <SettingRow id="setting-settle-automatically" title="Settle automatically" wholeMachine description={on ? `after a merge, or ${daysLabel(days ?? 7)} idle` : undefined}
         control={<Switch label="Settle automatically" checked={on} onChange={(next) => {
-          update(next ? { onMerged: true, inactiveDays: days ?? 7 } : { onMerged: false, onClosed: false, inactiveDays: null }).catch((error: unknown) => onNotify(errorMessage(error)));
+          update(next ? { onMerged: true, inactiveDays: days ?? 7 } : { onMerged: false, onClosed: false, inactiveDays: null }).catch((error: unknown) => onNotify(errorMessage(error), "error"));
         }} />} />
     );
   };
@@ -327,7 +327,7 @@ async function claimNewThread(
         // oxlint-disable-next-line no-await-in-loop
         await workspace.removeWorktree?.(prepared.workspace.displayPath);
       }
-      actions.notify(`${key}: ${errorMessage(error)}`);
+      actions.notify(`${split < 0 ? key : key.slice(split + 2)}: ${errorMessage(error)}`, "error");
     }
   }
   selection.retain(failed);
@@ -363,7 +363,7 @@ export const threadRailExtension: DesktopExtension = {
         return false;
       });
     };
-    const undo = new ThreadUndo({ onError: (action, error) => store.actions?.notify(`Failed to undo ${UNDO_VERB[action]}: ${errorMessage(error)}`) });
+    const undo = new ThreadUndo({ onError: (action, error) => store.actions?.notify(`Failed to undo ${UNDO_VERB[action]}: ${errorMessage(error)}`, "error") });
     const trashListeners = new Set<(trash: readonly TrashedThread[]) => void>();
     const organizer = createRailOrganizer(store, {
       send,

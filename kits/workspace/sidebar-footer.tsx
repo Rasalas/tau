@@ -1,5 +1,5 @@
 import { ChevronLeft, CircleArrowUp, Settings } from "lucide-react";
-import { READ_ONLY_REASON, tooltipProps, useAppUpdate, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
+import { errorMessage, READ_ONLY_REASON, tooltipProps, useAppUpdate, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
 
 const noBadge = () => undefined;
 const noSummary = () => undefined;
@@ -88,7 +88,7 @@ export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions
           {...tooltipProps(readOnly && command.access !== "read" ? READ_ONLY_REASON : command.label, { side: "top" })}
           aria-label={command.label}
           disabled={readOnly && command.access !== "read"}
-          onClick={() => { void registry.executeCommand(command.id, actions).catch((error) => actions.notify(String(error))); }}
+          onClick={() => { void registry.executeCommand(command.id, actions).catch((error) => actions.notify(errorMessage(error), "error")); }}
         >
           {command.Icon ? <command.Icon size={15} /> : command.label}
         </button>

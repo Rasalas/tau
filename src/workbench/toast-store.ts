@@ -15,7 +15,7 @@ export interface ToastOptions {
   title?: string;
   description?: string;
   actions?: readonly ToastAction[];
-  /** Milliseconds on screen while nobody hovers or focuses the stack; 0 keeps it until dismissed. */
+  /** Milliseconds on screen while nobody hovers or focuses the stack; 0 keeps it until dismissed. An `error` stays by default. */
   timeoutMs?: number;
   /** What the copy button puts on the clipboard; without it there is no copy button. */
   copyText?: string;
@@ -37,6 +37,11 @@ export interface ToastHandle {
 export const TOAST_TIMEOUT_MS = 5_000;
 /** How many toasts the stack shows at once; the older ones wait, without their clocks running. */
 export const TOAST_MAX_VISIBLE = 3;
+
+/** A failure waits for the user: an `error` without a `timeoutMs` stays until dismissed. */
+function timeoutOf(toast: Toast): number {
+  return toast.timeoutMs ?? (toast.type === "error" ? 0 : TOAST_TIMEOUT_MS);
+}
 
 type Schedule = (run: () => void, ms: number) => () => void;
 
@@ -148,7 +153,7 @@ export class ToastStore {
     if (!toast || !clock || !this.covered?.(id)) { this.dismiss(id); return; }
     clock.cancel = undefined;
     clock.startedAt = undefined;
-    clock.remaining = toast.timeoutMs ?? TOAST_TIMEOUT_MS;
+    clock.remaining = timeoutOf(toast);
     this.sync();
   }
 
@@ -167,7 +172,7 @@ export class ToastStore {
     for (const toast of this.toasts.slice(this.maxVisible)) this.stopClock(toast.id);
     if (this.holds.size === 0) {
       for (const toast of visible) {
-        const timeout = toast.timeoutMs ?? TOAST_TIMEOUT_MS;
+        const timeout = timeoutOf(toast);
         if (timeout <= 0 || toast.type === "loading") { this.stopClock(toast.id); this.clocks.delete(toast.id); continue; }
         let clock = this.clocks.get(toast.id);
         if (!clock) { clock = { remaining: timeout }; this.clocks.set(toast.id, clock); }

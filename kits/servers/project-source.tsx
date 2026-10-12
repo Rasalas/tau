@@ -180,7 +180,7 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
     const opened = async (made: ProjectMade, what: string) => {
       onDone();
       actions.notify(`${what}: ${count(made.files)} files in the first commit on ${made.branch}.`);
-      if (!await actions.openWorkspace(made.workspaceId)) actions.notify("The project could not be opened.");
+      if (!await actions.openWorkspace(made.workspaceId)) actions.notify("The project could not be opened.", "error");
     };
     const create = (target: DraftServer, remotePath: string) => run("create", async () => {
       const made = await host.invoke("create-project", { server: target, remotePath, parent: parent.trim(), name: name.trim(), exclude: excluded }) as ProjectMade;

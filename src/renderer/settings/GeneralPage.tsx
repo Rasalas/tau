@@ -44,7 +44,7 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
   /** No Appearance page to choose the theme on (safe mode): every theme is offered here. */
   themeHere: boolean;
   sections?: readonly GeneralSection[];
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const preferences = usePreferences();
   const dictation = useClientEnvironment().dictation;

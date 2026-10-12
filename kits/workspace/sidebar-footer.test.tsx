@@ -42,6 +42,20 @@ describe("sidebar footer pages", () => {
     expect(screen.queryByRole("dialog", { name: "Usage" })).toBeNull();
   });
 
+  it("shows a footer command that fails as an error toast without the Error: prefix", async () => {
+    const pages: DesktopExtension = {
+      id: "failing-test", name: "Failing test", activate(plugin) {
+        plugin.registerCommand({ id: "failing-test.open", label: "Usage", group: "Test", access: "read", surfaces: ["sidebar-footer"], Icon: ChartColumn, run: async () => { throw new Error("Usage is not reachable."); } });
+      },
+    };
+    renderApp(undefined, { extensions: [workspaceExtension, pages] });
+    fireEvent.click(await screen.findByRole("button", { name: "Usage" }));
+    const toast = await screen.findByRole("alert");
+    expect(toast.textContent).toContain("Usage is not reachable.");
+    expect(toast.textContent).not.toContain("Error:");
+    expect(within(toast).getByRole("button", { name: "Copy" })).toBeTruthy();
+  });
+
   it("draws a page's count on its icon and reads it out with the label", async () => {
     let count: number | undefined = 3;
     const pages: DesktopExtension = {

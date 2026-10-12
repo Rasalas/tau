@@ -78,7 +78,7 @@ export function useTargetActions(parts: ServerViewParts, actions: WorkbenchActio
   const targetId = target?.targetId;
   const run = useCallback((kind: "check" | "download" | "terminal" | "git", step: () => Promise<unknown>) => {
     setBusy(kind);
-    step().catch((failure: unknown) => actions.notify(errorMessage(failure))).finally(() => { setBusy(undefined); setProgress(undefined); });
+    step().catch((failure: unknown) => actions.notify(errorMessage(failure), "error")).finally(() => { setBusy(undefined); setProgress(undefined); });
   }, [actions]);
   const check = () => { if (targetId) run("check", () => parts.store.check(cwd, targetId)); };
   const download = () => {

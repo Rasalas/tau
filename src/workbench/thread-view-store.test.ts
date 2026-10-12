@@ -243,7 +243,7 @@ describe("reduceHostEvent", () => {
     expect(notice.notice).toEqual({ message: "saved", level: "warning" });
 
     const error = reduceHostEvent(state(), { type: "error", message: "broken" });
-    expect(error.notice).toEqual({ message: "broken", level: "info" });
+    expect(error.notice).toEqual({ message: "broken", level: "error" });
 
     const logged = reduceHostEvent(state(), { type: "event-log", label: "thread.switch", detail: "12ms", timestamp: 7 });
     expect(logged.events).toEqual([{ id: "7-0", label: "thread.switch", detail: "12ms", timestamp: 7 }]);

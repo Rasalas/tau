@@ -19,14 +19,14 @@ type Match = NonNullable<ReturnType<ExtensionRegistry["matchKeybinding"]>>;
 export function useAppKeybindings(
   registry: ExtensionRegistry,
   actions: WorkbenchActions,
-  onNotice: (message: string) => void,
+  onNotice: (message: string, level?: "info" | "warning" | "error") => void,
 ): void {
   useEffect(() => {
     const chosen = new WeakMap<KeyboardEvent, Match>();
     const run = (match: Match) => {
       const refused = commandRefusal(match.command, hostIsReadOnly());
       if (refused) { onNotice(refused); return; }
-      Promise.resolve(match.command.run(actions)).catch((error) => onNotice(`${match.command.id}: ${errorMessage(error)}`));
+      Promise.resolve(match.command.run(actions)).catch((error) => onNotice(`${match.command.label}: ${errorMessage(error)}`, "error"));
     };
     const early = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;

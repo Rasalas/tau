@@ -143,7 +143,7 @@ export function handOffComments(comments: readonly ReviewComment[], options: {
       } catch (error) {
         if (taken.length > 0 || frames >= HANDOFF_FRAMES) {
           if (taken.length > 0) remove(taken);
-          actions.notify(`Some review comments stayed in the review: ${error instanceof Error ? error.message : String(error)}`);
+          actions.notify(`Some review comments stayed in the review: ${error instanceof Error ? error.message : String(error)}`, "error");
           return;
         }
         frames += 1;

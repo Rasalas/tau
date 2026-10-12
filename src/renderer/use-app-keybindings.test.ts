@@ -62,6 +62,20 @@ describe("useAppKeybindings", () => {
     shell.remove();
   });
 
+  it("reports a command that throws as an error, by its label and never its id", async () => {
+    const registry = new ExtensionRegistry();
+    await registry.activate({ id: "test", name: "Test", activate(context) {
+      context.registerCommand({ id: "thread.settle", label: "Settle thread", group: "Test", run: async () => { throw new Error("Nothing to settle."); } });
+      context.registerKeybinding({ keys: "mod+k", commandId: "thread.settle" });
+    } });
+    const onNotice = vi.fn();
+    renderHook(() => useAppKeybindings(registry, {} as WorkbenchActions, onNotice));
+    const isMac = /mac|iphone|ipad/iu.test(navigator.platform);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: isMac, ctrlKey: !isMac, bubbles: true }));
+    await vi.waitFor(() => { expect(onNotice).toHaveBeenCalledWith("Settle thread: Nothing to settle.", "error"); });
+    expect(JSON.stringify(onNotice.mock.calls)).not.toContain("thread.settle");
+  });
+
   it("runs no chord while a field that records chords has the keyboard", async () => {
     const registry = new ExtensionRegistry();
     const run = vi.fn();

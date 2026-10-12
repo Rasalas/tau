@@ -34,7 +34,7 @@ export function EvidenceViewer({ client, request, onClose, onDelete, onAttach, n
   onDelete(): void;
   /** Absent when no review takes pictures. */
   onAttach?(): void;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const { threadId, turn } = request;
   const frames = turn.frames;

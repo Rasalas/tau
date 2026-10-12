@@ -128,7 +128,7 @@ export default function App() {
         ? client.loadDesktopExtensions(cwd, sharedExports, only)
         : Promise.resolve({ bundles: [], errors: [], skipped: [] }),
       isEnabled: (id) => preferences.isExtensionEnabled(id),
-      notify: (message) => viewStore.setNotice(message),
+      notify: viewStore.setNotice,
       toast: (options) => workbenchSession.toasts.show(options),
       openSettings: (target) => actionsRef.current?.openSettings(target),
       log: (label, detail) => viewStore.addEvent(label, detail),
@@ -280,7 +280,7 @@ export default function App() {
       preferences,
       hostSession,
       delivery: newThreadDelivery,
-      notify: (message) => viewStore.setNotice(message),
+      notify: viewStore.setNotice,
       actions: () => actionsRef.current,
       newThread: {
         current: currentPendingNewThread,
@@ -369,19 +369,19 @@ export default function App() {
     applyActionResult,
     seedComposer: (text) => { if (actionsRef.current?.setComposerDraft) actionsRef.current.setComposerDraft(text); else setComposerSeed(text); },
     composerDraft: () => actionsRef.current?.composerDraft() ?? "",
-    notify: (message) => setNotice(message),
+    notify: setNotice,
     composerRef,
     requestFork: threadCommands.requestFork,
   });
 
   useEffect(() => {
     if (!client) return;
-    if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
+    if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error), "error"));
     // A project's own settings apply from the start screen on, before its thread has a workspace id.
     preferences.setWorkspace(activeWorkspaceId ?? workspaceCwd);
   }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
   const syncDesktopExtensions = useCallback((only?: readonly string[], report?: PackagesChangeReport) => {
-    void runtimeExtensions.resync(only, report).catch((error) => setNotice(errorMessage(error)));
+    void runtimeExtensions.resync(only, report).catch((error) => setNotice(errorMessage(error), "error"));
   }, [runtimeExtensions, setNotice]);
 
   const windowShell = useWindowShell({
@@ -478,7 +478,7 @@ export default function App() {
     const machine = lookInMachine(options?.machine, platform.environments);
     const lookIn = () => { setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) })); revealDocuments.current(); };
     if (!machine) { lookIn(); return; }
-    void machineThreadPath(machine, sessionId, client, threadStore).then(async (path) => { if (path) await switchSession(path); else lookIn(); }).catch((error: unknown) => setNotice(errorMessage(error)));
+    void machineThreadPath(machine, sessionId, client, threadStore).then(async (path) => { if (path) await switchSession(path); else lookIn(); }).catch((error: unknown) => setNotice(errorMessage(error), "error"));
   }, [client, platform, threadStore, switchSession, setNotice]);
   // A sub-agent's question waits on every thread above it: it is answered from any of them (design 1c).
   useEffect(() => {

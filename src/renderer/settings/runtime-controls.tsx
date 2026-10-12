@@ -123,7 +123,7 @@ export const runtimeControls: DesktopExtension = {
         label: "Back to this computer",
         group: "Workbench",
         access: "read",
-        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(errorMessage(error))),
+        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(errorMessage(error), "error")),
       });
     }
     // In the palette it lists the models; from a chord it opens the picker.
@@ -233,7 +233,7 @@ export const runtimeControls: DesktopExtension = {
       id, label, group: "Thread", access: "write",
       unavailable: () => goalCommandRefusal(refusal),
       run: async (app) => {
-        try { await app.threadGoal?.(action); } catch (error) { app.notify(errorMessage(error)); }
+        try { await app.threadGoal?.(action); } catch (error) { app.notify(errorMessage(error), "error"); }
       },
     });
     goalCommand("runtime.goal-pause", "Pause goal", "pause", "pause");

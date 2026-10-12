@@ -114,7 +114,7 @@ interface CardRowsProps {
   runInTerminal?(command: string): Promise<{ exitCode?: number }>;
   openExternal(url: string): void;
   copyText(text: string): Promise<void>;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   onReport(report: SignInReport): void;
   isDefault: boolean;
   state: ProgramState;

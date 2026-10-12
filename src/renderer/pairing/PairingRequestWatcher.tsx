@@ -16,7 +16,7 @@ const NOT_OWNER = new Set(["forbidden", "unsupported", "unknown-method"]);
  * whether this connection is the owner; from a host that does not say, a
  * paired client's window finds out on its first look and stops asking.
  */
-export function PairingRequestWatcher({ onNotify }: { onNotify?(message: string): void }) {
+export function PairingRequestWatcher({ onNotify }: { onNotify?(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
   const [requests, setRequests] = useState<UiPairingRequest[]>([]);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
@@ -64,7 +64,7 @@ export function PairingRequestWatcher({ onNotify }: { onNotify?(message: string)
     try {
       if (!await run()) onNotify?.(gone);
     } catch (error: unknown) {
-      onNotify?.(errorMessage(error));
+      onNotify?.(errorMessage(error), "error");
     } finally {
       setBusy(false);
       setRequests((current) => current.filter((entry) => entry.id !== request.id));

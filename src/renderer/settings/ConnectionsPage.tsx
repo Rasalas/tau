@@ -77,7 +77,7 @@ const idleLabel = (days: IdleTimeoutDays): string => (days === null ? "Never" : 
  * Only a connection with the host token sees it.
  */
 export function ConnectionsPage({ onNotify, sections = [] }: {
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** What packages add (`registerSettingsSection`): rows of This machine, or sections under Advanced. */
   sections?: ReadonlyArray<{ id: string; card?: SettingsCardId | undefined; order?: number | undefined; Component: ComponentType<SettingsSectionProps> }>;
 }) {
@@ -117,7 +117,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
       await run();
       if (done) onNotify(done);
     } catch (error: unknown) {
-      onNotify(errorOf(error).message);
+      onNotify(errorOf(error).message, "error");
     } finally {
       setBusy(undefined);
       await refresh();
@@ -131,7 +131,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
       onNotify(done);
       return true;
     } catch (error: unknown) {
-      onNotify(errorOf(error).message);
+      onNotify(errorOf(error).message, "error");
       return false;
     } finally {
       setBusy(undefined);
@@ -140,7 +140,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   };
 
   const copy = (text: string, what: string) => {
-    void client?.copyText(text).then(() => onNotify(`${what} copied`), (error: unknown) => onNotify(errorOf(error).message));
+    void client?.copyText(text).then(() => onNotify(`${what} copied`), (error: unknown) => onNotify(errorOf(error).message, "error"));
   };
 
   if (state.status === "loading") {

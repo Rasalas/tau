@@ -137,7 +137,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       applyHostResult(result, options?.inheritDraft ?? !pendingInFlight);
       return true;
     } catch (error) {
-      notify(errorMessage(error));
+      notify(errorMessage(error), "error");
       return false;
     }
   }, [activeDraftKey, applyHostResult, client, detachPendingDelivery, leavePendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
@@ -248,7 +248,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       const selected = view.getSnapshot();
       if (target && selected?.sessionId === target.id) applySnapshot(selected);
       else if (previous) applySnapshot(previous);
-      notify(errorMessage(error));
+      notify(errorMessage(error), "error");
       return false;
     } finally {
       releaseTarget?.();

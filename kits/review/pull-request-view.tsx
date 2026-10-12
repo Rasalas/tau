@@ -245,12 +245,12 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
       await shared.links.load(threadId);
       actions.notify(linked ? `Unlinked #${params.number} from this thread.` : `Linked #${params.number} to this thread.`);
     } catch (error) {
-      actions.notify(errorMessage(error));
+      actions.notify(errorMessage(error), "error");
     }
   };
 
   const copy = (key: string, value: string, done?: string) => {
-    void actions.copyText(value).then(() => { setCopied(key); if (done) actions.notify(done); }, (error: unknown) => actions.notify(errorMessage(error)));
+    void actions.copyText(value).then(() => { setCopied(key); if (done) actions.notify(done); }, (error: unknown) => actions.notify(errorMessage(error), "error"));
   };
 
   const timelineView = useMemo(() => detail ? filterTimelineComments(detail, { bots: filter.bots, resolved: filter.resolved }) : undefined, [detail, filter.bots, filter.resolved]);
@@ -474,7 +474,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
       </div>
 
       {picking ? (
-        <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={(message) => actions.notify(message)} />
+        <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={actions.notify} />
       ) : null}
 
       {composing && (writes.comment || writes.review) ? (

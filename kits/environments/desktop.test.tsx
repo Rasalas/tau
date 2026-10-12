@@ -295,7 +295,7 @@ describe("the other machines' threads in the rail", () => {
     source.threads()[0]!.toggleSettled!(fakeActions({ notify }));
     await act(async () => undefined);
     expect(source.threads().some((thread) => thread.settled)).toBe(false);
-    expect(notify).toHaveBeenCalledWith("studio lets this device read only.");
+    expect(notify).toHaveBeenCalledWith("studio lets this device read only.", "error");
     stop();
   });
 
@@ -1108,7 +1108,7 @@ describe("Run on: Automatic", () => {
     expect(environments.open).not.toHaveBeenCalled();
     environments.open.mockRejectedValueOnce(new Error("studio is not connected"));
     expect(await createAutoRunOnHook(environments, chooser()).claimNewThread!(claim(), fakeActions({ notify }))).toBe(false);
-    expect(notify).toHaveBeenLastCalledWith("Could not move to the chosen machine (studio is not connected); this thread starts here.");
+    expect(notify).toHaveBeenLastCalledWith("Could not move to the chosen machine (studio is not connected); this thread starts here.", "error");
     expect(environments.open).toHaveBeenCalledTimes(1);
   });
 

@@ -64,7 +64,7 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
   installPage?: string | undefined;
   onOpen(target: string): void;
   onRetry(): void;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   onHostHalves(halves: HostExtensionSummary[]): void;
   onChanged(): void;
 }) {

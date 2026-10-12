@@ -121,7 +121,7 @@ describe("the workspace device control", () => {
     await screen.findByRole("menuitem", { name: /rex/u });
     fireEvent.click(screen.getByRole("menuitem", { name: /rex/u }));
     fireEvent.click(screen.getByRole("button", { name: "Move to rex" }));
-    await vi.waitFor(() => expect(actions.notify).toHaveBeenCalledWith("rex is offline"));
+    await vi.waitFor(() => expect(actions.notify).toHaveBeenCalledWith("rex is offline", "error"));
     expect(actions.switchSession).not.toHaveBeenCalled();
     expect(actions.setComposerDraft).not.toHaveBeenCalled();
   });

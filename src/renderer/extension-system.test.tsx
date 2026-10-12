@@ -673,6 +673,20 @@ describe("new-thread claims and model selections", () => {
     await expect(registry.claimNewThread(event, actions)).rejects.toThrow("no");
   });
 
+  it("reports a hook that throws as an error under its extension's name, never its id", async () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "gate.pkg", name: "Project Gate", activate(context) {
+      context.registerPromptHook({ id: "gate.hook.before", beforeNewThread: async () => { throw new Error("no project"); }, afterPrompt: async () => { throw new Error("no record"); } });
+    } });
+    const notify = vi.fn();
+    const actions = { notify } as unknown as import("./extension-system").WorkbenchActions;
+
+    await registry.prepareNewThread({ prompt: "go", projectPath: "/project" } as never, actions);
+    await registry.notifyPromptSubmitted({ prompt: "go" } as never, actions);
+
+    expect(notify.mock.calls).toEqual([["Project Gate: no project", "error"], ["Project Gate: no record", "error"]]);
+  });
+
   it("offers the model selection the last extension registered, and forgets it on deactivation", () => {
     const registry = new ExtensionRegistry();
     const selection = (id: string) => ({ id, selected: () => [], subscribe: () => () => undefined, toggle: () => undefined, reset: () => undefined });

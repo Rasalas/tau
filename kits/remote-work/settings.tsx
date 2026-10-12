@@ -124,7 +124,7 @@ function LetGo({ machine, disabled, onConfirm }: { machine: string; disabled: bo
   </>;
 }
 
-function TransferRow({ transfer, host, allowed, now, onNotify }: { transfer: RepoTransfer; host: HostExtensionClient; allowed: boolean; now: number; onNotify(message: string): void }) {
+function TransferRow({ transfer, host, allowed, now, onNotify }: { transfer: RepoTransfer; host: HostExtensionClient; allowed: boolean; now: number; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const [busy, setBusy] = useState<string>();
   const run = (command: "fetch-result" | "apply" | "discard", label: string) => {
     setBusy(command);
@@ -132,7 +132,7 @@ function TransferRow({ transfer, host, allowed, now, onNotify }: { transfer: Rep
       const next = value as RepoTransfer;
       if (command === "apply" && next.applied && next.applied.state !== "merged") onNotify(next.applied.detail);
       else onNotify(`${label}: ${transferSummary(next)}`);
-    }, (error: unknown) => onNotify(errorMessage(error))).finally(() => setBusy(undefined));
+    }, (error: unknown) => onNotify(errorMessage(error), "error")).finally(() => setBusy(undefined));
   };
   const hasBranch = transfer.result?.state === "branch";
   const merged = transfer.applied?.state === "merged" || transfer.applied?.state === "already-merged";
@@ -213,7 +213,7 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify, openThere }: {
   host: HostExtensionClient;
   allowed: boolean;
   now: number;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** Opens the thread here through connected agents, or follows the legacy desktop machine. */
   openThere?(link: RemoteThreadLink): Promise<void>;
 }) {
@@ -224,7 +224,7 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify, openThere }: {
     host.invoke(command, { link: link.id, ...input }).then((value) => {
       const next = value as RemoteThreadLink;
       onNotify(next.settled || next.applied ? threadSummary(next) : `${label}: ${threadSummary(next)}`);
-    }, (error: unknown) => onNotify(errorMessage(error))).finally(() => setBusy(undefined));
+    }, (error: unknown) => onNotify(errorMessage(error), "error")).finally(() => setBusy(undefined));
   };
   const working = link.status === "running" || link.status === "starting";
   const quiet = link.status === "idle" || link.status === "waiting" || link.status === "failed";
@@ -233,7 +233,7 @@ function ThreadLinkRow({ link, host, allowed, now, onNotify, openThere }: {
   // Looking works Read only too; answering there is that machine's to allow.
   const there = openThere && link.thread && open && link.status !== "offline" ? () => {
     setBusy("open");
-    openThere(link).catch((error: unknown) => onNotify(errorMessage(error))).finally(() => setBusy(undefined));
+    openThere(link).catch((error: unknown) => onNotify(errorMessage(error), "error")).finally(() => setBusy(undefined));
   } : undefined;
   return (
     <SettingRow

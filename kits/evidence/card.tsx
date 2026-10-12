@@ -77,14 +77,14 @@ export function SaveVideoButton({ client, threadId, turn, notify }: {
   client: EvidenceClient;
   threadId: string;
   turn: EvidenceTurn;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const [progress, setProgress] = useState<string>();
   const save = async () => {
     try {
       await saveTurnVideo(turn, (id) => client.image(threadId, id), setProgress);
     } catch (error) {
-      notify(`The video could not be made: ${errorMessage(error)}`);
+      notify(`The video could not be made: ${errorMessage(error)}`, "error");
     } finally {
       setProgress(undefined);
     }
@@ -107,7 +107,7 @@ export function EvidenceCard({ client, threadId, turn, running, paused, onOpen, 
   running: boolean;
   paused?: string;
   onOpen(index: number, play?: boolean): void;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const frames = turn.frames;
   const [expanded, setExpanded] = useState(false);

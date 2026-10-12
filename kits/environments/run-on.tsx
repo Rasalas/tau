@@ -165,7 +165,7 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
       .catch((error: unknown) => {
         moving.set(false);
         actions.setComposerDraft?.(draft);
-        actions.notify(error instanceof Error ? error.message : String(error));
+        actions.notify(error instanceof Error ? error.message : String(error), "error");
       });
   };
   // Settings' Run on: This machine brings a new draft home once, as it opens.

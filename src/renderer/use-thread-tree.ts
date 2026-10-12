@@ -24,7 +24,7 @@ export interface ThreadTreePorts {
   /** What the composer holds now, kept above a prompt that comes back to it. */
   composerDraft?(): string;
   composerRef: RefObject<HTMLTextAreaElement | null>;
-  notify?(message: string): void;
+  notify?(message: string, level?: "info" | "warning" | "error"): void;
   /** True when a kit's prompt took the fork; it asks for the branch itself. */
   requestFork?(request: { entryId: string }): boolean;
 }
@@ -91,7 +91,7 @@ export function useThreadTree(ports: ThreadTreePorts) {
       seedComposer([draft, result.draftText ?? visibleUserMessageText(message.text)].filter(Boolean).join("\n\n"));
       composerRef.current?.focus();
     } catch (error) {
-      portsRef.current.notify?.(errorMessage(error));
+      portsRef.current.notify?.(errorMessage(error), "error");
     }
   }, [applyActionResult, client, composerRef, requireHost, seedComposer, sessionId]);
 

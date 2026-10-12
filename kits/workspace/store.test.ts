@@ -75,7 +75,7 @@ describe("Workspace Kit worktree creation", () => {
     workspaceStore.update({ cwd: "/project", draftPending: false });
 
     await expect(workspaceStore.createWorktree("fix/queue")).resolves.toBe(false);
-    expect(actions.notify).toHaveBeenCalledWith("fix/queue is already checked out in a worktree.");
+    expect(actions.notify).toHaveBeenCalledWith("fix/queue is already checked out in a worktree.", "error");
     expect(actions.openWorkspace).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(1);
   });
@@ -181,7 +181,7 @@ describe("Workspace Kit thread worktrees", () => {
 
     workspaceStore.setWorkspaceMode("worktree");
     await expect(workspaceStore.prepareThreadWorktree(event)).resolves.toEqual({});
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining("this thread runs in the checkout"));
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("this thread runs in the checkout"), "error");
     // The name is the fallback one; no naming extension is registered here.
     expect(createWorktree.mock.calls[0]?.[0]).toMatch(/^tau\/[0-9a-f]{8}$/u);
   });

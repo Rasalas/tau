@@ -201,7 +201,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       const target = directory ? await host.listDirectories(directory.path) : current;
       if (await actions.openWorkspace(target.workspace.workspaceId)) onDone();
     } catch (error) {
-      actions.notify(errorMessage(error));
+      actions.notify(errorMessage(error), "error");
     } finally {
       setBusy(false);
     }
@@ -211,7 +211,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       const picked = await host.pickFolder();
       if (picked && await actions.openWorkspace(picked.workspaceId)) onDone();
     } catch (error) {
-      actions.notify(errorMessage(error));
+      actions.notify(errorMessage(error), "error");
     }
   };
   const addLabel = highlighted ? `${MOD_LABEL} ↵` : "↵";
@@ -281,7 +281,7 @@ export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps
         actions.newSession({ workspace: created.workspace.workspaceId });
         onDone();
       }
-    } catch (error) { actions.notify(errorMessage(error)); }
+    } catch (error) { actions.notify(errorMessage(error), "error"); }
     finally { setBusy(false); }
   };
   return <form className="clone-project-form" onSubmit={(event) => { event.preventDefault(); void submit(Boolean(base)); }}>
@@ -315,7 +315,7 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
       store.clones.receive(started);
       onDone();
     } catch (error) {
-      actions.notify(error instanceof Error ? error.message : String(error));
+      actions.notify(error instanceof Error ? error.message : String(error), "error");
     } finally {
       setBusy(false);
     }
@@ -1452,7 +1452,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           {...(projectSettings.icon ? { automatic: projectSettings.icon } : {})}
           onSave={(choice) => { writeProjectIcon(preferences, projectSettings, choice); workspace.closeProjectSettings(); }}
           onClose={() => workspace.closeProjectSettings()}
-          onError={(message) => actions.notify(message)}
+          onError={(message) => actions.notify(message, "error")}
         />
       ) : null}
 

@@ -340,7 +340,7 @@ function PushButton({ deps, info, disabled, actions, refresh }: { deps: CompactR
         setAsking(false);
         setBusy(true);
         void (deps.workspace.invoke("push") as Promise<PushResult>)
-          .then((result) => { actions.notify(result.detail); refresh(); }, (error: unknown) => actions.notify(errorMessage(error)))
+          .then((result) => { actions.notify(result.detail); refresh(); }, (error: unknown) => actions.notify(errorMessage(error), "error"))
           .finally(() => setBusy(false));
       }}
     /> : null}

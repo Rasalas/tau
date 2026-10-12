@@ -67,7 +67,7 @@ export interface UseWorkbenchActionsOptions {
   duplicateThread: WorkbenchActions["duplicateThread"];
   setComposerSeed: (seed: string) => void;
   setDockOpen: Dispatch<SetStateAction<boolean>>;
-  setNotice: (notice: any) => void;
+  setNotice: (message?: string, level?: "info" | "warning" | "error") => void;
   openProjectSources: (source?: string) => void;
   applyHostResult: (result: HostActionResult) => void;
   /** Every path that closes a stage tab, and the tabs extensions drew. */
@@ -193,7 +193,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           const source = await client.workbenchSource();
           return source.path ? openWorkspace(source.path) : false;
         } catch (error) {
-          options.setNotice(errorMessage(error));
+          options.setNotice(errorMessage(error), "error");
           return false;
         }
       },
@@ -337,7 +337,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           }
         } catch (error) {
           const msg = errorMessage(error);
-          options.setNotice(msg);
+          options.setNotice(msg, "error");
         }
       },
       openInstructions,

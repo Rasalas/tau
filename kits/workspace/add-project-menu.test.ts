@@ -44,7 +44,7 @@ describe("the add-project levels", () => {
     const actions = { openWorkspace: vi.fn(async () => false), notify: vi.fn() } as unknown as WorkbenchActions;
     await items[0]!.run!(actions);
     expect(actions.openWorkspace).toHaveBeenCalledWith("ws:/Users/me");
-    expect(actions.notify).toHaveBeenCalledWith("That folder could not be opened as a project.");
+    expect(actions.notify).toHaveBeenCalledWith("That folder could not be opened as a project.", "error");
   });
 
   it("falls back to the home folder when the base folder is gone, and fails on any other", async () => {

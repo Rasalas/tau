@@ -152,7 +152,7 @@ function useFinish(takeover: Takeover, actions: WorkbenchActions, hosts: Takeove
     after?.();
     hosts.own.invoke(command, { id: takeover.id }).catch((error: unknown) => {
       setBusy(false);
-      actions.notify(errorMessage(error));
+      actions.notify(errorMessage(error), "error");
     });
   };
   const buttons = <>
@@ -185,7 +185,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
   const [pageUrl, setPageUrl] = useState(target.kind === "preview" ? target.url : undefined);
   const [status, setStatus] = useState<string>();
   const [importing, setImporting] = useState(false);
-  const jump = () => { jumpTo(takeover, actions, hosts).catch((error: unknown) => actions.notify(errorMessage(error))); };
+  const jump = () => { jumpTo(takeover, actions, hosts).catch((error: unknown) => actions.notify(errorMessage(error), "error")); };
   useEffect(() => {
     if (target.kind !== "window" || !screen) return;
     let live = true;

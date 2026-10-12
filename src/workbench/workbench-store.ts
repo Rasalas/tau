@@ -59,7 +59,7 @@ export interface WorkbenchStorePorts {
   hostSession: HostSessionState;
   newThread: WorkbenchNewThreadPort;
   turn: TranscriptTurnPort;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }
 
 /**
@@ -235,7 +235,7 @@ export class WorkbenchStore {
       return undefined;
     }
     if (update.type === "run") threads.setThreadRunning(update.sessionId, update.event === "started");
-    if (update.type === "error") this.ports.notify(update.message);
+    if (update.type === "error") this.ports.notify(update.message, "error");
     return undefined;
   };
 

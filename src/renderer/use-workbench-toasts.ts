@@ -2,22 +2,23 @@ import { useEffect, useRef } from "react";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { ToastStore } from "../workbench/toast-store";
 import type { AppUpdate } from "./app-update";
-import { noticeHeadline } from "./components/notice-text";
+import { noticeHeadline, plainNoticeText } from "./components/notice-text";
 import { isMachineUpdateNotice } from "../shared/machine-compatibility";
 
-/** Every notice as a toast: the headline to read, the whole text to copy when it failed or was cut short. */
+/** Every notice as a toast: the headline to read, the whole text to copy when it failed or was cut short. An error stays until dismissed. */
 export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, openMachines?: () => void): () => void {
   return view.subscribeToNotice(() => {
     const notice = view.getNotice();
     if (!notice) return;
-    const headline = noticeHeadline(notice.message);
+    const message = plainNoticeText(notice.message);
+    const headline = noticeHeadline(message);
     toasts.show({
       // The same text again restarts its toast rather than stacking a copy.
-      id: `notice:${notice.message}`,
+      id: `notice:${message}`,
       type: notice.level,
       description: headline,
-      ...(openMachines && isMachineUpdateNotice(notice.message) ? { actions: [{ label: "Machines", run: openMachines }] } : {}),
-      ...(notice.level !== "info" || headline !== notice.message.trim() ? { copyText: notice.message } : {}),
+      ...(openMachines && isMachineUpdateNotice(message) ? { actions: [{ label: "Machines", run: openMachines }] } : {}),
+      ...(notice.level !== "info" || headline !== message.trim() ? { copyText: message } : {}),
     });
   });
 }

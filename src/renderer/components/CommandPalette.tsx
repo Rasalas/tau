@@ -215,7 +215,7 @@ export function CommandPalette({
     if (submenu) { enter(submenu); return; }
     const item = row.kind === "item" ? row.item : undefined;
     const done = row.kind === "command" ? row.command.run(actions) : inStage && item?.stage ? item.stage(actions) : item?.run?.(actions);
-    void Promise.resolve(done).catch((error: unknown) => actions.notify(errorMessage(error)));
+    void Promise.resolve(done).catch((error: unknown) => actions.notify(errorMessage(error), "error"));
     onClose();
   };
 

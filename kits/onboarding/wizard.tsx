@@ -194,7 +194,7 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
   // An install or a login may ask things, so it runs where the user can answer; an update is only shown.
   const inTerminal = aside && row.command && !inPlace && (row.state === "install" || row.state === "signIn") ? row.command : undefined;
   const act = () => {
-    if (inTerminal) void aside!({ command: inTerminal, label: label === "Sign in" ? `Sign in to ${row.label}` : `${label} ${row.label}` }, recheck).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+    if (inTerminal) void aside!({ command: inTerminal, label: label === "Sign in" ? `Sign in to ${row.label}` : `${label} ${row.label}` }, recheck).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error), "error"));
     else if (row.command || inPlace) flow.expand(open ? undefined : row.id);
     else actions.openSettings(row.settings);
   };
@@ -226,7 +226,7 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
               {...(aside ? { runInTerminal: (command: string) => aside({ command, label: `Sign in to ${row.label}` }, recheck) } : {})}
               openExternal={(url) => actions.openExternal(url)}
               copyText={(text) => actions.copyText(text)}
-              onNotify={(message) => actions.notify(message)}
+              onNotify={actions.notify}
               onReport={(report) => { if (report.account?.signedIn) flow.recheckAgent(row.id); }}
             />
           </Suspense>

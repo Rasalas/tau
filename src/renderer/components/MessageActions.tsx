@@ -35,7 +35,7 @@ export function MessageActions({ message, onCopy, onEdit }: { message?: UiMessag
         run: () => {
           const selection = selectionInside(toolbar.current?.closest(".message-shell") ?? null);
           const run = async () => action.run(message, selection ? { selection } : {}, workbench);
-          void run().catch((error) => workbench.notify(errorMessage(error)));
+          void run().catch((error) => workbench.notify(errorMessage(error), "error"));
         },
       });
     }

@@ -193,7 +193,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.listeners.forEach((listener) => listener());
   }
 
-  private notify(message: string): void { this.actions?.notify(message); }
+  private notify(message: string, level?: "info" | "warning" | "error"): void { if (level) this.actions?.notify(message, level); else this.actions?.notify(message); }
 
   private readonly defaultBranchRequests = new Set<string>();
 
@@ -394,7 +394,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin });
       if (cwd === this.state.cwd) this.update({ worktreeBase: base });
     } catch (error) {
-      if (cwd === this.state.cwd) this.notify(errorMessage(error));
+      if (cwd === this.state.cwd) this.notify(errorMessage(error), "error");
     }
   }
 
@@ -431,7 +431,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const terminalId = terminalOverride ?? this.activeTerminal()?.id;
     if (!this.requireHost("Opening a terminal")) return;
     try { await this.host.openTerminal(terminalId, this.workspace()); }
-    catch (error) { this.notify(errorMessage(error)); }
+    catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
   async refreshChanges(): Promise<void> {
@@ -443,7 +443,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const next = await this.host.getChanges(undefined, this.workspace());
       if (request === this.changesRequest && cwd === this.state.cwd) this.update({ changes: next });
     } catch (error) {
-      if (request === this.changesRequest) this.notify(errorMessage(error));
+      if (request === this.changesRequest) this.notify(errorMessage(error), "error");
     }
   }
 
@@ -459,7 +459,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
         this.suggestWorktree();
       }
     } catch (error) {
-      if (request === this.workspaceRequest) this.notify(errorMessage(error));
+      if (request === this.workspaceRequest) this.notify(errorMessage(error), "error");
     } finally {
       if (request === this.workspaceRequest) this.update({ workspaceBusy: false });
     }
@@ -472,7 +472,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     try {
       const tree = (await this.host.getFileTree(undefined, this.workspace())) ?? [];
       if (cwd === this.state.cwd) this.update({ fileTree: tree });
-    } catch (error) { this.notify(errorMessage(error)); }
+    } catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
   async loadFiles(path: string): Promise<FileNode[]> {
@@ -550,7 +550,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private async mutate(what: string, run: () => Promise<UiWorkspaceChanges>): Promise<void> {
     if (!this.allowed(what) || !this.requireHost(what)) return;
     try { this.update({ changes: await run() }); }
-    catch (error) { this.notify(errorMessage(error)); }
+    catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
   stageFile(path: string): Promise<void> { return this.mutate("Staging changes", () => this.host.stageFile(path, this.workspace())); }
@@ -568,7 +568,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       void this.refreshWorkspace();
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     } finally {
       this.update({ committing: false });
@@ -583,7 +583,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.notify(result.detail);
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     } finally {
       this.update({ committing: false });
     }
@@ -597,7 +597,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.notify(result.detail);
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     } finally {
       this.update({ committing: false });
     }
@@ -609,7 +609,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
     if (!this.requireHost("Opening an editor")) return;
     try { await this.host.openInEditor(editorId, relPath, this.workspace(), position); }
-    catch (error) { this.notify(errorMessage(error)); }
+    catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
   async runShellAction(command: string, includeInContext: boolean, name: string): Promise<void> {
@@ -618,10 +618,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.notify(`Running ${name}…`);
       const result = await this.actions.runShellAction(command, includeInContext);
       const tail = result.output.trim().split("\n").at(-1);
-      this.notify(result.exitCode === 0 ? `${name} finished${tail ? ` · ${tail}` : ""}` : `${name} failed${tail ? ` · ${tail}` : ""}`);
+      this.notify(result.exitCode === 0 ? `${name} finished${tail ? ` · ${tail}` : ""}` : `${name} failed${tail ? ` · ${tail}` : ""}`, result.exitCode === 0 ? "info" : "error");
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   }
 
@@ -637,7 +637,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       void this.refreshWorkspace();
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     } finally {
       this.update({ workspaceBusy: false });
@@ -659,7 +659,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(baseRef ? { baseRef, startFromOrigin: false } : {}) }, this.workspace());
       return await this.actions.openWorkspace(created.workspaceId, { inheritDraft: true });
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     } finally {
       this.update({ workspaceBusy: false });
@@ -686,7 +686,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath }, ...(created.baseCommit ? { baseCommit: created.baseCommit } : {}) };
     } catch (error) {
       if (this.state.worktreeSuggested) this.draftFellBack = true;
-      this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);
+      this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`, "error");
       return {};
     } finally {
       this.update({ preparingWorktree: false });
@@ -721,7 +721,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.notify(`Removed ${path}.`);
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     } finally {
       this.update({ workspaceBusy: false });
@@ -746,7 +746,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const taken = this.state.workspace?.refs.map((ref) => ref.name) ?? [];
       return await this.namer({ hint, description: this.actions.composerDraft(), taken, actions: this.actions });
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return undefined;
     }
   }
@@ -892,7 +892,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       try {
         if (await this.host.ensureWorktree(path, branch, this.workspace())) this.notify(`Recreated ${path}.`);
       } catch (error) {
-        this.notify(errorMessage(error));
+        this.notify(errorMessage(error), "error");
         return false;
       }
     }

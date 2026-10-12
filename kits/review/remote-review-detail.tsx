@@ -179,14 +179,14 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   useEffect(() => () => side.retire(params.url), [params.url, side]);
 
   const toggleViewed = async (file: PullRequestFile) => {
-    try { markViewed(file.path, await client.viewed(params.url, file.path, file.viewed !== "viewed")); } catch (error) { actions.notify(`Could not update viewed files: ${errorMessage(error)}`); }
+    try { markViewed(file.path, await client.viewed(params.url, file.path, file.viewed !== "viewed")); } catch (error) { actions.notify(`Could not update viewed files: ${errorMessage(error)}`, "error"); }
   };
 
   const shownState = detail.state === "open" && detail.draft ? "draft" : detail.state;
   const rollup = checksRollup(checks);
   const checkout = providerInfo(params.service).checkout?.(detail.ref.number);
   const copy = (value: string, done: string) => {
-    void actions.copyText(value).then(() => actions.notify(done), (error: unknown) => actions.notify(errorMessage(error)));
+    void actions.copyText(value).then(() => actions.notify(done), (error: unknown) => actions.notify(errorMessage(error), "error"));
   };
   const menuSteps: HeaderMenuStep[] = [
     { id: "view:refresh", label: "Refresh", icon: <RefreshCw size={13} />, run: () => refresh(true) },
@@ -314,7 +314,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
           <div className="rvd-pad"><ChecksPipeline client={client} url={params.url} checks={checks} actions={actions} /></div>
         )}
       </ReviewDetailFrame>
-      {picking ? <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={(message) => actions.notify(message)} /> : null}
+      {picking ? <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={actions.notify} /> : null}
       {composing && (writes.comment || writes.review) ? (
         <ReviewComposer
           service={params.service}

@@ -194,7 +194,7 @@ export function Composer({
   onCompactContext(): void;
   /** An extension is changing the workspace; submitting would target the wrong thread. */
   held?: boolean;
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   /** Opens the current draft in an external editor via workspace extension. */
   onOpenPromptEditor?(): void;
   /** Direct shell execution for `! <command>` inputs. */
@@ -447,7 +447,7 @@ export function Composer({
     updateDraft(next);
     setCaret(nextCaret);
     setCommandMenuDismissed(true);
-    try { extensionTrigger.select(item, trigger.query, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error)); }
+    try { extensionTrigger.select(item, trigger.query, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error), "error"); }
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
@@ -613,12 +613,12 @@ export function Composer({
     let left = files;
     for (const inline of inlines) {
       if (!inline.takeFiles || left.length === 0) continue;
-      try { left = inline.takeFiles(left, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error)); }
+      try { left = inline.takeFiles(left, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error), "error"); }
     }
     return left;
   }, [inlines, onNotify]);
   const pasteText = (pasted: string): boolean => inlines.some((inline) => {
-    try { return inline.pasteText?.(pasted, inlineContextRef.current) === true; } catch (error) { onNotify?.(errorMessage(error)); return false; }
+    try { return inline.pasteText?.(pasted, inlineContextRef.current) === true; } catch (error) { onNotify?.(errorMessage(error), "error"); return false; }
   });
   const draftStates = useMemo(() => new Map(inlines.map((inline) => [inline.extensionId, {
     read: () => draftStorageKey === undefined ? undefined : readComposerDraftState(clientStorage, draftStorageKey, inline.extensionId),
@@ -754,7 +754,7 @@ export function Composer({
         updateDraft("");
         recordPrompt(intent.historyText);
         void onRunShellAction(intent.command, intent.includeInContext).catch((error) => {
-          onNotify?.(errorMessage(error));
+          onNotify?.(errorMessage(error), "error");
         });
         return;
       case "prompt": {
@@ -771,7 +771,7 @@ export function Composer({
             .then(() => {
               // The thread changed meanwhile: its draft stays there rather than going to this one.
               if (scopeRef.current === scope) submitPromptRef.current(intent.delivery);
-            }, (error: unknown) => onNotify?.(errorMessage(error)))
+            }, (error: unknown) => onNotify?.(errorMessage(error), "error"))
             .finally(() => setSendModeBusy((busy) => busy?.scope === scope ? undefined : busy));
           return;
         }
@@ -850,7 +850,7 @@ export function Composer({
       requestAnimationFrame(() => textareaRef.current?.setSelectionRange(next.length, next.length));
     };
     return inlines.some((inline) => {
-      try { return inline.keyDown?.(keyEvent, { ...inlineContextRef.current, setText }) === true; } catch (error) { onNotify?.(errorMessage(error)); return false; }
+      try { return inline.keyDown?.(keyEvent, { ...inlineContextRef.current, setText }) === true; } catch (error) { onNotify?.(errorMessage(error), "error"); return false; }
     });
   };
 

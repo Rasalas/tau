@@ -144,7 +144,7 @@ export function useExtensionSources(cwd: string | undefined, revision: number): 
  * every client follows; this client's desktop half and the host half switch
  * at once rather than waiting for that round trip.
  */
-export function useExtensionSwitch(registry: ExtensionRegistry, onNotify: (message: string) => void, onHostHalves?: (halves: HostExtensionSummary[]) => void) {
+export function useExtensionSwitch(registry: ExtensionRegistry, onNotify: (message: string, level?: "info" | "warning" | "error") => void, onHostHalves?: (halves: HostExtensionSummary[]) => void) {
   const client = useHostClient();
   const preferences = usePreferences();
   return (entry: ExtensionEntry, next: boolean) => {
@@ -152,7 +152,7 @@ export function useExtensionSwitch(registry: ExtensionRegistry, onNotify: (messa
     registry.setActive(entry.id, next);
     if (entry.host) {
       client?.setHostExtensionActive(entry.id, next).then((halves) => onHostHalves?.(halves)).catch((error: unknown) => {
-        onNotify(errorMessage(error));
+        onNotify(errorMessage(error), "error");
       });
     }
   };
@@ -248,7 +248,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
   trustPage?: string | undefined;
   onOpen(target: string): void;
   onChanged(): void;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   onHostHalves(halves: HostExtensionSummary[]): void;
 }) {
   const client = useHostClient();
@@ -274,7 +274,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
       onHostHalves(await client?.listHostExtensions() ?? []);
       onChanged();
     } catch (error) {
-      onNotify(errorMessage(error));
+      onNotify(errorMessage(error), "error");
     }
   };
 

@@ -51,7 +51,7 @@ function LinkPullRequestDialog({ target, client, rows, onClose, notify }: {
   client: PullRequestClient;
   rows: ThreadLinkRows;
   onClose(): void;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const [reference, setReference] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -110,7 +110,7 @@ export function createLinkDialogLayer(dialogs: LinkDialogs, client: PullRequestC
     const target = useSyncExternalStore(dialogs.subscribe, dialogs.getSnapshot, dialogs.getSnapshot);
     if (!target) return null;
     return createPortal(
-      <LinkPullRequestDialog key={target.threadId} target={target} client={client} rows={rows} onClose={() => dialogs.close()} notify={(message) => actions.notify(message)} />,
+      <LinkPullRequestDialog key={target.threadId} target={target} client={client} rows={rows} onClose={() => dialogs.close()} notify={actions.notify} />,
       document.body,
     );
   };

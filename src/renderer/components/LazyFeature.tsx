@@ -8,7 +8,7 @@ export interface LazyFeatureBoundaryProps {
   extensionId?: string;
   extensionName?: string;
   registry?: { deactivate(id: string): void };
-  onNotify?: (message: string) => void;
+  onNotify?: (message: string, level?: "info" | "warning" | "error") => void;
   onError?: (error: Error) => void;
   /** Leaves the feature, where it covers the window (a page, Settings, an overlay). */
   onClose?: () => void;
@@ -53,7 +53,7 @@ export class LazyFeatureBoundary extends Component<LazyFeatureBoundaryProps, Laz
       try {
         this.props.registry.deactivate(this.props.extensionId);
         const name = this.props.extensionName || this.props.extensionId;
-        this.props.onNotify?.(`Extension ${name} was deactivated due to render error: ${error.message}`);
+        this.props.onNotify?.(`Extension ${name} was deactivated due to render error: ${error.message}`, "error");
       } catch {
         // Safe fallback
       }

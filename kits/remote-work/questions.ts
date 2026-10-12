@@ -78,7 +78,7 @@ export class QuestionNotices {
     const title = `${link.title ?? "A thread"} on ${link.machineName} asks`;
     const body = question || "It waits for an answer there.";
     const open = () => {
-      this.openThere(link).catch((error: unknown) => actions?.notify(error instanceof Error ? error.message : String(error)));
+      this.openThere(link).catch((error: unknown) => actions?.notify(error instanceof Error ? error.message : String(error), "error"));
     };
     if (actions?.toast) {
       const buttons = environments ? [

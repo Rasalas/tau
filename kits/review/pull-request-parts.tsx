@@ -31,7 +31,7 @@ export function handOver(chip: ReviewCommentChip | PullRequestChip, chips: Compo
       actions.focusComposer();
       return;
     } catch (error) {
-      actions.notify(`The composer did not take it: ${errorMessage(error)}`);
+      actions.notify(`The composer did not take it: ${errorMessage(error)}`, "error");
       return;
     }
   }

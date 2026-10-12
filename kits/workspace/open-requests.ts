@@ -36,7 +36,7 @@ export class OpenRequests {
         actions.newSession({ workspace: request.workspaceId });
         actions.focusComposer();
       } catch (error) {
-        actions.notify(`Could not open ${request.displayPath}: ${errorMessage(error)}`);
+        actions.notify(`Could not open ${request.displayPath}: ${errorMessage(error)}`, "error");
       }
     })();
   }

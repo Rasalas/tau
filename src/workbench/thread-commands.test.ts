@@ -99,7 +99,7 @@ describe("forking", () => {
     expect(sendPrompt).toHaveBeenCalledWith("Fix validation", [], "child", undefined, undefined);
     expect(readComposerDraft(storage, draftKey("s1"))).toBe("Keep my original draft");
     expect(readComposerDraft(storage, draftKey("child"))).toBe(rejected ? "Fix validation" : "");
-    if (rejected) expect(setNotice).toHaveBeenLastCalledWith(expect.stringContaining("saved draft"));
+    if (rejected) expect(setNotice).toHaveBeenLastCalledWith(expect.stringContaining("saved draft"), "error");
   });
 
   it("refuses an old dialog after navigation without creating a fork", async () => {

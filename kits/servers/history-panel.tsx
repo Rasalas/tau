@@ -215,7 +215,7 @@ function RollbackPanel({ parts, actions, cwd, targetId, entry, onOpen, onClose, 
     setStage({ kind: "running", preview });
     parts.host.invoke("rollback", { cwd, targetId, seq, threeWay, force: [...force], ...(threadId ? { threadId } : {}) }).then(
       (value) => setStage({ kind: "result", result: value as RollbackResult }),
-      (failure: unknown) => { actions.notify(errorMessage(failure)); setStage({ kind: "preview", preview }); },
+      (failure: unknown) => { actions.notify(errorMessage(failure), "error"); setStage({ kind: "preview", preview }); },
     ).finally(() => { void parts.store.load(cwd, true); });
   };
 
@@ -329,7 +329,7 @@ export function HistoryPanel({ parts, actions, cwd, target, active, onFile, main
     setBusy(true);
     parts.host.invoke("deployment-mark", { cwd, targetId, seq, checked }).then(
       () => setReload((value) => value + 1),
-      (failure: unknown) => actions.notify(errorMessage(failure)),
+      (failure: unknown) => actions.notify(errorMessage(failure), "error"),
     ).finally(() => setBusy(false));
   };
 

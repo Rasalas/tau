@@ -75,7 +75,7 @@ export function logoState(provider: PiProviderView, choice: ProviderIconChoice |
 }
 
 /** A provider without a mark of Tau's own: its site's icon, a picture of the user's, or its initial. */
-function ProviderLogo({ provider, controls, onNotify }: { provider: PiProviderView; controls: ProviderIconControls; onNotify(message: string): void }) {
+function ProviderLogo({ provider, controls, onNotify }: { provider: PiProviderView; controls: ProviderIconControls; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const choice = useProviderIconChoice(controls, provider.id);
   const [busy, setBusy] = useState<"site" | "upload">();
   const file = useRef<HTMLInputElement>(null);
@@ -85,7 +85,7 @@ function ProviderLogo({ provider, controls, onNotify }: { provider: PiProviderVi
     try {
       if (!await applySiteIcon(sync, provider.id, true)) onNotify(`${provider.site ?? provider.name} has no icon Tau can use.`);
     } catch (failure) {
-      onNotify(`Could not fetch the icon of ${provider.site ?? provider.name}: ${errorMessage(failure)}`);
+      onNotify(`Could not fetch the icon of ${provider.site ?? provider.name}: ${errorMessage(failure)}`, "error");
     } finally {
       setBusy(undefined);
     }
@@ -95,7 +95,7 @@ function ProviderLogo({ provider, controls, onNotify }: { provider: PiProviderVi
     try {
       writeProviderIcon(controls.preferences, provider.id, { kind: "upload", image: await controls.rasterize(picked) });
     } catch (failure) {
-      onNotify(`Could not read ${picked.name}: ${errorMessage(failure)}`);
+      onNotify(`Could not read ${picked.name}: ${errorMessage(failure)}`, "error");
     } finally {
       setBusy(undefined);
     }

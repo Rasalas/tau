@@ -11,7 +11,7 @@ export const RUNTIME_ENFORCEMENT = "Pi runs them in a sandbox that reaches this 
  * sources are allowed ahead, the user adds hosts or lifts the limit. Kept on
  * this machine, never in the project.
  */
-export function NetworkSection({ context, cwd, onNotify }: { context: DesktopExtensionContext; cwd: string; onNotify(message: string): void }) {
+export function NetworkSection({ context, cwd, onNotify }: { context: DesktopExtensionContext; cwd: string; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const [state, setState] = useState<ServerNetworkState>();
   const [busy, setBusy] = useState(false);
   const allowed = useCommandAllowed(SERVERS_EXTENSION_ID, "set-network");
@@ -25,7 +25,7 @@ export function NetworkSection({ context, cwd, onNotify }: { context: DesktopExt
   const change = useCallback((patch: { allowAll?: boolean; allowHosts?: string[] }, done?: string) => {
     setBusy(true);
     context.host.invoke("set-network", { cwd, ...patch })
-      .then((next) => { setState(decodeServerNetworkState(next)); if (done) onNotify(done); }, (failure: unknown) => { onNotify(errorMessage(failure)); })
+      .then((next) => { setState(decodeServerNetworkState(next)); if (done) onNotify(done); }, (failure: unknown) => { onNotify(errorMessage(failure), "error"); })
       .finally(() => setBusy(false));
   }, [context, cwd, onNotify]);
 

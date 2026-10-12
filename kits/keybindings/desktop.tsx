@@ -59,7 +59,7 @@ function bindPiShortcuts(plugin: DesktopExtensionContext, isDisposed: () => bool
           group: "Pi",
           access: "write",
           run: async (app) => {
-            try { await plugin.host.invoke("run-shortcut", { keys: shortcut.keys, sessionId: app.activeThread()?.sessionId }); } catch (error) { app.notify(errorMessage(error)); }
+            try { await plugin.host.invoke("run-shortcut", { keys: shortcut.keys, sessionId: app.activeThread()?.sessionId }); } catch (error) { app.notify(errorMessage(error), "error"); }
           },
         }));
         disposers.push(plugin.registerKeybinding({ keys: shortcut.keys, commandId: id }));

@@ -15,6 +15,6 @@ export async function stopAgent(row: AgentRow, actions: Pick<WorkbenchActions, "
       await agentsHost.invoke?.("stop-agent", { threadId: row.threadId ?? row.id });
     }
   } catch (error) {
-    actions.notify(error instanceof Error ? error.message : String(error));
+    actions.notify(error instanceof Error ? error.message : String(error), "error");
   }
 }

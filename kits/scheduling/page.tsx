@@ -73,7 +73,7 @@ async function openAutomationThread(job: Job, feed: SchedulingFeed, actions: Wor
     const path = knownPath ?? await feed.host.invoke("thread-path", { id: job.id }) as string | undefined;
     if (path) await actions.switchSession(path);
     else actions.notify('No thread was recorded. Inspect recent "Scheduled:" threads before retrying.');
-  } catch (failure) { actions.notify(errorMessage(failure)); }
+  } catch (failure) { actions.notify(errorMessage(failure), "error"); }
 }
 
 export default function AutomationsPage({ actions, params, feed }: PageProps & { feed: SchedulingFeed }) {

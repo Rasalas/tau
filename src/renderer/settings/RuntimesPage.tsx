@@ -52,7 +52,7 @@ export function RuntimesPage({ snapshot, cards, sections, onOpen, onNotify }: {
   /** Sections kits add below the table. */
   sections: ReadonlyArray<{ id: string; rows?: ReadonlyArray<{ id: string }> | undefined; Component: ComponentType<SettingsSectionProps> }>;
   onOpen(target: string): void;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const preferences = usePreferences();
   const { newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);

@@ -113,7 +113,7 @@ export function SettingsScreen({
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
   onClose(): void;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** One column, as on a phone: the section list first, a page after a tap, and back. */
   stacked?: boolean;
   /** Stacked, which of the two shows, when the caller keeps it (a phone's history does). */
@@ -136,7 +136,7 @@ export function SettingsScreen({
   // Another machine's refusal or silence is said once: its values would otherwise just snap back.
   const levelsError = useSyncExternalStore(levels.subscribe, () => (levels.getSnapshot().machine ? levels.getSnapshot().error : undefined));
   // oxlint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (levelsError) onNotify(levelsError); }, [levelsError]);
+  useEffect(() => { if (levelsError) onNotify(levelsError, "error"); }, [levelsError]);
   // A push that changed a file, or the palette's theme, moves the levels too.
   useEffect(() => {
     void levels.refresh();

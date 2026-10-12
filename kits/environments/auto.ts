@@ -111,7 +111,7 @@ export function createAutoRunOnHook(environments: PlatformEnvironments, host: Ho
       try {
         answer = await host.invoke(CHOOSE_MACHINE_COMMAND, chooseInput(targets, event.projectPath, event.runtime, event.model)) as ChooseMachineAnswer;
       } catch (error) {
-        actions.notify(`Automatic could not choose (${errorMessage(error)}); this thread starts here.`);
+        actions.notify(`Automatic could not choose (${errorMessage(error)}); this thread starts here.`, "error");
         return false;
       }
       if (!answer.machine || !targets.has(answer.machine)) return false;
@@ -132,7 +132,7 @@ export function createAutoRunOnHook(environments: PlatformEnvironments, host: Ho
           newThread: { draft: event.prompt, send: true, ...(workspaceId ? { workspaceId } : {}), ...(event.model ? { model: event.model } : {}) },
         });
       } catch (error) {
-        actions.notify(`Could not move to the chosen machine (${errorMessage(error)}); this thread starts here.`);
+        actions.notify(`Could not move to the chosen machine (${errorMessage(error)}); this thread starts here.`, "error");
         return false;
       }
       return true;
