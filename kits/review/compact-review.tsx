@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
-  ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ExternalLink, FileDiff, GitCommitHorizontal, GitPullRequestArrow, MessageSquarePlus,
+  ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileDiff, GitCommitHorizontal, GitPullRequestArrow, MessageSquarePlus,
   RotateCw, Send, Sparkles, Upload, X,
 } from "lucide-react";
 import {
@@ -418,8 +418,8 @@ function DiffPage({ deps, source, sourceKey: key, changes, path, sessionId, read
       <strong>{name}</strong>
       <MiddleTruncate className="review-compact-file-dir" value={path} />
     </>}>
-      <IconButton label="Previous file" disabled={!previous} onClick={() => go(previous)}><ArrowUp size={18} /></IconButton>
-      <IconButton label="Next file" disabled={!next} onClick={() => go(next)}><ArrowDown size={18} /></IconButton>
+      <IconButton label="Previous file" disabled={!previous} onClick={() => go(previous)}><ChevronLeft size={18} /></IconButton>
+      <IconButton label="Next file" disabled={!next} onClick={() => go(next)}><ChevronRight size={18} /></IconButton>
     </PageHeader>
     {error
       ? <Empty icon={<FileDiff size={20} />} title="Could not load this diff" description={error} />

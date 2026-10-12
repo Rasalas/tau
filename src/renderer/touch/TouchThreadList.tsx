@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Check, ChevronDown, GitBranch, Mail, MailOpen, MessageCircleQuestion, Pin, PinOff, RotateCcw, Server, Square, SquarePen, Trash2, TriangleAlert } from "lucide-react";
+import { ArchiveRestore, Check, ChevronDown, GitBranch, MessageCircleQuestion, MessageSquare, MessageSquareDot, Pin, PinOff, Server, Square, SquarePen, Trash2, TriangleAlert } from "lucide-react";
 import { errorMessage } from "../../workbench/error-message";
 import {
   THREAD_LIST_PAGE,
@@ -103,7 +103,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   };
 
   const settleAction = (row: ThreadSupervisionRow): SwipeAction => row.settled
-    ? { id: "unsettle", label: "Un-settle", Icon: RotateCcw, tone: "primary", run: () => preferences.toggleSettled(row.id) }
+    ? { id: "unsettle", label: "Un-settle", Icon: ArchiveRestore, tone: "primary", run: () => preferences.toggleSettled(row.id) }
     : { id: "settle", label: "Settle", Icon: Check, tone: "primary", run: () => preferences.toggleSettled(row.id) };
   // The tray holds settle and the first kit action that brings a glyph (Thread Rail's Snooze).
   const { readOnly } = useHostCapabilities();
@@ -125,8 +125,8 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     { ...settleAction(row), label: row.settled ? "Un-settle" : "Settle", disabledReason: refused({}) },
     { id: "pin", label: row.pinned ? "Unpin" : "Pin", Icon: row.pinned ? PinOff : Pin, disabledReason: refused({}), run: () => preferences.togglePinned(row.id) },
     row.unread
-      ? { id: "read", label: "Mark as read", Icon: MailOpen, run: () => store.markRead(row.id) }
-      : { id: "unread", label: "Mark as unread", Icon: Mail, run: () => store.markUnread(row.id) },
+      ? { id: "read", label: "Mark as read", Icon: MessageSquare, run: () => store.markRead(row.id) }
+      : { id: "unread", label: "Mark as unread", Icon: MessageSquareDot, run: () => store.markUnread(row.id) },
     ...rowCommands.map((command): SheetAction => ({
       id: command.id,
       label: command.label,

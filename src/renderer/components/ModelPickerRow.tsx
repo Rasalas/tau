@@ -5,6 +5,8 @@ import type { ModelBadgeContribution } from "../extension-system";
 import { billingBadge, formatPrice, formatTokens, type Offering } from "./model-offerings";
 import { entryFacts, modelMaker, type ModelEntry } from "./model-entries";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
+import { DEFAULT_RUNTIME, monogram } from "../runtime-marks";
+import { runtimeInstanceId } from "../../shared/runtime-instances";
 
 /** What every row of one list shares: marks, the model in use, the chosen set and the row actions. */
 export interface RowCell {
@@ -53,8 +55,21 @@ function wayFacts(way: Offering): string[] {
   ];
 }
 
+/** A maker as the rail draws it: by its product's mark. */
+export function MakerMark({ maker }: { maker: string }) {
+  return <ProviderIconStack modelProvider={maker} brand className="rail-icon" hint={false} />;
+}
+
+/** A runtime as the rail draws it: its mark, and a second instance of one program with its initials on it. */
+export function RuntimeMark({ kind }: { kind: ThreadBackendKind }) {
+  return <>
+    <ProviderIconStack runtimeProvider={kind === DEFAULT_RUNTIME ? "pi" : kind} className="rail-icon" hint={false} />
+    {kind.includes("@") ? <i className="rail-instance" aria-hidden>{monogram(runtimeInstanceId(kind))}</i> : null}
+  </>;
+}
+
 /** The runtimes a model runs on, as their marks; the names are in the tooltip. */
-function RuntimeMarks({ ways }: { ways: readonly Offering[] }) {
+export function RuntimeMarks({ ways }: { ways: readonly Offering[] }) {
   const runtimes = [...new Map(ways.map((way) => [way.runtime, way.runtimeLabel] as const))];
   return (
     <span className="model-runtimes">

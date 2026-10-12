@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, ChevronRight, Circle, Minus, Play, X } from "lucide-react";
-import { errorMessage, hostIsReadOnly, useThreadStore, type RegionProps, type ThreadStore, type WorkbenchActions } from "tau";
+import { Check, ChevronDown, ChevronRight, Circle, Minus, Play, TriangleAlert, X } from "lucide-react";
+import { MiddleTruncate, errorMessage, hostIsReadOnly, useThreadStore, type RegionProps, type ThreadStore, type WorkbenchActions } from "tau";
 import type { ProjectScriptsHostClient, UiSetupStage, UiWorktreeSetup } from "./protocol.js";
 
 /** Worktree setups the host pushes, newest first. One per activation. */
@@ -117,41 +117,46 @@ export interface SetupCardActions {
   dismiss(setupId: string): Promise<void>;
 }
 
-export function SetupCard({ setup, actions, notify }: { setup: UiWorktreeSetup; actions: SetupCardActions; notify(message: string): void }) {
+export function SetupCard({ setup, actions, notify, draft = false }: { setup: UiWorktreeSetup; actions: SetupCardActions; notify(message: string): void; draft?: boolean }) {
   const running = setup.phase === "running";
   const now = useNowWhile(running);
-  const [details, setDetails] = useState(false);
+  const [open, setOpen] = useState(false);
   const total = formatElapsed((setup.endedAt ?? now) - setup.startedAt);
   const waiting = running && !setup.released && setup.stages.some((stage) => stage.status === "running" && stage.id.startsWith("script:") && !stage.async);
   const act = (action: (id: string) => Promise<void>) => () => { action(setup.id).catch((error: unknown) => notify(errorMessage(error))); };
   const tone = setup.phase === "failed" ? "failed" : setup.stages.some((stage) => stage.status === "failed") ? "warning" : setup.phase;
+  // An ended setup folds to its headline, as T3 Code's summary row; the steps open on demand.
+  const steps = running || open;
   return (
-    <section className="project-scripts-setup" aria-label="Worktree setup" data-phase={setup.phase} data-tone={tone}>
+    <section className="project-scripts-setup" aria-label="Worktree setup" data-phase={setup.phase} data-tone={tone} data-open={steps || undefined} data-draft={draft || undefined}>
       <header>
-        <span className="project-scripts-setup-headline">{headline(setup)}</span>
+        {running ? null : <span className="project-scripts-setup-icon">{tone === "warning" ? <TriangleAlert size={13} aria-hidden /> : setup.phase === "cancelled" ? <Minus size={13} aria-hidden /> : <X size={13} aria-hidden />}</span>}
+        <span className={`project-scripts-setup-headline${running ? " work-shine" : ""}`}>{headline(setup)}</span>
         <span className="project-scripts-setup-elapsed">{total}</span>
       </header>
-      <div className="project-scripts-setup-stages">
-        {setup.stages.map((stage) => (
-          <div key={stage.id}>
-            <StageRow stage={stage} now={now} />
-            {stage.id.startsWith("script:") && (stage.status === "running" || stage.status === "failed")
-              ? <OutputTail lines={stage.tail} failed={stage.status === "failed"} />
-              : null}
-          </div>
-        ))}
-      </div>
+      {steps ? (
+        <div className="project-scripts-setup-stages">
+          {setup.stages.map((stage) => (
+            <div key={stage.id}>
+              <StageRow stage={stage} now={now} />
+              {stage.id.startsWith("script:") && (stage.status === "running" || stage.status === "failed")
+                ? <OutputTail lines={stage.tail} failed={stage.status === "failed"} />
+                : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {setup.phase === "failed" && setup.error ? <p className="project-scripts-setup-error">{setup.error}</p> : null}
-      {details ? (
+      {open ? (
         <dl className="project-scripts-setup-details">
-          {setup.branch ? <div><dt>Branch</dt><dd>{setup.branch}</dd></div> : null}
-          {setup.worktree ? <div><dt>Path</dt><dd>{setup.worktree}</dd></div> : null}
+          {setup.branch ? <div><dt>Branch</dt><dd><MiddleTruncate value={setup.branch} /></dd></div> : null}
+          {setup.worktree ? <div><dt>Path</dt><dd><MiddleTruncate value={setup.worktree} /></dd></div> : null}
           {setup.stages.filter((stage) => stage.command).map((stage) => <div key={stage.id}><dt>{stage.label}</dt><dd>{stage.command}</dd></div>)}
         </dl>
       ) : null}
       <footer>
-        <button type="button" className="text-button" aria-expanded={details} onClick={() => setDetails((open) => !open)}>
-          {details ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Details
+        <button type="button" className="text-button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Details
         </button>
         {waiting ? <button type="button" className="text-button" onClick={act(actions.release)}><Play size={11} /> Start now</button> : null}
         {running ? <button type="button" className="text-button" onClick={act(actions.cancel)}><X size={12} /> Cancel</button> : null}
@@ -173,11 +178,12 @@ export function createSetupCards(store: SetupStore, host: ProjectScriptsHostClie
   };
   return function WorktreeSetupCards({ actions, snapshot }: RegionProps) {
     const setups = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-    const visible = setupsOnScreen(setups, screenOf(actions, snapshot, useThreads()));
+    const screen = screenOf(actions, snapshot, useThreads());
+    const visible = setupsOnScreen(setups, screen);
     if (visible.length === 0 || hostIsReadOnly()) return null;
     return (
       <div className="project-scripts-setups">
-        {visible.map((setup) => <SetupCard key={setup.id} setup={setup} actions={cardActions} notify={(message) => actions.notify(message)} />)}
+        {visible.map((setup) => <SetupCard key={setup.id} setup={setup} actions={cardActions} notify={(message) => actions.notify(message)} draft={screen.draftPending} />)}
       </div>
     );
   };

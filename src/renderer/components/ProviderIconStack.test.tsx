@@ -5,10 +5,10 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ExtensionRegistry, type DesktopExtensionContext } from "../extension-system";
 import { PreferencesStore } from "../preferences";
-import { declareRuntimeMarks } from "../runtime-marks";
+import { declareRuntimeMarks, monogram } from "../runtime-marks";
 import { WorkbenchShellContext } from "../workbench-context";
 import { BUNDLED_RUNTIME_MARKS } from "../test-support/runtime-marks";
-import { ProviderIconStack, monogram, providerHasMark, providerLabel } from "./ProviderIconStack";
+import { ProviderIconStack, providerHasMark, providerLabel } from "./ProviderIconStack";
 
 afterEach(cleanup);
 beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));

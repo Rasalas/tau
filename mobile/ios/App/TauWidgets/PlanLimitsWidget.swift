@@ -70,7 +70,7 @@ struct PlanAge: View {
         if let newest = state.newest {
             if state.stale {
                 // The small widget has room for the age alone.
-                HStack(spacing: 3) { Image(systemName: "clock").font(.system(size: 11, weight: .semibold)); Ago(date: newest, now: state.now, suffix: long) }
+                HStack(spacing: 3) { Lucide(name: "clock", size: 13); Ago(date: newest, now: state.now, suffix: long) }
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(Tau.warn)
             } else if long {
                 HStack(spacing: 0) { Text("as of \(hhmm(newest)) · "); Ago(date: newest, now: state.now) }.font(.system(size: 12)).foregroundStyle(Tau.faint).lineLimit(1)
@@ -98,7 +98,7 @@ struct BarGroups: View {
                                      level: mono ? .normal : state.level(account, window), width: width, height: height, radius: mono ? 2 : 2.5, track: mono ? .primary.opacity(0.3) : Tau.track)
                         }
                     }
-                    if marks { ProviderMark(mark: account.account.mark, tone: account.account.tone) }
+                    if marks { ProviderMark(mark: account.account.mark, initials: account.account.markInitials) }
                 }
             }
         }
@@ -138,7 +138,7 @@ struct PlanMedium: View {
                 ForEach(Array(state.accounts.prefix(3)), id: \.self) { account in
                     Spacer(minLength: 0)
                     HStack(spacing: 9) {
-                        ProviderMark(mark: account.account.mark, tone: account.account.tone, size: 16)
+                        ProviderMark(mark: account.account.mark, initials: account.account.markInitials, size: 16)
                         VStack(alignment: .leading, spacing: 0) {
                             Text(account.account.label).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Tau.ink).lineLimit(1)
                             Text(account.account.plan ?? " ").font(.system(size: 10.5)).foregroundStyle(Tau.muted).lineLimit(1)
@@ -192,7 +192,7 @@ struct PlanLarge: View {
                     if index > 0 { Rectangle().fill(Tau.lineSoft).frame(height: 1) }
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 6) {
-                            ProviderMark(mark: account.account.mark, tone: account.account.tone)
+                            ProviderMark(mark: account.account.mark, initials: account.account.markInitials)
                             Text(account.account.label).font(.system(size: 13, weight: .semibold)).foregroundStyle(Tau.ink)
                             if let plan = account.account.plan { Text(plan).font(.system(size: 11.5, weight: .medium)).foregroundStyle(Tau.muted) }
                             Spacer(minLength: 4)

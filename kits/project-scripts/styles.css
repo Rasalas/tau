@@ -16,21 +16,26 @@
 .project-script-run-output { margin: 0; max-height: 180px; overflow: auto; padding: 6px 8px; background: var(--sunken); color: var(--ink-code); font: var(--text-xs)/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--line-soft); }
 
 /* The worktree setup of a new thread, step by step, under its transcript. */
-.project-scripts-setups { flex: none; padding: 0 32px 8px; background: var(--stage); }
+.project-scripts-setups { flex: none; padding: 0 var(--content-inset, 32px) 8px; background: var(--stage); }
 .project-scripts-setup {
   max-width: var(--content-max, 780px); margin: 0 auto; padding: 8px 10px 6px;
   border: 1px solid var(--line-card); border-radius: var(--radius-md); background: var(--raised);
   font-size: calc(var(--text-sm) + .5px); color: var(--ink-3);
 }
 .project-scripts-setup + .project-scripts-setup { margin-top: 6px; }
+/* While a draft waits on its setup, the card's headline stands in for Workspace Kit's "Setting up worktree…" notice. */
+.conversation-column:has(.project-scripts-setup[data-draft]) .transcript .notice-message { display: none; }
 .project-scripts-setup[data-tone="failed"] { border-color: var(--danger-line); }
 .project-scripts-setup > header {
-  display: flex; align-items: baseline; gap: 8px; padding: 0 2px 6px;
+  display: flex; align-items: center; gap: 8px; min-height: 22px; padding: 0 2px 6px;
   border-bottom: 1px solid var(--line-soft); color: var(--muted);
 }
+/* Folded: the headline alone, no rule under it. */
+.project-scripts-setup:not([data-open]) > header { padding-bottom: 2px; border-bottom: 0; }
+.project-scripts-setup > header > .project-scripts-setup-icon { margin: 0 -2px; color: inherit; }
 .project-scripts-setup[data-tone="failed"] > header { color: var(--danger); }
 .project-scripts-setup[data-tone="warning"] > header { color: var(--warn); }
-.project-scripts-setup-headline { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-scripts-setup-headline { margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-scripts-setup-stages { padding-top: 4px; }
 .project-scripts-setup-stage { display: flex; align-items: center; gap: 6px; min-height: 24px; }
 .project-scripts-setup-stage[data-status="pending"] { opacity: .45; }
@@ -52,6 +57,12 @@
 .project-scripts-setup-details { margin: 4px 0 4px 28px; font-size: var(--text-xs); color: var(--muted); }
 .project-scripts-setup-details > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
 .project-scripts-setup-details dt { color: var(--ink-3); }
-.project-scripts-setup-details dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.project-scripts-setup-details dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .project-scripts-setup > footer { display: flex; align-items: center; gap: 12px; padding: 4px 0 0 24px; }
 .project-scripts-setup > footer .text-button { display: inline-flex; align-items: center; gap: 3px; }
+/* A phone draws the same card: finger-sized buttons, a narrower label column. */
+body[data-profile="compact"] .project-scripts-setup { padding: 8px 10px 2px; }
+body[data-profile="compact"] .project-scripts-setup-stage { min-height: 30px; }
+body[data-profile="compact"] .project-scripts-setup > footer { gap: 4px; padding: 0 0 0 16px; }
+body[data-profile="compact"] .project-scripts-setup > footer .text-button { min-height: var(--touch-target); padding: 0 8px; }
+body[data-profile="compact"] .project-scripts-setup-details > div { grid-template-columns: 84px minmax(0, 1fr); }

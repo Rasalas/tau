@@ -258,6 +258,8 @@ describe("ThreadRow hover actions and label", () => {
       onSelect={() => {}} onToggleSettled={() => {}}
     />);
     expect(settled.container.querySelector("[aria-label='Snooze thread']")).toBeNull();
+    // Taking a thread back wears the glyph of the rail's menu item and the phone's tray.
+    expect(settled.container.querySelector(".thread-settle svg.lucide-archive-restore")).toBeTruthy();
   });
 
   it("marks another machine's thread just before the provider marks, and offers no Settle without a handler", () => {

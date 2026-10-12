@@ -7,7 +7,7 @@ import openCodeIcon from "@lobehub/icons-static-svg/icons/opencode.svg?no-inline
 import piIcon from "@lobehub/icons-static-svg/icons/pi.svg?no-inline";
 import vertexAiIcon from "@lobehub/icons-static-svg/icons/vertexai-color.svg?no-inline";
 import { useContext, useSyncExternalStore } from "react";
-import { providerMarks, useRuntimeMarkDeclarations, type RuntimeMarkDeclarations } from "../runtime-marks";
+import { monogram, providerMarks, useRuntimeMarkDeclarations, type RuntimeMarkDeclarations } from "../runtime-marks";
 import { WorkbenchShellContext } from "../workbench-context";
 import { runtimeDriver } from "../../shared/runtime-instances";
 import { tooltipProps, type TooltipOptions } from "./ui/Tooltip";
@@ -104,13 +104,6 @@ const KNOWN: ReadonlyArray<readonly [string, readonly string[]]> = [
 export function providerHasMark(value: string): boolean {
   const identity = providerIdentity(value);
   return Boolean(identity?.source || identity?.styled);
-}
-
-/** One or two letters for a provider without a mark: "radius" → "R", "ant-ling" → "AL". */
-export function monogram(value: string): string {
-  const words = value.trim().split(/[\s_\-.:/]+/u).filter(Boolean);
-  const letters = (words.length > 1 ? words.slice(0, 2).map((word) => word.charAt(0)) : [words[0]?.charAt(0) ?? ""]).join("");
-  return letters.toUpperCase() || "·";
 }
 
 const noSubscribe = () => () => undefined;

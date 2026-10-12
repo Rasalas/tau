@@ -31,8 +31,9 @@
   content: ""; position: absolute; right: -6px; top: 50%; width: 3px; height: 20px; translate: 0 -50%;
   border-radius: 3px 0 0 3px; background: var(--acid-text);
 }
-.model-rail .rail-icon { margin-left: 0; width: 20px; height: 20px; }
-.model-rail .rail-icon :is(.provider-icon, .provider-mark) { width: 20px; height: 20px; color: var(--ink); filter: none; }
+/* The phone sheet's group heads and rows (`.mobile-model-mark`) draw the same marks. */
+:is(.model-rail, .mobile-model-mark) .rail-icon { margin-left: 0; width: 20px; height: 20px; }
+:is(.model-rail, .mobile-model-mark) .rail-icon :is(.provider-icon, .provider-mark) { width: 20px; height: 20px; color: var(--ink); filter: none; }
 .model-rail .rail-glyph { flex: none; color: var(--ink); }
 /* The rail lists what is set up; "+" leads to the Providers page for the rest. */
 .model-rail .rail-add .rail-glyph { color: var(--ink-2); }

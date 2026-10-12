@@ -120,9 +120,11 @@ opens the thread on its paired host. The phone does not run the agent and needs 
 foreground service to pretend that it does.
 
 The app hands the phone one snapshot per host (`src/widgets.ts`, `WidgetSnapshot`
-version 3, debounced by half a second and rewritten every two minutes while the
+version 4, debounced by half a second and rewritten every two minutes while the
 app follows the host): the host's name, its accounts and its threads. The
-accounts come with the sidebar's juicebar level and pace, the threads with
+accounts come with the sidebar's juicebar level and pace, and with the provider's
+mark or, without one, its initials (marks and glyphs are the desktop's: Lucide for
+states and machines, `@lobehub/icons` for providers); the threads with
 sub-agents left out. On iOS it lands in the App Group (`widget.<host>`) and
 drives the host's Live Activity; on Android it lands in the widget store.
 `WidgetModel.swift` and `WidgetModel.kt` read the same fields.

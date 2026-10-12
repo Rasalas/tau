@@ -10,12 +10,12 @@ import kotlin.math.roundToLong
 
 /**
  * What the widgets and the running-threads notification draw, built from the
- * hosts' snapshots. The app's (`mobile/src/widgets.ts`, version 3) is the one iOS reads too;
+ * hosts' snapshots. The app's (`mobile/src/widgets.ts`, version 4) is the one iOS reads too;
  * `fromWire` folds it into the model, and `WidgetStore` keeps that form (version 2) so a pushed
  * activity can be merged per thread. Pure, so JVM tests cover it.
  */
 object WidgetModel {
-    const val WIRE_VERSION = 3
+    const val WIRE_VERSION = 4
     const val STORED_VERSION = 2
     /** A reading older than this keeps its values but draws faded, as the app's stale bars do. */
     const val FRESH_MS = 15 * 60_000L
@@ -54,18 +54,23 @@ object WidgetModel {
         }
         return Account(
             value.optString("poolKey").ifEmpty { null }, label, value.optString("plan").take(40).ifEmpty { null },
-            Tone.of(value.optString("tone")), mark(value.optString("mark")), value.optLong("checkedAt"), windows,
+            Tone.of(value.optString("tone")), mark(value.optString("mark")), value.optString("initials").take(2).ifEmpty { null }, value.optLong("checkedAt"), windows,
         )
     }
 
-    /** The app names marks by provider; Android has six drawables. */
+    /** The app names marks by provider; a ChatGPT plan and OpenAI share the knot, anything unknown is drawn as initials ("other"). */
     fun mark(id: String): String? = when (id) {
         "" -> null
-        "codex", "openai" -> "codex"
-        "claude-code", "anthropic" -> "claude-code"
-        "gemini", "antigravity" -> "gemini"
-        "opencode", "pi" -> id
+        "codex", "openai" -> "openai"
+        "claude-code", "anthropic", "gemini", "antigravity", "opencode", "pi", "cursor", "grok" -> id
         else -> "other"
+    }
+
+    /** One or two letters for a provider without a mark, as the desktop's `monogram` draws them. */
+    fun monogram(name: String): String {
+        val words = name.trim().split(Regex("[\\s_\\-.:/]+")).filter { it.isNotEmpty() }
+        val letters = (if (words.size > 1) words.take(2).map { it.first().toString() } else listOf(words.firstOrNull()?.first()?.toString() ?: "")).joinToString("")
+        return letters.uppercase().ifEmpty { "·" }
     }
 
     /** A thread of the app's snapshot: the time it entered its state is `since`, the snapshot's own time its `updatedAt`. */
@@ -105,7 +110,7 @@ object WidgetModel {
                 put("accounts", JSONArray(accounts.map { account ->
                     JSONObject().put("label", account.label).put("tone", account.tone.key).put("checkedAt", account.checkedAt)
                         .apply {
-                            account.poolKey?.let { put("poolKey", it) }; account.plan?.let { put("plan", it) }; account.mark?.let { put("mark", it) }
+                            account.poolKey?.let { put("poolKey", it) }; account.plan?.let { put("plan", it) }; account.mark?.let { put("mark", it) }; account.initials?.let { put("initials", it) }
                         }
                         .put("windows", JSONArray(account.windows.map { window ->
                             JSONObject().put("label", window.label).put("short", window.short).put("usedPercent", window.usedPercent)
@@ -160,7 +165,7 @@ object WidgetModel {
         }
         val accounts = pooled.values.map { (account, hosts) ->
             val stale = now - account.checkedAt > FRESH_MS
-            LimitAccount(account.label, account.plan, account.tone, account.mark, hosts.size, account.checkedAt, stale,
+            LimitAccount(account.label, account.plan, account.tone, account.mark, account.initials ?: monogram(account.label), hosts.size, account.checkedAt, stale,
                 account.windows.map { window ->
                     val left = (100 - window.usedPercent).roundToLong().toInt().coerceIn(0, 100)
                     // The juicebars' own level and pace come with the snapshot; a stale reading shows neither.
@@ -280,12 +285,12 @@ enum class ThreadState(val key: String, val rank: Int, val active: Boolean) {
 }
 
 data class Window(val label: String, val short: String, val usedPercent: Double, val resetsAt: Long?, val level: Level?, val pace: Pace?, val paceAt: Long?)
-data class Account(val poolKey: String?, val label: String, val plan: String?, val tone: Tone, val mark: String?, val checkedAt: Long, val windows: List<Window>)
+data class Account(val poolKey: String?, val label: String, val plan: String?, val tone: Tone, val mark: String?, val initials: String?, val checkedAt: Long, val windows: List<Window>)
 data class Thread(val id: String, val title: String, val project: String?, val state: ThreadState, val since: Long, val updatedAt: Long, val detail: String?)
 data class Snapshot(val hostId: String, val machine: String, val updatedAt: Long, val accounts: List<Account>?, val threads: List<Thread>)
 
 data class LimitWindow(val label: String, val short: String, val left: Int, val resetsAt: Long?, val level: Level, val pace: Pace? = null, val paceAt: Long? = null)
-data class LimitAccount(val label: String, val plan: String?, val tone: Tone, val mark: String?, val machines: Int, val checkedAt: Long, val stale: Boolean, val windows: List<LimitWindow>)
+data class LimitAccount(val label: String, val plan: String?, val tone: Tone, val mark: String?, val initials: String, val machines: Int, val checkedAt: Long, val stale: Boolean, val windows: List<LimitWindow>)
 data class PlanLimits(val accounts: List<LimitAccount>, val lowest: Pair<LimitAccount, LimitWindow>?, val asOf: Long, val stale: Boolean, val hostId: String?)
 
 data class ThreadItem(val hostId: String, val machine: String, val thread: Thread)

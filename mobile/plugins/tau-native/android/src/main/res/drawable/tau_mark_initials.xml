@@ -1,0 +1,4 @@
+<!-- The desktop's `.provider-icon-fallback`: a rounded box with a 1px edge; the initials are drawn over it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="16dp" android:height="16dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M7.3,0.8H16.7A6.5,6.5 0,0 1,23.2 7.3V16.7A6.5,6.5 0,0 1,16.7 23.2H7.3A6.5,6.5 0,0 1,0.8 16.7V7.3A6.5,6.5 0,0 1,7.3 0.8z" android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6" />
+</vector>
