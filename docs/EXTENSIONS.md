@@ -3613,6 +3613,22 @@ context.registerCommand("state", () => book.state(), { access: "read" });
 context.registerCommand("apply-changes", applyChanges, { long: true }); // needs Full
 ```
 
+For non-owner clients, the receiving registry also checks filesystem arguments
+before local execution, including jobs ([ADR 0037](adr/0037-device-file-reads-stay-in-workspaces.md)).
+They must stay inside an admitted workspace. Project dotfiles remain readable.
+Canonical paths under hidden entries directly in Home (`~/.<name>`) and inside
+any `.git` entry are forbidden, even when Home is the workspace or a symlink
+names the target. Search and directory listings apply the same rule. A device
+search whose workspace contains Home uses the walker to avoid reading protected
+ignore files. The check includes nested path lists
+and retains client authority across in-process kit delegation. In-process
+non-owner reads bind their working directory to an explicit admitted workspace
+or cwd scope, or to the host's checked default when no scope is supplied,
+even if the active project changes before the handler reads it. Absolute links
+outside the workspace remain available to the owner. Browser resource
+capabilities are virtual paths scoped to their extension and connection.
+Handlers remain responsible for reads they derive internally.
+
 Declare it only for a command that changes no file, thread, setting or process
 and asks no other kit to — the host cannot check that, and a Read-only device
 trusts the declaration. Every other command answers such a device `forbidden`

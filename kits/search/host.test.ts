@@ -1,15 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { threadTextsDelta, THREAD_TEXTS_COMMAND, type HostExtension, type HostExtensionServices } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createSearchHostExtension from "./host.js";
 import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadFindResult, type ThreadMatch, type ThreadRequestMatch } from "./protocol.js";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+vi.mock("node:os", async (original) => {
+  const os = await original<typeof import("node:os")>();
+  return { ...os, homedir: vi.fn(os.homedir) };
+});
+afterEach(async () => { vi.mocked(homedir).mockReset(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 async function folder(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "tau-search-host-"));
@@ -41,16 +45,16 @@ async function fakeRipgrep(): Promise<string> {
   return path;
 }
 
-async function harness(cwd: string, ripgrep: string | undefined, extra: Partial<HostExtensionServices> = {}) {
+async function harness(cwd: string, ripgrep: string | undefined, extra: Partial<HostExtensionServices> = {}, options: { now?(): number } = {}) {
   const spawned: string[] = [];
-  const registry = await activateHostKit(createSearchHostExtension() as unknown as HostExtension, {
+  const registry = await activateHostKit(createSearchHostExtension(options) as unknown as HostExtension, {
     cwd: () => cwd,
     findCommand: (name: string) => name === "rg" ? ripgrep : undefined,
     noteSubprocess: () => { spawned.push("rg"); },
     ...extra,
   } as Partial<HostExtensionServices>);
   const invoke = <T>(command: string, input: unknown) => registry.invoke(SEARCH_KIT_ID, command, input) as Promise<T>;
-  return { invoke, spawned };
+  return { registry, invoke, spawned };
 }
 
 const PROJECT = {
@@ -61,6 +65,43 @@ const PROJECT = {
 };
 
 describe("Search host: content", () => {
+  for (const engine of ["walker", "ripgrep"] as const) {
+    it.skipIf(engine === "ripgrep" && !installedRipgrep())(`searches project dotfiles but never home secrets or Git internals for a device (${engine})`, async () => {
+      const root = await folder({ "home/.tau/host-token": "fixture-token", "home/.other-secret": "fixture-token", "home/.gitignore": "repo/\n", "home/repo/.github/workflows/ci.yml": "fixture-token", "home/repo/.tau/project.json": "project-setting", "home/repo/.git/config": "fixture-token", "home/repo/visible.txt": "visible /etc/passwd" });
+      const home = join(root, "home");
+      vi.mocked(homedir).mockReturnValue(home);
+      const phone = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+      for (const cwd of [join(home, "repo"), home, root]) {
+        const prefix = cwd === root ? "home/repo/" : cwd === home ? "repo/" : "";
+        const { registry, invoke } = await harness(cwd, engine === "ripgrep" ? installedRipgrep() : undefined, {}, { now: () => 0 });
+        try {
+          expect(await registry.invoke(SEARCH_KIT_ID, "content", { query: "fixture-token" }, phone)).toMatchObject({ engine: cwd === join(home, "repo") ? engine : "walker", matches: [{ path: prefix + ".github/workflows/ci.yml" }] });
+          expect(await registry.invoke(SEARCH_KIT_ID, "files", { query: "ci.yml" }, phone)).toMatchObject({ files: [{ path: prefix + ".github/workflows/ci.yml" }] });
+          expect(await registry.invoke(SEARCH_KIT_ID, "content", { query: "project-setting" }, phone)).toMatchObject({ matches: [{ path: prefix + ".tau/project.json" }] });
+          expect(await registry.invoke(SEARCH_KIT_ID, "content", { query: "/etc/passwd" }, phone)).toMatchObject({ matches: [{ path: prefix + "visible.txt" }] });
+          if (cwd === home) expect((await invoke<ContentSearchResult>("content", { query: "fixture-token" })).matches).toEqual(expect.arrayContaining([expect.objectContaining({ path: ".tau/host-token", text: "fixture-token" })]));
+        } finally {
+          await registry.deactivate(SEARCH_KIT_ID);
+        }
+      }
+    });
+  }
+
+  it("rechecks a cached search file that became a link outside the project", async () => {
+    const root = await folder({ "visible.txt": "visible" });
+    const outside = await folder({ ".tau/host-token": "fixture-token" });
+    const { registry } = await harness(root, undefined, {}, { now: () => 0 });
+    const phone = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+    try {
+      await registry.invoke(SEARCH_KIT_ID, "files", { query: "visible" }, phone);
+      await rm(join(root, "visible.txt"));
+      await symlink(join(outside, ".tau/host-token"), join(root, "visible.txt"));
+      expect(await registry.invoke(SEARCH_KIT_ID, "content", { query: "fixture-token" }, phone)).toMatchObject({ matches: [] });
+    } finally {
+      await registry.deactivate(SEARCH_KIT_ID);
+    }
+  });
+
   it("stops the running search when the next query arrives on its channel", async () => {
     const { invoke } = await harness(await folder({}), await fakeRipgrep());
     const first = invoke<ContentSearchResult>("content", { query: "slow", channel: "w1" });

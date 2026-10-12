@@ -1,11 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { BIND_BROWSER_RESOURCES, HostBrowserResourceStore } from "./host-browser-resources.js";
 import { runAsCaller } from "./host-invocation.js";
+import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
 
 const as = <T>(connection: string, run: () => Promise<T>) => runAsCaller({ kind: "workbench-client", connection }, run);
 const request = (path: string, init?: RequestInit) => new Request(`http://host.test${path}`, init);
 
 describe("host browser resource capabilities", () => {
+  it("lets a non-owner release its virtual resource without granting arbitrary resource-shaped file paths", async () => {
+    const store = new HostBrowserResourceStore();
+    const registry = new HostExtensionRegistry({
+      cwd: () => "/project", stateDir: "/state", browserResources: store.services,
+      log: () => undefined,
+    } as unknown as HostExtensionServices, () => undefined);
+    await registry.activate({ id: "test.resources", name: "Resources", activate(ctx) {
+      ctx.registerCommand("publish", () => ctx.services.browserResources!.publish(async () => new Response("fixture")), { access: "read" });
+      ctx.registerCommand("release", (input) => ctx.services.browserResources!.release((input as { path: string }).path), { access: "read" });
+    } });
+    const phone = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+    try {
+      const path = await registry.invoke("test.resources", "publish", undefined, phone) as string;
+      await expect(registry.invoke("test.resources", "release", { path }, { ...phone, connection: "other" })).rejects.toMatchObject({ code: "forbidden" });
+      await expect(registry.invoke("test.resources", "release", { path: `/resources/${"0".repeat(64)}` }, phone)).rejects.toMatchObject({ code: "forbidden" });
+      await expect(registry.invoke("test.resources", "release", { path }, phone)).resolves.toBeUndefined();
+      expect((await store.respond(request(path))).status).toBe(404);
+    } finally {
+      await registry.deactivate("test.resources");
+      store.close();
+    }
+  });
+
   it("requires a client call, and scopes release to the publishing extension and connection", async () => {
     const store = new HostBrowserResourceStore();
     const own = store.services[BIND_BROWSER_RESOURCES]("a");

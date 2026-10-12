@@ -44,4 +44,9 @@ describe("ripgrep JSON", () => {
   it("names what is wrong with a regular expression", () => {
     expect(ripgrepError("rg: regex parse error:\n    (?:()\n    ^\nerror: unclosed group\n")).toBe("Not a valid regular expression: unclosed group");
   });
+
+  it("searches project dotfiles for a device while excluding protected entries and disabling local configuration", () => {
+    const args = ripgrepArgs({ query: "token" }, true);
+    expect(args).toEqual(expect.arrayContaining(["--hidden", "--no-follow", "--no-config", "--no-ignore-global", "--no-ignore-exclude", "--no-ignore-parent", "!.git/"]));
+  });
 });

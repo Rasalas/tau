@@ -21,6 +21,7 @@ export interface HostBrowserResources {
 }
 export const BIND_BROWSER_RESOURCES = Symbol("bind-browser-resources");
 export const REMOVE_BROWSER_RESOURCES = Symbol("remove-browser-resources");
+export const CHECK_BROWSER_RESOURCE = Symbol("check-browser-resource");
 const PATH = /^\/resources\/([0-9a-f]{64})$/u;
 const LIFETIME_MS = 10 * 60_000;
 const MAX_RESOURCES = 1024;
@@ -31,7 +32,12 @@ interface Entry { policy?: string; extension: string; connection: string; expire
 export class HostBrowserResourceStore {
   private readonly entries = new Map<string, Entry>();
   constructor(private readonly now: () => number = Date.now) {}
-  readonly services: HostBrowserResources & { [BIND_BROWSER_RESOURCES](extension: string): HostBrowserResources; [REMOVE_BROWSER_RESOURCES](extension: string): void } = {
+  readonly services: HostBrowserResources & { [BIND_BROWSER_RESOURCES](extension: string): HostBrowserResources; [REMOVE_BROWSER_RESOURCES](extension: string): void; [CHECK_BROWSER_RESOURCE](path: string, extension: string, connection: string): boolean } = {
+    [CHECK_BROWSER_RESOURCE]: (path, extension, connection) => {
+      const token = PATH.exec(path)?.[1];
+      const entry = token ? this.entries.get(token) : undefined;
+      return Boolean(entry && entry.extension === extension && entry.connection === connection && entry.expires > this.now());
+    },
     [REMOVE_BROWSER_RESOURCES]: (extension) => this.removeExtension(extension),
     publish: () => { throw new Error("Resources must belong to an extension."); },
     publishVisualization: () => { throw new Error("Resources must belong to an extension."); },

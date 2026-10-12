@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
+import { deviceReadPaths, type DeviceReadPaths } from "../_filesystem/device-read-paths.js";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
 import { commandInvocation, THREAD_TEXTS_COMMAND } from "tau/host-extension";
 import { rankFuzzy } from "./fuzzy.js";
@@ -112,12 +113,12 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
         return cwd;
       };
 
-      const readFileList = async (cwd: string): Promise<string[]> => {
+      const readFileList = async (cwd: string, paths?: DeviceReadPaths): Promise<string[]> => {
         const rg = await findRipgrep();
-        if (!rg) return (await walkProject(cwd)).files.sort();
+        if (!rg || paths?.containsHome) return (await walkProject(cwd, { readPath: paths?.resolve })).files.sort();
         await services.noteSubprocess();
         const files: string[] = [];
-        const listing = streamLines(rg, ripgrepFileArgs(), cwd, (line) => {
+        const listing = streamLines(rg, ripgrepFileArgs(Boolean(paths)), cwd, (line) => {
           if (line) files.push(projectPath(line));
           return files.length < FILE_LIMIT;
         });
@@ -125,16 +126,17 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
         return files.sort();
       };
 
-      const projectFiles = (cwd: string): Promise<string[]> => {
-        const cached = fileLists.get(cwd);
+      const projectFiles = (cwd: string, paths?: DeviceReadPaths): Promise<string[]> => {
+        const key = paths ? `${cwd}\0device` : cwd;
+        const cached = fileLists.get(key);
         if (cached && now() - cached.at < FILE_LIST_TTL_MS) return cached.files;
-        const files = readFileList(cwd);
-        fileLists.set(cwd, { at: now(), files });
-        files.catch(() => { if (fileLists.get(cwd)?.files === files) fileLists.delete(cwd); });
+        const files = readFileList(cwd, paths);
+        fileLists.set(key, { at: now(), files });
+        files.catch(() => { if (fileLists.get(key)?.files === files) fileLists.delete(key); });
         return files;
       };
 
-      context.registerCommand("content", async (raw): Promise<ContentSearchResult> => {
+      context.registerCommand("content", async (raw, call): Promise<ContentSearchResult> => {
         const fields = record(raw);
         const input: ContentSearchInput = {
           query: text(fields.query),
@@ -153,16 +155,19 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
         running.set(channel, cancel);
         const deadline = now() + CONTENT_BUDGET_MS;
         try {
-          const rg = await findRipgrep();
-          const engine = rg ? "ripgrep" : "walker";
-          if (!input.query) return { matches: [], truncated: false, engine };
+          const available = await findRipgrep();
+          if (!input.query) return { matches: [], truncated: false, engine: available ? "ripgrep" : "walker" };
           const cwd = await projectRoot(fields.cwd);
+          const paths = call.owner ? undefined : await deviceReadPaths(cwd);
+          // The walker can skip protected Home ignore files before opening them.
+          const rg = paths?.containsHome ? undefined : available;
+          const engine = rg ? "ripgrep" : "walker";
           if (cancelled) return { matches: [], truncated: false, engine, cancelled: true };
           if (rg) {
             await services.noteSubprocess();
             const matches: ContentMatch[] = [];
             let truncated = false;
-            const search = streamLines(rg, ripgrepArgs(input), cwd, (line) => {
+            const search = streamLines(rg, ripgrepArgs(input, Boolean(paths)), cwd, (line) => {
               const match = parseRipgrepLine(line);
               if (!match) return true;
               if (matches.length >= limit) { truncated = true; return false; }
@@ -175,7 +180,9 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
             const { code, stderr } = await search.done.finally(() => clearTimeout(timer));
             if (cancelled) return { matches: [], truncated: false, engine, cancelled: true };
             if (code === 2 && matches.length === 0) return { matches: [], truncated: false, engine, error: ripgrepError(stderr) };
-            return { matches, truncated, engine };
+            const allowed: ContentMatch[] = [];
+            for (const match of matches) if (!paths || await paths.resolve(join(cwd, match.path))) allowed.push(match);
+            return { matches: allowed, truncated, engine };
           }
           let pattern: RegExp;
           try {
@@ -183,8 +190,8 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
           } catch (error) {
             return { matches: [], truncated: false, engine, error: `Not a valid regular expression: ${error instanceof Error ? error.message : String(error)}` };
           }
-          const files = await projectFiles(cwd);
-          const found = await searchWalkedFiles(cwd, files, pattern, { limit, cancelled: () => cancelled || now() > deadline });
+          const files = await projectFiles(cwd, paths);
+          const found = await searchWalkedFiles(cwd, files, pattern, { limit, readPath: paths?.resolve, cancelled: () => cancelled || now() > deadline });
           if (cancelled) return { matches: [], truncated: false, engine, cancelled: true };
           return { ...found, engine };
         } finally {
@@ -192,16 +199,19 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
         }
       }, { access: "read", long: true });
 
-      context.registerCommand("files", async (raw): Promise<FileSearchResult> => {
+      context.registerCommand("files", async (raw, call): Promise<FileSearchResult> => {
         const fields = record(raw);
         const cwd = await projectRoot(fields.cwd);
-        const files = await projectFiles(cwd);
+        const paths = call.owner ? undefined : await deviceReadPaths(cwd);
+        const listed = await projectFiles(cwd, paths);
+        const files: string[] = [];
+        for (const path of listed) if (!paths || await paths.resolve(join(cwd, path))) files.push(path);
         return { files: rankFuzzy(files, text(fields.query), count(fields.limit, 50, 200)), total: files.length };
       }, { access: "read", long: true });
 
       context.registerCommand("invalidate", async (raw) => {
         const cwd = text(record(raw).cwd);
-        if (cwd) fileLists.delete(cwd);
+        if (cwd) { fileLists.delete(cwd); fileLists.delete(`${cwd}\0device`); }
         else fileLists.clear();
       }, { access: "read" });
 
