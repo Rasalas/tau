@@ -5,6 +5,7 @@ import { rootLast } from "../../workbench/new-thread-project";
 import { threadListGroups, type ThreadSupervisionRow } from "../../workbench/thread-supervision";
 import { useClientEnvironment } from "../client-environment";
 import { ProjectIcon } from "../components/ProjectIcon";
+import { TauMark } from "../components/TauMark";
 import type { ExtensionRegistry, PageContribution, ThreadListEntry, WorkbenchActions } from "../extension-system";
 import { useOpenPage } from "../app-page-context";
 import { Region } from "../components/Regions";
@@ -26,8 +27,9 @@ const SEARCH_RESULTS = 20;
  * and an overflow menu at the top right as popovers at their buttons, the
  * project filter as an icon between them (the desktop rail's), and a new thread as the floating
  * button at the bottom right. `home` is a phone's start page, with the bottom
- * navigation under it; `sidebar` is the list beside the thread on a tablet,
- * where the new thread stays in the header as on a desktop.
+ * navigation under it and a top bar over the search as the desktop's sidebar has it:
+ * the mark at the left, kits' bars and Settings at the right; `sidebar` is the list
+ * beside the thread on a tablet, where the new thread stays in the header as on a desktop.
  */
 export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, projects = [], onProjectChange, ...list }: TouchThreadListProps & {
   variant: "home" | "sidebar";
@@ -47,16 +49,24 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   // A Read-only device could never send a new thread's first message.
   const { readOnly } = useHostCapabilities();
 
-  // What kits put over the list: another machine's state, the plans' juicebars.
+  // What kits put over the list: another machine's state.
   const head = <Region registry={list.registry} placement="thread-list-head" actions={list.actions} />;
   const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} /> : null;
   const toggleSearch = () => setPopover(popover === "search" ? undefined : "search");
   const more = <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>;
-  // A phone's list opens on the search field (design 1m); More stays only for the shell's own actions.
-  const header = screen ? <header className="touch-browser-header search-head">
-    <button ref={searchButton} type="button" className="touch-search-open" aria-expanded={popover === "search"} onClick={toggleSearch}><Search size={16} aria-hidden />Search threads</button>
-    {filter}
-    {shell?.actions?.length ? more : null}
+  // More stays only for the shell's own actions.
+  const header = screen ? <header className="touch-home-head">
+    <div className="touch-browser-header brand-head">
+      <TauMark className="touch-brand-mark" />
+      <span className="spacer" />
+      <Region registry={list.registry} placement="thread-list-title" actions={list.actions} />
+      <button type="button" className="touch-icon-button" aria-label="Settings" {...tooltipProps("Settings", { side: "bottom" })} onClick={() => onOpenSettings()}><Settings size={20} /></button>
+    </div>
+    <div className="touch-browser-header search-head">
+      <button ref={searchButton} type="button" className="touch-search-open" aria-expanded={popover === "search"} onClick={toggleSearch}><Search size={16} aria-hidden />Search threads</button>
+      {filter}
+      {shell?.actions?.length ? more : null}
+    </div>
   </header> : <header className="touch-browser-header">
     <strong>Threads</strong>
     <span className="spacer" />
@@ -74,8 +84,8 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
       <div role="menu" aria-label="More">
         {/* Which host a native shell is on: said here, not over the list. */}
         {shell?.hostLabel ? <p className="touch-menu-context">On {shell.hostLabel}</p> : null}
-        {/* The bottom navigation has Settings already. */}
-        {nav ? null : <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings(); }}><Settings size={17} />Settings</button>}
+        {/* A phone's top bar has Settings already. */}
+        {screen ? null : <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings(); }}><Settings size={17} />Settings</button>}
         <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings("connections"); }}><MonitorSmartphone size={17} />Connections</button>
         {shell?.actions?.map((action) => <button key={action.id} type="button" role="menuitem" onClick={() => { setPopover(undefined); action.run(); }}>{action.Icon ? <action.Icon size={17} /> : null}{action.label}</button>)}
       </div>
@@ -85,7 +95,6 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
   if (screen) return <section ref={surface} className={`touch-browser screen home${nav ? " with-nav" : ""}`} aria-label="Threads">
     {header}
     <div className="touch-browser-body">
-      <Region registry={list.registry} placement="thread-list-title" actions={list.actions} />
       {head}
       <TouchThreadList {...list} />
       {/* The floating button is the empty list's next step too. */}

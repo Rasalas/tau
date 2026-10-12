@@ -10,7 +10,7 @@ import { UsagePage } from "./page.js";
 import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
 import { createWayLine } from "./way-line.js";
 
-/** Usage is a page of the app: the juicebars at the sidebar's foot (beside a phone's list title) and the palette open it. */
+/** Usage is a page of the app: the juicebars at the sidebar's foot (in a phone's top bar) and the palette open it. */
 export const usageExtension: DesktopExtension = {
   id: USAGE_EXTENSION_ID,
   name: "Usage",
@@ -36,7 +36,7 @@ export const usageExtension: DesktopExtension = {
       Sidebar: () => <UsageSidebar view={view} />,
     });
 
-    // A phone has no sidebar foot: the bars sit beside its list title; a tablet's foot draws `Summary`.
+    // A phone has no sidebar foot: the bars sit in its top bar, beside Settings; a tablet's foot draws `Summary`.
     plugin.registerRegion({
       id: "usage.juicebars",
       placement: "thread-list-title",

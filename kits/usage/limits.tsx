@@ -128,7 +128,7 @@ function SharedCost({ costs, period }: { costs: MemberCost[]; period: string }) 
   );
 }
 
-/** Which of the account's windows the sidebar's foot draws as juicebars (a phone: beside its list title); chosen on this device. */
+/** Which of the account's windows the sidebar's foot draws as juicebars (a phone: its top bar); chosen on this device. */
 function SidebarChoice({ group, choices }: { group: LimitGroup; choices: JuicebarChoices }) {
   const chosen = useSyncExternalStore(choices.subscribe, choices.getSnapshot);
   const windows = group.shown.windows;

@@ -1059,9 +1059,11 @@ shown on hover and always available on touch.
 `thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,
 under its header and over the rows, and stays put while they scroll: a strip
 about the list as a whole. Machines Kit says there which paired machine is out
-of reach (Retry) or refused the device (Pair again), and Usage Kit draws the
-plans' juicebars; register it with `profiles: ["compact"]` and render nothing
-when there is nothing to say. An older core never draws the placement.
+of reach (Retry) or refused the device (Pair again); register it with
+`profiles: ["compact"]` and render nothing when there is nothing to say. An
+older core never draws the placement. `thread-list-title` puts compact controls
+in a phone's top bar, between Tau's mark and Settings, as a desktop's sidebar
+foot has them beside Settings: Usage Kit draws the plans' juicebars there.
 `spine` (API 1.39.0) fills the narrow column the conversation collapses to beside the stage
 (design 1b), under the thread's title and above its queue and "Open
 conversation": Agents Kit draws the thread's state and cost, what runs now, the

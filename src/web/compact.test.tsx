@@ -440,6 +440,15 @@ describe("the web client at 400 px", () => {
     expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
   });
 
+  it("opens Settings from the gear in the list's top bar too, the bottom navigation's tab marked", async () => {
+    renderCompactClient();
+    const home = await screen.findByRole("region", { name: "Threads" });
+    fireEvent.click(within(home.querySelector<HTMLElement>(".brand-head")!).getByRole("button", { name: "Settings" }));
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    expect(settings.dataset.view).toBe("sections");
+    expect(within(within(settings).getByRole("navigation", { name: "Main" })).getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
+  });
+
   it("names the host a native shell put on screen and runs the shell's own action from More", async () => {
     const client = createFakeHostClient({ bootstrap: bootstrapWith(THREADS) });
     const storage = createMemoryStorage();
@@ -706,10 +715,14 @@ describe("a page's summary on a phone and a tablet", () => {
     expect(within(list).queryByRole("button", { name: "Title bars" })).toBeNull();
   });
 
-  it("tops a phone's list, under its search field", async () => {
+  it("sits in a phone's top bar, between the mark and Settings, over the search field", async () => {
     renderCompactClient({}, [summaryProbe]);
     const home = await screen.findByRole("region", { name: "Threads" });
-    expect((await within(home).findByRole("button", { name: "Title bars" })).closest(".touch-browser-body")).toBeTruthy();
+    const bar = (await within(home).findByRole("button", { name: "Title bars" })).closest<HTMLElement>(".brand-head")!;
+    expect(bar.querySelector(".tau-mark")).toBeTruthy();
+    expect(within(bar).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["Title bars", "Settings"]);
+    expect(bar.nextElementSibling?.classList.contains("search-head")).toBe(true);
+    expect(home.querySelector(".touch-browser-body .region-thread-list-title")).toBeNull();
     expect(within(home).queryByRole("button", { name: "Plan bars" })).toBeNull();
   });
 });
