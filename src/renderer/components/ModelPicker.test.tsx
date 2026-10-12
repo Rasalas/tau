@@ -48,7 +48,7 @@ function renderPicker(options: {
   activeKey?: string;
   list?: UiModel[];
   onClose?: () => void;
-  onOpenSettings?: (kind: string, part: "runtime" | "models") => void;
+  onOpenSettings?: (kind: string, part: "runtime" | "models" | "providers") => void;
   onOpenThinking?: () => void;
 } = {}) {
   const onSelect = options.onSelect ?? vi.fn();
@@ -83,9 +83,11 @@ const pill = (name: string) => within(screen.getByRole("radiogroup", { name: /^R
 const highlightedFacts = () => document.querySelector(".model-row.selected .model-facts")?.textContent ?? "";
 
 describe("ModelPicker (K142 B: model first)", () => {
-  it("lists who made the models on the rail, each model once, and the runtimes that list none after them", () => {
+  it("lists who made the models on the rail, each model once, and the set-up runtimes that list none after them", () => {
     renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady(), notInstalled]) });
-    expect(rail()).toEqual(["Favourites", "Recent", "OpenAI", "Anthropic", "Claude Code, not installed", "Antigravity, models listed once a thread runs"]);
+    expect(rail()).toEqual(["Favourites", "Recent", "OpenAI", "Anthropic", "Antigravity, models listed once a thread runs"]);
+    // Anthropic wears Claude's spark there, as T3 Code draws it.
+    expect(railButton("Anthropic").querySelector(".provider-family-claude-code")).not.toBeNull();
     fireEvent.click(railButton("OpenAI"));
     // GPT-5.6 Sol is one row though Pi reaches it two ways and Codex a third.
     expect(optionNames()).toEqual(["GPT-5.6 Sol, Codex, Plan", "GPT-5.6 Luna, Codex, Plan"]);
@@ -135,9 +137,21 @@ describe("ModelPicker (K142 B: model first)", () => {
     expect(onSelect).toHaveBeenCalledWith(luna, "codex");
   });
 
-  it("offers what makes a runtime ready from its rail entry: Install, Sign in (from E)", () => {
+  it("leaves a runtime that is not set up to Settings, behind the rail's last entry", () => {
     const onOpenSettings = vi.fn();
-    renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady(), notInstalled]), onOpenSettings });
+    const onClose = vi.fn();
+    renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady(), notInstalled]), onOpenSettings, onClose });
+    expect(rail().at(-1)).toBe("Set up providers");
+    // Its tooltip names what is left out and why.
+    expect(railButton("Set up providers").getAttribute("data-tooltip")).toBe("Set up providers in Settings\nClaude Code · not installed");
+    fireEvent.click(railButton("Set up providers"));
+    expect(onOpenSettings).toHaveBeenCalledWith("pi", "providers");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("keeps the thread's own runtime when it is not set up, with what makes it ready (from E)", () => {
+    const onOpenSettings = vi.fn();
+    renderPicker({ runtime: "claude-code", catalogRuntime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady(), notInstalled]), onOpenSettings });
     fireEvent.click(railButton("Claude Code"));
     fireEvent.click(within(screen.getByRole("region", { name: "Claude Code" })).getByRole("button", { name: "Install Claude Code…" }));
     expect(onOpenSettings).toHaveBeenCalledWith("claude-code", "runtime");

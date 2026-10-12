@@ -11,7 +11,7 @@
 .model-picker-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .model-picker-body { flex: 1; min-height: 0; display: flex; }
 
-/* The rail: Favourites, Recent, each maker as its mark, then the runtimes that list nothing yet, with their state's dot. */
+/* The rail: Favourites, Recent, each maker as its mark, then the set-up runtimes that list nothing yet, with their state's dot. */
 .model-rail {
   width: 52px; flex: none; overflow: auto; scrollbar-width: none;
   display: flex; flex-direction: column; gap: 4px; padding: 6px;
@@ -34,7 +34,10 @@
 .model-rail .rail-icon { margin-left: 0; width: 20px; height: 20px; }
 .model-rail .rail-icon :is(.provider-icon, .provider-mark) { width: 20px; height: 20px; color: var(--ink); filter: none; }
 .model-rail .rail-glyph { flex: none; color: var(--ink); }
-/* Not installed or not signed in: still there, dimmed; choosing it says why and what fixes it. */
+/* The rail lists what is set up; "+" leads to the Providers page for the rest. */
+.model-rail .rail-add .rail-glyph { color: var(--ink-2); }
+.model-rail .rail-add:hover .rail-glyph { color: var(--ink); }
+/* The thread's own runtime, not set up: dimmed; choosing it says why and what fixes it. */
 .model-rail button.blocked > :not(.runtime-dot) { opacity: .45; filter: grayscale(1); }
 .model-rail button.blocked.active > :not(.runtime-dot) { opacity: .7; }
 /* A second instance of one program: its initials on the program's mark. */

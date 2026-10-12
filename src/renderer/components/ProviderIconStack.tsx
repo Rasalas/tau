@@ -59,6 +59,11 @@ const PLANS = {
   grok: { family: "grok", label: "Grok plan", styled: true, fallback: "G" },
 } satisfies Record<string, ProviderIdentity>;
 
+/** A maker drawn by the product people look for, as T3 Code's rail draws Anthropic: Claude's spark. */
+const BRANDS: Readonly<Record<string, ProviderIdentity>> = {
+  anthropic: { family: "claude-code", label: "Anthropic", source: claudeIcon, color: true, fallback: "A" },
+};
+
 function planIdentity(value: string | undefined): ProviderIdentity | undefined {
   const identity = providerIdentity(value);
   if (identity?.family === "anthropic") return PLANS.claude;
@@ -134,9 +139,10 @@ function ProviderIcon({ identity, layer, value }: { identity: ProviderIdentity; 
   );
 }
 
-function stackIdentities(modelProvider: string | undefined, runtimeProvider: string | undefined, plan: boolean | undefined, runtimeName?: string, runtimes?: RuntimeMarkDeclarations) {
+function stackIdentities(modelProvider: string | undefined, runtimeProvider: string | undefined, plan: boolean | undefined, runtimeName?: string, runtimes?: RuntimeMarkDeclarations, brand?: boolean) {
   const marks = providerMarks(modelProvider, runtimeProvider, { plan: plan === true, ...(runtimes ? { runtimes } : {}) });
-  const model = marks.plan ? planIdentity(marks.model) : providerIdentity(marks.model);
+  const identity = marks.plan ? planIdentity(marks.model) : providerIdentity(marks.model);
+  const model = brand && identity ? BRANDS[identity.family] ?? identity : identity;
   const runtime = providerIdentity(marks.runtime);
   const home = providerIdentity(marks.home);
   const runtimeLabel = runtimeName ?? runtime?.label;
@@ -159,12 +165,14 @@ export function providerStackLabel(modelProvider: string | undefined, runtimePro
  * by default, the tooltip layer's with options, nothing with `false` (inside a control that names itself). `name`
  * replaces the whole name; `runtimeName` only the runtime's (an instance's), and `modelName` leads it. `plan` says
  * the provider is reached through a subscription plan, where its id alone does not tell. `runtimeMark: false` leaves
- * the runtime's mark out where the surrounding UI already names the runtime; the name keeps it.
+ * the runtime's mark out where the surrounding UI already names the runtime; the name keeps it. `brand` draws a
+ * maker by its product's mark (Anthropic as Claude's spark), where the mark need not tell a plan from a key.
  */
-export function ProviderIconStack({ modelProvider, runtimeProvider, plan, runtimeMark = true, modelName, runtimeName, className, hint, name }: {
+export function ProviderIconStack({ modelProvider, runtimeProvider, plan, brand, runtimeMark = true, modelName, runtimeName, className, hint, name }: {
   modelProvider?: string;
   runtimeProvider?: string;
   plan?: boolean;
+  brand?: boolean;
   runtimeMark?: boolean;
   modelName?: string;
   runtimeName?: string;
@@ -173,7 +181,7 @@ export function ProviderIconStack({ modelProvider, runtimeProvider, plan, runtim
   name?: string;
 }) {
   const runtimes = useRuntimeMarkDeclarations();
-  const { model, runtime, route, marks } = stackIdentities(modelProvider, runtimeProvider, plan, runtimeName, runtimes);
+  const { model, runtime, route, marks } = stackIdentities(modelProvider, runtimeProvider, plan, runtimeName, runtimes, brand);
   if (!model && !runtime) return null;
   const label = name ?? (modelName ? `${modelName} · ${route}` : route);
   const stacked = Boolean(runtimeMark && model && runtime);

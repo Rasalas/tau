@@ -20,13 +20,15 @@ export const RUNTIME_STATUS_LABELS: Record<RuntimeStatus, string> = {
   unlisted: "models listed once a thread runs",
 };
 
+/** A runtime in one of these states cannot run a thread yet: not installed, signed out, or failing. */
+export const BLOCKED: ReadonlySet<RuntimeStatus> = new Set(["not-installed", "sign-in", "unavailable"]);
+
 /** A runtime with its state as far as the picker knows it. */
 export interface RuntimeEntry { backend: UiRuntimeBackend; status: RuntimeStatus; listed: boolean }
 
 /**
  * One entry of the picker's rail: Favourites, Recent, every maker of a listed
- * model, then the runtimes that list none (not installed, signed out, or
- * listing once a thread runs on them).
+ * model, then the runtimes that list none yet but can run a thread.
  */
 export type ViewEntry =
   | { kind: "favourites"; key: string }
@@ -61,14 +63,17 @@ export function pickerRuntimes(catalogRuntime: ThreadBackendKind = DEFAULT_RUNTI
   return offered.map((backend) => Object.assign({ backend }, runtimeStatus(backend, catalogs.get(backend.kind), backend.kind === catalogRuntime)));
 }
 
-/** The rail: known makers in their order, the other sets by name, then the runtimes that list nothing. */
-export function pickerViews(makers: Iterable<string>, runtimes: readonly RuntimeEntry[], label: (maker: string) => string): ViewEntry[] {
+/**
+ * The rail: known makers in their order, the other sets by name, then the runtimes that list nothing.
+ * A runtime that is not set up stays in Settings; the thread's own (`keep`) stays to say why it cannot run.
+ */
+export function pickerViews(makers: Iterable<string>, runtimes: readonly RuntimeEntry[], label: (maker: string) => string, keep?: ThreadBackendKind): ViewEntry[] {
   const rank = (maker: string) => { const at = MAKER_ORDER.indexOf(maker); return at < 0 ? MAKER_ORDER.length : at; };
   const sorted = [...new Set(makers)].sort((a, b) => rank(a) - rank(b) || label(a).localeCompare(label(b)));
   return [
     { kind: "favourites", key: FAVOURITES_VIEW },
     { kind: "recent", key: RECENT_VIEW },
     ...sorted.map((maker): ViewEntry => ({ kind: "maker", key: makerView(maker), maker })),
-    ...runtimes.filter((entry) => !entry.listed).map((entry): ViewEntry => Object.assign({ kind: "runtime" as const, key: runtimeView(entry.backend.kind) }, entry)),
+    ...runtimes.filter((entry) => !entry.listed && (!BLOCKED.has(entry.status) || entry.backend.kind === keep)).map((entry): ViewEntry => Object.assign({ kind: "runtime" as const, key: runtimeView(entry.backend.kind) }, entry)),
   ];
 }

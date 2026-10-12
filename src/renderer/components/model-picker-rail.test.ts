@@ -13,6 +13,13 @@ describe("the picker's rail", () => {
     expect(views.map((entry) => entry.key)).toEqual(["favourites", "recent", "maker:openai", "maker:anthropic", "maker:acme", "maker:opencode", "runtime:claude-code"]);
   });
 
+  it("leaves out a runtime that is not set up, unless the thread is on it", () => {
+    const signedOut: RuntimeCatalogEntry = { status: "unavailable", reason: "sign-in-required" };
+    const runtimes = pickerRuntimes("pi", backends, new Map<string, RuntimeCatalogEntry>([["codex", ready], ["claude-code", signedOut]]));
+    expect(pickerViews(["openai"], runtimes, providerLabel, "pi").map((entry) => entry.key)).toEqual(["favourites", "recent", "maker:openai"]);
+    expect(pickerViews(["openai"], runtimes, providerLabel, "claude-code").map((entry) => entry.key)).toEqual(["favourites", "recent", "maker:openai", "runtime:claude-code"]);
+  });
+
   it("leaves out a runtime the project turned off, unless the thread is on it", () => {
     const marked = backends.map((backend) => backend.kind === "codex" ? { ...backend, disabled: true } : backend);
     expect(pickerRuntimes("pi", marked, new Map()).map((entry) => entry.backend.kind)).toEqual(["pi", "claude-code"]);
