@@ -1183,6 +1183,20 @@ describe("Agents Kit definitions", () => {
     }
   });
 
+  it("keeps a read-only child from loading more tools when no Access Kit holds it", async () => {
+    const { dir, bench, cleanup } = await withProject({ "reviewer.md": REVIEWER.replace("tools: [read, grep]\n", "") });
+    try {
+      await bench.runtime("parent", dir).call("tau_spawn_thread", { prompt: "Look", agent: "reviewer" });
+      const child = bench.runtime("child-1", dir, ["read", "edit", "tool_search"]);
+      await child.fire("session_start", { type: "session_start", reason: "new" }, piContext(bench.threads.get("child-1")!.entries, dir));
+      expect(child.active()).toContain("read");
+      expect(child.active()).not.toEqual(expect.arrayContaining(["edit"]));
+      expect(child.active()).not.toContain("tool_search");
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("asks Access Kit to hold the child to the definition's access level", async () => {
     const { dir, bench, cleanup } = await withProject({ "reviewer.md": REVIEWER.replace("tools: [read, grep]\n", "") });
     try {

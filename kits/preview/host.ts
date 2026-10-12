@@ -50,7 +50,7 @@ import { CURSOR_ACTIVE_MS, LABEL_VISIBLE_MS, cursorMark } from "./agent-cursor-m
 import type { ScreenAction } from "./screen-protocol.js";
 import { PreviewHistory } from "./history.js";
 import { PreviewMiniState } from "./mini-state.js";
-import { previewTools, type PreviewToolController } from "./agent-tools.js";
+import { PREVIEW_TOOL_GROUP, previewTools, type PreviewToolController } from "./agent-tools.js";
 import { defaultsFromSettings } from "./settings.js";
 import { DEFAULT_PREVIEW_DEFAULTS, fitViewport, readAppearance, readDefaults, readViewport, readZoom, stepZoom } from "./viewport.js";
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
@@ -1154,7 +1154,7 @@ export function createPreviewHostExtension(
 
       const factory: RuntimeExtensionFactory = (pi, session) => {
         controller.noteWorkspace(session.cwd);
-        for (const tool of previewTools(controller, session.sessionId)) pi.registerTool(tool);
+        for (const tool of previewTools(controller, session.sessionId)) pi.registerTool({ ...tool, ...PREVIEW_TOOL_GROUP });
       };
       const release = context.services.registerRuntimeExtension("tau-preview", factory);
       // The same tools for the runtimes that are not Pi; the calling thread's workspace gates `file://`.

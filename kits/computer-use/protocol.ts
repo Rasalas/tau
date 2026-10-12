@@ -12,6 +12,12 @@ export const COMPUTER_USE_SCREEN_RUNTIME_EXTENSION = "tau-computer-use-screen";
 /** Every computer-use tool is `computer_use_<operation>`. */
 export const COMPUTER_USE_TOOL_PREFIX = "computer_use_";
 
+/** Pi loads these on demand through `tool_search`: ~50 declarations are most of a request. */
+export const COMPUTER_USE_TOOL_GROUP = {
+  exposure: "deferred" as const,
+  namespace: { name: "computer_use", description: "Apps and windows on this computer: see them, click, type, press keys." },
+};
+
 /** Host extensions granted `screen-state` and `screen-frame`: Evidence Kit. */
 export const SCREEN_CALLERS: readonly string[] = ["tau.evidence"];
 

@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import type { HostExtensionContext, HostMcpTool, RuntimeExtensionFactory, RuntimeSessionInfo } from "tau/host-extension";
 import { ComputerUseDriverSessions, loadComputerUseManifest, type ComputerUseClient } from "./driver.js";
 import { ComputerUsePolicy, type ComputerUseConfig, type ComputerUseConfirm } from "./policy.js";
-import { COMPUTER_USE_PACKAGE, COMPUTER_USE_TOOL_PREFIX } from "./protocol.js";
+import { COMPUTER_USE_PACKAGE, COMPUTER_USE_TOOL_GROUP, COMPUTER_USE_TOOL_PREFIX } from "./protocol.js";
 import type { ScreenFeed } from "./screen-feed.js";
 import { registerComputerUseVision } from "./vision.js";
 
@@ -107,7 +107,7 @@ export class ComputerUseRuntime {
         const tools = await this.tools(thread);
         state.lifecycle.signal.throwIfAborted();
         signal?.throwIfAborted();
-        for (const tool of tools) pi.registerTool(tool);
+        for (const tool of tools) pi.registerTool({ ...tool, ...COMPUTER_USE_TOOL_GROUP });
         return tools.length;
       };
       try { await register(); }
@@ -117,6 +117,7 @@ export class ComputerUseRuntime {
           name: `${COMPUTER_USE_TOOL_PREFIX}connect`, label: "Connect Computer Use",
           description: "Retry driver startup and register this platform's available computer-use tools.",
           parameters: Type.Object({}),
+          ...COMPUTER_USE_TOOL_GROUP,
           async execute(_id, _args, signal) {
             try {
               const count = await register(signal);

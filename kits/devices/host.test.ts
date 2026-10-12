@@ -9,11 +9,14 @@ const paths: string[] = [];
 afterEach(async () => { for (const path of paths.splice(0)) await rm(path, { recursive: true, force: true }); });
 it("publishes the same three tools to Pi and MCP and protects consent and install with owner access", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "tau-device-host-test-")); paths.push(stateDir);
-  const registerRuntimeExtension = vi.fn(() => () => undefined), registerTools = vi.fn(() => () => undefined);
+  const registerRuntimeExtension = vi.fn((_name: string, _factory: (pi: unknown) => void) => () => undefined), registerTools = vi.fn(() => () => undefined);
   const registry = await activateHostKit(host, { stateDir, registerRuntimeExtension, mcp: { registerTools, gate: () => () => undefined, registerInstructions: () => () => undefined, connect: async () => undefined } });
   try {
     expect(registerRuntimeExtension).toHaveBeenCalledWith("tau-devices", expect.any(Function));
     expect(registerTools).toHaveBeenCalledWith(expect.any(Function));
+    const registered: { name: string; exposure?: string }[] = [];
+    registerRuntimeExtension.mock.calls[0]![1]({ registerTool: (tool: { name: string; exposure?: string }) => registered.push(tool) });
+    expect(registered.map((tool) => [tool.name, tool.exposure])).toEqual([["device_list", "deferred"], ["device_screenshot", "deferred"], ["device_control", "deferred"]]);
     const readOnly = { kind: "workbench-client", connection: "phone", pairedClient: "c1", readOnly: true } as const;
     const paired = { kind: "workbench-client", connection: "phone", pairedClient: "c1" } as const;
     await expect(registry.invoke(DEVICE_KIT, "state", undefined, readOnly)).resolves.toMatchObject({ settings: { agentControl: false } });

@@ -33,6 +33,10 @@ it("keeps Pi usable after discovery failure and registers exact live tools on re
     expect(success.details).toEqual({ registered_tools: 1 });
     expect(tools.get("computer_use_platform_action")?.parameters).toMatchObject({ properties: { target: { type: "string" } } });
     expect(tools.has("computer_use_get_window_state")).toBe(false);
+    // The connect tool and the tools it registers are found through tool_search, not declared up front.
+    for (const name of ["computer_use_connect", "computer_use_platform_action"]) {
+      expect(tools.get(name)).toMatchObject({ exposure: "deferred", namespace: { name: "computer_use" } });
+    }
     await runtime.closeThread("retry");
     await expect(connect.execute("stale", {}, undefined, undefined, {} as never)).rejects.toThrow("thread closed");
     expect(discovery).toHaveBeenCalledTimes(3);

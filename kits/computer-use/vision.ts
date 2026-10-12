@@ -2,6 +2,7 @@ import type { complete } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ComputerUseDriverResult } from "./driver.js";
+import { COMPUTER_USE_TOOL_GROUP } from "./protocol.js";
 
 interface VisionConfig {
   visionModel?: { provider: string; model: string };
@@ -13,6 +14,7 @@ export function registerComputerUseVision(pi: ExtensionAPI, config: VisionConfig
   const vision = config.visionModel;
   if (!vision) return;
   pi.registerTool({
+    ...COMPUTER_USE_TOOL_GROUP,
     name: "computer_use_analyze_screenshot",
     label: "computer_use_analyze_screenshot",
     description: "Capture a window and analyze its screenshot with the configured vision model. Use pid and window_id from list_windows.",
