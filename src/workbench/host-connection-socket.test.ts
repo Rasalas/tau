@@ -8,6 +8,7 @@ import {
   SOCKET_HELLO_TIMEOUT_MS,
   WAKE_PROBE_TIMEOUT_MS,
   createSocketHostClient,
+  createSocketHostTransport,
 } from "./host-connection-socket";
 import type { HostWake } from "./host-link";
 
@@ -82,6 +83,22 @@ afterEach(() => {
 });
 
 describe("socket host client", () => {
+  it("never delivers a queued command after the caller already saw its timeout", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    vi.useFakeTimers();
+    const transport = createSocketHostTransport("ws://host.test:7788");
+    const socket = FakeSocket.opened[0]!;
+    socket.accept();
+    const expired = transport.request("prompt", ["must not arrive later"]).catch(() => "timed-out");
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await expired).toBe("timed-out");
+    const started = transport.request("hello", [{ protocol: 1 }]);
+    answerHello(socket, helloReply(1));
+    await started;
+    expect(socket.frames().filter((frame) => frame.type === "request")).toHaveLength(0);
+    transport.close?.();
+  });
+
   it("resolves browser resources against the home host without exposing connection credentials", () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     const { client, connection } = createSocketHostClient("wss://host.test:7788/socket?token=connection-secret", "host-secret");
@@ -299,6 +316,81 @@ async function liveClient(options: { heartbeat?: boolean } = {}) {
 }
 
 describe("socket host client on a mobile network", () => {
+  it("holds a prompt queued during sleep until the fresh wake probe answers", async () => {
+    const { connection, client, first, wake } = await liveClient();
+    wake("foreground");
+    const stalePing = pings(first).at(-1)!;
+    wake("suspend");
+    const prompt = client.sendPrompt("queued asleep", [], "thread", "queued-sleep-turn").catch(() => undefined);
+    expect(first.frames().filter((frame) => frame.type === "request")).toHaveLength(0);
+    wake("resume");
+    first.deliver({ type: "pong", id: stalePing.id });
+    expect(first.frames().filter((frame) => frame.type === "request")).toHaveLength(0);
+    first.deliver({ type: "pong", id: pings(first).at(-1)!.id });
+    const requests = first.frames().filter((frame) => frame.type === "request");
+    expect(requests).toHaveLength(1);
+    first.deliver({ type: "response", response: { id: (requests[0]!.request as { id: string }).id, result: undefined } });
+    await prompt;
+    connection.close();
+  });
+
+  it("recovers after a second socket opens before the failed recovery's promise settles", async () => {
+    const { connection, first, wake } = await liveClient();
+    first.drop();
+    wake("foreground");
+    const second = FakeSocket.opened[1]!;
+    second.accept();
+    // Its recovery hello fails, but its rejection has not reached HostConnection yet.
+    second.drop();
+    wake("foreground");
+    const third = FakeSocket.opened[2]!;
+    third.accept();
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      answerHello(third, helloReply(1));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(connection.getState()).toBe("connected");
+    } finally { connection.close(); }
+  });
+
+  it("pauses an in-flight prompt's deadline during sleep and sends it only once", async () => {
+    const { connection, client, first, wake } = await liveClient();
+    let outcome: string | undefined;
+    const prompt = client.sendPrompt("once across sleep", [], "thread", "sleep-turn").then(
+      () => { outcome = "accepted"; }, () => { outcome = "rejected"; },
+    );
+    const request = first.frames().find((frame) => frame.type === "request")!.request as { id: string };
+    wake("suspend" as HostWake);
+    try {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(outcome).toBeUndefined();
+      expect(FakeSocket.opened).toHaveLength(1);
+      wake("resume" as HostWake);
+      first.deliver({ type: "pong", id: pings(first).at(-1)!.id });
+      first.deliver({ type: "response", response: { id: request.id, result: undefined } });
+      await prompt;
+      expect(outcome).toBe("accepted");
+      expect(first.frames().filter((frame) => frame.type === "request")).toHaveLength(1);
+      expect(connection.getState()).toBe("connected");
+    } finally { connection.close(); }
+  });
+
+  it("does not retry a dropped socket while asleep and reconnects immediately on resume", async () => {
+    const { connection, first, wake } = await liveClient();
+    wake("suspend" as HostWake);
+    first.drop();
+    try {
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(FakeSocket.opened).toHaveLength(1);
+      wake("resume" as HostWake);
+      const next = FakeSocket.opened[1]!;
+      next.accept();
+      answerHello(next, helloReply(1));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(connection.getState()).toBe("connected");
+    } finally { connection.close(); }
+  });
+
   it.each(["close", "timeout"])("recovers when the host becomes reachable after the initial connection failed by %s", async (failure) => {
     vi.stubGlobal("WebSocket", FakeSocket);
     vi.useFakeTimers();
@@ -461,7 +553,7 @@ describe("socket host client on a mobile network", () => {
     expect(pings(first)).toHaveLength(1);
     // A suspended page: the clock moves on, no timer runs.
     vi.setSystemTime(Date.now() + 5 * 60_000);
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(FakeSocket.opened).toHaveLength(1);
     expect(pings(first)).toHaveLength(2);
     first.deliver({ type: "pong", id: pings(first)[1]!.id });
@@ -488,6 +580,21 @@ describe("socket host client on a mobile network", () => {
     await vi.advanceTimersByTimeAsync(WAKE_PROBE_TIMEOUT_MS * 2);
     expect(FakeSocket.opened).toHaveLength(1);
     expect(connection.getState()).toBe("connected");
+    connection.close();
+  });
+
+  it("gives a pending wake probe a fresh deadline after the computer slept", async () => {
+    const { connection, first, wake } = await liveClient();
+    wake("foreground");
+    await vi.advanceTimersByTimeAsync(WAKE_PROBE_TIMEOUT_MS - 500);
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+    wake("foreground");
+    expect(pings(first)).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(500);
+    first.deliver({ type: "pong", id: pings(first).at(-1)!.id });
+    await vi.advanceTimersByTimeAsync(WAKE_PROBE_TIMEOUT_MS);
+    expect(connection.getState()).toBe("connected");
+    expect(FakeSocket.opened).toHaveLength(1);
     connection.close();
   });
 

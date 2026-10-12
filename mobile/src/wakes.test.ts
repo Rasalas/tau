@@ -28,7 +28,7 @@ describe("nativeWakeSource", () => {
     fake.status({ connected: false, connectionType: "none" });
     fake.status({ connected: true, connectionType: "cellular" });
     fake.status({ connected: true, connectionType: "wifi" });
-    expect(wakes).toEqual(["foreground", "offline", "online", "network-change"]);
+    expect(wakes).toEqual(["suspend", "resume", "offline", "online", "network-change"]);
     stop();
     await settle();
     expect(fake.removed.sort()).toEqual(["app", "network"]);

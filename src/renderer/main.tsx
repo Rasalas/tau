@@ -35,7 +35,8 @@ function connect(): { client: HostClient; connection: HostConnection } | undefin
     const local = window.tau ? new HostConnection(createElectronHostTransport(window.tau)) : undefined;
     void local?.start().catch(() => undefined);
     const socket = createSocketHostClient(remoteHost, search.get("token") ?? undefined, {
-      wakes: browserWakeSource(),
+      wakes: browserWakeSource(window.tau?.onPowerState),
+      onDiagnostic: (reason) => console.debug("Tau host connection:", reason),
       onUnauthorized: (reason) => socket.connection.refuse(accessRefusal(reason)),
       // A reload keeps the address, so it carries the token a rotation gave this window.
       onTokenChanged: (token) => {

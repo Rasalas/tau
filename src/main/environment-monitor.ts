@@ -1,4 +1,7 @@
 import { WebSocket, type ClientOptions } from "ws";
+import { ConnectionTimers, type ConnectionTimer } from "../shared/connection-timers.js";
+import type { HostWakeSource } from "../shared/host-link.js";
+import { hostPowerState } from "./host-power-state.js";
 import type { HostBootstrap, ThreadIndexSnapshot } from "../shared/contracts.js";
 import { applyIndexUpdate, type EnvironmentStatus, type IndexUpdate } from "../shared/environments.js";
 import {
@@ -47,6 +50,7 @@ export interface MonitorSocket {
 }
 
 export interface EnvironmentMonitorOptions {
+  wakes?: HostWakeSource;
   /** Socket URLs in the order to try them; read again at every attempt. */
   urls(): string[];
   token: string;
@@ -108,17 +112,31 @@ export class EnvironmentMonitor {
   private pingSentAt: number | undefined;
   private counter = 0;
   private readonly pending = new Map<string, (result: { value?: unknown; error?: string; code?: string }) => void>();
+  private readonly timers: ConnectionTimers;
+  private readonly stopWakes: () => void;
+  private heartbeat = false;
+  private pingId?: string;
+  private wakeCheck?: { promise: Promise<void>; resolve(): void; reject(error: Error): void };
+  private wakeGeneration = 0;
 
   constructor(private readonly options: EnvironmentMonitorOptions) {
+    this.timers = new ConnectionTimers({
+      now: options.now, setTimer: options.setTimer, clearTimer: options.clearTimer,
+      onGap: () => this.wake("resume"),
+    });
+    this.stopWakes = (options.wakes ?? hostPowerState.subscribe)((state) => {
+      if (state === "suspend" || state === "resume") this.wake(state);
+    });
     this.connect();
   }
 
   get current(): MonitorState { return this.state; }
 
   /** Asks the machine over this connection; rejects at once when it is not connected. `compress: false` skips deflate for this frame. */
-  call<T>(method: string, params: readonly unknown[] = [], timeoutMs = CALL_TIMEOUT_MS, options: { compress?: boolean } = {}): Promise<T> {
+  async call<T>(method: string, params: readonly unknown[] = [], timeoutMs = CALL_TIMEOUT_MS, options: { compress?: boolean } = {}): Promise<T> {
+    if (this.wakeCheck) await this.wakeCheck.promise;
     const socket = this.socket;
-    if (!socket || this.state.status !== "connected") return Promise.reject(new Error(this.state.detail ?? "The machine is not connected."));
+    if (!socket || this.state.status !== "connected" || this.timers.paused) return Promise.reject(new Error(this.timers.paused ? "This device is asleep." : this.state.detail ?? "The machine is not connected."));
     return this.request<T>(socket, method, timeoutMs, params, options.compress);
   }
 
@@ -136,7 +154,7 @@ export class EnvironmentMonitor {
 
   /** Tries now instead of at the next scheduled attempt. */
   retryNow(): void {
-    if (this.closed) return;
+    if (this.closed || this.timers.paused) return;
     if (this.state.status === "connected") return;
     this.clear(this.retryTimer);
     this.attempt = 0;
@@ -148,23 +166,20 @@ export class EnvironmentMonitor {
 
   close(): void {
     this.closed = true;
+    this.stopWakes();
     this.clear(this.retryTimer);
     this.drop();
+    this.timers.close();
   }
 
   private now(): number { return this.options.now?.() ?? Date.now(); }
 
   private timer(callback: () => void, ms: number): unknown {
-    if (this.options.setTimer) return this.options.setTimer(callback, ms);
-    const handle = setTimeout(callback, ms);
-    handle.unref?.();
-    return handle;
+    return this.timers.after(ms, callback);
   }
 
   private clear(handle: unknown): void {
-    if (handle === undefined) return;
-    if (this.options.clearTimer) this.options.clearTimer(handle);
-    else clearTimeout(handle as ReturnType<typeof setTimeout>);
+    this.timers.cancel(handle as ConnectionTimer | undefined);
   }
 
   private set(patch: Partial<MonitorState>): void {
@@ -177,7 +192,7 @@ export class EnvironmentMonitor {
   }
 
   private connect(): void {
-    if (this.closed) return;
+    if (this.closed || this.timers.paused) return;
     const urls = this.options.urls();
     const url = urls[this.urlIndex % Math.max(urls.length, 1)];
     if (!url) {
@@ -239,8 +254,12 @@ export class EnvironmentMonitor {
     try { parsed = JSON.parse(text); } catch { return; }
     const frame = decodeHostServerFrame(parsed);
     if (!frame) return;
-    this.clear(this.deadline);
-    this.deadline = undefined;
+    if (!this.wakeCheck || (frame.type === "pong" && frame.id === this.pingId)) {
+      this.clear(this.deadline);
+      this.deadline = undefined;
+      this.wakeCheck?.resolve();
+      this.wakeCheck = undefined;
+    }
     if (frame.type === "hello-reply") {
       const certificate = onHello();
       this.attempt = 0;
@@ -255,7 +274,8 @@ export class EnvironmentMonitor {
         lastSeenAt: this.now(),
       });
       this.options.onReached?.(url, reply, certificate);
-      if (reply.capabilities.includes(HOST_CAPABILITY.heartbeat)) this.schedulePing(socket);
+      this.heartbeat = reply.capabilities.includes(HOST_CAPABILITY.heartbeat);
+      if (this.heartbeat) this.schedulePing(socket);
       // An older host has no such method; its version alone then says whether it is behind.
       void this.request<unknown>(socket, HOST_UPDATE_METHODS.status, CALL_TIMEOUT_MS)
         .then((value) => { const update = decodeHostUpdateStatus(value); if (update && this.socket === socket) this.set({ update }); }, () => undefined);
@@ -266,6 +286,7 @@ export class EnvironmentMonitor {
       return;
     }
     if (frame.type === "pong") {
+      if (this.wakeCheck) return;
       if (this.pingSentAt !== undefined) this.set({ roundTripMs: Math.max(0, this.now() - this.pingSentAt), lastSeenAt: this.now() });
       this.pingSentAt = undefined;
       return;
@@ -315,27 +336,68 @@ export class EnvironmentMonitor {
 
   private schedulePing(socket: MonitorSocket): void {
     this.clear(this.pingTimer);
+    if (this.timers.paused) return;
     this.pingTimer = this.timer(() => {
       if (this.socket !== socket) return;
-      this.clear(this.deadline);
-      this.pingSentAt = this.now();
-      this.write(socket, { type: "ping", id: `p${this.now()}` });
-      // Any frame clears it; a half-open link to a machine that slept answers none.
-      // The ping waits behind a large frame of ours (a file piece), so a draining buffer earns another round.
-      let buffered = socket.bufferedAmount ?? 0;
-      const expire = (): void => {
-        if (this.socket !== socket) return;
-        const now = socket.bufferedAmount ?? 0;
-        if (now > 0 && now < buffered) {
-          buffered = now;
-          this.deadline = this.timer(expire, PING_DEADLINE_MS);
-          return;
-        }
-        this.fail(socket, "It stopped answering.");
-      };
-      this.deadline = this.timer(expire, PING_DEADLINE_MS);
+      this.sendPing(socket, PING_DEADLINE_MS);
       this.schedulePing(socket);
     }, PING_EVERY_MS);
+  }
+
+  private sendPing(socket: MonitorSocket, timeoutMs: number): void {
+    this.clear(this.deadline);
+    this.pingSentAt = this.now();
+    this.pingId = `p${++this.counter}`;
+    this.write(socket, { type: "ping", id: this.pingId });
+    // Normal heartbeats accept any frame; a wake requires this probe's pong.
+    // The ping waits behind a large frame of ours (a file piece), so a draining buffer earns another round.
+    let buffered = socket.bufferedAmount ?? 0;
+    const expire = (): void => {
+      if (this.socket !== socket) return;
+      const now = socket.bufferedAmount ?? 0;
+      if (now > 0 && now < buffered) {
+        buffered = now;
+        this.deadline = this.timer(expire, PING_DEADLINE_MS);
+        return;
+      }
+      this.fail(socket, "It stopped answering.");
+    };
+    this.deadline = this.timer(expire, timeoutMs);
+  }
+
+  private wake(state: "suspend" | "resume"): void {
+    if (this.closed) return;
+    const generation = ++this.wakeGeneration;
+    this.clear(this.deadline);
+    this.clear(this.pingTimer);
+    this.deadline = undefined;
+    this.pingSentAt = undefined;
+    if (state === "suspend") { this.timers.pause(); return; }
+    this.timers.resume();
+    this.options.logger?.debug("environment.connection.resumed");
+    const socket = this.socket;
+    if (!socket || this.state.status !== "connected") { this.retryNow(); return; }
+    if (!this.wakeCheck) {
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+      void promise.catch(() => undefined);
+      this.wakeCheck = { promise, resolve, reject };
+    }
+    if (this.heartbeat) {
+      this.sendPing(socket, 3_000);
+      this.schedulePing(socket);
+    } else {
+      void this.request<HostBootstrap>(socket, "bootstrap", 3_000).then(
+        (bootstrap) => {
+          if (this.socket !== socket || this.wakeGeneration !== generation) return;
+          this.set({ index: bootstrap.threadIndex, lastSeenAt: this.now() });
+          this.wakeCheck?.resolve();
+          this.wakeCheck = undefined;
+        },
+        () => { if (this.wakeGeneration === generation) this.fail(socket, "It stopped answering after this device woke."); },
+      );
+    }
   }
 
   private write(socket: MonitorSocket, frame: unknown, compress?: boolean): void {
@@ -367,10 +429,14 @@ export class EnvironmentMonitor {
   private refuse(detail: string): void {
     this.drop();
     this.closed = true;
+    this.stopWakes();
+    this.timers.close();
     this.set({ status: "refused", detail, roundTripMs: undefined, running: new Set() });
   }
 
   private drop(): void {
+    this.wakeCheck?.reject(new Error("The connection dropped while checking it after sleep."));
+    this.wakeCheck = undefined;
     this.clear(this.pingTimer);
     this.clear(this.deadline);
     this.pingTimer = undefined;

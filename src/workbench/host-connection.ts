@@ -11,7 +11,6 @@ import {
   type HostHelloReply,
   type HostJobEvent,
   type HostPush,
-  type HostResponse,
   type HostSubscription,
 } from "../shared/host-transport";
 import type { HostLink } from "./host-link";
@@ -25,24 +24,8 @@ import { ToolOutputStream, isWireEvent } from "./tool-output-stream";
  */
 export type HostConnectionState = "connected" | "reconnecting" | "resyncing" | "refused";
 
-/** One way of moving frames to a host. Electron IPC is one, a local socket another. */
-export interface HostTransport {
-  readonly platform: string;
-  resourceUrl?(path: string): string;
-  request(method: string, params: readonly unknown[]): Promise<HostResponse>;
-  onPush(listener: (push: HostPush) => void): () => void;
-  /** A link that can drop reports both edges; the in-process transport reports neither. */
-  onOpen?(listener: () => void): () => void;
-  onClose?(listener: () => void): () => void;
-  close?(): void;
-  /** The socket underneath, for a transport that has one. */
-  getLink?(): HostLink;
-  onLink?(listener: (link: HostLink) => void): () => void;
-  /** Tries now instead of waiting out the backoff, or checks an open link. */
-  retryNow?(): void;
-  /** The token the next hello carries; a transport without one ignores it. */
-  updateToken?(token: string): void;
-}
+export type { HostTransport } from "../shared/host-transport-client";
+import type { HostTransport } from "../shared/host-transport-client";
 
 interface PendingJob {
   resolve(value: unknown): void;
@@ -77,6 +60,8 @@ export class HostConnection {
   private state: HostConnectionState = "connected";
   private refusal: string | undefined;
   private recovering = false;
+  private recoveryRequested = false;
+  private closed = false;
   private queued: HostPush[] = [];
   private capabilities = new Set<string>();
   private readOnly = false;
@@ -104,7 +89,11 @@ export class HostConnection {
   constructor(private readonly transport: HostTransport) {
     transport.onPush((push) => this.receive(push));
     transport.onClose?.(() => this.setState("reconnecting"));
-    transport.onOpen?.(() => void this.recover());
+    transport.onOpen?.(() => {
+      if (this.closed) return;
+      if (this.recovering) this.recoveryRequested = true;
+      else void this.recover();
+    });
   }
 
   get platform(): string {
@@ -224,6 +213,7 @@ export class HostConnection {
   }
 
   close(): void {
+    this.closed = true;
     this.transport.close?.();
   }
 
@@ -360,7 +350,7 @@ export class HostConnection {
    * client lacks starts it over as a new client, so the host sends whole texts again.
    */
   private async recover(): Promise<void> {
-    if (this.recovering) return;
+    if (this.recovering || this.closed) return;
     this.recovering = true;
     this.setState("reconnecting");
     const restart = this.messageTexts.lost;
@@ -375,7 +365,10 @@ export class HostConnection {
       this.drain();
       this.sendSubscription();
     }
-    if (this.messageTexts.lost && this.state === "connected") void this.recover();
+    if (this.recoveryRequested || (this.messageTexts.lost && this.state === "connected")) {
+      this.recoveryRequested = false;
+      void this.recover();
+    }
   }
 
   /**

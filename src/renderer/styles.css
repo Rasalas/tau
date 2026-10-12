@@ -2147,13 +2147,17 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 @media (max-width: 700px) {
   .conversation-start .host-connection-status { width: calc(100% - 24px); }
 }
-.host-connection-status.reconnecting {
+.host-connection-status.connection-repair {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  background: none;
+  border-color: transparent;
+  color: var(--ink-3);
 }
-.host-connection-status.reconnecting .text-button { flex: none; }
+.host-connection-message { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.host-connection-status.connection-repair .text-button { flex: none; }
 /* A host on another machine: the link's health as a dot, the words in its tooltip. */
 .host-link-indicator { padding: 6px; }
 .host-link-dot {

@@ -1279,6 +1279,8 @@ export interface TauDesktopApi {
   request(method: string, params: readonly unknown[]): Promise<HostResponse>;
   /** Validated pushes, each with the sequence a client needs for replay. */
   onHostEvent(listener: (push: HostPush) => void): () => void;
+  /** Native computer sleep/wake, independent of the window's visibility. */
+  onPowerState?(listener: (state: "suspend" | "resume") => void): () => void;
 }
 
 declare global {

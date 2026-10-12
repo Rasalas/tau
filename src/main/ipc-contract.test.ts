@@ -216,8 +216,8 @@ describe("host protocol contract", () => {
     }
   });
 
-  it("preload and the Electron transport name the same channels", () => {
-    expect([...channels("preload/index.cts")].sort()).toEqual(["tau:host-event", "tau:request"]);
+  it("preload exposes the two host transport channels and a separate native resume signal", () => {
+    expect([...channels("preload/index.cts")].sort()).toEqual(["tau:host-event", "tau:power-state", "tau:request"]);
     expect([...channels("main/host-transport-electron.ts")].sort()).toEqual(["tau:host-event", "tau:request"]);
   });
 });
