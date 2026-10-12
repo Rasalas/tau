@@ -41,7 +41,7 @@ export function nativeWakeSource(app: AppStateEvents, network: NetworkEvents): H
       // The system reports every path update; a probe is only a ping, so each one may ask.
       else if (previous) listener("network-change");
     };
-    void app.addListener("appStateChange", ({ isActive }) => { if (isActive && !stopped) listener("foreground"); }).then(keep);
+    void app.addListener("appStateChange", ({ isActive }) => { if (!stopped) listener(isActive ? "resume" : "suspend"); }).then(keep);
     void network.addListener("networkStatusChange", (status) => { if (!stopped) onNetwork(status); }).then(keep);
     void network.getStatus().then((status) => {
       if (stopped || last) return;

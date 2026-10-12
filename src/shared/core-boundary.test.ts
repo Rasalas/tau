@@ -108,6 +108,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./machine-prompt-attachments.js", // Generic prompt-content transport over core's authenticated blobs.
   "./host-push-coalescer.js",   "./host-push-log.js",   "./host-push-scope.js",   "./host-report.js",   "./host-text.js",   "./host-tls.js",   "./host-tls-trust.js",   "./host-token.js",   "./host-uplink.js",
   "./host-transcript.js",   "./host-transport-clients.js",   "./host-transport-electron.js",   "./host-transport-socket.js",
+  "./host-power-state.js", // Native sleep/wake lifecycle of core's host connections.
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./linux-sandbox.js",   "./live-turn-state.js",
   "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-completion.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",

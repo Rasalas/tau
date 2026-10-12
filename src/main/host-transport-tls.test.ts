@@ -171,7 +171,7 @@ describe("the socket transport over TLS", () => {
     const refusals: HostCertificateRefusedError[] = [];
     const bad = new HostUplink({ url, token: TOKEN, trust: { pin: { fingerprint: OTHER } }, onCertificateRefused: (error) => refusals.push(error) });
     uplinks.push(bad);
-    await expect(bad.request("ping", ["never"])).rejects.toThrow(/dropped/u);
+    await expect(bad.request("ping", ["never"])).rejects.toThrow(/closed/u);
     expect(refusals).toHaveLength(1);
     expect(refusals[0]!.presented).toBe(FINGERPRINT);
     // A hello asked for after the refusal fails at once instead of waiting out its timeout.
@@ -191,7 +191,7 @@ describe("the socket transport over TLS", () => {
     const refusals: HostCertificateRefusedError[] = [];
     const old = new HostUplink({ url, token: TOKEN, trust: { pin: { fingerprint: FINGERPRINT } }, onCertificateRefused: (error) => refusals.push(error) });
     uplinks.push(old);
-    await expect(old.request("ping", ["never"])).rejects.toThrow(/dropped/u);
+    await expect(old.request("ping", ["never"])).rejects.toThrow(/closed/u);
     expect(refusals[0]).toMatchObject({ kind: "certificate", presented: certificateFingerprint(renewed.cert) });
   });
 

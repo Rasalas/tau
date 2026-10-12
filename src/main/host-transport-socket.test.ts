@@ -9,7 +9,7 @@ import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { clientHostToken, hostTokenMatches, readHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HostClientRegistry } from "./host-clients.js";
-import { createProtocolServer, startSocketHostTransport, type SocketHostTransport, type SocketHostTransportOptions } from "./host-transport-socket.js";
+import { SOCKET_PING_INTERVAL_MS, createProtocolServer, startSocketHostTransport, type SocketHostTransport, type SocketHostTransportOptions } from "./host-transport-socket.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import type { HostMethodTable } from "./host-methods.js";
 
@@ -434,6 +434,48 @@ describe("socket host transport on a network that drops peers", () => {
     expect(await closed(asleep)).toBe(1006);
     await vi.waitFor(() => expect(clients.count()).toBe(1));
     expect(awake.socket.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it.each([SOCKET_PING_INTERVAL_MS + 1_500, 5 * 60_000])("gives a peer a fresh ping after a %i ms host sleep instead of dropping it for a pre-sleep ping", async (sleepMs) => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      let tick = (): void => undefined;
+      const clients = new HostClientRegistry();
+      const started = await listenWith({ clients, schedulePings: (next) => { tick = next; return () => undefined; } });
+      const peer = connect(started.port, { autoPong: false });
+      await opened(peer);
+      peer.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+      await nextFrame(peer);
+      const firstPing = new Promise<void>((resolve) => peer.once("ping", () => resolve()));
+      now += SOCKET_PING_INTERVAL_MS;
+      tick();
+      await firstPing;
+
+      // Both processes slept before this peer could answer. The host's next tick is overdue.
+      now += sleepMs;
+      const wakePing = new Promise<void>((resolve, reject) => {
+        peer.once("ping", () => resolve());
+        peer.once("close", () => reject(new Error("The host dropped its sleeping peer.")));
+      });
+      tick();
+      await wakePing;
+      expect(clients.count()).toBe(1);
+      peer.pong();
+      peer.send(JSON.stringify({ type: "ping", id: "after-wake" }));
+      await nextFrame(peer);
+      now += SOCKET_PING_INTERVAL_MS;
+      tick();
+      expect(peer.readyState).toBe(WebSocket.OPEN);
+      // The grace is one round only. A peer that stops answering is still removed.
+      const disconnected = closed(peer);
+      now += SOCKET_PING_INTERVAL_MS;
+      tick();
+      expect(await disconnected).toBe(1006);
+      await vi.waitFor(() => expect(clients.count()).toBe(0));
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("keeps a peer whose large frame is still arriving, though it answers no ping behind it", async () => {

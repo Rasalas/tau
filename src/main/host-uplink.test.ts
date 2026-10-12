@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { HostClientCall } from "../shared/host-transport.js";
 import { HostUplink } from "./host-uplink.js";
+import { hostPowerState } from "./host-power-state.js";
 
 let server: WebSocketServer | undefined;
 let uplink: HostUplink | undefined;
 
 afterEach(async () => {
+  hostPowerState.change("resume");
   uplink?.close();
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   server = undefined;
@@ -32,6 +34,30 @@ async function fakeHost(): Promise<{ url: string; hellos: unknown[]; sockets: We
 }
 
 describe("the window process's uplink", () => {
+  it("preserves an in-flight native call across sleep without reconnecting or repeating it", async () => {
+    const host = await fakeHost();
+    uplink = new HostUplink({ url: host.url, token: "t", requestTimeoutMs: 2_000 });
+    await uplink.hello();
+    const requests: Array<{ id: string; method: string }> = [];
+    host.sockets[0]!.on("message", (bytes) => {
+      const frame = JSON.parse(String(bytes));
+      if (frame.type === "request") requests.push(frame.request);
+    });
+    let outcome: string | undefined;
+    const call = uplink.request("write-once").then(() => { outcome = "answered"; }, () => { outcome = "rejected"; });
+    hostPowerState.change("suspend");
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
+    expect(outcome).toBeUndefined();
+    expect(requests).toHaveLength(1);
+    hostPowerState.change("resume");
+    await vi.waitFor(() => expect(host.hellos).toHaveLength(2));
+    host.sockets[0]!.send(JSON.stringify({ type: "response", response: { id: requests[0]!.id, result: "done" } }));
+    await call;
+    expect(outcome).toBe("answered");
+    expect(host.sockets).toHaveLength(1);
+    expect(requests).toHaveLength(1);
+  });
+
   it("names its window and halves in the hello and hands a call sent to it to the window", async () => {
     const host = await fakeHost();
     const halves = ["window"];

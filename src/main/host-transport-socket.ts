@@ -31,6 +31,7 @@ import { forwardedHost, originAllowed } from "./host-origin.js";
 import type { ClientPeer } from "./client-calls.js";
 import type { HostClientSink } from "./host-transport-clients.js";
 import type { HostLogger } from "./host-log.js";
+import { ConnectionTimers } from "../shared/connection-timers.js";
 
 const UNAUTHORIZED = HOST_CLOSE_CODE.unauthorized;
 /** A socket that has not said hello by then is closed. */
@@ -178,6 +179,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const http = options.attachTo ?? (options.tls ? createTlsUpgradeServer(options.tls) : createUpgradeServer());
   // No server of its own: every listener hands its upgrades over with the trust it has.
   const server = new WebSocketServer({ noServer: true, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES, perMessageDeflate: SOCKET_PER_MESSAGE_DEFLATE });
+  const timers = new ConnectionTimers();
   if (!options.access && !options.token) throw new Error("A socket listener needs a host token or an access model.");
   const access = options.access ?? tokenOnlyAccess(options.token!);
   /** Every authenticated socket, with the principal its requests run as. */
@@ -321,10 +323,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     // Bytes of a frame still arriving count too: an 11 MB file piece over a slow link takes longer than a ping round.
     request.socket.on("data", () => alive.add(socket));
     // A device waiting for its owner has until its request expires; once let in, a new deadline for its hello.
-    const helloTimer = setTimeout(() => {
+    const helloTimer = timers.after(options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS, () => {
       if (!authenticated.has(socket) && !pairing.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
-    }, options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS);
-    helloTimer.unref?.();
+    });
     // Only a peer on this machine may be told that the host's files are local.
     const capabilities = [
       ...socketCapabilities(options.capabilities, request.socket.remoteAddress, process.env, trust),
@@ -378,7 +379,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           forget(socket);
           socket.close(UNAUTHORIZED, reason);
         });
-        clearTimeout(helloTimer);
+        timers.cancel(helloTimer);
         sockets.set(connection, socket);
         // Only a window's own process runs halves; a renderer names the window it sits in.
         options.calls?.attach(connection, {
@@ -446,8 +447,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           respond(socket, { type: "response", response: { id, error: hostErrorInfo(error, code) } });
         });
     });
-    socket.on("close", () => { clearTimeout(helloTimer); origins.delete(socket); forget(socket); });
-    socket.on("error", () => { clearTimeout(helloTimer); forget(socket); });
+    socket.on("close", () => { timers.cancel(helloTimer); origins.delete(socket); forget(socket); });
+    socket.on("error", () => { timers.cancel(helloTimer); forget(socket); });
   };
 
   const attach = (target: Server, trust: ListenerTrust): (() => void) => {
@@ -482,9 +483,15 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     http.once("error", reject);
     http.listen(port, host, () => { http.off("error", reject); resolve(); });
   });
+  let lastPingAt = Date.now();
   const pingAll = (): void => {
+    const now = Date.now();
+    // After sleep, the peer had no chance to answer the previous ping.
+    // Give it a fresh round before deciding that its connection died.
+    const resumed = now - lastPingAt > SOCKET_PING_INTERVAL_MS + 1_000;
+    lastPingAt = now;
     for (const socket of server.clients) {
-      if (!alive.has(socket)) { socket.terminate(); continue; }
+      if (!resumed && !alive.has(socket)) { socket.terminate(); continue; }
       alive.delete(socket);
       socket.ping();
     }
@@ -527,6 +534,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     },
     close: async () => {
       stopPings();
+      timers.close();
       // One that never said hello would otherwise hold the port open.
       for (const socket of server.clients) if (!authenticated.has(socket)) socket.terminate();
       for (const socket of [...authenticated.keys()]) { forget(socket); socket.close(); }

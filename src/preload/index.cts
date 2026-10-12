@@ -27,6 +27,13 @@ const api: TauDesktopApi = {
     ipcRenderer.on(EVENT_CHANNEL, handler);
     return () => ipcRenderer.removeListener(EVENT_CHANNEL, handler);
   },
+  onPowerState: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      if (state === "suspend" || state === "resume") listener(state);
+    };
+    ipcRenderer.on("tau:power-state", handler);
+    return () => ipcRenderer.removeListener("tau:power-state", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("tau", api);

@@ -11,7 +11,7 @@ import { RendererServicesProvider } from "./renderer-services-context";
 import { createRendererServices } from "./renderer-services";
 import type { HostUpdateStatus } from "../shared/host-updates";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 /** A client whose link state the test moves, the way a dropped socket does. */
 function clientWithMovableState(refusal?: string, options: { link?: HostLink; localFiles?: boolean } = {}) {
@@ -44,17 +44,53 @@ function clientWithMovableState(refusal?: string, options: { link?: HostLink; lo
 }
 
 describe("host connection status", () => {
+  it("does not count computer sleep toward the notice's grace period", () => {
+    vi.useFakeTimers();
+    const link = clientWithMovableState();
+    render(<HostClientProvider client={link.client}><HostConnectionStatus /></HostClientProvider>);
+    link.set("reconnecting");
+    act(() => { vi.advanceTimersByTime(1_000); });
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+    act(() => { vi.advanceTimersByTime(4_000); });
+    expect(screen.queryByRole("status")).toBeNull();
+    link.set("connected");
+  });
+
+  it("keeps a quick reconnect and resync silent, but shows an interruption that lasts", () => {
+    vi.useFakeTimers();
+    const link = clientWithMovableState();
+    render(<HostClientProvider client={link.client}><HostConnectionStatus /></HostClientProvider>);
+    link.set("reconnecting");
+    expect(screen.queryByRole("status")).toBeNull();
+    act(() => { vi.advanceTimersByTime(2_000); });
+    link.set("resyncing");
+    expect(screen.queryByRole("status")).toBeNull();
+    link.set("connected");
+    act(() => { vi.advanceTimersByTime(5_000); });
+    expect(screen.queryByRole("status")).toBeNull();
+
+    link.set("reconnecting");
+    act(() => { vi.advanceTimersByTime(4_000); });
+    link.set("resyncing");
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(screen.getByRole("status").textContent).toContain("Updating your workspace…");
+    link.set("connected");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("stays out of the way until the link to a remote host breaks", () => {
+    vi.useFakeTimers();
     const link = clientWithMovableState();
     render(<HostClientProvider client={link.client}><HostConnectionStatus /></HostClientProvider>);
     expect(screen.queryByRole("status")).toBeNull();
 
     link.set("reconnecting");
-    expect(screen.getByRole("status").textContent).toBe("Reconnecting to the host…");
+    act(() => { vi.advanceTimersByTime(5_000); });
+    expect(screen.getByRole("status").textContent).toBe("Restoring connection…");
     expect(screen.queryByRole("button", { name: "Retry now" })).toBeNull();
 
     link.set("resyncing");
-    expect(screen.getByRole("status").textContent).toBe("Refetching the workbench state…");
+    expect(screen.getByRole("status").textContent).toBe("Updating your workspace…");
 
     link.set("connected");
     expect(screen.queryByRole("status")).toBeNull();
@@ -142,10 +178,12 @@ describe("host connection status", () => {
   });
 
   it("offers to retry now while waiting for the next attempt, and says so when the device is offline", () => {
+    vi.useFakeTimers();
     const link = clientWithMovableState(undefined, { link: { phase: "open", attempts: 0 } });
     render(<HostClientProvider client={link.client}><HostConnectionStatus /></HostClientProvider>);
     link.set("reconnecting");
     link.setLink({ phase: "waiting", attempts: 2, retryAt: 0 });
+    act(() => { vi.advanceTimersByTime(5_000); });
     act(() => { screen.getByRole("button", { name: "Retry now" }).click(); });
     expect(link.reconnectNow).toHaveBeenCalledTimes(1);
 
@@ -156,7 +194,7 @@ describe("host connection status", () => {
 
     link.setLink({ phase: "offline", attempts: 3, retryAt: 0 });
     expect(retry).toHaveProperty("disabled", false);
-    expect(screen.getByRole("status").textContent).toContain("Offline. Tau reconnects when the network is back.");
+    expect(screen.getByRole("status").textContent).toContain("You're offline. Tau will reconnect automatically.");
   });
 });
 
@@ -168,7 +206,7 @@ describe("host link indicator", () => {
     expect(describeHostLink("connected", { ...open, roundTripMs: 1_340 })).toEqual({ tone: "slow", label: "Slow connection to the host, 1.3 s round trip" });
     expect(describeHostLink("reconnecting", { phase: "waiting", attempts: 1 }).tone).toBe("pending");
     expect(describeHostLink("reconnecting", { phase: "connecting", attempts: 1 }).tone).toBe("pending");
-    expect(describeHostLink("resyncing", open)).toEqual({ tone: "pending", label: "Refetching the workbench state…" });
+    expect(describeHostLink("resyncing", open)).toEqual({ tone: "pending", label: "Updating your workspace…" });
     expect(describeHostLink("reconnecting", { phase: "offline", attempts: 4 }).tone).toBe("offline");
     expect(describeHostLink("refused", { phase: "closed", attempts: 0 }).tone).toBe("refused");
   });

@@ -1,4 +1,5 @@
-import { app, autoUpdater as nativeUpdater, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, safeStorage, session, shell } from "electron";
+import { app, autoUpdater as nativeUpdater, BaseWindow, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Menu, nativeImage, net, Notification, powerMonitor, safeStorage, session, shell } from "electron";
+import { hostPowerState } from "./host-power-state.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -842,6 +843,12 @@ function installTransport(): void {
 }
 
 if (primaryInstance) app.whenReady().then(async () => {
+  const publishPowerState = (state: "suspend" | "resume") => {
+    hostPowerState.change(state);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("tau:power-state", state);
+  };
+  powerMonitor.on("suspend", () => publishPowerState("suspend"));
+  powerMonitor.on("resume", () => publishPowerState("resume"));
   hostLog.info("app.ready", {
     tauVersion: app.getVersion(),
     electron: process.versions.electron,

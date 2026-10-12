@@ -1,9 +1,10 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { versionSkew } from "../shared/app-version";
 import { compareVersions } from "../shared/runtime-version";
 import type { HostConnectionState } from "../workbench/host-connection";
 import type { HostLink } from "../workbench/host-link";
 import type { HostClient } from "../workbench/host-client";
+import { ConnectionTimers } from "../shared/connection-timers";
 import { useHostClient } from "./host-client-context";
 import { useHostCapabilities } from "./use-host-capabilities";
 import { tooltipProps } from "./components/ui/Tooltip";
@@ -14,12 +15,14 @@ import { UpdateHostButton, UpdateWindowButton } from "./deferred-surfaces";
 const LABEL = {
   connected: "",
   reconnecting: "Reconnecting to the host…",
-  resyncing: "Refetching the workbench state…",
+  resyncing: "Updating your workspace…",
   refused: "Tau refused the connection to the host",
 } as const;
 
 /** A round trip above this reads as a slow link. */
 const SLOW_ROUND_TRIP_MS = 1_000;
+/** A normal wake or a brief link repair should not move the conversation. */
+const CONNECTION_NOTICE_DELAY_MS = 5_000;
 
 function useConnectionState(client: HostClient | undefined): HostConnectionState {
   const subscribe = useCallback(
@@ -87,13 +90,33 @@ export function HostConnectionStatus() {
     </div>;
   }
   if (state !== "connected") {
-    const waiting = state === "reconnecting" && (link?.phase === "waiting" || link?.phase === "offline");
-    return <div className={`host-connection-status ${state}`} role="status" aria-live="polite">
-      <span>{link?.phase === "offline" && state === "reconnecting" ? "Offline. Tau reconnects when the network is back." : LABEL[state]}</span>
-      {state === "reconnecting" && link ? <button type="button" className="text-button" disabled={!waiting} onClick={() => client?.reconnectNow()}>Retry now</button> : null}
-    </div>;
+    return <ConnectionRepairNotice client={client} state={state} link={link} />;
   }
   return <VersionSkewNotice />;
+}
+
+/** Keeps one grace period across reconnect and resync; a healthy link unmounts it. */
+function ConnectionRepairNotice({ client, state, link }: {
+  client: HostClient | undefined;
+  state: "reconnecting" | "resyncing";
+  link: HostLink | undefined;
+}) {
+  const [visibleFor, setVisibleFor] = useState<HostClient>();
+  useEffect(() => {
+    const timers = new ConnectionTimers();
+    timers.after(CONNECTION_NOTICE_DELAY_MS, () => setVisibleFor(client));
+    return () => timers.close();
+  }, [client]);
+  if (!client || visibleFor !== client) return null;
+  const offline = state === "reconnecting" && link?.phase === "offline";
+  const waiting = state === "reconnecting" && (link?.phase === "waiting" || offline);
+  return <div className={`host-connection-status connection-repair ${state}`} role="status" aria-live="polite">
+    <span className="host-connection-message">
+      {offline ? null : <span className="spinner tone-current small" aria-hidden="true" />}
+      <span>{offline ? "You're offline. Tau will reconnect automatically." : state === "resyncing" ? LABEL.resyncing : "Restoring connection…"}</span>
+    </span>
+    {state === "reconnecting" && link ? <button type="button" className="text-button" disabled={!waiting} onClick={() => client.reconnectNow()}>Retry now</button> : null}
+  </div>;
 }
 
 /** The host's version when this page first heard from it. */

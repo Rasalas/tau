@@ -9,6 +9,7 @@ import { createSelfSignedCertificate } from "./self-signed-certificate.js";
 import type { PairingEndpoint } from "../shared/connections.js";
 import type { HostHelloReply } from "../shared/host-transport.js";
 import type { ReachedCertificate } from "./environment-monitor.js";
+import type { HostWake } from "../shared/host-link.js";
 
 let transport: SocketHostTransport | undefined;
 const monitors: EnvironmentMonitor[] = [];
@@ -193,6 +194,65 @@ const helloReply = (capabilities: string[] = ["heartbeat"]) => ({
 });
 
 describe("a machine that goes away", () => {
+  it("holds a new machine command until a fresh pong arrives, ignoring a buffered pre-sleep pong", async () => {
+    const world = fakeWorld();
+    let wake!: (state: HostWake) => void;
+    const { monitor } = watch({
+      urls: () => ["wss://lan:7788/"], token: "t", bootstrap: false,
+      onChange: () => undefined, ...world,
+      wakes: (listener) => { wake = listener; return () => undefined; },
+    });
+    const socket = world.sockets[0]!;
+    socket.fire("open");
+    socket.reply(helloReply());
+    world.advance(20_000);
+    const staleId = socket.sent.at(-1)!.id;
+    wake("suspend");
+    world.advance(60_000);
+    wake("resume");
+    const freshId = socket.sent.at(-1)!.id;
+    const command = monitor.call("write-once");
+    socket.reply({ type: "pong", id: staleId });
+    await Promise.resolve();
+    expect(socket.sent.filter((frame) => frame.request?.method === "write-once")).toHaveLength(0);
+    socket.reply({ type: "pong", id: freshId });
+    await Promise.resolve();
+    const requests = socket.sent.filter((frame) => frame.request?.method === "write-once");
+    expect(requests).toHaveLength(1);
+    socket.reply({ type: "response", response: { id: requests[0]!.request!.id, result: "done" } });
+    await expect(command).resolves.toBe("done");
+  });
+
+  it("pauses a pending call and checks the same machine connection after sleep", async () => {
+    const world = fakeWorld();
+    let wake!: (state: HostWake) => void;
+    const { monitor, last } = watch({
+      urls: () => ["wss://lan:7788/"], token: "t", bootstrap: false,
+      onChange: () => undefined, ...world,
+      wakes: (listener) => { wake = listener; return () => undefined; },
+    });
+    const socket = world.sockets[0]!;
+    socket.fire("open");
+    socket.reply(helloReply());
+    let outcome: string | undefined;
+    const call = monitor.call("readiness").then(() => { outcome = "answered"; }, () => { outcome = "rejected"; });
+    const request = socket.sent.at(-1)!.request!;
+    wake("suspend");
+    world.advance(5 * 60_000);
+    await Promise.resolve();
+    expect(outcome).toBeUndefined();
+    expect(socket.closed).toBe(false);
+    wake("resume");
+    expect(socket.sent.at(-1)).toMatchObject({ type: "ping" });
+    socket.reply({ type: "pong", id: socket.sent.at(-1)!.id });
+    socket.reply({ type: "response", response: { id: request.id, result: "ready" } });
+    await call;
+    expect(outcome).toBe("answered");
+    expect(last().status).toBe("connected");
+    expect(world.sockets).toHaveLength(1);
+    expect(socket.sent.filter((frame) => frame.request?.method === "readiness")).toHaveLength(1);
+  });
+
   it("is noticed by the ping, reported offline, and tried again at its next address", () => {
     const world = fakeWorld();
     const { last } = watch({ urls: () => ["wss://lan:7788/", "wss://tailnet:7788/"], token: "t", onChange: () => undefined, ...world });

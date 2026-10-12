@@ -125,21 +125,46 @@ checks for itself.
 - **The client** cannot see WebSocket pings in a browser, so it sends its own:
   `{ type: "ping", id }` after its hello, answered by `{ type: "pong", id }`,
   and only to a host whose hello reply announced the `heartbeat` capability.
-  `createSocketHostTransport` (`src/workbench/host-connection-socket.ts`)
+  `createSocketHostTransport` (`src/shared/socket-host-transport.ts`, shared
+  by the renderer and the window process's `HostUplink`)
   pings every 15 s and gives up on a socket that delivered nothing within 10 s
   of a ping; any frame counts, not only the pong. A connect that has not opened
   after 10 s and a hello unanswered after 15 s are given up the same way. A
   timer that fires far too late means the page was frozen, not the link, so it
   asks again instead of dropping.
 - **Wakes.** The entry point hands the transport a `HostWakeSource`
-  (`src/workbench/host-link.ts`): `foreground`, `online`, `offline`,
+  (`src/shared/host-link.ts`): `suspend`, `resume`, `foreground`, `online`, `offline`,
   `network-change`. A page uses `browserWakeSource()`
-  (`src/renderer/browser-wakes.ts`: `visibilitychange`, `resume`, `pageshow`,
+  (`src/renderer/browser-wakes.ts`: `visibilitychange`, `freeze`, `resume`, `pageshow`,
   `online`/`offline`, `navigator.connection`); a native shell passes its own
   app-state and network events. A wake while the transport waits for its next
   attempt tries at once; on an open socket it sends a ping with a 3 s deadline;
   a handshake still pending when the network changes is abandoned. While the
   device reports no network the backoff stretches to 15 s.
+
+Sleep is not a failed connection. Electron's `powerMonitor` reports suspend
+and resume to both the renderer and every window-process connection, including
+the machine monitors. A browser supplies its freeze/resume events; the native
+mobile app supplies inactive/active events. `ConnectionTimers` pauses request,
+connect, hello, heartbeat and retry deadlines and preserves their remaining
+active time. Its clock also detects an unannounced event-loop pause before an
+overdue deadline fires, so a headless host does not need Electron to survive sleep.
+The host gives its peers a fresh ping round when its own ping timer ran late.
+
+On resume, an open connection must answer a fresh probe within three seconds.
+Buffered pushes and old pongs do not release newly queued commands. A healthy
+socket stays open; an unresponsive one is replaced and the renderer replays its
+missing events. Hosts without heartbeat support are checked with a hello or a
+read. A second reconnect while recovery is still settling schedules another
+recovery, rather than leaving an open socket without a hello.
+
+Requests already written are never automatically resent: a lost acknowledgement
+does not prove that a command failed. A dropped socket rejects those requests;
+an expired or rejected queued request is removed before any later connection
+can deliver it. Diagnostic events name sleep, resume, socket closure and the
+stage whose deadline expired without recording tokens or request contents.
+Short repairs have no banner; a repair lasting five seconds shows a quiet
+status line. Authentication and certificate refusals remain immediate and final.
 
 Dropping a socket costs little: the next hello carries `lastSeq` and the host
 replays what was missed. The transport's own state is a `HostLink`
