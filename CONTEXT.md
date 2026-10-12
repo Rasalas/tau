@@ -73,6 +73,10 @@ The document area of the workbench beside the conversation. It shows workspace f
 
 One open document in the stage. A preview tab comes from a single click and is replaced by the next preview; a pinned tab stays until closed. Each stage remembers the last twenty tabs closed on it; reopening one brings back a file or thread as it was, and a terminal as a new shell in the thread's folder, never the process it showed.
 
+## Project status card
+
+The workbench's compact summary of the current project's workspace, Git status and related work, with its project actions. Called "Projektstatus-Karte" in German.
+
 ## Wake
 
 A turn something other than the user started: a pull request event, a goal's next turn, a schedule, the end of background work. An external event waits in the thread's queue and never interrupts a turn; the transcript shows it as a wake line, not as the user's message. Stop drops the wakes that still wait and ends what would send more; the user's own queued messages stay.

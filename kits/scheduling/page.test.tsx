@@ -10,7 +10,7 @@ import PrivateSecret from "./secret-card.js";
 
 afterEach(cleanup);
 const job: Job = { id: "job-1", workspaceId: "host:/project", enabled: true, status: "ready", nextAt: "2026-10-08T09:00:00Z", config: { name: "Morning digest", workspace: "/project", backend: "pi", prompt: "Inspect CI", schedule: { kind: "daily", time: "09:00", timezone: "UTC" } } };
-function setup(patch: Partial<ManagementState> = {}, privateCard = false) {
+function setup(patch: Partial<ManagementState> = {}, privateCard = false, params: Record<string, unknown> = {}) {
   let state: ManagementState = { enabled: true, jobs: [structuredClone(job)], canManage: true, secretRequests: [], ...patch };
   const invoke = vi.fn(async (command: string, input?: unknown) => {
     if (command === "manage") return structuredClone(state);
@@ -22,11 +22,24 @@ function setup(patch: Partial<ManagementState> = {}, privateCard = false) {
   const host = { invoke, onEvent: () => () => undefined } as HostExtensionClient;
   const feed = new SchedulingFeed(host);
   const actions = { activeThread: () => ({ sessionId: "thread-1", cwd: "/project", backendKind: "pi", draftPending: false }), runtimeModels: async () => [{ backend: { kind: "pi", label: "Pi" } }], openThread: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
-  render(<TestProviders><TestThreadStore projects={[{ path: "/project", name: "Tau", lastOpenedAt: 0 }]} threads={[]}>
-    {privateCard ? <><div className="composer-frame"><textarea defaultValue="Unsent draft" aria-label="Composer" /></div><PrivateSecret feed={feed} actions={actions} /></> : <AutomationsPage actions={actions} params={{}} navigate={vi.fn()} close={vi.fn()} feed={feed} />}
-  </TestThreadStore></TestProviders>);
-  return { invoke, actions };
+  const draw = (pageParams: Record<string, unknown>) => <TestProviders><TestThreadStore projects={[{ path: "/project", name: "Tau", lastOpenedAt: 0 }]} threads={[]}>
+    {privateCard ? <><div className="composer-frame"><textarea defaultValue="Unsent draft" aria-label="Composer" /></div><PrivateSecret feed={feed} actions={actions} /></> : <AutomationsPage actions={actions} params={pageParams} navigate={vi.fn()} close={vi.fn()} feed={feed} />}
+  </TestThreadStore></TestProviders>;
+  const view = render(draw(params));
+  return { invoke, actions, reopen: () => view.rerender(draw({ ...params })) };
 }
+
+it("opens the automation requested by the project card and stays closed after saving", async () => {
+  const h = setup({}, false, { edit: "job-1" });
+  const dialog = await screen.findByRole("dialog", { name: "Edit automation" });
+  expect((within(dialog).getByLabelText("Name") as HTMLInputElement).value).toBe("Morning digest");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("update", expect.objectContaining({ id: "job-1" })));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit automation" })).toBeNull());
+  h.reopen();
+  const reopened = await screen.findByRole("dialog", { name: "Edit automation" });
+  expect((within(reopened).getByLabelText("Name") as HTMLInputElement).value).toBe("Morning digest");
+});
 
 it("shows recovery states separately and requires duplicate acknowledgement for an uncertain retry", async () => {
   const uncertain = { ...job, status: "uncertain" as const, lastRun: { intentId: "intent", at: "2026-10-07T09:00:00Z", outcome: "uncertain", threadId: "maybe-started" } };
