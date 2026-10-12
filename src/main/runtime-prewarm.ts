@@ -13,6 +13,8 @@ export interface RuntimePrewarmPort {
   /** Live runtimes the host keeps; prewarming never fills the budget to the brim. */
   maxLiveThreads: number;
   cwd(): string;
+  /** False for a folder this machine lacks, such as another machine's project. */
+  isDirectory(path: string): boolean;
   sessionsDir: string | undefined;
   runtimes: ThreadRuntimeLifecycle;
   extensionUi: ExtensionUiCoordinator;
@@ -41,7 +43,7 @@ export class RuntimePrewarm {
 
   /** Builds a blank runtime for a project. `force` overrides the automatic-prewarm switch. */
   scheduleSpare(cwd: string, force = false): void {
-    if ((!this.port.automatic && !force) || this.port.safeMode || this.spare?.cwd === cwd) return;
+    if ((!this.port.automatic && !force) || this.port.safeMode || this.spare?.cwd === cwd || !this.port.isDirectory(cwd)) return;
     void this.discardSpare().catch((error) => this.port.fail(error));
     const startedAt = performance.now();
     const cancellation = new AbortController();

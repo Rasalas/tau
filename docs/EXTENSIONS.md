@@ -25,7 +25,8 @@ you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
    the running Tau to do it. The folder is loaded where it lies.
 3. **Approve it**: the install toast's **Review** opens it in Settings →
    Extensions, where it waits under *Needs attention*; **Allow and turn on**.
-   It starts at once; no `/reload`.
+   Confirm the native dialog when the host machine has a native window. Without
+   one, only an Owner connection can approve the package. It starts at once; no `/reload`.
 4. **Edit and save.** The package reloads by itself, host half included, and
    a toast says *Reloaded &lt;name&gt;* ([the development loop](#the-development-loop)).
    A save that does not compile keeps the running version: the toast names the
@@ -112,8 +113,8 @@ A package has up to two halves, sharing one `id`:
   machine with `"owner"`.
 
 Either entry may be omitted, but not both. `id` is lowercase, dot-separated
-(`vendor.name`), and must be the same string both halves export — the
-manifest's `id` wins if a module disagrees.
+(`vendor.name`), and must be the same string both halves export. The desktop
+loader rejects a module whose `id` differs from its manifest.
 
 **The Pi half** of a runtime Tau owns is not a manifest field: it is a Pi
 extension the host half registers itself, in-process, with
@@ -1059,9 +1060,11 @@ shown on hover and always available on touch.
 `thread-list-head` (API 1.30.0) tops a phone's or a tablet's thread list,
 under its header and over the rows, and stays put while they scroll: a strip
 about the list as a whole. Machines Kit says there which paired machine is out
-of reach (Retry) or refused the device (Pair again), and Usage Kit draws the
-plans' juicebars; register it with `profiles: ["compact"]` and render nothing
-when there is nothing to say. An older core never draws the placement.
+of reach (Retry) or refused the device (Pair again); register it with
+`profiles: ["compact"]` and render nothing when there is nothing to say. An
+older core never draws the placement. `thread-list-title` puts compact controls
+in a phone's top bar, between Tau's mark and Settings, as a desktop's sidebar
+foot has them beside Settings: Usage Kit draws the plans' juicebars there.
 `spine` (API 1.39.0) fills the narrow column the conversation collapses to beside the stage
 (design 1b), under the thread's title and above its queue and "Open
 conversation": Agents Kit draws the thread's state and cost, what runs now, the
@@ -4356,8 +4359,14 @@ restarting itself.
 **Approval.** Installing never activates a package — see §5. A package Tau has
 not seen before, or whose permission list or isolation changed, shows in
 Settings → Extensions as *waiting for approval* with the list it asks for;
-**Allow** writes the grant and starts both halves, **Deny** leaves it off. Until approved, the
-host half is never even imported, in either scope.
+**Allow** requires native confirmation when a window on the host machine is
+available, either in-process or through its local native channel. Without a
+native window, `extension-grant` accepts only an Owner connection as defined
+in [ADR 0024](adr/0024-pairing-allowed-on-the-host.md); paired Write and Read-only
+devices cannot approve. Cancellation, a failed dialog or a native window that
+disconnects during confirmation refuses that grant and never falls back to Owner approval. Approval writes
+the grant and starts both halves; **Deny** leaves it off. Until approved, neither
+half is imported, in either scope, and the desktop contributes metadata only.
 
 **`/reload`** applies changes to Tau itself: it runs Tau's build from its
 source (a checkout Tau runs from or has open, or the source copy an installed

@@ -589,7 +589,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       const codexInput = userInput(prepared.runtimeText, input.attachments);
       const context = await this.options.appContext?.().catch(() => undefined);
       if (context) codexInput.push({ type: "text", text: context.text, text_elements: [] });
-      const delivered = context ? () => { void context.commit(); } : undefined;
+      const delivered = context ? () => { void context.commit().catch(() => undefined); } : undefined;
       const running = this.turns[0];
       if (input.delivery === "steer" && running?.codexTurnId && this.live && !this.live.closed && this.codexThreadId) {
         try {

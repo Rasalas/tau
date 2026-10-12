@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { isExpectedCommandError } from "./host-extension-errors.js";
 import { completeText } from "./model-completion.js";
 
 const reply = (text: string, stopReason = "stop") => ({ stopReason, content: [{ type: "text", text }], errorMessage: stopReason === "error" ? "boom" : undefined });
@@ -39,5 +40,45 @@ describe("completeText", () => {
 
   it("fails with the provider's message", async () => {
     await expect(completeText(runtime(reply("", "error")) as never, model, { system: "s", prompt: "p", onText: () => undefined }, attribution)).rejects.toThrow("boom");
+  });
+
+  describe("on a Pi login", () => {
+    const modelsError = (code: string, message: string) => Object.assign(new Error(message), { name: "ModelsError", code });
+    const withLogin = (getAuth: () => Promise<unknown>, oauth = true) => ({
+      ...runtime(reply("named")),
+      isUsingOAuth: vi.fn(() => oauth),
+      getAuth: vi.fn(getAuth),
+      getProvider: () => ({ name: "Anthropic" }),
+    });
+
+    it("asks to sign in again when the refresh token expired, without sending the request", async () => {
+      const models = withLogin(async () => {
+        throw modelsError("oauth", 'OAuth refresh failed for p: Anthropic token refresh request failed. body={"error": "invalid_grant", "error_description": "Refresh token expired"}; stack=Error: HTTP request failed\n    at postJson');
+      });
+      const failure = await completeText(models as never, model, { system: "s", prompt: "p" }, attribution).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("Pi's Anthropic login has expired. Sign in again on Pi's card under Settings → Providers.");
+      // A login to renew is no broken command: it must not count toward deactivating the package that asked.
+      expect(isExpectedCommandError(failure)).toBe(true);
+      expect(models.completeSimple).not.toHaveBeenCalled();
+    });
+
+    it("names a refresh that failed for another reason without claiming the login expired", async () => {
+      const models = withLogin(async () => { throw modelsError("oauth", "OAuth refresh failed for p: fetch failed"); });
+      const failure = await completeText(models as never, model, { system: "s", prompt: "p" }, attribution).catch((error: unknown) => error);
+      expect((failure as Error).message).toBe("Pi could not refresh its Anthropic login. Sign in again on Pi's card under Settings → Providers if this keeps happening.");
+      expect(isExpectedCommandError(failure)).toBe(true);
+    });
+
+    it("leaves other failures to the request", async () => {
+      const models = withLogin(async () => { throw modelsError("provider", "Unknown provider: p"); });
+      await expect(completeText(models as never, model, { system: "s", prompt: "p" }, attribution)).resolves.toBe("named");
+    });
+
+    it("checks only a provider Pi reaches through a login", async () => {
+      const models = withLogin(async () => undefined, false);
+      await expect(completeText(models as never, model, { system: "s", prompt: "p" }, attribution)).resolves.toBe("named");
+      expect(models.getAuth).not.toHaveBeenCalled();
+    });
   });
 });

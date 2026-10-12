@@ -48,9 +48,11 @@ function fakeActions(patch: Partial<WorkbenchActions> = {}): WorkbenchActions {
   return new Proxy(patch, { get: (target, key) => (target as Record<string, unknown>)[key as string] ?? vi.fn() }) as WorkbenchActions;
 }
 
-function phone(list: UiEnvironments) {
+const noAgents = async (_extensionId: string, command: string): Promise<unknown> => command === "agents" ? { available: false, machines: [] } : undefined;
+
+function phone(list: UiEnvironments, invoke: (extensionId: string, command: string, input?: unknown) => Promise<unknown> = noAgents) {
   const fake = fakeEnvironments(list);
-  const { registry } = createKitHarness(async (_extensionId, command) => command === "agents" ? { available: false, machines: [] } : undefined, "compact", { environments: fake.environments });
+  const { registry } = createKitHarness(invoke, "compact", { environments: fake.environments });
   // Workspace Kit's store, as far as "Run on" goes: it keeps the machines' source for its pill.
   let runOn: DraftMachineSource | undefined;
   registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => {
@@ -85,7 +87,7 @@ describe("Machines Kit on a phone", () => {
     await screen.findByRole("button", { name: /^rex.*online · 1 running · moves this window there/u });
     const rows = within(screen.getByRole("group", { name: "Machines" })).getAllByRole("button") as HTMLButtonElement[];
     expect(rows.map((row) => [row.textContent, row.getAttribute("aria-pressed"), row.disabled, row.dataset.touch])).toEqual([
-      ["maconline · idle · moves this window there", "true", false, "true"],
+      ["maconline · idle", "true", false, "true"],
       ["rexonline · 1 running · moves this window there", "false", false, "true"],
       [expect.stringMatching(/^boxOffline · last seen/u), "false", true, "true"],
     ]);
@@ -158,6 +160,84 @@ describe("Machines Kit on a phone", () => {
     await vi.waitFor(() => expect(text).toBe("Fix checkout"));
     expect(listActions.newSession).toHaveBeenCalledWith({ workspace: "ws-shop" });
     setClientStorage(undefined);
+  });
+
+  describe("Run on, through the host on screen", () => {
+    // The host's agents reach rex, which this phone never paired with; satchel is only there.
+    const satchel = { name: "satchel", lastOpenedAt: 3, workspaceId: "ws-satchel" };
+    const draft = { draftPending: true, cwd: "/srv/satchel", workspaceId: "ws-satchel" };
+    const send = { prompt: "Review it", projectPath: "/srv/satchel", workspaceId: "ws-satchel", preparing: vi.fn(), alternate: false, runtime: "pi", attachments: 0 };
+    const hostReachingRex = (started: unknown) => vi.fn(async (_extensionId: string, command: string, _input?: unknown) => {
+      if (command === "agents") return { available: true, machines: [{ id: "rex", name: "rex", status: "connected", projects: [satchel] }] };
+      return command === "start-project" ? started : undefined;
+    });
+    const proxy = { id: "rex~t1", path: "tau-thread:machine:rex~t1", title: "Review it", projectPath: "/srv/satchel", projectName: "satchel", messageCount: 1, modifiedAt: 1, backendKind: "machine" as const };
+
+    function Pill({ source, actions }: { source: DraftMachineSource; actions: WorkbenchActions }) {
+      const chosen = source.useMachine({ actions });
+      return chosen ? <output aria-label="Run on">{chosen.name}</output> : null;
+    }
+
+    afterEach(() => setClientStorage(undefined));
+
+    it("lists the machines that host reaches and starts a draft of their project on the one picked, there", async () => {
+      setClientStorage(createMemoryStorage());
+      const invoke = hostReachingRex({ sessionId: "t1", path: "/remote/t1", local: false });
+      const { registry, runOn, environments } = phone({ shown: "mac", environments: [mac], secureStorage: true }, invoke);
+      const { Section } = runOn();
+      const store = new ThreadStore();
+      render(<ThreadStoreContext.Provider value={store}><Section touch actions={fakeActions({ activeThread: () => draft as never })} /></ThreadStoreContext.Provider>);
+      // The host holds the agents' key there: picking rex keeps the phone here.
+      fireEvent.click(await screen.findByRole("button", { name: /^rex.*online · idle$/u }));
+      expect(environments.open).not.toHaveBeenCalled();
+      const switchSession = vi.fn(async () => true);
+      const claimed = registry.claimNewThread(send, fakeActions({ switchSession }));
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("tau.environments", "start-project", {
+        sourceMachine: "rex", workspaceId: "ws-satchel", machine: "rex", targetWorkspaceId: "ws-satchel", prompt: "Review it", backend: "pi",
+      }));
+      act(() => store.applyThreadIndex({ projects: [], sessions: [proxy] }));
+      await expect(claimed).resolves.toBe(true);
+      expect(switchSession).toHaveBeenCalledExactlyOnceWith("tau-thread:machine:rex~t1");
+    });
+
+    it("brings that project to the host on screen when nothing else was picked, as the desktop does", async () => {
+      setClientStorage(createMemoryStorage());
+      const invoke = hostReachingRex({ sessionId: "t2", path: "/sessions/t2", local: true });
+      const { registry } = phone({ shown: "mac", environments: [mac], secureStorage: true }, invoke);
+      const switchSession = vi.fn(async () => true);
+      await expect(registry.claimNewThread(send, fakeActions({ switchSession }))).resolves.toBe(true);
+      expect(invoke).toHaveBeenCalledWith("tau.environments", "start-project", { sourceMachine: "rex", workspaceId: "ws-satchel", machine: "mac", prompt: "Review it", backend: "pi" });
+      expect(switchSession).toHaveBeenCalledWith("/sessions/t2");
+    });
+
+    it("starts a project's next draft on the machine picked for it last, and a pick back here stands", async () => {
+      setClientStorage(createMemoryStorage());
+      const { runOn } = phone({ shown: "mac", environments: [mac], secureStorage: true }, hostReachingRex(undefined));
+      const source = runOn();
+      const store = new ThreadStore();
+      const view = (activeDraft: object) => <ThreadStoreContext.Provider value={store}>
+        <Pill source={source} actions={fakeActions({ activeThread: () => activeDraft as never })} />
+        <source.Section touch actions={fakeActions({ activeThread: () => activeDraft as never })} />
+      </ThreadStoreContext.Provider>;
+      const first = render(view(draft));
+      expect((await screen.findByLabelText("Run on")).textContent).toBe("mac");
+      fireEvent.click(await screen.findByRole("button", { name: /^rex.*online · idle$/u }));
+      expect(screen.getByLabelText("Run on").textContent).toBe("rex");
+      first.unmount();
+      // The thread started; the next draft of satchel starts on rex, another project here.
+      render(view({ draftPending: false }));
+      cleanup();
+      const next = render(view(draft));
+      await vi.waitFor(() => expect(screen.getByLabelText("Run on").textContent).toBe("rex"));
+      fireEvent.click(screen.getByRole("button", { name: /^mac/u }));
+      expect(screen.getByLabelText("Run on").textContent).toBe("mac");
+      next.unmount();
+      render(view({ draftPending: false }));
+      cleanup();
+      render(view(draft));
+      await act(async () => undefined);
+      expect(screen.getByLabelText("Run on").textContent).toBe("mac");
+    });
   });
 
   it("words the last sighting as the design does", () => {

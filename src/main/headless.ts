@@ -15,10 +15,12 @@ import { pairingUrl, type PairingEndpoint } from "../shared/connections.js";
 import { WorkspaceIdentity, readOrCreateHostId } from "./workspace-identity.js";
 import { EXTENSION_API_VERSION, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { HostLog } from "./host-log.js";
+import { installHostProcessErrorHandlers } from "./host-process-errors.js";
 import { HostJobRunner, NO_JOB_CONTEXT } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods, type HostMethodTable } from "./host-methods.js";
+import { serveNativeExtensionGrants } from "./native-extension-grants.js";
 import { MachineKitRoute } from "./machine-kit-route.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
@@ -102,6 +104,7 @@ const webRoot = process.env.TAU_WEB_CLIENT || join(appRoot, "dist-web");
 
 // Its own file: the window process writes host.log in the same directory.
 const hostLog = new HostLog({ dir: join(userData, "logs"), fileName: "host-process.log" });
+installHostProcessErrorHandlers(hostLog);
 const hostId = readOrCreateHostId(join(userData, "host-id"));
 /** One name for this machine wherever a person reads it: Bonjour, Machines, a pairing link. The host name stays an address. */
 const machineName = machineDisplayName();
@@ -214,6 +217,7 @@ async function main(): Promise<void> {
   useHostSystemCertificates();
   const previous = serviceKind ? await retirePrevious() : undefined;
   const folderLock = await claimOrLeave();
+  const nativeGrants = await serveNativeExtensionGrants(userData);
   exposePiSessionLockExtension();
   await installShellEnvironment().catch((error: unknown) => hostLog.warn("shell-environment.failed", error));
   const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
@@ -406,6 +410,7 @@ async function main(): Promise<void> {
     ...started.methodDeps(),
     jobs,
     platform: {
+      confirmExtensionGrant: (pkg) => nativeGrants.confirm(pkg),
       // A headless host has no clipboard, no window and no build of its own.
       copyText: unsupported("Copying text"),
       copyImage: unsupported("Copying an image"),
@@ -443,6 +448,7 @@ async function main(): Promise<void> {
       // A host on its way out starts no window on the display.
       clientCalls.setWindowLauncher(undefined);
       clientCalls.dispose();
+      nativeGrants.close();
       machines.close();
       blobs.close();
       browserResources.close();

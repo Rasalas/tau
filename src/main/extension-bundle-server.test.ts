@@ -7,6 +7,20 @@ vi.mock("electron", () => ({ protocol: { registerSchemesAsPrivileged: vi.fn(), h
 const { DesktopBundleStore } = await import("./extension-bundle-server.js");
 
 describe("tau-ext bundle scheme", () => {
+  it("serves only metadata for an unapproved package and removes its previous URLs", () => {
+    const store = new DesktopBundleStore();
+    const url = store.publish("acme.pkg", "old code");
+    const stylesUrl = store.publishStyles("acme.pkg", ".old{}");
+    const other = store.publish("other.pkg", "other code");
+    const result = store.serve({ bundles: [{ id: "acme.pkg", path: "/package/desktop.ts", scope: "global", code: "hostile code", styles: ".hostile{}", url, stylesUrl, permissions: [], granted: false }], errors: [], skipped: [] }, ["acme.pkg"]);
+    expect(result.bundles[0]).toMatchObject({ id: "acme.pkg", code: "", granted: false });
+    expect(result.bundles[0]).not.toHaveProperty("url");
+    expect(result.bundles[0]).not.toHaveProperty("styles");
+    expect(result.bundles[0]).not.toHaveProperty("stylesUrl");
+    expect(store.respond(url).status).toBe(404);
+    expect(store.respond(stylesUrl).status).toBe(404);
+    expect(store.respond(other).status).toBe(200);
+  });
   it("serves a published bundle as JavaScript and nothing else", async () => {
     const store = new DesktopBundleStore();
     const url = store.publish("acme.pkg", "export default 1;");

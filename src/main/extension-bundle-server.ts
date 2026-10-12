@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { protocol } from "electron";
 import type { SharedFileStore } from "./shared-files.js";
+import type { DesktopExtensionLoadResult } from "../shared/contracts.js";
 
 export const TAU_EXT_SCHEME = "tau-ext";
 const BUNDLE_PATH = /^\/bundles\/([a-z0-9][a-z0-9.-]*)\/([0-9a-f]{16,64})\.(js|css)$/u;
@@ -14,6 +15,23 @@ const CONTENT_TYPES = { js: "text/javascript", css: "text/css" } as const;
  */
 export class DesktopBundleStore {
   private readonly bundles = new Map<string, string>();
+
+  /** Replaces served code, retaining only metadata for packages awaiting approval. */
+  serve(result: DesktopExtensionLoadResult, only?: readonly string[]): DesktopExtensionLoadResult {
+    if (only) for (const id of only) this.remove(id);
+    else this.clear();
+    return {
+      ...result,
+      bundles: result.bundles.map((bundle) => {
+        if (bundle.granted === false) {
+          const { url: _url, styles: _styles, stylesUrl: _stylesUrl, ...metadata } = bundle;
+          this.remove(bundle.id);
+          return { ...metadata, code: "" };
+        }
+        return { ...bundle, url: this.publish(bundle.id, bundle.code), ...(bundle.styles ? { stylesUrl: this.publishStyles(bundle.id, bundle.styles) } : {}) };
+      }),
+    };
+  }
 
   /** Stores one bundle and returns the URL the renderer imports it from. */
   publish(extensionId: string, code: string): string {

@@ -108,6 +108,7 @@ function entryLabel(path: string): string {
  * the URL is the platform's call, because the page's policy is the client's.
  */
 export async function importBundle(bundle: DesktopExtensionBundle, platform: Platform = getPlatform()): Promise<unknown> {
+  if (bundle.granted === false) throw new Error(`Extension ${bundle.id} is awaiting approval`);
   if (bundle.url) return platform.importModule(bundle.url);
   const url = URL.createObjectURL(new Blob([bundle.code], { type: "text/javascript" }));
   try {
@@ -135,7 +136,7 @@ export function needsNewerClient(bundle: DesktopExtensionBundle, api: string = E
 /** Identity includes approval and origin as well as the code and stylesheet. */
 function sameBundle(left: DesktopExtensionBundle, right: DesktopExtensionBundle): boolean {
   const identity = (bundle: DesktopExtensionBundle) => [
-    bundle.path, bundle.scope, bundle.projectPath,
+    bundle.path, bundle.scope, bundle.projectPath, bundle.manifestId,
     bundle.hash ?? bundle.code, bundle.hash ?? bundle.styles,
     bundle.url, bundle.stylesUrl, bundle.permissions, bundle.granted, bundle.theme, bundle.source,
   ];
@@ -206,6 +207,14 @@ export class RuntimeExtensions {
       // or its files no longer compile and the errors above said so. Either way
       // the half that is running stays the last one that worked.
       if (!bundle) continue;
+      if (bundle.granted === false) {
+        if (previous) {
+          try { this.registry.deactivate(previous.extension.id); } catch (error) { this.host.log("desktop-extension.deactivate.failed", String(error)); }
+        }
+        this.loaded = this.loaded.filter((entry) => entry !== previous);
+        this.announceWaiting(id, previous?.extension.name ?? id);
+        continue;
+      }
       try {
         // The old extension is taken down only once the new module is in hand,
         // so its panel is gone for a render rather than for a fetch — the dock
@@ -220,9 +229,7 @@ export class RuntimeExtensions {
         this.loaded = previous
           ? this.loaded.map((entry) => entry === previous ? record : entry)
           : [...this.loaded, record];
-        // A changed permission list or isolation sends a package back to waiting: nothing reloaded.
-        if (bundle.granted === false) this.announceWaiting(id, record.extension.name);
-        else this.host.notify(`Reloaded ${record.extension.name}`);
+        this.host.notify(`Reloaded ${record.extension.name}`);
       } catch (error) {
         this.reportLoadFailure(bundle, error);
       }
@@ -247,6 +254,9 @@ export class RuntimeExtensions {
     const extension = (module as { default?: unknown } | null)?.default;
     if (!isDesktopExtension(extension)) {
       throw new Error("the module's default export is not a desktop extension ({ id, name, activate })");
+    }
+    if (bundle.manifestId !== undefined && extension.id !== bundle.manifestId) {
+      throw new Error(`extension id ${extension.id} does not match manifest id ${bundle.manifestId}`);
     }
     if (others.some((entry) => entry.extension.id === extension.id)) {
       throw new Error(`extension id ${extension.id} is already taken by another loaded extension`);
@@ -364,12 +374,14 @@ export class RuntimeExtensions {
     const ordered = [...result.bundles].sort((left, right) => Number(left.theme ?? false) - Number(right.theme ?? false));
     // Fetched and compiled side by side, activated one after another in this order.
     const imports = ordered.map((bundle) => {
+      if (bundle.granted === false) return undefined;
       if (retained.some((record) => record.bundle.id === bundle.id)) return undefined;
       const imported = this.importModule(bundle);
       imported.catch(() => undefined);
       return imported;
     });
     for (const [index, bundle] of ordered.entries()) {
+      if (bundle.granted === false) continue;
       const existing = retained.find((record) => record.bundle.id === bundle.id);
       if (existing) continue;
       try {

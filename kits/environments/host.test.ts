@@ -142,6 +142,29 @@ describe("Machines Kit on the host", () => {
     expect(events.at(-1)).toMatchObject({ name: AGENTS_EVENT, payload: { machines: [{ status: "refused", detail: "revoked" }] } });
   });
 
+  it("names each machine's own projects, not the ones only its proxies list, and announces when they change", async () => {
+    const { machines } = fakeMachines([{ id: "rex-id", name: "rex", status: "connected", address: "wss://rex/" }]);
+    const session = (id: string, workspaceId: string, backendKind?: string) => ({ id, path: id, title: id, projectPath: "/p", projectName: "p", messageCount: 1, modifiedAt: 1, workspaceId, ...(backendKind ? { backendKind } : {}) });
+    let index = {
+      projects: [{ path: "/srv/satchel", name: "satchel", lastOpenedAt: 2, workspaceId: "ws-satchel" }, { path: "/Users/me/tau", name: "tau", lastOpenedAt: 1, workspaceId: "ws-mac" }],
+      sessions: [session("s1", "ws-satchel"), session("mini~t1", "ws-mac", "machine")],
+    };
+    let changedIndex: (() => void) | undefined;
+    machines.index = () => index;
+    machines.subscribeIndex = (listener) => { changedIndex = () => listener("rex-id"); return () => undefined; };
+    const events: PublishedKitEvent[] = [];
+    const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines }, (event) => events.push(event));
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "agents")).toEqual({ available: true, machines: [
+      { id: "rex-id", name: "rex", status: "connected", projects: [{ name: "satchel", lastOpenedAt: 2, workspaceId: "ws-satchel" }] },
+    ] });
+    index = { ...index, sessions: [...index.sessions, session("s2", "ws-satchel")] };
+    changedIndex?.();
+    expect(events.filter((event) => event.name === AGENTS_EVENT)).toEqual([]);
+    index = { ...index, projects: [...index.projects, { path: "/srv/shop", name: "shop", lastOpenedAt: 3 }] as typeof index.projects };
+    changedIndex?.();
+    expect(events.at(-1)).toMatchObject({ name: AGENTS_EVENT, payload: { machines: [{ projects: [{ name: "satchel" }, { name: "shop" }] }] } });
+  });
+
   it("says there are none on a host that keeps no machines", async () => {
     const registry = await activateHostKit(createEnvironmentsHostExtension());
     expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "agents")).toEqual({ available: false, machines: [] });

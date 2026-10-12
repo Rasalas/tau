@@ -75,6 +75,32 @@ describe("machine kit routing", () => {
     expect(routes.routeOf("tau.files", { workspace: "ws1_here" })).toBeUndefined();
   });
 
+  it("keeps a worktree it made on a machine there before that machine lists it, and names the machine to a client that names it here", async () => {
+    const call = vi.fn(async (): Promise<unknown> => ({ workspaceId: "ws1_worktree", displayPath: "/srv/shop-worktrees/tau-1" }));
+    const machines = { list: () => [{ id: machine, name: "rex" }], index: () => ({ projects: [{ workspaceId: workspace }], sessions: [] }), call } as unknown as HostMachines;
+    const routes = new MachineKitRoute({ machines: () => machines, active: () => ({ sessionId: "local", backendKind: "pi" }) });
+    const host = {
+      invokeHostExtension: vi.fn(), authorizeHostExtension: vi.fn(async () => undefined), activeThreadIdentity: () => undefined,
+      resolveWorkspacePath: () => { throw new Error("This host does not know that workspace."); },
+    } as unknown as PiHost;
+    const unsupported = (): never => { throw new Error("not used"); };
+    const methods = createHostMethods({
+      bootstrap: unsupported, requireHost: async () => host, host: () => host,
+      machines: () => machines, machineRoutes: routes, jobs: new HostJobRunner(() => undefined),
+      platform: {
+        copyText: unsupported, copyImage: unsupported, readImagePreview: unsupported,
+        inspectExtensions: unsupported, loadDesktopExtensions: unsupported, rebuildWorkbench: unsupported,
+        workbenchSource: unsupported, relaunchWorkbench: unsupported, installUpdate: unsupported,
+        notify: unsupported, setBadge: unsupported,
+      },
+    });
+    await invokeHostMethod(methods, "host-extension", ["tau.workspace", "create-worktree", { branch: "tau/x", workspace }]);
+    expect(call).toHaveBeenCalledWith(machine, "tau.workspace", "create-worktree", { branch: "tau/x", workspace });
+    expect(routes.routeOf("tau.workspace", { workspace: "ws1_worktree" })).toEqual({ machine, input: { workspace: "ws1_worktree" } });
+    await expect(invokeHostMethod(methods, "new-session", [undefined, [], "ws1_worktree"])).rejects.toThrow("This project is on rex. Choose rex under Run on to start a thread there.");
+    await expect(invokeHostMethod(methods, "new-session", [undefined, [], "ws1_elsewhere"])).rejects.toThrow("This host does not know that workspace.");
+  });
+
   it("adds the active remote session's workspace to each routed kit, while local explicit calls stay here", () => {
     const f = fixture();
     for (const extension of ["tau.workspace", "tau.files", "tau.terminal", "tau.review"]) {

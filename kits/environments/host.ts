@@ -18,18 +18,38 @@ import {
   type MachineProbe,
 } from "./protocol.js";
 
+type MachineIndex = ReturnType<NonNullable<HostMachineServices["index"]>>;
+
+/** A machine's own projects: one that only its proxy threads name has no checkout there. */
+function machineProjects(index: MachineIndex): AgentMachine["projects"] {
+  if (!index) return undefined;
+  return index.projects.filter((project) => !project.workspaceId
+    || !index.sessions.some((session) => session.workspaceId === project.workspaceId && session.backendKind === "machine")
+    || index.sessions.some((session) => session.workspaceId === project.workspaceId && session.backendKind !== "machine"))
+    .map((project) => ({
+      name: project.name,
+      lastOpenedAt: project.lastOpenedAt,
+      ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}),
+      ...(project.icon ? { icon: project.icon } : {}),
+    }));
+}
+
 function view(machines: HostMachineServices | undefined): AgentMachines {
   if (!machines) return { available: false, machines: [] };
   return {
     available: true,
-    machines: machines.list().map((machine): AgentMachine => ({
-      id: machine.id,
-      name: machine.name,
-      status: machine.status,
-      ...(machine.detail ? { detail: machine.detail } : {}),
-      ...(machine.roundTripMs !== undefined ? { roundTripMs: machine.roundTripMs } : {}),
-      ...(machine.readOnly ? { readOnly: true } : {}),
-    })),
+    machines: machines.list().map((machine): AgentMachine => {
+      const projects = machineProjects(machines.index?.(machine.id));
+      return {
+        id: machine.id,
+        name: machine.name,
+        status: machine.status,
+        ...(machine.detail ? { detail: machine.detail } : {}),
+        ...(machine.roundTripMs !== undefined ? { roundTripMs: machine.roundTripMs } : {}),
+        ...(machine.readOnly ? { readOnly: true } : {}),
+        ...(projects ? { projects } : {}),
+      };
+    }),
   };
 }
 
@@ -72,14 +92,22 @@ export function createEnvironmentsHostExtension(): HostExtension {
       const machines = context.services.machines;
       const stopBackend = machines?.index && machines.followThread ? context.services.registerRuntimeBackend(createMachineBackendProvider(machines)) : undefined;
       let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-      const stopIndex = stopBackend ? machines?.subscribeIndex?.(() => {
-        if (refreshTimer) return;
+      // A phone's Run on reads each machine's projects from `agents`; only a change of them is news.
+      let projectsSeen = JSON.stringify(view(machines).machines.map((machine) => machine.projects));
+      const stopIndex = machines?.subscribeIndex?.(() => {
+        const current = view(machines);
+        const seen = JSON.stringify(current.machines.map((machine) => machine.projects));
+        if (seen !== projectsSeen) {
+          projectsSeen = seen;
+          context.emit(AGENTS_EVENT, current);
+        }
+        if (!stopBackend || refreshTimer) return;
         refreshTimer = setTimeout(() => {
           refreshTimer = undefined;
           void context.services.sessions.refreshIndex({ publish: true }).catch((error: unknown) => context.services.log("machines.index-refresh-failed", error instanceof Error ? error.message : String(error)));
         }, 1000);
         refreshTimer.unref?.();
-      }) : undefined;
+      });
       context.registerCommand("agents", () => view(machines), { access: "read" });
       context.registerCommand("start-there", async (input) => {
         const machine = machineOf(input, "start-there");

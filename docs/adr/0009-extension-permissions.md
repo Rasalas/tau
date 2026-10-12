@@ -24,6 +24,28 @@ Running each package in its own process or VM would cost an IPC hop per call, a 
 
 ## 2026-09-04: the renderer boundary
 
+### 2026-10-12: desktop consent before module evaluation
+
+An unapproved package contributes metadata only. The host neither compiles
+nor sends its desktop code or stylesheet, and the window publishes no
+`tau-ext:` URL for it. The renderer skips its import on full and targeted
+syncs and stops a previously active half when its grant is lost. Settings
+gets its name and requested privileges from the manifest inspection.
+
+`extension-grant` requires confirmation in the window's main process when the
+host machine has a native window. A host in a separate process asks its own
+machine's native window over a private local socket or named pipe, outside the renderer's host
+connection ([ADR 0036](0036-package-consent-stays-in-native-processes.md)).
+Without a native window only an Owner connection may grant; a refused or failed
+native confirmation never falls back to protocol approval. Revocation needs
+no confirmation. A package or workspace that changes while the dialog is open
+must be reviewed again.
+
+Before activation, the desktop loader checks the module's exported id against
+the manifest id. Loose files keep their existing self-declared identities.
+The bundler's replacement of `window.tau` remains a guardrail; consent does
+not depend on it.
+
 **Bundles are served, not built in the page.** A desktop bundle used to be imported from a blob URL, which forced `script-src 'self' blob:` on the whole document — every script the renderer can assemble at runtime, not just extension code. The main process now registers `tau-ext` as a privileged, standard, secure scheme with fetch support before `app.whenReady` and answers `tau-ext://bundles/<extension-id>/<content-hash>.js` from the bundles it holds in memory (`src/main/extension-bundle-server.ts`). Anything else is a 404, the id is reduced to one safe path segment, and each sync clears the set so a stale hash stops resolving. The CSP is now `script-src 'self' tau-ext:`. The browser preview has no host to serve from and keeps a blob URL in the one place that decides, `importBundle` in `src/renderer/runtime-extensions.ts`.
 
 **The renderer is sandboxed.** `webPreferences` adds `sandbox: true` alongside the existing `contextIsolation` and `nodeIntegration: false`, plus `webSecurity: true`, `allowRunningInsecureContent: false`, `webviewTag: false`, `nodeIntegrationInSubFrames: false` and `spellcheck: false`. This costs nothing: the preload is one esbuild CJS bundle whose only `require` is `electron`, and `contextBridge`/`ipcRenderer` both work under the sandbox.

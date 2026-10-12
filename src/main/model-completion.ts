@@ -1,8 +1,37 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { HostCommandError } from "./host-extension-errors.js";
 import type { CompletionRequest } from "./runtime-types.js";
 
 type Model = Parameters<ModelRuntime["completeSimple"]>[0];
+type Runtime = Pick<ModelRuntime, "completeSimple" | "streamSimple"> & Partial<Pick<ModelRuntime, "isUsingOAuth" | "getAuth" | "getProvider">>;
+
+/** A Pi login that needs the user, not a broken caller: it never counts toward deactivating a package. */
+class ModelLoginError extends HostCommandError {
+  constructor(message: string, cause: unknown) {
+    super(message);
+    this.name = "ModelLoginError";
+    this.cause = cause;
+  }
+}
+
+/**
+ * Resolves an OAuth login before the request, where Pi still reports why it
+ * failed; the request itself would only return the message, stack included.
+ */
+async function requireLogin(runtime: Runtime, model: Model, signal: AbortSignal | undefined): Promise<void> {
+  if (!runtime.getAuth || runtime.isUsingOAuth?.(model.provider) !== true) return;
+  try {
+    await runtime.getAuth(model, signal ? { signal } : {});
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (!(error instanceof Error) || error.name !== "ModelsError" || (code !== "oauth" && code !== "auth")) return;
+    const name = runtime.getProvider?.(model.provider)?.name || model.provider;
+    throw new ModelLoginError(/\binvalid_grant\b/u.test(error.message)
+      ? `Pi's ${name} login has expired. Sign in again on Pi's card under Settings → Providers.`
+      : `Pi could not refresh its ${name} login. Sign in again on Pi's card under Settings → Providers if this keeps happening.`, error);
+  }
+}
 
 /**
  * One request on a model runtime. With `onText` the answer streams and each
@@ -10,7 +39,7 @@ type Model = Parameters<ModelRuntime["completeSimple"]>[0];
  * either way.
  */
 export async function completeText(
-  runtime: Pick<ModelRuntime, "completeSimple" | "streamSimple">,
+  runtime: Runtime,
   model: Model,
   request: CompletionRequest,
   attribution: { sessionId: string; headers?: Record<string, string> },
@@ -24,6 +53,7 @@ export async function completeText(
     ...(attribution.headers ? { headers: attribution.headers } : {}),
     ...(request.signal ? { signal: request.signal } : {}),
   };
+  await requireLogin(runtime, model, request.signal);
   let response: AssistantMessage;
   if (request.onText) {
     const stream = runtime.streamSimple(model, context, options);

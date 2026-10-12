@@ -355,7 +355,7 @@ export interface TranscriptRowsHandle {
  * plain label (both API 1.27.0). `draft-actions` adds pills beside the
  * project under a new thread's heading, each opening its own popover.
  * `thread-list-head` tops a phone's or tablet's thread list, under its header
- * (API 1.30.0). `thread-list-title` adds compact controls beside a phone's header title;
+ * (API 1.30.0). `thread-list-title` adds compact controls to a phone's top bar, before Settings;
  * a tablet's sidebar has a foot for them (`PageContribution.Summary`). `turn-divider` sits in
  * the prompt's metadata without a numbered separator; its props carry `turn` (API 1.39.0).
  * `workspace-summary` groups workspace context above the stage; `workspace-preview`
