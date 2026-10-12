@@ -1848,10 +1848,10 @@ export class PiHost {
 
   reloadRuntime(): Promise<void> { return this.lifecycle.run("reload-runtime", () => this.sessionControl.reload()); }
 
-  async compactContext(): Promise<HostActionResult> {
-    await requireCapability(this.requireActive().backend, "compaction").compact();
-    this.log("context.compacted");
-    return this.publication.actionResult([await this.publication.publishDetail()]);
+  async compactContext(expectedSessionId?: string): Promise<HostActionResult> {
+    const thread = this.requireThread(expectedSessionId);
+    await requireCapability(thread.backend, "compaction").compact(); this.log("context.compacted");
+    return this.publication.actionResult(thread === this.active ? [await this.publication.publishDetail()] : []);
   }
 
   snapshot(): Promise<HostSnapshot> { return this.publication.snapshot(); }

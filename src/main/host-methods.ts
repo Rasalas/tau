@@ -366,7 +366,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeString("set-mode", "mode", params[0]),
       decodeOptionalString("set-mode", "expectedSessionId", params[1]),
     ),
-    "compact-context": async () => (await host()).compactContext(),
+    "compact-context": async (params) => (await host()).compactContext(decodeOptionalString("compact-context", "expectedSessionId", params[0])),
     "restart-session": async (params) => (await host()).restartSession(decodeString("restart-session", "threadId", params[0])),
     "reload-runtime": async () => (await host()).reloadRuntime(),
     "reload-extensions": async () => (await host()).reloadExtensions(),
