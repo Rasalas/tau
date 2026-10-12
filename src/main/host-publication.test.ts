@@ -149,6 +149,24 @@ describe("HostPublication", () => {
     expect(models).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a discovered remote catalog in bootstrap while its next read is stalled", async () => {
+    const known = [{ provider: "openai", id: "gpt", name: "GPT" }];
+    const models = vi.fn().mockResolvedValueOnce(known).mockImplementation(() => new Promise(() => {}));
+    const { pub, view } = makePublication();
+    view.active.mockReturnValue({ threadId: "remote-thread", backend: { models } } as unknown as ThreadRuntime);
+    await pub.ensureModels();
+    expect((await pub.bootstrap()).catalog.models).toEqual(known);
+  });
+
+  it("returns the remote transcript before an undiscovered remote catalog answers", async () => {
+    const models = vi.fn(() => new Promise<never>(() => {}));
+    const { pub, view } = makePublication();
+    view.active.mockReturnValue({ threadId: "remote-thread", backend: { models } } as unknown as ThreadRuntime);
+    const bootstrap = await pub.bootstrap();
+    expect(bootstrap.detail.sessionId).toBe("remote-thread");
+    expect(bootstrap.catalog.models).toEqual([]);
+  });
+
   it("answers an empty result when a newer activation took the screen", async () => {
     let current = true;
     const { pub } = makePublication({ isCurrentActivation: () => current });

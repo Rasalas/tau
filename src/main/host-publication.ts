@@ -77,6 +77,8 @@ export interface HostPublicationDeps {
 export class HostPublication {
   readonly detailStore = new ThreadDetailStore(5);
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
+  /** Models another backend already answered with; first content never waits for a refresh. */
+  private readonly backendModels = new WeakMap<ThreadRuntime, UiModel[]>();
   private completionModels?: UiModel[];
   private completionModelsPending = false;
   private readonly runtimeVersions: RuntimeVersions;
@@ -118,7 +120,7 @@ export class HostPublication {
     const active = this.deps.view.active();
     const cachedModels = active && isLocalPiRuntime(active)
       ? this.modelCatalogCache.get(this.deps.modelsKey(this.deps.view.cwd())) ?? []
-      : [];
+      : active ? this.backendModels.get(active) ?? [] : [];
     const host = { ...this.snapshotSync(cachedModels), projectLabel: this.projectLabel };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
@@ -343,7 +345,11 @@ export class HostPublication {
     if (!active) return [];
     // Only a runtime the host builds itself pays for a catalog scan; every
     // other one answers from what it already holds.
-    if (!isLocalPiRuntime(active)) return active.backend.models();
+    if (!isLocalPiRuntime(active)) {
+      const models = await active.backend.models();
+      this.backendModels.set(active, models);
+      return models;
+    }
     const key = this.deps.modelsKey(active === this.deps.view.active() ? this.deps.view.cwd() : active.cwd);
     const cached = this.modelCatalogCache.get(key);
     if (cached) return cached;
