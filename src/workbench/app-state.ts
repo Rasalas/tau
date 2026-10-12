@@ -62,17 +62,20 @@ export function optimisticThreadSnapshot(snapshot: HostSnapshot, target: UiSessi
     backendKind: detail.backendKind ?? target.backendKind ?? "pi",
     threadId: detail.threadId ?? target.id,
     providerSessionId: detail.providerSessionId,
-    model,
-    models: [],
-    thinkingLevel: "off",
-    thinkingLevels: [],
-    runtimeCapabilities: undefined,
-    mode: undefined,
-    modes: undefined,
-    goals: undefined,
-    allTools: [],
-    composerCommands: [],
-    extensionCount: 0,
+    // Reopening the thread already on screen keeps its own catalog.
+    ...(snapshot.sessionId === target.id ? {} : {
+      model,
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: [],
+      runtimeCapabilities: undefined,
+      mode: undefined,
+      modes: undefined,
+      goals: undefined,
+      allTools: [],
+      composerCommands: [],
+      extensionCount: 0,
+    }),
   }, { ...detail, isStreaming: false });
 }
 
