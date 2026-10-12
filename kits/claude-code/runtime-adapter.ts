@@ -1,5 +1,5 @@
 import { query as sdkQuery, type CanUseTool, type EffortLevel, type McpServerConfig, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { AGENT_OOM_MESSAGE, wrapAgentCommand, type AgentScopeHandle, type AgentWrapInput, type CompletionRequest, type HostMcpConnection, type RuntimePermissionLevel, type RuntimePromptInput, type RuntimePromptResult, type RuntimeTransport, type SkillRuntimeAdapter } from "tau/host-extension";
+import { AGENT_OOM_MESSAGE, spawnOwnedProcess, wrapAgentCommand, type AgentScopeHandle, type AgentWrapInput, type CompletionRequest, type HostMcpConnection, type RuntimePermissionLevel, type RuntimePromptInput, type RuntimePromptResult, type RuntimeTransport, type SkillRuntimeAdapter } from "tau/host-extension";
 import { homedir } from "node:os";
 import manifest from "./tau-extension.json";
 import { probeClaude, type ClaudeProbe } from "./probe.js";
@@ -199,6 +199,11 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     // The resume-compaction question is the one dialog the workbench answers; others are declined.
     ...(plan.hooks?.onUserDialog ? { onUserDialog: plan.hooks.onUserDialog, supportedDialogKinds: ["resume_return"] } : {}),
     cwd: plan.cwd,
+    spawnClaudeCodeProcess: (input) => {
+      const child = spawnOwnedProcess(input);
+      if (plan.stderr) child.stderr.on("data", (chunk: Buffer) => plan.stderr!(chunk.toString("utf8")));
+      return child;
+    },
     pathToClaudeCodeExecutable: plan.launch?.executable ?? plan.executable,
     ...(plan.launch?.executableArgs ? { executableArgs: plan.launch.executableArgs } : {}),
     systemPrompt: { type: "preset", preset: "claude_code" },
