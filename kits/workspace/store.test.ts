@@ -152,7 +152,7 @@ describe("Workspace Kit thread worktrees", () => {
       preparing: (message) => preparing.push(message),
     })).resolves.toEqual({ workspace: { workspaceId: "ws1_worktree", displayPath: "/project-worktrees/fix-queue" } });
     expect(preparing).toEqual(["Setting up worktree…"]);
-    expect(createWorktree).toHaveBeenCalledWith("fix/queue", { startFromOrigin: true }, "ws1_project");
+    expect(createWorktree).toHaveBeenCalledWith("fix/queue", { startFromOrigin: true, uniqueBranch: true }, "ws1_project");
     expect(workspaceStore.getSnapshot().preparingWorktree).toBe(false);
   });
 
@@ -165,7 +165,7 @@ describe("Workspace Kit thread worktrees", () => {
     const first = await workspaceStore.prepareThreadWorktree({ prompt: "do it", preparing: () => undefined, force: true });
     expect(first.baseCommit).toBe("abc123");
     await workspaceStore.prepareThreadWorktree({ prompt: "do it", preparing: () => undefined, force: true, branchSuffix: "2", baseCommit: first.baseCommit });
-    expect(createWorktree).toHaveBeenLastCalledWith("fix/task-2", { baseRef: "abc123", startFromOrigin: false }, "ws1_project");
+    expect(createWorktree).toHaveBeenLastCalledWith("fix/task-2", { baseRef: "abc123", startFromOrigin: false, uniqueBranch: true }, "ws1_project");
   });
 
   it("stays in the checkout when the mode is current, and when creation fails", async () => {
@@ -383,7 +383,7 @@ describe("Workspace Kit's worktree suggestion (K125)", () => {
     workspaceStore.followBusyCheckout(true);
     await expect(workspaceStore.prepareThreadWorktree({ prompt: "fix", preparing: () => undefined }))
       .resolves.toEqual({ workspace: { workspaceId: "ws1_worktree", displayPath: "/project-worktrees/fix" } });
-    expect(createWorktree).toHaveBeenCalledWith(expect.stringMatching(/^tau\/[0-9a-f]{8}$/u), { startFromOrigin: true }, "ws1_project");
+    expect(createWorktree).toHaveBeenCalledWith(expect.stringMatching(/^tau\/[0-9a-f]{8}$/u), { startFromOrigin: true, uniqueBranch: true }, "ws1_project");
   });
 
   it("says a turn was not recorded only for a thread that stayed in the checkout on purpose", async () => {

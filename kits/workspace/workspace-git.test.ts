@@ -1200,6 +1200,48 @@ describe("worktree removal", () => {
 });
 
 describe("worktree creation", () => {
+  it("keeps automatically named threads isolated when their workspace metadata is stale", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-name-"));
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd });
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "base"], { cwd });
+      const stale = { ...(await readProjectGitState(cwd)).workspace, worktreeParent: join(cwd, "worktrees") };
+      const options = { startFromOrigin: false, uniqueBranch: true };
+      const first = await createWorktree(cwd, "fix/prevent-chat-scroll-jumps", options, async () => stale);
+      const second = await createWorktree(cwd, "fix/prevent-chat-scroll-jumps", options, async () => stale);
+      expect(second).not.toBe(first);
+      expect((await runGitCommand(second, ["branch", "--show-current"])).trim()).toBe("fix/prevent-chat-scroll-jumps-2");
+      expect((await runGitCommand(first, ["branch", "--show-current"])).trim()).toBe("fix/prevent-chat-scroll-jumps");
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
+  it("uses distinct folders for branch names that have the same worktree slug", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-slug-"));
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd });
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "base"], { cwd });
+      const stale = { ...(await readProjectGitState(cwd)).workspace, worktreeParent: join(cwd, "worktrees") };
+      const options = { startFromOrigin: false, uniqueBranch: true };
+      const first = await createWorktree(cwd, "fix/chat-scroll", options, async () => stale);
+      const second = await createWorktree(cwd, "fix-chat-scroll", options, async () => stale);
+      expect(second).not.toBe(first);
+      expect((await runGitCommand(second, ["branch", "--show-current"])).trim()).toBe("fix-chat-scroll-2");
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
+  it("gives simultaneous automatically named threads distinct branches and folders", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-concurrent-"));
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd });
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "base"], { cwd });
+      const stale = { ...(await readProjectGitState(cwd)).workspace, worktreeParent: join(cwd, "worktrees") };
+      const created = await Promise.all(Array.from({ length: 3 }, () => createWorktree(cwd, "fix/chat-scroll", { startFromOrigin: false, uniqueBranch: true }, async () => stale)));
+      expect(new Set(created).size).toBe(3);
+      const branches = await Promise.all(created.map(async (path) => (await runGitCommand(path, ["branch", "--show-current"])).trim()));
+      expect(branches.sort()).toEqual(["fix/chat-scroll", "fix/chat-scroll-2", "fix/chat-scroll-3"]);
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
   it("creates a new branch from freshly fetched origin/main", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-"));
     const calls: string[][] = [];

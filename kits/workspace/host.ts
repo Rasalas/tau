@@ -605,7 +605,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { long: true });
       /** A worktree on a new branch, set up as the project asks; `fill` runs on its files before the setup does. */
       const addWorktree = async (project: string, branch: string, options: {
-        baseRef?: string; startFromOrigin?: unknown; submodules?: unknown; fill?(destination: string): Promise<void>;
+        baseRef?: string; startFromOrigin?: unknown; uniqueBranch?: boolean; submodules?: unknown; fill?(destination: string): Promise<void>;
       }) => {
         const { baseRef, startFromOrigin, submodules: requestedSubmodules } = options;
         const setupId = await beginSetup(project, branch);
@@ -616,9 +616,11 @@ export function createWorkspaceHostExtension(): HostExtension {
           const destination = await workspaceGit.createWorktree(project, branch, {
             ...(baseRef ? { baseRef } : {}),
             ...(startFromOrigin === undefined ? {} : { startFromOrigin: startFromOrigin !== false }),
+            ...(options.uniqueBranch ? { uniqueBranch: true } : {}),
             onStep: (stage) => step(stage),
           }, (path) => git.getWorkspaceInfo(path));
           const baseCommit = (await workspaceGit.runGitCommand(destination, ["rev-parse", "--verify", "HEAD"])).trim();
+          const createdBranch = options.uniqueBranch ? (await workspaceGit.runGitCommand(destination, ["branch", "--show-current"])).trim() : branch;
           services.admitWorkspace(destination);
           await context.invokeHostExtension("tau.remote-work", "worktree-files", { workspace: project, destination }).catch((error: unknown) => {
             const code = (error as { code?: string }).code;
@@ -629,7 +631,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
-          await worktrees.storage.remember(destination, project, branch).catch(noteFailure("git.worktree.record-failed"));
+          await worktrees.storage.remember(destination, project, createdBranch).catch(noteFailure("git.worktree.record-failed"));
           // The setting wins; without one, the project file of the branch just checked out decides.
           const submodules = await initWorktreeSubmodules(destination, isWorktreeSubmodules(requestedSubmodules)
             ? requestedSubmodules
@@ -653,6 +655,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         return addWorktree(project, requiredString(input, "branch"), {
           ...(optionalString(input, "baseRef") ? { baseRef: optionalString(input, "baseRef") } : {}),
           startFromOrigin: record(input).startFromOrigin,
+          uniqueBranch: record(input).uniqueBranch === true,
           submodules: record(input).submodules,
         });
       }, { long: true, audit: { label: "created a worktree" } });

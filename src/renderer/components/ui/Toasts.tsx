@@ -109,7 +109,7 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
  * `maxVisible` peeking behind it, all of them laid out apart while the pointer
  * or focus is on the stack. F6 moves focus into it.
  *
- * On a touch layout the stack sits above the docked composer, under every
+ * On a touch layout the stack sits below the thread title, under every
  * sheet and dialog, so it never takes a tap meant for one; a toast a sheet
  * covers keeps its time, and a sideways swipe dismisses.
  */
@@ -191,7 +191,7 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
       onFocus={() => setFocused(true)}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
     >
-      {layoutToasts(visible, heights.current, expanded, touch ? "bottom" : "top").map(({ toast, index, style }) => (
+      {layoutToasts(visible, heights.current, expanded, "top").map(({ toast, index, style }) => (
         <div
           key={toast.id}
           className="toast-item"
@@ -222,14 +222,14 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
 }
 
 /**
- * Places the stack. Desktop: under the first anchor on screen. Touch: over the
- * docked composer, else the stylesheet's insets apply.
+ * Places the stack. Desktop: under the first anchor on screen. Touch: below
+ * the title, limited to the space above the composer.
  */
 function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, count: number): void {
   useLayoutEffect(() => {
     const style = stack.current?.style;
     if (!style || !count) return undefined;
-    return touch ? placeOverComposer(style) : placeUnderAnchor(style);
+    return touch ? placeUnderTitle(style) : placeUnderAnchor(style);
   }, [stack, touch, count]);
 }
 
@@ -284,17 +284,26 @@ function placeUnderAnchor(style: CSSStyleDeclaration): () => void {
   };
 }
 
-function placeOverComposer(style: CSSStyleDeclaration): () => void {
+function placeUnderTitle(style: CSSStyleDeclaration): () => void {
   const composer = document.querySelector<HTMLElement>(".conversation-composer-host");
+  const surface = composer?.querySelector<HTMLElement>(".composer-surface") ?? composer;
+  const header = document.querySelector<HTMLElement>(".title-bar, .thread-header");
   const measure = () => {
-    const dock = composer?.classList.contains("docked") ? composer.getBoundingClientRect() : undefined;
-    style.bottom = dock?.height ? `${innerHeight - dock.top + GAP}px` : "";
+    const head = header?.getBoundingClientRect();
+    const top = head?.height ? head.bottom + GAP : undefined;
+    Object.assign(style, { top: top === undefined ? "" : `${top}px`, bottom: "", right: "", width: "" });
+    if (top !== undefined) {
+      const dock = surface?.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const floor = dock?.height ? dock.top : viewport ? viewport.offsetTop + viewport.height : innerHeight;
+      style.setProperty("--toast-available-height", `${Math.max(0, floor - top - GAP)}px`);
+    } else style.removeProperty("--toast-available-height");
   };
   measure();
   const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
   const moved = new MutationObserver(measure);
+  for (const element of [composer, surface, header]) if (element) resized?.observe(element);
   if (composer) {
-    resized?.observe(composer);
     // `style`: the move between start and docked is a transform, measured again once it is cleared.
     moved.observe(composer, { attributes: true, attributeFilter: ["class", "style"] });
   }
@@ -302,11 +311,13 @@ function placeOverComposer(style: CSSStyleDeclaration): () => void {
   const viewport = window.visualViewport;
   viewport?.addEventListener("resize", measure);
   viewport?.addEventListener("scroll", measure);
+  window.addEventListener("resize", measure);
   return () => {
     resized?.disconnect();
     moved.disconnect();
     viewport?.removeEventListener("resize", measure);
     viewport?.removeEventListener("scroll", measure);
+    window.removeEventListener("resize", measure);
   };
 }
 
