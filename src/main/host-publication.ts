@@ -82,6 +82,7 @@ export class HostPublication {
   private readonly runtimeVersions: RuntimeVersions;
   /** The open workspace's label, as its kit last described it. */
   private projectLabel?: string;
+  private bootstrapCatalogPending = false;
 
   constructor(private readonly deps: HostPublicationDeps) {
     this.runtimeVersions = new RuntimeVersions({
@@ -112,10 +113,13 @@ export class HostPublication {
   }
 
   async bootstrap(): Promise<HostBootstrap> {
-    // The project list is withheld while a checkout is unclassified. Bootstrap
-    // is the one publication the client cannot miss, so settle it here.
-    await this.deps.projects.settleClassifications();
-    const host = { ...this.snapshotSync(await this.ensureModels()), projectLabel: this.projectLabel };
+    // Classifications publish their own index updates. Neither they nor model
+    // discovery may hold the saved transcript behind a slow background read.
+    const active = this.deps.view.active();
+    const cachedModels = active && isLocalPiRuntime(active)
+      ? this.modelCatalogCache.get(this.deps.modelsKey(this.deps.view.cwd())) ?? []
+      : [];
+    const host = { ...this.snapshotSync(cachedModels), projectLabel: this.projectLabel };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
       // A client that connects mid-run learns the run and its start only here.
@@ -126,7 +130,23 @@ export class HostPublication {
       project: this.projectMetadata(host.cwd, host.projectLabel),
     };
     this.deps.metrics.recordIpc(result);
+    this.refreshBootstrapCatalog();
     return result;
+  }
+
+  private refreshBootstrapCatalog(): void {
+    if (this.bootstrapCatalogPending) return;
+    this.bootstrapCatalogPending = true;
+    const thread = this.deps.view.active();
+    // Let the transport send the bootstrap response before a fast catalog
+    // can publish an update that the initial snapshot would overwrite.
+    setTimeout(() => {
+      void this.activeCatalog(thread).then((catalog) => {
+        if (thread === this.deps.view.active()) this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog });
+      }).catch((error) => {
+        this.deps.log("bootstrap.catalog.failed", this.deps.errorMessage(error));
+      }).finally(() => { this.bootstrapCatalogPending = false; });
+    }, 0);
   }
 
   /** Focused active detail endpoint; it never includes catalogs or project metadata. */

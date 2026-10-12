@@ -44,6 +44,7 @@ import {
   resolveWorktreeParent,
 } from "./agent-worktrees.js";
 import { listLiveWorkspaceLeaseSessions } from "./workspace-checkpoint-lease.js";
+import { readRepositoryIdentity } from "./repository-identity.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -2751,6 +2752,8 @@ export {
  * that is not a repository at all is not a worktree.
  */
 export async function isLinkedWorktree(cwd: string, runGit: GitRunner = git): Promise<boolean> {
+  const identity = runGit === git ? await readRepositoryIdentity(cwd) : undefined;
+  if (identity) return identity.gitDir !== identity.commonDir;
   const [gitDir, commonDir] = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]))
     .split("\n")
     .map((line) => line.trim());
@@ -2780,6 +2783,8 @@ export async function isNestedProject(
 /** The main checkout a linked worktree was made from; undefined for any other folder. */
 export async function mainCheckoutOf(cwd: string, runGit: GitRunner = git): Promise<string | undefined> {
   try {
+    const identity = runGit === git ? await readRepositoryIdentity(cwd) : undefined;
+    if (identity) return identity.gitDir !== identity.commonDir ? dirname(identity.commonDir) : undefined;
     if (!await isLinkedWorktree(cwd, runGit)) return undefined;
     const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
     return commonDir ? dirname(resolve(cwd, commonDir)) : undefined;
@@ -2791,6 +2796,8 @@ export async function mainCheckoutOf(cwd: string, runGit: GitRunner = git): Prom
 /** Returns one stable project name for a repository and all of its linked worktrees. */
 export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git): Promise<string> {
   try {
+    const identity = runGit === git ? await readRepositoryIdentity(cwd) : undefined;
+    if (identity) return basename(dirname(identity.commonDir)) || basename(cwd) || cwd;
     const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
     const absoluteCommonDir = resolve(cwd, commonDir);
     return basename(dirname(absoluteCommonDir)) || basename(cwd) || cwd;
