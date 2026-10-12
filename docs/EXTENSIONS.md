@@ -151,6 +151,17 @@ runtime; `undefined` adds nothing. Keep the lines silent and let them fail
 quietly (`{ …; } >/dev/null 2>&1`): they share the shell and the output with
 the command.
 
+The option `replacesPiPackage(source)` (API 1.59.0) names Pi package sources
+the extension brings itself, such as a pinned copy of the same npm package.
+Pi runtimes Tau owns do not load a package the user listed in Pi's `packages`
+(global or project, string or object form) when any registered extension
+answers `true` for its source (`npm:name`, `npm:name@1.2`, a path, a git URL).
+Tau hides the entry from the settings view of that runtime only: Pi's files
+stay as they are, a Pi terminal still loads the package, and a write through
+that view keeps the hidden entry. Safe mode loads no extensions, so nothing is
+hidden there. It is optional, so a kit needs no `engines.api` bump for it; a
+host older than 1.59.0 ignores it.
+
 `context.services.loadRuntimeExtension(packageName)` answers with the factory a
 Pi extension Tau ships as one of its own npm dependencies exports. The host
 resolves the package, so it keeps the layout npm gave it and still finds the

@@ -28,10 +28,17 @@ always requires confirmation and an output directory within the thread's
 workspace, including after resolving symbolic links. macOS Accessibility and
 Screen Recording permissions still belong to the operating system.
 
-A user-installed Pi Computer Use extension keeps precedence over Tau's Pi
-adapter. The screen observer still watches its results. The optional configured
-vision-model analysis helper remains available on Pi; MCP tools return image
-content directly to the calling runtime.
+If the user lists `npm:@amaster.ai/pi-computer-use` in Pi's `packages`, Tau's
+Pi runtimes do not load it (`replacesPiPackage`, API 1.59.0) and use the
+kit's registration of the same package instead. The kit pins the version it
+tests, and that registration is deferred, so the tools stay out of every
+request until `tool_search` finds them; the package registers them directly,
+which is about 12,800 more input tokens on each request. The `pi-computer-use`
+configuration block still applies. Pi's settings files and a Pi terminal are
+not touched. A listing that is not this npm source (a local path, a git URL)
+loads as the user wrote it, and the screen observer watches its results. The
+optional configured vision-model analysis helper remains available on Pi; MCP
+tools return image content directly to the calling runtime.
 
 Closing a thread cancels its driver work and closes its native client. The
 screen view uses the same session for user input and brings forward only the

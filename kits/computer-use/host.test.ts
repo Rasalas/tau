@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RuntimeExtensionContribution } from "tau/host-extension";
 import { activateHostKit, kitMcpEndpoint } from "../../src/main/test-support/host-kit-harness.js";
-import { createComputerUseHostExtension, replacesComputerUsePackage } from "./host.js";
+import { createComputerUseHostExtension } from "./host.js";
 import { COMPUTER_USE_EXTENSION_ID, COMPUTER_USE_PACKAGE } from "./protocol.js";
 
 const cleanups: (() => Promise<unknown>)[] = [];
