@@ -700,9 +700,10 @@ export class PiHost {
 
   /**
    * Resolves the thread a turn names. A thread that is still opening is waited
-   * for rather than refused, and a client that painted from its cache before
-   * this run published anything names last run's thread: that first message
-   * belongs to the empty thread this run put on screen.
+   * for, and a saved thread whose runtime was released is reopened. A client
+   * that painted from its cache before this run published anything names last
+   * run's thread. That first message belongs to the empty thread this run put
+   * on screen.
    */
   private async awaitThread(threadId: string | undefined): Promise<ThreadRuntime> {
     this.sessionControl.assertAvailable(threadId);
@@ -713,6 +714,12 @@ export class PiHost {
     await this.lifecycle.run("await-thread", async () => undefined);
     const opened = this.threadFor(threadId);
     if (opened) return opened;
+    if (this.index.byId(threadId)) {
+      return this.lifecycle.run("reopen-prompt-thread", async () => {
+        this.sessionControl.assertAvailable(threadId);
+        return this.reopenThread(threadId);
+      });
+    }
     const onScreen = this.emptyThreadOnScreen(threadId);
     if (!onScreen) return this.requireThread(threadId);
     this.log("prompt.retargeted", `${threadId.slice(0, 8)} → ${onScreen.threadId.slice(0, 8)}`);
