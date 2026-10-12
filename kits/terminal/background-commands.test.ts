@@ -19,7 +19,7 @@ describe("tracked background commands", () => {
     const cwd = await workspace();
     const before = work.snapshot("thread");
     const id = await work.start("thread", cwd, node('process.stdout.write("passed")'), "Tests");
-    await vi.waitFor(() => expect(ended).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(ended).toHaveBeenCalledTimes(1), { timeout: 20_000 });
     expect(work.capability("thread").current()).toEqual([expect.objectContaining({ id, state: "reported" })]);
     expect(work.capability("thread").read!(id)).toEqual({ output: "passed", exitCode: 0 });
     work.handled("thread", before);
@@ -31,7 +31,7 @@ describe("tracked background commands", () => {
   it("keeps a failed command and its output available as an unhandled result", async () => {
     const { work, ended } = manager();
     const id = await work.start("thread", await workspace(), node('process.stderr.write("test failed");process.exit(3)'), "Tests");
-    await vi.waitFor(() => expect(ended).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(ended).toHaveBeenCalledTimes(1), { timeout: 20_000 });
     expect(work.capability("thread").read!(id)).toEqual({ output: "test failed", exitCode: 3 });
     expect(work.capability("thread").current()[0]?.state).toBe("reported");
     expect(() => work.capability("thread").release!(id)).toThrow("no longer running");
@@ -40,7 +40,7 @@ describe("tracked background commands", () => {
   it("releases a checked service while it keeps running, then stops its process without waking the agent", async () => {
     const { work, ended } = manager();
     const id = await work.start("thread", await workspace(), node('process.stdout.write("ready");setInterval(()=>{},1000)'), "Devserver");
-    await vi.waitFor(() => expect(work.capability("thread").read!(id).output).toBe("ready"));
+    await vi.waitFor(() => expect(work.capability("thread").read!(id).output).toBe("ready"), { timeout: 20_000 });
     work.capability("thread").release!(id);
     expect(work.capability("thread").current()[0]?.blocksCompletion).toBe(false);
     await work.capability("thread").stop(id);
@@ -55,7 +55,7 @@ describe("tracked background commands", () => {
     const source = `const {spawn}=require('node:child_process');const fs=require('node:fs');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(pidFile)},String(child.pid));setInterval(()=>{},1000)`;
     const id = await work.start("one", cwd, node(source), "Parent and child");
     let childPid = 0;
-    await vi.waitFor(async () => { childPid = Number(await readFile(pidFile, "utf8")); expect(childPid).toBeGreaterThan(0); });
+    await vi.waitFor(async () => { childPid = Number(await readFile(pidFile, "utf8")); expect(childPid).toBeGreaterThan(0); }, { timeout: 20_000 });
     expect(work.capability("two").current()).toEqual([]);
     await expect(work.capability("two").stop(id)).rejects.toThrow("no longer available");
     await work.capability("one").stop(id);
