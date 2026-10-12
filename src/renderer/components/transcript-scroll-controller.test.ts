@@ -252,6 +252,34 @@ describe("TranscriptScrollController", () => {
     }
   });
 
+  it("keeps an upward wheel gesture detached before the tail write's scroll event arrives", async () => {
+    const test = harness(state());
+    let top = 0;
+    Object.defineProperty(test.node, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (value: number) => { top = Math.max(0, Math.min(800, value)); },
+    });
+    try {
+      test.controller.sync();
+      await test.frame();
+      expect(top).toBe(800);
+
+      // The browser batches the tail write and the reader's small upward move
+      // into one scroll event. Its previous delivered offset is still zero.
+      test.node.dispatchEvent(new WheelEvent("wheel", { deltaY: -12 }));
+      test.node.scrollTop = 788;
+      test.node.dispatchEvent(new Event("scroll"));
+      test.controller.sync();
+      await test.frame();
+
+      expect(test.node.scrollTop).toBe(788);
+      expect(test.controller.mode).toBe("free");
+    } finally {
+      test.dispose();
+    }
+  });
+
   it("returns to tail mode from the jump action and clears the anchor", async () => {
     const test = harness(state({ following: false, anchorId: "c" }));
     try {

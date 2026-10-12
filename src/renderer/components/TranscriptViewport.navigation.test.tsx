@@ -365,6 +365,25 @@ describe("TranscriptViewport navigation", () => {
     await waitFor(() => expect(view.container.querySelector(".transcript-current-row")).toBeNull());
   });
 
+  it("keeps the reader's scroll position when the send signal is withdrawn", async () => {
+    const turnStart: TranscriptTurnStart = {
+      turnId: "reading-turn", sessionId: "one", messageId: originalPrompt.id,
+    };
+    const messages = [oldMessage, originalPrompt];
+    const view = render(<Fixture messages={messages} turnStart={turnStart} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(view.container.querySelector(".transcript-current-row")).toBeTruthy());
+    fireEvent.wheel(transcript, { deltaY: -100 });
+    browserScrollsTo(transcript, 300);
+    await view.findByRole("button", { name: "Jump to latest" });
+
+    view.rerender(<Fixture messages={messages} />);
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
+
+    expect(transcript.scrollTop).toBe(300);
+    expect(view.getByRole("button", { name: "Jump to latest" })).toBeTruthy();
+  });
+
   it("keeps the pinned prompt in place while an answer grows below it", async () => {
     const prompt: UiMessage = { id: "local-2", role: "user", text: "Explain this", timestamp: 4_000 };
     const view = render(<Fixture messages={[oldMessage, originalPrompt]} />);
