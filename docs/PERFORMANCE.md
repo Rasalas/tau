@@ -261,6 +261,8 @@ On October 10 the browser budget rises from 520,000 to 525,000 bytes. Main sat a
 
 On October 12 the desktop budget for total gzipped JavaScript rises from 512,000 to 520,000 bytes. Reading a pull request in Tau gained a comment filter, context bars that read unchanged lines from the host, and find in diffs (about 3,500 bytes gzipped, in the lazily loaded review chunks), which put the build at 515,559 bytes. The browser budget rises from 525,000 to 532,000 bytes for the same code (CI measured 526,927). The initial JavaScript and CSS budgets hold.
 
+Later on October 12 the desktop budget rises again, from 520,000 to 540,000 bytes, and the browser budget from 532,000 to 552,000. The sandbox frame with MCP Apps and the whole-thread find with quote chips put the desktop build at 520,419 and the browser build at 531,781 bytes; the rest of the T3 Code parity round (guided reviews, side questions, skills) is still to land, so the raise leaves room for it once instead of a raise per change. The initial JavaScript and CSS budgets hold (227,661 and 26,990 bytes gzipped on the desktop).
+
 ## Interaction budgets
 
 Initial local targets:
