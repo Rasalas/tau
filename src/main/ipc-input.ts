@@ -95,6 +95,11 @@ function decodeUiPromptAttachment(channel: string, field: string, value: unknown
   };
 }
 
+function decodeArray(channel: string, field: string, value: unknown): unknown[] {
+  if (!Array.isArray(value)) fail(channel, field, "must be an array");
+  return value;
+}
+
 export function decodeUiPromptAttachments(channel: string, field: string, value: unknown): UiPromptAttachment[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) fail(channel, field, "must be an array");
@@ -161,6 +166,7 @@ function decodeRuntimeCapabilities(channel: string, field: string, value: unknow
     skillInvocationDialect: decodeString(channel, `${field}.skillInvocationDialect`, item.skillInvocationDialect),
     ...(item.ownsModelSelection !== undefined ? { ownsModelSelection: decodeBoolean(channel, `${field}.ownsModelSelection`, item.ownsModelSelection) } : {}),
     ...(item.interactiveApprovals !== undefined ? { interactiveApprovals: decodeBoolean(channel, `${field}.interactiveApprovals`, item.interactiveApprovals) } : {}),
+    ...(item.multipleSkills !== undefined ? { multipleSkills: decodeBoolean(channel, `${field}.multipleSkills`, item.multipleSkills) } : {}),
   };
 }
 
@@ -185,6 +191,7 @@ export function decodePreparedPrompt(channel: string, field: string, value: unkn
     visibleText: decodeString(channel, `${field}.visibleText`, item.visibleText),
     runtimeText: decodeString(channel, `${field}.runtimeText`, item.runtimeText),
     ...(item.skill !== undefined ? { skill: decodeUiSkillInvocation(channel, `${field}.skill`, item.skill) } : {}),
+    ...(item.skills !== undefined ? { skills: decodeArray(channel, `${field}.skills`, item.skills).map((entry, index) => decodeUiSkillInvocation(channel, `${field}.skills[${index}]`, entry)) } : {}),
     sourceFingerprint: decodeString(channel, `${field}.sourceFingerprint`, item.sourceFingerprint),
   };
 }
@@ -198,6 +205,15 @@ export function decodeUiSkillDraft(channel: string, field: string, value: unknow
     name: decodeString(channel, `${field}.name`, item.name),
     visibleText: decodeString(channel, `${field}.visibleText`, item.visibleText),
     command: decodeString(channel, `${field}.command`, item.command),
+    ...(item.additionalSkills !== undefined ? {
+      additionalSkills: decodeArray(channel, `${field}.additionalSkills`, item.additionalSkills).map((entry, index) => {
+        const ref = record(channel, `${field}.additionalSkills[${index}]`, entry);
+        return {
+          name: decodeString(channel, `${field}.additionalSkills[${index}].name`, ref.name),
+          command: decodeString(channel, `${field}.additionalSkills[${index}].command`, ref.command),
+        };
+      }),
+    } : {}),
   };
 }
 

@@ -110,7 +110,7 @@ export function repairChipTokens(previous: string, next: string): { text: string
  * The runs the mirror draws: chips, mentions and the selected skill over
  * plain text. Empty when there is nothing to draw differently.
  */
-export function mirrorSegments(text: string, skill?: { start: number; end: number }): MirrorSegment[] {
+export function mirrorSegments(text: string, skills: readonly { start: number; end: number }[] = []): MirrorSegment[] {
   const marks: Array<{ start: number; end: number; segment: MirrorSegment }> = [];
   for (const token of findChipTokens(text)) {
     marks.push({ start: token.start, end: token.end, segment: { kind: "chip", text: text.slice(token.start, token.end), label: token.label } });
@@ -121,8 +121,10 @@ export function mirrorSegments(text: string, skill?: { start: number; end: numbe
       marks.push({ start, end: start + match[2]!.length, segment: { kind: "mention", text: match[2]! } });
     }
   }
-  if (skill && skill.end > skill.start && skill.end <= text.length) {
-    marks.push({ start: skill.start, end: skill.end, segment: { kind: "skill", text: text.slice(skill.start, skill.end) } });
+  for (const skill of skills) {
+    if (skill.end > skill.start && skill.end <= text.length) {
+      marks.push({ start: skill.start, end: skill.end, segment: { kind: "skill", text: text.slice(skill.start, skill.end) } });
+    }
   }
   if (marks.length === 0) return [];
   marks.sort((a, b) => a.start - b.start);

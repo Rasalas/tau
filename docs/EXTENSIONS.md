@@ -694,6 +694,18 @@ contribution embeds the file as text instead when it is false. A
 `ThreadRuntimeBackend` receives both kinds in `attachments` and takes the ones
 its runtime understands.
 
+**Several skills in one message (new in API 1.59.0).** An adapter that declares
+`capabilities.multipleSkills` promises to load every skill of a message, not
+only one leading one. Its composer then takes `$skill` anywhere in the text, and
+`UiSkillDraft.additionalSkills` carries the skills after the first. A backend
+reads them from `prepareSkillPrompt`, which spells the message `"<command> <command> … text"`
+(`runtimeText`, and `copyText` of every entry of `PreparedPrompt.skills`), and
+expands them in its own way before sending; a backend that does not declare the
+capability never sees more than one skill. `UiMessage.skills` (all, present
+from two on) sits beside `skill` (the first), so a client that only knows `skill` still
+draws one chip. `parseSkillEnvelope` now reads a run of Pi's `<skill>` blocks and
+answers `names` besides `name`.
+
 #### The chip service: `tau.composer-context/chips`
 
 Composer Context (`kits/composer-context/`) is the one inline contribution Tau

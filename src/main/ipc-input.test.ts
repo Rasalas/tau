@@ -149,6 +149,11 @@ describe("ipc-input decoders", () => {
     it("accepts a minimal valid prompt", () => {
       expect(decodePreparedPrompt(CHANNEL, "field", validPreparedPrompt)).toEqual(validPreparedPrompt);
     });
+    it("keeps all the skills of a prepared prompt and the capability that allows them", () => {
+      const skills = [{ name: "a", command: "/skill:a", copyText: "/skill:a /skill:b x" }, { name: "b", command: "/skill:b", copyText: "/skill:a /skill:b x" }];
+      const prepared = { ...validPreparedPrompt, runtimeCapabilities: { skillInvocationDialect: "pi", multipleSkills: true }, skill: skills[0], skills };
+      expect(decodePreparedPrompt(CHANNEL, "field", prepared)).toEqual(prepared);
+    });
     it("rejects a missing sourceFingerprint", () => {
       const { sourceFingerprint: _sourceFingerprint, ...rest } = validPreparedPrompt;
       expect(() => decodePreparedPrompt(CHANNEL, "field", rest)).toThrow();
@@ -165,6 +170,12 @@ describe("ipc-input decoders", () => {
     it("accepts a well-formed draft", () => {
       const draft = { source: "skill", name: "tdd", visibleText: "/skill:tdd", command: "/skill:tdd" };
       expect(decodeUiSkillDraft(CHANNEL, "field", draft)).toEqual(draft);
+    });
+    it("keeps the further skills of a message, and refuses a malformed one", () => {
+      const draft = { source: "skill", name: "a", visibleText: "x", command: "/skill:a", additionalSkills: [{ name: "b", command: "/skill:b" }] };
+      expect(decodeUiSkillDraft(CHANNEL, "field", draft)).toEqual(draft);
+      expect(() => decodeUiSkillDraft(CHANNEL, "field", { ...draft, additionalSkills: [{ name: "b" }] })).toThrow();
+      expect(() => decodeUiSkillDraft(CHANNEL, "field", { ...draft, additionalSkills: "b" })).toThrow("must be an array");
     });
     it("rejects the wrong source", () => {
       expect(() => decodeUiSkillDraft(CHANNEL, "field", { source: "prompt", name: "x", visibleText: "x", command: "x" })).toThrow('must be "skill"');

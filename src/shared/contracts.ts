@@ -29,6 +29,8 @@ export type ThreadBackendKind = "pi" | (string & {});
 /** Capabilities supplied by the runtime owner at the host/adapter boundary. */
 export interface RuntimeCapabilities {
   skillInvocationDialect: SkillInvocationDialect;
+  /** The runtime loads every skill a message names, not only a leading one (API 1.59.0). */
+  multipleSkills?: boolean;
   /** The runtime picks model and reasoning itself; the composer offers no pickers. */
   ownsModelSelection?: boolean;
   /** False when the runtime cannot stop for an approval; the access gate then offers no "ask". */
@@ -44,7 +46,7 @@ export interface UiSkillInvocation {
   name: string;
   /** Runtime-adapter-supported command spelling, without the user instruction. */
   command: string;
-  /** Compact text safe to copy back into this runtime. */
+  /** Compact text safe to copy back into this runtime; the whole message, the same for each skill of one message. */
   copyText: string;
 }
 
@@ -71,8 +73,10 @@ export interface UiMessage {
   turnNumber?: number;
   role: UiRole;
   text: string;
-  /** Present only when the host recognized a known skill invocation. */
+  /** Present only when the host recognized a known skill invocation; the first when there are several. */
   skill?: UiSkillInvocation;
+  /** Every skill of the message in order, present only when there are two or more (API 1.59.0). */
+  skills?: readonly UiSkillInvocation[];
   thinking?: string;
   images?: readonly UiMessageImage[];
   timestamp: number;
@@ -336,6 +340,14 @@ export interface UiSkillDraft {
   visibleText: string;
   /** Already resolved by the selected runtime adapter; the renderer never derives it. */
   command: string;
+  /** Further skills the text names, in order; only for a runtime with `multipleSkills` (API 1.59.0). */
+  additionalSkills?: readonly UiSkillDraftRef[];
+}
+
+/** One more skill of a message, resolved like the draft's own. */
+export interface UiSkillDraftRef {
+  name: string;
+  command: string;
 }
 
 /** Opaque host-prepared prompt data returned before an optimistic render. */
@@ -353,6 +365,8 @@ export interface PreparedPrompt {
   /** Runtime-owned text. Renderer passes this back as an opaque value. */
   runtimeText: string;
   skill?: UiSkillInvocation;
+  /** All skills when there are two or more; `skill` is the first (API 1.59.0). */
+  skills?: readonly UiSkillInvocation[];
   /** Prevents a prepared result from being replayed for another input. */
   sourceFingerprint: string;
 }

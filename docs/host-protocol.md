@@ -1082,6 +1082,13 @@ that connection on the preload bridge, `createSocketHostClient(url, token)` on a
 socket; a new transport is a `HostTransport`, with no renderer change beyond
 `main.tsx`.
 
+Two methods serve a draft whose thread does not exist yet (new in API 1.59.0):
+`composer-commands(backendKind, workspace)` (read access) answers the commands
+that project offers on that runtime, and `prepare-prompt` takes the draft's
+workspace as a fifth parameter, so the first prompt is prepared against that
+project's skills and not those of the thread on screen. A host that predates
+them answers `unknown-method` and the composer keeps the snapshot's list.
+
 `main.tsx` is the only place a renderer module reads `window.tau`. It builds
 the client — from `window.tau`, or from `?host=ws://…&token=…` when a socket
 host is named, or leaves it `undefined` in the browser-preview build — says

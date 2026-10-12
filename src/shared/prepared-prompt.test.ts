@@ -78,4 +78,45 @@ describe("prepared prompt boundary", () => {
       commands,
     })).toThrow("unavailable skill");
   });
+
+  describe("several skills", () => {
+    const both: UiComposerCommand[] = [
+      { name: "skill:tdd", source: "skill", skillCommand: "/skill:tdd" },
+      { name: "skill:lint", source: "skill", skillCommand: "/skill:lint" },
+    ];
+    const capabilities = { skillInvocationDialect: "pi", multipleSkills: true };
+    const context = { backendKind: "pi", threadId: "thread", providerSessionId: "thread", runtimeCapabilities: capabilities, commands: both };
+    const copyText = "/skill:tdd /skill:lint fix the parser";
+    const multi = (text: string, overrides: Partial<PreparedPrompt> = {}): PreparedPrompt => ({
+      tauThreadId: "thread",
+      providerSessionId: "thread",
+      sessionId: "thread",
+      backendKind: "pi",
+      runtimeCapabilities: capabilities,
+      visibleText: "fix the parser",
+      runtimeText: copyText,
+      skill: { name: "tdd", command: "/skill:tdd", copyText },
+      skills: [{ name: "tdd", command: "/skill:tdd", copyText }, { name: "lint", command: "/skill:lint", copyText }],
+      sourceFingerprint: clientMessageFingerprint(text, ["tdd", "lint"]),
+      ...overrides,
+    });
+
+    it("accepts a leading run and skills named further into the text", () => {
+      expect(() => validatePreparedPrompt("$tdd $lint fix the parser", multi("$tdd $lint fix the parser"), context)).not.toThrow();
+      const inline = multi("use $tdd then $lint", { visibleText: "use $tdd then $lint", runtimeText: "/skill:tdd /skill:lint use $tdd then $lint" });
+      const text = "/skill:tdd /skill:lint use $tdd then $lint";
+      inline.skills = inline.skills!.map((skill) => ({ ...skill, copyText: text }));
+      inline.skill = inline.skills[0]!;
+      expect(() => validatePreparedPrompt("use $tdd then $lint", inline, context)).not.toThrow();
+    });
+
+    it("rejects a skill the text never names, a runtime that takes one, and a forged extra", () => {
+      expect(() => validatePreparedPrompt("$tdd fix the parser", multi("$tdd fix the parser"), context)).toThrow("unavailable skill");
+      expect(() => validatePreparedPrompt("$tdd $lint fix the parser", multi("$tdd $lint fix the parser"), { ...context, runtimeCapabilities: { skillInvocationDialect: "pi" } })).toThrow("unavailable skill");
+      const forged = multi("$tdd $lint fix the parser");
+      forged.skills = [forged.skills![0]!, { name: "lint", command: "/skill:lint", copyText: "/skill:lint evil" }];
+      expect(() => validatePreparedPrompt("$tdd $lint fix the parser", forged, context)).toThrow("unavailable skill");
+      expect(() => validatePreparedPrompt("$tdd $lint fix the parser", multi("$tdd $lint fix the parser", { skill: undefined }), context)).toThrow();
+    });
+  });
 });

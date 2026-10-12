@@ -14,6 +14,7 @@ const queued = (id: string, text: string): UiQueuedMessage => ({ id, text, attac
 
 const composerCommands = [
   { name: "skill:tdd", description: "Build features test-first", source: "skill" as const, skillCommand: "/skill:tdd" },
+  { name: "skill:lint", description: "Fix lint findings", source: "skill" as const, skillCommand: "/skill:lint" },
   { name: "review", description: "Review staged changes", argumentHint: "[scope]", source: "prompt" as const },
   { name: "reload", description: "Reload resources", source: "extension" as const },
 ];
@@ -269,6 +270,82 @@ describe("Composer command menu", () => {
       undefined,
       { source: "skill", name: "tdd", visibleText: " keep this:\n    code", command: "/skill:tdd" },
     );
+  });
+
+  describe("several skills in one message", () => {
+    const multi: HostSnapshot = { ...snapshot, runtimeCapabilities: { skillInvocationDialect: "pi", multipleSkills: true } };
+    const pick = (textarea: HTMLTextAreaElement, typed: string) => {
+      fireEvent.change(textarea, { target: { value: typed, selectionStart: typed.length } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+    };
+
+    it("sends every skill picked at the start or further into the text, the text as typed", async () => {
+      const onSubmit = renderComposer(undefined, false, multi);
+      const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+
+      pick(textarea, "$td");
+      expect(textarea.value).toBe("$tdd ");
+      fireEvent.change(textarea, { target: { value: "$tdd then $li", selectionStart: 13 } });
+      expect(screen.getByRole("listbox", { name: "Skills" })).toBeTruthy();
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      expect(textarea.value).toBe("$tdd then $lint ");
+
+      fireEvent.change(textarea, { target: { value: "$tdd then $lint fix  the parser", selectionStart: 31 } });
+      await waitFor(() => expect(document.querySelectorAll(".composer-mirror-skill")).toHaveLength(2));
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      expect(onSubmit).toHaveBeenCalledWith("$tdd then $lint fix  the parser", [], undefined, {
+        source: "skill",
+        name: "tdd",
+        command: "/skill:tdd",
+        visibleText: "then $lint fix  the parser",
+        additionalSkills: [{ name: "lint", command: "/skill:lint" }],
+      });
+    });
+
+    it("reads the skill order off the text, not off the order of picking", () => {
+      const onSubmit = renderComposer(undefined, false, multi);
+      const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+
+      pick(textarea, "$li");
+      pick(textarea, "$lint $td");
+      fireEvent.change(textarea, { target: { value: "$tdd $lint go", selectionStart: 13 } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      expect(onSubmit).toHaveBeenCalledWith("$tdd $lint go", [], undefined, expect.objectContaining({
+        name: "tdd",
+        visibleText: "go",
+        additionalSkills: [{ name: "lint", command: "/skill:lint" }],
+      }));
+    });
+
+    it("sends a skill the user deleted as plain text again", () => {
+      const onSubmit = renderComposer(undefined, false, multi);
+      const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+
+      pick(textarea, "$td");
+      pick(textarea, "$tdd and $li");
+      fireEvent.change(textarea, { target: { value: "$tdd and fix", selectionStart: 12 } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      expect(onSubmit).toHaveBeenCalledWith("$tdd and fix", [], undefined, { source: "skill", name: "tdd", visibleText: "and fix", command: "/skill:tdd" });
+    });
+
+    it("does not open the skill menu on a $ that matches no skill", () => {
+      renderComposer(undefined, false, multi);
+      const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+      fireEvent.change(textarea, { target: { value: "it costs $5", selectionStart: 11 } });
+      expect(screen.queryByRole("listbox")).toBeNull();
+    });
+
+    it("keeps a runtime that takes one skill to one, at the start", () => {
+      const onSubmit = renderComposer();
+      const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+
+      fireEvent.change(textarea, { target: { value: "use $li", selectionStart: 7 } });
+      expect(screen.queryByRole("listbox")).toBeNull();
+      pick(textarea, "$td");
+      fireEvent.change(textarea, { target: { value: "$tdd $lint go", selectionStart: 13 } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      expect(onSubmit).toHaveBeenCalledWith("$tdd $lint go", [], undefined, { source: "skill", name: "tdd", visibleText: "$lint go", command: "/skill:tdd" });
+    });
   });
 
   it("makes unsupported Claude controls unavailable before invocation", () => {

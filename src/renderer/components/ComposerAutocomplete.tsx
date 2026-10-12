@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { FileKindIcon } from "./FileKindIcon";
 import type { UiComposerCommand, UiSkillDraft } from "../../shared/contracts";
+import { parseSelectedSkillRun } from "../../shared/skill-envelope";
 
 export interface ComposerArgMatch {
   id: string;
@@ -19,12 +20,35 @@ export interface ComposerTrigger {
   char?: string;
 }
 
+/** A skill picked from the `$` menu; where the text holds it is read off the text, so edits before it cannot strand it. */
 export interface SelectedSkill {
   name: string;
   invocation: string;
   command: string;
+}
+
+export interface SkillToken {
   start: number;
   end: number;
+  skill: SelectedSkill;
+}
+
+/** Where the text names a selected skill: its `$name` or `/name` alone between whitespace or an end. */
+export function skillTokens(text: string, selected: readonly SelectedSkill[]): SkillToken[] {
+  if (selected.length === 0) return [];
+  const tokens: SkillToken[] = [];
+  for (const skill of selected) {
+    for (let from = text.indexOf(skill.invocation); from >= 0; from = text.indexOf(skill.invocation, from + 1)) {
+      const end = from + skill.invocation.length;
+      if ((from === 0 || /\s/u.test(text[from - 1]!)) && (end === text.length || /\s/u.test(text[end]!))) tokens.push({ start: from, end, skill });
+    }
+  }
+  return tokens.sort((a, b) => a.start - b.start);
+}
+
+/** Whether the text still names a skill the selection holds. */
+export function namesSelectedSkill(text: string, skill: SelectedSkill): boolean {
+  return skillTokens(text, [skill]).length > 0;
 }
 
 export function skillName(command: UiComposerCommand): string {
@@ -37,7 +61,13 @@ const escapeCharacter = (char: string) => char.replace(/[\\^$.*+?()[\]{}|]/gu, "
  * Editor-only autocomplete trigger; submitted text is never classified or
  * rewritten here. An extension's character wins over core's own `@`.
  */
-export function composerTrigger(text: string, caret: number, extensionChars: readonly string[] = []): ComposerTrigger | undefined {
+export function composerTrigger(
+  text: string,
+  caret: number,
+  extensionChars: readonly string[] = [],
+  /** Skill names, when the runtime loads a skill named anywhere in the text; a `$` past the start then opens the menu while one matches. */
+  skillNames?: readonly string[],
+): ComposerTrigger | undefined {
   const before = text.slice(0, caret);
   if (extensionChars.length > 0) {
     const pattern = new RegExp(`(?:^|\\s)(${extensionChars.map(escapeCharacter).join("|")})([^\\s]*)$`, "u");
@@ -60,6 +90,13 @@ export function composerTrigger(text: string, caret: number, extensionChars: rea
     const start = before.lastIndexOf(argMatch[2] ?? "");
     return { kind: "arg", command: argMatch[1], query: argMatch[2] ?? "", start, end: caret };
   }
+  const inline = skillNames && /(?:^|\s)\$([^\s]*)$/u.exec(before);
+  if (inline) {
+    const query = inline[1]!.toLowerCase();
+    if (skillNames.some((name) => name.toLowerCase().includes(query))) {
+      return { kind: "$", query: inline[1]!, start: before.lastIndexOf("$"), end: caret };
+    }
+  }
   // Match /command or $skill at start of prompt
   const match = /^\s*([/$])([^\s]*)$/u.exec(before);
   if (!match) return undefined;
@@ -79,16 +116,26 @@ export function normalizeSkillInvocation(text: string, commands: readonly UiComp
   return `${match[1]}/skill:${requested}${text.slice(match[0].length)}`;
 }
 
-/** Turns an editor selection into typed metadata without parsing runtime text. */
-export function selectedSkillDraft(text: string, selection?: SelectedSkill): UiSkillDraft | undefined {
-  if (!selection || text.slice(selection.start, selection.end) !== selection.invocation) return undefined;
-  if (text.slice(0, selection.start).trim()) return undefined;
-  const suffix = text.slice(selection.end);
+/**
+ * Turns the editor's skill selection into typed metadata without parsing
+ * runtime text. The skills lead in the order the text names them; the text
+ * after the leading ones goes as it was typed. A runtime that takes one skill
+ * gets the first, and only when it leads.
+ */
+export function selectedSkillDraft(text: string, selected: readonly SelectedSkill[], multiple = false): UiSkillDraft | undefined {
+  const tokens = skillTokens(text, selected);
+  const first = tokens[0];
+  if (!first) return undefined;
+  const skills = [...new Map(tokens.map((token) => [token.skill.name, token.skill])).values()];
+  const run = parseSelectedSkillRun(text, new Set(multiple ? skills.map((skill) => skill.name) : [first.skill.name]));
+  if (!multiple && !run) return undefined;
+  const [lead, ...more] = multiple ? skills : [first.skill];
   return {
     source: "skill",
-    name: selection.name,
-    visibleText: /^[ \t]/u.test(suffix) ? suffix.slice(1) : suffix,
-    command: selection.command,
+    name: lead!.name,
+    visibleText: run ? run.userMessage : text,
+    command: lead!.command,
+    ...(more.length > 0 ? { additionalSkills: more.map((skill) => ({ name: skill.name, command: skill.command })) } : {}),
   };
 }
 

@@ -117,6 +117,8 @@ import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import { skillMessagePresentation } from "./skill-invocation.js";
+import { skillDraftOf } from "../shared/prepared-prompt.js";
+import { piWorkspaceCommands } from "./workspace-skills.js";
 import type { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import {
@@ -1247,7 +1249,7 @@ export class PiHost {
       }, "unserialized");
     }
     if (prepared && prepared.tauThreadId === undefined && prepared.sessionId === undefined) {
-      this.prompts.assertUnbound(initialPrompt ?? "", prepared, this.adapterFor(backendKind), this.composerCommandsFor(backendKind, cwd ?? this.cwd), backendKind);
+      this.prompts.assertUnbound(initialPrompt ?? "", prepared, this.adapterFor(backendKind), await this.composerCommandsFor(backendKind, cwd ?? this.cwd), backendKind);
     }
     return this.lifecycle.runActivation("new-thread", async (activation) => {
       const activationEpoch = activation.epoch;
@@ -1340,9 +1342,7 @@ export class PiHost {
           try {
             const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
             const deliveryPrepared = preparedThreadId && preparedThreadId !== thread.threadId
-              ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared?.skill
-                ? { source: "skill", name: prepared.skill.name, visibleText: prepared.visibleText, command: prepared.skill.command }
-                : undefined)
+              ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared && skillDraftOf(prepared, prepared.visibleText))
               : prepared;
             await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
             // Whether this prompt creates a user turn is decided inside
@@ -1484,17 +1484,17 @@ export class PiHost {
 
   /**
    * Resolves a prompt before the renderer creates its optimistic message. A
-   * prompt for a thread that does not exist yet names the backend it wants;
-   * without one, the host's default applies.
+   * prompt for a thread that does not exist yet names the backend it wants
+   * (the host's default without one) and its project, whose skills decide.
    */
-  async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft, backendKind?: ThreadBackendKind): Promise<PreparedPrompt> {
+  async preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft, backendKind?: ThreadBackendKind, workspace?: string): Promise<PreparedPrompt> {
     const kind = backendKind ?? this.defaultBackendKind;
     if (!sessionId && kind !== "pi") this.requireBackend(kind);
-    const target = sessionId
-      ? await this.awaitThread(sessionId)
-      : (this.active && threadBackendKind(this.active) === kind ? this.active : undefined);
+    const cwd = workspace ? this.resolveWorkspacePath(workspace) : this.cwd;
+    const sameDraft = this.active && threadBackendKind(this.active) === kind && (!workspace || samePath(this.active.cwd, cwd));
+    const target = sessionId ? await this.awaitThread(sessionId) : sameDraft ? this.active : undefined;
     if (target) return target.backend.preparePrompt(text, skill);
-    return this.prompts.prepare(text, skill, this.adapterFor(kind), this.composerCommandsFor(kind, this.cwd), undefined, kind);
+    return this.prompts.prepare(text, skill, this.adapterFor(kind), await this.composerCommandsFor(kind, cwd), undefined, kind);
   }
 
   /** The backends a new thread can run on, in the order every picker uses. */
@@ -1504,8 +1504,8 @@ export class PiHost {
   runtimeBackendOwner(kind: ThreadBackendKind): string | undefined { const provider = this.seam.backends.get(kind); return provider && runtimeBackendOwner(provider); }
 
   /** The commands a backend's composer offers, before any thread of it exists. */
-  private composerCommandsFor(kind: ThreadBackendKind, cwd: string): readonly UiComposerCommand[] {
-    return kind !== "pi" ? this.externalComposerCommands(kind, cwd) : this.runtimeCommands;
+  async composerCommandsFor(kind: ThreadBackendKind, cwd: string): Promise<readonly UiComposerCommand[]> {
+    return kind !== "pi" ? this.externalComposerCommands(kind, cwd) : await piWorkspaceCommands(this.runtimeCommands, cwd, this.piAdapter);
   }
 
   async switchSession(path: string): Promise<HostActionResult> {

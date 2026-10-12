@@ -12,8 +12,9 @@ import type {
 } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
-import { validatePreparedPrompt } from "../shared/prepared-prompt.js";
+import { skillFields, validatePreparedPrompt } from "../shared/prepared-prompt.js";
 import { isOfferedMode, threadModeFromEntries, THREAD_MODE_ENTRY } from "../shared/thread-mode.js";
+import { expandSkills } from "./skill-expansion.js";
 import { prepareSkillPrompt, skillInvocationCommand } from "./skill-invocation.js";
 import { completeText } from "./model-completion.js";
 import { createExtensionUiContext } from "./extension-ui.js";
@@ -277,7 +278,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       runtimeCapabilities: this.runtimeAdapter.capabilities,
       visibleText: prepared.text,
       runtimeText: prepared.runtimeText,
-      ...(prepared.skill ? { skill: prepared.skill } : {}),
+      ...skillFields(prepared),
       sourceFingerprint: clientMessageFingerprint(text, [...knownSkillNames(effectiveCommands)]),
     };
     validatePreparedPrompt(text, result, {
@@ -301,8 +302,9 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
     });
     // Pi's own prompt options are assembled here and nowhere else.
     const images = input.attachments?.length ? promptImages(input.attachments) : undefined;
-    if (input.delivery === "steer") await this.session.steer(prepared.runtimeText, images);
-    else if (input.delivery === "followUp") await this.session.followUp(prepared.runtimeText, images);
+    const text = await expandSkills(prepared, (name) => this.session.resourceLoader.getSkills().skills.find((skill) => skill.name === name)) ?? prepared.runtimeText;
+    if (input.delivery === "steer") await this.session.steer(text, images);
+    else if (input.delivery === "followUp") await this.session.followUp(text, images);
     else if (input.hidden) {
       // A continuation the host wrote, not the user: Pi's custom message is a
       // notice in the transcript and an ordinary user turn to the model.
@@ -317,7 +319,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       // the host. Acceptance does not wait for the agent run to finish.
       let admitted = false;
       try {
-        await this.session.prompt(prepared.runtimeText, {
+        await this.session.prompt(text, {
           images,
           streamingBehavior: input.queued ? "followUp" : undefined,
           ...(input.onAdmitted ? { preflightResult: () => {

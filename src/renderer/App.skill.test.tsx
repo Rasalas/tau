@@ -6,10 +6,25 @@ describe("optimistic skill presentation", () => {
     expect(skillPresentationForDraft(
       { source: "skill", name: "tdd", command: "/tdd", visibleText: "Fix **the parser**\n    without leaking wrappers" },
     )).toEqual({
-      name: "tdd",
-      command: "/tdd",
-      copyText: "/tdd Fix **the parser**\n    without leaking wrappers",
+      skill: {
+        name: "tdd",
+        command: "/tdd",
+        copyText: "/tdd Fix **the parser**\n    without leaking wrappers",
+      },
     });
-    expect(skillPresentationForDraft({ source: "skill", name: "tdd", command: "/skill:tdd", visibleText: "Fix it" })?.command).toBe("/skill:tdd");
+    expect(skillPresentationForDraft({ source: "skill", name: "tdd", command: "/skill:tdd", visibleText: "Fix it" }).skill?.command).toBe("/skill:tdd");
+  });
+
+  it("gives each selected skill a chip and the message one copy text", () => {
+    const presentation = skillPresentationForDraft({
+      source: "skill",
+      name: "tdd",
+      command: "/skill:tdd",
+      visibleText: "Fix it",
+      additionalSkills: [{ name: "lint", command: "/skill:lint" }],
+    });
+    expect(presentation.skills?.map((skill) => skill.name)).toEqual(["tdd", "lint"]);
+    expect(presentation.skill).toBe(presentation.skills?.[0]);
+    expect(presentation.skills?.every((skill) => skill.copyText === "/skill:tdd /skill:lint Fix it")).toBe(true);
   });
 });

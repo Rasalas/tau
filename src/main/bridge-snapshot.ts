@@ -18,7 +18,7 @@ import {
   visibleTitleText,
   type MessageMappingOptions,
 } from "./host-messages.js";
-import { PI_AGENT_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { ATTACHED_PI_RUNTIME_ADAPTER, type AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { skillInvocationCommand } from "./skill-invocation.js";
 import { hostCursorAtBridgeValue } from "./transcript-cursor.js";
 
@@ -40,15 +40,15 @@ export function composerCommandsForAdapter(
  */
 export function bridgeMessageMapping(snapshot: PiBridgeSnapshot | undefined): MessageMappingOptions {
   return {
-    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
-    skillCommands: composerCommandsForAdapter(snapshot?.composerCommands ?? [], PI_AGENT_RUNTIME_ADAPTER),
+    runtimeAdapter: ATTACHED_PI_RUNTIME_ADAPTER,
+    skillCommands: composerCommandsForAdapter(snapshot?.composerCommands ?? [], ATTACHED_PI_RUNTIME_ADAPTER),
   };
 }
 
 /** Projects the snapshot a Pi terminal publishes into the workbench's host snapshot. */
 export function bridgeHostSnapshot(snapshot: PiBridgeSnapshot, clientTurns: ClientTurnLedger): HostSnapshot {
   const mapping = { ...bridgeMessageMapping(snapshot), pinned: new Set(snapshot.pinnedEntryIds ?? []) };
-  const composerCommands = composerCommandsForAdapter(snapshot.composerCommands ?? [], PI_AGENT_RUNTIME_ADAPTER);
+  const composerCommands = composerCommandsForAdapter(snapshot.composerCommands ?? [], ATTACHED_PI_RUNTIME_ADAPTER);
   const rawMessageOffset = bridgeMessagesOffset(snapshot.messagesOffset);
   const messages = snapshot.messages.flatMap((rawMessage, index) => {
     const mapped = mapMessage(rawMessage, rawMessageOffset === undefined ? index : rawMessageOffset + index, mapping);
@@ -88,7 +88,7 @@ export function bridgeHostSnapshot(snapshot: PiBridgeSnapshot, clientTurns: Clie
     sessionName: safeSessionTitle(snapshot.sessionName),
     sessionTitle: cleanThreadTitle(safeSessionTitle(snapshot.sessionName) || firstSentence(visibleTitleText(firstUserMessage?.text ?? ""))),
     model: snapshot.model ? mapModel(snapshot.model) : undefined,
-    runtimeCapabilities: snapshot.runtimeCapabilities ?? PI_AGENT_RUNTIME_ADAPTER.capabilities,
+    runtimeCapabilities: snapshot.runtimeCapabilities ?? ATTACHED_PI_RUNTIME_ADAPTER.capabilities,
     backendKind: "pi",
     models: snapshot.models.map(mapModel),
     thinkingLevel: snapshot.thinkingLevel,

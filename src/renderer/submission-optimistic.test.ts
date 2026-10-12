@@ -50,6 +50,19 @@ describe("submission-optimistic", () => {
     expect(result.optimistic.skill).toEqual({ name: "test-skill", command: "/skill", copyText: "skill" });
   });
 
+  it("shows every skill a prepared prompt names, and a draft's before the host answers", () => {
+    const skills = [{ name: "a", command: "/skill:a", copyText: "/skill:a /skill:b x" }, { name: "b", command: "/skill:b", copyText: "/skill:a /skill:b x" }];
+    const prepared = buildOptimisticMessage({ text: "$a $b x", prepared: { visibleText: "x", skill: skills[0], skills } as any });
+    expect(prepared.optimistic.skills).toEqual(skills);
+
+    const draft = buildOptimisticMessage({
+      text: "$a $b x",
+      skillDraft: { source: "skill", name: "a", command: "/skill:a", visibleText: "x", additionalSkills: [{ name: "b", command: "/skill:b" }] },
+    });
+    expect(draft.optimistic.skills).toEqual(skills);
+    expect(draft.optimistic.text).toBe("x");
+  });
+
   it("adds, removes, and retargets optimistic messages in view store", () => {
     let state: any[] = [];
     const mockView: any = {

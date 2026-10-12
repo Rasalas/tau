@@ -12,8 +12,13 @@ import {
 
 const commands: UiComposerCommand[] = [
   { name: "skill:tdd", source: "skill", description: "Build features test-first" },
+  { name: "skill:lint", source: "skill", description: "Lint rules" },
   { name: "review", source: "prompt", description: "Review changes" },
 ];
+
+const multiAdapter: SkillRuntimeAdapter = {
+  capabilities: { ...PI_RUNTIME_ADAPTER.capabilities, multipleSkills: true },
+};
 
 const claudeCodeAdapter: SkillRuntimeAdapter = {
   capabilities: { skillInvocationDialect: "claude-code" },
@@ -130,5 +135,44 @@ describe("skill runtime boundary", () => {
       commands,
       { source: "extension" as never, name: "tdd", visibleText: "inspect this", command: "/tdd" },
     )).toThrow("no longer available");
+  });
+
+  describe("several skills in one message", () => {
+    const draft = { source: "skill" as const, name: "tdd", command: "/skill:tdd", visibleText: "fix the parser", additionalSkills: [{ name: "lint", command: "/skill:lint" }] };
+
+    it("prepares every selected skill and keeps the text as typed", () => {
+      const prepared = prepareSkillPrompt("$tdd $lint fix the parser", multiAdapter, commands, draft);
+      expect(prepared.text).toBe("fix the parser");
+      expect(prepared.runtimeText).toBe("/skill:tdd /skill:lint fix the parser");
+      expect(prepared.skill).toEqual({ name: "tdd", command: "/skill:tdd", copyText: "/skill:tdd /skill:lint fix the parser" });
+      expect(prepared.skills?.map((skill) => skill.name)).toEqual(["tdd", "lint"]);
+    });
+
+    it("turns the copied spelling back into the same skills and text", () => {
+      const copied = prepareSkillPrompt("$tdd $lint fix the parser", multiAdapter, commands, draft).skill!.copyText;
+      const again = prepareSkillPrompt(copied, multiAdapter, commands);
+      expect(again).toMatchObject({ text: "fix the parser", runtimeText: copied });
+      expect(again.skills?.map((skill) => skill.name)).toEqual(["tdd", "lint"]);
+    });
+
+    it("reads a leading run typed by hand, and a persisted run of envelopes", () => {
+      expect(prepareSkillPrompt("$tdd /lint go", multiAdapter, commands).skills?.map((skill) => skill.name)).toEqual(["tdd", "lint"]);
+      const block = (name: string) => `<skill name="${name}" location="/s/${name}/SKILL.md">\nbody\n</skill>`;
+      const presentation = skillMessagePresentation(`${block("tdd")}\n\n${block("lint")}\n\n  keep   this\n`, PI_RUNTIME_ADAPTER, commands);
+      expect(presentation?.text).toBe("  keep   this\n");
+      expect(presentation?.skills?.map((skill) => skill.name)).toEqual(["tdd", "lint"]);
+      expect(presentation?.skill.name).toBe("tdd");
+    });
+
+    it("refuses a second skill where the runtime takes one", () => {
+      expect(() => prepareSkillPrompt("$tdd $lint fix", PI_RUNTIME_ADAPTER, commands, draft)).toThrow("one skill per message");
+      expect(prepareSkillPrompt("$tdd $lint fix", PI_RUNTIME_ADAPTER, commands)).toMatchObject({ text: "$lint fix", runtimeText: "/skill:tdd $lint fix" });
+    });
+
+    it("refuses a skill the catalog does not have or a command the runtime does not spell that way", () => {
+      expect(() => prepareSkillPrompt("$tdd $gone fix", multiAdapter, commands, { ...draft, additionalSkills: [{ name: "gone", command: "/skill:gone" }] })).toThrow("no longer available");
+      expect(() => prepareSkillPrompt("$tdd $lint fix", multiAdapter, commands, { ...draft, additionalSkills: [{ name: "lint", command: "/lint" }] })).toThrow("no longer available");
+      expect(() => prepareSkillPrompt("$tdd $tdd fix", multiAdapter, commands, { ...draft, additionalSkills: [{ name: "tdd", command: "/skill:tdd" }] })).toThrow("no longer available");
+    });
   });
 });

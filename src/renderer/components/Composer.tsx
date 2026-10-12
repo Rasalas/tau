@@ -59,6 +59,7 @@ import {
   skillName,
   composerTrigger,
   normalizeSkillInvocation,
+  namesSelectedSkill,
   selectedSkillDraft,
   ComposerAutocompleteMenu,
 } from "./ComposerAutocomplete";
@@ -227,7 +228,7 @@ export function Composer({
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   // Escape closes the menu for that token until a new one starts, not until the next keystroke.
   const [escapedToken, setEscapedToken] = useState<string>();
-  const [selectedSkill, setSelectedSkill] = useState<SelectedSkill>();
+  const [selectedSkills, setSelectedSkills] = useState<readonly SelectedSkill[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chipInsertAt = useRef<number | undefined>(undefined);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -267,7 +268,10 @@ export function Composer({
     return byChar;
   }, [inlines]);
   const extensionChars = useMemo(() => [...extensionTriggers.keys()], [extensionTriggers]);
-  const parsedTrigger = commandMenuDismissed ? undefined : composerTrigger(text, caret, extensionChars);
+  // A runtime that loads every skill a message names takes `$skill` anywhere in the text.
+  const multipleSkills = snapshot?.runtimeCapabilities?.multipleSkills === true;
+  const skillNames = useMemo(() => multipleSkills ? commands.filter((command) => command.source === "skill").map(skillName) : undefined, [commands, multipleSkills]);
+  const parsedTrigger = commandMenuDismissed ? undefined : composerTrigger(text, caret, extensionChars, skillNames);
   const trigger = parsedTrigger && `${parsedTrigger.kind}:${parsedTrigger.start}` === escapedToken ? undefined : parsedTrigger;
   const tokenEnded = parsedTrigger === undefined;
   useEffect(() => { if (tokenEnded) setEscapedToken(undefined); }, [tokenEnded]);
@@ -394,7 +398,10 @@ export function Composer({
     scopeStore.setDraft(attachmentScope, next);
     writeComposerDraft(clientStorage, draftStorageKey, next);
     onChange?.(next);
-    setSelectedSkill((current) => current && next.slice(current.start, current.end) === current.invocation ? current : undefined);
+    setSelectedSkills((current) => {
+      const kept = current.filter((skill) => namesSelectedSkill(next, skill));
+      return kept.length === current.length ? current : kept;
+    });
   }, [attachmentScope, clientStorage, draftStorageKey, onChange, scopeStore]);
 
   const selectCommand = (command: UiComposerCommand) => {
@@ -405,9 +412,10 @@ export function Composer({
     const nextCaret = trigger.start + invocation.length + 1;
     updateDraft(next);
     if (command.source === "skill" && command.skillCommand) {
-      setSelectedSkill({ name, invocation, command: command.skillCommand, start: trigger.start, end: trigger.start + invocation.length });
+      const picked = { name, invocation, command: command.skillCommand };
+      setSelectedSkills((current) => multipleSkills ? [...current.filter((skill) => skill.name !== name), picked] : [picked]);
     } else {
-      setSelectedSkill(undefined);
+      setSelectedSkills([]);
     }
     setCaret(nextCaret);
     setCommandMenuDismissed(true);
@@ -696,7 +704,8 @@ export function Composer({
     draftStorageKey,
     clientStorage,
     documentSource: shellContext?.registry.getDocumentSource?.(),
-    selectedSkill,
+    selectedSkills,
+    multipleSkills,
     inlines,
     inlineContext,
     onSubmit,
@@ -1175,7 +1184,7 @@ export function Composer({
             insertAt={chipInsertAt}
             updateDraft={updateDraft}
             setCaret={setCaret}
-            selectedSkill={selectedSkill}
+            selectedSkills={selectedSkills}
             onNotify={onNotify}
             onPreview={setPreviewId}
           />

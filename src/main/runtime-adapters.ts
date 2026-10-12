@@ -64,7 +64,14 @@ export function assertRuntimeAdapter(adapter: unknown): AgentRuntimeAdapter {
   return adapter as AgentRuntimeAdapter;
 }
 
+/** The embedded Pi expands every skill of a message itself (`expandSkills`). */
 export const PI_AGENT_RUNTIME_ADAPTER: AgentRuntimeAdapter = {
+  id: "pi",
+  capabilities: { ...PI_RUNTIME_ADAPTER.capabilities, multipleSkills: true },
+};
+
+/** A Pi that another process owns: its own expansion takes one leading skill. */
+export const ATTACHED_PI_RUNTIME_ADAPTER: AgentRuntimeAdapter = {
   id: "pi",
   capabilities: PI_RUNTIME_ADAPTER.capabilities,
 };

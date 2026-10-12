@@ -266,6 +266,7 @@ export class SubmissionController {
           pendingNewThread ? undefined : this.ports.hostSession.sessionIdFor(snapshot?.sessionId),
           skillDraft,
           pendingNewThread ? chosenNewThreadRuntime(pendingNewThread.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot) : undefined,
+          pendingNewThread && !pendingNewThread.sessionId ? pendingNewThread.workspaceId ?? pendingNewThread.projectPath : undefined,
         );
       } catch (error) {
         // ComposerScopeStore keeps the captured draft when a submission is

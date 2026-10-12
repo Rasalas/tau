@@ -6,6 +6,7 @@ import type {
   UiPromptAttachment,
   UiSkillDraft,
 } from "../shared/contracts";
+import { skillFields } from "../shared/prepared-prompt";
 import { createClientMessageId, skillPresentationForDraft } from "../workbench/app-state";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 
@@ -36,7 +37,7 @@ export function buildOptimisticMessage(input: BuildOptimisticMessageInput): Buil
     ?? (text || `Attached ${attachments.map((attachment) => attachment.name).join(", ")}`);
   const visiblePrompt = input.prepared?.visibleText ?? input.skillDraft?.visibleText ?? text;
   const optimisticSkill = input.prepared
-    ? input.prepared.skill
+    ? skillFields(input.prepared)
     : input.skillDraft ? skillPresentationForDraft(input.skillDraft) : undefined;
   const submittedAt = input.submittedAt ?? Date.now();
   const sequence = input.sequence ?? 0;
@@ -49,7 +50,7 @@ export function buildOptimisticMessage(input: BuildOptimisticMessageInput): Buil
     clientMessageId,
     role: "user",
     text: optimisticText,
-    ...(optimisticSkill ? { skill: optimisticSkill } : {}),
+    ...optimisticSkill,
     images: attachments.flatMap((attachment) => attachment.kind === "image" ? [{ mimeType: attachment.mimeType, data: attachment.data }] : []),
     timestamp: submittedAt,
   };

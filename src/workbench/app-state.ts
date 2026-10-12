@@ -120,12 +120,12 @@ export interface OptimisticUserMessage {
   message: UiMessage;
 }
 
-export function skillPresentationForDraft(draft: UiSkillDraft): UiMessage["skill"] {
-  return {
-    name: draft.name,
-    command: draft.command,
-    copyText: draft.visibleText ? `${draft.command} ${draft.visibleText}` : draft.command,
-  };
+/** How a sent skill selection reads before the host has answered: a chip each, the whole message as copy text. */
+export function skillPresentationForDraft(draft: UiSkillDraft): Pick<UiMessage, "skill" | "skills"> {
+  const commands = [draft.command, ...(draft.additionalSkills ?? []).map((entry) => entry.command)];
+  const copyText = draft.visibleText ? `${commands.join(" ")} ${draft.visibleText}` : commands.join(" ");
+  const all = [{ name: draft.name, command: draft.command }, ...draft.additionalSkills ?? []].map((entry) => ({ ...entry, copyText }));
+  return { skill: all[0]!, ...(all.length > 1 ? { skills: all } : {}) };
 }
 
 let fallbackClientMessageCounter = 0;

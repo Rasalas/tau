@@ -132,7 +132,7 @@ describe("a new thread in the project on screen", () => {
       undefined,
       { model: { provider: "openai", id: "gpt-5.6-luna" }, thinkingLevel: "high", mode: "plan" },
     ));
-    expect(preparePrompt).toHaveBeenCalledWith("carry on", undefined, undefined, "codex");
+    expect(preparePrompt).toHaveBeenCalledWith("carry on", undefined, undefined, "codex", "/alpha");
     expect(preferences.getSnapshot().newThreadRuntime).toBeUndefined();
   });
 

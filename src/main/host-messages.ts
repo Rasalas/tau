@@ -31,6 +31,7 @@ import {
 } from "../shared/transcript-completeness.js";
 import { hostCursorAtBridgeValue, providerCursorValue } from "./transcript-cursor.js";
 import { skillMessagePresentation } from "./skill-invocation.js";
+import { skillFields } from "../shared/prepared-prompt.js";
 import { COMPACTION_RECORD_ROLE, compactionMessage } from "./compaction-record.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import { readSessionModel, type SessionModel } from "./session-model-provider.js";
@@ -144,7 +145,7 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
       ...clientIdentity,
       role: "user",
       text: visibleText || (images.length ? `[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""),
-      ...(presentation ? { skill: presentation.skill } : {}),
+      ...(presentation ? skillFields(presentation) : {}),
       images,
       timestamp: value.timestamp ?? Date.now(),
     };
