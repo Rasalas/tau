@@ -4609,6 +4609,10 @@ its own. There is no revocation list: removing a key from
   that deactivates the package and raises a toast instead of blanking the
   workbench on a render error. A chunk that failed to load is not the
   package's fault: it reloads the page once and leaves the package on.
+  A render error outside any slot (the thread header, the transcript, the
+  composer) shows a card with Try again, Reload and Copy error in the
+  conversation column and leaves the sidebar usable; a second boundary does
+  the same for the whole window.
 
 ## 6. What an isolated (worker) package cannot use
 

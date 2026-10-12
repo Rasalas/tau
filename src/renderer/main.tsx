@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { RenderErrorBoundary } from "./components/RenderErrorBoundary";
 import type { HostClient } from "../workbench/host-client";
 import { createElectronHostClient, createElectronHostTransport } from "./platform-electron";
 import { createLocalStorageAdapter } from "./browser-storage";
@@ -82,7 +83,7 @@ if ((import.meta.env.DEV || import.meta.env.MODE === "benchmark") && search.has(
       <HostClientProvider client={client}>
         <ClientStorageProvider storage={clientStorage}>
           <RendererServicesProvider services={services}>
-            <App />
+            <RenderErrorBoundary scope="window"><App /></RenderErrorBoundary>
           </RendererServicesProvider>
         </ClientStorageProvider>
       </HostClientProvider>

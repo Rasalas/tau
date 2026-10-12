@@ -13,6 +13,7 @@ import { Composer } from "./components/Composer";
 import type { ComposerScopeStore } from "../workbench/composer-scope-store";
 import type { UiQueuedMessage } from "../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "./components/LazyFeature";
+import { RenderErrorBoundary } from "./components/RenderErrorBoundary";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { ComposerReserve } from "./components/ComposerReserve";
 import { WorkingTimer } from "./components/WorkRows";
@@ -838,6 +839,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           {composer.queue.length > 0 ? <p>{composer.queue.length} queued</p> : null}
           <button type="button" onClick={() => setSpine(false)}><MessageSquare size={13} />Open conversation</button>
         </aside> : null}
+        {/* A render error in the head, transcript or composer takes the column, not the sidebar; another thread clears it. */}
+        <RenderErrorBoundary scope="conversation" resetKey={`${conversationSnapshot?.sessionId ?? ""}|${activeDraftKey ?? ""}|${showStartScreen}`}>
         <main
           className={`conversation-column ${showStartScreen ? "conversation-start" : ""}${activeConversationView ? " conversation-view-active" : ""}`}
           data-keybinding-context="chat"
@@ -936,6 +939,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           </section>
           <StatusLine registry={registry} snapshot={snapshot} actions={actions} />
         </main>
+        </RenderErrorBoundary>
         {sideOpen ? <ResizeHandle
           className="chat-resizer"
           label="Resize chat"
