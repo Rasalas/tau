@@ -1,10 +1,11 @@
 import { CONTENT_PER_FILE, LINE_PREVIEW, type ContentMatch, type ContentSearchInput } from "./protocol.js";
 
 /** Hidden files are searched and `.git` never is; `.gitignore` decides the rest, in a Git checkout or not. */
-export function ripgrepArgs(input: ContentSearchInput): string[] {
+export function ripgrepArgs(input: ContentSearchInput, device = false): string[] {
   return [
     "--json",
     "--hidden",
+    ...(device ? ["--no-follow", "--no-config", "--no-ignore-global", "--no-ignore-exclude", "--no-ignore-parent"] : []),
     "--no-require-git",
     "--glob", "!.git/",
     "--max-count", String(CONTENT_PER_FILE),
@@ -17,8 +18,8 @@ export function ripgrepArgs(input: ContentSearchInput): string[] {
   ];
 }
 
-export function ripgrepFileArgs(): string[] {
-  return ["--files", "--hidden", "--no-require-git", "--glob", "!.git/", "--", "."];
+export function ripgrepFileArgs(device = false): string[] {
+  return ["--files", "--hidden", ...(device ? ["--no-follow", "--no-config", "--no-ignore-global", "--no-ignore-exclude", "--no-ignore-parent"] : []), "--no-require-git", "--glob", "!.git/", "--", "."];
 }
 
 /** `./src/a.ts` as ripgrep prints it, as the project names it. */

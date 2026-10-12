@@ -37,14 +37,15 @@ import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import { HostAuthorizationError, HostCommandError, hostErrorDiagnostic, isExpectedCommandError } from "./host-extension-errors.js";
-import { HOST_CORE_PRINCIPAL, isHostOwner, runAsCaller, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
+import { HOST_CORE_PRINCIPAL, currentInvocationPrincipal, currentReadCwd, isHostOwner, runAsCaller, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
+import { authorizeReadPaths } from "./host-read-paths.js";
 import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy, type HostExecutionPolicyServices } from "./host-execution-policy.js";
 import { BIND_NETWORK_EXTENSION } from "./host-network-contributions.js";
-import { BIND_BROWSER_RESOURCES, REMOVE_BROWSER_RESOURCES, type HostBrowserResources } from "./host-browser-resources.js";
+import { BIND_BROWSER_RESOURCES, CHECK_BROWSER_RESOURCE, REMOVE_BROWSER_RESOURCES, type HostBrowserResources } from "./host-browser-resources.js";
 export type { HostBrowserResources, HostBrowserResourceHandler, SandboxFrameDocument } from "./host-browser-resources.js";
 
 export interface DirectoryPickerOptions {
@@ -1444,6 +1445,10 @@ export function extensionServices(services: HostExtensionServices, extension: Pi
   const settings = rawSettings ? (cwd?: string) => rawSettings(extension.id, cwd) : undefined;
   return new Proxy(guarded, {
     get: (target, prop, receiver) => {
+      if (prop === "cwd") {
+        const read = Reflect.get(target, prop, receiver) as HostExtensionServices["cwd"];
+        return () => currentReadCwd() ?? read.call(receiver);
+      }
       if (prop === "callClient") return callClient;
       if (prop === "clientWindow") return clientWindow;
       if (prop === "settings") return settings;
@@ -1830,6 +1835,7 @@ export class HostExtensionRegistry {
     const record = await this.requireCommand(extensionId, command);
     const handler = record.commands.get(command)!;
     this.authorize(record, extensionId, command, principal, input);
+    const readCwd = await this.authorizeReadInput(record, extensionId, command, input, principal);
 
     const timeoutMs = this.options.commandTimeoutMs ?? 30_000;
     // The counter is keyed by command so that a healthy command cannot mask an
@@ -1840,7 +1846,7 @@ export class HostExtensionRegistry {
       const call = commandCall(principal, principal.kind === "host-extension" ? this.invocationContexts.get(principal.contextId)?.extensionId : undefined);
       const result = await runAsCaller(principal, async () => record.longCommands.has(command)
         ? await handler(input, call)
-        : await this.runWithTimeout(() => handler(input, call), timeoutMs, command));
+        : await this.runWithTimeout(() => handler(input, call), timeoutMs, command), readCwd);
       this.consecutiveFailures.delete(commandKey);
       return result;
     } catch (error) {
@@ -1866,6 +1872,26 @@ export class HostExtensionRegistry {
         this.noteCrash(extensionId, record);
         await this.deactivate(extensionId);
       }
+      throw error;
+    }
+  }
+
+  private async authorizeReadInput(record: ActiveHostExtension, extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<string | undefined> {
+    const client = principal.kind === "host-extension" ? currentInvocationPrincipal() : principal;
+    if (!record.readCommands.has(command) || !client || client.kind !== "workbench-client" || isHostOwner(client)) return;
+    try {
+      const resources = this.services.browserResources as (HostBrowserResources & { [CHECK_BROWSER_RESOURCE]?: (path: string, extension: string, connection: string) => boolean }) | undefined;
+      const fields = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+      const scope = [fields.workspace, fields.workspaceId, fields.cwd].find((value): value is string => typeof value === "string" && value.length > 0);
+      let cwd: string;
+      if (scope) {
+        try { cwd = await this.services.knownWorkspacePath(scope); }
+        catch { throw Object.assign(new HostCommandError("This device may read only admitted workspaces."), { code: "forbidden" }); }
+      } else cwd = currentReadCwd() ?? this.services.cwd();
+      await authorizeReadPaths(input, { cwd: () => cwd, knownWorkspacePath: (value) => this.services.knownWorkspacePath(value) }, (path) => Boolean(client.connection && resources?.[CHECK_BROWSER_RESOURCE]?.(path, extensionId, client.connection)));
+      return cwd;
+    } catch (error) {
+      client.audit?.(auditedCommandCall(record, `${extensionId}/${command}`, command, input), false);
       throw error;
     }
   }

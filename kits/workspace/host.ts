@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/pro
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { deviceReadPaths } from "../_filesystem/device-read-paths.js";
 import {
   assertAllowedCloneSource,
   gitExecutable,
@@ -68,7 +69,7 @@ async function samePath(left: string, right: string): Promise<boolean> {
   return (await real(left)) === (await real(right));
 }
 
-export async function listDirectories(requested: string | undefined, identify: (path: string) => WorkspaceRef): Promise<UiDirectoryListing> {
+export async function listDirectories(requested: string | undefined, identify: (path: string) => WorkspaceRef, includeHidden = false): Promise<UiDirectoryListing> {
   const candidate = requested?.trim() ? expandHome(requested) : homedir();
   if (!isAbsolute(candidate)) throw new Error("Choose an absolute folder path.");
   const path = await realpath(candidate);
@@ -78,7 +79,7 @@ export async function listDirectories(requested: string | undefined, identify: (
     workspace: identify(path),
     ...(dirname(path) !== path ? { parent: dirname(path) } : {}),
     directories: entries
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .filter((entry) => entry.isDirectory() && (includeHidden ? entry.name !== ".git" : !entry.name.startsWith(".")))
       .map((entry) => ({ name: entry.name, path: join(path, entry.name) }))
       .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true })),
   };
@@ -113,13 +114,13 @@ const MAX_TREE_DEPTH = 4;
 const MAX_TREE_ENTRIES = 320;
 
 /** Nodes carry workspace-relative POSIX paths; a client never sees the host's own. */
-export async function readFileTree(path: string, relative = "", depth = 0, budget = { count: 0 }): Promise<FileNode[]> {
+export async function readFileTree(path: string, relative = "", depth = 0, budget = { count: 0 }, includeHidden = false): Promise<FileNode[]> {
   if (depth > MAX_TREE_DEPTH || budget.count > MAX_TREE_ENTRIES) return [];
   const entries = await readdir(path, { withFileTypes: true });
   const nodes: FileNode[] = [];
   for (const entry of entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))) {
     if (budget.count++ > MAX_TREE_ENTRIES) break;
-    if (entry.name.startsWith(".") && !VISIBLE_DOT_DIRECTORIES.has(entry.name)) continue;
+    if (!includeHidden && entry.name.startsWith(".") && !VISIBLE_DOT_DIRECTORIES.has(entry.name)) continue;
     if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
     nodes.push({
       name: entry.name,
@@ -302,7 +303,14 @@ export function createWorkspaceHostExtension(): HostExtension {
         return { workspace: services.admitWorkspace(created.path), ...(created.warning ? { warning: created.warning } : {}) };
       }, { long: true });
       // Project sources: browse, pick, clone. Opening the result is core's job.
-      context.registerCommand("list-directories", (input) => listDirectories(optionalString(input, "path"), (path) => services.workspaceRef(path)), { access: "read" });
+      context.registerCommand("list-directories", async (input, call) => {
+        const listing = await listDirectories(optionalString(input, "path")?.trim() || (call.owner ? undefined : cwd()), (path) => services.workspaceRef(path), !call.owner);
+        if (call.owner) return listing;
+        const paths = await deviceReadPaths(listing.path);
+        const directories = [];
+        for (const directory of listing.directories) if (await paths.resolve(directory.path)) directories.push(directory);
+        return { ...listing, directories };
+      }, { access: "read" });
       // The folder dialog waits on the user, well past the ordinary command timeout.
       context.registerCommand("pick-folder", async () => {
         const path = await services.pickDirectory();
@@ -335,11 +343,17 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("clone-cancel", (input) => clones.cancel(requiredString(input, "id")));
       context.registerCommand("clone-jobs", () => clones.list(), { access: "read" });
       context.registerCommand("clone-forget", (input) => { clones.forget(requiredString(input, "id")); });
-      context.registerCommand("file-tree", async (input) => {
+      context.registerCommand("file-tree", async (input, call) => {
         const project = await shownRoot(input);
         const relative = optionalRelativePath(input);
         if (relative) await workspaceGit.assertWorkspacePath(project, relative);
-        return readFileTree(relative ? resolve(project, relative) : project, relative ?? "");
+        const base = relative ? resolve(project, relative) : project;
+        const nodes = await readFileTree(base, relative ?? "", 0, { count: 0 }, !call.owner);
+        if (call.owner) return nodes;
+        const paths = await deviceReadPaths(project);
+        const allowed = [];
+        for (const node of nodes) if (await paths.resolve(join(base, node.name))) allowed.push(node);
+        return allowed;
       }, { access: "read" });
       // A branch with a pull or merge request diffs against that request's base.
       const branchChanges = async (project: string, query: WorkspaceChangesQuery) => {

@@ -53,17 +53,19 @@ export function isHostOwner(principal: HostInvocationPrincipal): boolean {
 }
 
 /** The connection whose request is running; `active` ends with the request, not with its async leftovers. */
-const callerScope = new AsyncLocalStorage<{ readonly connection: string; active: boolean }>();
+const callerScope = new AsyncLocalStorage<{ readonly connection?: string; readonly principal: HostInvocationPrincipal; readonly readCwd?: string; active: boolean }>();
 
 /**
  * Runs `run` on behalf of a socket client, so a call into a window made on the
  * way reaches that client's own window first (ADR 0023). Other principals keep
  * the caller of the request they run inside.
  */
-export async function runAsCaller<T>(principal: HostInvocationPrincipal, run: () => Promise<T>): Promise<T> {
-  const connection = principal.kind === "workbench-client" ? principal.connection : undefined;
-  if (!connection) return run();
-  const scope = { connection, active: true };
+export async function runAsCaller<T>(principal: HostInvocationPrincipal, run: () => Promise<T>, readCwd?: string): Promise<T> {
+  const inherited = callerScope.getStore();
+  if (principal.kind !== "workbench-client" && (!inherited?.active || readCwd === undefined)) return run();
+  const scope = principal.kind === "workbench-client"
+    ? { connection: principal.connection, principal, readCwd, active: true }
+    : { ...inherited!, readCwd, active: true };
   try {
     return await callerScope.run(scope, run);
   } finally {
@@ -75,4 +77,16 @@ export async function runAsCaller<T>(principal: HostInvocationPrincipal, run: ()
 export function currentCaller(): string | undefined {
   const scope = callerScope.getStore();
   return scope?.active ? scope.connection : undefined;
+}
+
+/** Retain client authority when a command delegates to another host extension. */
+export function currentInvocationPrincipal(): HostInvocationPrincipal | undefined {
+  const scope = callerScope.getStore();
+  return scope?.active ? scope.principal : undefined;
+}
+
+/** The workspace checked for this read, even if the active project changes meanwhile. */
+export function currentReadCwd(): string | undefined {
+  const scope = callerScope.getStore();
+  return scope?.active ? scope.readCwd : undefined;
 }

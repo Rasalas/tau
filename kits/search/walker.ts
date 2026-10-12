@@ -86,6 +86,7 @@ const yieldToEvents = () => new Promise<void>((resolve) => setImmediate(resolve)
 
 export interface WalkOptions {
   limit?: number;
+  readPath?(path: string): Promise<string | undefined>;
   /** Asked between folders; `true` stops the walk with what it has. */
   cancelled?(): boolean;
 }
@@ -101,12 +102,16 @@ export async function walkProject(root: string, options: WalkOptions = {}): Prom
     const { dir, rules: inherited } = queue.shift()!;
     const absolute = join(root, dir);
     let rules = inherited;
-    try { rules = [...inherited, ...parseGitignore(await readFile(join(absolute, ".gitignore"), "utf8"), dir)]; } catch { /* no .gitignore here */ }
+    try {
+      const ignore = join(absolute, ".gitignore");
+      if (!options.readPath || await options.readPath(ignore)) rules = [...inherited, ...parseGitignore(await readFile(ignore, "utf8"), dir)];
+    } catch { /* no .gitignore here */ }
     let entries;
     try { entries = await readdir(absolute, { withFileTypes: true }); } catch { continue; }
     entries.sort((a, b) => (a.name < b.name ? -1 : 1));
     for (const entry of entries) {
       if (entry.name === ".git") continue;
+      if (options.readPath && !await options.readPath(join(absolute, entry.name))) continue;
       const path = dir ? `${dir}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         if (!isIgnored(rules, path, true)) queue.push({ dir: path, rules });
@@ -134,7 +139,7 @@ export async function searchWalkedFiles(
   root: string,
   files: readonly string[],
   pattern: RegExp,
-  options: { limit?: number; cancelled?(): boolean } = {},
+  options: { limit?: number; readPath?(path: string): Promise<string | undefined>; cancelled?(): boolean } = {},
 ): Promise<{ matches: ContentMatch[]; truncated: boolean }> {
   const limit = options.limit ?? CONTENT_LIMIT;
   const matches: ContentMatch[] = [];
@@ -143,8 +148,10 @@ export async function searchWalkedFiles(
     if (index % 50 === 49) await yieldToEvents();
     let bytes: Buffer;
     try {
-      if ((await stat(join(root, path))).size > MAX_FILE_BYTES) continue;
-      bytes = await readFile(join(root, path));
+      const target = options.readPath ? await options.readPath(join(root, path)) : join(root, path);
+      if (!target) continue;
+      if ((await stat(target)).size > MAX_FILE_BYTES) continue;
+      bytes = await readFile(target);
     } catch {
       continue;
     }

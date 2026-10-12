@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionServices, HostThread, HostTurnObserver } from "tau/host-extension";
@@ -11,8 +11,13 @@ import { createWorkspaceHostExtension } from "./host.js";
 import { createRemoteWorkHostExtension } from "../remote-work/host.js";
 
 const directories: string[] = [];
+vi.mock("node:os", async (original) => {
+  const os = await original<typeof import("node:os")>();
+  return { ...os, homedir: vi.fn(os.homedir) };
+});
 
 afterEach(async () => {
+  vi.mocked(homedir).mockReset();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -71,6 +76,111 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("protects home secrets when the active workspace changes between authorization and reading", async () => {
+    const home = await workspace();
+    vi.mocked(homedir).mockReturnValue(home);
+    const project = join(home, "repo");
+    await mkdir(join(project, ".tau"), { recursive: true });
+    await writeFile(join(project, ".tau", "host-token"), "project-fixture");
+    await mkdir(join(home, ".tau"));
+    await writeFile(join(home, ".tau", "host-token"), "host-secret");
+    let switchWorkspace = false;
+    let selected = project;
+    const registry = await activated(project, { cwd: () => {
+      const current = selected;
+      if (switchWorkspace) selected = home;
+      return current;
+    } });
+    switchWorkspace = true;
+    const phone = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+    try {
+      await expect(registry.invoke("tau.workspace", "read-file", { path: ".tau/host-token" }, phone)).resolves.toMatchObject({ text: "project-fixture" });
+    } finally { await registry.deactivate("tau.workspace"); }
+  });
+
+  it("lets a device read project dotfiles but protects home secrets even with Home as the workspace", async () => {
+    const home = await workspace();
+    vi.mocked(homedir).mockReturnValue(home);
+    const project = join(home, "repo");
+    await mkdir(join(project, ".github", "workflows"), { recursive: true });
+    await mkdir(join(project, ".tau"));
+    await mkdir(join(project, ".git"));
+    for (const path of [".github/workflows/ci.yml", ".gitignore", ".env.example", ".tau/project.json"]) await writeFile(join(project, path), "project-fixture");
+    await writeFile(join(project, ".git", "config"), "git-secret");
+    await mkdir(join(home, ".tau"));
+    await writeFile(join(home, ".tau", "host-token"), "host-secret");
+    await symlink(join(home, ".tau", "host-token"), join(home, "token-link"));
+    for (const name of [".pi", ".ssh", ".config", ".aws", ".private-settings"]) {
+      await mkdir(join(home, name));
+      await writeFile(join(home, name, "secret"), "host-secret");
+    }
+    const phone = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+    for (const cwd of [project, home]) {
+      const registry = await activated(cwd, { knownWorkspacePath: async (scope) => scope === "ws-repo" ? project : cwd });
+      try {
+        const prefix = cwd === home ? "repo/" : "";
+        for (const path of [".github/workflows/ci.yml", ".gitignore", ".env.example", ".tau/project.json"]) {
+          await expect(registry.invoke("tau.workspace", "read-linked-file", { workspace: cwd, path: prefix + path }, phone)).resolves.toMatchObject({ text: "project-fixture" });
+          await expect(registry.invoke("tau.workspace", "read-file", { workspace: cwd, path: prefix + path }, phone)).resolves.toMatchObject({ text: "project-fixture" });
+        }
+        await expect(registry.invoke("tau.workspace", "read-linked-file", { path: join(home, ".tau", "host-token") }, phone)).rejects.toMatchObject({ code: "forbidden" });
+        await expect(registry.invoke("tau.workspace", "read-linked-file", { path: prefix + ".git/config" }, phone)).rejects.toMatchObject({ code: "forbidden" });
+        if (cwd === home) {
+          await expect(registry.invoke("tau.workspace", "read-file", { workspace: "ws-repo", path: ".github/workflows/ci.yml" }, phone)).resolves.toMatchObject({ text: "project-fixture" });
+          for (const path of ["~/.tau/host-token", "token-link", ".pi/secret", ".ssh/secret", ".config/secret", ".aws/secret", ".private-settings/secret"]) {
+            await expect(registry.invoke("tau.workspace", "read-linked-file", { workspace: cwd, path }, phone)).rejects.toMatchObject({ code: "forbidden" });
+          }
+          await expect(registry.invoke("tau.workspace", "read-linked-file", { workspace: cwd, path: ".tau/host-token" }, { kind: "workbench-client" })).resolves.toMatchObject({ text: "host-secret" });
+        }
+        const nodes = await registry.invoke("tau.workspace", "file-tree", { workspace: cwd }, phone);
+        expect(nodes).toEqual(expect.arrayContaining([{ name: cwd === home ? "repo" : ".github", path: cwd === home ? "repo" : ".github", kind: "directory" }]));
+        expect(nodes).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: cwd === home ? ".tau" : ".git" })]));
+      } finally { await registry.deactivate("tau.workspace"); }
+    }
+  });
+
+  it("refuses a paired read-only device the host token while the owner can open the link", async () => {
+    const root = await workspace();
+    const project = join(root, "project");
+    const token = join(root, ".tau", "host-token");
+    await mkdir(project);
+    await mkdir(join(root, ".tau"));
+    await writeFile(token, "fixture-token");
+    const registry = await activated(project, { knownWorkspacePath: async () => project });
+    const input = { workspace: "ws-project", path: token };
+    const phone = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+    try {
+      await expect(registry.invoke("tau.workspace", "read-linked-file", input, phone)).rejects.toMatchObject({ code: "forbidden" });
+      await expect(registry.invoke("tau.workspace", "read-linked-file", input, { kind: "workbench-client" })).resolves.toMatchObject({ text: "fixture-token" });
+    } finally {
+      await registry.deactivate("tau.workspace");
+    }
+  });
+
+  it("checks every registered workspace read command before it can read an outside path", async () => {
+    const root = await workspace();
+    const project = join(root, "project");
+    const outside = join(root, "outside.txt");
+    await mkdir(project);
+    await writeFile(outside, "outside");
+    const registry = await activated(project, { knownWorkspacePath: async () => project });
+    const phone = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+    try {
+      const reads = registry.summaries().find((entry) => entry.id === "tau.workspace")!.readCommands!;
+      for (const command of reads) {
+        await expect(registry.invoke("tau.workspace", command, { workspace: "ws-project", path: outside }, phone), command).rejects.toMatchObject({ code: "forbidden" });
+      }
+      await mkdir(join(project, "visible-folder"));
+      for (const path of [undefined, "", "   "]) {
+        await expect(registry.invoke("tau.workspace", "list-directories", { path }, phone)).resolves.toMatchObject({ path: project, directories: [{ name: "visible-folder" }] });
+      }
+      await writeFile(join(project, "visible.txt"), "visible");
+      await expect(registry.invoke("tau.workspace", "read-linked-file", { workspace: "ws-project", path: "visible.txt" }, phone)).resolves.toMatchObject({ text: "visible" });
+    } finally {
+      await registry.deactivate("tau.workspace");
+    }
+  });
+
   it.each(["pi", "claude-code", "machine"])("restores the recorded worktree before a %s turn only when the thread runs locally", async (backendKind) => {
     const root = await workspace();
     const repo = join(root, "repo");

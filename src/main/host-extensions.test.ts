@@ -73,6 +73,37 @@ function registry() {
 }
 
 describe("HostExtensionRegistry", () => {
+  it("keeps the checked cwd when a device delegates from a write command into a read", async () => {
+    const { registry: r, services: s } = registry();
+    let current = "/project";
+    s.cwd = () => { const checked = current; current = "/changed"; return checked; };
+    await r.activate({ id: "test.receiver", name: "Receiver", activate(ctx) {
+      ctx.registerCommand("read", () => ctx.services.cwd(), { access: "read", callers: ["test.sender"] });
+    } });
+    await r.activate({ id: "test.sender", name: "Sender", activate(ctx) {
+      ctx.registerCommand("delegate", () => ctx.invokeHostExtension("test.receiver", "read"));
+    } });
+    await expect(r.invoke("test.sender", "delegate", undefined, { kind: "workbench-client", connection: "phone", pairedClient: "device" })).resolves.toBe("/project");
+  });
+
+  it("retains a device's path restrictions across a host extension delegation", async () => {
+    const { registry: r } = registry();
+    const read = vi.fn(() => "contents");
+    await r.activate({ id: "test.receiver", name: "Receiver", activate(ctx) {
+      ctx.registerCommand("read", read, { access: "read", callers: ["test.sender"] });
+    } });
+    await r.activate({ id: "test.sender", name: "Sender", activate(ctx) {
+      ctx.registerCommand("delegate", () => ctx.invokeHostExtension("test.receiver", "read", { path: "/outside/secret" }), { access: "read" });
+    } });
+    const phone = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+    await expect(r.invoke("test.sender", "delegate", undefined, phone)).rejects.toMatchObject({ code: "forbidden" });
+    expect(read).not.toHaveBeenCalled();
+    await expect(r.invoke("test.sender", "delegate", undefined, WORKBENCH_CLIENT_PRINCIPAL)).resolves.toBe("contents");
+    expect(read).toHaveBeenCalledOnce();
+    expect(r.isActive("test.sender")).toBe(true);
+    expect(r.isActive("test.receiver")).toBe(true);
+  });
+
   it("routes commands by extension id and command name", async () => {
     const { registry: r } = registry();
     const extension: HostExtension = {
