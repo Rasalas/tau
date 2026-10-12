@@ -47,11 +47,14 @@ export function optimisticThreadSnapshot(snapshot: HostSnapshot, target: UiSessi
     ...snapshot,
     sessionName: undefined,
     sessionTitle: target.title,
+    cwd: target.projectPath,
+    workspaceId: target.workspaceId,
+    displayPath: target.projectDisplayPath,
     projectLabel: target.projectLabel,
     supportsImageInput: false,
-    ...(detail.backendKind ? { backendKind: detail.backendKind } : {}),
-    ...(detail.threadId ? { threadId: detail.threadId } : {}),
-    ...(detail.providerSessionId ? { providerSessionId: detail.providerSessionId } : {}),
+    backendKind: detail.backendKind ?? target.backendKind ?? "pi",
+    threadId: detail.threadId ?? target.id,
+    providerSessionId: detail.providerSessionId,
   }, { ...detail, isStreaming: false });
 }
 

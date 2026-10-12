@@ -34,6 +34,7 @@ import {
   formatBlock,
   type ContinueOnInput,
   type ContinueOnResult,
+  type MoveOnResult,
   type ContinueTarget,
   type HandoffStrategy,
   type PrepareMergeBackResult,
@@ -62,7 +63,7 @@ export interface RemoteContinuationsOptions {
   get(threadId: string): RemoteRecord | undefined;
   set(threadId: string, record: RemoteRecord | undefined): void;
   /** The thread, open and not in a turn. */
-  openThread(threadId: string): HostThread;
+  openThread(threadId: string, allowRunning?: boolean): HostThread;
   now(): number;
 }
 
@@ -107,6 +108,7 @@ function plural(count: number, one: string): string {
 export class RemoteContinuations {
   private readonly readiness = new Map<string, { at: number; runtimes?: TargetRuntime[]; error?: string }>();
   private readonly asking = new Map<string, Promise<void>>();
+  private readonly transferring = new Set<string>();
   private stop?: () => void;
 
   constructor(private readonly options: RemoteContinuationsOptions) {}
@@ -206,14 +208,59 @@ export class RemoteContinuations {
   }
 
   async continueOn(input: ContinueOnInput): Promise<ContinueOnResult> {
-    const thread = this.options.openThread(input.threadId);
+    return this.transfer(input.threadId, () => this.startContinuation(input, false));
+  }
+
+  private async transfer<T>(threadId: string, work: () => Promise<T>): Promise<T> {
+    if (this.transferring.has(threadId)) throw new HostCommandError("This thread is already being transferred.");
+    this.transferring.add(threadId);
+    try { return await work(); } finally { this.transferring.delete(threadId); }
+  }
+
+  /** Stops the source, waits for the destination, then hides the preserved source copy. */
+  async moveOn(input: ContinueOnInput): Promise<MoveOnResult> {
+    return this.transfer(input.threadId, () => this.finishMove(input));
+  }
+
+  private async finishMove(input: ContinueOnInput): Promise<MoveOnResult> {
+    const result = await this.startContinuation(input, true);
+    try {
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        const link = await this.link(result.link);
+        if (!link) throw new HostCommandError("The transfer could not be read. The source thread stays available here.");
+        if (link.status === "failed" || link.status === "gone" || link.status === "settled") {
+          throw new HostCommandError(link.error ?? `The thread did not start on ${result.machineName}.`);
+        }
+        if (link.thread && ["running", "waiting", "idle"].includes(link.status)) {
+          await this.options.context.invokeHostExtension("tau.thread-rail", "archive", { threadId: input.threadId });
+          return { ...result, thread: link.thread };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      throw new HostCommandError(`The transfer to ${result.machineName} took too long. The source thread stays available here.`);
+    } catch (error) {
+      // A failed move must not leave an unattended second turn running there.
+      try {
+        const stopped = await this.remoteWork<RemoteThreadLink>("thread-abort", { link: result.link });
+        if (stopped?.thread) await this.machines().call(result.machine, "tau.thread-rail", "archive", { threadId: stopped.thread });
+      } catch (stopError) {
+        this.services.log("handoff.move-stop-failed", errorText(stopError));
+        throw new HostCommandError(`${errorText(error)} The destination on ${result.machineName} could not be stopped or archived: ${errorText(stopError)}`);
+      }
+      throw error;
+    }
+  }
+
+  private async startContinuation(input: ContinueOnInput, move: boolean): Promise<ContinueOnResult> {
+    const thread = this.options.openThread(input.threadId, move);
     const machine = this.machine(input.machine);
     const before = this.options.get(thread.sessionId);
     if (before) {
       const link = await this.link(before.link);
       if (link && !OVER.includes(link.status)) throw new HostCommandError(`This thread continues on ${before.machineName} already; bring it back or let it go first.`);
     }
-    const messages = await thread.transcript();
+    let messages = await thread.transcript();
     if (!messages.some((message) => message.role === "assistant" && message.text.trim())) {
       throw new HostCommandError("There is nothing to hand over yet: the thread has no answer.");
     }
@@ -221,6 +268,12 @@ export class RemoteContinuations {
     const prompt = input.prompt?.trim();
     if (!native && !prompt) throw new HostCommandError(`Write what ${machine.name} should do next in the composer first; the thread starts there with it.`);
     await this.assertReady(machine, thread.backendKind);
+    if (move && thread.isStreaming()) {
+      if (!this.services.sessions.abort) throw new HostCommandError("This host cannot stop a thread for transfer. Stop its turn first.");
+      await this.services.sessions.abort(thread.sessionId);
+      if (thread.isStreaming()) throw new HostCommandError("The source thread is still working. Try the transfer after it stops.");
+      messages = await thread.transcript();
+    }
 
     const title = titleOf(thread.sessionName(), messages);
     const here = this.machines().self.name;

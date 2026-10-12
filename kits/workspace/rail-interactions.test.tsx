@@ -66,7 +66,7 @@ async function renderRail(sessions: UiSession[], overrides: Partial<ThreadRailOr
     switchSession,
   });
   const view = renderApp(client, { extensions: [workspaceExtension, organizing] });
-  await screen.findByText(`Thread ${sessions.at(-1)!.id}`);
+  await within(await screen.findByRole("navigation", { name: "Threads" })).findByText(`Thread ${sessions.at(-1)!.id}`);
   const row = (id: string) => document.querySelector<HTMLElement>(`[data-rail-thread="${id}"]`)!;
   const main = (id: string) => row(id).querySelector<HTMLButtonElement>(".thread-main")!;
   return { organizer, workspace: workspace!, view, row, main, switchSession };
@@ -169,7 +169,7 @@ describe("the rest of the rail", () => {
   it("shows only the filtered project's threads and says which one it is", async () => {
     const { workspace } = await renderRail([shell("a", 0), shell("b", 1, { projectPath: "/other", projectName: "other" })]);
     act(() => workspace.setRailProjectFilter("other"));
-    expect(screen.queryByText("Thread a")).toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "Threads" })).queryByText("Thread a")).toBeNull();
     expect(screen.getByText("Thread b")).toBeTruthy();
     // The filter heads the rail beside search and "+", and names what the list shows.
     const filter = screen.getByRole("button", { name: "Filter threads by project: other" });
@@ -181,11 +181,11 @@ describe("the rest of the rail", () => {
     fireEvent.click(filter);
     const list = await screen.findByRole("dialog", { name: "Filter by project" });
     fireEvent.click(within(list).getByText("All projects"));
-    expect(screen.getByText("Thread a")).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: "Threads" })).getByText("Thread a")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Filter threads by project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Filter by project" })).getByText("other"));
     expect(workspace.getSnapshot().railProjectFilter).toBe("other");
-    expect(screen.queryByText("Thread a")).toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "Threads" })).queryByText("Thread a")).toBeNull();
   });
 
   it("hides the sidebar from its head and shows it again from the title bar", async () => {

@@ -766,6 +766,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return () => this.update({ [key]: this.state[key]?.filter((entry) => entry !== section) });
   }
 
+  registerWorkspaceMachine(control: ComponentType<RegionProps>): () => void {
+    this.update({ workspaceMachine: control });
+    return () => { if (this.state.workspaceMachine === control) this.update({ workspaceMachine: undefined }); };
+  }
+
   registerReviewView(): () => void {
     this.reviewViews += 1;
     let registered = true;
@@ -894,4 +899,3 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return this.actions.openWorkspace(path);
   }
 }
-

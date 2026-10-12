@@ -32,6 +32,7 @@ import {
   TARGETS_EVENT,
   splitBlock,
   type ContinueOnResult,
+  type MoveOnResult,
   type ContinueTarget,
   type CreateTransferResult,
   type PrepareMergeBackResult,
@@ -42,6 +43,7 @@ import { REMOTE_WORK_EXTENSION_ID, THREAD_LINK_EVENT, type RemoteThreadLink } fr
 import type { ThreadDropTarget, WorkspaceStoreApi } from "../workspace/protocol.js";
 import { registerSideQuestions } from "./btw-view.js";
 import { HandoffStore, parseSaved } from "./store.js";
+import { createMachineControl } from "./machine-control.js";
 
 const PROFILES = ["desktop", "web", "compact"] as const;
 
@@ -159,9 +161,9 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
       const refreshTargets = () => { void host.invoke("continue-targets", { refresh: true }).then((targets) => store.setTargets(targets), () => undefined); };
 
       /** Connected agents open the thread here; the desktop keeps the legacy machine navigation otherwise. */
-      const openThere = async (remote: Pick<RemoteContinuation, "link" | "machine" | "machineName">, actions: WorkbenchActions): Promise<void> => {
+      const openThere = async (remote: Pick<RemoteContinuation, "link" | "machine" | "machineName"> & { thread?: string }, actions: WorkbenchActions): Promise<void> => {
         try {
-          const thread = store.getSnapshot().remoteLinks[remote.link]?.thread;
+          const thread = remote.thread ?? store.getSnapshot().remoteLinks[remote.link]?.thread;
           const catalog = await agentsCatalog.invoke("agents").catch(() => undefined) as { machines?: Array<{ id: string; status: string }> } | undefined;
           if (catalog?.machines?.some((entry) => entry.id === remote.machine && entry.status === "connected")) {
             if (!thread) { actions.notify("The thread has not started yet."); return; }
@@ -180,6 +182,24 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           actions.notify(errorMessage(error));
         }
       };
+
+      const WorkspaceMachine = createMachineControl(host, async (threadId, target, prompt, { actions }) => {
+        if (actions.activeThread()?.sessionId !== threadId) return;
+        const draft = actions.composerDraft();
+        const toast = actions.toast?.({ type: "loading", title: `Moving to ${target.name}`, description: "Stopping the current turn and transferring the workspace…", timeoutMs: 0 });
+        try {
+          const result = await host.invoke("move-on", { threadId, machine: target.id, prompt }) as MoveOnResult;
+          if (actions.activeThread()?.sessionId === threadId) {
+            if (actions.composerDraft() === draft) actions.setComposerDraft?.("");
+            await openThere(result, actions);
+          }
+          toast?.update({ type: "success", title: `Moved to ${result.machineName}`, description: "The saved source copy is in Archived.", timeoutMs: 6_000, actions: [{ label: `Open on ${result.machineName}`, run: () => void openThere(result, actions) }] });
+        } catch (error) {
+          toast?.dismiss();
+          actions.notify(errorMessage(error));
+        }
+      });
+      context.useService<Pick<WorkspaceStoreApi, "registerWorkspaceMachine">>(WORKSPACE_STORE_SERVICE, (workspace) => workspace.registerWorkspaceMachine?.(WorkspaceMachine));
 
       // Out of sight: the window stays on this thread, and a toast says where it went.
       // `threadId` is a thread dragged onto the machine; only the one on screen takes the draft along.

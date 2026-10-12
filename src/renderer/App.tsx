@@ -139,6 +139,11 @@ export default function App() {
   const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
   const hostSnapshot = useSyncExternalStore(viewStore.subscribeToSnapshot, viewStore.getSnapshot);
+  const shownThreadId = hostSnapshot?.sessionId ?? "";
+  const savedMessages = useSyncExternalStore(
+    useCallback((listener: () => void) => threadStore.subscribeToThread(shownThreadId, listener), [shownThreadId, threadStore]),
+    useCallback(() => (threadStore.getThread(shownThreadId)?.messageCount ?? 0) > 0, [shownThreadId, threadStore]),
+  );
   // Tool runs render in the transcript, which subscribes itself; here only
   // whether there are any, which a stream of output never changes.
   const turnHasActivity = useSyncExternalStore(viewStore.subscribeToTools, () => hasActivityTools(viewStore));
@@ -617,7 +622,7 @@ export default function App() {
     registry.getComposerInlines().some((inline) => inline.takeFiles !== undefined),
   );
   const conversationPrompts = useMemo(() => pendingNewThread ? [] : threadPrompts, [pendingNewThread, threadPrompts]);
-  const showStartScreen = conversation.isEmpty && !conversationSnapshot?.isStreaming && (Boolean(pendingNewThread) || !turnHasActivity) && conversationPrompts.length === 0;
+  const showStartScreen = conversation.isEmpty && !conversationSnapshot?.isStreaming && (Boolean(pendingNewThread) || !savedMessages) && (Boolean(pendingNewThread) || !turnHasActivity) && conversationPrompts.length === 0;
   const startProjectPath = conversationSnapshot?.cwd ?? "";
   const startProjectName = pendingNewThread?.projectName ?? projects.find((project) => project.path === startProjectPath)?.name ?? startProjectPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? startProjectPath;
   const layout = useMemo<WorkbenchLayout>(() => ({

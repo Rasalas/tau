@@ -19,7 +19,7 @@ import type {
 import type { UiSession } from "tau";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { MACHINE_STATE_TOPIC, MACHINE_META_EVENT, MACHINE_TRASH_EVENT } from "./machine-state.js";
-import { DAY_MS } from "./meta.js";
+import { DAY_MS, railSections } from "./meta.js";
 import { createThreadRailHostExtension } from "./host.js";
 import { META_EVENT, REVIEW_EXTENSION_ID, THREAD_RAIL_EXTENSION_ID, TRASH_EVENT, type RailState } from "./protocol.js";
 
@@ -663,7 +663,7 @@ describe("Thread Rail machine ownership", () => {
     const { invoke, registry } = await harness({ machines: machines.services });
     await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]).toEqual({ pinned: true }));
     machines.update([{ ...rex, status: "offline" }]);
-    expect((await invoke("state")).threads).toEqual({});
+    expect((await invoke("state")).threads).toEqual({ "rex~t1": { pinned: true } });
     expect(machines.watched.size).toBe(1);
     machines.update([rex]);
     await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]).toEqual({ pinned: true }));
@@ -703,6 +703,58 @@ describe("Thread Rail machine ownership", () => {
 
 
 describe("Thread Rail machine cache races", () => {
+  it("keeps remote settled metadata when this host restarts while the peer is offline", async () => {
+    const machines = machineServices([rex]);
+    machines.call.mockImplementation(async (_machine, _extension, command) => command === "trash" ? [] : { threads: { t1: { settledAt: NOW, settledBy: "user" } } });
+    const first = await harness({ machines: machines.services, sessions: [proxy("rex~t1")] });
+    await vi.waitFor(async () => expect((await first.invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW));
+    await first.registry.dispose();
+    machines.update([{ ...rex, status: "offline" }]);
+    const restarted = await harness({ stateDir: first.stateDir, machines: machines.services, sessions: [proxy("rex~t1")] });
+    expect((await restarted.invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW);
+  });
+  it("accepts a slow home-state read while more thread-index notifications arrive", async () => {
+    const machines = machineServices([rex]);
+    const answers: Array<(value: unknown) => void> = [];
+    machines.call.mockImplementation(async (_machine, _extension, command) => command === "trash" ? [] : new Promise((resolve) => answers.push(resolve)));
+    const { invoke } = await harness({ machines: machines.services });
+    machines.index("rex");
+    machines.index("rex");
+    expect(answers).toHaveLength(1);
+    answers[0]!({ threads: { t1: { settledAt: NOW } } });
+    await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW));
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    answers[1]!({ threads: { t1: { settledAt: NOW + 1 } } });
+    await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW + 1));
+  });
+
+  it("waits for the refreshed home state after a write made during an earlier read", async () => {
+    const machines = machineServices([rex]);
+    const answers: Array<(value: unknown) => void> = [];
+    machines.call.mockImplementation(async (_machine, _extension, command) => command === "state" ? new Promise((resolve) => answers.push(resolve)) : command === "trash" ? [] : undefined);
+    const { invoke } = await harness({ machines: machines.services });
+    let finished = false;
+    const writing = invoke("patch", { patches: { "rex~t1": { settledAt: NOW } } }).then((state) => { finished = true; return state; });
+    await vi.waitFor(() => expect(machines.call.mock.calls.some((call) => call[2] === "patch")).toBe(true));
+    answers[0]!({ threads: {} });
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    expect(finished).toBe(false);
+    answers[1]!({ threads: { t1: { settledAt: NOW } } });
+    expect((await writing).threads["rex~t1"]?.settledAt).toBe(NOW);
+  });
+
+  it("keeps a settled remote thread on the shelf while its machine disconnects", async () => {
+    const machines = machineServices([rex]);
+    machines.call.mockImplementation(async (_machine, _extension, command) => command === "trash" ? [] : { threads: { t1: { settledAt: NOW, settledBy: "user" } } });
+    const { invoke } = await harness({ machines: machines.services, sessions: [proxy("rex~t1")] });
+    await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW));
+    machines.update([{ ...rex, status: "offline" }]);
+    const row: UiSession = { id: "rex~t1", path: "tau-thread:machine:rex~t1", title: "Settled on Rex", modifiedAt: NOW, projectPath: "/rex/project", projectName: "project", messageCount: 1, backendKind: "machine", machine: { id: "rex", name: "Rex" } };
+    const sections = railSections([row], await invoke("state"), NOW);
+    expect(sections.active).toEqual([]);
+    expect(sections.settled).toEqual([row]);
+  });
+
   it("keeps a live meta push newer than a pending read while still accepting the trash read", async () => {
     const machines = machineServices([rex]);
     let answerState!: (state: unknown) => void;

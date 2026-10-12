@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DesktopExtension, UiSession } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -55,7 +55,7 @@ async function renderRail() {
   await screen.findByText("Second thread");
 }
 
-const rowButton = (title: string) => screen.getByText(title).closest("[data-rail-thread]")!.querySelector<HTMLElement>(".thread-main")!;
+const rowButton = (title: string) => within(screen.getByRole("navigation", { name: "Threads" })).getByText(title).closest("[data-rail-thread]")!.querySelector<HTMLElement>(".thread-main")!;
 
 describe("a rail row's hover card", () => {
   it("replaces the row's text tooltip", async () => {

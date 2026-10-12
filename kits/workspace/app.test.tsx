@@ -159,7 +159,7 @@ describe("Workspace Kit in the workbench", () => {
     const badge = row.querySelector(".thread-status-age.status-failed");
     expect(badge?.textContent).toBe("Failed");
     expect(badge?.getAttribute("data-tooltip")).toBe("stream disconnected");
-    expect(screen.getByText("Thread fine").closest(".thread-row")?.querySelector(".status-failed")).toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "Threads" })).getByText("Thread fine").closest(".thread-row")?.querySelector(".status-failed")).toBeNull();
     // A provider limit is its own state, and the badge says when the thread goes on.
     const limited = screen.getByText("Thread limited").closest(".thread-row")?.querySelector(".thread-status-age.status-limited");
     expect(limited?.textContent).toBe("Rate limited");
@@ -238,7 +238,7 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     // Folded, the shelf still draws the thread on screen.
-    expect(screen.getByText("Settled thread 0")).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: "Threads" })).getByText("Settled thread 0")).toBeTruthy();
     expect(screen.queryByText("Settled thread 1")).toBeNull();
     expect(getClientStorage()?.get("tau.workspace.rail-shelves-open.v1")).toBe(JSON.stringify({ settled: false }));
     fireEvent.click(toggle);
@@ -358,7 +358,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    await screen.findByRole("heading", { name: /do next\?$/ });
+    fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
@@ -1813,7 +1813,7 @@ describe("Workspace Kit in the workbench", () => {
     };
     renderApp(client, { extensions: [workspaceExtension, organizing] });
 
-    const branchOf = (title: string) => screen.getByText(title).closest(".thread-row")?.querySelector(".thread-branch")?.textContent ?? null;
+    const branchOf = (title: string) => within(screen.getByRole("navigation", { name: "Threads" })).getByText(title).closest(".thread-row")?.querySelector(".thread-branch")?.textContent ?? null;
     await screen.findByText("on-main");
     await waitFor(() => expect(branchOf("main-on-trunk")).toBe("main"));
     expect(branchOf("on-trunk")).toBe("trunk");

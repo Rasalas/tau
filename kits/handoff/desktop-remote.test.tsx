@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostSnapshot, UiSession, WorkbenchActions } from "tau";
+import type { ComponentType } from "react";
+import type { HostSnapshot, RegionProps, UiSession, WorkbenchActions } from "tau";
 import { createKitHarness, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
 import { REMOTE_WORK_EXTENSION_ID, THREAD_LINK_EVENT, type RemoteThreadLink } from "../remote-work/protocol.js";
 import { createHandoffExtension } from "./desktop.js";
@@ -57,6 +58,10 @@ function setup(answers: Record<string, unknown> = {}) {
   };
   const store = new HandoffStore();
   const { registry } = createKitHarness(invoke, undefined, { environments } as never);
+  let Machine: ComponentType<RegionProps> | undefined;
+  registry.activate({ id: "test.workspace", name: "Workspace", activate(context) {
+    context.provideService("tau.workspace/store", { registerWorkspaceMachine(control: ComponentType<RegionProps>) { Machine = control; return () => { Machine = undefined; }; } });
+  } });
   registry.activate(createHandoffExtension(store));
   const threads = new ThreadStore();
   threads.applyThreadIndex({ projects: [], sessions: [session("parent", "Parser work", "/sessions/parent.jsonl")] });
@@ -68,13 +73,59 @@ function setup(answers: Record<string, unknown> = {}) {
       <banner.Component snapshot={snapshot("parent", backendKind)} actions={actions} />
     </ThreadStoreContext.Provider>
   );
+  const drawWorkspace = (actions: WorkbenchActions) => <ThreadStoreContext.Provider value={threads}>{Machine ? <Machine snapshot={snapshot("parent")} actions={actions} /> : null}</ThreadStoreContext.Provider>;
   const push = (extensionId: string, name: string, payload: unknown) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId, name, payload }));
   const command = (id: string) => registry.getCommands().find((entry) => entry.id === id)!;
   const calls = (name: string) => invoke.mock.calls.filter(([, called]) => called === name).map(([, , input]) => input);
-  return { invoke, store, registry, draw, push, command, calls, environments };
+  return { invoke, store, registry, draw, drawWorkspace, push, command, calls, environments };
 }
 
 const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+describe("the workspace device control", () => {
+  it("asks before moving an existing thread and leaves it alone on Cancel", async () => {
+    const { drawWorkspace, calls } = setup();
+    const actions = actionsFor();
+    render(drawWorkspace(actions));
+    fireEvent.click(screen.getByRole("button", { name: /Change device/u }));
+    await screen.findByRole("menuitem", { name: /rex/u });
+    fireEvent.click(screen.getByRole("menuitem", { name: /rex/u }));
+    expect(screen.getByRole("dialog", { name: "Move thread to rex?" })).toBeTruthy();
+    expect(calls("move-on")).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(calls("move-on")).toEqual([]);
+  });
+
+  it("moves once on confirmation, then opens the destination in the same window", async () => {
+    const { drawWorkspace, calls } = setup({ "move-on": { link: "l1", machine: "rex-id", machineName: "rex", native: true, thread: "rex-thread" }, agents: { machines: [{ id: "rex-id", status: "connected" }] } });
+    const actions = actionsFor({ draft: "Finish the parser." });
+    render(drawWorkspace(actions));
+    fireEvent.click(screen.getByRole("button", { name: /Change device/u }));
+    await screen.findByRole("menuitem", { name: /rex/u });
+    fireEvent.click(screen.getByRole("menuitem", { name: /rex/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Move to rex" }));
+    await vi.waitFor(() => expect(actions.switchSession).toHaveBeenCalledWith("tau-thread:machine:rex-id~rex-thread"));
+    expect(calls("move-on")).toEqual([{ threadId: "parent", machine: "rex-id", prompt: "Finish the parser." }]);
+    expect(calls("continue-on")).toEqual([]);
+    expect(actions.setComposerDraft).toHaveBeenCalledWith("");
+  });
+
+  it("preserves the draft and selection if the move fails", async () => {
+    const { drawWorkspace, invoke } = setup();
+    const previous = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (...args) => { if (args[1] === "move-on") throw new Error("rex is offline"); return previous(...args); });
+    const actions = actionsFor({ draft: "Finish the parser." });
+    render(drawWorkspace(actions));
+    fireEvent.click(screen.getByRole("button", { name: /Change device/u }));
+    await screen.findByRole("menuitem", { name: /rex/u });
+    fireEvent.click(screen.getByRole("menuitem", { name: /rex/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Move to rex" }));
+    await vi.waitFor(() => expect(actions.notify).toHaveBeenCalledWith("rex is offline"));
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    expect(actions.setComposerDraft).not.toHaveBeenCalled();
+  });
+});
 
 describe("dragging a thread onto a machine (design 2f)", () => {
   it("offers the machines, this one dimmed, and continues the dragged thread on the one it is let go on", async () => {

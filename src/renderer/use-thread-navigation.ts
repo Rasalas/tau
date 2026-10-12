@@ -206,9 +206,12 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     const startedAt = performance.now();
     const previous = view.getSnapshot();
     const cached = target ? history.getDetail(target.id) : undefined;
-    if (cached && previous && target) {
-      applySnapshot(optimisticThreadSnapshot(previous, target, cached));
-      view.addEvent("thread.switch.cached", target?.title);
+    if (previous && target) {
+      // Selecting a row must not wait for either request to the host. An
+      // uncached thread starts with an empty page until its transcript arrives.
+      const detail = cached ?? threadDetailFromPage({ sessionId: target.id, messages: [], hasMore: false }, target);
+      applySnapshot(optimisticThreadSnapshot(previous, target, detail));
+      view.addEvent(cached ? "thread.switch.cached" : "thread.switch.selected", target.title);
     }
     let transition: TransitionToken = history.beginThreadSwitch(target?.id);
     // Before the switch is asked for, so the host streams the target from its snapshot on.
@@ -240,7 +243,11 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     } catch (error) {
       confirmed = true;
       if (!history.isCurrentThreadTransition(transition)) return false;
-      if (previous) applySnapshot(previous);
+      // A failed host request must not undo the user's selection. Settle the
+      // selected page so watched updates can recover it after the timeout.
+      const selected = view.getSnapshot();
+      if (target && selected?.sessionId === target.id) applySnapshot(selected);
+      else if (previous) applySnapshot(previous);
       notify(errorMessage(error));
       return false;
     } finally {

@@ -142,6 +142,12 @@ describe("session index reconciliation", () => {
     expect(updates[2]).toMatchObject({ update: { sessionId: "deleted", removed: true } });
   });
 
+  it("adds the home device and workspace when an opened proxy was published before its index row", () => {
+    const listed = { ...shell("rex~new", 1), backendKind: "machine", machine: { id: "rex", name: "rex", backendKind: "pi" }, workspaceId: "remote-worktree", projectDisplayPath: "/remote/worktree", projectName: "Remote project" };
+    const live = { ...shell("rex~new", 20), backendKind: "machine", title: "Fresh activity", messageCount: 3, projectName: "repos" };
+    expect(mergeSessionIndexScan([listed], [live], 10, new Set([live.id]))[0]).toMatchObject({ title: "Fresh activity", messageCount: 3, modifiedAt: 20, machine: listed.machine, workspaceId: listed.workspaceId, projectDisplayPath: listed.projectDisplayPath, projectName: "Remote project" });
+  });
+
   it("keeps a scanned parent link when a live shell was created before lineage loaded", () => {
     const scanned = { ...shell("child", 90, "saved"), parentThreadId: "parent" };
     const live = shell("child", 110, "live title");

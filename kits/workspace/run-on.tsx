@@ -149,7 +149,7 @@ function useDraftBranch(): { label: string; base?: string } | undefined {
  * The machine beside the project pill under the heading; it says where the
  * thread runs, with one machine too, and opens the machine rows.
  */
-function MachinePill({ source, snapshot, actions }: RegionProps & { source: DraftMachineSource }) {
+function MachinePill({ source, snapshot, actions, iconOnly }: RegionProps & { source: DraftMachineSource; iconOnly?: boolean }) {
   const { state } = useWorkspaceState();
   const machine = source.useMachine({ ...(snapshot ? { snapshot } : {}), actions });
   const anchor = useRef<HTMLButtonElement>(null);
@@ -161,7 +161,7 @@ function MachinePill({ source, snapshot, actions }: RegionProps & { source: Draf
     <button
       ref={anchor}
       type="button"
-      className="draft-pill draft-machine"
+      className={iconOnly ? "workspace-machine-control" : "draft-pill draft-machine"}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-label={`Run on ${machine.name}`}
@@ -169,7 +169,7 @@ function MachinePill({ source, snapshot, actions }: RegionProps & { source: Draf
       {...(machine.tooltip ? tooltipProps(machine.tooltip) : {})}
       onClick={() => setOpen((value) => !value)}
     >
-      {machine.icon}<span>{machine.moving ? "Moving…" : machine.name}</span><ChevronDown size={12} />
+      {machine.icon}{iconOnly ? null : <><span>{machine.moving ? "Moving…" : machine.name}</span><ChevronDown size={12} /></>}
     </button>
     {open ? <Popover anchor={anchor} label="Run on" className="run-on-popover" onClose={() => setOpen(false)}>
       <div className="run-on-heading">Run on</div>
@@ -178,7 +178,7 @@ function MachinePill({ source, snapshot, actions }: RegionProps & { source: Draf
   </>;
 }
 
-export function DraftMachinePill(props: RegionProps) {
+export function DraftMachinePill(props: RegionProps & { iconOnly?: boolean }) {
   const source = useMachineSource();
   // Another source brings other hooks.
   return <MachinePill key={source === hostMachine ? "host" : "machines"} source={source} {...props} />;

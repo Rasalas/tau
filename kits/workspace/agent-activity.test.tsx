@@ -51,7 +51,7 @@ async function setup() {
     }),
   });
   const view = renderApp(client, { extensions: [workspaceExtension, fixture] });
-  await screen.findByText("Thread parent");
+  await within(await screen.findByRole("navigation", { name: "Threads" })).findByText("Thread parent");
   return { ...view, client, setLineage, row: () => document.querySelector('[data-rail-thread="parent"] .thread-row')! };
 }
 

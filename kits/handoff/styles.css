@@ -110,3 +110,15 @@
   .btw-note { display: none; }
   .btw-foot > button { height: 32px; }
 }
+.handoff-move-dialog {
+  width: min(440px, calc(100vw - 40px)); margin: auto; padding: 20px;
+  border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--stage); color: var(--ink);
+}
+.handoff-move-dialog h2 { margin: 0 0 12px; font: 600 var(--text-lg) var(--sans); }
+.handoff-move-dialog p { color: var(--muted); font: var(--text-md)/1.5 var(--sans); }
+.handoff-move-dialog label { display: grid; gap: 6px; font: var(--text-sm) var(--sans); }
+.handoff-move-dialog textarea { width: 100%; min-height: 80px; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); color: var(--ink); font: var(--text-md)/1.4 var(--sans); resize: vertical; }
+.handoff-move-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.handoff-move-dialog footer button { padding: 6px 12px; border: 0; border-radius: var(--radius-sm); background: var(--raised); color: var(--ink); font: 500 var(--text-sm) var(--sans); cursor: pointer; }
+.handoff-move-dialog footer button.primary { background: var(--acid); color: var(--acid-ink); }
+.handoff-move-dialog footer button:disabled { opacity: .5; cursor: default; }

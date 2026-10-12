@@ -666,9 +666,20 @@ export function mergeSessionIndexScan(
     }
     // A runtime can publish its shell before the startup scan reads lineage.
     // Keep its fresh activity without dropping the persisted parent link.
-    return session.parentThreadId && !live.parentThreadId
-      ? { ...live, parentThreadId: session.parentThreadId }
-      : live;
+    return {
+      ...live,
+      ...(session.parentThreadId && !live.parentThreadId ? { parentThreadId: session.parentThreadId } : {}),
+      // A just-opened proxy can publish before its home index arrives. Its
+      // fresh activity must not discard that index's device and workspace.
+      ...(session.machine ? {
+        machine: session.machine,
+        projectPath: session.projectPath,
+        projectName: session.projectName,
+        projectLabel: session.projectLabel,
+        ...(session.workspaceId ? { workspaceId: session.workspaceId, projectDisplayPath: session.projectDisplayPath } : {}),
+        ...(session.projectless !== undefined ? { projectless: session.projectless } : {}),
+      } : {}),
+    };
   });
   const scannedIds = new Set(merged.map((session) => session.id));
   for (const session of newer.values()) {
