@@ -3,6 +3,21 @@ import { DEFAULT_PACKAGE_ISOLATION, type ExtensionIsolation } from "../shared/ex
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { tauHomeDir } from "./app-identity.js";
+import type { ExtensionPackageSummary } from "../shared/contracts.js";
+
+/** Only a native dialog's answer may authorize a new package grant. */
+export async function confirmExtensionGrant(
+  pkg: ExtensionPackageSummary,
+  ask: (prompt: { type: "warning"; title: string; message: string; detail: string; buttons: string[]; defaultId: number; cancelId: number }) => Promise<{ response: number }>,
+): Promise<boolean> {
+  const isolation = pkg.isolation ?? DEFAULT_PACKAGE_ISOLATION;
+  const detail = [pkg.id, pkg.directory, `Permissions: ${(pkg.permissions ?? []).join(", ") || "none"}`, `Isolation: ${isolation}`];
+  if (pkg.desktop) detail.push("The desktop half can use the workbench's host connection.");
+  if (isolation === "in-process") detail.push("This package can do everything the host process can.");
+  if (pkg.permissions?.includes("native")) detail.push("Native code can bypass worker guards and crash the host.");
+  const answer = await ask({ type: "warning", title: "Allow extension", message: `Allow ${pkg.name}?`, detail: detail.join("\n\n"), buttons: ["Cancel", "Allow"], defaultId: 0, cancelId: 0 });
+  return answer.response === 1;
+}
 
 export interface ExtensionGrant {
   id: string;

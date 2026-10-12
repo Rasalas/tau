@@ -25,7 +25,7 @@ you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
    the running Tau to do it. The folder is loaded where it lies.
 3. **Approve it**: the install toast's **Review** opens it in Settings →
    Extensions, where it waits under *Needs attention*; **Allow and turn on**.
-   It starts at once; no `/reload`.
+   Confirm the native dialog on the host machine. It starts at once; no `/reload`.
 4. **Edit and save.** The package reloads by itself, host half included, and
    a toast says *Reloaded &lt;name&gt;* ([the development loop](#the-development-loop)).
    A save that does not compile keeps the running version: the toast names the
@@ -112,8 +112,8 @@ A package has up to two halves, sharing one `id`:
   machine with `"owner"`.
 
 Either entry may be omitted, but not both. `id` is lowercase, dot-separated
-(`vendor.name`), and must be the same string both halves export — the
-manifest's `id` wins if a module disagrees.
+(`vendor.name`), and must be the same string both halves export. The desktop
+loader rejects a module whose `id` differs from its manifest.
 
 **The Pi half** of a runtime Tau owns is not a manifest field: it is a Pi
 extension the host half registers itself, in-process, with

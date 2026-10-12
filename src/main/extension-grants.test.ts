@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultGrantsFilePath, grantPackage, isPackageGranted, readExtensionGrants, writeExtensionGrants } from "./extension-grants.js";
+import { confirmExtensionGrant, defaultGrantsFilePath, grantPackage, isPackageGranted, readExtensionGrants, writeExtensionGrants } from "./extension-grants.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -15,6 +15,16 @@ afterEach(async () => {
 });
 
 describe("extension-grants", () => {
+  it("shows privileges in a native prompt that defaults to cancellation", async () => {
+    const pkg = { id: "acme.one", name: "One", directory: "/packages/one", scope: "global" as const, desktop: true, host: true, permissions: ["native"], isolation: "in-process" as const };
+    const prompts: Array<Parameters<Parameters<typeof confirmExtensionGrant>[1]>[0]> = [];
+    expect(await confirmExtensionGrant(pkg, async (prompt) => { prompts.push(prompt); return { response: 0 }; })).toBe(false);
+    expect(prompts[0]).toMatchObject({ defaultId: 0, cancelId: 0, buttons: ["Cancel", "Allow"] });
+    expect(prompts[0]?.detail).toContain("acme.one");
+    expect(prompts[0]?.detail).toContain("Permissions: native");
+    expect(prompts[0]?.detail).toContain("Isolation: in-process");
+    expect(await confirmExtensionGrant(pkg, async () => ({ response: 1 }))).toBe(true);
+  });
   it("lives in ~/.tau unless TAU_EXTENSION_GRANTS_FILE names another file", () => {
     expect(defaultGrantsFilePath("/home/me", {})).toBe(join("/home/me", ".tau", "extension-grants.json"));
     expect(defaultGrantsFilePath("/home/me", { TAU_EXTENSION_GRANTS_FILE: "/dev/tau/grants.json" })).toBe("/dev/tau/grants.json");

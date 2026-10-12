@@ -1020,7 +1020,9 @@ export interface DesktopExtensionBundle {
   projectPath?: string;
   /** Manifest id of the package, or a slug of the entry file for a loose extension. */
   id: string;
-  /** Self-contained ES module; shared libraries come from `globalThis.__tauShared`. */
+  /** Present for packages; their module must export this identity. Loose files may name themselves. */
+  manifestId?: string;
+  /** Self-contained ES module; empty for ungranted metadata. Shared libraries come from `globalThis.__tauShared`. */
   code: string;
   /** `tau-ext://bundles/<id>/<hash>.js` once the host serves it; absent in the browser preview. */
   url?: string;

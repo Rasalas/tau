@@ -10,6 +10,8 @@ import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
 import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
+import { confirmExtensionGrant } from "./extension-grants.js";
+import { connectNativeExtensionGrants } from "./native-extension-grants.js";
 import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } from "./extension-bundle-server.js";
 import { SharedFileStore } from "./shared-files.js";
 import { rebuildWorkbench } from "./workbench-build.js";
@@ -605,6 +607,8 @@ async function startHostProcess(): Promise<void> {
 /** The kits' window halves: compiled here, called by the host over the protocol. */
 async function loadWindowHalves(): Promise<void> {
   if (!windowHost) return;
+  const stopGrants = connectNativeExtensionGrants(app.getPath("userData"), (pkg) => confirmExtensionGrant(pkg, (prompt) => dialog.showMessageBox({ ...prompt, noLink: true })));
+  app.once("will-quit", stopGrants);
   // Core's own half answers even in safe mode: a host with no window has no folder picker.
   windowHost.extensions.register(WINDOW_SERVICES_ID, () => ({
     handle: (command, input) => {
@@ -709,6 +713,7 @@ function createLocalHostMethods(): HostMethodTable {
     host: () => host,
     jobs,
     platform: {
+      confirmExtensionGrant: (pkg) => confirmExtensionGrant(pkg, (prompt) => dialog.showMessageBox({ ...prompt, noLink: true })),
       copyText: (text) => clipboard.writeText(text),
       copyImage: copyImageToClipboard,
       readImagePreview: rendererImagePreview,
@@ -753,19 +758,7 @@ function createLocalHostMethods(): HostMethodTable {
 
 /** Turns the code the host compiled into the `tau-ext:` URLs the renderer imports. */
 function serveBundles(result: WorkbenchDesktopExtensions, only?: readonly string[]): WorkbenchDesktopExtensions {
-  // Each sync replaces the served set, so an edited extension never keeps its
-  // old URL alive. A narrowed sync drops only what it rebuilds: the modules the
-  // client keeps still have to be reachable.
-  if (only) for (const id of only) desktopBundles.remove(id);
-  else desktopBundles.clear();
-  return {
-    ...result,
-    bundles: result.bundles.map((bundle) => ({
-      ...bundle,
-      url: desktopBundles.publish(bundle.id, bundle.code),
-      ...(bundle.styles ? { stylesUrl: desktopBundles.publishStyles(bundle.id, bundle.styles) } : {}),
-    })),
-  };
+  return desktopBundles.serve(result, only);
 }
 
 /** What this machine answers for itself while the host answers for the threads. */

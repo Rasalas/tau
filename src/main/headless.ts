@@ -19,6 +19,7 @@ import { HostJobRunner, NO_JOB_CONTEXT } from "./host-jobs.js";
 import { HostPushLog } from "./host-push-log.js";
 import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { createHostMethods, type HostMethodTable } from "./host-methods.js";
+import { serveNativeExtensionGrants } from "./native-extension-grants.js";
 import { MachineKitRoute } from "./machine-kit-route.js";
 import { HostTokenFile, hostTokenPath } from "./host-token.js";
 import { HostAccess } from "./host-access.js";
@@ -214,6 +215,7 @@ async function main(): Promise<void> {
   useHostSystemCertificates();
   const previous = serviceKind ? await retirePrevious() : undefined;
   const folderLock = await claimOrLeave();
+  const nativeGrants = await serveNativeExtensionGrants(userData);
   exposePiSessionLockExtension();
   await installShellEnvironment().catch((error: unknown) => hostLog.warn("shell-environment.failed", error));
   const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
@@ -406,6 +408,7 @@ async function main(): Promise<void> {
     ...started.methodDeps(),
     jobs,
     platform: {
+      confirmExtensionGrant: (pkg) => nativeGrants.confirm(pkg),
       // A headless host has no clipboard, no window and no build of its own.
       copyText: unsupported("Copying text"),
       copyImage: unsupported("Copying an image"),
@@ -443,6 +446,7 @@ async function main(): Promise<void> {
       // A host on its way out starts no window on the display.
       clientCalls.setWindowLauncher(undefined);
       clientCalls.dispose();
+      nativeGrants.close();
       machines.close();
       blobs.close();
       browserResources.close();
