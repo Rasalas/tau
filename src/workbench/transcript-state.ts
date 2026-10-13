@@ -15,6 +15,8 @@ export interface TranscriptState {
   readonly userRevision: number;
   /** Increments only when the user-message lookup can become stale. */
   readonly lookupRevision: number;
+  /** Changes only when activity anchors or answer timestamps can move. */
+  readonly activityRevision: number;
 }
 
 export const EMPTY_TRANSCRIPT: TranscriptState = {
@@ -23,6 +25,7 @@ export const EMPTY_TRANSCRIPT: TranscriptState = {
   revision: 0,
   userRevision: 0,
   lookupRevision: 0,
+  activityRevision: 0,
 };
 
 /** Keep this deliberately aligned with the context-meter heuristic in App. */
@@ -64,6 +67,7 @@ export function replaceTranscript(previous: TranscriptState, messages: readonly 
     revision: previous.revision + 1,
     userRevision: previous.userRevision + 1,
     lookupRevision: previous.lookupRevision + 1,
+    activityRevision: previous.activityRevision + 1,
   };
 }
 
@@ -76,6 +80,7 @@ export function appendMessage(previous: TranscriptState, message: UiMessage): Tr
     revision: previous.revision + 1,
     userRevision: previous.userRevision + (message.role === "user" ? 1 : 0),
     lookupRevision: previous.lookupRevision + 1,
+    activityRevision: previous.activityRevision + 1,
   };
 }
 
@@ -90,6 +95,9 @@ function replaceMessageAt(previous: TranscriptState, index: number, next: UiMess
     revision: previous.revision + 1,
     userRevision: previous.userRevision + (current.role === "user" || next.role === "user" ? 1 : 0),
     lookupRevision: previous.lookupRevision + (lookupFieldsChanged(current, next) ? 1 : 0),
+    activityRevision: previous.activityRevision + (current.id !== next.id || current.role !== next.role
+      || current.timestamp !== next.timestamp || current.sourceEntryId !== next.sourceEntryId
+      || Boolean(current.text.trim()) !== Boolean(next.text.trim()) ? 1 : 0),
   };
 }
 
@@ -117,6 +125,7 @@ export function removeMessage(previous: TranscriptState, id: string): Transcript
     revision: previous.revision + 1,
     userRevision: previous.userRevision + (removed.role === "user" ? 1 : 0),
     lookupRevision: previous.lookupRevision + 1,
+    activityRevision: previous.activityRevision + 1,
   };
 }
 

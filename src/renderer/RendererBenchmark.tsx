@@ -10,6 +10,7 @@ import type { TranscriptActivity } from "./components/transcript-activity";
 import { VirtualTranscript } from "./components/VirtualTranscript";
 import { VirtualList } from "./components/VirtualList";
 import { ExtensionRegistry } from "./extension-system";
+import ActivityStreamScenario from "./RendererBenchmarkActivityStream";
 import AppToolStreamScenario from "./RendererBenchmarkApp";
 import ComposerTypingScenario from "./RendererBenchmarkComposer";
 import "./renderer-benchmark.css";
@@ -240,7 +241,7 @@ function makeLongUserMessage(bytes: number, revision: number): UiMessage {
 export default function RendererBenchmark() {
   const params = new URLSearchParams(window.location.search);
   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
-  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; items?: number; streamEnd?: boolean; updates?: number; linesPerUpdate?: number; chars?: number; chips?: number };
+  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; activities?: number; items?: number; streamEnd?: boolean; updates?: number; linesPerUpdate?: number; chars?: number; chips?: number };
   const targetBytes = scenarioConfig.bytes ?? 0;
   const fenced = scenario.includes("fenced");
   const fencedText = useMemo(() => fenced ? fencedDocument(targetBytes) : "", [fenced, targetBytes]);
@@ -316,6 +317,10 @@ export default function RendererBenchmark() {
   }, []);
   const onAppStreamUpdate = useCallback((duration: number) => { updateDurations.current.push(duration); }, []);
   const onAppStreamFinished = useCallback(() => finishRef.current?.(), []);
+  const onActivityStreamFinished = useCallback((bytes: number) => {
+    payloadBytes.current = bytes;
+    finishRef.current?.();
+  }, []);
 
   useLayoutEffect(() => {
     if (profilerReportedUpdate.current || updateStartedAt.current === undefined) return;
@@ -496,7 +501,7 @@ export default function RendererBenchmark() {
           });
         });
       });
-    } else if (scenario === "app-tool-output-stream" || scenario.startsWith("composer-typing")) {
+    } else if (scenario === "app-tool-output-stream" || scenario === "transcript-activity-stream-2000-turns" || scenario.startsWith("composer-typing")) {
       // The scenario drives itself and calls back; see RendererBenchmarkApp and RendererBenchmarkComposer.
       finishRef.current = finish;
     } else if (scenario === "transcript-viewport-streaming-1000-turns") {
@@ -556,6 +561,15 @@ export default function RendererBenchmark() {
     />;
   } else if (scenario === "transcript-viewport-streaming-1000-turns") {
     content = <StreamingTranscriptScenario activities={transcriptActivities} onTick={onStreamingTick} />;
+  } else if (scenario === "transcript-activity-stream-2000-turns") {
+    content = <ActivityStreamScenario
+      turns={scenarioConfig.turns ?? 2_000}
+      historyEntries={scenarioConfig.activities ?? 1_000}
+      bytes={targetBytes}
+      updates={scenarioConfig.updates ?? 40}
+      onTick={onStreamingTick}
+      onFinished={onActivityStreamFinished}
+    />;
   } else if (scenario === "app-tool-output-stream") {
     content = <AppToolStreamScenario
       updates={scenarioConfig.updates ?? 120}

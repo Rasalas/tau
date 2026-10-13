@@ -90,6 +90,7 @@ const harnessFiles = [
   "scripts/performance-budgets.json",
   "src/renderer/RendererBenchmark.tsx",
   "src/renderer/RendererBenchmarkApp.tsx",
+  "src/renderer/RendererBenchmarkActivityStream.tsx",
 ];
 const harnessFileSha256 = Object.fromEntries(harnessFiles.map((file) => [file, createHash("sha256").update(readFileSync(join(ROOT, file))).digest("hex")]));
 const harnessSourceSha256 = createHash("sha256")
@@ -161,6 +162,9 @@ function sampleScenario(scenario) {
     }
     if (scenario.id === "diff-2mb" && (!Number.isFinite(result.payloadBytes) || result.payloadBytes < scenario.bytes)) {
       throw new Error(`renderer fixture did not render the configured diff payload for ${scenario.id}: ${result.payloadBytes}`);
+    }
+    if (scenario.id === "transcript-activity-stream-2000-turns" && result.payloadBytes !== scenario.bytes) {
+      throw new Error(`renderer fixture did not stream the configured activity payload for ${scenario.id}: ${result.payloadBytes}`);
     }
     if (scenario.id === "long-user-message" && (!result.longMessageInteraction || !["expand", "prop-update"].includes(result.longMessageInteraction.mode) || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
       throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
