@@ -37,9 +37,9 @@
   --editor-brand: currentColor;
   width: 16px; height: 16px; flex: none;
 }
-.menu [role="menuitem"] > svg.menu-editor-icon { color: var(--muted); }
+.menu :is([role="menuitem"], [role="menuitemradio"]) > svg.menu-editor-icon { color: var(--muted); }
 .workspace-editor-button > button:is(:hover, :focus-visible) > .editor-icon,
-.menu [role="menuitem"]:is(:hover, :focus-visible) > svg.menu-editor-icon { color: var(--editor-brand, currentColor); }
+.menu :is([role="menuitem"], [role="menuitemradio"]):is(:hover, :focus-visible) > svg.menu-editor-icon { color: var(--editor-brand, currentColor); }
 .project-actions-control { -webkit-app-region: no-drag; }
 .project-action-editor { width: 320px; padding: 10px; gap: 10px; }
 .project-action-editor-shell { padding: 0; max-width: calc(100vw - 24px); }

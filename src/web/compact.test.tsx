@@ -915,7 +915,7 @@ describe("the compact client on a tablet", () => {
     expect(document.querySelector(".panel-rail")).toBeNull();
     expect(screen.queryByRole("button", { name: "Show stage" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Agents" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Agents" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     // Only what claims the compact client: a desktop-only panel is not there.
     expect(within(stage).queryByRole("button", { name: "Files" })).toBeNull();

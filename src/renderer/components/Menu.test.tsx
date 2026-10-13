@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Menu, type MenuSection } from "./Menu";
 
@@ -163,5 +163,41 @@ describe("Menu", () => {
     render(<div style={{ overflowY: "auto" }}><Harness onSelect={vi.fn()} /></div>);
     fireEvent.click(screen.getByRole("button", { name: "Thread" }));
     expect(screen.getByRole("menu").parentElement?.className).toBe("menu-anchor");
+  });
+});
+
+describe("Menu semantics", () => {
+  const CHOICES: MenuSection[] = [
+    { heading: "Sort", items: [{ id: "recent", label: "Recent", selected: true }, { id: "name", label: "Name", selected: false }] },
+    { items: [{ id: "refresh", label: "Refresh" }, { id: "filter", label: "Filter", selected: true, submenu: [{ items: [{ id: "mine", label: "Mine", selected: false }] }] }] },
+  ];
+
+  it("reads a choice as a checked or unchecked radio item and a plain entry as an item", () => {
+    render(<Menu sections={CHOICES} label="Threads" onSelect={() => undefined} onClose={() => undefined} />);
+    const menu = screen.getByRole("menu", { name: "Threads" });
+    expect(within(menu).getByRole("menuitemradio", { name: "Recent", checked: true })).toBeTruthy();
+    expect(within(menu).getByRole("menuitemradio", { name: "Name", checked: false })).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: "Refresh" }).hasAttribute("aria-checked")).toBe(false);
+    // An entry that opens a submenu cannot be a radio item.
+    expect(within(menu).getByRole("menuitem", { name: "Filter" }).getAttribute("aria-haspopup")).toBe("menu");
+    expect(within(screen.getByRole("group", { name: "Sort" })).getAllByRole("menuitemradio")).toHaveLength(2);
+  });
+
+  it("picks a radio item like any other entry", () => {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    render(<Menu sections={CHOICES} label="Threads" onSelect={onSelect} onClose={onClose} />);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Name" }));
+    expect(onSelect).toHaveBeenCalledWith("name");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("starts on the checked item when opened from the keyboard", () => {
+    const trigger = document.body.appendChild(document.createElement("button"));
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    render(<Menu sections={[{ items: [{ id: "a", label: "A", selected: false }, { id: "b", label: "B", selected: true }] }]} label="Pick" onSelect={() => undefined} onClose={() => undefined} />);
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "B" }));
+    trigger.remove();
   });
 });

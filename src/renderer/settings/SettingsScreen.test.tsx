@@ -177,7 +177,7 @@ describe("the Settings screen", () => {
     await waitFor(() => expect(files.host).toEqual({ options: { "fixture.rule": true } }));
 
     fireEvent.click(scope);
-    fireEvent.click(within(page).getByRole("menuitem", { name: /app/u }));
+    fireEvent.click(within(page).getByRole("menuitemradio", { name: /app/u }));
     await within(page).findByRole("button", { name: /Settings apply to app/u });
     const rule = await within(page).findByRole("button", { name: /Inherited from this machine/u });
     expect(rule).toBeTruthy();
@@ -196,7 +196,7 @@ describe("the Settings screen", () => {
     const { client } = hostWithFiles();
     const { page } = renderScreen({ client });
     fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
-    fireEvent.click(within(page).getByRole("menuitem", { name: /app/u }));
+    fireEvent.click(within(page).getByRole("menuitemradio", { name: /app/u }));
     await within(page).findByRole("button", { name: /Settings apply to app/u });
     for (const name of ["Keep the host running in the background", "Reload files when they change", "Ask before quitting while threads work"]) {
       const row = within(page).getByRole("switch", { name }).closest(".settings-row")!;
@@ -233,7 +233,7 @@ describe("the Settings screen", () => {
       threads: [{ id: "t1", path: "/s/t1", title: "On rex", modifiedAt: 1, projectPath: "/home/rex/git-nrw", workspaceId: "ws-rex", projectName: "git-nrw", messageCount: 1, backendKind: "machine", machine: { id: "rex", name: "rex" } }],
     });
     fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
-    const entries = within(page).getAllByRole("menuitem").map((item) => item.textContent);
+    const entries = within(page).getAllByRole("menuitemradio").map((item) => item.textContent);
     expect(entries).toEqual([
       expect.stringContaining("This machine"),
       expect.stringMatching(/^app/u),
@@ -261,13 +261,13 @@ describe("the Settings screen", () => {
     });
     const { page } = renderScreen({ client: reaching as ReturnType<typeof hostWithFiles>["client"] });
     fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
-    const items = await within(page).findAllByRole("menuitem");
+    const items = await within(page).findAllByRole("menuitemradio");
     expect(items.map((item) => item.textContent)).toEqual([
       expect.stringMatching(/^This machine/u), "rex", "nasNot reachable", "labRead only", expect.stringMatching(/^app/u), "other",
     ]);
-    expect(within(page).getByRole("menuitem", { name: /nas/u }).hasAttribute("disabled")).toBe(true);
+    expect(within(page).getByRole("menuitemradio", { name: /nas/u }).hasAttribute("disabled")).toBe(true);
 
-    fireEvent.click(within(page).getByRole("menuitem", { name: /rex/u }));
+    fireEvent.click(within(page).getByRole("menuitemradio", { name: /rex/u }));
     await within(page).findByRole("button", { name: /Settings apply to rex/u });
     const background = await within(page).findByRole("switch", { name: "Keep the host running in the background" });
     await waitFor(() => expect(background.getAttribute("aria-checked")).toBe("true"));
@@ -283,7 +283,7 @@ describe("the Settings screen", () => {
     expect(within(page).getByRole("switch", { name: "Project rule" }).closest(".settings-row-control")!.hasAttribute("data-inert")).toBe(false);
 
     fireEvent.click(within(page).getByRole("button", { name: /Settings apply to rex/u }));
-    fireEvent.click(within(page).getByRole("menuitem", { name: /lab/u }));
+    fireEvent.click(within(page).getByRole("menuitemradio", { name: /lab/u }));
     await within(page).findByRole("button", { name: /Settings apply to lab/u });
     const locked = within(page).getByRole("switch", { name: "Keep the host running in the background" }).closest(".settings-row-control")!;
     expect(locked.getAttribute("data-tooltip")).toMatch(/lab paired this window Read only/u);

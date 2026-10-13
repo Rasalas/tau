@@ -105,7 +105,7 @@ describe("the Pull Requests page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Filter pull requests" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Host/u }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "gitlab.com" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "gitlab.com" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /^#14485 /u })).toBeNull());
     expect(screen.getByRole("button", { name: /^!3 /u })).toBeTruthy();
   });
@@ -123,7 +123,7 @@ describe("the Pull Requests page", () => {
     await waitFor(() => expect(tab.setTitle).toHaveBeenCalledWith("PRs · cli"));
 
     fireEvent.click(screen.getByRole("button", { name: "Sort pull requests" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Blocked on me/u }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Blocked on me/u }));
     expect(screen.getByRole("button", { name: "Sort pull requests" }).textContent).toContain("Blocked on me");
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search pull requests" }), { target: { value: "label:blocked" } });

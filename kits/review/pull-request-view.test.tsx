@@ -556,7 +556,7 @@ describe("merging, auto-merge, revert and stacks from the view", () => {
     const client = fakeClient({ stack: vi.fn(async () => stack), stackAction: vi.fn(async () => detail()) });
     const { workbench } = renderView(client);
     fireEvent.click(await screen.findByRole("button", { name: "Stack #9, layer 2 of 3" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Base/u }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Base/u }));
     expect(workbench.openStageTab).toHaveBeenCalledWith("review.pull-request", expect.objectContaining({ number: 6 }), { key: "https://github.com/acme/tau/pull/6" });
 
     fireEvent.click(screen.getByRole("button", { name: "Stack #9, layer 2 of 3" }));
