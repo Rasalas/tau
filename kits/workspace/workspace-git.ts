@@ -5,6 +5,7 @@ import { findExecutable, gitExecutable } from "tau/host-extension";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import type {
   ChangeStatus,
@@ -844,13 +845,20 @@ export async function runGitCommand(
   env?: NodeJS.ProcessEnv,
   timeout = gitCommandTimeout(args),
 ): Promise<string> {
-  const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
+  const run = () => execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
     cwd,
     maxBuffer,
     timeout,
     signal,
-    env,
+    env: { ...(env ?? process.env), GIT_OPTIONAL_LOCKS: "0" },
     windowsHide: true,
+  });
+  const { stdout } = await run().catch(async (error: unknown) => {
+    const stderr = (error as { stderr?: unknown } | null)?.stderr;
+    if (signal?.aborted || typeof stderr !== "string"
+      || !/unable to create [^\n]*[\\/]index\.lock['"]?: file exists/iu.test(stderr)) throw error;
+    await delay(75, undefined, { signal });
+    return run();
   });
   return stdout;
 }
@@ -1986,7 +1994,8 @@ export async function readProjectGitState(
       run(["remote"]).catch(() => ""),
       // Every untracked file, so a new folder lists its files rather than one row the review cannot open.
       run(["status", "--porcelain", "-z", "--untracked-files=all"]),
-      run(["diff", "--numstat", "-z", "HEAD"]).catch(() => ""),
+      // Porcelain diff refreshes the index even with optional locks disabled.
+      run(["diff-index", "--find-renames", "--numstat", "-z", "HEAD", "--"]).catch(() => ""),
       run(["worktree", "list", "--porcelain"]),
       run(["for-each-ref", "--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)", "--sort=-committerdate", "refs/heads"]),
     ]);
@@ -2143,7 +2152,9 @@ async function streamFilePatch(
 ): Promise<StreamedPatch> {
   const { hunkOffset: offset, hunkLimit: limit } = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS);
   return new Promise((settle, reject) => {
-    const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
+      cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
+    });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     let pending = "";
@@ -2246,7 +2257,10 @@ export async function getFileDiff(cwd: string, path: string, options: DiffLoadOp
       ? options.baseCommit ? { ref: options.baseRef ?? options.baseCommit, mergeBase: options.baseCommit } : await resolveBranchBase(cwd, options.baseRef)
       : undefined;
     const view = diffViewArguments(options);
-    let streamed = await streamFilePatch(cwd, ["diff", "--no-ext-diff", ...view, branchBase?.mergeBase ?? "HEAD", ...(branchBase ? ["HEAD"] : []), "--", path], options);
+    const diffArgs = branchBase
+      ? ["diff", "--no-ext-diff", ...view, branchBase.mergeBase, "HEAD", "--", path]
+      : ["diff-index", "-p", "--no-ext-diff", ...view, "HEAD", "--", path];
+    let streamed = await streamFilePatch(cwd, diffArgs, options);
     if (!streamed.patch.trim()) {
       const whitespaceOnly = options.ignoreWhitespace === true
         && (Boolean(branchBase) || await git(cwd, ["ls-files", "--error-unmatch", "--", path]).then(() => true, () => false));
