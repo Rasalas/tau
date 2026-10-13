@@ -29,6 +29,7 @@ export interface MachineLinkOptions {
   token: string;
   /** The last push seen before; the host replays what came since instead of a snapshot. */
   lastSeq(): number | undefined;
+  bootId?(): string | undefined;
   onHello(reply: HostHelloReply): void;
   onPush(push: HostPush): void;
   onEnd(end: LinkEnd): void;
@@ -100,6 +101,7 @@ export class MachineLink {
       }, HELLO_TIMEOUT_MS);
       socket.onopen = () => {
         const lastSeq = this.options.lastSeq();
+        const bootId = this.options.bootId?.();
         this.write(socket, {
           type: "hello",
           id: "hello",
@@ -109,6 +111,7 @@ export class MachineLink {
             auxiliary: true,
             subscription: { threads: [], topics: [] },
             ...(lastSeq !== undefined ? { lastSeq } : {}),
+            ...(lastSeq !== undefined && bootId ? { bootId } : {}),
           },
         });
       };

@@ -251,7 +251,7 @@ async function exercise(url, token, fingerprint, label) {
 
   const resumed = createClient(url, token, fingerprint);
   await resumed.opened;
-  const replay = await resumed.hello(lastSeq);
+  const replay = await resumed.hello(lastSeq, { bootId: hello.bootId });
   if (replay.resync) fail("the host asked for a resync although the buffer still reached back");
   if (replay.missed.length === 0) fail("no missed pushes were replayed");
   const sequences = replay.missed.map((push) => push.seq);

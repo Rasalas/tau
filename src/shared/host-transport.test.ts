@@ -97,6 +97,19 @@ describe("host transport frames", () => {
     expect(decodeHostHelloReply({ ...reply, capabilities: [1] })).toBeUndefined();
   });
 
+  it("preserves boot identities and accepts older hellos without them", () => {
+    const hello = { protocol: 1, lastSeq: 12, bootId: "boot-1" };
+    const reply = { protocol: 1, hostVersion: "0", capabilities: [], resync: false, missed: [], nextSeq: 13, bootId: "boot-1" };
+    expect(decodeHostHello(hello)).toEqual(hello);
+    expect(decodeHostHelloReply(reply)).toEqual(reply);
+    for (const bootId of ["", 1, null]) {
+      expect(decodeHostHello({ ...hello, bootId })).toBeUndefined();
+      expect(decodeHostHelloReply({ ...reply, bootId })).toBeUndefined();
+    }
+    expect(decodeHostHello({ ...hello, bootId: undefined })).not.toHaveProperty("bootId");
+    expect(decodeHostHelloReply({ ...reply, bootId: undefined })).not.toHaveProperty("bootId");
+  });
+
   it("routes the socket frames by type", () => {
     expect(decodeHostClientFrame({ type: "request", request: { id: "r", method: "abort" } })?.type).toBe("request");
     expect(decodeHostClientFrame({ type: "hello", id: "h", hello: { protocol: 1 } })?.type).toBe("hello");

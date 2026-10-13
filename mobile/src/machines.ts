@@ -76,6 +76,7 @@ interface Kept {
   /** Open questions there: prompt id and thread. */
   asking?: Array<[string, string]>;
   lastSeq?: number;
+  bootId?: string;
   lastSeenAt?: number;
   threadCount?: number;
 }
@@ -93,6 +94,7 @@ interface Machine {
   running: Set<string>;
   asking: Map<string, string>;
   lastSeq?: number;
+  bootId?: string;
   link?: MachineLink;
   reading?: Promise<void>;
   readCommands?: { at: number; commands: Promise<Set<string>> };
@@ -175,6 +177,7 @@ export class PhoneMachines implements PlatformEnvironments {
           running: new Set(kept?.running ?? []),
           asking: new Map(kept?.asking ?? []),
           ...(kept?.lastSeq !== undefined ? { lastSeq: kept.lastSeq } : {}),
+          ...(typeof kept?.bootId === "string" ? { bootId: kept.bootId } : {}),
         });
       }
       this.stops.push(this.options.client.onConnectionState((state) => {
@@ -257,11 +260,13 @@ export class PhoneMachines implements PlatformEnvironments {
       open: (onFailure) => this.options.socket(machine.host, onFailure),
       token: machine.token!,
       lastSeq: () => machine.index ? machine.lastSeq : undefined,
+      bootId: () => machine.bootId,
       onHello: (reply) => {
         if (reply.access === "read-only") machine.readOnly = true;
         // A gap the host cannot replay starts from a snapshot again.
-        if (reply.resync) machine.index = undefined;
+        if (reply.resync || (machine.bootId !== undefined && reply.bootId !== machine.bootId)) machine.index = undefined;
         else for (const push of reply.missed) this.apply(machine, push, false);
+        machine.bootId = reply.bootId;
         machine.lastSeq = reply.nextSeq - 1;
       },
       onPush: (push) => this.apply(machine, push, true),
@@ -343,6 +348,7 @@ export class PhoneMachines implements PlatformEnvironments {
       running: [...machine.running],
       ...(machine.asking.size ? { asking: [...machine.asking] } : {}),
       ...(machine.index && machine.lastSeq !== undefined ? { lastSeq: machine.lastSeq } : {}),
+      ...(machine.index && machine.bootId ? { bootId: machine.bootId } : {}),
       ...(machine.lastSeenAt !== undefined ? { lastSeenAt: machine.lastSeenAt } : {}),
       threadCount: machine.threadCount,
     };

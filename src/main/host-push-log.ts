@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   HOST_PUSH_BUFFER_BYTES,
   HOST_TRANSPORT_VERSION,
@@ -19,6 +20,7 @@ const MAX_EVICTED_SCOPES = 1_024;
  * needs a resync only when one of those fell out.
  */
 export class HostPushLog {
+  readonly bootId = randomUUID();
   private buffer: Array<HostPush | undefined> = [];
   private sizes: number[] = [];
   private scopes: HostPushScope[] = [];
@@ -107,11 +109,14 @@ export function helloReply(
   filter?: HostPushFilter,
   readOnly = false,
 ): HostHelloReply {
-  const { resync, missed } = pushLog.since(hello.lastSeq, filter, readOnly);
+  const { resync, missed } = hello.lastSeq !== undefined && hello.bootId !== pushLog.bootId
+    ? { resync: true, missed: [] }
+    : pushLog.since(hello.lastSeq, filter, readOnly);
   return {
     protocol: HOST_TRANSPORT_VERSION,
     hostVersion: options.hostVersion,
     capabilities: options.capabilities,
+    bootId: pushLog.bootId,
     resync,
     missed,
     nextSeq: pushLog.nextSeq,
