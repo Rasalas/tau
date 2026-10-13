@@ -30,7 +30,11 @@ async function fixture() {
     const pkg = (await scan()).packages[0];
     await grantPackage(pkg.manifest, true, grantsFilePath, pkg.grantIdentity);
   };
-  return { home, directory, manifest, grantsFilePath, publishersFilePath, options, scan, approve };
+  const stateRoot = join(home, "userData", "kit-state");
+  const agentDir = join(home, "agent");
+  const sessionsDir = join(home, "sessions");
+  const themesDir = join(home, "themes");
+  return { stateRoot, agentDir, sessionsDir, themesDir, home, directory, manifest, grantsFilePath, publishersFilePath, options, scan, approve };
 }
 
 describe("package consent and file restrictions", () => {
@@ -72,7 +76,7 @@ describe("package consent and file restrictions", () => {
     vi.stubEnv("TAU_TEST_HOST_SECRET", "must-not-reach-extension");
     const loaded = await loadHostExtensionPackages(f.home, f.home, f.options);
     expect(loaded.errors).toEqual([]);
-    const services = { cwd: () => f.home, agentDir: f.home, sessionsDir: f.home, stateDir: f.home, themesDir: f.home, safeMode: false, refreshExtensionPackages: vi.fn(), log: vi.fn() } as unknown as HostExtensionServices;
+    const services = { cwd: () => f.home, agentDir: f.agentDir, sessionsDir: f.sessionsDir, stateDir: f.stateRoot, themesDir: f.themesDir, safeMode: false, refreshExtensionPackages: vi.fn(), log: vi.fn() } as unknown as HostExtensionServices;
     const registry = new HostExtensionRegistry(services, () => undefined);
     try {
       expect(await registry.activate(loaded.extensions[0].extension), JSON.stringify(registry.summaries())).toBe(true);
@@ -84,6 +88,72 @@ describe("package consent and file restrictions", () => {
       expect(JSON.parse(result.manifest)).toEqual(f.manifest);
       expect(await readFile(f.grantsFilePath, "utf8")).toBe(before);
       expect(await readFile(signature, "utf8")).toBe(signatureContents);
+    } finally { await registry.remove(f.manifest.id); }
+  });
+
+  it("reads and writes only its own data folder, without any permissions", async () => {
+    const f = await fixture();
+    const otherStateDir = join(f.stateRoot, "acme.other");
+    for (const directory of [f.agentDir, f.sessionsDir, f.themesDir, otherStateDir]) {
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, "private.txt"), "private");
+    }
+    await writeFile(join(f.directory, "host.cjs"), `
+      const fs = require("node:fs/promises");
+      const { join } = require("node:path");
+      module.exports = { activate({ services, registerCommand }) {
+        registerCommand("data", async ({ otherStateDir, manifest }) => {
+          const file = join(services.stateDir, "data.json");
+          await fs.writeFile(file, "saved");
+          const denied = [];
+          for (const directory of [services.agentDir, services.sessionsDir, services.themesDir, otherStateDir]) {
+            const privateFile = join(directory, "private.txt");
+            for (const action of [() => fs.readFile(privateFile), () => fs.writeFile(privateFile, "changed")]) {
+              try { await action(); denied.push("allowed"); } catch (error) { denied.push(error.code); }
+            }
+          }
+          for (const [link, target] of [["symlink", join(otherStateDir, "private.txt")], ["link", manifest]]) {
+            const escape = join(services.stateDir, link);
+            try { await fs[link](target, escape); await fs.writeFile(escape, "changed"); denied.push("allowed"); }
+            catch (error) { denied.push(error.code); }
+          }
+          return { saved: await fs.readFile(file, "utf8"), denied };
+        });
+      } };
+    `);
+    await f.approve();
+    const loaded = await loadHostExtensionPackages(f.home, f.home, f.options);
+    const services = { cwd: () => f.home, agentDir: f.agentDir, sessionsDir: f.sessionsDir, stateDir: f.stateRoot, themesDir: f.themesDir, safeMode: false, log: vi.fn() } as unknown as HostExtensionServices;
+    const registry = new HostExtensionRegistry(services, () => undefined);
+    try {
+      expect(await registry.activate(loaded.extensions[0].extension), JSON.stringify(registry.summaries())).toBe(true);
+      await expect(registry.invoke(f.manifest.id, "data", { otherStateDir, manifest: join(f.directory, "tau-extension.json") })).resolves.toEqual({ saved: "saved", denied: Array(10).fill("ERR_ACCESS_DENIED") });
+      expect(await readFile(join(f.stateRoot, f.manifest.id, "data.json"), "utf8")).toBe("saved");
+      expect(JSON.parse(await readFile(join(f.directory, "tau-extension.json"), "utf8"))).toEqual(f.manifest);
+      for (const directory of [f.agentDir, f.sessionsDir, f.themesDir, otherStateDir]) {
+        expect(await readFile(join(directory, "private.txt"), "utf8")).toBe("private");
+      }
+    } finally { await registry.remove(f.manifest.id); }
+  });
+
+  it.each(["root", "nested", "wildcard"])("rejects a %s escape in the data folder before starting", async (kind) => {
+    const f = await fixture();
+    const stateRoot = kind === "wildcard" ? `${f.stateRoot}*` : f.stateRoot;
+    const stateDir = join(stateRoot, f.manifest.id);
+    if (kind === "root") {
+      await mkdir(stateRoot, { recursive: true });
+      await symlink(f.directory, stateDir);
+    } else if (kind === "nested") {
+      await mkdir(stateDir, { recursive: true });
+      await symlink(f.grantsFilePath, join(stateDir, "grants.json"));
+    }
+    await f.approve();
+    const loaded = await loadHostExtensionPackages(f.home, f.home, f.options);
+    const services = { cwd: () => f.home, agentDir: f.agentDir, sessionsDir: f.sessionsDir, stateDir: stateRoot, themesDir: f.themesDir, safeMode: false, log: vi.fn() } as unknown as HostExtensionServices;
+    const registry = new HostExtensionRegistry(services, () => undefined);
+    try {
+      expect(await registry.activate(loaded.extensions[0].extension)).toBe(false);
+      expect(registry.summaries()[0].error).toContain(kind === "wildcard" ? "wildcards" : "symbolic links");
     } finally { await registry.remove(f.manifest.id); }
   });
 
@@ -99,7 +169,7 @@ describe("package consent and file restrictions", () => {
     } };`);
     await f.approve();
     const loaded = await loadHostExtensionPackages(f.home, f.home, f.options);
-    const services = { cwd: () => f.home, agentDir: f.home, sessionsDir: f.home, stateDir: f.home, themesDir: f.home, safeMode: false, log: vi.fn() } as unknown as HostExtensionServices;
+    const services = { cwd: () => f.home, agentDir: f.agentDir, sessionsDir: f.sessionsDir, stateDir: f.stateRoot, themesDir: f.themesDir, safeMode: false, log: vi.fn() } as unknown as HostExtensionServices;
     const registry = new HostExtensionRegistry(services, () => undefined);
     try {
       expect(await registry.activate(loaded.extensions[0].extension)).toBe(true);
@@ -117,7 +187,7 @@ describe("package consent and file restrictions", () => {
     } };`);
     await f.approve();
     const loaded = await loadHostExtensionPackages(f.home, f.home, { ...f.options, worker: { resourceLimits: { maxExternalMb: 16 } } });
-    const services = { cwd: () => f.home, agentDir: f.home, sessionsDir: f.home, stateDir: f.home, themesDir: f.home, safeMode: false, log: vi.fn() } as unknown as HostExtensionServices;
+    const services = { cwd: () => f.home, agentDir: f.agentDir, sessionsDir: f.sessionsDir, stateDir: f.stateRoot, themesDir: f.themesDir, safeMode: false, log: vi.fn() } as unknown as HostExtensionServices;
     const registry = new HostExtensionRegistry(services, () => undefined);
     try {
       expect(await registry.activate(loaded.extensions[0].extension)).toBe(true);

@@ -16,8 +16,12 @@ export async function confirmExtensionGrant(
   const detail = [pkg.id, pkg.directory, `Permissions: ${(pkg.permissions ?? []).join(", ") || "none"}`, `Isolation: ${isolation}`];
   if (pkg.desktop) detail.push("The desktop half can use the workbench's host connection.");
   if (isolation === "in-process") detail.push("This package can do everything the host process can.");
-  if (isolation === "worker") detail.push("Installed worker packages can read their package files but cannot write files directly. This is not an OS sandbox; process and native permissions can bypass restrictions.");
-  if (pkg.permissions?.includes("native")) detail.push("Native code can bypass restrictions.");
+  if (isolation === "worker") {
+    detail.push("It runs in a process of its own: it reads its own files, writes only to its own data folder, and cannot reach the network, start programs or load compiled code without the matching permission.");
+    if (pkg.permissions?.some((permission) => permission === "process" || permission === "native")) {
+      detail.push("With the permission to start programs or load compiled code it could get around these limits.");
+    }
+  }
   const answer = await ask({ type: "warning", title: "Allow extension", message: `Allow ${pkg.name}?`, detail: detail.join("\n\n"), buttons: ["Cancel", "Allow"], defaultId: 0, cancelId: 0 });
   return answer.response === 1;
 }

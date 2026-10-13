@@ -26,11 +26,12 @@ describe("extension-grants", () => {
     expect(prompts[0]?.detail).toContain("Isolation: in-process");
     expect(await confirmExtensionGrant(pkg, async () => ({ response: 1 }))).toBe(true);
   });
-  it("explains direct file access and its limits before approving a worker package", async () => {
-    const pkg = { id: "acme.worker", name: "Worker", directory: "/packages/worker", scope: "global" as const, desktop: false, host: true, permissions: [], isolation: "worker" as const };
+  it.each([[], ["network"], ["process"], ["native"]].map((permissions) => ({ permissions })))("explains worker file access for $permissions", async ({ permissions }) => {
+    const pkg = { id: "acme.worker", name: "Worker", directory: "/packages/worker", scope: "global" as const, desktop: false, host: true, permissions, isolation: "worker" as const };
     await confirmExtensionGrant(pkg, async (prompt) => {
-      expect(prompt.detail).toContain("cannot write files directly");
-      expect(prompt.detail).toContain("not an OS sandbox");
+      expect(prompt.detail).toContain("It runs in a process of its own: it reads its own files, writes only to its own data folder, and cannot reach the network, start programs or load compiled code without the matching permission.");
+      expect(prompt.detail.includes("With the permission to start programs or load compiled code it could get around these limits.")).toBe(permissions.includes("process") || permissions.includes("native"));
+      expect(prompt.detail).not.toMatch(/OS sandbox|\bNode\b|Bundled kits/);
       return { response: 0 };
     });
   });

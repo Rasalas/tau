@@ -13,14 +13,17 @@ consent. Legacy grants without a content hash require approval again.
 The existing atomic JSON writer stores grants with mode 0600.
 
 Installed packages declaring `worker` run in a child process with Node's
-permission model. They can read their package and compiled entry but have no
-direct filesystem write access, including to their state directory. The host
-facade still checks grants. A trusted supervisor owns the package worker and
+permission model. They can read their package and compiled entry and read and
+write their own `services.stateDir`, prepared and checked by the host before activation. Other
+files, including grants, the manifest, signature and other packages' data,
+remain unwritable. `agentDir`, `sessionsDir` and `themesDir` are bootstrap paths
+without direct file access. The host facade still checks grants. A trusted supervisor owns the package worker and
 its heap, buffer and process memory caps; the worker inherits file restrictions
 but cannot create another worker. RPC and timeout handling remain the same.
 No host environment, runtime credentials or extra file descriptors are passed
-in. Symbolic links in package files and permission wildcards in process paths
-are rejected. Bundled kits retain the existing worker-thread transport and
+in. Symbolic links in package files and the data folder, and permission
+wildcards in process paths, are rejected. Bundled kits retain the existing
+worker-thread transport and
 file access because they ship as trusted code and use those files directly.
 
 This is not an OS sandbox. Node's permission model does not promise safety

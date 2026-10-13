@@ -1,14 +1,14 @@
 import { fork } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { readdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type { WorkerHostExtensionOptions } from "./host-extension-isolation.js";
 import type { HostToWorkerMessage, WorkerBootstrap } from "./host-extension-worker-protocol.js";
 
-async function checkPackageLinks(directory: string): Promise<void> {
+async function checkDirectoryLinks(directory: string): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (entry.isSymbolicLink()) throw new Error("Extension package files must not be symbolic links");
-    if (entry.isDirectory()) await checkPackageLinks(join(directory, entry.name));
+    if (entry.isSymbolicLink()) throw new Error("Extension folders must not contain symbolic links");
+    if (entry.isDirectory()) await checkDirectoryLinks(join(directory, entry.name));
   }
 }
 
@@ -22,10 +22,17 @@ export async function startExtensionProcess(supervisor: string, entry: string, b
   const workerPath = await realpath(entry);
   const bundlePath = await realpath(options.file);
   const packagePath = await realpath(options.packageDirectory!);
-  if ([supervisorPath, workerPath, bundlePath, packagePath, options.packageDirectory!].some((path) => path.includes("*"))) {
+  if ([supervisorPath, workerPath, bundlePath, packagePath, options.packageDirectory!, boot.stateDir].some((path) => path.includes("*"))) {
     throw new Error("Extension paths must not contain permission wildcards");
   }
-  await checkPackageLinks(packagePath);
+  await checkDirectoryLinks(packagePath);
+  if ((await lstat(boot.stateDir).catch(() => undefined))?.isSymbolicLink()) {
+    throw new Error("Extension folders must not contain symbolic links");
+  }
+  await mkdir(boot.stateDir, { recursive: true, mode: 0o700 });
+  const statePath = await realpath(boot.stateDir);
+  if (statePath.includes("*")) throw new Error("Extension paths must not contain permission wildcards");
+  await checkDirectoryLinks(statePath);
   const execArgv = [
     "--permission",
     "--allow-worker",
@@ -34,6 +41,8 @@ export async function startExtensionProcess(supervisor: string, entry: string, b
     `--allow-fs-read=${bundlePath}`,
     `--allow-fs-read=${packagePath}`,
     `--allow-fs-read=${options.packageDirectory!}`,
+    `--allow-fs-read=${statePath}`,
+    `--allow-fs-write=${statePath}`,
     `--max-old-space-size=${limits?.maxOldGenerationSizeMb ?? 256}`,
     `--max-semi-space-size=${limits?.maxYoungGenerationSizeMb ?? 32}`,
     ...(limits?.stackSizeMb ? [`--stack-size=${limits.stackSizeMb * 1024}`] : []),
@@ -58,7 +67,7 @@ export async function startExtensionProcess(supervisor: string, entry: string, b
     if (signal || code) transport.emit("error", new Error(diagnostic.trim() || `Extension process exited: ${signal ?? code}`));
     transport.emit("exit", code);
   });
-  child.send({ entry: workerPath, boot: { ...boot, file: bundlePath }, resourceLimits: options.resourceLimits });
+  child.send({ entry: workerPath, boot: { ...boot, file: bundlePath, stateDir: statePath }, resourceLimits: options.resourceLimits });
   return Object.assign(transport, {
     postMessage(message: HostToWorkerMessage): void {
       if (child.connected) child.send(message, (error) => { if (error) transport.emit("error", error); });
