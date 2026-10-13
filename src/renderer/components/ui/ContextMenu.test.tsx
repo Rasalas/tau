@@ -49,7 +49,8 @@ describe("context menus", () => {
   it("draws the page's own menu where the OS draws none or refuses", async () => {
     render(<ContextMenuLayer />);
     const refused = openContextMenu(platform({ show: async () => { throw new Error("unsupported"); } }), { clientX: 10, clientY: 10 }, SECTIONS);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Pin thread" }));
+    // A choice reads as a checked radio item.
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Pin thread", checked: true }));
     await expect(refused).resolves.toBe("pin");
 
     // The page's menu wears the same icon the OS's would.

@@ -73,7 +73,7 @@ describe("Workspace Kit title actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     expect(openInEditor).toHaveBeenCalledWith(undefined, "code");
     fireEvent.click(screen.getByRole("button", { name: "Choose editor" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Zed" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Zed" }));
     expect(openInEditor).toHaveBeenCalledWith(undefined, "zed");
   });
 
@@ -139,7 +139,7 @@ describe("Workspace Kit title actions", () => {
     expect(screen.queryByRole("button", { name: "Open in terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Choose terminal" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Choose editor" }));
-    expect(within(screen.getByRole("menu", { name: "Open in" })).queryByRole("menuitem", { name: "Ghostty" })).toBeNull();
+    expect(within(screen.getByRole("menu", { name: "Open in" })).queryByRole("menuitemradio", { name: "Ghostty" })).toBeNull();
   });
 
   it("folds labels first, then the project actions into More, and the Git action's label last", () => {

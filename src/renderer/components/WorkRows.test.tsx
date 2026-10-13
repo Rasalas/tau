@@ -166,6 +166,18 @@ describe("a running turn", () => {
     expect(view.container.querySelector(".work-live-clock")?.textContent).toBe("0:50");
   });
 
+  it("keeps the clock out of the accessibility tree, so the transcript's log does not read it every second", () => {
+    const view = render(<WorkGroup
+      id="turn"
+      tools={[read("1", "a.ts", { status: "running", startedAt: 53_000, endedAt: undefined })]}
+      registry={registryWith()}
+      detail="focused"
+      status="running"
+      streaming
+    />);
+    expect(view.container.querySelector(".work-live-clock")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("drops a failing tool out of the live line", () => {
     render(<WorkGroup
       id="turn"

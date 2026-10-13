@@ -110,7 +110,7 @@ export function TurnChangesPill({ changes, live = false, onOpenDiff, onRestore, 
         <Chevron size={14} className="chev" aria-hidden="true" />
       </button>
       {open ? (
-        <Popover anchor={anchor} side={side} align={side === "top" ? "center" : "start"} label={title} className="turn-changes-popover" onClose={close}>
+        <Popover anchor={anchor} side={side} align={side === "top" ? "center" : "start"} label={title} className="turn-changes-popover" takeFocus={false} onClose={close}>
           <div className="turn-changes-detail" onPointerEnter={hover(true)} onPointerLeave={hover(false)}>
             <TurnChangesDetail
               changes={changes}

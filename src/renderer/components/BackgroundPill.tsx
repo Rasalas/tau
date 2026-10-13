@@ -83,7 +83,7 @@ export const BackgroundPill = memo(function BackgroundPill({ tasks, runtime, rea
       <span>{label}</span>
       {tasks.length > 1 ? <span className="background-pill-count">{tasks.length}</span> : null}
     </button>
-    {open ? <Popover anchor={anchor} side="top" align="center" label="Background work" className="background-popover" onClose={close}>
+    {open ? <Popover anchor={anchor} side="top" align="center" label="Background work" className="background-popover" takeFocus={false} onClose={close}>
       <div className="background-popover-body" onPointerEnter={hover(true)} onPointerLeave={hover(false)} tabIndex={-1}>
         <header className="background-popover-head"><strong>In the background</strong></header>
         <ul className="background-list">{tasks.map((task) => <li key={task.id}>

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useClientEnvironment } from "../../client-environment";
 import { useWorkspaceFileHistory } from "../../touch/use-workspace-file-history";
 import { useEscapeLayer } from "./escape-layers";
-import { focusableElements, useFocusReturn, useFocusTrap } from "./focus";
+import { focusableElements, openedByKeyboard, useFocusReturn, useFocusTrap } from "./focus";
 import { placeFloating, pointRect, viewportSize, type FloatingAlign, type FloatingSide } from "./floating";
 
 /**
@@ -48,9 +48,12 @@ export function Dialog({ label, className, onClose, children, historyManaged = f
 /**
  * A card beside an element or a point, kept inside the window: it flips to
  * the other side when this one has no room and slides along the edge. A press
- * outside it or Escape closes it, and focus goes back where it was.
+ * outside it or Escape closes it, and focus goes back where it was. Opened
+ * from the keyboard it takes focus on its first control; opened by a press it
+ * takes it on itself, so Tab and a screen reader continue inside it. A hover
+ * card that only previews turns that off with `takeFocus={false}`.
  */
-export function Popover({ anchor, side = "bottom", align = "start", label, className, dismissOnFocusOutside = false, onClose, children }: {
+export function Popover({ anchor, side = "bottom", align = "start", label, className, dismissOnFocusOutside = false, takeFocus = true, onClose, children }: {
   anchor: RefObject<HTMLElement | null> | { x: number; y: number };
   side?: FloatingSide;
   align?: FloatingAlign;
@@ -58,6 +61,8 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
   className?: string;
   /** Close when focus moves to another control, in addition to outside presses. */
   dismissOnFocusOutside?: boolean;
+  /** Move focus into the card when it opens (API 1.61.0). Off for a card that opens on hover and leaves focus where it is. */
+  takeFocus?: boolean;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -90,6 +95,15 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
       window.removeEventListener("resize", place);
     };
   }, [align, anchor, side]);
+
+  // After the placement above, so the card is where it belongs when it takes focus.
+  useLayoutEffect(() => {
+    const element = surface.current;
+    if (!takeFocus || !element || element.contains(document.activeElement)) return;
+    const first = openedByKeyboard() ? focusableElements(element)[0] : undefined;
+    (first ?? element).focus({ preventScroll: true });
+    // Only when it opens.
+  }, []);
 
   useEffect(() => {
     const onOutside = (event: Event) => {

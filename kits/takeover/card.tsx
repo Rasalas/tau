@@ -228,7 +228,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
     }, (error: unknown) => setStatus(errorMessage(error))).finally(() => setImporting(false));
   };
   return (
-    <section className="takeover-card" role="region" aria-label="Your turn">
+    <section className="takeover-card" aria-label="Your turn">
       <header><Hand size={12} aria-hidden="true" />Your turn<span>{`waits up to ${String(TAKEOVER_TIMEOUT_MS / 60_000)} min`}</span></header>
       <p><Reason text={takeover.reason} host={hostOf(target.kind === "preview" || target.kind === "browser" ? pageUrl ?? target.url : undefined)} /> The agent's preview and computer-use calls are held until you press Done.</p>
       {showsFrame ? <TakeoverFrame takeover={takeover} onOpen={jump} watchOnly={!mayType} /> : null}

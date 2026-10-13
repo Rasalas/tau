@@ -311,7 +311,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
           </div> : null}
           {changedPaths.has(reading) && fileView === "diff" ? <>
             <button type="button" className={`icon-button ${diffWrap ? "active" : ""}`} aria-pressed={diffWrap} aria-label={diffWrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setDiffWrap(!diffWrap)}><WrapText size={14} /></button>
-            <div className="toggle-group" aria-label="Diff layout">
+            <div className="toggle-group" role="group" aria-label="Diff layout">
               <button type="button" className={diffLayout === "unified" ? "active" : ""} aria-pressed={diffLayout === "unified"} onClick={() => setDiffLayout("unified")}>Unified</button>
               <button type="button" className={diffLayout === "split" ? "active" : ""} aria-pressed={diffLayout === "split"} onClick={() => setDiffLayout("split")}>Split</button>
             </div>

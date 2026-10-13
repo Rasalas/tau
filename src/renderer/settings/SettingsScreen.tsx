@@ -388,7 +388,6 @@ export function SettingsScreen({
               value={search}
               placeholder="Search settings"
               aria-label="Search settings"
-              role="searchbox"
               aria-controls={found.length > 0 ? "settings-search-results" : undefined}
               aria-activedescendant={found[activeResult] ? `settings-search-result-${activeResult}` : undefined}
               onChange={(event) => { setSearch(event.target.value); setActiveResult(0); }}

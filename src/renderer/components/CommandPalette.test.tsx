@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type PaletteItem, type PaletteSearchContext, type WorkbenchActions } from "../extension-system";
 import { CommandPalette } from "./CommandPalette";
@@ -49,7 +49,7 @@ function setup() {
     },
   });
   render(<CommandPalette open commands={[]} actions={actions} registry={registry} onClose={() => undefined} />);
-  const input = screen.getByRole("textbox", { name: "Command" });
+  const input = screen.getByRole("combobox", { name: "Command" });
   const rows = () => [...document.querySelectorAll(".palette-results button")].map((row) => row.textContent);
   const heads = () => [...document.querySelectorAll(".palette-head")].map((head) => head.textContent);
   return { actions, input, pending, signals, rows, heads, opened };
@@ -111,7 +111,7 @@ describe("command palette focus", () => {
     trigger.focus();
     const focusComposer = vi.fn();
     const view = render(<Toggle open focusComposer={focusComposer} />);
-    act(() => { screen.getByRole("textbox", { name: "Command" }).focus(); });
+    act(() => { screen.getByRole("combobox", { name: "Command" }).focus(); });
     view.rerender(<Toggle open={false} focusComposer={focusComposer} />);
     expect(document.activeElement).toBe(trigger);
     expect(focusComposer).not.toHaveBeenCalled();
@@ -121,7 +121,7 @@ describe("command palette focus", () => {
   it("gives it to the composer when nothing had it", () => {
     const focusComposer = vi.fn();
     const view = render(<Toggle open focusComposer={focusComposer} />);
-    act(() => { screen.getByRole("textbox", { name: "Command" }).focus(); });
+    act(() => { screen.getByRole("combobox", { name: "Command" }).focus(); });
     view.rerender(<Toggle open={false} focusComposer={focusComposer} />);
     expect(focusComposer).toHaveBeenCalledTimes(1);
   });
@@ -130,7 +130,7 @@ describe("command palette focus", () => {
     const onClose = vi.fn();
     const actions = { notify: vi.fn(), focusComposer: vi.fn() } as unknown as WorkbenchActions;
     render(<CommandPalette open commands={[]} actions={actions} onClose={onClose} />);
-    const input = screen.getByRole("textbox", { name: "Command" });
+    const input = screen.getByRole("combobox", { name: "Command" });
     act(() => { input.focus(); });
     // jsdom lays out no rows, so the field is the only stop and Tab stays on it.
     fireEvent.keyDown(input, { key: "Tab" });
@@ -168,11 +168,11 @@ describe("command palette levels", () => {
     const command = themes(chosen);
     const onClose = vi.fn();
     render(<CommandPalette open commands={[command]} actions={actions()} onClose={onClose} />);
-    const root = screen.getByRole("textbox", { name: "Command" });
+    const root = screen.getByRole("combobox", { name: "Command" });
     fireEvent.change(root, { target: { value: "theme" } });
     fireEvent.keyDown(root, { key: "Enter" });
     expect(command.run).not.toHaveBeenCalled();
-    const field = screen.getByRole("textbox", { name: "Change theme" });
+    const field = screen.getByRole("combobox", { name: "Change theme" });
     expect(field).toHaveProperty("value", "");
     expect(labels()).toEqual(["Light", "Dark", "More themes"]);
     expect(screen.getByText("Current")).toBeTruthy();
@@ -185,34 +185,34 @@ describe("command palette levels", () => {
 
   it("goes back with Backspace on an empty field, the back button and the breadcrumb, giving each level its query back", async () => {
     render(<CommandPalette open commands={[themes(vi.fn())]} actions={actions()} onClose={() => undefined} />);
-    fireEvent.change(screen.getByRole("textbox", { name: "Command" }), { target: { value: "theme" } });
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Command" }), { key: "Enter" });
-    fireEvent.change(screen.getByRole("textbox", { name: "Change theme" }), { target: { value: "more" } });
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "Enter" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Command" }), { target: { value: "theme" } });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Command" }), { key: "Enter" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Change theme" }), { target: { value: "more" } });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Change theme" }), { key: "Enter" });
     await act(async () => undefined);
     expect(labels()).toEqual(["Solarized"]);
     const crumbs = screen.getByRole("navigation", { name: "Palette levels" });
     expect(crumbs.textContent).toBe("CommandsChange themeMore themes");
 
-    const deepest = screen.getByRole("textbox", { name: "More themes" });
+    const deepest = screen.getByRole("combobox", { name: "More themes" });
     fireEvent.change(deepest, { target: { value: "x" } });
     fireEvent.keyDown(deepest, { key: "Backspace" });
-    expect(screen.getByRole("textbox", { name: "More themes" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "More themes" })).toBeTruthy();
     fireEvent.change(deepest, { target: { value: "" } });
     fireEvent.keyDown(deepest, { key: "Backspace" });
-    expect(screen.getByRole("textbox", { name: "Change theme" })).toHaveProperty("value", "more");
+    expect(screen.getByRole("combobox", { name: "Change theme" })).toHaveProperty("value", "more");
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByRole("textbox", { name: "Command" })).toHaveProperty("value", "theme");
+    expect(screen.getByRole("combobox", { name: "Command" })).toHaveProperty("value", "theme");
     expect(screen.queryByRole("navigation", { name: "Palette levels" })).toBeNull();
   });
 
   it("asks a level that searches itself per keystroke and shows what the latest query answered", async () => {
     render(<CommandPalette open menu="fixture.theme" commands={[themes(vi.fn())]} actions={actions()} onClose={() => undefined} />);
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "ArrowDown" });
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "ArrowDown" });
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Change theme" }), { key: "Enter" });
-    const field = screen.getByRole("textbox", { name: "More themes" });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Change theme" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Change theme" }), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Change theme" }), { key: "Enter" });
+    const field = screen.getByRole("combobox", { name: "More themes" });
     fireEvent.change(field, { target: { value: "Dark" } });
     await act(async () => undefined);
     expect(labels()).toEqual(["Solarized Dark"]);
@@ -224,7 +224,7 @@ describe("command palette levels", () => {
       submenu: { title: "Broken", items: async () => { throw new Error("The host went away."); } },
     };
     render(<CommandPalette open menu="fixture.fails" commands={[failing]} actions={actions()} onClose={() => undefined} />);
-    expect(screen.getByRole("textbox", { name: "Broken" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Broken" })).toBeTruthy();
     await act(async () => undefined);
     expect(screen.getByRole("alert").textContent).toBe("The host went away.");
   });
@@ -245,7 +245,7 @@ describe("command palette on a Read-only device", () => {
         <CommandPalette open commands={commands} actions={actions} registry={registry} menu={menu} onClose={onClose} />
       </HostClientProvider>,
     );
-    return { actions, onClose, input: screen.getByRole("textbox") };
+    return { actions, onClose, input: screen.getByRole("combobox") };
   }
 
   it("shows a write disabled with the reason, keeps the cursor off it and never runs it", () => {
@@ -295,7 +295,7 @@ describe("command palette on a Read-only device", () => {
       { id: "shared", label: "Save as the host's theme", run: () => chosen("shared") },
     ] } };
     const { input } = setupReadOnly([theme, { ...entry("fixture.model", "Set model…", "Look"), submenu: { title: "Set model", items: () => [] } }], undefined, "fixture.model");
-    expect(screen.getByRole("textbox", { name: "Command" })).toBe(input);
+    expect(screen.getByRole("combobox", { name: "Command" })).toBe(input);
     fireEvent.keyDown(input, { key: "Enter" });
     expect(labels()).toEqual(["Dark", "Save as the host's theme"]);
     expect(buttons()[1]!.getAttribute("aria-disabled")).toBe("true");
@@ -341,7 +341,7 @@ describe("command palette scopes", () => {
     });
     const pin: PaletteCommand = { id: "fixture.pin", label: "Pin thread", group: "Thread", extensionId: "fixture", extensionName: "Fixture", access: "read", run: vi.fn() };
     render(<CommandPalette open commands={[pin]} actions={actions} registry={registry} onClose={() => undefined} />);
-    const input = screen.getByRole("textbox", { name: "Command" });
+    const input = screen.getByRole("combobox", { name: "Command" });
     const heads = () => [...document.querySelectorAll(".palette-head")].map((head) => head.textContent);
     const pressed = () => screen.getAllByRole("button", { pressed: true }).map((tab) => tab.textContent);
     return { asked, input, heads, pressed, opened, staged, pin, actions };
@@ -390,5 +390,72 @@ describe("command palette scopes", () => {
     fireEvent.keyDown(input, { key: "Enter", metaKey: true, ctrlKey: true });
     expect(staged).toHaveBeenCalledWith(actions);
     expect(opened).not.toHaveBeenCalled();
+  });
+});
+
+describe("command palette semantics", () => {
+  const command = (id: string, label: string, group = "Thread", access?: "read" | "write"): PaletteCommand => ({
+    id, label, group, extensionId: "fixture", extensionName: "Fixture", run: vi.fn(), ...(access ? { access } : {}),
+  });
+  const actions = () => ({ notify: vi.fn(), focusComposer: vi.fn() }) as unknown as WorkbenchActions;
+
+  it("is a combobox over a listbox of options, and the arrows move the active option", () => {
+    render(<CommandPalette open commands={[command("a", "Pin thread"), command("b", "Next thread", "Thread", "read")]} actions={actions()} shortcutFor={(id) => id === "b" ? "⌘J" : undefined} onClose={() => undefined} />);
+    const input = screen.getByRole("combobox", { name: "Command" });
+    const list = screen.getByRole("listbox", { name: "Results" });
+    expect(input.getAttribute("aria-controls")).toBe(list.id);
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(input.getAttribute("aria-autocomplete")).toBe("list");
+
+    const [first, second] = screen.getAllByRole("option");
+    expect(first!.getAttribute("aria-selected")).toBe("true");
+    expect(second!.getAttribute("aria-selected")).toBe("false");
+    expect(input.getAttribute("aria-activedescendant")).toBe(first!.id);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toBe(second!.id);
+    expect(second!.getAttribute("aria-selected")).toBe("true");
+    expect(first!.getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("names an option by its words and margin notes, and says where it stands and under which heading", () => {
+    render(<CommandPalette open commands={[command("a", "Pin thread"), command("b", "Next thread", "Thread", "read")]} actions={actions()} shortcutFor={(id) => id === "b" ? "⌘J" : undefined} onClose={() => undefined} />);
+    expect(screen.getByRole("option", { name: "Pin thread" })).toBeTruthy();
+    const next = screen.getByRole("option", { name: "Next thread, ⌘J" });
+    expect(next.getAttribute("aria-posinset")).toBe("2");
+    expect(next.getAttribute("aria-setsize")).toBe("2");
+    // A heading is no option; its option rows point at it.
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(document.getElementById(next.getAttribute("aria-describedby")!)?.textContent).toBe("Commands");
+  });
+
+  it("keeps the rows out of the Tab order, so focus stays in the field", () => {
+    render(<CommandPalette open commands={[command("a", "Pin thread")]} actions={actions()} onClose={() => undefined} />);
+    expect(screen.getByRole("option", { name: "Pin thread" }).tabIndex).toBe(-1);
+  });
+
+  it("says why an option is locked on a Read-only device", () => {
+    render(
+      <HostClientProvider client={createFakeHostClient({ isReadOnly: () => true })}>
+        <CommandPalette open commands={[command("a", "Pin thread"), command("b", "Next thread", "Thread", "read")]} actions={actions()} onClose={() => undefined} />
+      </HostClientProvider>,
+    );
+    expect(screen.getByRole("option", { name: "Pin thread, Read only" }).getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("drops the listbox and collapses the combobox when nothing matches", () => {
+    render(<CommandPalette open commands={[command("a", "Pin thread")]} actions={actions()} onClose={() => undefined} />);
+    const input = screen.getByRole("combobox", { name: "Command" });
+    fireEvent.change(input, { target: { value: "zzz" } });
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.getAttribute("aria-activedescendant")).toBeNull();
+  });
+
+  it("names a level's listbox after the level, with its options in it", () => {
+    const level: PaletteCommand = { ...command("t", "Change theme…"), submenu: { title: "Change theme", items: () => [{ id: "light", label: "Light", detail: "Bright", current: true, run: () => undefined }] } };
+    render(<CommandPalette open menu="t" commands={[level]} actions={actions()} onClose={() => undefined} />);
+    const list = screen.getByRole("listbox", { name: "Change theme" });
+    expect(screen.getByRole("combobox", { name: "Change theme" }).getAttribute("aria-controls")).toBe(list.id);
+    expect(within(list).getByRole("option", { name: "Light, Bright, Current" })).toBeTruthy();
   });
 });

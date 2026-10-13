@@ -130,7 +130,7 @@ export const ThreadRow = memo(function ThreadRow({
   if (settled || compact) {
     return (
       <article className={`thread-row compact ${active ? "active" : ""} activity-${activity}`}>
-        <button className="thread-main" onClick={() => onSelect(session.path)} {...hover}>
+        <button className="thread-main" aria-current={active ? "page" : undefined} onClick={() => onSelect(session.path)} {...hover}>
           {projectMark}
           <span className="thread-title" {...titleTip}>{session.title}</span>
           {accessory}
@@ -156,7 +156,7 @@ export const ThreadRow = memo(function ThreadRow({
 
   return (
     <article className={`thread-row ${active ? "active" : ""} activity-${activity}`}>
-      <button className="thread-main" onClick={() => onSelect(session.path)} {...hover}>
+      <button className="thread-main" aria-current={active ? "page" : undefined} onClick={() => onSelect(session.path)} {...hover}>
         <span className="thread-project-line">
           {projectMark}
           <strong>{session.projectName}</strong>

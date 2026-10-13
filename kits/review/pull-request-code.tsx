@@ -134,9 +134,9 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
         <button className={`icon-button compact ${wrap ? "active" : ""}`} aria-pressed={wrap} aria-label={wrap ? "Disable line wrapping" : "Enable line wrapping"} title={wrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setWrap(!wrap)}>
           <WrapText size={14} />
         </button>
-        <div className="toggle-group" aria-label="Diff layout">
-          <button className={layout === "unified" ? "active" : ""} onClick={() => setLayout("unified")}>Unified</button>
-          <button className={layout === "split" ? "active" : ""} onClick={() => setLayout("split")}>Split</button>
+        <div className="toggle-group" role="group" aria-label="Diff layout">
+          <button className={layout === "unified" ? "active" : ""} aria-pressed={layout === "unified"} onClick={() => setLayout("unified")}>Unified</button>
+          <button className={layout === "split" ? "active" : ""} aria-pressed={layout === "split"} onClick={() => setLayout("split")}>Split</button>
         </div>
         <button className={`icon-button pr-tree-toggle ${treeOpen ? "active" : ""}`} aria-label={treeOpen ? "Hide file tree" : "Show file tree"} title={treeOpen ? "Hide file tree" : "Show file tree"} aria-expanded={treeOpen} onClick={() => setTree(!treeOpen)}>
           {treeOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}

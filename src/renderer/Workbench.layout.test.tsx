@@ -164,7 +164,7 @@ describe("workbench layout", () => {
     const button = (await within(toolbar).findAllByRole("button")).find((candidate) => candidate.getAttribute("aria-label") !== "Expand stage")!;
     fireEvent.click(button);
     if (button.getAttribute("aria-label") === "More tools") {
-      fireEvent.click((await screen.findAllByRole("menuitem"))[0]!);
+      fireEvent.click((await screen.findAllByRole("menuitemradio"))[0]!);
     }
     return screen.findByRole("region", { name: "Stage" });
   }
@@ -183,13 +183,13 @@ describe("workbench layout", () => {
     const stage = await showStage();
     // A panel that asked for a button gets one; the rest are under More tools.
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Counter/ }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Counter/ }));
     await waitFor(() => expect(within(stage).getByRole("tab", { name: /Counter/ }).getAttribute("aria-selected")).toBe("true"));
     fireEvent.click(within(stage).getByRole("button", { name: "Count 0" }));
     expect(screen.getByTestId("counter-place").textContent).toBe("stage:active");
 
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Browser/ }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Browser/ }));
     await waitFor(() => expect(within(stage).getByRole("tab", { name: /Browser/ }).getAttribute("aria-selected")).toBe("true"));
     fireEvent.click(within(stage).getByRole("tab", { name: /Counter/ }));
     // Never remounted: the count survived its tab going behind another.
@@ -265,7 +265,7 @@ describe("workbench layout", () => {
     renderApp(undefined, { extensions: [tools] });
     const stage = await showStage();
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Tree/ }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Tree/ }));
     fireEvent.click(await within(stage).findByRole("button", { name: "Pick a.ts" }));
     await waitFor(() => expect(within(stage).getByRole("tab", { name: /a\.ts/ }).getAttribute("aria-selected")).toBe("true"));
     // The header opened Browser; Tree and the file joined it.
@@ -293,7 +293,7 @@ describe("workbench layout", () => {
     const view = renderApp(undefined, { extensions: [tools] });
     const stage = await showStage();
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Browser/ }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Browser/ }));
     const divider = await screen.findByRole("separator", { name: "Resize chat" });
     fireEvent.keyDown(divider, { key: "Home" });
     fireEvent.keyDown(divider, { key: "ArrowLeft", shiftKey: true });
@@ -310,7 +310,7 @@ describe("workbench layout", () => {
     const view = renderApp(undefined, { extensions: [panels] });
     const stage = await showStage();
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Shell/ }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Shell/ }));
     const drawer = await screen.findByRole("region", { name: "Shell" });
     expect(within(drawer).getByText("shell drawer")).toBeTruthy();
     expect(drawer.style.height).toBe("280px");
@@ -326,7 +326,7 @@ describe("workbench layout", () => {
 
     // Its tool closes it again.
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Shell/ }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Shell/ }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Shell" })).toBeNull());
   });
 

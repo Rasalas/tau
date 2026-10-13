@@ -127,7 +127,7 @@ describe("Settings → Providers: turning a runtime on or off", () => {
     const files = { host: { runtimeEnabled: { "claude-code": false } } as TauConfig, project: {} as TauConfig };
     const page = renderWithFiles(files);
     fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
-    fireEvent.click(within(page).getByRole("menuitem", { name: /app/u }));
+    fireEvent.click(within(page).getByRole("menuitemradio", { name: /app/u }));
     await within(page).findByRole("button", { name: /Settings apply to app/u });
     const early = await within(page).findByRole("switch", { name: "Use Early" });
     await waitFor(() => expect(early.getAttribute("aria-checked")).toBe("false"));
