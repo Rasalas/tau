@@ -30,6 +30,8 @@ const UNSIGNED: SignatureState = { state: "unsigned" };
 export interface InstallerOptions {
   cwd: string;
   home?: string;
+  /** Project sources may be updated only in a trusted project. */
+  trusted?: (cwd: string) => boolean;
   /** One line per step, for the host job that runs the command. */
   progress?: (message: string) => void;
   /** Where `npm` comes from; the host seam's `findCommand` by default. */
@@ -93,7 +95,7 @@ async function fetchSource(source: ExtensionSource, home: string, options: Insta
     const store = await ensureNpmStore(home);
     options.progress?.(`npm install ${source.spec ? `${source.value}@${source.spec}` : source.value}`);
     await run(npmExecutable(options), [
-      "install", "--prefix", store, "--no-audit", "--no-fund", "--save",
+      "install", "--prefix", store, "--no-audit", "--no-fund", "--ignore-scripts", "--save",
       source.spec ? `${source.value}@${source.spec}` : source.value,
     ], { signal: options.signal });
     return directory;
@@ -273,13 +275,19 @@ async function stillListed(raw: string, removedFrom: PackageScope, cwd: string, 
   return file.sources.includes(raw);
 }
 
-/** Re-fetches one source, or every source both packages files list. */
+/** Re-fetches global sources and, in a trusted project, project sources. */
 export async function updateExtensionSources(raw: string | undefined, options: InstallerOptions): Promise<InstalledExtension[]> {
   const home = options.home ?? packagesHome();
-  const installed = await listInstalledSources(options.cwd, home);
+  const trusted = options.trusted?.(options.cwd) === true;
+  if (!trusted) options.progress?.("Skipping project packages: trust this project before updating them.");
+  const installed = await listInstalledSources(options.cwd, home, trusted);
   const wanted = raw ? parseExtensionSource(raw, options.cwd) : undefined;
   const targets = installed.filter((entry) => !entry.error && (wanted === undefined || sameSource(entry.source, wanted)));
-  if (wanted !== undefined && targets.length === 0) throw new HostCommandError(`${wanted.raw} is not installed.`);
+  if (wanted !== undefined && targets.length === 0) {
+    throw new HostCommandError(trusted
+      ? `${wanted.raw} is not installed.`
+      : `${wanted.raw} is not installed globally; trust this project before updating project packages.`);
+  }
   const results: InstalledExtension[] = [];
   for (const entry of targets) {
     try {
