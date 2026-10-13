@@ -54,6 +54,8 @@ export interface AgentRow {
   settings?: string;
   /** The backend kit whose sign-in opens in place, and the instance it is for. */
   signIn?: { extensionId: string; target: string };
+  /** The vendor's installer, offered as a hint beside an in-place sign-in that sets the program up itself. */
+  ownInstall?: string;
 }
 
 /** A runtime backend as the snapshot lists it. */
@@ -97,6 +99,10 @@ function backendRow(backend: BackendEntry, status: AgentStatus | undefined, comm
   if (!status) return { id, label, state: "checking", summary: "Checking…" };
   const version = status.version ?? backend.version?.installed;
   if (status.error) return { ...next("settings", `${version ? `${version} · ` : ""}Could not check`), detail: status.error };
+  if (!status.installed && status.signInInstalls) {
+    // The kit's sign-in fetches the program itself, as its Providers card does: one way in, not the vendor's installer.
+    return { id, label, state: "signIn", summary: "Not installed · Tau fetches it when you sign in", signIn: { extensionId: kit.extensionId, target: kit.instance ?? "default" }, ...(commands.install ? { ownInstall: commands.install } : {}) };
+  }
   if (!status.installed) return next("install", "Not installed", commands.install);
   const shown = version ?? "Installed";
   if (status.update) return next("update", `${shown} is older than Tau speaks to`, status.update.command);
@@ -234,6 +240,12 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
           </Suspense>
         </div>
       ) : null}
+      {open && row.ownInstall ? (
+        <>
+          <p className="onboarding-note onboarding-own-install">Prefer your own copy of {row.label}? Install it with the vendor's installer, then press Check again. Tau finds it on your PATH.</p>
+          <CommandBlock command={row.ownInstall} actions={actions} />
+        </>
+      ) : null}
     </div>
   );
 }
@@ -267,6 +279,15 @@ function Notes({ state }: { state: FlowState }) {
   </>;
 }
 
+/** A failed check in a few words, the reason in its tooltip, and a way to ask again. */
+function CheckFailed({ message, reason, onRetry }: { message: string; reason: string; onRetry(): void }) {
+  return (
+    <p className="onboarding-error" role="alert">
+      <span title={reason}>{message}</span> <button type="button" className="onboarding-button ghost small" onClick={onRetry}>Retry</button>
+    </p>
+  );
+}
+
 function Looking({ onSkip, what }: { onSkip(): void; what: string }) {
   return <>
     <div className="onboarding-looking"><span className="spinner" /> Looking for {what} from Claude Code and Codex…</div>
@@ -287,7 +308,7 @@ function AgentsStep({ state, rows, flow, actions, aside, onContinue }: { state: 
   return (
     <StepShell title="Your agents" description="Agents available on this machine. Install or sign in to the ones you want to use; add more later under Settings › Providers.">
       <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(aside ? { aside } : {})} recheck={() => flow.recheckAgent(row.id)} />)}</div>
-      {state.error ? <p className="onboarding-error" role="alert">Could not check the tools. {state.error}</p> : null}
+      {state.toolsError ? <CheckFailed message="Could not check the tools on this machine." reason={state.toolsError} onRetry={() => flow.checkTools()} /> : null}
       <section className="onboarding-optional" aria-labelledby="onboarding-pr-tools">
         <h3 id="onboarding-pr-tools" className="onboarding-subtitle">Tools for pull requests <span className="onboarding-badge">Optional</span></h3>
         <p className="onboarding-note">Tau uses them to open pull and merge requests and show their checks. Your agents work without them.</p>
@@ -315,7 +336,7 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
   const busy = state.busy === "projects";
   return (
     <StepShell title="Choose your projects" description={PROJECTS_TEXT}>
-      {state.discoverError ? <p className="onboarding-error" role="alert">Could not check projects. {state.discoverError} <button type="button" className="onboarding-button ghost small" onClick={() => flow.discover()}>Retry</button></p> : null}
+      {state.discoverError ? <CheckFailed message="Could not look for projects on this machine." reason={state.discoverError} onRetry={() => flow.discover()} /> : null}
       {candidates.length > 0 ? <Selection count={chosen.length} total={candidates.length} busy={busy} onAll={() => flow.select("projects", candidates.map((project) => project.path))} onNone={() => flow.select("projects", [])} /> : null}
       <fieldset className="onboarding-list rows" disabled={busy}>
         <legend className="onboarding-sr">Projects to add</legend>

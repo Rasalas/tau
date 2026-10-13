@@ -17,7 +17,7 @@ If your system asks whether to open an app you downloaded from the internet, con
 
 A Tau without threads opens its welcome wizard. It has three steps:
 
-1. **Agents.** Which agent tools are installed and signed in, with the command to install or sign in to each one that isn't.
+1. **Agents.** Which agent tools are installed and signed in, with the command to install or sign in to each one that isn't. Codex signs in right there with Continue with ChatGPT, and Tau fetches Codex itself.
 2. **Projects.** The folders your agents worked in lately, newest first. Tick the ones you want in Tau.
 3. **Conversations.** Earlier conversations from those tools, imported as threads you can continue.
 
