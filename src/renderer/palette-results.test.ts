@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { menuRows, paletteRows, paletteScope, readOnlyCommands, readOnlySources, stepRow, type PaletteCommand, type PaletteRow } from "./palette-results";
+import { menuRows, paletteRows, paletteScope, readOnlyCommands, readOnlySources, scoreCommand, stepRow, type PaletteCommand, type PaletteRow } from "./palette-results";
 
 const command = (id: string, label: string, group = "Runtime", extensionName = "Runtime Controls"): PaletteCommand =>
   ({ id, label, group, extensionId: "core", extensionName, run: () => undefined });
@@ -53,6 +53,30 @@ describe("palette results", () => {
     expect(paletteScope("/src")).toEqual({ scope: "files", text: "src" });
     expect(paletteScope(">pin")).toEqual({ scope: "commands", text: "pin" });
     expect(paletteScope("pair #1")).toEqual({ scope: "all", text: "pair #1" });
+  });
+});
+
+describe("command words", () => {
+  const split = command("terminal.split", "Split terminal", "Terminal", "Terminal Kit");
+  const splitRight = command("terminal.split-right", "Split right", "Terminal", "Terminal Kit");
+  const spawn = command("terminal.new", "New terminal", "Terminal", "Terminal Kit");
+  const stage = command("workbench.split-stage", "Split or join the stage", "Workbench", "Runtime Controls");
+
+  it("finds a label by its words in any order, not only as one phrase", () => {
+    expect(scoreCommand(split, "terminal split")).toBe(2);
+    expect(scoreCommand(split, "split terminal")).toBe(4);
+    expect(scoreCommand(split, "term spl")).toBe(2);
+    expect(scoreCommand(stage, "terminal split")).toBe(0);
+    expect(scoreCommand(spawn, "terminal split")).toBe(0);
+  });
+
+  it("ranks the phrase first, then the words in the label, then words that the group supplies", () => {
+    expect(keys(paletteRows([stage, splitRight, spawn, split], "terminal split"))).toEqual(["head:Commands", "command:terminal.split", "command:terminal.split-right"]);
+    expect(keys(paletteRows([splitRight, split], "split"))).toEqual(["head:Commands", "command:terminal.split-right", "command:terminal.split"]);
+  });
+
+  it("treats a query of spaces like an empty one", () => {
+    expect(scoreCommand(split, " ")).toBe(1);
   });
 });
 

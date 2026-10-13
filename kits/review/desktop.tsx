@@ -19,7 +19,6 @@ import {
   REVIEW_OVERLAY,
   REVIEW_DIFF_PANEL,
   WORKSPACE_HOST_EXTENSION_ID,
-  WORKSPACE_CHANGES_PANEL,
   WORKSPACE_STORE_SERVICE,
   type ComposerContextChips,
   type WorkspaceStoreApi,
@@ -112,7 +111,6 @@ export const reviewExtension: DesktopExtension = {
       chips = service;
       return () => { if (chips === service) chips = undefined; };
     });
-    plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", access: "read", run: (app) => workspaceStore ? workspaceStore.openReview() : app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // A phone or a tablet reads diffs in a sheet from the title bar; the desktop's overlay and Changes panel are not drawn there.
     const compactStore = new CompactReviewStore();
     const workspaceHost = plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID);

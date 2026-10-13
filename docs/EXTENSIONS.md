@@ -286,7 +286,11 @@ over a default on the same chord instead of colliding with it. Keybindings Kit
 uses it for the actions the user rebound in `~/.pi/agent/keybindings.json`:
 someone who wrote `app.session.new` there meant that key, not that key and
 Tau's default too. Without `replaces`, a binding is additive, which is what a
-package adding a chord of its own wants.
+package adding a chord of its own wants. When `replaces` names a command other
+than the binding's own (Thread Rail's "Settle or un-settle thread" replaces
+Workspace Kit's "Settle thread"), the named command is a stand-in: the palette
+and the keymap list only the replacement while it is registered, and the stand-in
+still runs by its id (API 1.61.0).
 
 `registerUserKeymap({ id, label, setChords, resetAll })` (new in API 1.12.0)
 offers the file Settings → Keybindings writes the chords the user records.

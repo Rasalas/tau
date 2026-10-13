@@ -229,7 +229,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.cycle-model", label: "Cycle model forward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(1); } });
     plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });
     plugin.registerCommand({ id: "runtime.cycle-thinking", label: "Cycle thinking level", group: "Thread", access: "write", run: async (app) => { await app.cycleThinking?.(); } });
-    plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Open prompt in external editor", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
+    plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Edit prompt in $EDITOR", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
     const goalCommand = (id: string, label: string, action: "pause" | "resume" | "clear", refusal: "pause" | "resume" | "end") => plugin.registerCommand({
       id, label, group: "Thread", access: "write",
       unavailable: () => goalCommandRefusal(refusal),

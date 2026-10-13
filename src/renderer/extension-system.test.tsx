@@ -2,7 +2,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PanelIcon } from "./components/PanelIcon";
-import { ExtensionRegistry, type DesktopExtensionContext } from "./extension-system";
+import { ExtensionRegistry, type DesktopExtension, type DesktopExtensionContext, type WorkbenchActions } from "./extension-system";
 import type { Platform } from "../workbench/platform";
 import { PreferencesStore } from "./preferences";
 
@@ -384,6 +384,41 @@ describe("ExtensionRegistry keybindings", () => {
       context.registerKeybinding({ keys: "hyper+k", commandId: "first.cmd" });
     } })).toThrow('Keybinding "hyper+k"');
     warn.mockRestore();
+  });
+});
+
+describe("a command another command's binding replaces", () => {
+  const registryWith = (...extensions: DesktopExtension[]) => {
+    const registry = new ExtensionRegistry();
+    for (const extension of extensions) registry.activate(extension);
+    return registry;
+  };
+  const fallback = { id: "fallback", name: "Fallback", activate(context: DesktopExtensionContext) {
+    context.registerCommand({ id: "settle", label: "Settle thread", group: "Thread", run() {} });
+    context.registerKeybinding({ keys: "mod+shift+s", commandId: "settle" });
+  } };
+  const better = { id: "better", name: "Better", activate(context: DesktopExtensionContext) {
+    context.registerCommand({ id: "settle-or-reopen", label: "Settle or un-settle thread", group: "Thread", run() {} });
+    context.registerKeybinding({ keys: "mod+shift+s", commandId: "settle-or-reopen", replaces: "settle" });
+  } };
+
+  it("is left out of the list while the replacement is registered, and runs by its id all the same", async () => {
+    const registry = registryWith(fallback, better);
+    expect(registry.getCommands().map((command) => command.id)).toEqual(["settle-or-reopen"]);
+    expect(registry.getCommandsFor("thread-title")).toEqual([]);
+    await expect(registry.executeCommand("settle", {} as WorkbenchActions)).resolves.toBeUndefined();
+    registry.deactivate("better");
+    expect(registry.getCommands().map((command) => command.id)).toEqual(["settle"]);
+  });
+
+  it("does not hide a command whose own chord a user rebound, or one the binding names but nobody registered", () => {
+    const registry = registryWith(fallback);
+    registry.applyKeybindingOverrides({ settle: "mod+alt+s" });
+    expect(registry.getCommands().map((command) => command.id)).toEqual(["settle"]);
+    const ghost = registryWith(fallback, { id: "ghost", name: "Ghost", activate(context) {
+      context.registerKeybinding({ keys: "mod+alt+g", commandId: "missing", replaces: "settle" });
+    } });
+    expect(ghost.getCommands().map((command) => command.id)).toEqual(["settle"]);
   });
 });
 
