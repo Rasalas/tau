@@ -3,19 +3,21 @@ import { ChevronDown, Sparkles } from "lucide-react";
 import type { HostSnapshot, TauCompactionConfig, TauConfig, TauRetryConfig, UiModel } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
 import { errorMessage } from "../../workbench/error-message";
-import { ModelPicker, modelKey } from "./ModelPicker";
-import { ProviderIconStack } from "./ProviderIconStack";
+import { ModelPicker, modelKey } from "../components/ModelPicker";
+import { ProviderIconStack } from "../components/ProviderIconStack";
 import { modelOnPlan } from "../runtime-marks";
-import { tooltipProps } from "./ui/Tooltip";
-import { Badge, NumberField, SegmentedControl, Select, SettingsState, Switch, TextField } from "../settings/controls";
-import { SettingRow, SettingsSection } from "../settings/settings-layout";
-import { settingAnchor } from "../settings/settings-search";
+import { tooltipProps } from "../components/ui/Tooltip";
+import { Badge, NumberField, SegmentedControl, Select, SettingsState, Switch, TextField } from "./controls";
+import { SettingRow, SettingsAdvanced, SettingsSection, useSetting } from "./settings-layout";
+import { settingAnchor } from "./settings-search";
 
 /**
  * Pi's own settings, the ones Pi reads from `~/.pi/agent/settings.json` and
  * applies itself. Tau mirrors them for reading and writes them back to that
  * file through `update-config`, so the workbench and the Pi CLI share one
- * configuration instead of Tau keeping a copy nothing acts on.
+ * configuration instead of Tau keeping a copy nothing acts on. The default
+ * model and thinking sit on Pi's entry in Settings → Runtimes; the rest is
+ * folded under Advanced.
  */
 const PI_BUILTIN_TOOLS = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"] as const;
 
@@ -31,6 +33,8 @@ type Trust = NonNullable<TauConfig["defaultProjectTrust"]>;
 const TRUST_OPTIONS = [{ value: "ask", label: "Ask" }, { value: "always", label: "Always" }, { value: "never", label: "Never" }] as const;
 
 const TRUST_REASON = "A global setting of Pi. Write Pi settings to All projects to change it.";
+
+const readNumber = (raw: unknown) => (typeof raw === "number" && Number.isFinite(raw) ? raw : undefined);
 
 /** Why `text` is no model Pi's file can name. */
 function modelProblem(text: string): string | undefined {
@@ -48,19 +52,19 @@ function without<T extends object>(record: T, key: keyof T): T {
   return next;
 }
 
-/** The startup model: Pi's models in the picker when the host named them, else the id typed. */
-function StartupModel({ value, models, onChange }: { value: string; models: readonly UiModel[]; onChange(value: string): void }) {
+/** The default model: Pi's models in the picker when the host named them, else the id typed. */
+function DefaultModel({ value, models, onChange }: { value: string; models: readonly UiModel[]; onChange(value: string): void }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   if (models.length === 0) {
-    return <TextField label="Startup model" value={value} mono placeholder="provider/model-id" validate={modelProblem} onCommit={(text) => onChange(text.trim())} />;
+    return <TextField label="Default model" value={value} mono placeholder="provider/model-id" validate={modelProblem} onCommit={(text) => onChange(text.trim())} />;
   }
   const chosen = value ? models.find((model) => modelKey(model) === value) : undefined;
   const shown = chosen?.name ?? (value || "Not set");
   return (
     <div className="settings-row-inline">
       <button ref={anchor} type="button" className="settings-model-button" aria-haspopup="dialog" aria-expanded={open}
-        aria-label={`Startup model: ${shown}`} onClick={() => setOpen((current) => !current)}
+        aria-label={`Default model: ${shown}`} onClick={() => setOpen((current) => !current)}
         {...tooltipProps(value || undefined, { when: "truncated" })}>
         {chosen ? <ProviderIconStack modelProvider={chosen.provider} plan={modelOnPlan(chosen)} className="chip-icon" hint={false} /> : <Sparkles size={14} className="accent" />}
         <span>{shown}</span>
@@ -73,7 +77,19 @@ function StartupModel({ value, models, onChange }: { value: string; models: read
   );
 }
 
-export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
+/** Pi's file as the page reads and writes it: loaded once, shared by the default rows and Advanced. */
+export interface PiConfigHandle {
+  /** Whether a machine is connected to read it from. */
+  connected: boolean;
+  config: TauConfig | undefined;
+  loadError: string | undefined;
+  reload(): void;
+  write(patch: Partial<TauConfig>): void;
+  scope: "global" | "project";
+  setScope(scope: "global" | "project"): void;
+}
+
+export function usePiConfig(snapshot: HostSnapshot | undefined, onNotify: (message: string, level?: "info" | "warning" | "error") => void): PiConfigHandle {
   const client = useHostClient();
   // The opaque id is how a workspace is addressed; `cwd` is display data.
   const workspaceId = snapshot?.workspaceId ?? snapshot?.cwd;
@@ -97,30 +113,84 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
       .then((next) => setConfig(next))
       .catch((error: unknown) => onNotify(`Pi's settings were not written: ${errorMessage(error)}`, "error"));
   };
+  return { connected: Boolean(client), config, loadError, reload: () => setAttempt((count) => count + 1), write, scope, setScope };
+}
 
-  if (!client) {
-    return <div className="settings-page"><SettingsState kind="empty" title="No machine connected" description="Pi's settings live on the machine. Connect to one to read and change them." /></div>;
+/** The rows of Pi's "Default model" section; nothing is drawn before the file has been read, so no control shows a default that is a guess. */
+export function PiDefaults({ pi, snapshot }: { pi: PiConfigHandle; snapshot: HostSnapshot | undefined }) {
+  const { config, write } = pi;
+  if (!pi.connected) {
+    return <SettingsState kind="empty" title="No machine connected" description="Pi's settings live on the machine. Connect to one to read and change them." />;
   }
-  // Nothing is drawn before the file has been read: a control that shows a
-  // default while the real value is still on its way would be a guess.
   if (!config) {
-    return (
-      <div className="settings-page">
-        {loadError
-          ? <SettingsState kind="error" title="Pi's settings did not load" description={loadError} onRetry={() => setAttempt((count) => count + 1)} />
-          : <SettingsState kind="loading" title="Reading Pi's settings" rows={4} />}
-      </div>
-    );
+    return pi.loadError
+      ? <SettingsState kind="error" title="Pi's settings did not load" description={pi.loadError} onRetry={pi.reload} />
+      : <SettingsState kind="loading" title="Reading Pi's settings" rows={2} />;
   }
+  const piModels = snapshot?.completionModels ?? (snapshot?.backendKind === "pi" ? snapshot.models : undefined) ?? [];
+  const thinking = config.models?.thinkingLevel;
+  return (
+    <>
+      <SettingRow
+        id={settingAnchor("Default model")}
+        title="Default model"
+        description="What a new Pi thread starts on. A thread changes it in the composer."
+        help="Pi's file stores it as provider/model-id."
+        control={<DefaultModel value={config.models?.default ?? ""} models={piModels} onChange={(value) => write({ models: { ...config.models, default: value } })} />}
+      />
+      <SettingRow
+        id={settingAnchor("Default thinking")}
+        title="Default thinking"
+        description="How much the model reasons before it answers."
+        help="A model that does not think in levels ignores it. The composer's thinking chip sets it for one thread."
+        control={<Select
+          label="Default thinking"
+          value={thinking}
+          placeholder={thinking ? `${thinking} (unknown)` : "Pi's default"}
+          options={PI_THINKING_LEVELS.map((level) => ({ value: level, label: THINKING_LABELS[level] }))}
+          onChange={(value) => write({ models: { ...config.models, thinkingLevel: value } })}
+        />}
+      />
+    </>
+  );
+}
 
+/** What Pi samples with. Core's, so safe mode still has it. */
+function Sampling() {
+  const temperature = useSetting<number | undefined>("temperature", { defaultValue: undefined, scope: "both", read: readNumber, format: (value) => (value === undefined ? "Model default" : String(value)) });
+  const maxTokens = useSetting<number | undefined>("maxTokens", { defaultValue: undefined, scope: "both", read: readNumber, format: (value) => (value === undefined ? "Model default" : String(value)) });
+  return (
+    <SettingsSection title="Sampling">
+      <SettingRow
+        id={settingAnchor("Temperature")}
+        title="Temperature"
+        description="How freely a Pi thread's model picks its words, from 0 to 2. Empty leaves it to the model."
+        help="Other runtimes choose their own. OpenAI's reasoning models, and Claude while it thinks, take none."
+        setting={temperature}
+        control={<NumberField label="Temperature" value={temperature.value} step={0.1} min={0} max={2} placeholder="Model default" width="md" onCommit={temperature.set} onClear={temperature.reset} />}
+      />
+      <SettingRow
+        id={settingAnchor("Max tokens")}
+        title="Max tokens"
+        description="The longest answer a Pi thread's model may give. Empty leaves it to the model."
+        help="Other runtimes choose their own; the ChatGPT subscription's models take none."
+        setting={maxTokens}
+        control={<NumberField label="Max tokens" value={maxTokens.value} step={256} min={1} integer unit="tokens" placeholder="Model default" width="md" onCommit={maxTokens.set} onClear={maxTokens.reset} />}
+      />
+    </SettingsSection>
+  );
+}
+
+/** Pi's expert values: where they are written, trust, compaction, retries, delivery, tools and sampling. */
+export function PiAdvanced({ pi, snapshot }: { pi: PiConfigHandle; snapshot: HostSnapshot | undefined }) {
+  const { config, write, scope } = pi;
+  if (!config) return null;
   const compaction: TauCompactionConfig = config.compaction ?? {};
   const retry: TauRetryConfig = config.retry ?? {};
   const tools = config.defaultTools;
-  const piModels = snapshot?.completionModels ?? (snapshot?.backendKind === "pi" ? snapshot.models : undefined) ?? [];
-  const thinking = config.models?.thinkingLevel;
 
   return (
-    <div className="settings-page">
+    <SettingsAdvanced id="pi-advanced" hint="Pi's own file, shared with the Pi CLI">
       <SettingsSection title="Projects">
         <SettingRow
           id={settingAnchor("Write Pi settings to")}
@@ -133,7 +203,7 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
             label="Write Pi settings to"
             value={scope}
             options={[{ value: "global", label: "All projects" }, { value: "project", label: "This project", disabled: !snapshot?.cwd }]}
-            onChange={setScope}
+            onChange={pi.setScope}
           />}
         />
         <SettingRow
@@ -143,29 +213,6 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
           help="Always trusts them, Never ignores them, Ask asks in the Pi CLI and ignores them where it cannot ask."
           disabledReason={scope === "project" ? TRUST_REASON : undefined}
           control={<SegmentedControl<Trust> label="Project trust" value={config.defaultProjectTrust ?? "ask"} options={TRUST_OPTIONS} onChange={(defaultProjectTrust) => write({ defaultProjectTrust })} />}
-        />
-      </SettingsSection>
-
-      <SettingsSection title="Startup">
-        <SettingRow
-          id={settingAnchor("Startup model")}
-          title="Startup model"
-          description="The model Pi starts on."
-          help="Pi's file stores it as provider/model-id."
-          control={<StartupModel value={config.models?.default ?? ""} models={piModels} onChange={(value) => write({ models: { ...config.models, default: value } })} />}
-        />
-        <SettingRow
-          id={settingAnchor("Startup thinking level")}
-          title="Startup thinking level"
-          description="How much the startup model reasons before it answers."
-          help="A model that does not think in levels ignores it."
-          control={<Select
-            label="Startup thinking level"
-            value={thinking}
-            placeholder={thinking ? `${thinking} (unknown)` : "Pi's default"}
-            options={PI_THINKING_LEVELS.map((level) => ({ value: level, label: THINKING_LABELS[level] }))}
-            onChange={(value) => write({ models: { ...config.models, thinkingLevel: value } })}
-          />}
         />
         <SettingRow
           id={settingAnchor("Quiet startup")}
@@ -184,23 +231,23 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
         />
         <SettingRow
           id={settingAnchor("Reserve tokens")}
-          title="Reserve tokens"
-          description="Held back for the model's reply. Empty uses Pi's 16,384."
-          control={<NumberField label="Reserve tokens" value={compaction.reserveTokens} integer min={1} max={1_000_000} step={1024} unit="tokens" placeholder="16384" width="md"
+          title="Room for the reply"
+          description="Held back for the model's reply (Pi's reserveTokens). Empty uses Pi's 16,384."
+          control={<NumberField label="Room for the reply" value={compaction.reserveTokens} integer min={1} max={1_000_000} step={1024} unit="tokens" placeholder="16384" width="md"
             onCommit={(reserveTokens) => write({ compaction: { ...compaction, reserveTokens } })}
             onClear={() => write({ compaction: without(compaction, "reserveTokens") })} />}
         />
         <SettingRow
           id={settingAnchor("Keep recent tokens")}
-          title="Keep recent tokens"
-          description="The latest part of the conversation left unsummarized. Empty uses Pi's 20,000."
-          control={<NumberField label="Keep recent tokens" value={compaction.keepRecentTokens} integer min={0} max={1_000_000} step={1000} unit="tokens" placeholder="20000" width="md"
+          title="Keep recent"
+          description="The latest part of the conversation left unsummarized (Pi's keepRecentTokens). Empty uses Pi's 20,000."
+          control={<NumberField label="Keep recent" value={compaction.keepRecentTokens} integer min={0} max={1_000_000} step={1000} unit="tokens" placeholder="20000" width="md"
             onCommit={(keepRecentTokens) => write({ compaction: { ...compaction, keepRecentTokens } })}
             onClear={() => write({ compaction: without(compaction, "keepRecentTokens") })} />}
         />
       </SettingsSection>
 
-      <SettingsSection title="Retry">
+      <SettingsSection title="Retries">
         <SettingRow
           id={settingAnchor("Retry on transient errors")}
           title="Retry on transient errors"
@@ -209,17 +256,17 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
         />
         <SettingRow
           id={settingAnchor("Max retries")}
-          title="Max retries"
-          description="Attempts after the first. Empty uses Pi's 3."
-          control={<NumberField label="Max retries" value={retry.maxRetries} integer min={0} max={20} placeholder="3" width="md"
+          title="Retries"
+          description="Attempts after the first (Pi's maxRetries). Empty uses Pi's 3."
+          control={<NumberField label="Retries" value={retry.maxRetries} integer min={0} max={20} placeholder="3" width="md"
             onCommit={(maxRetries) => write({ retry: { ...retry, maxRetries } })}
             onClear={() => write({ retry: without(retry, "maxRetries") })} />}
         />
         <SettingRow
           id={settingAnchor("Base delay")}
-          title="Base delay"
-          description="The wait before the first retry, doubled for each one after. Empty uses Pi's 2,000 ms."
-          control={<NumberField label="Base delay" value={retry.baseDelayMs} integer min={0} max={60_000} step={500} unit="ms" placeholder="2000" width="md"
+          title="First wait"
+          description="The wait before the first retry, doubled for each one after (Pi's baseDelayMs). Empty uses Pi's 2,000 ms."
+          control={<NumberField label="First wait" value={retry.baseDelayMs} integer min={0} max={60_000} step={500} unit="ms" placeholder="2000" width="md"
             onCommit={(baseDelayMs) => write({ retry: { ...retry, baseDelayMs } })}
             onClear={() => write({ retry: without(retry, "baseDelayMs") })} />}
         />
@@ -290,6 +337,8 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
             onCommit={(value) => write({ npmCommand: value.trim().split(/\s+/u) })} />}
         />
       </SettingsSection>
-    </div>
+
+      <Sampling />
+    </SettingsAdvanced>
   );
 }
