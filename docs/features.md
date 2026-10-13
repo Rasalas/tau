@@ -85,7 +85,8 @@ confirmed when the run ended without a verdict. Click the pill for the
 objective, tokens and turns, and to pause, resume or end it; `/goal pause`,
 `/goal resume` and `/goal end` do the same from the keyboard.
 
-**Stop** (or Escape) stops the turn and pauses a Codex goal before its next
+**Stop** (or Escape, except over an open tool approval, where Escape denies it
+and the run goes on) stops the turn and pauses a Codex goal before its next
 turn starts. Claude Code cannot pause a goal: Stop ends the turn and the goal
 stays set until you end it. A line under the stopped turn says what Stop
 ended, and whether anything may still wake the thread. After a restart a Codex

@@ -4,6 +4,7 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionUiPrompt, HostSnapshot } from "../../shared/contracts";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
+import { runningTurn } from "../test-support/kit-harness";
 import { TestProviders } from "../test-support/test-providers";
 import { WorkbenchShellContext } from "../workbench-context";
 import { Composer } from "./Composer";
@@ -272,6 +273,54 @@ describe("prompt controls in the composer", () => {
     expect(onAnswerPrompt).not.toHaveBeenCalled();
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
     expect(onAnswerPrompt).toHaveBeenCalledWith(true, undefined);
+  });
+
+  it("denies an approval on Escape in the composer instead of stopping the run, but only once it has opened", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { abort } = runningTurn();
+      const onAnswerPrompt = vi.fn();
+      const view = (prompt?: ExtensionUiPrompt) => (
+        <TestProviders>
+          <main data-keybinding-context="chat">
+            <Composer
+              scopeStore={new ComposerScopeStore()}
+              snapshot={snapshot}
+              {...(prompt ? { prompt } : {})}
+              queue={[]}
+              contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+              textareaRef={createRef<HTMLTextAreaElement>()}
+              onSubmit={vi.fn(async () => ({ accepted: true as const }))}
+              onAbort={() => {}}
+              onCancelQueued={() => {}}
+              onSteerQueued={() => {}}
+              onSetModel={() => {}}
+              onSetThinking={() => {}}
+              onAnswerPrompt={onAnswerPrompt}
+              onCompactContext={() => {}}
+            />
+          </main>
+        </TestProviders>
+      );
+      const { rerender } = render(view());
+      const field = screen.getByRole("textbox") as HTMLTextAreaElement;
+      field.focus();
+      fireEvent.keyDown(field, { key: "x" });
+      rerender(view({ id: "permission", sessionId: "session", kind: "confirm", title: "Wants to run", message: "rm -rf build" }));
+      await waitFor(() => expect(document.querySelector(".extension-prompt.is-approval")).toBeTruthy());
+      // Typing has not stopped: the card is inert, the key is not its answer and stops the run as before.
+      fireEvent.keyDown(field, { key: "Escape" });
+      expect(onAnswerPrompt).not.toHaveBeenCalled();
+      expect(abort).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1600);
+      await waitFor(() => expect(document.querySelector(".prompt-arrival.waiting")).toBeNull());
+      fireEvent.keyDown(field, { key: "Escape" });
+      expect(onAnswerPrompt).toHaveBeenCalledExactlyOnceWith(false, undefined);
+      expect(abort).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("submits registered prompt actions from the composer button and on Enter", () => {
