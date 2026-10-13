@@ -3057,7 +3057,9 @@ thread's turn ends. `from` names the thread that sent it, so the queue can say
 where a message came from. A thread whose runtime the host released is
 reopened off screen first. `services.sessions.abort(sessionId)` stops a
 thread's running turn, as the stop button does; what the thread had queued
-then waits for the user.
+then waits for the user. Abort has a five-second deadline. An unresponsive
+runtime is disconnected and its saved session reopened after at most one
+second of cleanup. Late events from the discarded runtime are ignored.
 
 `wake: { source, label }` in `send`'s options (new in API 1.52.0) marks a
 message that something other than the user sent: a pull request event, a

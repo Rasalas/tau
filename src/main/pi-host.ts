@@ -657,6 +657,7 @@ export class PiHost {
   }
 
   private readonly sessionControl = new AgentSessionControl({
+    stopped: (thread) => { this.handleBackendEvent(thread.threadId, { type: "turn-settled", status: "interrupted" }); this.turnsInFlight.clear(thread.threadId); },
     thread: (id) => id ? this.requireThread(id) : this.requireActive(), active: () => this.active,
     isAttached: (thread) => this.ownedByPi(thread), pending: (id) => this.turnObservers.pending(id),
     hasQuestion: (id) => this.extensionUi.hasOpen(id), path: (id) => this.index.byId(id)?.path,
@@ -1621,7 +1622,7 @@ export class PiHost {
       const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted, error) => report({ accepted, ...(error !== undefined ? { error } : {}) }), options.hidden)
         .then(() => report({ accepted: true }), (error) => {
           if (preflight.state === "pending") report({ accepted: false, error });
-          else if (preflight.state === "accepted") this.fail(error, thread.threadId);
+          else if (preflight.state === "accepted" && this.threadFor(thread.threadId) === thread) this.fail(error, thread.threadId);
         });
       await Promise.race([admitted, run]);
       if (preflight.state === "rejected") throw preflight.rejection;
@@ -1691,12 +1692,14 @@ export class PiHost {
         onAdmitted: (accepted, error) => reportPreflight({ accepted, ...(error !== undefined ? { error } : {}) }),
       });
       void run.then(async () => {
+        if (this.threads.get(thread.threadId)?.runtime !== thread) return;
         if (preflightState === "pending") reportPreflight({ accepted: true });
         if ((preflightState as PromptPreflightState) === "rejected") return;
         if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
         if (preparedTurnId) await this.turnObservers.ended(thread.threadId, preparedTurnId, "completed");
         if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
       }).catch((error) => {
+        if (this.threads.get(thread.threadId)?.runtime !== thread) return;
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
         else if (preflightState === "accepted") this.turns.failAcceptedTurn(thread, preparedTurnId, error);
       });
@@ -1784,17 +1787,13 @@ export class PiHost {
 
   threadGoal(sessionId: string, action: GoalAction, objective?: string): Promise<void> { return this.controls.goal(sessionId, action, objective); }
 
-  /**
-   * Stops one thread's run. Its open questions and approvals are settled first:
-   * Pi's abort waits for the run to go idle, and a tool blocked on an unanswered
-   * question would otherwise hold that wait open indefinitely.
-   */
+  /** Settles questions before stopping a run whose abort may wait for idle. */
   private async abortThread(thread: ThreadRuntime): Promise<void> {
     this.extensionUi.cancelFor(thread.threadId);
     thread.adapterAbortGeneration += 1;
     for (const controller of thread.adapterAbortControllers) controller.abort();
     this.queue.hold(thread.threadId);
-    await thread.backend.abort();
+    await this.sessionControl.abort(thread, this.activationEpoch);
   }
 
   async setModel(provider: string, id: string, expectedSessionId?: string): Promise<HostActionResult> {

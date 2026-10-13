@@ -91,3 +91,16 @@ export async function finishHostShutdown(errors: unknown[], stores: readonly (()
   }
   if (errors.length > 0) throw new AggregateError(errors, "Pi runtime shutdown failed");
 }
+
+/** True when the operation answered; the losing promise remains observed. */
+export async function beforeRuntimeDeadline(operation: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation.then(() => true),
+      new Promise<false>((expire) => { timer = setTimeout(() => expire(false), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}

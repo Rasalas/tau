@@ -15,6 +15,7 @@ export interface WorkbenchReloadCoordinatorOptions {
 /** Owns the drain-and-lock protocol used before replacing the workbench. */
 export class WorkbenchReloadCoordinator {
   private pending = false;
+  private aborting?: Promise<void>;
 
   constructor(private readonly options: WorkbenchReloadCoordinatorOptions) {}
 
@@ -44,19 +45,28 @@ export class WorkbenchReloadCoordinator {
       await this.waitForRuns();
       return { ready: true, runningThreads: 0 };
     }
-    return this.options.serialize(async () => {
-      if (this.pending) return { ready: true, runningThreads: 0 };
+    const { preparation, aborting } = await this.options.serialize(async () => {
       const runningThreads = this.runningCount();
+      if (this.pending) return {
+        preparation: { ready: !this.aborting, runningThreads: this.aborting ? runningThreads : 0 },
+        aborting: this.aborting,
+      };
       if (mode === "inspect") {
         if (runningThreads === 0) this.pending = true;
-        return { ready: runningThreads === 0, runningThreads };
+        return { preparation: { ready: runningThreads === 0, runningThreads }, aborting: undefined };
       }
       if (mode !== "abort") throw new Error(`Unknown workbench reload mode: ${mode}`);
       this.pending = true;
-      await Promise.all(this.options.runs().map((run) => run.abort()));
-      return { ready: true, runningThreads: 0 };
+      this.aborting = Promise.all(this.options.runs().map((run) => run.abort())).then(() => undefined);
+      return { preparation: { ready: true, runningThreads: 0 }, aborting: this.aborting };
     });
+    if (mode === "abort") {
+      try { await aborting; } catch (error) { this.release(); throw error; }
+      if (this.aborting === aborting) this.aborting = undefined;
+      return { ready: true, runningThreads: 0 };
+    }
+    return preparation;
   }
 
-  release(): void { this.pending = false; }
+  release(): void { this.pending = false; this.aborting = undefined; }
 }
