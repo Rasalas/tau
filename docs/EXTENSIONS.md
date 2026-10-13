@@ -2123,6 +2123,10 @@ does not, so a save never lands in another project. A write
 that names the mtime the editor last saw is refused as
 `{ status: "conflict" }` when the file changed since, `null` expects no file,
 and no `expectedMtimeMs` writes regardless — that is "keep my version".
+Text reads require valid UTF-8. Non-UTF-8 files use the non-editable `binary`
+kind, and oversized text previews remain read-only. Files Kit preserves the
+document's line separator and UTF-8 BOM. Saves replace the symlink's target
+atomically through a temporary file beside it, preserving its mode and owner.
 `list-editors` answers every editor the machine has — VS Code, Insiders,
 VSCodium, Cursor, Windsurf, Trae, Kiro, Antigravity, Zed, Sublime Text and the
 JetBrains IDEs, found on the login shell's PATH (`findCommand`), among the
