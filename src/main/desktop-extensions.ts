@@ -6,6 +6,8 @@ import { build, transform, type Plugin } from "esbuild";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
 import { MANIFEST_FILE, isThemeManifest, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
+import { readTrustedPublishers, trustedPublishersPath } from "./extension-signature.js";
+import { readPackageGrantIdentity } from "./extension-grant-identity.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import { describeBuildError, packageBuilds } from "./package-builds.js";
@@ -284,6 +286,7 @@ export async function loadDesktopExtensions(
   const skipped: DesktopExtensionLoadResult["skipped"] = [];
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
   const grantsFile = await readExtensionGrants(options.grantsFilePath);
+  const publishers = await readTrustedPublishers(trustedPublishersPath(options.home ?? packagesHome()));
   const only = options.only ? new Set(options.only) : undefined;
 
   const roots = desktopExtensionDirectories(cwd, options.home);
@@ -319,7 +322,7 @@ export async function loadDesktopExtensions(
       try {
         const permissions = entry.manifest?.permissions ?? [];
         // A theme runs no code and asks for nothing, so there is no grant to wait for.
-        const granted = entry.theme || !entry.manifest || isPackageGranted(entry.manifest, grantsFile.grants);
+        const granted = entry.theme || !entry.manifest || isPackageGranted(entry.manifest, grantsFile.grants, await readPackageGrantIdentity(folder, entry.manifest, publishers));
         const code = !granted ? "" : entry.theme ? themeExtensionModule(entry.manifest!) : await bundleDesktopExtension(entry.path, options);
         if (granted && !entry.theme) packageBuilds.record({ ...attempt, at: Date.now(), ok: true });
         const styles = granted && entry.styles ? await readFile(entry.styles, "utf8") : undefined;

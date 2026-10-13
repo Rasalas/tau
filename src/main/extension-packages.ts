@@ -17,7 +17,8 @@ import { DEFAULT_PACKAGE_ISOLATION, isExtensionIsolation, isExtensionPermission,
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
 import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listInstalledSources, packagesHome } from "./extension-sources.js";
-import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher } from "./extension-signature.js";
+import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher, trustedPublishersPath } from "./extension-signature.js";
+import { readPackageGrantIdentity, type PackageGrantIdentity } from "./extension-grant-identity.js";
 import { tauHomeDir } from "./app-identity.js";
 
 export const MANIFEST_FILE = "tau-extension.json";
@@ -76,6 +77,7 @@ export interface ExtensionPackage {
   installedFrom?: string;
   /** What `tau-extension.sig` proved; a package that fails its own hashes never gets here. */
   signature?: SignatureState;
+  grantIdentity?: PackageGrantIdentity;
 }
 
 export function extensionPackageDirectories(cwd: string, home = packagesHome()): Array<{ scope: "global" | "project"; directory: string }> {
@@ -263,7 +265,8 @@ async function readPackageFolder(
   // A hash that no longer matches means the folder changed after it was signed:
   // that is a broken package, not a weaker one, so it does not load at all.
   if (signature.state === "tampered") throw new PackageFolderError(describeSignature(signature), identity);
-  return { scope, directory: packageDir, ...parsed, signature };
+  const grantIdentity = await readPackageGrantIdentity(packageDir, parsed.manifest, publishers);
+  return { scope, directory: packageDir, ...parsed, signature, grantIdentity };
 }
 
 /** Every package folder with a manifest; project folders only where Pi trusts the project. */
@@ -274,7 +277,7 @@ export async function listExtensionPackages(
 ): Promise<PackageScanResult> {
   const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
   const home = options.home ?? packagesHome();
-  const publishers = await readTrustedPublishers(options.publishersFilePath ?? undefined);
+  const publishers = await readTrustedPublishers(options.publishersFilePath ?? trustedPublishersPath(home));
   const result: PackageScanResult = { packages: [], errors: [], skipped: [] };
   const seen = new Set<string>();
   for (const { scope, directory } of extensionPackageDirectories(cwd, home)) {
@@ -384,7 +387,7 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
       permissions: pkg.manifest.permissions ?? [],
       isolation: packageIsolation(pkg.manifest),
       // A theme runs no code and asks for nothing: there is no grant to wait for.
-      granted: isThemeManifest(pkg.manifest) || isPackageGranted(pkg.manifest, grantsFile.grants),
+      granted: isThemeManifest(pkg.manifest) || isPackageGranted(pkg.manifest, grantsFile.grants, pkg.grantIdentity),
       ...(pkg.manifest.source ? { source: { ...pkg.manifest.source } } : {}),
       ...(pkg.installedFrom ? { installedFrom: pkg.installedFrom } : {}),
       ...(pkg.signature ? { signature: { state: pkg.signature.state, label: describeSignature(pkg.signature) } } : {}),
@@ -614,7 +617,7 @@ export async function loadHostExtensionPackages(
   const result: HostPackageLoadResult = { extensions: [], ungranted: [], errors: [...scan.errors], skipped: scan.skipped };
   for (const pkg of scan.packages) {
     if (!pkg.hostEntry) continue;
-    if (!isPackageGranted(pkg.manifest, grantsFile.grants)) {
+    if (!isPackageGranted(pkg.manifest, grantsFile.grants, pkg.grantIdentity)) {
       result.ungranted.push(pkg);
       continue;
     }
@@ -640,6 +643,7 @@ export async function loadHostExtensionPackages(
           name: pkg.manifest.name,
           permissions: pkg.manifest.permissions ?? [],
           file: bundlePath,
+          packageDirectory: pkg.directory,
           ...(options.worker ?? {}),
         });
       result.extensions.push({ extension, package: pkg, bundleHash: hostBundleHash(code), bundlePath });

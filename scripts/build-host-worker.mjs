@@ -6,13 +6,14 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const options = {
   absWorkingDir: root,
-  entryPoints: ["src/main/host-extension-worker.ts"],
+  entryPoints: ["src/main/host-extension-worker.ts", "src/main/host-extension-process-entry.ts"],
   bundle: true,
   platform: "node",
   format: "cjs",
   target: "node20",
   external: ["electron"],
-  outfile: "dist-electron/main/host-extension-worker.cjs",
+  outdir: "dist-electron/main",
+  outExtension: { ".js": ".cjs" },
 };
 
 if (process.argv.includes("--watch")) {

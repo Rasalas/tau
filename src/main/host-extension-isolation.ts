@@ -35,6 +35,7 @@ import {
   type WorkerThreadSnapshot,
   type WorkerToHostMessage,
 } from "./host-extension-worker-protocol.js";
+import { startExtensionProcess } from "./host-extension-process.js";
 import { watchWorkerMemory } from "./worker-memory-cap.js";
 
 /**
@@ -57,6 +58,8 @@ export interface WorkerHostExtensionOptions {
   file: string;
   /** Overrides the worker entry; the default is resolved beside this module. */
   workerEntry?: string;
+  /** Installed packages run in a permission-restricted child; bundled kits use a thread. */
+  packageDirectory?: string;
   /**
    * Heap, stack and buffer memory caps of the worker; a package that exceeds them is deactivated.
    * `maxExternalMb` counts ArrayBuffer, typed array and Buffer memory, which the heap caps leave out.
@@ -74,14 +77,14 @@ type OutgoingCall =
 const DEFAULT_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 } as const;
 const DEFAULT_MAX_EXTERNAL_MB = 512;
 
-let entryPromise: Promise<string> | undefined;
+const entryPromises = new Map<string, Promise<string>>();
 
 /** Where the worker's TypeScript lives, from wherever this module runs. */
-function workerSourcePath(): string {
+function workerSourcePath(name: string): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  const beside = join(here, "host-extension-worker.ts");
+  const beside = join(here, `${name}.ts`);
   if (existsSync(beside)) return beside;
-  const fromSource = join(here.replace(`${sep}dist-electron${sep}main`, `${sep}src${sep}main`), "host-extension-worker.ts");
+  const fromSource = join(here.replace(`${sep}dist-electron${sep}main`, `${sep}src${sep}main`), `${name}.ts`);
   if (existsSync(fromSource)) return fromSource;
   throw new Error("The isolated extension worker is missing; run npm run build.");
 }
@@ -90,13 +93,15 @@ function workerSourcePath(): string {
  * The worker entry: the CommonJS bundle the build writes beside this module,
  * or one built here when Tau runs from source (tests, `npm run dev`).
  */
-export function workerEntryPath(): Promise<string> {
-  entryPromise ??= (async () => {
+export function workerEntryPath(name = "host-extension-worker"): Promise<string> {
+  const cached = entryPromises.get(name);
+  if (cached) return cached;
+  const entryPromise = (async () => {
     // A worker thread opens its entry itself, so this has to be a real file.
-    const compiled = unpackedPath(join(dirname(fileURLToPath(import.meta.url)), "host-extension-worker.cjs"));
+    const compiled = unpackedPath(join(dirname(fileURLToPath(import.meta.url)), `${name}.cjs`));
     if (existsSync(compiled)) return compiled;
     const result = await build({
-      entryPoints: [workerSourcePath()],
+      entryPoints: [workerSourcePath(name)],
       bundle: true,
       write: false,
       format: "cjs",
@@ -112,6 +117,7 @@ export function workerEntryPath(): Promise<string> {
     if (!existsSync(file)) await writeFile(file, code, { encoding: "utf8", mode: 0o600 });
     return file;
   })();
+  entryPromises.set(name, entryPromise);
   return entryPromise;
 }
 
@@ -160,16 +166,16 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     permissions: options.permissions ?? [],
   };
   const { maxExternalMb = DEFAULT_MAX_EXTERNAL_MB, ...heapLimits } = options.resourceLimits ?? {};
-  const worker = new Worker(options.workerEntry ?? await workerEntryPath(), {
-    workerData: bootstrap,
-    resourceLimits: { ...DEFAULT_RESOURCE_LIMITS, ...heapLimits },
-  });
+  const entry = options.workerEntry ?? await workerEntryPath();
+  const worker = options.packageDirectory
+    ? await startExtensionProcess(await workerEntryPath("host-extension-process-entry"), entry, bootstrap, options)
+    : new Worker(entry, { workerData: bootstrap, resourceLimits: { ...DEFAULT_RESOURCE_LIMITS, ...heapLimits } });
   const mb = (bytes: number): number => Math.round(bytes / 1024 / 1024);
-  const unwatchMemory = watchWorkerMemory(worker, maxExternalMb * 1024 * 1024, (overrun) => {
+  const unwatchMemory = worker instanceof Worker ? watchWorkerMemory(worker, maxExternalMb * 1024 * 1024, (overrun) => {
     fail(overrun.kind === "buffers"
       ? `${options.name} exceeded its memory cap: ${mb(overrun.bytes)} MB of buffers, cap ${maxExternalMb} MB`
       : `${options.name} was stopped at the host's memory limit: it grew the host process by about ${mb(overrun.grownBytes)} MB (${mb(overrun.rssBytes)} MB of ${mb(overrun.limitBytes)} MB)`);
-  });
+  }) : () => undefined;
 
   let stopped = false;
   let started = false;

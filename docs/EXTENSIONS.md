@@ -4386,7 +4386,7 @@ A package's `permissions` array draws from a fixed list
 | `workspace:read` | read the current project's path, name and file contents through the host services, and provide and read what a project's commands may reach (`executionPolicy`, API 1.14.0). |
 | `workspace:write` | change files and write Git in the current project. |
 | `workspace:switch` | open or pick another project. |
-| `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and provide and read turn attachments. `agentDir`, Pi's configuration directory, is plain bootstrap data every package may read. |
+| `sessions` | read session files, threads and transcript entries, hook into thread lifecycle and turns, and provide and read turn attachments. `agentDir` names Pi's configuration directory; its path is bootstrap data, not direct file access for installed workers. |
 | `runtime:extend` | register Pi runtime extensions, load one Tau ships, offer tools to other runtimes over MCP (`mcp`), register runtime backends, permission levels and UI decorators — the members that hand out a live runtime — read a workspace's skill catalog (`skills`), and sign Pi's model providers in and out (`modelAuth`). |
 | `process` | start processes, and call `noteSubprocess` and `findCommand` — the host-side bookkeeping for them. In a worker `child_process` is refused without the grant, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. |
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
@@ -4402,32 +4402,32 @@ so is sending the agent a prompt. Approving a package with a desktop half
 trusts it that far, whatever its `permissions` list says; the list is what its
 host half may reach.
 
-`services.agentDir` is ungated: it is the path of Pi's own configuration
-directory (`~/.pi/agent`, or what `PI_CODING_AGENT_DIR` names), and reading inside it
-is ordinary file work that no permission gates either. A worker gets it in its
-bootstrap, so it costs no round trip. `services.sessionsDir` is its sibling:
-the Pi session directory Tau actually uses (`PI_CODING_AGENT_SESSION_DIR` when
-set, else `<agentDir>/sessions`). A package that persists thread-like state of
-its own keeps it beside that directory, so an isolated test instance never
-writes into the user's real store.
+`services.agentDir` is ungated bootstrap data: the path of Pi's configuration
+directory (`~/.pi/agent`, or what `PI_CODING_AGENT_DIR` names). An installed
+worker package cannot read or write it directly; it can contain credentials.
+`services.sessionsDir` names the Pi session directory Tau actually uses
+(`PI_CODING_AGENT_SESSION_DIR` when set, else `<agentDir>/sessions`). Installed
+workers have no direct file access there either; they use the session facade
+with the `sessions` permission and keep their own persistent state in `stateDir`.
 
-`services.stateDir` is the third of them and the one to reach for first: the
-package's own folder under Tau's user data, `<userData>/kit-state/<id>/`. It is
-ungated like the other two, it is never shared with another package, and
-nothing creates it until the package writes there. `TAU_USER_DATA` moves it
-with everything else, so a dev instance's state is its own — Agents Kit keeps
-its link index there. What belongs in the *user's* `~/.tau` instead is
+`services.stateDir` is the package's own folder under Tau's user data,
+`<userData>/kit-state/<id>/`. It is ungated and never shared with another
+package. The host creates it before starting an installed worker, which can
+read and write files there without requesting a permission. Its package files
+are directly readable but remain read-only; other packages' data folders are
+not accessible. `TAU_USER_DATA` moves the folder with everything else, so a dev
+instance's state is its own. Agents Kit keeps its link index there. What belongs
+in the *user's* `~/.tau` instead is
 configuration the user edits: Agents Kit reads its running budget
 (`maxRunningAgents`) and how far sub-agents' commands yield (`priority`:
 `"low"` by default, `"background"` or `"normal"`; `"lowPriority": false` means
 `"normal"`) from `~/.tau/agents.json` and never writes it.
 
-`services.themesDir` is the folder of the user's own themes — `~/.tau/themes`,
-or what `TAU_THEMES_DIR` names (a dev instance points it under `.tau-dev/`). It
-is ungated like the other three, a worker gets it in its bootstrap, and a
-`.css` file written there is listed and applied like one the user put there:
-the host watches the folder and every client re-reads its themes. Appearance
-Kit's theme editor saves there.
+`services.themesDir` names the user's theme folder, `~/.tau/themes` or what
+`TAU_THEMES_DIR` names. Installed workers receive the path but have no direct
+file access there. Bundled kits and in-process packages keep their existing
+direct access to these folders. Appearance Kit saves themes there; the host
+watches the folder and clients re-read the available themes.
 
 A package with no `permissions` field asks for nothing, and a list that is
 there is checked even when it is empty. A kit Tau ships declares its list like
@@ -4908,9 +4908,10 @@ its own. There is no revocation list: removing a key from
   at once. One that failed to activate, or that the user turned off, is not
   started this way; `host-extension.restarting` in the host log names each
   start and why.
-- **Compiled code in a worker:** a crash in native code is a crash of the host
-  process, with every thread in it; no worker boundary catches a segfault. That
-  is why a worker package loads no addon without the `native` grant (§6). A
+- **Compiled code in a worker:** native code needs the `native` grant (§6).
+  An installed worker package crashes its child process if native code faults.
+  A bundled worker shares the host process, so its native crash stops the host
+  and every thread in it. A
   package that loads one at its top without the grant does not start: its
   settings page shows "Extension <id> lacks permission native".
 - **A denied permission is not a failure:** reaching past the grant — a guarded
@@ -4937,7 +4938,8 @@ its own. There is no revocation list: removing a key from
 
 ## 6. What an isolated (worker) package cannot use
 
-By default a package's host half runs in a worker thread: no Electron
+By default an installed package's host half runs in a worker inside a
+permission-restricted child process: no Electron
 (`import "electron"` throws), no network, no `child_process` and no compiled
 code unless it asked for them, a 256 MB heap cap, a 512 MB buffer memory cap and the host's memory limit (§5), and a facade that only carries plain data across
 the port — nothing that hands out a live object. From
@@ -5019,14 +5021,34 @@ Two interceptions are installed, because neither covers the other:
 `require` as well). `await import("node:https")` used to walk straight past the
 first one; it does not any more.
 
-**This is still a guardrail, not an OS-level boundary.** A package holds
-`node:module` like any other Node code and can put both hooks back the way it
-found them (the native doors are the exception: the worker keeps no copy of
-`process.dlopen` or `process.binding` to put back); it reads and writes files either way, and an `in-process` package
-meets nothing at all. What the worker gives you is crash containment, a heap
-cap and a wall a mistake runs into — not a sandbox against hostile code.
-[ADR 0018](adr/0018-sandboxed-host-extensions.md) collects what a real boundary
-would cost. Install only host packages whose code you trust.
+**Installed worker packages can read and write their own data folder.** Node's
+permission model allows reads of their package and compiled entries, plus
+reads and writes in their own `services.stateDir`. The host creates and checks
+that folder before starting the worker. Package files and data-folder entries
+must not be symbolic links. The package manifest, signature, grant file and
+other packages' data folders remain unwritable. `agentDir`, `sessionsDir` and
+`themesDir` have no direct file access. The package worker cannot start another worker, even with all three permissions.
+`node:sqlite` requires `native` here because its file access bypasses Node
+filesystem permissions. Its
+trusted supervisor retains the heap, buffer and process memory checks. The
+child receives no host environment or runtime credentials. Bundled kits keep
+their worker-thread transport and direct file access.
+
+**This is not an OS sandbox.** Node's permission model is a restriction for
+trusted code, not a guarantee against arbitrary malicious code. The `process`
+and `native` grants can bypass its file restrictions. Network module guards
+remain relevant on Node versions without `--allow-net`; a package can still
+alter those module hooks. Install only host packages whose code you trust.
+[ADR 0039](adr/0039-package-grants-bind-to-code.md) records the scope and the
+remaining limits.
+
+**Consent follows code.** Grants bind to all package files, including the
+manifest and signature, as well as permissions, isolation and signer. A code
+change requires consent again unless the update is verified against the same
+still-trusted public key. Changed permissions or isolation always require a
+new grant. Removing a signature or replacing or distrusting its key also
+requires consent again. Old grants without hashes need approval once more.
+Grants are written atomically with owner-only file access.
 
 An `in-process` package is a different story. It runs with everything the host
 process can reach, so none of the three is enforced there — the approval box says

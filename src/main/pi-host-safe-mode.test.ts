@@ -61,7 +61,7 @@ describe("PiHost extension packages", () => {
   const loader = async () => ({
     extensions: [{
       extension: { id: "acme.pkg", name: "Package", activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } },
-      package: { scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest: { id: "acme.pkg", name: "Package", host: "./host.ts" } },
+      package: { grantIdentity: { contentHash: "approved-code" }, scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest: { id: "acme.pkg", name: "Package", host: "./host.ts" } },
       bundleHash: "aaaabbbbccccdddd",
       bundlePath: "/cache/acme.pkg-aaaabbbbccccdddd.cjs",
     }],
@@ -104,11 +104,12 @@ describe("PiHost extension packages", () => {
     try {
       const grantsFilePath = join(scratch, "grants.json");
       const manifest = { id: "acme.pkg", name: "Package", permissions: ["sessions"], host: "./host.ts" };
-      const pkg = { scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest };
+      const grantIdentity = { contentHash: "approved-code" };
+      const pkg = { grantIdentity, scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest };
       let imported = 0;
       const gated = async () => {
         const { readExtensionGrants, isPackageGranted } = await import("./extension-grants.js");
-        const granted = isPackageGranted(manifest, (await readExtensionGrants(grantsFilePath)).grants);
+        const granted = isPackageGranted(manifest, (await readExtensionGrants(grantsFilePath)).grants, grantIdentity);
         if (!granted) return { extensions: [], ungranted: [pkg], errors: [], skipped: [] };
         imported += 1;
         return {

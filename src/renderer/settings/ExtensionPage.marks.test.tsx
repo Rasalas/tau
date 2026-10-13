@@ -4,7 +4,8 @@ import { Bell } from "lucide-react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExtensionRegistry } from "../extension-system";
 import { PreferencesStore } from "../preferences";
-import { ExtensionGlyph, extensionMarks } from "./ExtensionPage";
+import { TestProviders } from "../test-support/test-providers";
+import { ExtensionPage, ExtensionGlyph, extensionMarks } from "./ExtensionPage";
 import type { ExtensionEntry } from "./extension-catalog";
 
 afterEach(cleanup);
@@ -44,4 +45,15 @@ describe("extension marks", () => {
     await view.findByText((_, element) => element?.tagName.toLowerCase() === "svg");
     expect(view.container.querySelector("b")).toBeNull();
   });
+});
+
+const workerText = "It runs in a process of its own: it reads its own files, writes only to its own data folder, and cannot reach the network, start programs or load compiled code without the matching permission.";
+const escapeText = "With the permission to start programs or load compiled code it could get around these limits.";
+
+it.each((["waiting", "on"] as const).flatMap((state) => [[], ["network"], ["process"], ["native"]].map((permissions) => ({ state, permissions }))))("describes worker access in plain language for $state with $permissions", async ({ state, permissions }) => {
+  const pkg = entry("acme.worker", { origin: "installed", state, permissions, host: { id: "acme.worker", name: "Worker", active: state === "on", commands: [], isolation: "worker" } });
+  const view = render(<TestProviders><ExtensionPage entry={pkg} registry={new ExtensionRegistry()} models={[]} onOpen={() => undefined} onChanged={() => undefined} onNotify={() => undefined} onHostHalves={() => undefined} /></TestProviders>);
+  const expected = permissions.includes("process") || permissions.includes("native") ? `${workerText} ${escapeText}` : workerText;
+  expect(await view.findByText(expected)).toBeTruthy();
+  expect(view.container.textContent).not.toMatch(/OS sandbox|\bNode\b|Bundled kits/);
 });

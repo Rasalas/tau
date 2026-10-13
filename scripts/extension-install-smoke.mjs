@@ -132,7 +132,9 @@ step("scan", scan.packages.map((pkg) => `${pkg.manifest.id} from ${pkg.installed
 
 // 8. The signed package runs its host half in a worker and answers a command.
 const grantsFilePath = join(home, ".tau", "extension-grants.json");
-await grantPackage({ id: "acme.hello", version: "1.0.0", permissions: ["workspace:read"] }, true, grantsFilePath);
+// Consent binds to the scanned package's code and signer (ADR 0039), as the host grants it.
+const hello = scan.packages.find((pkg) => pkg.manifest.id === "acme.hello");
+await grantPackage(hello.manifest, true, grantsFilePath, hello.grantIdentity);
 const loaded = await loadHostExtensionPackages(project, join(home, ".pi", "agent"), {
   home,
   trusted: () => true,

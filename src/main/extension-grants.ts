@@ -1,8 +1,10 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { DEFAULT_PACKAGE_ISOLATION, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { tauHomeDir } from "./app-identity.js";
+import { writePersistedJson } from "./persisted-json.js";
+import type { PackageGrantIdentity } from "./extension-grant-identity.js";
 import type { ExtensionPackageSummary } from "../shared/contracts.js";
 
 /** Only a native dialog's answer may authorize a new package grant. */
@@ -14,7 +16,12 @@ export async function confirmExtensionGrant(
   const detail = [pkg.id, pkg.directory, `Permissions: ${(pkg.permissions ?? []).join(", ") || "none"}`, `Isolation: ${isolation}`];
   if (pkg.desktop) detail.push("The desktop half can use the workbench's host connection.");
   if (isolation === "in-process") detail.push("This package can do everything the host process can.");
-  if (pkg.permissions?.includes("native")) detail.push("Native code can bypass worker guards and crash the host.");
+  if (isolation === "worker") {
+    detail.push("It runs in a process of its own: it reads its own files, writes only to its own data folder, and cannot reach the network, start programs or load compiled code without the matching permission.");
+    if (pkg.permissions?.some((permission) => permission === "process" || permission === "native")) {
+      detail.push("With the permission to start programs or load compiled code it could get around these limits.");
+    }
+  }
   const answer = await ask({ type: "warning", title: "Allow extension", message: `Allow ${pkg.name}?`, detail: detail.join("\n\n"), buttons: ["Cancel", "Allow"], defaultId: 0, cancelId: 0 });
   return answer.response === 1;
 }
@@ -22,6 +29,8 @@ export async function confirmExtensionGrant(
 export interface ExtensionGrant {
   id: string;
   version?: string;
+  contentHash?: string;
+  signer?: string;
   permissions: string[];
   /** The isolation the user approved; missing means the default, a worker. */
   isolation?: ExtensionIsolation;
@@ -56,16 +65,18 @@ export async function readExtensionGrants(filePath = defaultGrantsFilePath()): P
 }
 
 export async function writeExtensionGrants(grants: ExtensionGrantsFile, filePath = defaultGrantsFilePath()): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(grants, null, 2), "utf8");
+  await writePersistedJson(filePath, 1, { grants: grants.grants });
 }
 
 export function isPackageGranted(
   manifest: { id: string; permissions?: readonly string[]; isolation?: ExtensionIsolation },
   grants: readonly ExtensionGrant[],
+  identity?: PackageGrantIdentity,
 ): boolean {
   const existing = grants.find((g) => g.id === manifest.id);
-  if (!existing) return false;
+  if (!existing || !identity?.contentHash || !existing.contentHash) return false;
+  if (existing.signer !== identity.signer) return false;
+  if (existing.contentHash !== identity.contentHash && !identity.trustedSigner) return false;
   // Running inside the host process is a privilege of its own: a package that
   // leaves the worker after it was approved has to be approved again.
   if ((manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION) !== (existing.isolation ?? DEFAULT_PACKAGE_ISOLATION)) return false;
@@ -79,12 +90,14 @@ export async function grantPackage(
   manifest: { id: string; version?: string; permissions?: readonly string[]; isolation?: ExtensionIsolation },
   granted: boolean,
   filePath = defaultGrantsFilePath(),
+  identity?: PackageGrantIdentity,
 ): Promise<void> {
   const file = await readExtensionGrants(filePath);
   const remaining = file.grants.filter((g) => g.id !== manifest.id);
   if (granted) {
     remaining.push({
       id: manifest.id,
+      ...(identity ? { contentHash: identity.contentHash, ...(identity.signer ? { signer: identity.signer } : {}) } : {}),
       ...(manifest.version ? { version: manifest.version } : {}),
       permissions: [...(manifest.permissions ?? [])].sort(),
       isolation: manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION,

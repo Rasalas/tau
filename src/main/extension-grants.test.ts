@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { confirmExtensionGrant, defaultGrantsFilePath, grantPackage, isPackageGranted, readExtensionGrants, writeExtensionGrants } from "./extension-grants.js";
 
+const identity = { contentHash: "approved-code" };
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "tau-grants-"));
@@ -24,6 +25,15 @@ describe("extension-grants", () => {
     expect(prompts[0]?.detail).toContain("Permissions: native");
     expect(prompts[0]?.detail).toContain("Isolation: in-process");
     expect(await confirmExtensionGrant(pkg, async () => ({ response: 1 }))).toBe(true);
+  });
+  it.each([[], ["network"], ["process"], ["native"]].map((permissions) => ({ permissions })))("explains worker file access for $permissions", async ({ permissions }) => {
+    const pkg = { id: "acme.worker", name: "Worker", directory: "/packages/worker", scope: "global" as const, desktop: false, host: true, permissions, isolation: "worker" as const };
+    await confirmExtensionGrant(pkg, async (prompt) => {
+      expect(prompt.detail).toContain("It runs in a process of its own: it reads its own files, writes only to its own data folder, and cannot reach the network, start programs or load compiled code without the matching permission.");
+      expect(prompt.detail.includes("With the permission to start programs or load compiled code it could get around these limits.")).toBe(permissions.includes("process") || permissions.includes("native"));
+      expect(prompt.detail).not.toMatch(/OS sandbox|\bNode\b|Bundled kits/);
+      return { response: 0 };
+    });
   });
   it("lives in ~/.tau unless TAU_EXTENSION_GRANTS_FILE names another file", () => {
     expect(defaultGrantsFilePath("/home/me", {})).toBe(join("/home/me", ".tau", "extension-grants.json"));
@@ -52,32 +62,32 @@ describe("extension-grants", () => {
 
   it("checks whether a package is granted based on requested permissions", () => {
     const grants = [
-      { id: "acme.one", version: "1.0.0", permissions: ["process", "sessions"], grantedAt: 100 },
-      { id: "acme.empty", version: "1.0.0", permissions: [], grantedAt: 200 },
+      { id: "acme.one", version: "1.0.0", permissions: ["process", "sessions"], contentHash: identity.contentHash, grantedAt: 100 },
+      { id: "acme.empty", version: "1.0.0", permissions: [], contentHash: identity.contentHash, grantedAt: 200 },
     ];
     // Exact match
-    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions", "process"] }, grants)).toBe(true);
+    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions", "process"] }, grants, identity)).toBe(true);
     // Missing permission in grant
-    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions", "process", "network"] }, grants)).toBe(false);
+    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions", "process", "network"] }, grants, identity)).toBe(false);
     // Reduced permissions also requires re-grant (or set changed)
-    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions"] }, grants)).toBe(false);
+    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions"] }, grants, identity)).toBe(false);
     // Empty permissions granted
-    expect(isPackageGranted({ id: "acme.empty", permissions: [] }, grants)).toBe(true);
-    expect(isPackageGranted({ id: "acme.empty" }, grants)).toBe(true);
+    expect(isPackageGranted({ id: "acme.empty", permissions: [] }, grants, identity)).toBe(true);
+    expect(isPackageGranted({ id: "acme.empty" }, grants, identity)).toBe(true);
     // Unknown package
-    expect(isPackageGranted({ id: "acme.other", permissions: [] }, grants)).toBe(false);
+    expect(isPackageGranted({ id: "acme.other", permissions: [] }, grants, identity)).toBe(false);
   });
 
   it("grants and revokes a package", async () => {
     const dir = await scratch();
     const file = join(dir, "grants.json");
-    await grantPackage({ id: "acme.one", version: "1.0.0", permissions: ["sessions"] }, true, file);
+    await grantPackage({ id: "acme.one", version: "1.0.0", permissions: ["sessions"] }, true, file, identity);
     let current = await readExtensionGrants(file);
-    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions"] }, current.grants)).toBe(true);
+    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions"] }, current.grants, identity)).toBe(true);
 
     // Revoke
     await grantPackage({ id: "acme.one" }, false, file);
     current = await readExtensionGrants(file);
-    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions"] }, current.grants)).toBe(false);
+    expect(isPackageGranted({ id: "acme.one", permissions: ["sessions"] }, current.grants, identity)).toBe(false);
   });
 });

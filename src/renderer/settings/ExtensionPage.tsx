@@ -280,6 +280,8 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
   };
 
   const isolation = entry.host?.isolation ?? entry.pkg?.isolation ?? summary?.isolation;
+  const workerDescription = "It runs in a process of its own: it reads its own files, writes only to its own data folder, and cannot reach the network, start programs or load compiled code without the matching permission."
+    + (entry.permissions.includes("process") || entry.permissions.includes("native") ? " With the permission to start programs or load compiled code it could get around these limits." : "");
   const details: ValueListItem[] = [
     { label: "Version", value: entry.version ?? "Not declared", mono: Boolean(entry.version) },
     { label: "Source", value: originText(entry, distribution) },
@@ -325,9 +327,9 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
               </ul>
             ) : <p className="extension-approval-quiet">It asks for no permissions.</p>}
             {isolation === "in-process" ? (
-              <p className="extension-approval-warning" role="note"><AlertTriangle size={14} aria-hidden />It {NETWORK_ADVISORY_NOTE}, so it can reach the network, start programs and load compiled code whatever it asked for.</p>
+              <p className="extension-approval-warning" role="note"><AlertTriangle size={14} aria-hidden />It {NETWORK_ADVISORY_NOTE}, so it can read and write files, reach the network, start programs and load compiled code whatever it asked for.</p>
             ) : (
-              <p className="extension-approval-quiet">It runs in a worker of its own, where network access, programs and compiled code are refused without the matching permission.</p>
+              <p className="extension-approval-quiet">{workerDescription}</p>
             )}
             <div className="extension-approval-actions">
               <Button variant="primary" onClick={() => void answer(true)}>Allow and turn on</Button>
@@ -413,7 +415,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
           {isolation ? (
             <SettingRow
               title={isolation === "in-process" ? "Runs inside Tau's own process" : "Runs in a worker of its own"}
-              description={isolation === "in-process" ? "Its permissions are a promise, not a fence: inside Tau's own process, it cannot be held to them." : "Network access, programs and compiled code are refused without the matching permission."}
+              description={isolation === "in-process" ? "Its permissions are a promise, not a fence: inside Tau's own process, it cannot be held to them." : workerDescription}
             />
           ) : null}
           {entry.permissions.length === 0 ? <p className="settings-group-note">It asks for no permissions.</p> : null}

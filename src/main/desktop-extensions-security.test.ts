@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
+import { readPackageGrantIdentity } from "./extension-grant-identity.js";
 import { grantPackage } from "./extension-grants.js";
 
 const directories: string[] = [];
@@ -42,7 +43,7 @@ describe("unapproved package execution", () => {
     expect(evaluated).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
 
-    await grantPackage(manifest, true, grantsFilePath);
+    await grantPackage(manifest, true, grantsFilePath, await readPackageGrantIdentity(folder, manifest, []));
     const approved = await load();
     await evaluate(approved.bundles[0].code);
     // The fixture really has executable top-level code once approval permits the import.

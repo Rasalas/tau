@@ -9,6 +9,11 @@ import { MANIFEST_FILE, absoluteSourceMapLink, bundleHostExtension, importHostEx
 import { grantPackage } from "./extension-grants.js";
 import { addPackageSource } from "./extension-sources.js";
 
+async function scannedIdentity(home: string, id: string) {
+  const scan = await listExtensionPackages("/nowhere", "/agent", { home, trusted: () => true });
+  return scan.packages.find((pkg) => pkg.manifest.id === id)!.grantIdentity;
+}
+
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "tau-pkg-"));
@@ -300,7 +305,7 @@ describe("extension packages", () => {
     // Only host halves load; a desktop-only package contributes no host extension.
     await writePackage(home, "desktop-only", { id: "acme.desktop", name: "D", desktop: "./d.tsx" }, { "d.tsx": "export default {}" });
     const grantsFilePath = join(await scratch(), "grants.json");
-    await grantPackage({ id: "acme.hello", permissions: ["workspace:read"] }, true, grantsFilePath);
+    await grantPackage({ id: "acme.hello", permissions: ["workspace:read"] }, true, grantsFilePath, await scannedIdentity(home, "acme.hello"));
     const loaded = await loadHostExtensionPackages("/nowhere", "/agent", { home, trusted: () => true, cacheDir: cache, grantsFilePath });
     expect(loaded.extensions.map((entry) => entry.extension.id)).toEqual(["acme.hello"]);
     expect(loaded.errors).toEqual([]);
@@ -327,7 +332,7 @@ describe("extension packages", () => {
     // Top-level module code of an unapproved package never ran.
     expect(existsSync(sideEffect)).toBe(false);
 
-    await grantPackage({ id: "acme.global", permissions: [] }, true, grantsFilePath);
+    await grantPackage({ id: "acme.global", permissions: [] }, true, grantsFilePath, await scannedIdentity(home, "acme.global"));
     const second = await loadHostExtensionPackages(project, "/agent", options);
     expect(second.extensions.map((e) => e.extension.id)).toEqual(["acme.global"]);
     expect(second.ungranted.map((pkg) => pkg.manifest.id)).toEqual(["acme.project"]);
@@ -351,10 +356,10 @@ describe("extension packages", () => {
     });
     const options = { home, trusted: () => true, cacheDir: cache, grantsFilePath };
     // The isolation is part of the grant, so the worker grant does not cover it.
-    await grantPackage({ id: "acme.trusted", permissions: [] }, true, grantsFilePath);
+    await grantPackage({ id: "acme.trusted", permissions: [] }, true, grantsFilePath, await scannedIdentity(home, "acme.trusted"));
     expect((await loadHostExtensionPackages("/nowhere", "/agent", options)).ungranted.map((pkg) => pkg.manifest.id)).toEqual(["acme.trusted"]);
 
-    await grantPackage({ id: "acme.trusted", permissions: [], isolation: "in-process" }, true, grantsFilePath);
+    await grantPackage({ id: "acme.trusted", permissions: [], isolation: "in-process" }, true, grantsFilePath, await scannedIdentity(home, "acme.trusted"));
     const loaded = await loadHostExtensionPackages("/nowhere", "/agent", options);
     expect(loaded.extensions[0]?.extension.isolation).toBe("in-process");
     expect(existsSync(sideEffect)).toBe(true);
@@ -372,7 +377,7 @@ describe("extension packages", () => {
     await writePackage(home, "shifty", { id: "acme.shifty", name: "Shifty", permissions: ["sessions"], host: "./host.ts" }, {
       "host.ts": "export default { activate() {} };",
     });
-    await grantPackage({ id: "acme.shifty", permissions: ["sessions"] }, true, grantsFilePath);
+    await grantPackage({ id: "acme.shifty", permissions: ["sessions"] }, true, grantsFilePath, await scannedIdentity(home, "acme.shifty"));
     const options = { home, trusted: () => true, cacheDir: cache, grantsFilePath };
     expect((await loadHostExtensionPackages("/nowhere", "/agent", options)).extensions).toHaveLength(1);
 

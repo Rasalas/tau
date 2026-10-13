@@ -112,6 +112,8 @@ function refuse(request: string, what: string): void {
   const prefixed = request.startsWith("node:");
   if (!granted.has("network") && NETWORK_MODULES.has(name)) denyPermission("network", what);
   if (!granted.has("process") && (PROCESS_MODULES.has(name) || (prefixed && PREFIXED_PROCESS_MODULES.has(name)))) denyPermission("process", what);
+  // SQLite file access is not covered by Node filesystem permissions.
+  if (process.permission && prefixed && name === "sqlite" && !granted.has("native")) denyPermission("native", what);
   guardNativeMembers(request, name);
   if (name === "worker_threads" && !(granted.has("network") && granted.has("process") && granted.has("native"))) {
     deny(
@@ -152,7 +154,7 @@ registerModuleHooks?.({
 
 // A third door to the builtins that neither interception above sees.
 process.getBuiltinModule = ((id: string) => {
-  refuse(id, `process.getBuiltinModule("${id}")`);
+  refuse(id.startsWith("node:") ? id : `node:${id}`, `process.getBuiltinModule("${id}")`);
   return getBuiltin(id);
 }) as typeof process.getBuiltinModule;
 
