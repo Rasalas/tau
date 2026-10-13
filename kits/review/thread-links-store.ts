@@ -1,6 +1,6 @@
 import type { ThreadPullRequestLink } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
-import { RequestRefresh } from "./request-refresh.js";
+import { RequestRefresh, settleWithin } from "./request-refresh.js";
 
 const EMPTY: readonly ThreadPullRequestLink[] = [];
 /** A rail row asks for its thread's links at most this often; a change on the host reloads at once. */
@@ -53,7 +53,7 @@ export class ThreadLinkRows {
     }
     this.pending.add(threadId);
     try {
-      this.set(threadId, await this.client.links(threadId, refresh));
+      this.set(threadId, await settleWithin(this.client.links(threadId, refresh)));
     } catch {
       // A thread whose links cannot be read shows none.
     } finally {

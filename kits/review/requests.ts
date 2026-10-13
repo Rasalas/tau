@@ -1,5 +1,5 @@
 import type { HostExtensionClient, UiReviewRequestChecks } from "tau";
-import { RequestRefresh } from "./request-refresh.js";
+import { RequestRefresh, settleWithin } from "./request-refresh.js";
 import { providerInfo, type MergeMethod, type MergeOutcome, type ReviewRequest, type ReviewRequestDraft, type ReviewRequestStatus } from "./protocol.js";
 
 /** Review Kit's own host commands for the request lifecycle, typed. */
@@ -85,7 +85,7 @@ export class RowRequests {
     if (this.pending.has(workspace)) { if (fresh) this.reread.add(workspace); return; }
     if (!fresh && entry && this.now() - entry.at < ROW_TTL_MS) return;
     this.pending.add(workspace);
-    void (fresh ? this.load(workspace, true) : this.load(workspace))
+    void settleWithin(fresh ? this.load(workspace, true) : this.load(workspace))
       .then((request) => {
         this.set(workspace, request);
       }, () => {

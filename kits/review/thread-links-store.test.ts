@@ -17,3 +17,20 @@ it("coalesces fresh reads arriving during a thread lookup and preserves force", 
   rows.dispose();
   expect(stop).toHaveBeenCalledOnce();
 });
+
+it("lets a read whose answer never comes stop holding back the next", async () => {
+  vi.useFakeTimers();
+  try {
+    const read = vi.fn().mockImplementationOnce(() => new Promise(() => undefined)).mockResolvedValue([{ url: "https://github.com/o/r/pull/1", state: "merged" }]);
+    const rows = new ThreadLinkRows({ links: read, onLinksChanged: () => () => undefined });
+    const lost = rows.load("thread-a", true);
+    await rows.load("thread-a", true);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await lost;
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(rows.get("thread-a")).toMatchObject([{ state: "merged" }]);
+    rows.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
