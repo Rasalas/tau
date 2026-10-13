@@ -53,9 +53,10 @@ T3's instructions prescribe direct MCP attempts and a terminal transport
 fallback. Tau keeps one registered tool path. T3 wakes parents after child
 completion and acknowledges consumed results; Tau retains its existing
 durable notices, bounded result excerpts and MCP parent wakes. T3 workflow
-stop cascades into delegated work. Tau's ordinary parent Stop leaves children
-running; explicit child cancellation stops the subtree. This ticket preserves
-that existing behavior.
+stop cascades into delegated work. Tau's parent Stop cancels pending and running
+descendants and drops their outstanding completion wakes. Explicit child
+cancellation stops the subtree too. A child still being created is cancelled
+before admission where possible, or aborted as soon as its thread is available.
 
 ## Verification limits
 

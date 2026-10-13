@@ -19,6 +19,7 @@ import {
   type RuntimeExtensionContribution,
   type UiMessage,
   type UiToolRun,
+  type UiWake,
 } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import {
@@ -68,7 +69,7 @@ function harness() {
     catalog: { kind, models: ["openai/test-model", "openai/reviewer-model", "anthropic/parent-model", "anthropic/small-model", "openai/parent-model"].map(parseModel).map((model) => ({ ...model, name: model.id })), thinkingLevels: {} },
   }));
   /** What `sessions.send` and `sessions.abort` were asked to do, in order. */
-  const sent: Array<{ sessionId: string; text: string; delivery: string; from?: string }> = [];
+  const sent: Array<{ sessionId: string; text: string; delivery: string; from?: string; wake?: UiWake }> = [];
   const aborted: string[] = [];
   let steerRefused = false;
   /** Prompts refused the way a runtime refuses one while it starts a turn. */
@@ -81,6 +82,7 @@ function harness() {
   const models = new Map<string, { provider: string; id: string }>();
   let nextThread = 0;
   let projectCwd = "/project";
+  let transcriptGate: ((threadId: string) => Promise<void>) | undefined;
 
   const open = (threadId: string): FakeThread => {
     const thread: FakeThread = { streaming: false, idle: true, messages: [], entries: [] };
@@ -100,7 +102,7 @@ function harness() {
       isStreaming: () => found.streaming,
       isIdle: () => found.idle && !found.streaming,
       waitForIdle: async () => undefined,
-      transcript: async () => found.messages,
+      transcript: async () => { await transcriptGate?.(threadId); return found.messages; },
       entries: () => found.entries,
       appendEntry: (customType: string, data: unknown) => {
         if (noJournal.has(threadId)) throw new Error("This runtime keeps no journal.");
@@ -170,13 +172,13 @@ function harness() {
       send: async (sessionId, text, sendOptions) => {
         const delivery = sendOptions?.delivery ?? "prompt";
         if (steerRefused && delivery === "steer") throw new Error("This runtime cannot steer.");
-        if (promptRefusals > 0 && delivery === "prompt") {
+        if (promptRefusals > 0 && (delivery === "prompt" || sendOptions?.wake)) {
           promptRefusals -= 1;
           throw new Error("The prompt was rejected before it started.");
         }
-        sent.push({ sessionId, text, delivery, ...(sendOptions?.from ? { from: sendOptions.from } : {}) });
+        sent.push({ sessionId, text, delivery, ...(sendOptions?.from ? { from: sendOptions.from } : {}), ...(sendOptions?.wake ? { wake: sendOptions.wake } : {}) });
         const thread = threads.get(sessionId);
-        if (thread && delivery === "prompt") thread.streaming = true;
+        if (thread && (delivery === "prompt" || sendOptions?.wake && !thread.streaming)) thread.streaming = true;
         await sendGate?.();
       },
       abort: async (sessionId) => {
@@ -267,8 +269,9 @@ function harness() {
   };
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
+  const holdTranscripts = (gate: (threadId: string) => Promise<void>) => { transcriptGate = gate; };
 
-  return { backends, models, thinking, choices, instructions, activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  return { backends, models, thinking, choices, instructions, activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdTranscripts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -469,8 +472,6 @@ describe("Agents Kit", () => {
     expect(bench.started).toHaveLength(1);
     expect(bench.started[0]).toMatchObject({ backend: target, model: alternate, parent: { threadId: "parent" } });
     expect(await parent.call("tau_list_threads")).toMatchObject({ threads: [expect.objectContaining({ threadId: child.threadId, runtime: target, model: "test/alternate" })] });
-    for (const observer of bench.observers) expect(observer.stopped?.("parent")).toMatchObject({ continues: expect.any(Array) });
-    expect(bench.threads.get(child.threadId)!.streaming).toBe(true);
     bench.threads.get(child.threadId)!.streaming = false;
     bench.threads.get(child.threadId)!.messages.push({ id: "delegated-answer", role: "assistant", text: "Delegated answer", timestamp: 2 });
     await bench.notify("ended", child.threadId, "completed");
@@ -2030,13 +2031,142 @@ describe("Agents Kit orchestration", () => {
     await expect(bench.invoke("stop-agent", { threadId: "nobody" })).rejects.toThrow("gone");
   });
 
+  it("stops three running children and two pending children without waking their parent", async () => {
+    const bench = await activated({ settingsPath: await settingsWith(3) });
+    try {
+      const parent = bench.runtime("parent");
+      const children: string[] = [];
+      for (let index = 0; index < 5; index += 1) {
+        children.push(handleOf(await parent.call("tau_spawn_thread", { prompt: `Task ${index}`, workspace: "shared" })));
+      }
+      expect(bench.started).toHaveLength(3);
+      expect((await bench.state()).links.map((link) => link.status)).toEqual(["running", "running", "running", "pending", "pending"]);
+      bench.threads.get("parent")!.streaming = true;
+      for (const observer of bench.observers) await observer.stopped?.("parent");
+      bench.threads.get("parent")!.streaming = false;
+      await bench.notify("ended", "parent");
+      for (const child of children.slice(0, 3)) await finish(bench, child, "Late result");
+      expect(bench.aborted).toEqual(children.slice(0, 3));
+      expect(bench.started).toHaveLength(3);
+      expect(bench.sent).toEqual([]);
+      expect((await bench.state()).links.map((link) => link.status)).toEqual(Array(5).fill("cancelled"));
+
+      await bench.notify("accepted", "parent");
+      const next = handleOf(await parent.call("tau_spawn_thread", { prompt: "New task", workspace: "shared" }));
+      await finish(bench, next, "New result");
+      await expect.poll(() => bench.sent).toHaveLength(1);
+      expect(bench.started).toHaveLength(4);
+      expect(bench.sent[0]!.text).toContain("New result");
+      expect(bench.sent[0]!.text).not.toContain("Late result");
+    } finally {
+      await bench.registry().dispose();
+    }
+  });
+
+  it("drops completed child results still waiting for a busy parent when it stops", async () => {
+    const linksPath = join(tmpdir(), `tau-agents-stop-${randomUUID()}.json`);
+    const bench = await activated({ linksPath });
+    try {
+      bench.threads.get("parent")!.streaming = true;
+      const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Task", workspace: "shared" }));
+      await finish(bench, child, "Finished before Stop");
+      for (const observer of bench.observers) await observer.stopped?.("parent");
+      expect((await readAgentLinks(linksPath)).every((link) => link.notice === undefined)).toBe(true);
+      bench.threads.get("parent")!.streaming = false;
+      await bench.notify("ended", "parent");
+      await bench.notify("accepted", "parent");
+      await bench.notify("ended", "parent");
+      await bench.registry().dispose();
+      expect(bench.sent).toEqual([]);
+    } finally {
+      await bench.registry().dispose();
+      await rm(linksPath, { force: true });
+    }
+  });
+
+  it("stops descendants below a completed child and never starts their pending work", async () => {
+    const bench = await activated({ settingsPath: await settingsWith(1) });
+    try {
+      const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Child", workspace: "shared" }));
+      const grandchild = handleOf(await bench.runtime(child).call("tau_spawn_thread", { prompt: "Grandchild", workspace: "shared" }));
+      await bench.runtime(child).call("tau_spawn_thread", { prompt: "Pending grandchild", workspace: "shared" });
+      bench.threads.get("parent")!.streaming = true;
+      await finish(bench, child, "Delegated the task");
+      for (const observer of bench.observers) await observer.stopped?.("parent");
+      bench.threads.get("parent")!.streaming = false;
+      await finish(bench, grandchild, "Late result");
+      expect(bench.aborted).toEqual([grandchild]);
+      expect(bench.started).toHaveLength(2);
+      expect(bench.sent).toEqual([]);
+      expect((await bench.state()).links.map((link) => link.status)).toEqual(["completed", "cancelled", "cancelled"]);
+    } finally {
+      await bench.registry().dispose();
+    }
+  });
+
+  it("aborts a child whose thread becomes available after its parent stopped", async () => {
+    const bench = await activated();
+    let release!: () => void;
+    let starting!: () => void;
+    const reachedStart = new Promise<void>((resolve) => { starting = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    bench.holdStarts(() => { starting(); return gate; });
+    try {
+      const spawning = bench.runtime("parent").call("tau_spawn_thread", { prompt: "Task", workspace: "shared" });
+      await reachedStart;
+      for (const observer of bench.observers) await observer.stopped?.("parent");
+      release();
+      const child = handleOf(await spawning);
+      await finish(bench, child, "Late result");
+      expect(bench.aborted).toEqual([child]);
+      expect(bench.sent).toEqual([]);
+      expect((await bench.state()).links[0]!.status).toBe("cancelled");
+    } finally {
+      release();
+      await bench.registry().dispose();
+    }
+  });
+
+  it("drops a result still being read when Stop arrives, including after the parent resumes", async () => {
+    const bench = await activated();
+    let release!: () => void;
+    let reading!: () => void;
+    const reachedRead = new Promise<void>((resolve) => { reading = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      const parent = bench.runtime("parent");
+      const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "Task", workspace: "shared" }));
+      let reads = 0;
+      bench.holdTranscripts(async (id) => {
+        if (id === child) {
+          reads += 1;
+          if (reads === 2) { reading(); await gate; }
+        }
+      });
+      const ending = finish(bench, child, "Old result");
+      await reachedRead;
+      for (const observer of bench.observers) await observer.stopped?.("parent");
+      await bench.notify("accepted", "parent");
+      release();
+      await ending;
+      const next = handleOf(await parent.call("tau_spawn_thread", { prompt: "New task", workspace: "shared" }));
+      await finish(bench, next, "New result");
+      await expect.poll(() => bench.sent).toHaveLength(1);
+      expect(bench.sent[0]!.text).toContain("New result");
+      expect(bench.sent[0]!.text).not.toContain("Old result");
+    } finally {
+      release();
+      await bench.registry().dispose();
+    }
+  });
+
   it("wakes an idle parent with the answer of a child it was not waiting for", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
     const child = handleOf(await parent.call("tau_spawn_thread", { prompt: "Find the bug", title: "Bug hunt" }));
     await finish(bench, child, "It is in parse.ts line 12.");
     await vi.waitFor(() => expect(bench.sent).toHaveLength(1));
-    expect(bench.sent[0]).toMatchObject({ sessionId: "parent", delivery: "prompt" });
+    expect(bench.sent[0]).toMatchObject({ sessionId: "parent", delivery: "queue", wake: { source: "background", label: "Sub-agent finished" } });
     expect(bench.sent[0]!.text).toContain(`"Bug hunt" (threadId ${child}): completed`);
     expect(bench.sent[0]!.text).toContain("It is in parse.ts line 12.");
 

@@ -3092,6 +3092,10 @@ refused is not queued again: the kit wakes the thread again if it still
 should. Agents Kit's `tau_send_to_thread` and
 `tau_cancel_thread` are built on these two, and so is the message that wakes a
 parent when a child it was not waiting for finished.
+Child results use `delivery: "queue"` with a `background` wake. Stopping the
+parent cancels pending and running descendants, consumes results still waiting
+in Agents Kit, and prevents late child completions from waking it. A new
+accepted parent turn permits new delegation.
 
 `attachments` in `send`'s options and `services.sessions.setModel(sessionId,
 provider, id)` (new in API 1.46.0, `sessions`, in-process only; absent on an
@@ -3525,7 +3529,7 @@ thread's goal paused, while the observers answer (two seconds at most each).
 End what would wake the thread again — a watch, a pending request — and
 answer short phrases of what you ended (`["stopped watching PR #42"]`), or
 `{ stopped, continues }` where work of yours goes on and may still wake it
-(`continues: ["2 sub-agents keep running and report back when they finish"]`).
+(`continues: ["A background command keeps running"]`).
 The host joins every answer into one status line under the stopped turn:
 "Stopped · goal paused · stopped watching PR #42. Nothing wakes this thread
 until you start it again." — that last sentence only when nothing continues.
