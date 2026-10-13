@@ -50,7 +50,7 @@ export const PERMISSION_NATIVE = "native" as const;
 
 /** What the approval box says beside a permission whose name undersells it. */
 export const PERMISSION_NOTES: Readonly<Partial<Record<ExtensionPermission, string>>> = {
-  native: "loads compiled code into the host process: a crash there stops the host and every thread, and its memory is outside the worker's caps",
+  native: "loads compiled code into Tau's own process: a crash there stops Tau on that machine and every thread, and its memory is outside the worker's caps",
 };
 
 /**
@@ -58,7 +58,7 @@ export const PERMISSION_NOTES: Readonly<Partial<Record<ExtensionPermission, stri
  * Nothing is enforced there — no interception point would hold — so the
  * phrasing says so rather than naming one permission.
  */
-export const NETWORK_ADVISORY_NOTE = "runs inside the host process; permissions are not enforced there";
+export const NETWORK_ADVISORY_NOTE = "runs inside Tau's own process; permissions are not enforced there";
 
 /**
  * Where a package's host half runs. `worker` is the default for packages: a

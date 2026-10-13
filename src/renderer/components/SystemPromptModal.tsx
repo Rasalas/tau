@@ -35,7 +35,7 @@ export function SystemPromptModal({ threadId, onClose }: SystemPromptModalProps)
     setError(undefined);
 
     if (!client) {
-      setError("Host client unavailable.");
+      setError("The machine is not connected.");
       setLoading(false);
       return;
     }

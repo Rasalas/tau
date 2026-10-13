@@ -552,7 +552,7 @@ export function createAgentsHostExtension(options: {
         if (!requested || requested === parentCwd) return parentCwd;
         const known = await services.sessions.list();
         if (!known.some((session) => session.cwd === requested)) {
-          throw new Error(`${requested} is not a project this host has open. Leave projectPath out to use this thread's project.`);
+          throw new Error(`${requested} is not a project this machine has open. Leave projectPath out to use this thread's project.`);
         }
         return requested;
       };
@@ -807,7 +807,7 @@ export function createAgentsHostExtension(options: {
         return known;
       };
 
-      /** Where a spawn runs: the tool's machine, the definition's, else the user's setting; this computer by default. */
+      /** Where a spawn runs: the tool's machine, the definition's, else the user's setting; this machine by default. */
       const chooseMachine = async (request: { machine?: string }, definition: AgentDefinition | undefined, projectPath: string, model: string | undefined, runtime: string): Promise<MachineChoice> => {
         let setting: string | undefined;
         if (!request.machine && !definition?.machine) {
@@ -857,7 +857,7 @@ export function createAgentsHostExtension(options: {
         const repository = await isRepository(projectPath);
         if (choice.machine) {
           const where = choice.machine.name;
-          if (request.workspace === "shared") throw new Error(`A thread on ${where} works in a worktree there; "shared" only works on this computer.`);
+          if (request.workspace === "shared") throw new Error(`A thread on ${where} works in a worktree there; "shared" only works on this machine.`);
           if (!repository) throw new Error(`Only a Git repository's state can go to ${where}; run this one here with machine "local".`);
           // Tau holds a persona to its tools and access in a runtime here; the machine there never saw the definition.
           if (definition?.tools || (definition?.access && definition.access !== "full")) {
@@ -1335,7 +1335,7 @@ export function createAgentsHostExtension(options: {
               })),
               agent: Type.Optional(Type.String({ description: "Name of an agent definition in this project's .tau/agents/; a plain thread when left out." })),
               machine: Type.Optional(Type.String({
-                description: 'Where it runs: a machine\'s name or id, "local" for this computer, or "auto" to let Tau pick by load. The definition\'s machine, else the user\'s setting (this computer unless they chose otherwise), when left out.',
+                description: 'Where it runs: a machine\'s name or id, "local" for this machine, or "auto" to let Tau pick by load. The definition\'s machine, else the user\'s setting (this machine unless they chose otherwise), when left out.',
               })),
               clientRequestId: Type.Optional(Type.String({ description: "Your own id for this spawn; a retry with the same id returns the thread the first call started." })),
             }),
@@ -1704,7 +1704,7 @@ export function createAgentsHostExtension(options: {
             if (definition.tools || definition.access || definition.machine || definition.workspace) {
               throw new HostCommandError("Configure this agent’s tools, access and workspace in the runtime’s native agent configuration. Tau thread restrictions cannot be enforced on a native subagent.");
             }
-            if (!services.sessions.send) throw new HostCommandError("This host cannot send a task to the parent conversation.");
+            if (!services.sessions.send) throw new HostCommandError("This machine cannot send a task to the parent conversation.");
             await services.sessions.send(parent.sessionId, `Delegate this task to a native subagent.\n${firstMessageWithPersona(definition, prompt)}${definition.model ? `\nUse model ${definition.model}.` : ""}`);
             return { threadId: parent.sessionId, title: definition.name, status: "running" };
           }

@@ -126,7 +126,7 @@ export function MachineSetup({ environments, host, machine, onDone, ImportConver
   return <section className="machine-setup" aria-label={`Set up ${machine.name}`}>
     <div className="machine-setup-head"><strong>Set up {machine.name}</strong><Button busy={busy} onClick={done}>Done</Button></div>
     {agent?.status === "connected" ? <SetupAgents environments={environments} host={host} machine={machine} {...(list?.environments.find((entry) => entry.local)?.id ? { local: list.environments.find((entry) => entry.local)!.id } : {})} /> : <>
-      <p>Let this computer's agents work on {machine.name} first; the setup reads the machine over their connection.</p>
+      <p>Let this machine's agents work on {machine.name} first; the setup reads the machine over their connection.</p>
       {environments.setAgents ? <AgentsSwitch machine={machine} agent={agent} environments={environments as PlatformEnvironments & Required<Pick<PlatformEnvironments, "setAgents">>} pairing={list?.pairing} /> : null}
     </>}
     {ImportConversations ? <ImportConversations key={machine.id} machine={machine.id} name={machine.name} /> : null}

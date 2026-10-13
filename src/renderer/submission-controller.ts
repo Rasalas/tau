@@ -358,7 +358,7 @@ export class SubmissionController {
       addOptimisticMessage(view, optimisticScope, optimistic);
       startTranscriptTurn(snapshot?.sessionId);
       try {
-        if (!client) throw new Error("Steering requires the Electron host.");
+        if (!client) throw new Error("Steering requires a connected machine.");
         await client.steer(text, attachments, this.ports.hostSession.sessionIdFor(snapshot?.sessionId), clientTurn, prepared);
       } catch (error) {
         return rejectSubmission(error);
@@ -401,7 +401,7 @@ export class SubmissionController {
       startTranscriptTurn(pending.sessionId, false, true);
       if (!shownBeforeGate) addOptimisticMessage(view, optimisticScope, optimistic);
       try {
-        if (!client) throw new Error("New thread requires the Electron host.");
+        if (!client) throw new Error("A new thread requires a connected machine.");
         if (pending.sessionId) {
           if (pending.mode) await client.setMode(pending.mode, pending.sessionId);
           await client.sendPrompt(text, attachments, pending.sessionId, clientTurn, prepared);

@@ -162,8 +162,8 @@ const PLAN_NAMES: Record<string, string> = { free: "Free", go: "Go", plus: "Plus
 
 /** The ways Codex signs in: its own login server for the browser, a device code, a key, or `codex login` in a terminal. */
 export const CODEX_SIGN_IN_METHODS: readonly SignInMethod[] = [
-  { id: "chatgpt", label: "Sign in with ChatGPT", kind: "browser", description: "Opens OpenAI's page in your browser; Codex finishes the sign-in on this computer." },
-  { id: "device", label: "Use a device code", kind: "device-code", description: "Enter a code on OpenAI's page from any device, for a browser on another computer." },
+  { id: "chatgpt", label: "Sign in with ChatGPT", kind: "browser", description: "Opens OpenAI's page in your browser; Codex finishes the sign-in on this machine." },
+  { id: "device", label: "Use a device code", kind: "device-code", description: "Enter a code on OpenAI's page from any device, for a browser on another machine." },
   { id: "api-key", label: "Use an API key", kind: "api-key", description: "Billed per token to the key's account instead of a ChatGPT plan." },
   { id: "terminal", label: "Sign in in a terminal", kind: "terminal", description: "Runs codex login in a terminal you can see." },
 ];
@@ -982,7 +982,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           const planMethod = !registration && await ownsCliThreads(id) ? { ...CHATGPT_PLAN_METHOD, unavailable: "Add a Codex instance to use your ChatGPT plan; this instance keeps its existing CLI threads." } : CHATGPT_PLAN_METHOD;
           if (registration) {
             const summary = planSummary(id, registration);
-            return { methods: [planMethod], account: { signedIn: summary.signedIn, label: summary.label, detail: summary.signedIn ? "Using ChatGPT plan" : "Sign in again to this account", canSignOut: Boolean(registration.tokens) }, note: "Tau keeps this account’s credentials in a file on this computer that only your user account can read. Add an instance for another account." };
+            return { methods: [planMethod], account: { signedIn: summary.signedIn, label: summary.label, detail: summary.signedIn ? "Using ChatGPT plan" : "Sign in again to this account", canSignOut: Boolean(registration.tokens) }, note: "Tau keeps this account’s credentials in a file on this machine that only your user account can read. Add an instance for another account." };
           }
           if (!locate(id)) return { methods: [planMethod, ...CODEX_SIGN_IN_METHODS.map((method) => ({ ...method, unavailable: `Install Codex first; "${codexCommand(id)}" was not found.` }))], account: { signedIn: false } };
           try {

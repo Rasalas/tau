@@ -104,7 +104,7 @@ export class ConfigLayersStore {
 
   async refresh(): Promise<void> {
     if (!this.client) {
-      this.set({ loaded: true, error: "Settings need a host connection." });
+      this.set({ loaded: true, error: "Settings need a connection to the machine." });
       return;
     }
     const generation = ++this.generation;

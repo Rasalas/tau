@@ -33,7 +33,7 @@ const RemoteDesktopPanel = createRemotePreviewPanel(false);
 
 /**
  * A desktop window draws the page itself only on the host's own machine; a
- * window on another computer would move a view it cannot see, so it shows
+ * window on another machine would move a view it cannot see, so it shows
  * frames and drives the page like any other device.
  */
 export function DesktopPreviewPanel(props: PanelProps) {

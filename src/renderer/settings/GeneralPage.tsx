@@ -157,11 +157,11 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
       </SettingsCard>
       <SettingsCard title="Window">
         <SettingRow
-          id={settingAnchor("Keep the host running in the background")}
-          title="Keep the host running in the background"
+          id={settingAnchor("Keep Tau running in the background")}
+          title="Keep Tau running in the background"
           description="threads keep working after you quit"
           setting={hostBackground}
-          control={<Switch label="Keep the host running in the background" checked={hostBackground.value} onChange={hostBackground.set} />}
+          control={<Switch label="Keep Tau running in the background" checked={hostBackground.value} onChange={hostBackground.set} />}
         />
         <SettingRow
           id={settingAnchor("Continue threads after restarts")}
@@ -195,7 +195,7 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
           <SettingRow
             id={settingAnchor("Ask before quitting while threads work")}
             title="Ask before quitting while threads work"
-            help="Quitting stops the threads that are working, unless the host keeps running in the background."
+            help="Quitting stops the threads that are working, unless Tau keeps running in the background."
             setting={quitWhileRunning}
             control={<Switch label="Ask before quitting while threads work" checked={quitWhileRunning.value} onChange={quitWhileRunning.set} />}
           />

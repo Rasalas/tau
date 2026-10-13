@@ -120,7 +120,7 @@ export const runtimeControls: DesktopExtension = {
     if (environments?.shownElsewhere) {
       plugin.registerCommand({
         id: "runtime.show-this-computer",
-        label: "Back to this computer",
+        label: "Back to this machine",
         group: "Workbench",
         access: "read",
         run: (app) => environments.showLocal().catch((error: unknown) => app.notify(errorMessage(error), "error")),

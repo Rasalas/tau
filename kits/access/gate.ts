@@ -127,7 +127,7 @@ export function approvalTitle(toolName: string): string {
   if (toolName === "edit" || toolName === "write") return "Wants to edit";
   if (toolName === "bash" || toolName === "powershell") return "Wants to run";
   if (toolName === "tau_apply_thread_changes") return "Wants to apply an agent's work";
-  return toolName.startsWith("computer_use_") ? "Wants to use the computer" : `Wants to use ${toolName}`;
+  return toolName.startsWith("computer_use_") ? "Wants to use this machine" : `Wants to use ${toolName}`;
 }
 
 export interface AccessControl {

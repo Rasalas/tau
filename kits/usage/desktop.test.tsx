@@ -467,7 +467,7 @@ describe("Usage across machines", () => {
     const limitsList = await screen.findByLabelText("Limits");
     await waitFor(() => expect(within(limitsList).getByRole("region", { name: "ChatGPT · Codex, Codex on rex limits" })).toBeTruthy());
     expect(within(limitsList).getByRole("region", { name: "Grok on rex limits" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toMatch(/this computer and rex$/u);
+    expect(screen.getByRole("status").textContent).toMatch(/this machine and rex$/u);
     fireEvent.click(within((await openFilters()).getByRole("radiogroup", { name: "Machine" })).getByText("rex"));
     expect(within(threadList()).getAllByRole("listitem").map((item) => item.querySelector(".usage-table-name > :nth-child(2)")?.getAttribute("data-tooltip"))).toEqual([expect.stringContaining("rex")]);
   });

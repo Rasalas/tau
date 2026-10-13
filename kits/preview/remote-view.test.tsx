@@ -167,7 +167,7 @@ describe("the page laid out for this device", () => {
       const { invoke, view } = setup();
       await picture();
       expect(invoke).toHaveBeenCalledWith("live-frame", expect.objectContaining({ viewer: { id, width: 393, height: 616, dpr: 1, touch: false } }));
-      fireEvent.click(screen.getByRole("button", { name: /Laid out for the host's window/u }));
+      fireEvent.click(screen.getByRole("button", { name: /Laid out for the machine's window/u }));
       await waitFor(() => expect(invoke).toHaveBeenCalledWith("layout", { viewer: expect.objectContaining({ id, width: 393 }) }));
       // Closing the view gives the page back at once.
       view.unmount();
@@ -197,7 +197,7 @@ describe("a machine without a window for the page", () => {
 
   it("asks for the Tau app on a Mac or PC, and names the host when the machine is unknown", () => {
     setup({ state: { noWindow: { displayService: false } } });
-    expect(screen.getByText("The host has no display")).toBeTruthy();
+    expect(screen.getByText("The machine has no display")).toBeTruthy();
     expect(screen.getByText(/Open the Tau app there/u)).toBeTruthy();
   });
 

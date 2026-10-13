@@ -4,7 +4,7 @@ import { AGENTS_EVENT, type AgentMachines } from "./protocol.js";
 
 /**
  * The machine whose host serves this page and holds the agents' keys: this
- * computer in its own window, the host a phone shows. Undefined while a
+ * machine in its own window, the host a phone shows. Undefined while a
  * window shows another machine.
  */
 export function pageMachine(environments: Pick<PlatformEnvironments, "shownElsewhere">, list: UiEnvironments | undefined): UiEnvironment | undefined {

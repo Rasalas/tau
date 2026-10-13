@@ -34,9 +34,9 @@ function answer(reason: string | undefined): HostAvailability {
 export function hostAvailability(extensionId: string, client: HalfSource | undefined = getHostClient()): HostAvailability {
   const half = client?.hostExtensionHalf?.(extensionId);
   if (half === undefined) return AVAILABLE;
-  if (half === null) return answer("Its host half is not running. Settings → Extensions says why.");
-  if (half.error) return answer(`Its host half stopped: ${half.error}.`);
-  if (!half.active) return answer("Its host half is off: it waits for approval, or was turned off, in Settings → Extensions.");
+  if (half === null) return answer("Its part on the machine is not running. Settings → Extensions says why.");
+  if (half.error) return answer(`Its part on the machine stopped: ${half.error}.`);
+  if (!half.active) return answer("Its part on the machine is off: it waits for approval, or was turned off, in Settings → Extensions.");
   return AVAILABLE;
 }
 

@@ -5,7 +5,7 @@ export const READING_MAX_AGE_MS = 15_000;
 export const CPU_LIMIT = 0.95;
 export const MEMORY_FLOOR = 0.05;
 
-/** Weights run 0–100; 0 keeps a machine out of every automatic choice. This computer is spared by default. */
+/** Weights run 0–100; 0 keeps a machine out of every automatic choice. This machine is spared by default. */
 export const MAX_WEIGHT = 100;
 export const LOCAL_WEIGHT = 5;
 export const MACHINE_WEIGHT = 50;
@@ -32,7 +32,7 @@ export function readWeights(raw: unknown): Record<string, number> {
 export interface MachineCandidate {
   id: string;
   name: string;
-  /** This computer. */
+  /** This machine. */
   local?: boolean;
   weight: number;
   resources?: HostResources;
@@ -111,7 +111,7 @@ function judge(candidate: MachineCandidate, needs: MachineNeeds, now: number): M
   return { ...base, score, facts };
 }
 
-const who = (verdict: MachineVerdict) => (verdict.local ? "this computer" : verdict.name);
+const who = (verdict: MachineVerdict) => (verdict.local ? "this machine" : verdict.name);
 const rounded = (score: number) => (score >= 10 ? Math.round(score) : Math.round(score * 10) / 10);
 
 /**
@@ -127,6 +127,6 @@ export function chooseMachine(candidates: readonly MachineCandidate[], needs: Ma
   }
   const others = verdicts.filter((verdict) => verdict !== chosen).map((verdict) => (verdict.excluded ? `${who(verdict)} left out: ${verdict.excluded}` : `${who(verdict)} ${rounded(verdict.score!)}`));
   if (!chosen) return { reason: `No machine can take it now${others.length ? ` (${others.join("; ")})` : ""}.`, verdicts };
-  const head = `${chosen.local ? "This computer" : chosen.name} has the most room: ${rounded(chosen.score!)} (${chosen.facts})`;
+  const head = `${chosen.local ? "This machine" : chosen.name} has the most room: ${rounded(chosen.score!)} (${chosen.facts})`;
   return { chosen, reason: others.length ? `${head}; ${others.join("; ")}.` : `${head}.`, verdicts };
 }

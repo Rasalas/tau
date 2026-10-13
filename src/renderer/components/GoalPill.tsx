@@ -7,7 +7,7 @@ import { goalResumable } from "../goal-state";
 import "./GoalPill.css";
 import { TASK_PILL_CLOSE_DELAY_MS, TASK_PILL_OPEN_DELAY_MS } from "./TaskProgress";
 
-export const READ_ONLY_GOAL = "This paired device is read-only. Change it on the host's own window.";
+export const READ_ONLY_GOAL = "This paired device is read-only. Change it in Tau on the machine itself.";
 
 type GoalAction = "pause" | "resume" | "clear" | "dismiss";
 

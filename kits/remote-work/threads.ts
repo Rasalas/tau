@@ -169,7 +169,7 @@ export class RemoteThreads {
 
   private machines(): HostMachineServices {
     const machines = this.options.machines();
-    if (!machines) throw new HostCommandError("This host keeps no other machines for its agents.");
+    if (!machines) throw new HostCommandError("This machine keeps no list of other machines for its agents.");
     return machines;
   }
 
@@ -177,9 +177,9 @@ export class RemoteThreads {
     const all = this.machines().list();
     const byName = all.filter((machine) => machine.name.toLowerCase() === name.trim().toLowerCase());
     const machine = all.find((candidate) => candidate.id === name) ?? (byName.length === 1 ? byName[0] : undefined);
-    if (!machine) throw new HostCommandError(byName.length > 1 ? `More than one machine is called ${name}; name it by its id.` : `This computer's agents do not know a machine ${name}.`);
+    if (!machine) throw new HostCommandError(byName.length > 1 ? `More than one machine is called ${name}; name it by its id.` : `This machine's agents do not know a machine ${name}.`);
     if (machine.status !== "connected") throw new HostCommandError(`${machine.name} is ${machine.status}${machine.detail ? `: ${machine.detail}` : ""}.`);
-    if (machine.readOnly) throw new HostCommandError(`${machine.name} lets this computer's agents in Read only; a thread there needs Full access.`);
+    if (machine.readOnly) throw new HostCommandError(`${machine.name} lets this machine's agents in Read only; a thread there needs Full access.`);
     return machine;
   }
 

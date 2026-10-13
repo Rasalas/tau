@@ -53,7 +53,7 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 /** Sessions per workspace: a project terminal and a few thread terminals. */
 export const MAX_SESSIONS_PER_WORKSPACE = 8;
-export const NO_PTY = "Terminals need node-pty, which this host does not have.";
+export const NO_PTY = "Terminals need node-pty, which this machine does not have.";
 
 /** The terminal is the user's own: a project that limits its agent's network says so, and that this shell is not limited. */
 export function terminalNetworkNotice(policy: HostExecutionPolicy | undefined): string | undefined {

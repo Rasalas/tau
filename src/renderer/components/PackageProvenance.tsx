@@ -24,7 +24,7 @@ export function PackageProvenance({ id, cwd }: { id: string; cwd?: string }) {
     <SettingsSection title="Package">
       <SettingRow title="Version" control={<code className="settings-value">{pkg.version ?? "not declared"}</code>} />
       <SettingRow title="Signature" control={<code className="settings-value">{pkg.signature?.label ?? "unsigned"}</code>} />
-      <SettingRow title="Isolation" control={<code className="settings-value">{pkg.isolation === "in-process" ? "in-process (runs inside the host process)" : "worker"}</code>} />
+      <SettingRow title="Isolation" control={<code className="settings-value">{pkg.isolation === "in-process" ? "in-process (runs inside Tau's own process)" : "worker"}</code>} />
       <SettingRow title="Origin" control={<code className="settings-value">{pkg.scope === "bundled" ? "bundled with Tau" : pkg.installedFrom ?? pkg.source?.url ?? pkg.directory}</code>} />
     </SettingsSection>
   );

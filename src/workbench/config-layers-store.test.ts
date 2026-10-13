@@ -70,7 +70,7 @@ describe("ConfigLayersStore", () => {
     store.edit("project");
     expect(store.getSnapshot().editing).toBe("host");
     await store.refresh();
-    expect(store.getSnapshot().error).toMatch(/host connection/u);
+    expect(store.getSnapshot().error).toMatch(/connection to the machine/u);
   });
 
   it("takes a refused change back and says why", async () => {

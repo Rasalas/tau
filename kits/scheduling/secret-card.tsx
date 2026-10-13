@@ -26,7 +26,7 @@ function SecretCard({ request, feed, canManage }: { request: SecretRequest; feed
     <header><LockKeyhole size={14} /><strong>Secret</strong><span>for this webhook signature</span></header>
     <label htmlFor={`secret-${request.id}`}>{request.label}</label><p>{request.reason}</p>
     <input id={`secret-${request.id}`} ref={field} type="password" className="scheduling-private-field" autoComplete="new-password" maxLength={8192} spellCheck={false} placeholder="Paste the secret" disabled={busy || !canManage} value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); document.querySelector<HTMLTextAreaElement>(".composer-frame textarea")?.focus(); } }} />
-    <small>{!canManage ? "Save this in the host's own Tau window." : value ? `${value.length} characters` : "Used only to verify this webhook. Never included in the conversation."}</small>
+    <small>{!canManage ? "Save this in this machine's own Tau window." : value ? `${value.length} characters` : "Used only to verify this webhook. Never included in the conversation."}</small>
     {error ? <p role="alert">{error}</p> : null}
     <footer><button type="button" disabled={busy || !canManage} onClick={() => void send(true)}>Decline</button><button type="submit" className="primary" disabled={busy || !value || !canManage}>{busy ? "Saving…" : "Save privately"}</button></footer>
   </form>;

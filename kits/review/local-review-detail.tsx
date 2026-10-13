@@ -327,7 +327,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
     if (!conflicts || conflicts.tip !== review.tip) return;
     act.merge(review, Object.fromEntries(conflicts.files.map((file) => [file.path, picks[file.path] as HunkPick[]])));
   };
-  const commitBlocked = !mayCommit ? READ_ONLY_REASON : review.remote || !review.workspace ? "The worktree is not on this computer." : review.uncommitted ? undefined : "Nothing to commit: the thread committed its work.";
+  const commitBlocked = !mayCommit ? READ_ONLY_REASON : review.remote || !review.workspace ? "The worktree is not on this machine." : review.uncommitted ? undefined : "Nothing to commit: the thread committed its work.";
   const commit = () => {
     setCommitting(true);
     parts.store.commit(review).then(

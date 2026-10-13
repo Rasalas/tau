@@ -252,7 +252,7 @@ describe("another machine, reached by this host for its agents", () => {
     await rex.access.revokeClient(paired.companion!.clientId);
     const [refused] = await until(machines, (list) => list[0]?.status === "refused");
     expect(refused?.detail).toMatch(/revoked/u);
-    await expect(machines.call("rex-id", "tau.environments", "whoami")).rejects.toMatchObject({ code: HOST_ERROR.unauthorized, message: expect.stringMatching(/refuses this computer's agents/u) });
+    await expect(machines.call("rex-id", "tau.environments", "whoami")).rejects.toMatchObject({ code: HOST_ERROR.unauthorized, message: expect.stringMatching(/refuses this machine's agents/u) });
     // The window's own device is untouched.
     expect(rex.access.authenticate(paired.token)).toEqual({ kind: "client", clientId: paired.clientId });
   });

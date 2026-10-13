@@ -122,10 +122,10 @@ describe("host connection status", () => {
 
     versions = { window: "0.4.1", host: "0.4.0" };
     act(() => { for (const listener of listeners) listener(); });
-    expect(screen.getByRole("status").textContent).toContain("This window runs Tau 0.4.1, its host runs 0.4.0.");
+    expect(screen.getByRole("status").textContent).toContain("This window runs Tau 0.4.1, its machine runs 0.4.0.");
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
 
-    const update = await screen.findByRole("button", { name: "Update host" });
+    const update = await screen.findByRole("button", { name: "Update machine" });
     act(() => { update.click(); });
     await waitFor(() => expect(hostUpdate).toHaveBeenCalledWith("install"));
     expect(await screen.findByRole("button", { name: "Installing…" })).toHaveProperty("disabled", true);
@@ -136,7 +136,7 @@ describe("host connection status", () => {
     const client = createFakeHostClient({ getVersions: () => ({ window: "0.4.0", host: "0.4.1" }), windowAction });
     const services = createRendererServices();
     render(<RendererServicesProvider services={services}><HostClientProvider client={client}><HostConnectionStatus /></HostClientProvider></RendererServicesProvider>);
-    expect(screen.getByRole("status").textContent).toContain("This window runs Tau 0.4.0, its host runs 0.4.1.");
+    expect(screen.getByRole("status").textContent).toContain("This window runs Tau 0.4.0, its machine runs 0.4.1.");
 
     act(() => { screen.getByRole("button", { name: "Check for updates" }).click(); });
     expect(windowAction).toHaveBeenCalledWith({ kind: "check-for-updates" });

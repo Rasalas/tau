@@ -282,7 +282,7 @@ function createReviewOverlay(store: CheckpointStore, workspaceStore: WorkspaceSt
     const { checkpoint } = review;
     const loadDiff = (filePath: string, options?: DiffLoadOptions) => hostAvailable()
       ? workspaceStore.host.getTurnFileDiff(checkpoint.sessionId, checkpoint.id, filePath, options)
-      : Promise.resolve({ path: filePath, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." });
+      : Promise.resolve({ path: filePath, added: 0, removed: 0, hunks: [], note: "Diffs require a connected machine." });
     return (
       <Suspense fallback={null}>
         <LazyReview

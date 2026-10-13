@@ -235,7 +235,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   private requireHost(what: string): boolean {
     if (hostAvailable()) return true;
-    this.notify(`${what} requires the Electron host`);
+    this.notify(`${what} requires a connected machine`);
     return false;
   }
 
@@ -446,7 +446,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   chooseTerminal(id: string): void { this.preferences.setValue(WORKSPACE_KIT_ID, "terminal", id); }
 
   async openTerminal(terminalOverride?: string): Promise<void> {
-    if (!hostHasLocalFiles()) { this.notify("This host's files are not on this machine."); return; }
+    if (!hostHasLocalFiles()) { this.notify("This machine's files are not on this device."); return; }
     const terminalId = terminalOverride ?? this.activeTerminal()?.id;
     if (!this.requireHost("Opening a terminal")) return;
     try { await this.host.openTerminal(terminalId, this.workspace()); }
@@ -623,7 +623,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   async openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition): Promise<void> {
-    if (!hostHasLocalFiles()) { this.notify("This host's files are not on this machine."); return; }
+    if (!hostHasLocalFiles()) { this.notify("This machine's files are not on this device."); return; }
     const editorId = editorOverride ?? this.activeEditor()?.id;
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
     if (!this.requireHost("Opening an editor")) return;

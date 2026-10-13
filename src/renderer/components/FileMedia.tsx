@@ -19,7 +19,7 @@ export function FileMedia({ path, load }: { path: string; load?: MediaLoader }) 
     return () => { cancelled = true; resource?.release?.(); };
   }, [path, load]);
   const current = state?.path === path && state.load === load ? state : undefined;
-  if (!load || current?.error) return <div className="stage-empty" role="status">{current?.error || "This host does not support media previews. Update the host and try again."}</div>;
+  if (!load || current?.error) return <div className="stage-empty" role="status">{current?.error || "This machine does not support media previews. Update Tau on it and try again."}</div>;
   if (!current?.resource) return <div className="stage-empty" role="status">Loading media…</div>;
   const { url, mimeType } = current.resource;
   const name = path.split("/").pop() || path;

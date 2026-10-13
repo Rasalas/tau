@@ -47,7 +47,7 @@ export default {
     const principal = (call: HostCommandCall) => {
       if (call.device) return `device:${call.device}`;
       if (call.owner) return "owner";
-      throw new HostCommandError("Device video needs a paired device or the local host owner.");
+      throw new HostCommandError("Device video needs a paired device or this machine's owner.");
     };
     const guarded = (work: (input: unknown, call: HostCommandCall) => unknown) => async (input: unknown, call: HostCommandCall) => {
       try { return await work(input, call); } catch (error) { throw new HostCommandError(error instanceof Error ? error.message : String(error)); }

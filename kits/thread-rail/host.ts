@@ -112,7 +112,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       let localTrashIds = new Set<string>();
       const owner = (id: string) => !sessions.has(id) && localTrashIds.has(id) ? undefined : machineThreadOwner(id, sessions, services.machines?.list() ?? []);
       const callMachine = (machine: string, command: string, input: unknown) => {
-        if (!services.machines) throw new HostCommandError("Machines are unavailable on this host.");
+        if (!services.machines) throw new HostCommandError("Machines are unavailable on this machine.");
         return services.machines.call(machine, THREAD_RAIL_EXTENSION_ID, command, input);
       };
       const readOwnership = async () => {
@@ -395,7 +395,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         const prompt = typeof fields.prompt === "string" ? fields.prompt.trim() : "";
         if (!prompt) throw new HostCommandError("There is no prompt to start a thread with.");
         if (!isAbsolute(cwd) || !(await stat(cwd).then((entry) => entry.isDirectory(), () => false))) {
-          throw new HostCommandError(`${cwd || "The project"} is not a folder on this host.`);
+          throw new HostCommandError(`${cwd || "The project"} is not a folder on this machine.`);
         }
         const model = record(fields.model);
         const provider = typeof model.provider === "string" ? model.provider : "";

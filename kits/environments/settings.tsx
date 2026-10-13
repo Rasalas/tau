@@ -41,7 +41,7 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
   /** Absent where this page cannot set up agents: another machine shown, or a host that keeps none. */
   agents?: AgentMachines;
   pairing?: UiEnvironmentPairing;
-  /** This computer's host, which asks a machine its agents reach how it is doing. */
+  /** This machine's host, which asks a machine its agents reach how it is doing. */
   host?: HostExtensionClient;
   ImportConversations?: ComponentType<MachineImportProps>;
 }) {
@@ -49,10 +49,10 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
   const [settingUp, setSettingUp] = useState(false);
   const [name, setName] = useState(machine.name);
   const agent = agents?.machines.find((entry) => entry.id === machine.id);
-  // This computer answers its own host; another one only over its agents' connection.
+  // This machine answers its own host; another one only over its agents' connection.
   const health = host && agents && (machine.local || agent?.status === "connected");
   const details = [
-    machine.local ? "This computer" : machine.address?.replace(/^wss?:\/\//u, "").replace(/\/$/u, ""),
+    machine.local ? "This machine" : machine.address?.replace(/^wss?:\/\//u, "").replace(/\/$/u, ""),
     statusText(machine, now),
     machine.hostVersion ? `Tau ${machine.hostVersion}` : undefined,
     machine.threadCount ? `${machine.threadCount} thread${machine.threadCount === 1 ? "" : "s"}` : undefined,
@@ -112,9 +112,9 @@ function pairOutcome(result: EnvironmentPairResult): AddState {
   switch (result.state) {
     case "added":
       if (result.agents && !result.agents.added) {
-        return { kind: "done", tone: "problem", message: `${result.environment.name} was added, but not this computer's agents: ${result.agents.message}` };
+        return { kind: "done", tone: "problem", message: `${result.environment.name} was added, but not this machine's agents: ${result.agents.message}` };
       }
-      return { kind: "done", tone: "ok", message: `${result.environment.name} was added${result.agents?.added ? ", and this computer's agents may work there" : ""}. Its threads are listed at the foot of the thread rail.` };
+      return { kind: "done", tone: "ok", message: `${result.environment.name} was added${result.agents?.added ? ", and this machine's agents may work there" : ""}. Its threads are listed at the foot of the thread rail.` };
     case "denied": return { kind: "done", tone: "problem", message: "The other machine's owner declined." };
     case "expired": return { kind: "done", tone: "problem", message: "Nobody answered on the other machine in time. Try again and allow it there." };
     case "cancelled": return { kind: "idle" };
@@ -162,7 +162,7 @@ function NearbyMachines({ environments, list, busy, onAdd }: {
         </Button>
       </div>
       {search.status === "idle" ? (
-        <p className="machine-nearby-note">Finds machines whose owner turned on Local network and Announce. This computer may ask to allow local network access.</p>
+        <p className="machine-nearby-note">Finds machines whose owner turned on Local network and Announce. This machine may ask to allow local network access.</p>
       ) : search.status === "error" ? (
         <p className="machine-add-result problem" role="status">Looking failed: {search.message}</p>
       ) : search.status === "done" ? (
@@ -172,7 +172,7 @@ function NearbyMachines({ environments, list, busy, onAdd }: {
   );
 }
 
-const NO_SECURE_STORAGE = "This computer offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.";
+const NO_SECURE_STORAGE = "This machine offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.";
 
 function AddMachine({ environments, secureStorage, offerAgents, host, ImportConversations }: { environments: PlatformEnvironments; secureStorage: boolean; offerAgents: boolean; host?: HostExtensionClient; ImportConversations?: ComponentType<MachineImportProps> }) {
   const field = useRef<HTMLInputElement>(null);
@@ -223,7 +223,7 @@ function AddMachine({ environments, secureStorage, offerAgents, host, ImportConv
           <option value="wsl">WSL distribution</option>
         </select>
       </label>
-      {method === "wsl" ? <label className="machine-add-field"><span>WSL distribution</span><select aria-label="WSL distribution" disabled={busy} value={text} onChange={(event) => setText(event.target.value)}><option value="">Choose a distribution</option>{distros.map((distro) => <option key={distro} value={distro}>{distro}</option>)}</select><small>Requires WSL 2 with systemd enabled. Tau installs its signed host inside this distribution.</small></label> : <>
+      {method === "wsl" ? <label className="machine-add-field"><span>WSL distribution</span><select aria-label="WSL distribution" disabled={busy} value={text} onChange={(event) => setText(event.target.value)}><option value="">Choose a distribution</option>{distros.map((distro) => <option key={distro} value={distro}>{distro}</option>)}</select><small>Requires WSL 2 with systemd enabled. Tau installs its signed release inside this distribution.</small></label> : <>
       <label className="machine-add-field">
         <span>{method === "ssh" ? "SSH target" : "Pairing link or address"}</span>
         <TextField
@@ -244,10 +244,10 @@ function AddMachine({ environments, secureStorage, offerAgents, host, ImportConv
       </>}
       {offerAgents ? (
         <SettingRow
-          title="This computer's agents may work there"
-          description="The same approval lets in this computer's host as a second device, so its agents can start threads there while no window is open. Either device can be revoked there alone."
+          title="This machine's agents may work there"
+          description="The same approval lets in this machine's agents as a second device, so they can start threads there while no window is open. Either device can be revoked there alone."
           control={(
-            <Switch label="This computer's agents may work there" checked={withAgents} disabled={busy} onChange={setWithAgents} />
+            <Switch label="This machine's agents may work there" checked={withAgents} disabled={busy} onChange={setWithAgents} />
           )}
         />
       ) : null}
@@ -265,13 +265,13 @@ function AddMachine({ environments, secureStorage, offerAgents, host, ImportConv
 }
 
 /**
- * Settings → Machines: the computers this window shows threads of, and adding
+ * Settings → Machines: the machines this window shows threads of, and adding
  * one. Adding one asks that machine's owner, who compares a code (ADR 0024).
  */
 export function createMachinesPage(environments: PlatformEnvironments, host?: HostExtensionClient, ImportConversations?: ComponentType<MachineImportProps>) {
   return function MachinesPage() {
     const list = useEnvironments(environments);
-    // Agents are this computer's host's: only while the page shows this computer, and on a host that keeps machines.
+    // Agents are this machine's host's: only while the page shows this machine, and on a host that keeps machines.
     const agentMachines = useAgentMachines(environments.shownElsewhere ? undefined : host);
     const agents = agentMachines?.available ? agentMachines : undefined;
     const checkedOnboarding = useRef(new Set<string>());
@@ -299,12 +299,12 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
       return (
         <div className="settings-page">
           <SettingsSection title="Machines">
-            <p className="settings-group-note">This window keeps no list of machines. A desktop window beside its own host does.</p>
+            <p className="settings-group-note">This window keeps no list of machines. A Tau desktop window on its own machine does.</p>
           </SettingsSection>
         </div>
       );
     }
-    // This computer's Tau is the one to catch up with (K103).
+    // This machine's Tau is the one to catch up with (K103).
     const reference = list.environments.find((machine) => machine.local)?.hostVersion;
     return (
       <div className="settings-page machines-page">
@@ -328,9 +328,9 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
         {agents ? <MachineWeights machines={list.environments} agents={agents} /> : null}
         <SettingsSection title="Add a machine">
           <p className="settings-group-note">
-            On the other computer, open Settings → Connections, turn on network access and create a pairing link; paste it here,
-            or type that computer's address. Its owner allows this computer there after comparing a code. Its threads then show
-            beside this computer's, and a new thread can start on it.
+            On the other machine, open Settings → Connections, turn on network access and create a pairing link; paste it here,
+            or type that machine's address. Its owner allows this machine there after comparing a code. Its threads then show
+            beside this machine's, and a new thread can start on it.
           </p>
           {list.secureStorage ? null : (
             <p className="settings-group-note machine-warning">{NO_SECURE_STORAGE}</p>
@@ -340,7 +340,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
         <SettingsSection title="At start">
           <SettingRow
             title="Show the last machine again"
-            description="After a restart the window shows the machine it showed last, if it answers within a few seconds; otherwise this computer."
+            description="After a restart the window shows the machine it showed last, if it answers within a few seconds; otherwise this machine."
             control={(
               <Switch label="Show the last machine again" checked={list.reopenShown === true} onChange={(next) => void environments.setPreferences({ reopenShown: next })} />
             )}
@@ -349,7 +349,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
         {removing ? (
           <ConfirmDialog
             title={`Remove ${removing.name}?`}
-            message="This computer forgets the machine, its key and its agents' key. Its threads stay on it, and it lists this computer's devices until its owner revokes them; add it again to see them here."
+            message="This machine forgets the machine, its key and its agents' key. Its threads stay on it, and it lists this machine's devices until its owner revokes them; add it again to see them here."
             confirmLabel="Remove"
             destructive
             onConfirm={() => {

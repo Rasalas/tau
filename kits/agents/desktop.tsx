@@ -61,13 +61,13 @@ export const agentsExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: AGENTS_SETTINGS_PAGE,
       label: "Agents",
-      description: "Where the sub-agents a thread starts do their work: on this computer or on another machine.",
+      description: "Where the sub-agents a thread starts do their work: on this machine or on another machine.",
       group: "threads",
       Icon: Bot,
       order: 45.2,
       profiles: ["desktop", "web"],
-      keywords: ["sub-agents", "subagents", "spawn", "machine", "remote machine", "other computer", "automatic"],
-      rows: [{ id: "setting-agents-machine", label: "Run sub-agents on", keywords: ["sub-agents", "spawn", "machine", "other computer", "automatic", "this computer"] }],
+      keywords: ["sub-agents", "subagents", "spawn", "machine", "remote machine", "other machine", "computer", "automatic"],
+      rows: [{ id: "setting-agents-machine", label: "Run sub-agents on", keywords: ["sub-agents", "spawn", "machine", "other machine", "computer", "automatic", "this machine"] }],
       Component: createAgentsSettingsPage(context.host),
     });
     // The Machines rail leaves out the threads other machines run for this host's agents.

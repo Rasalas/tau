@@ -27,7 +27,7 @@ const PERMISSION_TITLES: Readonly<Record<ExtensionPermission, string>> = {
   network: "Reach the network",
   packages: "Install and remove extension packages",
   machines: "Work on your other machines",
-  native: "Load compiled code into the host",
+  native: "Load compiled code into Tau",
 };
 
 export function permissionTitle(permission: string): string {
@@ -227,8 +227,8 @@ function originText(entry: ExtensionEntry, distribution?: ExtensionInspection["d
 /** The next step for an extension that does not run. */
 function problemAdvice(entry: ExtensionEntry): string {
   if (entry.state === "incompatible") return "Update Tau, or install a version of the package made for this one.";
-  if (entry.origin === "installed") return "Update the package, or turn it off and on again after fixing it; the host log has the details.";
-  return "Turn it off and on again; if it fails again, the host log has the details.";
+  if (entry.origin === "installed") return "Update the package, or turn it off and on again after fixing it; Tau's log on the machine has the details.";
+  return "Turn it off and on again; if it fails again, Tau's log on the machine has the details.";
 }
 
 /**
@@ -411,8 +411,8 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
           ))}
           {isolation ? (
             <SettingRow
-              title={isolation === "in-process" ? "Runs inside the host process" : "Runs in a worker of its own"}
-              description={isolation === "in-process" ? "Its permissions are a promise, not a fence: the host process cannot hold it to them." : "Network access, programs and compiled code are refused without the matching permission."}
+              title={isolation === "in-process" ? "Runs inside Tau's own process" : "Runs in a worker of its own"}
+              description={isolation === "in-process" ? "Its permissions are a promise, not a fence: inside Tau's own process, it cannot be held to them." : "Network access, programs and compiled code are refused without the matching permission."}
             />
           ) : null}
           {entry.permissions.length === 0 ? <p className="settings-group-note">It asks for no permissions.</p> : null}

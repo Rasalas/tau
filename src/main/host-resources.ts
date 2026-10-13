@@ -84,7 +84,7 @@ const processTreePorts: TestResourcePorts = {
 /**
  * A test host that plays a smaller machine: `TAU_TEST_CPU_COUNT` cores whose
  * only work is this host's own process tree, its terminals included. Load
- * started there shows; the rest of this computer does not. Undefined without
+ * started there shows; the rest of this machine does not. Undefined without
  * the variable.
  */
 export function testResourceOs(env: NodeJS.ProcessEnv = process.env, os: ResourceOs = nodeOs, ports: TestResourcePorts = processTreePorts): ResourceOs | undefined {
@@ -411,7 +411,7 @@ export function createResourceMethods(deps: {
   return {
     "host-resources": async () => {
       const sampler = deps.resources?.();
-      if (!sampler) throw Object.assign(new Error("This host does not report its machine's load; a host in the window's process does not."), { code: HOST_ERROR.unsupported });
+      if (!sampler) throw Object.assign(new Error("This machine does not report its load; a Tau window's own process does not."), { code: HOST_ERROR.unsupported });
       return sampler.sample();
     },
     "readiness": async (_params, context) => {

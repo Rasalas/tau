@@ -182,7 +182,7 @@ const snapshots: DesktopExtension = {
 
     let arming = false;
     const arm = () => {
-      // The shortcut is the host machine's; a phone or another computer arming it would count as a change it made.
+      // The shortcut is the host machine's; a phone or another machine arming it would count as a change it made.
       if (!hostHasLocalFiles() || arming) return;
       arming = true;
       // The host arms from its own settings, and only a window that holds no shortcut yet.

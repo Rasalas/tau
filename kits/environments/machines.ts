@@ -40,7 +40,7 @@ export function unavailableReason(environment: UiEnvironment, now: number): stri
 
 /** Why a new thread cannot start on a machine; undefined when it can. */
 export function cannotStartReason(environment: UiEnvironment, now: number): string | undefined {
-  if (environment.readOnly) return `Read only: ${environment.name} lets this computer look, not start threads.`;
+  if (environment.readOnly) return `Read only: ${environment.name} lets this machine look, not start threads.`;
   return unavailableReason(environment, now);
 }
 

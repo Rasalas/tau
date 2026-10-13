@@ -30,7 +30,7 @@ export function UpdateHostButton() {
     type="button"
     className="text-button"
     disabled={Boolean(busy || refused)}
-    {...tooltipProps(refused ? "Only a device with Full access may update this host." : status.phase === "failed" ? status.reason : undefined)}
+    {...tooltipProps(refused ? "Only a device with Full access may update Tau on this machine." : status.phase === "failed" ? status.reason : undefined)}
     onClick={() => void (pending ? store.install() : store.check()).catch(() => undefined)}
-  >{busy ?? (pending ? "Update host" : "Check for updates")}</button>;
+  >{busy ?? (pending ? "Update machine" : "Check for updates")}</button>;
 }

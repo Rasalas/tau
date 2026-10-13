@@ -24,7 +24,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
       const { services } = context;
       const file = join(services.stateDir, "jobs.json");
       const lock = await tryProcessLock(join(services.stateDir, "scheduler.lock"), { pid: process.pid, startedAt: new Date().toISOString(), app: "Tau Scheduling" });
-      if (!lock) throw new HostCommandError("Another scheduler owns this host state.");
+      if (!lock) throw new HostCommandError("Another scheduler owns this machine's state.");
       try {
         const restored = await readState(file);
         let state: SchedulingState = structuredClone(restored);
@@ -243,7 +243,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           const v = object(input, ["id", "value"]);
           const id = text(v.id, "Automation ID", 36);
           const value = text(v.value, "Secret", 8192);
-          if (!secretStore) throw new HostCommandError("No operating-system secret store is available on this host.");
+          if (!secretStore) throw new HostCommandError("No operating-system secret store is available on this machine.");
           const reference = randomUUID();
           const item = { service: SECRET_SERVICE, account: reference, label: `Webhook signature: ${lookup({ id }).config.name}` };
           try { await secretStore.set(item, value); await bindSecret(id, reference); }

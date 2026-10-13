@@ -168,7 +168,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
       {confirming && status ? (
         <ConfirmDialog
           title={`Update Tau on ${machine ?? "this machine"}?`}
-          message={`This updates the connected machine to Tau ${status.latest ?? "a newer version"}, not this app. Its host may restart and this app reconnects.`}
+          message={`This updates the connected machine to Tau ${status.latest ?? "a newer version"}, not this app. Tau there may restart and this app reconnects.`}
           confirmLabel="Update machine"
           onConfirm={() => { setConfirming(false); run(() => store!.install()); }}
           onCancel={() => setConfirming(false)}

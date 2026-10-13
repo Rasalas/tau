@@ -45,7 +45,7 @@ export class ChatGPTPlan {
     try {
       flow.show({ browser: { url: attempt.url, instructions: "Authorize Tau in your system browser, then return here." }, links: [{ url: CHATGPT_USAGE_URL, label: "Manage usage" }] });
       const question = new AbortController();
-      const pasted = flow.ask({ kind: "text", message: "The browser normally returns automatically. If it is on another computer and cannot reach Tau, paste the final http://127.0.0.1 callback URL here.", placeholder: "http://127.0.0.1:…/auth/callback?…" }, { signal: question.signal }).then((value) => { attempt.acceptCallback(value); return attempt.callback; });
+      const pasted = flow.ask({ kind: "text", message: "The browser normally returns automatically. If it is on another machine and cannot reach Tau, paste the final http://127.0.0.1 callback URL here.", placeholder: "http://127.0.0.1:…/auth/callback?…" }, { signal: question.signal }).then((value) => { attempt.acceptCallback(value); return attempt.callback; });
       let returned;
       try { returned = await Promise.race([attempt.callback, pasted]); }
       finally { question.abort(); }

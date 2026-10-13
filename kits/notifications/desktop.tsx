@@ -328,7 +328,7 @@ function NotifyWhen({ preferences }: { preferences: PreferencesStore }) {
   return <>
     <SettingsSection title="Notify me when"><NotifyRows preferences={preferences} /></SettingsSection>
     <SettingsSection title="Quiet hours">
-      <SettingRow id="setting-notifications-quiet" title="Quiet hours" description={`${from.value} – ${to.value}, on the host's clock`} setting={quiet}
+      <SettingRow id="setting-notifications-quiet" title="Quiet hours" description={`${from.value} – ${to.value}, on the machine's clock`} setting={quiet}
         control={<Switch label="Quiet hours" checked={quiet.value} onChange={quiet.set} />}>
         {quiet.value ? <div className="notifications-quiet">{time(from, "Quiet from")}–{time(to, "Quiet until")}</div> : null}
       </SettingRow>

@@ -287,7 +287,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
             id="setting-push-key-file"
             title="Key file"
             description="Only your user account can read it, but it is not encrypted: anyone who can read your files can send notifications to your phones with these keys."
-            help="The host runs without a window, often as a background service, where no keychain is at hand."
+            help="Tau on the machine runs without a window, often as a background service, where no keychain is at hand."
             status={<ValueList label="Key file" items={[{ label: "File", value: status.file, mono: true, copy: status.file }]} />}
           />
         </SettingsSection>

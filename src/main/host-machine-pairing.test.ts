@@ -188,6 +188,6 @@ describe("machines-update (K103)", () => {
     const machines = await openMachines();
     await machines.add(rex("agents-token"));
     const methods = table({ machines: () => machines, window: () => undefined });
-    await expect(invokeHostMethod(methods, "machines-update", ["rex", "status"], owner)).rejects.toThrow(/Tau window on this computer/u);
+    await expect(invokeHostMethod(methods, "machines-update", ["rex", "status"], owner)).rejects.toThrow(/Tau window on this machine/u);
   });
 });

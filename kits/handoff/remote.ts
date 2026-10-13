@@ -119,7 +119,7 @@ export class RemoteContinuations {
 
   private machines(): HostMachineServices {
     const machines = this.services.machines;
-    if (!machines) throw new HostCommandError("This host reaches no other machines.");
+    if (!machines) throw new HostCommandError("This machine reaches no other machines.");
     return machines;
   }
 
@@ -189,9 +189,9 @@ export class RemoteContinuations {
     const all = this.machines().list();
     const byName = all.filter((machine) => machine.name.toLowerCase() === name.trim().toLowerCase());
     const machine = all.find((candidate) => candidate.id === name) ?? (byName.length === 1 ? byName[0] : undefined);
-    if (!machine) throw new HostCommandError(`This computer's agents do not know a machine ${name}.`);
+    if (!machine) throw new HostCommandError(`This machine's agents do not know a machine ${name}.`);
     if (machine.status !== "connected") throw new HostCommandError(`${machine.name} is ${machine.status}${machine.detail ? `: ${machine.detail}` : ""}.`);
-    if (machine.readOnly) throw new HostCommandError(`${machine.name} lets this computer's agents in Read only; a thread there needs Full access.`);
+    if (machine.readOnly) throw new HostCommandError(`${machine.name} lets this machine's agents in Read only; a thread there needs Full access.`);
     return machine;
   }
 
@@ -269,7 +269,7 @@ export class RemoteContinuations {
     if (!native && !prompt) throw new HostCommandError(`Write what ${machine.name} should do next in the composer first; the thread starts there with it.`);
     await this.assertReady(machine, thread.backendKind);
     if (move && thread.isStreaming()) {
-      if (!this.services.sessions.abort) throw new HostCommandError("This host cannot stop a thread for transfer. Stop its turn first.");
+      if (!this.services.sessions.abort) throw new HostCommandError("This machine cannot stop a thread for transfer. Stop its turn first.");
       await this.services.sessions.abort(thread.sessionId);
       if (thread.isStreaming()) throw new HostCommandError("The source thread is still working. Try the transfer after it stops.");
       messages = await thread.transcript();

@@ -20,7 +20,7 @@ export const hostMachine: DraftMachineSource = {
     const local = hostHasLocalFiles();
     // A started thread stays where it runs.
     if (!draft) return undefined;
-    return { name: name ?? (local ? "This machine" : "Host"), icon: local ? <Laptop size={13} aria-hidden /> : <Server size={13} aria-hidden /> };
+    return { name: name ?? (local ? "This machine" : "Machine"), icon: local ? <Laptop size={13} aria-hidden /> : <Server size={13} aria-hidden /> };
   },
   Section: function HostRow({ touch }) {
     const machine = hostMachine.useMachine({});

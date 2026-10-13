@@ -155,7 +155,7 @@ export class HostMachines {
     this.changed();
   }
 
-  /** This computer's own name for a machine; the machine keeps calling itself what it does. */
+  /** This machine's own name for a machine; the machine keeps calling itself what it does. */
   async rename(id: string, name: string): Promise<boolean> {
     const text = name.trim().slice(0, 80);
     const watched = this.watched.get(id);
@@ -195,7 +195,7 @@ export class HostMachines {
   /** Sends a file there in pieces over the agents' connection; a kit on that machine takes it by the id. */
   async upload(machine: string, source: HostBlobSource, options: HostBlobUploadOptions = {}): Promise<HostUploadedBlob> {
     const { entry, state } = this.connected(machine);
-    if (state.readOnly) throw failure(`${entry.name} lets this computer's agents in Read only; sending a file there needs Full access.`, HOST_ERROR.forbidden);
+    if (state.readOnly) throw failure(`${entry.name} lets this machine's agents in Read only; sending a file there needs Full access.`, HOST_ERROR.forbidden);
     // Each piece asks for the connection again, so a drop or a revocation stops the upload at once.
     const request: BlobRequest = (method, params, timeoutMs, frame) => this.connected(machine).monitor.call(method, params, timeoutMs, frame);
     const started = Date.now();
@@ -206,7 +206,7 @@ export class HostMachines {
     } catch (error) {
       const code = (error as { code?: unknown }).code;
       if (code === HOST_ERROR.unknownMethod) throw failure(`${entry.name} runs a Tau that cannot take files yet; update it there.`, HOST_ERROR.unsupported);
-      if (code === HOST_ERROR.forbidden) throw failure(`${entry.name} lets this computer's agents in Read only; sending a file there needs Full access.`, HOST_ERROR.forbidden);
+      if (code === HOST_ERROR.forbidden) throw failure(`${entry.name} lets this machine's agents in Read only; sending a file there needs Full access.`, HOST_ERROR.forbidden);
       throw error;
     }
   }
@@ -265,7 +265,7 @@ export class HostMachines {
     if (named.length === 1) return named[0]!;
     throw failure(named.length > 1
       ? `Several machines are called ${machine}; name one by its id.`
-      : `This computer's agents have no key for ${machine}. Turn on “Agents may work there” for it in Settings → Machines.`, HOST_ERROR.invalidRequest);
+      : `This machine's agents have no key for ${machine}. Turn on “Agents may work there” for it in Settings → Machines.`, HOST_ERROR.invalidRequest);
   }
 
   private connected(machine: string): Watched {
@@ -273,7 +273,7 @@ export class HostMachines {
     const { status, detail } = watched.state;
     if (status === "connected") return watched;
     const name = watched.entry.name;
-    if (status === "refused") throw failure(`${name} refuses this computer's agents: ${detail ?? "its key was revoked there"}`, HOST_ERROR.unauthorized);
+    if (status === "refused") throw failure(`${name} refuses this machine's agents: ${detail ?? "its key was revoked there"}`, HOST_ERROR.unauthorized);
     throw failure(status === "connecting" ? `Connecting to ${name}…` : `${name} is offline${detail ? `: ${detail}` : "."}`, HOST_ERROR.failed);
   }
 
@@ -287,7 +287,7 @@ export class HostMachines {
       token: entry.token,
       trust: (url) => endpointTrust(current(), url),
       bootstrap: true,
-      unauthorizedDetail: "its owner revoked this computer's agents there, or their access expired. Turn them on again in Settings → Machines.",
+      unauthorizedDetail: "its owner revoked this machine's agents there, or their access expired. Turn them on again in Settings → Machines.",
       topics: () => [...watched.topics.keys()],
       threads: () => [...this.followers.get(entry.id)?.keys() ?? []],
       logger: this.options.logger,
@@ -448,7 +448,7 @@ export function createMachineMethods(service: () => HostMachines | undefined): R
   const owned = (run: (machines: HostMachines, params: readonly unknown[]) => Promise<unknown>): Method => async (params, context) => {
     if (!isHostOwner(context.principal)) throw ownerRefusal();
     const machines = service();
-    if (!machines) throw failure("This host keeps no machines of its own; a host in the window's process has none.", HOST_ERROR.unsupported);
+    if (!machines) throw failure("This machine keeps no machines of its own; a Tau window's own process has none.", HOST_ERROR.unsupported);
     return run(machines, params);
   };
   return {

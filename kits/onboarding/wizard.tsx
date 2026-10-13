@@ -285,7 +285,7 @@ function useAgentRows(state: FlowState, flow: WelcomeFlow): AgentRow[] {
 
 function AgentsStep({ state, rows, flow, actions, aside, onContinue }: { state: FlowState; rows: readonly AgentRow[]; flow: WelcomeFlow; actions: WorkbenchActions; aside?: RunAside; onContinue(): void }) {
   return (
-    <StepShell title="Your agents" description="Agents available on this computer. Install or sign in to the ones you want to use; add more later under Settings › Providers.">
+    <StepShell title="Your agents" description="Agents available on this machine. Install or sign in to the ones you want to use; add more later under Settings › Providers.">
       <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(aside ? { aside } : {})} recheck={() => flow.recheckAgent(row.id)} />)}</div>
       {state.error ? <p className="onboarding-error" role="alert">Could not check the tools. {state.error}</p> : null}
       <section className="onboarding-optional" aria-labelledby="onboarding-pr-tools">

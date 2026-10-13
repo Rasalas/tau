@@ -198,7 +198,7 @@ describe("the Settings screen", () => {
     fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
     fireEvent.click(within(page).getByRole("menuitemradio", { name: /app/u }));
     await within(page).findByRole("button", { name: /Settings apply to app/u });
-    for (const name of ["Keep the host running in the background", "Reload files when they change", "Ask before quitting while threads work"]) {
+    for (const name of ["Keep Tau running in the background", "Reload files when they change", "Ask before quitting while threads work"]) {
       const row = within(page).getByRole("switch", { name }).closest(".settings-row")!;
       expect(row.querySelector(".settings-row-control")!.getAttribute("data-inert")).toBe("");
       expect(row.querySelector(".settings-row-control")!.getAttribute("data-tooltip")).toBe("Applies to the whole machine.");
@@ -269,7 +269,7 @@ describe("the Settings screen", () => {
 
     fireEvent.click(within(page).getByRole("menuitemradio", { name: /rex/u }));
     await within(page).findByRole("button", { name: /Settings apply to rex/u });
-    const background = await within(page).findByRole("switch", { name: "Keep the host running in the background" });
+    const background = await within(page).findByRole("switch", { name: "Keep Tau running in the background" });
     await waitFor(() => expect(background.getAttribute("aria-checked")).toBe("true"));
     fireEvent.click(background);
     await waitFor(() => expect(calls).toEqual([["update", "rex", { hostBackground: false }]]));
@@ -285,7 +285,7 @@ describe("the Settings screen", () => {
     fireEvent.click(within(page).getByRole("button", { name: /Settings apply to rex/u }));
     fireEvent.click(within(page).getByRole("menuitemradio", { name: /lab/u }));
     await within(page).findByRole("button", { name: /Settings apply to lab/u });
-    const locked = within(page).getByRole("switch", { name: "Keep the host running in the background" }).closest(".settings-row-control")!;
+    const locked = within(page).getByRole("switch", { name: "Keep Tau running in the background" }).closest(".settings-row-control")!;
     expect(locked.getAttribute("data-tooltip")).toMatch(/lab paired this window Read only/u);
   });
 
@@ -517,7 +517,7 @@ describe("Settings → Extensions", () => {
     // The approval and the permission list render on separate updates; wait for each.
     const allow = await within(page).findByRole("button", { name: "Allow and turn on" });
     expect(await within(page).findByText("Reach the network")).toBeTruthy();
-    expect(await within(page).findByText(/loads compiled code into the host process/u)).toBeTruthy();
+    expect(await within(page).findByText(/loads compiled code into Tau.s own process/u)).toBeTruthy();
     fireEvent.click(allow);
     await waitFor(() => expect(grantExtension).toHaveBeenCalledWith("acme.waiting", true));
     cleanup();

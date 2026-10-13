@@ -73,7 +73,7 @@ export function createPiProvidersHostExtension(): HostExtension {
     activate(context) {
       const auth = context.services.modelAuth;
       const seam = () => {
-        if (!auth) throw new HostCommandError("This host cannot sign Pi's providers in.");
+        if (!auth) throw new HostCommandError("This machine cannot sign Pi's providers in.");
         return auth;
       };
       const find = async (id: string) => {

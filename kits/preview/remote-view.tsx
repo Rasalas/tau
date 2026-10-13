@@ -34,8 +34,8 @@ export const NO_WINDOW_RECHECK_MS = 5_000;
 
 /** What the stage says when the host's machine has no window to draw the page in. */
 export function NoDisplay({ state, machine }: { state: PreviewState; machine: string | undefined }) {
-  const name = machine ?? "The host";
-  const there = machine ?? "the host's computer";
+  const name = machine ?? "The machine";
+  const there = machine ?? "that machine";
   return <Empty
     icon={<MonitorOff size={20} />}
     title={`${name} has no display`}
@@ -117,9 +117,9 @@ function LayoutStatus({ state, id, viewer, allowed, onError }: { state: PreviewS
     </span>;
   }
   if (owner === "fixed" && state.viewport.mode === "fixed") {
-    return <span className="preview-remote-layout" {...tooltipProps("The viewport has a fixed size, set in the Preview's menu on the host")}>{`${String(state.viewport.width)}×${String(state.viewport.height)}`}</span>;
+    return <span className="preview-remote-layout" {...tooltipProps("The viewport has a fixed size, set in the Preview's menu on the machine")}>{`${String(state.viewport.width)}×${String(state.viewport.height)}`}</span>;
   }
-  const whose = owner === "other" ? `Laid out for “${state.layoutFor!.name}”` : "Laid out for the host's window";
+  const whose = owner === "other" ? `Laid out for “${state.layoutFor!.name}”` : "Laid out for the machine's window";
   const layOut = () => {
     const current = viewer();
     if (!current) return;
@@ -136,7 +136,7 @@ function LayoutStatus({ state, id, viewer, allowed, onError }: { state: PreviewS
 }
 /**
  * The Preview on a device that is not the host's own window — a phone, a
- * browser, a window on another computer. The page (or the window an agent
+ * browser, a window on another machine. The page (or the window an agent
  * drives) runs on the host; this view shows its frames and, with Full access,
  * sends taps, text and keys back (the user's decision 7). Nothing is fetched
  * while the view is out of sight.
@@ -312,8 +312,8 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
     || "";
   const empty = view === "browser"
     ? noWindow ? <NoDisplay state={state} machine={machine} /> : !state.available
-      ? <Empty icon={<Globe size={20} />} title="The Preview needs Tau on the host" description="Open the Tau desktop app on the computer this host runs on; the page is drawn there." />
-      : <Empty icon={<Globe size={20} />} title="Nothing open" description={mayOpen ? "Type an address above, or ask the agent to open one." : "The page an agent or the host opens shows here."} />
+      ? <Empty icon={<Globe size={20} />} title="The Preview needs Tau on the machine" description="Open the Tau desktop app on that machine; the page is drawn there." />
+      : <Empty icon={<Globe size={20} />} title="Nothing open" description={mayOpen ? "Type an address above, or ask the agent to open one." : "The page an agent or the machine opens shows here."} />
     : <Empty icon={<AppWindow size={20} />} title="No window yet" description="The window this thread's agent drives shows here once it has looked at one." />;
 
   return <section className={`panel-body preview-remote${compact ? " compact" : ""}${hold ? " held" : ""}`} aria-label="Preview on this device">

@@ -60,7 +60,7 @@ export interface PlatformEnvironments {
   listWsl?(): Promise<string[]>;
   setPreferences(preferences: EnvironmentPreferences): Promise<void>;
   /**
-   * Lets this computer's agents work on a saved machine, or stops them (ADR
+   * Lets this machine's agents work on a saved machine, or stops them (ADR
    * 0027). On asks that machine's owner once more, for the agents alone, and
    * shows the digits as `pairing`. New in API 1.15.0.
    */

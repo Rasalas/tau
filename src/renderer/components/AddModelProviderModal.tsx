@@ -59,7 +59,7 @@ export function AddModelProviderModal({ onClose, onProviderAdded }: AddModelProv
     }
 
     if (!client) {
-      setError("Host client unavailable.");
+      setError("The machine is not connected.");
       return;
     }
 

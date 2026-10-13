@@ -103,7 +103,7 @@ export class ServerSsh {
     if (typeof cwd !== "string" || !cwd) throw new HostCommandError("Open a project first.");
     const workspace = await this.context.services.knownWorkspacePath(cwd);
     if (typeof targetId === "string" && targetId) {
-      if (!this.options.lookupTarget) throw new HostCommandError("This host reads no sftp.json targets.");
+      if (!this.options.lookupTarget) throw new HostCommandError("This machine reads no sftp.json targets.");
       return { workspace, target: sshTargetOf(await this.options.lookupTarget(workspace, targetId)) };
     }
     return { workspace, target: decodeClientTarget(target) };

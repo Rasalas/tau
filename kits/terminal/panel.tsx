@@ -172,7 +172,7 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
           : <Empty
             icon={<TerminalIcon size={20} />}
             title={readOnly ? "No shell is open" : "No terminal in this thread"}
-            description={readOnly ? "This device can watch shells the host opens." : "Open one to run commands in this workspace."}
+            description={readOnly ? "This device can watch shells the machine opens." : "Open one to run commands in this workspace."}
           >
             {readOnly ? null : <button type="button" className="chrome-button" disabled={busy} onClick={newTerminal}><Plus size={13} aria-hidden="true" />Open a terminal</button>}
           </Empty>}

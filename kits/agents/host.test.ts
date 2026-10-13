@@ -771,7 +771,7 @@ describe("Agents Kit", () => {
     const parent = bench.runtime("parent");
     await parent.call("tau_spawn_thread", { prompt: "go", model: "openai/test-model", projectPath: "/other" });
     expect(bench.started[0]).toMatchObject({ cwd: "/other", model: { provider: "openai", id: "test-model" } });
-    await expect(parent.call("tau_spawn_thread", { prompt: "go", projectPath: "/nowhere" })).rejects.toThrow("not a project this host has open");
+    await expect(parent.call("tau_spawn_thread", { prompt: "go", projectPath: "/nowhere" })).rejects.toThrow("not a project this machine has open");
   });
 
   it("queues spawns beyond the running budget and starts them in order as slots free", async () => {

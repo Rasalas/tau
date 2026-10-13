@@ -414,7 +414,7 @@ export function CompactTerminalPanel({ actions, active }: PanelProps) {
     >
       {shown
         ? <TerminalView key={shown.id} session={shown} place={isStaged(layout, shown.id) ? "stage" : "panel"} fontSize={fontSize} touch={binding} />
-        : <Empty icon={<TerminalIcon size={20} />} title="No terminal open" description={readOnly ? "No shell is open on the host." : elsewhere.length > 0 ? "Open a shell to run commands in this workspace. Other threads' shells are under ⋯." : "Open a shell to run commands in this workspace."}>
+        : <Empty icon={<TerminalIcon size={20} />} title="No terminal open" description={readOnly ? "No shell is open on the machine." : elsewhere.length > 0 ? "Open a shell to run commands in this workspace. Other threads' shells are under ⋯." : "Open a shell to run commands in this workspace."}>
           {readOnly ? null : <button type="button" className="terminal-compact-button" disabled={busy} onClick={() => run(() => openTerminal(actions))}><Plus size={16} aria-hidden="true" />New terminal</button>}
         </Empty>}
     </div>

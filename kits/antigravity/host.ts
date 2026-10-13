@@ -272,7 +272,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       // Signing in from the window: the agent's own `authenticate` for the chosen method, its link shown to open.
       const fetchUrl = options.fetch ?? globalThis.fetch;
       const reachLoopback = (link: AuthorizationLink, flow: SignInFlowContext) => {
-        let question = "If the page after Google's does not load (a browser on another computer), paste its address here.";
+        let question = "If the page after Google's does not load (a browser on another machine), paste its address here.";
         const listen = async (): Promise<void> => {
           for (;;) {
             const pasted = await flow.ask({ kind: "code", message: question, placeholder: link.redirectUri });
@@ -311,7 +311,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             onUpdate: () => undefined,
             onPermission: async () => ({ outcome: { outcome: "cancelled" } }),
             onSignIn: (link) => {
-              flow.show({ browser: { url: link.authorizationUrl, instructions: "Sign in with Google in the browser; the agent finishes the sign-in by itself on this computer." } });
+              flow.show({ browser: { url: link.authorizationUrl, instructions: "Sign in with Google in the browser; the agent finishes the sign-in by itself on this machine." } });
               reachLoopback(link, flow);
             },
             onExit: () => undefined,

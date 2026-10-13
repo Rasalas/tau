@@ -64,7 +64,7 @@ export function FreshStart({ snapshot, actions }: RegionProps) {
         <path d="M8.7 10L22.52 10M15 10L15 19.15C15 21.29 16.74 23.03 18.88 23.03C20.33 23.03 21.04 22.63 22.03 21.94" />
       </svg>
       <h2>Open a project to start</h2>
-      <p className="fresh-start-lede">A project is any folder on this computer. A git repo adds worktrees and reviews.</p>
+      <p className="fresh-start-lede">A project is any folder on this machine. A git repo adds worktrees and reviews.</p>
       <div className="fresh-start-actions">
         <button type="button" className="primary" onClick={() => void actions.executeCommand?.("workspace.open-project")}><Folder size={12} aria-hidden />Open a folder</button>
         <button type="button" onClick={() => actions.openProjectSources(CLONE_SOURCE)}><Link size={12} aria-hidden />Clone a repository</button>

@@ -26,7 +26,7 @@ export interface UsageFilters {
   metric: UsageMetric;
   /** Runtimes switched off; kept on this device. Absent when none is. */
   hiddenRuntimes?: readonly string[];
-  /** `""` this computer, a host id another machine. */
+  /** `""` this machine, a host id another machine. */
   machine?: string;
   origin?: UsageOrigin;
 }

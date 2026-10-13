@@ -371,7 +371,7 @@ export class WindowEnvironments {
       return { added: true };
     } catch (error: unknown) {
       this.options.logger.warn("environment.agents.failed", { id: machine.id, error: error instanceof Error ? error.message : String(error) });
-      return { added: false, message: `This computer's host did not take the agents' key: ${error instanceof Error ? error.message : String(error)}` };
+      return { added: false, message: `This machine's host did not take the agents' key: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 

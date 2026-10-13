@@ -83,7 +83,7 @@ export function ReviewCommitBar({
   };
   const entries: MenuItem[] = [
     ...primaryPush ? [{ id: "push", label: "Commit & push", description: `Then push ${branch ?? "the branch"}` }] : [],
-    ...primaryPush ? [{ id: "commit", label: "Commit", description: "Keep it on this computer; nothing is pushed" }] : [],
+    ...primaryPush ? [{ id: "commit", label: "Commit", description: "Keep it on this machine; nothing is pushed" }] : [],
     ...actions.map((action): MenuItem => ({
       id: `action:${action.id}`,
       label: action.label,

@@ -53,7 +53,7 @@ export function threadTargets(list: UiEnvironments, projectPath: string | undefi
   return targets;
 }
 
-/** Automatic applies only while the window shows this computer, whose host does the choosing. */
+/** Automatic applies only while the window shows this machine, whose host does the choosing. */
 export function autoApplies(environments: PlatformEnvironments, list: UiEnvironments | undefined): list is UiEnvironments {
   return Boolean(list && !environments.shownElsewhere && shownMachine(list)?.local);
 }
@@ -125,7 +125,7 @@ export function createAutoRunOnHook(environments: PlatformEnvironments, host: Ho
           return runOn.hook.claimNewThread?.(event, actions);
         }
       }
-      if (event.attachments > 0) throw new Error("Enable this computer's agents on the chosen machine to send attachments there.");
+      if (event.attachments > 0) throw new Error("Enable this machine's agents on the chosen machine to send attachments there.");
       try {
         // The page reloads there before this answers; the prompt goes with it and is sent on arrival.
         await environments.open(answer.machine, {

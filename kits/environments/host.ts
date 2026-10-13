@@ -111,7 +111,7 @@ export function createEnvironmentsHostExtension(): HostExtension {
       context.registerCommand("agents", () => view(machines), { access: "read" });
       context.registerCommand("start-there", async (input) => {
         const machine = machineOf(input, "start-there");
-        if (!machines) throw new Error("This host keeps no machines for its agents.");
+        if (!machines) throw new Error("This machine keeps no list of machines for its agents.");
         const raw = (input ?? {}) as Record<string, unknown>;
         if (typeof raw.prompt !== "string") throw new Error("start-there: provide a prompt.");
         let workspaceId = raw.workspaceId;
@@ -148,7 +148,7 @@ export function createEnvironmentsHostExtension(): HostExtension {
       }, { long: true, audit: { label: "started a thread on another machine" } });
       context.registerCommand("start-project", async (input) => {
         const raw = (input ?? {}) as Record<string, unknown>;
-        if (!machines) throw new Error("This host keeps no machines for its agents.");
+        if (!machines) throw new Error("This machine keeps no list of machines for its agents.");
         if (typeof raw.sourceMachine !== "string" || typeof raw.workspaceId !== "string" || typeof raw.prompt !== "string") throw new Error("start-project: provide a source machine, workspace and prompt.");
         const attachments = decodePromptAttachments(raw.attachments);
         const model = raw.model as { provider?: unknown; id?: unknown } | undefined;
@@ -194,14 +194,14 @@ export function createEnvironmentsHostExtension(): HostExtension {
       context.registerCommand("whoami", (_input, call): MachineIdentity => ({ device: call.device ?? null, owner: call.owner }), { access: "read" });
       context.registerCommand("probe", async (input): Promise<MachineProbe> => {
         const machine = machineOf(input, "probe");
-        if (!machines) throw new Error("This host keeps no machines for its agents.");
+        if (!machines) throw new Error("This machine keeps no list of machines for its agents.");
         const started = Date.now();
         const identity = await machines.call(machine, ENVIRONMENTS_EXTENSION_ID, "whoami") as MachineIdentity;
         return { ...identity, ms: Date.now() - started };
       }, { audit: { label: "reached another machine as its agents" } });
       const ask = <T,>(command: string, method: string) => context.registerCommand(command, async (input): Promise<T> => {
         const machine = machineOf(input, command);
-        if (!machines) throw new Error("This host keeps no machines for its agents.");
+        if (!machines) throw new Error("This machine keeps no list of machines for its agents.");
         return await machines.request(machine, method, [], { timeoutMs: REPORT_TIMEOUT_MS }) as T;
       }, { access: "read" });
       ask<HostResources>("resources", "host-resources");

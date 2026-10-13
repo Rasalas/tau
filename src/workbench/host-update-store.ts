@@ -36,7 +36,7 @@ export function hostUpdateStore(client: HostClient): HostUpdateStore {
   };
   const refresh = () => {
     if (!client.hostUpdate) {
-      set({ unavailable: "This client cannot ask its host about updates." });
+      set({ unavailable: "This client cannot ask its machine about updates." });
       return;
     }
     client.hostUpdate("status").then(
@@ -58,7 +58,7 @@ export function hostUpdateStore(client: HostClient): HostUpdateStore {
   };
   const act = async (run: () => Promise<HostUpdateStatus> | undefined): Promise<HostUpdateStatus> => {
     const pending = run();
-    if (!pending) throw new Error("This host cannot update itself from here.");
+    if (!pending) throw new Error("This machine cannot update itself from here.");
     const status = await pending;
     set({ status });
     return status;

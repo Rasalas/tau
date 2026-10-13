@@ -155,7 +155,7 @@ function VersionSkewNotice() {
   const windowBehind = compareVersions(skew.window, skew.host) < 0;
   return <div className="host-connection-status version-skew" role="status">
     <span>
-      <strong>Version mismatch.</strong> This window runs Tau {skew.window}, its host runs {skew.host}.
+      <strong>Version mismatch.</strong> This window runs Tau {skew.window}, its machine runs {skew.host}.
     </span>
     {windowBehind ? <UpdateWindowButton /> : <UpdateHostButton />}
   </div>;

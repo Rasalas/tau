@@ -49,7 +49,7 @@ export function registerMcpAppCommands(context: Pick<HostExtensionContext, "regi
     const call = target(input);
     const scheme = (call as Partial<McpAppOpenInput>).colorScheme === "dark" ? "dark" : "light";
     const browserResources = resources();
-    if (!browserResources) throw new HostCommandError("This host serves no sandboxed frames.");
+    if (!browserResources) throw new HostCommandError("This machine serves no sandboxed frames.");
     const opened = await apps.open(call.threadId, call.itemId);
     if (opened.state !== "ready") return opened;
     const { html, meta } = opened.app;
@@ -133,7 +133,7 @@ export function startMcpApps(context: Pick<HostExtensionContext, "registerComman
     contexts,
     thread,
     send: async (threadId, text) => {
-      if (!services.sessions.send) throw new HostCommandError("This host cannot send a message for an app.");
+      if (!services.sessions.send) throw new HostCommandError("This machine cannot send a message for an app.");
       await services.sessions.send(threadId, text, { delivery: "prompt" });
     },
   });

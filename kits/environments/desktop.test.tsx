@@ -161,9 +161,9 @@ describe("Set up a machine", () => {
   it("offers the agents switch before it can read readiness", async () => {
     const { environments, host } = setup(false);
     render(<MachineSetup environments={environments} host={host} machine={studio} onDone={vi.fn()} />);
-    expect(await screen.findByText("Let this computer's agents work on studio first; the setup reads the machine over their connection.")).toBeTruthy();
+    expect(await screen.findByText("Let this machine's agents work on studio first; the setup reads the machine over their connection.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
-    expect(screen.getByRole("switch", { name: "This computer's agents may work on studio" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "This machine's agents may work on studio" })).toBeTruthy();
     await waitFor(() => expect(host.invoke).toHaveBeenCalledWith("agents"));
     expect(host.invoke).not.toHaveBeenCalledWith("readiness", expect.anything());
   });
@@ -352,7 +352,7 @@ describe("the other machines' threads in the rail", () => {
     expect(source.threads()).not.toBe(first);
   });
 
-  it("leaves out the threads this computer's sub-agents run there", () => {
+  it("leaves out the threads this machine's sub-agents run there", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const { registry } = createKitHarness(undefined, undefined, { environments });
     const listeners = new Set<() => void>();
@@ -455,14 +455,14 @@ describe("Run on", () => {
     expect(setComposerDraft).toHaveBeenCalledWith("");
   });
 
-  it("does not start a thread on a machine that paired this computer Read only, and says why", () => {
+  it("does not start a thread on a machine that paired this machine Read only, and says why", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, { ...studio, readOnly: true }], secureStorage: true });
     const Control = createRunOnControl(environments);
     render(<Control actions={fakeActions({ activeThread: () => ({ draftPending: true }), composerDraft: () => "x" })} />);
     fireEvent.click(screen.getByRole("button", { name: "Run on laptop" }));
     const item = row(/studio/u);
     expect(item.getAttribute("aria-disabled") ?? String((item as HTMLButtonElement).disabled)).toMatch(/true/u);
-    expect(item.textContent).toMatch(/Read only: studio lets this computer look/u);
+    expect(item.textContent).toMatch(/Read only: studio lets this machine look/u);
     fireEvent.click(item);
     expect(environments.open).not.toHaveBeenCalled();
   });
@@ -537,7 +537,7 @@ describe("Run on: a machine without the project", () => {
     expect(environments.open).not.toHaveBeenCalled();
     expect(bringing.choice.get()).toEqual({ machine: "rex", machineName: "rex", projectPath: tauHere });
     expect(screen.getByRole("button", { name: "Run on rex" })).toBeTruthy();
-    // Back to this computer forgets it.
+    // Back to this machine forgets it.
     fireEvent.click(screen.getByRole("button", { name: "Run on rex" }));
     fireEvent.click(row(/laptop/u));
     expect(bringing.choice.get()).toBeUndefined();
@@ -763,7 +763,7 @@ describe("Settings → Machines", () => {
   });
 });
 
-describe("Settings → Machines: this computer's agents", () => {
+describe("Settings → Machines: this machine's agents", () => {
   function agentsHost(machines: Array<{ id: string; name: string; status: "connected" | "refused"; detail?: string }>, answers: Record<string, (input: unknown) => unknown> = {}) {
     let emit: ((payload: unknown) => void) | undefined;
     const host = {
@@ -785,9 +785,9 @@ describe("Settings → Machines: this computer's agents", () => {
     const Page = createMachinesPage({ ...environments, setAgents }, host);
     render(withSettings(<Page />));
     await act(async () => undefined);
-    const toggle = screen.getByRole("switch", { name: "This computer's agents may work on studio" });
+    const toggle = screen.getByRole("switch", { name: "This machine's agents may work on studio" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
-    // This computer has no switch of its own.
+    // This machine has no switch of its own.
     expect(screen.queryByRole("switch", { name: /work on laptop/u })).toBeNull();
     fireEvent.click(toggle);
     expect(setAgents).toHaveBeenCalledWith("studio", true);
@@ -795,7 +795,7 @@ describe("Settings → Machines: this computer's agents", () => {
     expect(screen.getByText("112 233")).toBeTruthy();
     await act(async () => { finish({ state: "on" }); });
     emit({ available: true, machines: [{ id: "studio", name: "studio", status: "connected", roundTripMs: 7 }] });
-    expect(screen.getByRole("switch", { name: "This computer's agents may work on studio" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("switch", { name: "This machine's agents may work on studio" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText(/agents may work here · connected · 7 ms/u)).toBeTruthy();
   });
 
@@ -807,7 +807,7 @@ describe("Settings → Machines: this computer's agents", () => {
     render(withSettings(<Page />));
     await act(async () => undefined);
     expect(screen.getByText(/refused: revoked there/u)).toBeTruthy();
-    await act(async () => { fireEvent.click(screen.getByRole("switch", { name: "This computer's agents may work on studio" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("switch", { name: "This machine's agents may work on studio" })); });
     expect(setAgents).toHaveBeenCalledWith("studio", false);
   });
 
@@ -821,14 +821,14 @@ describe("Settings → Machines: this computer's agents", () => {
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "studio.local" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add machine" })); });
     expect(environments.pair).toHaveBeenLastCalledWith({ text: "studio.local", agents: true });
-    expect(screen.getByRole("status").textContent).toMatch(/not this computer's agents: studio runs a Tau/u);
-    fireEvent.click(screen.getByRole("switch", { name: "This computer's agents may work there" }));
+    expect(screen.getByRole("status").textContent).toMatch(/not this machine's agents: studio runs a Tau/u);
+    fireEvent.click(screen.getByRole("switch", { name: "This machine's agents may work there" }));
     fireEvent.change(screen.getByLabelText("Pairing link or address"), { target: { value: "attic.local" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add machine" })); });
     expect(environments.pair).toHaveBeenLastCalledWith({ text: "attic.local", agents: false });
   });
 
-  it("shows how busy this computer and each machine its agents reach are, and what each could run", async () => {
+  it("shows how busy this machine and each machine its agents reach are, and what each could run", async () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
     const GB = 1024 ** 3;
     const resources = (input: unknown): HostResources => (input as { machine: string }).machine === "studio"
@@ -859,7 +859,7 @@ describe("Settings → Machines: this computer's agents", () => {
     expect(studioHealth.getByRole("img", { name: "Claude Code · not installed" })).toBeTruthy();
     expect(studioHealth.getByText("1 of 3 ready · Git 2.34.1 · 41.0 GB free for worktrees · Invisible display :99")).toBeTruthy();
     expect(studioHealth.getByText(/older than 2\.38/u)).toBeTruthy();
-    // This computer answers its own host.
+    // This machine answers its own host.
     expect(within(screen.getByRole("group", { name: "How laptop is doing" })).getByText(/10 cores · CPU 50 % · 20.0 GB of 32.0 GB free · idle · on battery/u)).toBeTruthy();
     // A machine whose agents' key is refused is not asked.
     expect(screen.queryByRole("group", { name: "How attic is doing" })).toBeNull();
@@ -1002,7 +1002,7 @@ describe("Run on for a thread nothing was sent in", () => {
 describe("Run on: Automatic", () => {
   const luna = { provider: "openai-codex", id: "gpt-5.6-luna" };
   const withApi = machine("studio", { projects: [{ name: "api", lastOpenedAt: 1, workspaceId: "ws-api" }] });
-  const answer = { machine: "studio", reason: "studio has the most room: 45 (weight 50 · 2 cores · CPU 10 % · 50 % memory free); this computer 40.", machines: [] };
+  const answer = { machine: "studio", reason: "studio has the most room: 45 (weight 50 · 2 cores · CPU 10 % · 50 % memory free); this machine 40.", machines: [] };
   const chooser = (reply: unknown = answer) => ({ invoke: vi.fn(async () => reply), onEvent: vi.fn(() => () => undefined) });
   const draft = { draftPending: true, cwd: "/work/api", backendKind: "pi", model: luna };
   let storage = createMemoryStorage();
@@ -1090,7 +1090,7 @@ describe("Run on: Automatic", () => {
     expect(remoteWork.invoke).not.toHaveBeenCalled();
   });
 
-  it("leaves the prompt here when this computer is chosen, and when it cannot go", async () => {
+  it("leaves the prompt here when this machine is chosen, and when it cannot go", async () => {
     useStorage();
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, withApi], secureStorage: true });
     const notify = vi.fn();
@@ -1104,7 +1104,7 @@ describe("Run on: Automatic", () => {
     const none = chooser();
     expect(await createAutoRunOnHook(environments, none).claimNewThread!(claim({ projectPath: "/work/web" }), fakeActions({ notify }))).toBe(false);
     expect(none.invoke).not.toHaveBeenCalled();
-    await expect(createAutoRunOnHook(environments, chooser()).claimNewThread!(claim({ attachments: 1 }), fakeActions({ notify }))).rejects.toThrow("Enable this computer's agents");
+    await expect(createAutoRunOnHook(environments, chooser()).claimNewThread!(claim({ attachments: 1 }), fakeActions({ notify }))).rejects.toThrow("Enable this machine's agents");
     expect(environments.open).not.toHaveBeenCalled();
     environments.open.mockRejectedValueOnce(new Error("studio is not connected"));
     expect(await createAutoRunOnHook(environments, chooser()).claimNewThread!(claim(), fakeActions({ notify }))).toBe(false);
@@ -1142,7 +1142,7 @@ describe("Run on: Automatic", () => {
 });
 
 describe("Settings → Machines → Automatic", () => {
-  it("weighs this computer and each machine its agents reach, 5 and 50 unless set", async () => {
+  it("weighs this machine and each machine its agents reach, 5 and 50 unless set", async () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio, attic], secureStorage: true });
     const host = {
       invoke: vi.fn(async (command: string) => (command === "agents" ? { available: true, machines: [{ id: "studio", name: "studio", status: "connected" }] } : new Promise(() => undefined))),

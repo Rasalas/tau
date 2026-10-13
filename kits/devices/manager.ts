@@ -37,7 +37,7 @@ export function validateSettings(value: unknown): DeviceSettings {
   const ids = new Set<string>();
   const hosts = input.hosts.map((host): DeviceHost => {
     const id = string(host.id, "host id", 80);
-    if (!/^[a-zA-Z0-9_-]+$/.test(id) || ids.has(id)) throw new Error("Device hosts need distinct IDs.");
+    if (!/^[a-zA-Z0-9_-]+$/.test(id) || ids.has(id)) throw new Error("Device machines need distinct IDs.");
     ids.add(id);
     if (id === "local") return { id, name: string(host.name, "host name", 120) };
     const ssh = string(host.ssh, "SSH host", 200);
@@ -46,7 +46,7 @@ export function validateSettings(value: unknown): DeviceSettings {
     if (!remoteDirectory.startsWith("/")) throw new Error("Remote tool directory must be an absolute path.");
     return { id, name: string(host.name, "host name", 120), ssh, remoteDirectory };
   });
-  if (!ids.has("local")) throw new Error("Keep the local device host.");
+  if (!ids.has("local")) throw new Error("Keep the local device machine.");
   return { agentControl: input.agentControl, hosts, node: string(input.node, "Node executable", 1024), npm: string(input.npm, "npm executable", 1024) };
 }
 export function parseFoldState(payload: unknown): FoldState {
@@ -98,7 +98,7 @@ export class DeviceManager {
   }
   private host(id: string): DeviceHost {
     const host = this.settings.hosts.find((entry) => entry.id === id);
-    if (!host) throw new Error("This device host was removed. Refresh the device list.");
+    if (!host) throw new Error("This device machine was removed. Refresh the device list.");
     return host;
   }
   private remoteEntry(host: DeviceHost, tool: "hub" | "agent"): string {

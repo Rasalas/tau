@@ -469,7 +469,7 @@ export function SettingsScreen({
                 scope={{ projects: scopeProjects(projects, threads, project), current: project, machines }}
                 actionSlot={setActionSlot}
               />
-              {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the host keeps its settings as they are. Theme and layout stay on this device.</p> : null}
+              {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the machine keeps its settings as they are. Theme and layout stay on this device.</p> : null}
               <SettingsPageActionSlot.Provider value={actionSlot}>
                 {page === "general" ? (
                   <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} detailShortcut={registry.keybindingLabel("runtime.transcript-detail")} />

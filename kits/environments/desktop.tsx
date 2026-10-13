@@ -66,7 +66,7 @@ export function createRailSection(environments: PlatformEnvironments, pause = wa
 }
 
 /**
- * Machines Kit (ADR 0025): the other computers this window knows, beside this
+ * Machines Kit (ADR 0025): the other machines this window knows, beside this
  * one's threads. It draws what the window's process keeps (the list, each
  * machine's status and threads); the process pairs, pins and connects.
  */
@@ -97,12 +97,12 @@ export const environmentsExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: MACHINES_SETTINGS_PAGE,
       label: "Machines",
-      description: "Other computers that run threads for you, over Tau's encrypted connection, and how to add one.",
+      description: "Other machines that run threads for you, over Tau's encrypted connection, and how to add one.",
       group: "remote",
       Icon: Network,
       order: 45,
       profiles: ["desktop"],
-      keywords: ["environments", "computers", "remote", "hosts", "add machine", "pair"],
+      keywords: ["environments", "machines", "computers", "remote", "hosts", "add machine", "pair"],
       Component: createMachinesPage(environments, context.host, ImportConversations),
     });
     // A phone lists the machines it paired with and shows another from there (design 1t).

@@ -311,7 +311,7 @@ describe("runtime controls focus and dock commands", () => {
   });
 });
 
-describe("the way back to this computer", () => {
+describe("the way back to this machine", () => {
   const registryWith = (environments: Partial<PlatformEnvironments>) => {
     const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), platform: () => ({ environments } as unknown as Platform) });
     registry.activate(runtimeControls);
@@ -322,7 +322,7 @@ describe("the way back to this computer", () => {
     expect(registryWith({})).toBeUndefined();
     const showLocal = vi.fn(async () => undefined);
     const command = registryWith({ shownElsewhere: "host-studio", showLocal });
-    expect(command?.label).toBe("Back to this computer");
+    expect(command?.label).toBe("Back to this machine");
     await command!.run({ notify: vi.fn() } as unknown as WorkbenchActions);
     expect(showLocal).toHaveBeenCalledOnce();
   });

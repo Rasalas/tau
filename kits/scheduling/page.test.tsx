@@ -61,7 +61,7 @@ it("paired devices can inspect jobs but cannot edit or retry them", async () => 
   expect((await screen.findByRole("button", { name: "Run now" }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole("button", { name: "Skip" }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole("button", { name: "New automation" }) as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByText(/Manage them in this host's own Tau window/)).toBeTruthy();
+  expect(screen.getByText(/Manage them in this machine's own Tau window/)).toBeTruthy();
 });
 
 it("creates and enables from one form with the current thread's project and runtime", async () => {

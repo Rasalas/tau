@@ -1823,7 +1823,7 @@ interface ServiceUser {
 
 /** Thrown when there is no host to route to, e.g. in the browser preview. */
 export class HostUnavailableError extends Error {
-  constructor() { super("The Electron host is not available."); this.name = "HostUnavailableError"; }
+  constructor() { super("No machine is connected."); this.name = "HostUnavailableError"; }
 }
 
 const noHostBridge: HostExtensionBridge = {

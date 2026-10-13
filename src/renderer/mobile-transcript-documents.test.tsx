@@ -57,7 +57,7 @@ function fixture(width: number, profile = "compact", options: { storage?: Client
 }
 
 describe("issue 12 workspace document navigation", () => {
-  for (const [error, guidance] of [["ENOENT", /File not found/u], ["forbidden", /Access to this workspace file was denied/u], ["host offline", /host is offline/u], ["unsupported", /does not support reading/u]] as const) {
+  for (const [error, guidance] of [["ENOENT", /File not found/u], ["forbidden", /Access to this workspace file was denied/u], ["host offline", /file's machine is offline/u], ["unsupported", /does not support reading/u]] as const) {
     it(`shows understandable ${error} guidance in the phone reader`, async () => {
       fixture(390, "compact", { error });
       await runPaletteCommand("Toggle sidebar");

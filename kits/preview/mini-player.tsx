@@ -156,7 +156,7 @@ function MiniPlayer({ driver, state, screenState, actions }: { driver: PreviewDr
         onClick={() => { if (thread) void actions.switchSession(thread.path); }}
       ><Bot size={12} /></button>
       <span className="spacer" />
-      {/* Raising the window on the host's screen helps nobody at another computer. */}
+      {/* Raising the window on the host's screen helps nobody at another machine. */}
       {screen && !drawsFrames() ? <button
         type="button"
         className="icon-button compact"
