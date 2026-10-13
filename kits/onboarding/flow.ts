@@ -28,7 +28,8 @@ export interface AgentStatus {
 }
 
 export interface FlowState {
-  step: 0 | 1 | 2;
+  /** Agents, projects, conversations, then the last screen that says what is ready. */
+  step: 0 | 1 | 2 | 3;
   tools?: ToolsReport;
   /** By runtime backend kind. */
   agents: Readonly<Record<string, AgentStatus>>;
@@ -81,6 +82,33 @@ export function groupProjects(candidates: readonly ProjectCandidate[]): { reposi
   }
   const repositories = [...groups.values()].sort((left, right) => right.lastActiveAt - left.lastActiveAt || left.label.localeCompare(right.label));
   return { repositories, other };
+}
+
+/** What the projects step lists: the folders found that Tau does not have yet. */
+export function projectCandidates(discovery: Discovery | undefined, known: ReadonlySet<string>): ProjectCandidate[] {
+  return (discovery?.projects ?? []).filter((project) => !known.has(project.path));
+}
+
+/** What the conversations step lists: the ones not imported yet. */
+export function pendingSessions(discovery: Discovery | undefined): ImportableSession[] {
+  return (discovery?.sessions ?? []).filter((session) => !session.imported);
+}
+
+/** The step after `from` that has something to choose; 3 is the last screen. */
+export function stepAfter(from: 0 | 1 | 2, empty: { projects: boolean; sessions: boolean }): FlowState["step"] {
+  if (from < 1 && !empty.projects) return 1;
+  if (from < 2 && !empty.sessions) return 2;
+  return 3;
+}
+
+/**
+ * Whether the projects and the conversations step have nothing to choose, so
+ * the wizard goes past them. Not before the scan is in, and not when it failed:
+ * then the step says so and offers a retry.
+ */
+export function emptySteps(state: Pick<FlowState, "discovery" | "discoverError">, known: ReadonlySet<string>): { projects: boolean; sessions: boolean } {
+  const scanned = state.discovery !== undefined && !state.discoverError;
+  return { projects: scanned && projectCandidates(state.discovery, known).length === 0, sessions: scanned && pendingSessions(state.discovery).length === 0 };
 }
 
 /** The default: repositories active in the last 30 days with at least three conversations. */
@@ -217,7 +245,7 @@ export class WelcomeFlow {
     const paths = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : undefined;
     const pending = paths(saved.pending);
     // The last folder's switch reloaded the page: adding is done.
-    const step = pending?.length === 0 ? 2 : saved.step === 1 || saved.step === 2 ? saved.step : 0;
+    const step = pending?.length === 0 ? 2 : saved.step === 1 || saved.step === 2 || saved.step === 3 ? saved.step : 0;
     this.state = { step, agents: {}, added: paths(saved.added) ?? [], ...(pending?.length ? { pending } : {}), ...(paths(saved.projects) ? { projects: paths(saved.projects) } : {}), ...(paths(saved.sessions) ? { sessions: paths(saved.sessions) } : {}) };
   }
 
@@ -356,11 +384,16 @@ export class WelcomeFlow {
 
   /** Remembers that setup ran, so it opens by itself no more; `/welcome` starts it afresh. */
   finish(): Promise<unknown> {
+    this.dismiss();
+    return this.host.invoke("complete").catch(() => undefined);
+  }
+
+  /** Leaves the wizard without saying setup ran: with no agent ready it opens again on the next start. */
+  dismiss(): void {
     this.started = false;
     this.generation += 1;
     this.asked.clear();
     this.storage()?.remove(FLOW_STORAGE_KEY);
     this.state = { step: 0, agents: {}, added: [] };
-    return this.host.invoke("complete").catch(() => undefined);
   }
 }

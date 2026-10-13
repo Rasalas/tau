@@ -1,7 +1,7 @@
 import { Suspense, createContext, lazy, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowRight, Check, ChevronRight, Copy, Download, FolderPlus, GitMerge, GitPullRequest, LogIn, RefreshCw, Settings, SquareTerminal } from "lucide-react";
 import { MiddleTruncate, PrivateAccountText, ProviderIconStack, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
-import { backendKit, defaultProjects, defaultSessions, groupProjects, type AgentStatus, type FlowState, type ProjectGroup, type WelcomeFlow } from "./flow.js";
+import { backendKit, defaultProjects, defaultSessions, emptySteps, groupProjects, pendingSessions, projectCandidates, stepAfter, type AgentStatus, type FlowState, type ProjectGroup, type WelcomeFlow } from "./flow.js";
 import { TauMark } from "./mark.js";
 import { WELCOME_OVERLAY, type ImportableSession, type ProjectCandidate, type ToolReport } from "./protocol.js";
 
@@ -47,6 +47,8 @@ export interface AgentRow {
   label: string;
   state: RowState;
   summary: string;
+  /** What the program or its kit said, for the tooltip when the summary only says it failed. */
+  detail?: string;
   /** Shown to copy; without one the action opens `settings`. */
   command?: string;
   settings?: string;
@@ -94,7 +96,7 @@ function backendRow(backend: BackendEntry, status: AgentStatus | undefined, comm
   const next = (state: RowState, summary: string, command?: string): AgentRow => ({ id, label, state, summary, ...(command ? { command } : { settings: "providers" }) });
   if (!status) return { id, label, state: "checking", summary: "Checking…" };
   const version = status.version ?? backend.version?.installed;
-  if (status.error) return next("settings", `${version ? `${version} · ` : ""}Could not check: ${status.error.replace(/\.$/u, "")}`);
+  if (status.error) return { ...next("settings", `${version ? `${version} · ` : ""}Could not check`), detail: status.error };
   if (!status.installed) return next("install", "Not installed", commands.install);
   const shown = version ?? "Installed";
   if (status.update) return next("update", `${shown} is older than Tau speaks to`, status.update.command);
@@ -153,14 +155,14 @@ function StepShell({ title, description, children }: { title: string; descriptio
   </>;
 }
 
-function Steps({ current, disabled, onStep }: { current: number; disabled: boolean; onStep(step: FlowState["step"]): void }) {
+function Steps({ current, disabled, skipped, onStep }: { current: number; disabled: boolean; skipped: readonly boolean[]; onStep(step: FlowState["step"]): void }) {
   return (
     <ol className="onboarding-steps" aria-label="Setup progress">
       {STEPS.map((label, index) => (
         <li key={label}>
           <button
             type="button"
-            disabled={disabled || index >= current}
+            disabled={disabled || index >= current || skipped[index] === true}
             aria-current={index === current ? "step" : undefined}
             aria-label={`${label}, step ${index + 1}`}
             className={index === current ? "current" : index < current ? "done" : ""}
@@ -205,7 +207,7 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
     <div className="onboarding-card-wrap">
       <div className="onboarding-card" data-state={row.state}>
         <Mark id={row.id} />
-        <span className="onboarding-card-text"><strong>{row.label}</strong><small><PrivateAccountText text={row.summary} /></small></span>
+        <span className="onboarding-card-text"><strong>{row.label}</strong><small title={row.detail}><PrivateAccountText text={row.summary} /></small></span>
         {row.state === "ready"
           ? <span className="onboarding-ready" role="img" aria-label="Ready" data-tooltip="Ready"><Check size={14} /></span>
           : row.state === "checking"
@@ -272,12 +274,16 @@ function Looking({ onSkip, what }: { onSkip(): void; what: string }) {
   </>;
 }
 
-function AgentsStep({ state, flow, actions, aside }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions; aside?: RunAside }) {
+/** Pi, then every other runtime backend, as the agents step lists them; each is asked once per opening. */
+function useAgentRows(state: FlowState, flow: WelcomeFlow): AgentRow[] {
   const snapshot = useWorkbenchShell().snapshot;
   const backends = (snapshot?.runtimeBackends ?? []).filter((backend) => backend.kind !== "pi");
   const kinds = backends.map((backend) => backend.kind);
   useEffect(() => { flow.askAgents(kinds); }, [kinds.join("\n")]);
-  const rows = agentRows(state, snapshot ? (snapshot.completionModels ?? snapshot.models).length : undefined, backends);
+  return agentRows(state, snapshot ? (snapshot.completionModels ?? snapshot.models).length : undefined, backends);
+}
+
+function AgentsStep({ state, rows, flow, actions, aside, onContinue }: { state: FlowState; rows: readonly AgentRow[]; flow: WelcomeFlow; actions: WorkbenchActions; aside?: RunAside; onContinue(): void }) {
   return (
     <StepShell title="Your agents" description="Agents available on this computer. Install or sign in to the ones you want to use; add more later under Settings › Providers.">
       <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(aside ? { aside } : {})} recheck={() => flow.recheckAgent(row.id)} />)}</div>
@@ -290,7 +296,7 @@ function AgentsStep({ state, flow, actions, aside }: { state: FlowState; flow: W
       <div className="onboarding-actions">
         <span className="onboarding-note leading">Each agent keeps its own sign-in.</span>
         <button type="button" className="onboarding-button ghost" onClick={() => flow.checkAgents()}>Check again</button>
-        <button type="button" className="onboarding-button primary" onClick={() => flow.goTo(1)}><ArrowRight size={14} />Continue</button>
+        <button type="button" className="onboarding-button primary" onClick={onContinue}><ArrowRight size={14} />Continue</button>
       </div>
     </StepShell>
   );
@@ -298,9 +304,12 @@ function AgentsStep({ state, flow, actions, aside }: { state: FlowState; flow: W
 
 function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions; known: ReadonlySet<string> }) {
   const now = Date.now();
-  const skip = () => flow.goTo(2);
+  const empty = emptySteps(state, known);
+  const skip = () => flow.goTo(stepAfter(1, empty));
+  // The scan came back with nothing to choose, while this step waited for it.
+  useEffect(() => { if (empty.projects) flow.goTo(stepAfter(1, empty)); }, [empty.projects, empty.sessions]);
   if (!state.discovery && !state.discoverError) return <StepShell title="Choose your projects" description={PROJECTS_TEXT}><Looking what="projects" onSkip={skip} /></StepShell>;
-  const candidates = (state.discovery?.projects ?? []).filter((project) => !known.has(project.path));
+  const candidates = projectCandidates(state.discovery, known);
   const selected = new Set(state.projects ?? defaultProjects(candidates, now));
   const chosen = candidates.filter((project) => selected.has(project.path));
   const busy = state.busy === "projects";
@@ -388,11 +397,13 @@ export function ProjectList({ candidates, selected, now, onToggle }: { candidate
   </>;
 }
 
-function ConversationsStep({ state, flow, actions, known, finish }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions; known: ReadonlySet<string>; finish(): void }) {
+function ConversationsStep({ state, flow, actions, known, done }: { state: FlowState; flow: WelcomeFlow; actions: WorkbenchActions; known: ReadonlySet<string>; done(): void }) {
   const now = Date.now();
-  if (!state.discovery && !state.discoverError) return <StepShell title="Import conversations" description={CONVERSATIONS_TEXT}><Looking what="conversations" onSkip={finish} /></StepShell>;
+  const empty = emptySteps(state, known).sessions;
+  useEffect(() => { if (empty) done(); }, [empty]);
+  if (!state.discovery && !state.discoverError) return <StepShell title="Import conversations" description={CONVERSATIONS_TEXT}><Looking what="conversations" onSkip={done} /></StepShell>;
   const all = state.discovery?.sessions ?? [];
-  const pending = all.filter((session) => !session.imported);
+  const pending = pendingSessions(state.discovery);
   const already = all.length - pending.length;
   const selected = new Set(state.sessions ?? defaultSessions(pending, new Set([...known, ...state.added]), now));
   const chosen = pending.filter((session) => selected.has(session.path));
@@ -402,7 +413,7 @@ function ConversationsStep({ state, flow, actions, known, finish }: { state: Flo
   const toggle = (paths: readonly string[], on: boolean) => flow.select("sessions", on ? [...selected, ...paths] : [...selected].filter((path) => !paths.includes(path)));
   const run = async () => {
     const result = await flow.importSessions(actions, chosen);
-    if (result.failed === 0) finish();
+    if (result.failed === 0) done();
   };
   return (
     <StepShell title="Import conversations" description={CONVERSATIONS_TEXT}>
@@ -435,10 +446,41 @@ function ConversationsStep({ state, flow, actions, known, finish }: { state: Flo
       <Notes state={state} />
       {state.error ? <p className="onboarding-error" role="alert">{state.error}</p> : null}
       <div className="onboarding-actions">
-        <button type="button" className="onboarding-button ghost" disabled={importing} onClick={finish}>{state.error ? "Continue without the rest" : "Do not import"}</button>
+        <button type="button" className="onboarding-button ghost" disabled={importing} onClick={done}>{state.error ? "Continue without the rest" : "Do not import"}</button>
         <button type="button" className="onboarding-button primary" disabled={importing || chosen.length === 0} onClick={() => void run()}>
           {importing && state.progress ? `Importing… ${state.progress.done} of ${state.progress.total}` : `Import ${plural(chosen.length, "conversation")}`}
         </button>
+      </div>
+    </StepShell>
+  );
+}
+
+/** "A", "A and B", "A, B and C". */
+function joinNames(labels: readonly string[]): string {
+  return labels.length < 2 ? labels[0] ?? "" : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
+}
+
+/** The last screen: what is ready and the way to a first thread, or what is still missing. */
+function ReadyStep({ rows, flow, actions, aside, onStart, onLeave }: { rows: readonly AgentRow[]; flow: WelcomeFlow; actions: WorkbenchActions; aside?: RunAside; onStart(): void; onLeave(): void }) {
+  const ready = rows.filter((row) => row.state === "ready");
+  if (ready.length > 0) {
+    return (
+      <StepShell title={`${joinNames(ready.map((row) => row.label))} ${ready.length === 1 ? "is" : "are"} ready`} description="Start a thread to give it a task. /welcome opens this setup again.">
+        <div className="onboarding-list">{ready.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(aside ? { aside } : {})} recheck={() => flow.recheckAgent(row.id)} />)}</div>
+        <div className="onboarding-actions">
+          <button type="button" className="onboarding-button primary" onClick={onStart}><ArrowRight size={14} />Start a thread</button>
+        </div>
+      </StepShell>
+    );
+  }
+  if (rows.some((row) => row.state === "checking")) {
+    return <StepShell title="Checking your agents…" description="This takes a moment."><div className="onboarding-looking"><span className="spinner" /> Asking each agent whether it can start a thread…</div></StepShell>;
+  }
+  return (
+    <StepShell title="No agent is ready yet" description="Sign in to one under Your agents, or later under Settings › Providers. Setup comes back on the next start until you have a thread.">
+      <div className="onboarding-actions">
+        <button type="button" className="onboarding-button ghost" onClick={onLeave}>Close</button>
+        <button type="button" className="onboarding-button primary" onClick={() => flow.goTo(0)}>Back to your agents</button>
       </div>
     </StepShell>
   );
@@ -451,6 +493,8 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
     const threads = useThreadStore();
     const projects = useSyncExternalStore(threads.subscribeToProjects, () => threads.getSnapshot().projects);
     const known = new Set(projects.map((project) => project.path));
+    const rows = useAgentRows(state, flow);
+    const empty = emptySteps(state, known);
     useEffect(() => {
       flow.start();
       // Folders a reload interrupted are opened now.
@@ -458,13 +502,20 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
       if (pending?.length) void flow.addProjects(actions, pending);
     }, []);
     const finish = () => { void flow.finish().then(onClose); };
+    // Without an agent ready, leaving does not count as setup: it comes back on the next start.
+    const leave = () => {
+      if (rows.some((row) => row.state === "ready")) finish();
+      else { flow.dismiss(); onClose(); }
+    };
+    const start = () => { void flow.finish().then(() => { onClose(); actions.newSession(); }); };
+    const toEnd = () => flow.goTo(3);
     const run = runner?.();
     const aside = run ? createRunAside(flow, run, actions, onClose) : undefined;
     // The dialog, not a button, takes focus: the Enter that opened the wizard would press it.
     const dialog = useRef<HTMLElement>(null);
     useEffect(() => { dialog.current?.focus(); }, [state.step]);
     useEffect(() => {
-      const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !flow.get().busy) finish(); };
+      const key = (event: KeyboardEvent) => { if (event.key === "Escape" && !flow.get().busy) leave(); };
       window.addEventListener("keydown", key);
       return () => window.removeEventListener("keydown", key);
     });
@@ -473,7 +524,7 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
         <section ref={dialog} tabIndex={-1} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-heading">
           <h1 id="onboarding-heading" className="onboarding-sr">Set up Tau</h1>
           <Frame.Provider value={{
-            steps: <Steps current={state.step} disabled={Boolean(state.busy)} onStep={(step) => flow.goTo(step)} />,
+            steps: <Steps current={state.step} disabled={Boolean(state.busy)} skipped={[false, empty.projects, empty.sessions]} onStep={(step) => flow.goTo(step)} />,
             note: state.terminal ? (
               <div className="onboarding-terminal-note" role="status">
                 <SquareTerminal size={13} /><span>{state.terminal} runs in a terminal. Setup comes back when it ends.</span>
@@ -481,13 +532,13 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
               </div>
             ) : null,
           }}>
-            {state.step === 0 ? <AgentsStep state={state} flow={flow} actions={actions} {...(aside ? { aside } : {})} />
+            {state.step === 0 ? <AgentsStep state={state} rows={rows} flow={flow} actions={actions} onContinue={() => flow.goTo(stepAfter(0, empty))} {...(aside ? { aside } : {})} />
               : state.step === 1 ? <ProjectsStep state={state} flow={flow} actions={actions} known={known} />
-                : <ConversationsStep state={state} flow={flow} actions={actions} known={known} finish={finish} />}
+                : state.step === 2 ? <ConversationsStep state={state} flow={flow} actions={actions} known={known} done={toEnd} />
+                  : <ReadyStep rows={rows} flow={flow} actions={actions} onStart={start} onLeave={leave} {...(aside ? { aside } : {})} />}
           </Frame.Provider>
         </section>
       </div>
     );
   };
 }
-

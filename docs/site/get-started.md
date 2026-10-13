@@ -21,7 +21,9 @@ A Tau without threads opens its welcome wizard. It has three steps:
 2. **Projects.** The folders your agents worked in lately, newest first. Tick the ones you want in Tau.
 3. **Conversations.** Earlier conversations from those tools, imported as threads you can continue.
 
-Type `/welcome` in the composer to open it again later.
+A step with nothing to choose, such as projects on a machine whose agents have no history, is skipped. The wizard ends on a screen that names the agents that are ready and starts your first thread. Esc leaves it at any point; if no agent is ready yet, the wizard comes back on the next start. Type `/welcome` in the composer to open it again later.
+
+Without a thread and without a repository open, Tau asks for a project instead of a draft. A project is any folder; **Start without a project** gives the thread a private folder of its own.
 
 ## Connect your agents
 
