@@ -12,6 +12,17 @@ async function checkDirectoryLinks(directory: string): Promise<void> {
   }
 }
 
+async function prepareStateDir(stateDir: string): Promise<string> {
+  if ((await lstat(stateDir).catch(() => undefined))?.isSymbolicLink()) {
+    throw new Error("Extension folders must not contain symbolic links");
+  }
+  await mkdir(stateDir, { recursive: true, mode: 0o700 });
+  const statePath = await realpath(stateDir);
+  if (statePath.includes("*")) throw new Error("Extension paths must not contain permission wildcards");
+  await checkDirectoryLinks(statePath);
+  return statePath;
+}
+
 /** Same RPC transport as a bundled worker, with Node enforcing file access. */
 export async function startExtensionProcess(supervisor: string, entry: string, boot: WorkerBootstrap, options: WorkerHostExtensionOptions): Promise<EventEmitter & {
   postMessage(message: HostToWorkerMessage): void;
@@ -22,17 +33,12 @@ export async function startExtensionProcess(supervisor: string, entry: string, b
   const workerPath = await realpath(entry);
   const bundlePath = await realpath(options.file);
   const packagePath = await realpath(options.packageDirectory!);
-  if ([supervisorPath, workerPath, bundlePath, packagePath, options.packageDirectory!, boot.stateDir].some((path) => path.includes("*"))) {
+  if ([supervisorPath, workerPath, bundlePath, packagePath, options.packageDirectory!, boot.stateDir ?? ""].some((path) => path.includes("*"))) {
     throw new Error("Extension paths must not contain permission wildcards");
   }
   await checkDirectoryLinks(packagePath);
-  if ((await lstat(boot.stateDir).catch(() => undefined))?.isSymbolicLink()) {
-    throw new Error("Extension folders must not contain symbolic links");
-  }
-  await mkdir(boot.stateDir, { recursive: true, mode: 0o700 });
-  const statePath = await realpath(boot.stateDir);
-  if (statePath.includes("*")) throw new Error("Extension paths must not contain permission wildcards");
-  await checkDirectoryLinks(statePath);
+  // A registry without host services (scripts, smokes) has no state folder to open.
+  const statePath = boot.stateDir ? await prepareStateDir(boot.stateDir) : undefined;
   const execArgv = [
     "--permission",
     "--allow-worker",
@@ -41,8 +47,7 @@ export async function startExtensionProcess(supervisor: string, entry: string, b
     `--allow-fs-read=${bundlePath}`,
     `--allow-fs-read=${packagePath}`,
     `--allow-fs-read=${options.packageDirectory!}`,
-    `--allow-fs-read=${statePath}`,
-    `--allow-fs-write=${statePath}`,
+    ...(statePath ? [`--allow-fs-read=${statePath}`, `--allow-fs-write=${statePath}`] : []),
     `--max-old-space-size=${limits?.maxOldGenerationSizeMb ?? 256}`,
     `--max-semi-space-size=${limits?.maxYoungGenerationSizeMb ?? 32}`,
     ...(limits?.stackSizeMb ? [`--stack-size=${limits.stackSizeMb * 1024}`] : []),
@@ -67,7 +72,7 @@ export async function startExtensionProcess(supervisor: string, entry: string, b
     if (signal || code) transport.emit("error", new Error(diagnostic.trim() || `Extension process exited: ${signal ?? code}`));
     transport.emit("exit", code);
   });
-  child.send({ entry: workerPath, boot: { ...boot, file: bundlePath, stateDir: statePath }, resourceLimits: options.resourceLimits });
+  child.send({ entry: workerPath, boot: { ...boot, file: bundlePath, ...(statePath ? { stateDir: statePath } : {}) }, resourceLimits: options.resourceLimits });
   return Object.assign(transport, {
     postMessage(message: HostToWorkerMessage): void {
       if (child.connected) child.send(message, (error) => { if (error) transport.emit("error", error); });
