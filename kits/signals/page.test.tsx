@@ -12,13 +12,14 @@ afterEach(cleanup);
 function renderPage(events: Array<{ id: string; label: string; detail: string; timestamp: number }>) {
   const { registry } = createKitHarness();
   registry.activate(observatoryExtension);
-  const page = registry.getSettingsPages().find((entry) => entry.id === SIGNALS_SETTINGS_PAGE)!;
+  const page = registry.getSettingsSections("inspector").find((entry) => entry.id === "observatory.signals")!;
+  expect(registry.settingsPageReplacedBy(SIGNALS_SETTINGS_PAGE)).toBe("inspector");
   const snapshot = { sessionId: "01a0e3c6-aaaa", extensionCount: 22 } as unknown as HostSnapshot;
-  render(<ObservatoryContext.Provider value={{ events, snapshot, tools: [], registry }}><page.Component onNotify={() => undefined} /></ObservatoryContext.Provider>);
+  render(<ObservatoryContext.Provider value={{ events, snapshot, tools: [], registry }}><page.Component onNotify={() => undefined} onChanged={() => undefined} /></ObservatoryContext.Provider>);
   return page;
 }
 
-describe("Settings → Signals", () => {
+describe("Settings → Diagnostics → Signals", () => {
   it("states the live counts and streams host events newest first", () => {
     const page = renderPage([
       { id: "e1", label: "bootstrap.full-ready", detail: "", timestamp: 1_000 },

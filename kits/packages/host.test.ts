@@ -77,7 +77,7 @@ describe("Packages host extension", () => {
     // A window that did not ask raises the same toast from the event.
     expect(events.find((event) => event.name === "changed")?.payload).toMatchObject({ command: "install", result: { source: "/src/hello" }, untrusted: true });
     expect(skipped.message).toMatch(/skipped: Pi does not trust this project/u);
-    expect(skipped.message).toMatch(/Settings → Packages/u);
+    expect(skipped.message).toMatch(/Trust it in Settings → Extensions/u);
 
     const answer = await registry.invoke(PACKAGES_EXTENSION_ID, "trust", { cwd: "/project" }) as { message: string };
     expect(projectTrust.trust).toHaveBeenCalledWith("/project");

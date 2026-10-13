@@ -6,7 +6,6 @@ import { draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./edito
 import { ModeTiles, PanelMotionPreview, ThemeCard, baseColors, themeColors, withoutOwnStyles, type Mode, type PreviewColors, type ThemeCardModel } from "./previews.js";
 import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance } from "./protocol.js";
 import { parseThemeCss } from "./theme-css.js";
-import { TerminalFontRow, type TerminalFontLink } from "./terminal-font.js";
 import { TEXT_SIZE_LABELS, TEXT_SIZES, type TextSizeStore } from "./text-size.js";
 import { importVsCodeTheme } from "./vscode-import.js";
 
@@ -158,7 +157,7 @@ function TextSizeRow({ store }: { store: TextSizeStore }) {
 }
 
 /** Settings → Appearance: themes per scheme, the editor and the importer, contrast, density and type. */
-export function AppearancePage({ onNotify, preferences, editor, terminalFont, textSize }: SettingsPageProps & { preferences: PreferencesStore; editor: ThemeEditorStore; terminalFont?: TerminalFontLink; textSize?: TextSizeStore }) {
+export function AppearancePage({ onNotify, preferences, editor, textSize }: SettingsPageProps & { preferences: PreferencesStore; editor: ThemeEditorStore; textSize?: TextSizeStore }) {
   // A sync registers the user's themes and emits, so this page follows new ones.
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const themes = userThemes();
@@ -252,11 +251,10 @@ export function AppearancePage({ onNotify, preferences, editor, terminalFont, te
         <SettingRow
           id="setting-appearance-code-font"
           title="Code font"
-          description="Code blocks, tool output, diffs and file previews. The terminal has its own row."
+          description="Code blocks, tool output, diffs and file previews. The terminal's font is under Terminal."
           setting={codeFamily}
           control={<><TextSetting label="Code font family" placeholder="System monospace" setting={codeFamily} /><SizeSetting label="Code font size" setting={codeSize} fallback={DEFAULT_CODE_FONT_SIZE} /></>}
         />
-        {terminalFont ? <TerminalFontRow link={terminalFont} /> : null}
       </SettingsSection>
     </div>
   );

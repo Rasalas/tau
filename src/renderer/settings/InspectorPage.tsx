@@ -7,6 +7,7 @@ import { errorMessage } from "../../workbench/error-message";
 import { Badge, Button, HelpTip, SettingsState, ValueList } from "./controls";
 import { SettingRow, SettingsSection } from "./settings-layout";
 import { settingAnchor } from "./settings-search";
+import { SettingsPageSections } from "./page-sections";
 
 /** A half's state in a word, with what it adds after it. */
 function HalfState({ state, detail }: { state: "active" | "off" | "failed" | undefined; detail?: string | undefined }) {
@@ -30,11 +31,13 @@ function Finding({ tone, label, children, ...data }: { tone: "danger" | "warn" |
 }
 
 /**
- * Development view over every extension the workbench knows: the desktop
- * registry, the host registry and the package folders on disk, with the
- * versions a package's `engines` is checked against.
+ * Settings → Diagnostics: a development view over every extension the
+ * workbench knows: the desktop registry, the host registry and the package
+ * folders on disk, with the versions a package's `engines` is checked against.
+ * What the window and the host are doing is another extension's section
+ * (`page: "inspector"`).
  */
-export function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; cwd?: string }) {
+export function InspectorPage({ registry, cwd, onNotify = () => undefined }: { registry: ExtensionRegistry; cwd?: string; onNotify?(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const [hostHalves, setHostHalves] = useState<HostExtensionSummary[]>([]);
@@ -189,7 +192,7 @@ export function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; 
               <Finding key={skip.directory} tone={skip.untrustedProject ? "warn" : "neutral"} label="Skipped">
                 <code>{skip.directory}</code>: {skip.reason}
                 {skip.packages?.length ? ` It holds ${skip.packages.map((entry) => entry.name).join(", ")}.` : ""}
-                {skip.untrustedProject ? " Settings → Packages trusts the project." : ""}
+                {skip.untrustedProject ? " Settings → Extensions trusts the project." : ""}
               </Finding>
             ))}
           </div>
@@ -197,6 +200,8 @@ export function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; 
         {error ? <SettingsState kind="error" title="The package folders were not scanned" description={error} onRetry={retry} />
           : !cwd ? <SettingsState kind="empty" title="No project open" description="Open a project to scan its package folder." /> : null}
       </SettingsSection>
+
+      <SettingsPageSections page="inspector" onNotify={onNotify} cwd={cwd} />
     </div>
   );
 }

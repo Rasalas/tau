@@ -26,8 +26,6 @@
 .thread-rail-settled-note > button { border: 0; background: none; padding: 0; color: var(--ink); font: 500 var(--text-sm) var(--sans); cursor: pointer; }
 .thread-rail-settled-note > button:hover { text-decoration: underline; }
 
-.thread-rail-settings .segmented { max-width: none; }
-.thread-rail-settings .segmented > button { white-space: nowrap; padding: 8px 10px; }
 
 /* The undo notice at the foot of the rail. */
 .thread-rail-undo {

@@ -21,8 +21,8 @@ Preview, Claude Code, Antigravity, Codex, Computer Use, Signals, Access, Keybind
 Pi UI, Questionnaires, Service Tier, Thread Titles and Worktree Names. Each is
 a package with its own `tau-extension.json`, permissions and build; `npm run
 build` compiles them into `dist-kits/`, which is what an installer ships and
-what Settings → Packages lists as bundled, headed by the version in
-`kits/package.json`.
+what Settings → Extensions lists as bundled, with the version in
+`kits/package.json` under Settings → Diagnostics.
 
 Neither half reaches into the other. A kit sees core through `tau`,
 `tau/host-extension` and `tau/host` (the three modules any package gets), and
@@ -148,7 +148,7 @@ Tau loads desktop extensions the way Pi loads its own. Put a `.tsx` (or `.ts`) f
 An extension with a host half is a package: a folder under one of those two directories with a `tau-extension.json` manifest ([The manifest](EXTENSIONS.md#the-manifest)).
 
 - **Edit, save, see it.** Tau watches the files it reads and reloads only what changed: one package, one theme, the keybindings, the config. A save that does not compile changes nothing. [The development loop](EXTENSIONS.md#the-development-loop) has the table of what reloads how, and how to turn watching off.
-- **Install.** `/install`, `/update` and `/remove` take npm, Git and folder sources, and Settings → Packages offers the same ([The workflow](EXTENSIONS.md#3-the-workflow)). npm sources need `npm` on the login shell's PATH; Tau bundles no npm client. An install never starts a package: the grant flow still asks. An update that keeps the same permissions keeps the grant, and the new code is picked up as soon as it lands.
+- **Install.** `/install`, `/update` and `/remove` take npm, Git and folder sources, and Settings → Extensions offers the same ([The workflow](EXTENSIONS.md#3-the-workflow)). npm sources need `npm` on the login shell's PATH; Tau bundles no npm client. An install never starts a package: the grant flow still asks. An update that keeps the same permissions keeps the grant, and the new code is picked up as soon as it lands.
 - **Sign.** A package may carry a `tau-extension.sig` beside its manifest, and a user trusts a publisher's key in `~/.tau/trusted-publishers.json` ([Signing](EXTENSIONS.md#4-signing)). Tau hosts no registry: npm and Git are the index, and there is no revocation list beyond removing a key ([ADR 0011](adr/0011-extension-distribution.md)).
 - **Permissions.** A package names the capabilities it wants from a fixed vocabulary ([Permissions vocabulary](EXTENSIONS.md#permissions-vocabulary)). A package Tau has not seen before, or one whose permission list changed, waits in Settings → Extensions until you allow it; until then its host entry is not even compiled.
 - **Isolation.** The host half of a package runs in a worker thread by default, with capped memory, no Electron, and a facade of plain-data services; a package that needs a live object declares `"isolation": "in-process"`, which is approved like a permission ([What an isolated package cannot use](EXTENSIONS.md#6-what-an-isolated-worker-package-cannot-use), [Failure model](EXTENSIONS.md#5-failure-model)). The worker entry itself ships as one CommonJS bundle, `dist-electron/main/host-extension-worker.cjs`, written by `scripts/build-host-worker.mjs`.

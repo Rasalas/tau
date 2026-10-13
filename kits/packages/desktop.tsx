@@ -1,4 +1,4 @@
-import { Package, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import {
   Badge,
@@ -17,12 +17,11 @@ import {
   type ExtensionInspection,
   type HostExtensionClient,
   type RegionProps,
-  type SettingsPageProps,
   type SettingsSectionProps,
   type WorkbenchActions,
 } from "tau";
 import { DevelopSection } from "./develop.js";
-import { PACKAGES_EXTENSION_ID, PACKAGES_SETTINGS_PAGE, parseInstallArguments, type PackageRow } from "./protocol.js";
+import { PACKAGES_EXTENSION_ID, PACKAGES_RETIRED_PAGE, parseInstallArguments, type PackageRow } from "./protocol.js";
 
 /** What a command of the host half answers with. */
 interface PackagesCommandResult {
@@ -76,32 +75,30 @@ interface PageServices {
   inspect: Inspect;
 }
 
-/** What the Settings search finds on the Packages page; each id is a row's anchor. */
-export const PACKAGES_ROWS = [
+/** The rows of the install form, for the Settings search; each id is a row's anchor. */
+export const PACKAGES_INSTALL_ROWS = [
   { id: "setting-packages-source", label: "Install from a source", keywords: ["install", "npm", "git", "folder", "package", "extension"] },
   { id: "setting-packages-scope", label: "Install for", keywords: ["global", "project", "every project", "this project only", "local"] },
-  { id: "setting-packages-installed", label: "Installed packages", keywords: ["update", "remove", "uninstall", "sources", "signature"] },
-  { id: "setting-packages-develop", label: "Develop a package", keywords: ["develop", "build", "error", "compile", "kit new", "scaffold", "types", "reload"] },
+];
+
+/** The rows of the list of sources and of development, folded under Advanced. */
+export const PACKAGES_SOURCES_ROWS = [
+  { id: "setting-packages-installed", label: "Package sources", keywords: ["installed", "update", "remove", "uninstall", "sources", "signature", "packages"] },
+  { id: "setting-packages-develop", label: "Develop a package", keywords: ["develop", "build", "error", "compile", "kit new", "scaffold", "types", "reload", "packages"] },
 ];
 
 const SOURCE_HELP = "An npm source installs into ~/.tau/npm, a Git source is cloned shallowly into ~/.tau/git, and a folder is loaded where it lies. "
   + "The sources are listed in ~/.tau/packages.json, or the project's own .tau/packages.json. A package may carry a tau-extension.sig; "
   + "a file that no longer matches its signed hash refuses to load.";
 
-/**
- * Settings page of `tau.packages`: Pi's install verbs with a form, above the
- * packages a source installed. Installing never activates a package.
- */
-export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: SettingsPageProps & PageServices) {
-  const [source, setSource] = useState("");
-  const [scope, setScope] = useState<"global" | "project">("global");
+/** What the install form and the list of sources share: the sources, what the scan found and the command that runs. */
+function usePackages({ host, inspect, cwd, onNotify }: PageServices & { cwd: string | undefined; onNotify: SettingsSectionProps["onNotify"] }) {
   const [packages, setPackages] = useState<PackageRow[]>();
   const [inspection, setInspection] = useState<ExtensionInspection>();
   const [busy, setBusy] = useState<string>();
   const [log, setLog] = useState<string[]>([]);
   const [listError, setListError] = useState<string>();
   const [failure, setFailure] = useState<{ verb: string; message: string }>();
-  const [removing, setRemoving] = useState<PackageRow>();
 
   const refresh = useCallback(async () => {
     try {
@@ -127,7 +124,8 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
     return () => { offProgress(); offChanged(); };
   }, [host, refresh]);
 
-  const run = async (label: string, command: string, input: unknown) => {
+  /** Whether the command went through. */
+  const run = async (label: string, command: string, input: unknown): Promise<boolean> => {
     setBusy(label);
     setLog([]);
     setFailure(undefined);
@@ -135,29 +133,43 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
       const work = host.invoke(command, input) as Promise<PackagesCommandResult>;
       const result = await (command === "install" ? ownInstall(work) : work);
       onNotify(result.message ?? "Done.");
-      if (label === "install") setSource("");
       await refresh();
+      return true;
     } catch (reason) {
       setFailure({ verb: label, message: errorMessage(reason) });
+      return false;
     } finally {
       setBusy(undefined);
     }
   };
-  const install = () => { if (source.trim() && !busy) void run("install", "install", { source: source.trim(), scope }); };
 
-  const bundled = (inspection?.packages ?? []).filter((entry) => entry.scope === "bundled");
   const untrusted = untrustedSkips(inspection);
-  const untrustedProject = untrusted[0]?.untrustedProject;
+  return {
+    packages, inspection, busy, log, listError, failure, setFailure, run, refresh,
+    untrusted,
+    untrustedProject: untrusted[0]?.untrustedProject,
+    summaryOf: (id: string | undefined) => id ? inspection?.packages.find((entry) => entry.id === id) : undefined,
+    failed: (verb: string) => failure?.verb === verb ? <p className="packages-failure" role="alert">{failure.message}</p> : null,
+    busyReason: busy ? "Wait until the running install, update or removal ends." : undefined,
+  };
+}
+
+const nameOf = (entry: PackageRow) => entry.name ?? entry.id ?? entry.source;
+
+/**
+ * Sections of Settings → Extensions, above the list: Pi's install verbs with a
+ * form, and the packages a project's missing trust leaves off. Installing
+ * never activates a package.
+ */
+export function PackagesInstall({ cwd, onNotify, host, inspect }: SettingsSectionProps & PageServices) {
+  const [source, setSource] = useState("");
+  const [scope, setScope] = useState<"global" | "project">("global");
+  const { busy, log, failure, setFailure, run, untrusted, untrustedProject, failed, busyReason } = usePackages({ host, inspect, cwd, onNotify });
   const skippedNames = [...new Set(untrusted.flatMap((skip) => (skip.packages ?? []).map((entry) => entry.name)))];
-  const summaryOf = (id: string | undefined) => id ? inspection?.packages.find((entry) => entry.id === id) : undefined;
-  const nameOf = (entry: PackageRow) => entry.name ?? entry.id ?? entry.source;
-  const failed = (verb: string) => failure?.verb === verb ? <p className="packages-failure" role="alert">{failure.message}</p> : null;
-  const busyReason = busy ? "Wait until the running install, update or removal ends." : undefined;
+  const install = () => { if (source.trim() && !busy) void run("install", "install", { source: source.trim(), scope }).then((done) => { if (done) setSource(""); }); };
 
   return (
-    <div className="settings-page packages-page">
-      <h3>Packages</h3>
-
+    <>
       <SettingsSection title="Install">
         <SettingRow
           id="setting-packages-source"
@@ -215,8 +227,21 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
           />
         </SettingsSection>
       ) : null}
+    </>
+  );
+}
 
-      <SettingsSection title="Installed" id="setting-packages-installed" plain={!packages?.length} headerAction={packages?.length ? (
+/**
+ * Sections of Settings → Extensions under Advanced: the sources packages were
+ * installed from, to update or remove, and how to develop one.
+ */
+export function PackagesSources({ cwd, onNotify, onOpenSettings, host, inspect }: SettingsSectionProps & PageServices) {
+  const [removing, setRemoving] = useState<PackageRow>();
+  const { packages, busy, listError, run, refresh, untrustedProject, summaryOf, failed, busyReason } = usePackages({ host, inspect, cwd, onNotify });
+
+  return (
+    <>
+      <SettingsSection title="Package sources" id="setting-packages-installed" plain={!packages?.length} headerAction={packages?.length ? (
         <Button variant="ghost" icon={<RefreshCw size={13} />} busy={busy === "update-all"} disabled={busy !== undefined} onClick={() => void run("update-all", "update", {})}>
           {busy === "update-all" ? "Updating…" : "Check every source for updates"}
         </Button>
@@ -226,7 +251,7 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
         ) : packages === undefined ? (
           <SettingsState kind="loading" title="Reading the package list" rows={2} />
         ) : packages.length === 0 ? (
-          <SettingsState kind="empty" title="No package source is installed" description="Install one above. Packages copied into the extension folders by hand are listed under Settings → Extensions." />
+          <SettingsState kind="empty" title="No package source is installed" description="Install one at the top of this page. Packages copied into the extension folders by hand are in the list of extensions." />
         ) : packages.map((entry) => {
           const name = nameOf(entry);
           const theme = summaryOf(entry.id)?.theme;
@@ -257,10 +282,6 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
 
       <DevelopSection host={host} nameOf={(id) => packages?.find((entry) => entry.id === id)?.name ?? summaryOf(id)?.name} onNotify={onNotify} />
 
-      <p className="settings-footnote">
-        The extensions Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} extensions)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off and see what it may do.
-      </p>
-
       {removing ? (
         <ConfirmDialog
           title={`Remove ${nameOf(removing)}?`}
@@ -271,7 +292,7 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
           onConfirm={() => { const entry = removing; setRemoving(undefined); void run(`remove:${entry.source}`, "remove", { source: entry.source, scope: entry.scope }); }}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -385,18 +406,25 @@ export const packagesExtension: DesktopExtension = {
       }
     };
 
-    plugin.registerSettingsPage({
-      id: PACKAGES_SETTINGS_PAGE,
-      label: "Packages",
-      description: "Install, update and remove extension packages the way Pi does. An install never starts a package until you approve it in Settings → Extensions.",
-      group: "app",
+    // Install and sources join Settings → Extensions: the form above the list, the sources under Advanced.
+    const services = { host: plugin.host, inspect: (cwd: string) => plugin.inspectPackages(cwd) };
+    plugin.registerSettingsSection({
+      id: "packages.install",
+      page: "extensions",
+      order: 10,
       profiles: ["desktop", "web"],
-      Icon: Package,
-      order: 91,
-      rows: PACKAGES_ROWS,
-      Component: (props: SettingsPageProps) => (
-        <PackagesPage {...props} host={plugin.host} inspect={(cwd) => plugin.inspectPackages(cwd)} />
-      ),
+      replaces: [PACKAGES_RETIRED_PAGE],
+      rows: PACKAGES_INSTALL_ROWS,
+      Component: (props: SettingsSectionProps) => <PackagesInstall {...props} {...services} />,
+    });
+    plugin.registerSettingsSection({
+      id: "packages.sources",
+      page: "extensions",
+      advanced: true,
+      order: 10,
+      profiles: ["desktop", "web"],
+      rows: PACKAGES_SOURCES_ROWS,
+      Component: (props: SettingsSectionProps) => <PackagesSources {...props} {...services} />,
     });
 
     const installs = followInstalls(plugin.host);
@@ -418,7 +446,7 @@ export const packagesExtension: DesktopExtension = {
       label: "Install extension…",
       group: "Extensions",
       access: "write",
-      run: (app) => app.openSettings(PACKAGES_SETTINGS_PAGE),
+      run: (app) => app.openSettings("extensions#setting-packages-source"),
     });
 
     // What a package author wants from /reload, without rebuilding Tau from its source.

@@ -170,3 +170,9 @@
 
 /* A step darker than the theme, dark in the light one too (design 1b): the tokens inside resolve as dark. */
 .terminal-surface { color-scheme: dark; --sunken: var(--term); }
+/* The font row's sample, drawn in the stack the terminal uses. */
+.terminal-font-sample {
+  margin: 8px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--sunken); color: var(--ink); white-space: pre; overflow: hidden; text-overflow: ellipsis;
+}
+.terminal-font-problem { color: var(--danger); }

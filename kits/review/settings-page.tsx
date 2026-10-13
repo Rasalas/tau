@@ -1,4 +1,4 @@
-import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, TextField, useSetting, type HostExtensionClient, type SettingHandle, type SettingsPageProps } from "tau";
+import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, TextField, useSetting, type HostExtensionClient, type SettingHandle, type SettingsSectionProps } from "tau";
 import { REVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
 import { COLLAPSED_OPTION, COLORS_KEY, SPLIT_OPTION, WHITESPACE_OPTION, WRAP_OPTION, type DiffColorScheme } from "./diff-settings.js";
 import { GitHubSharingSettings } from "./github-sharing-settings.js";
@@ -28,7 +28,7 @@ function Swatch({ scheme }: { scheme: DiffColorScheme }) {
   return <span className={`review-color-swatch ${scheme}`} aria-hidden="true"><i /><i /></span>;
 }
 
-/** The page's rows, for the Settings search. */
+/** The sections' rows, for the Settings search; "review" finds them all, the page being Source control's. */
 export const REVIEW_SETTINGS_ROWS = [
   { id: "setting-review-propose", label: "Write a commit message when review opens", keywords: ["commit message", "propose", "model"] },
   { id: "setting-review-format", label: "Commit message format", keywords: ["conventional commits", "gitmoji", "plain"] },
@@ -47,17 +47,18 @@ export const REVIEW_SETTINGS_ROWS = [
   { id: "setting-review-git-hosts", label: "Git hosts", keywords: ["github", "gitlab", "forgejo", "bitbucket", "azure devops", "signed in"] },
   { id: "setting-review-github-sharing", label: "GitHub across paired machines", keywords: ["github", "sharing", "routing", "machines", "credentials"] },
   { id: "setting-review-servers", label: "Self-hosted servers", keywords: ["self-hosted", "gitea", "forgejo", "provider", "host"] },
-];
+].map((row) => ({ ...row, keywords: ["review", ...row.keywords] }));
 
-/** The page bound to the kit's host half, which answers for the Git hosts. */
-export function createReviewSettingsPage(host: HostExtensionClient) {
-  return function ReviewSettings({ onNotify }: SettingsPageProps) { return <ReviewSettingsPage host={host} onNotify={onNotify} />; };
+/** The sections bound to the kit's host half, which answers for the Git hosts. */
+export function createReviewSettingsSections(host: HostExtensionClient) {
+  return function ReviewSettings({ onNotify }: SettingsSectionProps) { return <ReviewSettingsPage host={host} onNotify={onNotify} />; };
 }
 
 /**
- * Settings → Review: how commit messages and request descriptions are written,
- * how diffs are drawn and which Git hosts this machine reaches. The model that
- * writes them stays on Review Kit's own page, beside the extension's switch.
+ * Sections of Settings → Source control: how commit messages and request
+ * descriptions are written, how diffs are drawn and which Git hosts this
+ * machine reaches. The model that writes them stays on the Review
+ * extension's own page, beside its switch.
  */
 export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?: HostExtensionClient; onNotify?(message: string, level?: "info" | "warning" | "error"): void } = {}) {
   const propose = useSetting<boolean>(option("propose-message"), { defaultValue: true, read: readBoolean });
@@ -78,8 +79,7 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
   const toggle = (label: string, setting: SettingHandle<boolean>) => <Switch label={label} checked={setting.value} onChange={setting.set} />;
 
   return (
-    <div className="settings-page review-settings-page">
-      <h3>Review</h3>
+    <>
       <SettingsSection title="Commit messages and pull requests">
         <SettingRow id="setting-review-propose" title="Write a commit message when review opens" description="The model proposes one from the diff; you can always edit it." setting={propose}
           control={toggle("Write a commit message when review opens", propose)} />
@@ -132,6 +132,6 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
         <SettingRow id="setting-review-collapsed" title="Files start collapsed" setting={collapsed} control={toggle("Files start collapsed", collapsed)} />
       </SettingsSection>
       {host ? <><SourceControlSettings host={host} onNotify={onNotify} /><GitHubSharingSettings host={host} onNotify={onNotify} /></> : null}
-    </div>
+    </>
   );
 }

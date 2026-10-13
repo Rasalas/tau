@@ -2,9 +2,10 @@
   "id": "tau.observatory",
   "name": "Signals",
   "description": "What the workbench is doing right now: host events, live counts and tool runs.",
+  "icon": "Activity",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.19.0"
+    "api": "^1.61.0"
   },
   "permissions": [],
   "isolation": "worker",

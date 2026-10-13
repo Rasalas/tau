@@ -30,7 +30,8 @@ export type GeneralSection = CardSection;
 
 /**
  * Settings → General (design 2i): cards in two columns, the composer, the
- * transcript and quitting, with the rare Reload files folded under Advanced.
+ * transcript, quitting and privacy, with the rare Reload files folded under
+ * Advanced. Packages add rows to the transcript and privacy cards.
  * Where new threads start and how a thread behaves are Threads'; the theme is
  * Appearance's, and General shows it only where Appearance is not there.
  */
@@ -88,6 +89,32 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
     />,
   }] : [];
 
+  const transcriptRows: PlacedRow[] = [
+    {
+      order: 10,
+      node: <SettingRow
+        key="detail"
+        id={settingAnchor("Transcript detail")}
+        title="Transcript detail"
+        description="of a finished turn"
+        help={`Focused reads a settled turn as one line; Detailed opens every group and shows thinking; Everything adds full tool output and timestamps.${detailShortcut ? ` ${detailShortcut} cycles them for the thread on screen.` : ""}`}
+        setting={detail}
+        control={<SegmentedControl label="Transcript detail" value={detail.value} options={TRANSCRIPT_DETAIL_LEVELS.map((level) => ({ value: level, label: DETAIL_LABELS[level] }))} onChange={detail.set} />}
+      />,
+    },
+    {
+      order: 20,
+      node: <SettingRow
+        key="costs"
+        id={settingAnchor("Show costs")}
+        title="Show costs"
+        description="in rows, headers and reviews"
+        setting={showCosts}
+        control={<Switch label="Show costs" checked={showCosts.value} onChange={showCosts.set} />}
+      />,
+    },
+  ];
+
   return (
     <div className="settings-page settings-cards">
       <SectionCard title="Appearance" card="appearance" own={themeRows} sections={sections} onNotify={onNotify} />
@@ -116,23 +143,7 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
           control={<Switch label="Fold the composer while scrolling" checked={composerFolds} onChange={composerFold.set} />}
         />
       </SettingsCard>
-      <SettingsCard title="Transcript">
-        <SettingRow
-          id={settingAnchor("Transcript detail")}
-          title="Transcript detail"
-          description="of a finished turn"
-          help={`Focused reads a settled turn as one line; Detailed opens every group and shows thinking; Everything adds full tool output and timestamps.${detailShortcut ? ` ${detailShortcut} cycles them for the thread on screen.` : ""}`}
-          setting={detail}
-          control={<SegmentedControl label="Transcript detail" value={detail.value} options={TRANSCRIPT_DETAIL_LEVELS.map((level) => ({ value: level, label: DETAIL_LABELS[level] }))} onChange={detail.set} />}
-        />
-        <SettingRow
-          id={settingAnchor("Show costs")}
-          title="Show costs"
-          description="in rows, headers and reviews"
-          setting={showCosts}
-          control={<Switch label="Show costs" checked={showCosts.value} onChange={showCosts.set} />}
-        />
-      </SettingsCard>
+      <SectionCard title="Transcript" card="transcript" own={transcriptRows} sections={sections} onNotify={onNotify} />
       {hostIsThisMachine ? (
         <SettingsCard title="Quitting">
           <SettingRow
@@ -151,6 +162,7 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
           />
         </SettingsCard>
       ) : null}
+      <SectionCard title="Privacy" card="privacy" sections={sections} onNotify={onNotify} />
       {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => undefined} />)}
       <SettingsAdvanced hint="1 setting">
         <SettingsSection title="Files">

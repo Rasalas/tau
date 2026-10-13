@@ -62,13 +62,13 @@ export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
 
 /** What a core page governs, in one sentence under its title; the search finds it too. */
 export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> = {
-  general: "How the composer and the transcript behave, and how Tau quits.",
+  general: "How the composer and the transcript behave, how Tau quits and what it shares about its use.",
   keybindings: "Shortcuts follow the layer you are in: the app, the conversation, the stage. Conflicts are shown as you type.",
   runtimes: "A runtime is the program that runs a thread, with its own sign-in, models and tools. The star marks where a new thread starts; the composer can still pick another per thread.",
-  threads: "Where a new thread starts, and how a thread behaves while it runs and after a restart.",
+  threads: "Where a new thread starts, how the thread list settles and sorts, what asks first, how a thread behaves while it runs and when a long one is compacted.",
   connections: "Devices that talk to this machine directly, and the tools threads hand off to. Pairing uses a code you compare on both sides.",
   extensions: "Everything that adds to Tau, bundled or installed. Turn one on or off, approve what it asks for, or open its page.",
-  inspector: "Every extension both halves know and the package folders on disk, to find out why something did not load.",
+  inspector: "What this window and its machine are doing now, every extension both halves know and the package folders on disk, to find out why something did not load.",
   about: "The version of Tau on this machine, its updates and the licences of the software it ships.",
 };
 
@@ -139,20 +139,21 @@ const RENAMED_ANCHORS: Readonly<Record<string, string>> = {
   "setting-base-delay": "setting-first-wait",
   "setting-terminal-command": "setting-command-line",
   "setting-rotate-the-host-token": "setting-rotate-the-access-key",
+  "setting-appearance-terminal-font": "setting-terminal-font",
 };
 
-/** Rows that left General: where a link to one now lands (API 1.61.0). */
-const MOVED_FROM_GENERAL: Readonly<Record<string, string>> = {
-  "setting-run-on": "threads",
-  "setting-new-thread-workspace": "threads",
-  "setting-branch-name": "threads",
-  "setting-settle-automatically": "threads",
-  "setting-trace-tabs": "threads",
-  "setting-compact-context": "threads",
-  "setting-continue-threads-after-restarts": "threads",
-  "setting-wakes-during-a-turn": "threads",
-  "setting-keep-tau-running-in-the-background": "connections",
-  "setting-command-line": "connections",
+/** Rows that left the page a link names for another one: where a link to one now lands (API 1.61.0). */
+const MOVED_ROWS: Readonly<Record<string, { from: string; page: string }>> = {
+  "setting-run-on": { from: "general", page: "threads" },
+  "setting-new-thread-workspace": { from: "general", page: "threads" },
+  "setting-branch-name": { from: "general", page: "threads" },
+  "setting-settle-automatically": { from: "general", page: "threads" },
+  "setting-compact-context": { from: "general", page: "threads" },
+  "setting-continue-threads-after-restarts": { from: "general", page: "threads" },
+  "setting-wakes-during-a-turn": { from: "general", page: "threads" },
+  "setting-keep-tau-running-in-the-background": { from: "general", page: "connections" },
+  "setting-command-line": { from: "general", page: "connections" },
+  "setting-terminal-font": { from: "appearance", page: "terminal.settings" },
 };
 
 /**
@@ -167,7 +168,8 @@ export function parseSettingsTarget(target: string | undefined): { page: string;
   const named = RENAMED[rawPage] ?? (rawPage || "general");
   const modelsOf = named === "providers" ? /^runtime-models-(.+)$/u.exec(anchor ?? "")?.[1] : undefined;
   const merged = modelsOf ? runtimePage(modelsOf) : Object.hasOwn(MERGED_PAGES, named) ? MERGED_PAGES[named]! : named;
-  const page = merged === "general" && anchor !== undefined && Object.hasOwn(MOVED_FROM_GENERAL, anchor) ? MOVED_FROM_GENERAL[anchor]! : merged;
+  const moved = anchor !== undefined && Object.hasOwn(MOVED_ROWS, anchor) ? MOVED_ROWS[anchor]! : undefined;
+  const page = moved?.from === merged ? moved.page : merged;
   return anchor ? { page, anchor } : { page };
 }
 

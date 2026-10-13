@@ -6,7 +6,7 @@ The first builds of Tau set out to prove that Pi can stay the agent runtime whil
 - recent Pi threads across projects, including project identity, the Git branch Workspace Kit supplies, live activity, and a settled shelf
 - agents see and organise the thread list: `tau_find_threads` lists threads with settled, snoozed (and until when), pinned and running state, the pull requests they link and a link to paste; `tau_thread_organize` settles or snoozes a thread, and on its own thread the change lands when the turn ends well. A `tau://thread` link in a message is drawn as a chip with the thread's current title and opens it
 - the palette finds a thread by the pull or merge request it links (`#95`, `owner/repo#95`, the URL or the branch), and an empty palette shows the recent threads with the ones waiting for you first
-- optional Working section on desktop and web: enable **Separate working threads** in Settings → Thread rail to collect running active threads until they finish, fail or need an answer or approval. It starts off; pinned, snoozed, settled and archived threads keep their sections, and manual order and sibling groups stay saved. Connected machines use their reported activity. The compact phone list keeps its current layout
+- optional Working section on desktop and web: enable **Separate working threads** in Settings → Threads to collect running active threads until they finish, fail or need an answer or approval. It starts off; pinned, snoozed, settled and archived threads keep their sections, and manual order and sibling groups stay saved. Connected machines use their reported activity. The compact phone list keeps its current layout
 - searchable recent-project modal (`Cmd/Ctrl+P`) and extension-provided add-project sources
 - working local-folder and Git-clone project flows, plus thread search (`/`)
 - find in the thread (`Cmd/Ctrl+F`, also from the composer, or `/` in the transcript) searches the whole history, also turns not loaded yet and a reply's plan: it starts at the newest match (Enter goes to the next older one, Shift+Enter back), loads older turns on the way, marks the words in the text and the row it stands on
@@ -180,7 +180,7 @@ is searched as far as it is loaded.
 
 ## Review a pull request with a guide (beta)
 
-Turn on **Settings → Review → Review guides** and a GitHub pull request gets a
+Turn on **Settings → Source control → Review guides** and a GitHub pull request gets a
 **Guide** tab. Opening it costs nothing; **Write guide** starts one run: a
 read-only agent, visible in the Agents panel, reads the request's head in a
 worktree of its own and writes a tour of two to eight stops in reading order. Each
@@ -198,7 +198,7 @@ outline and one screen per stop.
 A guide is kept per request, not per thread. After a push the tab says "Written
 before the latest push" and offers **Rewrite**; nothing rewrites it by itself. The
 model that writes guides is chosen on Review Kit's page under Extensions, and
-**Guide instructions** in Settings → Review say what you want every guide to favour.
+**Guide instructions** in Settings → Source control say what you want every guide to favour.
 Agents can start guides for up to twenty requests (`write_pull_request_guides`) and
 read them (`read_pull_request_guide`, with whether the guide is stale). A guide is
 written from a thread in a checkout of the request's repository.

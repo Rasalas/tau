@@ -43,7 +43,7 @@ export interface AgentsHostCommands {
   "definitions": { input: { sessionId?: string }; output: AgentDefinitionsState };
   /** The user starts an agent from a definition, as a child of the thread they are reading. */
   "start": { input: { parentThreadId: string; agent: string; prompt: string }; output: { threadId: string; title: string; status: AgentThreadStatus } };
-  /** The machines this host's agents may run on, for Settings → Agents. */
+  /** The machines this host's agents may run on, for Settings → Threads. */
   "machines": { input: undefined; output: AgentMachinesView };
   /** Stops an agent and every agent below it; `alsoStopped` counts the ones below. */
   "stop-agent": { input: { threadId: string }; output: { threadId: string; status: AgentThreadStatus; cancelled: boolean; alsoStopped?: number } };
@@ -263,7 +263,7 @@ export interface ChooseMachineAnswer {
   reason: string;
 }
 
-/** A machine as Settings → Agents lists it. */
+/** A machine as Settings → Threads lists it. */
 export interface AgentMachineOption {
   id: string;
   name: string;

@@ -50,7 +50,7 @@ export type MachineSource = "tool" | "definition" | "setting";
 const SOURCE_HINT: Record<MachineSource, string> = {
   tool: "",
   definition: " The agent definition names it.",
-  setting: ' Sub-agents go there by Settings → Agents; pass machine "local" to run this one here.',
+  setting: ' Sub-agents go there by Settings → Threads; pass machine "local" to run this one here.',
 };
 
 /**

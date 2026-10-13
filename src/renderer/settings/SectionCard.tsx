@@ -12,9 +12,11 @@ export type CardSection = { id: string; card?: SettingsCardId | undefined; order
  * A card of core's own rows and the rows kits add with
  * `registerSettingsSection({ card })`, in `order`; none when it holds no row.
  */
-export function SectionCard({ title, card, own = [], sections, onNotify }: {
+export function SectionCard({ title, card, wide = false, own = [], sections, onNotify }: {
   title: string;
   card: SettingsCardId;
+  /** The card takes both columns. */
+  wide?: boolean;
   own?: readonly PlacedRow[];
   sections: readonly CardSection[];
   onNotify(message: string, level?: "info" | "warning" | "error"): void;
@@ -23,5 +25,5 @@ export function SectionCard({ title, card, own = [], sections, onNotify }: {
     ...own,
     ...sections.filter((section) => section.card === card).map(({ id, order = 100, Component }) => ({ order, node: <Component key={id} onNotify={onNotify} onChanged={() => undefined} /> })),
   ].sort((left, right) => left.order - right.order);
-  return rows.length ? <SettingsCard title={title}>{rows.map((row) => row.node)}</SettingsCard> : null;
+  return rows.length ? <SettingsCard title={title} wide={wide}>{rows.map((row) => row.node)}</SettingsCard> : null;
 }

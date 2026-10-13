@@ -91,4 +91,10 @@ describe("how Settings and the app name things", () => {
     const gone = /Settings\s*[→›]\s*(?:Providers|Models|Pi|Inspector|Devices)\b|\b(?:Providers|Models|Devices) page\b|\bProviders card\b/u;
     expect(textsMatching(gone)).toEqual([]);
   });
+
+  it("sends no one to a Settings page an extension gave up for a section of another", () => {
+    // Packages is Extensions', Push is Notifications', Review is Source control's, SnapShots and Evidence are Screenshots', and so on (API 1.61.0).
+    const gone = /Settings\s*[→›]\s*(?:Packages|Push|Review|SnapShots|Evidence|Signals|Agents|Thread rail|Resume compaction|Usage statistics|Remote work)\b/u;
+    expect(textsMatching(gone)).toEqual([]);
+  });
 });

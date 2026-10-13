@@ -173,9 +173,9 @@ export interface TerminalRunService {
 }
 
 /**
- * The desktop service that shows and sets the terminal's font, for Settings →
- * Appearance to draw (`useService`). Empty fields follow the user's Ghostty
- * config, then the platform's monospace faces.
+ * The desktop service that shows and sets the terminal's font, which Settings
+ * → Terminal draws and other extensions can follow (`useService`). Empty fields
+ * follow the user's Ghostty config, then the platform's monospace faces.
  */
 export const TERMINAL_FONT_SERVICE = "tau.terminal/font";
 export type TerminalFontSource = "settings" | "ghostty" | "default";

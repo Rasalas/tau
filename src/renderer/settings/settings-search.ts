@@ -153,7 +153,7 @@ export interface SettingsSearchSources {
   /** Pages extensions contributed, with the rows they named for the search. */
   pages: ReadonlyArray<{ id: string; label: string; description?: string | undefined; keywords?: readonly string[] | undefined; extensionName?: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Sections extensions added to a core page, with the rows they named. */
-  sections?: ReadonlyArray<{ page: string; card?: string | undefined; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
+  sections?: ReadonlyArray<{ page: string; card?: string | undefined; extensionId?: string | undefined; extensionName?: string | undefined; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Every extension with a page of its own in the nav. */
   extensions: ReadonlyArray<{ id: string; name: string; core?: boolean; options?: ReadonlyArray<{ label: string }> }>;
   /** Live keybindings; leave out for a search that should find pages only. */
@@ -189,10 +189,16 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
   for (const section of sources.sections ?? []) {
     // General's New threads and Threads cards are drawn on Threads.
     const sectionPage = section.page === "general" && (section.card === "new-threads" || section.card === "threads") ? "threads" : section.page;
-    const page = CORE_PAGES.find((core) => core.page === sectionPage);
-    if (!page) continue;
+    // Core's page, an extension's page the section joined, or, where that page is not there, the page of the extension that added it.
+    const core = CORE_PAGES.find((page) => page.page === sectionPage);
+    const own = sources.pages.find((page) => page.id === sectionPage);
+    const host = core ? { page: core.page, label: core.label }
+      : own ? { page: own.id, label: own.label }
+        : section.extensionId && sectionPage !== "extension" ? { page: extensionPage(section.extensionId), label: section.extensionName ?? section.extensionId }
+          : undefined;
+    if (!host) continue;
     for (const row of section.rows ?? []) {
-      entries.push({ id: `${page.page}:${row.id}`, page: page.page, label: row.label, section: page.label, keywords: row.keywords ?? [], target: row.id });
+      entries.push({ id: `${host.page}:${row.id}`, page: host.page, label: row.label, section: host.label, keywords: row.keywords ?? [], target: row.id });
     }
   }
   for (const extension of sources.extensions) {

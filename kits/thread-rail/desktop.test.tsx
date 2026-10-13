@@ -676,22 +676,23 @@ describe("Thread Rail on the desktop", () => {
     it("lets the settings page switch each question", async () => {
       const { registry, preferences } = setup({ confirmations: true });
       await flush();
-      const page = registry.getSettingsPages().find((entry) => entry.id === "thread-rail.settings")!;
-      const { getByRole } = render(<TestProviders preferences={preferences}><page.Component cwd="/project" onNotify={() => undefined} /></TestProviders>);
-      expect(getByRole("heading", { level: 2, name: "Ask first" })).toBeTruthy();
+      const section = registry.getSettingsSections("threads").find((entry) => entry.id === "thread-rail.ask-first")!;
+      expect(section.card).toBe("ask-first");
+      const { getByRole } = render(<TestProviders preferences={preferences}><section.Component cwd="/project" onNotify={() => undefined} onChanged={() => undefined} /></TestProviders>);
       const archive = getByRole("switch", { name: "Before archiving a thread" });
       expect(archive.getAttribute("aria-checked")).toBe("false");
       expect(getByRole("switch", { name: "Before deleting a thread" }).getAttribute("aria-checked")).toBe("true");
       act(() => { fireEvent.click(archive); });
       expect(preferences.optionValue(THREAD_RAIL_EXTENSION_ID, "confirm-archive", false)).toBe(true);
-      for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
+      for (const row of section.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
     });
 
     it("settles after a quiet spell chosen from a menu", async () => {
       const { registry, preferences, calls } = setup({ confirmations: true });
       await flush();
-      const page = registry.getSettingsPages().find((entry) => entry.id === "thread-rail.settings")!;
-      const { getByRole } = render(<TestProviders preferences={preferences}><page.Component cwd="/project" onNotify={() => undefined} /></TestProviders>);
+      const section = registry.getSettingsSections("threads").find((entry) => entry.id === "thread-rail.rail")!;
+      expect(registry.settingsPageReplacedBy("thread-rail.settings")).toBe("threads");
+      const { getByRole } = render(<TestProviders preferences={preferences}><section.Component cwd="/project" onNotify={() => undefined} onChanged={() => undefined} /></TestProviders>);
       const menu = getByRole("combobox", { name: "Settle after a quiet spell" }) as HTMLSelectElement;
       expect([...menu.options].map((option) => option.textContent)).toEqual(["Off", "1 day", "3 days", "7 days", "30 days"]);
       await act(async () => { fireEvent.change(menu, { target: { value: "7" } }); await flush(); });

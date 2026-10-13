@@ -90,6 +90,7 @@ export const terminalExtension: DesktopExtension = {
       void refreshTerminalSessions();
     });
     plugin.events.on("host-connection", ({ state }) => { if (state === "connected") terminalHostReconnected(); });
+    const font = createTerminalFontService(plugin.preferences);
     const services = [
       plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, (chips) => {
         terminalServices.chips = chips;
@@ -123,7 +124,7 @@ export const terminalExtension: DesktopExtension = {
         };
       }),
       plugin.provideService<TerminalRunService>(TERMINAL_RUN_SERVICE, { run: (request, actions) => runInTerminal(actions ?? terminalServices.actions, request) }),
-      plugin.provideService<TerminalFontService>(TERMINAL_FONT_SERVICE, createTerminalFontService(plugin.preferences)),
+      plugin.provideService<TerminalFontService>(TERMINAL_FONT_SERVICE, font),
     ];
     // The setting picks dock or drawer; changing it registers the panel again in its new place.
     const placementNow = () => terminalPlacement(plugin.preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING));
@@ -166,7 +167,7 @@ export const terminalExtension: DesktopExtension = {
       order: 30,
       profiles: ["desktop", "web"],
       rows: TERMINAL_SETTINGS_ROWS,
-      Component: (props) => <TerminalSettingsPage {...props} preferences={plugin.preferences} />,
+      Component: (props) => <TerminalSettingsPage {...props} preferences={plugin.preferences} font={font} />,
     });
     const disposers = [
       plugin.registerCommand({ id: "terminal.open", label: "Open terminal panel", group: "Terminal", access: "read", run: (app) => app.openPanel(TERMINAL_PANEL) }),

@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { Bell, Play } from "lucide-react";
-import { Button, SegmentedControl, SettingRow, SettingsSection, Switch, useSetting, useThreadStore } from "tau";
+import { Button, SegmentedControl, SettingRow, SettingsPageSections, SettingsSection, Switch, useSetting, useThreadStore } from "tau";
 import type {
   DesktopExtension,
   DesktopExtensionContext,
@@ -277,6 +277,9 @@ function createSettingsPage(context: DesktopExtensionContext) {
             control={<Switch label="Also for the thread on screen" checked={whenFocused.value} onChange={whenFocused.set} />}
           />
         </SettingsSection>
+        {/* What other extensions attach: Push's phone, and its keys under Advanced (API 1.61.0). */}
+        <SettingsPageSections page="notifications.settings" onNotify={onNotify} />
+        <SettingsPageSections page="notifications.settings" advanced onNotify={onNotify} />
       </div>
     );
   };
@@ -303,7 +306,7 @@ function useKitSetting<T>(preferences: PreferencesStore, kind: "options" | "valu
   });
 }
 
-/** A switch per kind of news, on any client and as a push (design 2n, 2i); on the page and General's card. */
+/** A switch per kind of news, on any client and as a push (design 2n, 2i). */
 function NotifyRows({ preferences }: { preferences: PreferencesStore }) {
   // In EVENTS' order.
   const settings = [

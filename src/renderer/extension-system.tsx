@@ -1065,17 +1065,32 @@ export interface SettingsPageContribution extends ProfileScoped {
 /**
  * Core's own Settings pages a package may add a section to (API 1.13.0):
  * Connections; the list of extensions, above it; each extension's own page,
- * after its settings (both API 1.18.0); Runtimes, below its table (API 1.27.0);
- * and General, as rows of one of its cards.
+ * after its settings (both API 1.18.0); Runtimes, below the runtimes (API 1.27.0);
+ * General, as rows of one of its cards; and, since API 1.61.0, Threads, as
+ * rows of one of its cards, and Diagnostics (`inspector`), below its own sections.
  */
-export type SettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes" | "general";
+export type CoreSettingsSectionPage = "connections" | "extensions" | "extension" | "runtimes" | "general" | "threads" | "inspector";
 
 /**
- * The cards a section's rows join (design 2i, 2h): General's appearance,
- * notify, new-threads and threads, Connections' this-machine. Such a section
- * draws `SettingRow`s only; the card draws the frame and the heading.
+ * The page a section joins: one of core's (above), or, since API 1.61.0, the
+ * `id` of a page an extension registered, which draws its sections with
+ * `SettingsPageSections`.
  */
-export type SettingsCardId = "appearance" | "notify" | "new-threads" | "threads" | "this-machine";
+export type SettingsSectionPage = CoreSettingsSectionPage | (string & Record<never, never>);
+
+/**
+ * The cards a section's rows join (design 2i, 2h): General's transcript and
+ * privacy (appearance and notify, which General draws only where a package
+ * fills them), Threads' new-threads, rail, ask-first, running and
+ * long-threads (and threads, drawn only where a package fills it), Connections'
+ * this-machine. Such a section draws `SettingRow`s only; the card draws the
+ * frame and the heading. `transcript`, `privacy`, `rail`, `ask-first`,
+ * `running` and `long-threads` are new in API 1.61.0.
+ */
+export type SettingsCardId =
+  | "appearance" | "notify" | "transcript" | "privacy"
+  | "new-threads" | "threads" | "rail" | "ask-first" | "running" | "long-threads"
+  | "this-machine";
 
 export interface SettingsSectionProps {
   /** `level` as in `WorkbenchActions.notify` (API 1.60.0). */
@@ -1086,11 +1101,16 @@ export interface SettingsSectionProps {
   extensionId?: string;
   /** On an extension's page: the open project, whose package folder the extension may live in. */
   cwd?: string;
+  /** Opens another place in Settings (`"extensions/<id>"`) without leaving it (API 1.61.0). */
+  onOpenSettings?(target: string): void;
 }
 
 /**
- * A section a package adds to one of core's Settings pages, below core's own
- * sections, in `order`. It is gone with its package; the page stays core's.
+ * A section a package adds to a Settings page that is not its own, below that
+ * page's sections, in `order`: one of core's pages, or another extension's
+ * page that draws sections (API 1.61.0). It is gone with its package; the page
+ * stays where it is. A section whose page is not there is drawn on its own
+ * extension's page in Settings → Extensions.
  */
 export interface SettingsSectionContribution extends ProfileScoped {
   id: string;
@@ -1098,6 +1118,16 @@ export interface SettingsSectionContribution extends ProfileScoped {
   /** The card on the page its rows join, in `order` among the card's rows. */
   card?: SettingsCardId;
   order?: number;
+  /**
+   * The section sits under the page's Advanced fold, where the page has one
+   * and draws its sections with `SettingsPageSections advanced` (API 1.61.0).
+   */
+  advanced?: boolean;
+  /**
+   * Ids of pages this section took over from (API 1.61.0): a link to one opens
+   * `page`, so the section's own page can go without breaking old links.
+   */
+  replaces?: readonly string[];
   /** The rows the Settings search finds in the section, as on a page (API 1.18.0). */
   rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] }>;
   Component: ComponentType<SettingsSectionProps>;
@@ -2472,8 +2502,20 @@ export class ExtensionRegistry {
   }
 
   /** Sections packages added to one of core's Settings pages, in `order`. */
-  getSettingsSections(page: SettingsSectionPage): Array<Owned<SettingsSectionContribution>> {
-    return this.sorted("settings-sections", this.settingsSections).filter((section) => section.page === page);
+  getSettingsSections(page?: SettingsSectionPage): Array<Owned<SettingsSectionContribution>> {
+    const sections = this.sorted("settings-sections", this.settingsSections);
+    return page === undefined ? sections : sections.filter((section) => section.page === page);
+  }
+
+  /** The section that took over the page `pageId` (its `replaces`), when no page of that id is registered. */
+  settingsSectionReplacing(pageId: string): Owned<SettingsSectionContribution> | undefined {
+    if (this.settingsPages.has(pageId)) return undefined;
+    return this.sorted("settings-sections", this.settingsSections).find((section) => section.replaces?.includes(pageId));
+  }
+
+  /** The page a section took over `pageId` for (its `replaces`), when no page of that id is registered. */
+  settingsPageReplacedBy(pageId: string): SettingsSectionPage | undefined {
+    return this.settingsSectionReplacing(pageId)?.page;
   }
 
   /** Every extension's row states by thread id; the same object until one changes. */

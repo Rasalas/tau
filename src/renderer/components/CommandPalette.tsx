@@ -33,6 +33,7 @@ type LevelAnswer = { key: number; items: readonly PaletteItem[]; loading: boolea
 function settingsItems(registry: ExtensionRegistry, needle: string): PaletteItem[] {
   const entries = settingsSearchEntries({
     pages: registry.getSettingsPages().map((page) => ({ id: page.id, label: page.label, description: page.description, keywords: page.keywords, extensionName: page.extensionName, rows: page.rows })),
+    sections: registry.getSettingsSections(),
     extensions: registry.getExtensionSummaries(),
   });
   return searchSettings(entries, needle, SETTINGS_LIMIT).map((entry) => ({

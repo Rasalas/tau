@@ -2,7 +2,7 @@
 
 The optional `tau.usage-statistics` kit counts participating desktop installations through the existing Matomo service on the Strato VPS under Dokploy. No additional collector service is needed.
 
-Reporting is off until the person using the device enables **Settings → Usage statistics → Share usage statistics**. The choice and a cryptographically random 16-character hexadecimal ID live under `device:tau.usage-statistics.v1` in client storage. They are not host preferences and are not synced between devices. Different devices, user-data profiles and reinstalls can represent the same person more than once. These are installation counts, not registered users or verified people.
+Reporting is off until the person using the device enables **Settings → General → Privacy → Share usage statistics**. The choice and a cryptographically random 16-character hexadecimal ID live under `device:tau.usage-statistics.v1` in client storage. They are not host preferences and are not synced between devices. Different devices, user-data profiles and reinstalls can represent the same person more than once. These are installation counts, not registered users or verified people.
 
 ## What is counted
 

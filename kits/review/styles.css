@@ -618,7 +618,7 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
   --diff-del-mark-line: var(--working);
   --diff-del-edge: var(--working);
 }
-/* Settings → Review: a diff colour choice is its two swatches, the name in the tooltip. */
+/* Settings → Source control: a diff colour choice is its two swatches, the name in the tooltip. */
 .review-color-swatch { display: inline-flex; gap: 3px; }
 .review-color-swatch > i { width: 7px; height: 7px; border-radius: 50%; }
 .review-color-swatch.red-green > i:first-child { background: var(--removed); }

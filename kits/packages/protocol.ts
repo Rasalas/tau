@@ -4,8 +4,8 @@
  */
 export const PACKAGES_EXTENSION_ID = "tau.packages";
 
-/** Settings page the kit contributes; `app.openSettings(PACKAGES_SETTINGS_PAGE)` opens it. */
-export const PACKAGES_SETTINGS_PAGE = "packages";
+/** The Settings page the kit had before its sections joined Extensions (API 1.61.0); a link to it lands there. */
+export const PACKAGES_RETIRED_PAGE = "packages";
 
 /** One row of `list`, `install` and `update`: a source and the package it resolved to. */
 export interface PackageRow {

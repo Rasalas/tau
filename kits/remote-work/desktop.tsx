@@ -1,20 +1,21 @@
 import { useEffect } from "react";
-import { FolderSync } from "lucide-react";
 import type { DesktopExtension, RegionProps, WorkbenchActions } from "tau";
 import { REMOTE_WORK_EXTENSION_ID, THREAD_LINK_EVENT, type RemoteThreadLink } from "./protocol.js";
 import { QuestionNotices } from "./questions.js";
-import { REMOTE_WORK_ROWS, createRemoteWorkPage } from "./settings.js";
+import { REMOTE_WORK_ROWS, createRemoteWorkSections } from "./settings.js";
 
-/** Machines Kit's agents catalog (`kits/environments/host.ts`); kits do not import one another. */
+/** The Machines extension's agents catalog (`kits/environments/host.ts`) and settings page; kits do not import one another. */
 const MACHINES_EXTENSION_ID = "tau.environments";
+const MACHINES_SETTINGS_PAGE = "environments.machines";
 
 export const REMOTE_WORK_SETTINGS_PAGE = "remote-work.settings";
 
 /**
- * Remote Work Kit's desktop half: Settings → Remote work, where a project's
- * ignored files that go along are chosen once and its transfers are brought
- * back and merged, and a notice when a thread it runs on another machine asks
- * something there. Starting work elsewhere belongs to the kits that do it.
+ * The Remote Work extension's desktop half: sections of Settings → Machines,
+ * where a project's ignored files that go along are chosen once and its
+ * transfers are brought back and merged, and a notice when a thread it runs on
+ * another machine asks something there. Starting work elsewhere belongs to the
+ * extensions that do it.
  */
 export const remoteWorkExtension: DesktopExtension = {
   id: REMOTE_WORK_EXTENSION_ID,
@@ -56,18 +57,16 @@ export const remoteWorkExtension: DesktopExtension = {
         return null;
       },
     });
-    context.registerSettingsPage({
-      id: REMOTE_WORK_SETTINGS_PAGE,
-      label: "Remote work",
-      description: "What goes along when a project's work moves to another machine: its commits, its uncommitted work and the ignored files you choose.",
-      group: "machines",
-      Icon: FolderSync,
-      order: 45.5,
+    // Below the machines on Settings → Machines; a browser has no such page, so there they are on this extension's own.
+    context.registerSettingsSection({
+      id: "remote-work.sections",
+      page: MACHINES_SETTINGS_PAGE,
+      order: 50,
       profiles: ["desktop", "web"],
-      keywords: ["other machine", "remote machine", "transfer", "bundle", "ignored files", ".env", "bring back", "merge"],
-      rows: REMOTE_WORK_ROWS,
+      replaces: [REMOTE_WORK_SETTINGS_PAGE],
+      rows: REMOTE_WORK_ROWS.map((row) => ({ ...row, keywords: ["remote work", "other machine", "transfer", "bundle", ...row.keywords] })),
       // A client without a window process (a browser, a phone) cannot move to another machine.
-      Component: createRemoteWorkPage(context.host, context.environments ? (link) => notices.openThere(link) : undefined),
+      Component: createRemoteWorkSections(context.host, context.environments ? (link) => notices.openThere(link) : undefined),
     });
     return () => { stop(); notices.dispose(); };
   },

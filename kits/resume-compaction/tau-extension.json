@@ -5,7 +5,7 @@
   "icon": "Minimize2",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.53.0"
+    "api": "^1.61.0"
   },
   "permissions": [
     "runtime:extend"

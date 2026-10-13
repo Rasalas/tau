@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Select, SettingRow, SettingsSection, errorMessage, useSetting, type HostExtensionClient, type SettingsPageProps } from "tau";
+import { Button, Select, SettingRow, errorMessage, useSetting, type HostExtensionClient } from "tau";
 import {
   AGENTS_HOST_EXTENSION_ID,
   AUTO_MACHINE,
@@ -29,11 +29,12 @@ export function machineChoiceText(value: string, machines: readonly AgentMachine
 }
 
 /**
- * Settings → Agents: where a spawn that names no machine runs. It writes
- * `values.tau.agents.machine`; the host half reads it per spawn.
+ * Settings → Threads → While a thread runs: where a spawn that names no
+ * machine runs. It writes `values.tau.agents.machine`; the host half reads it
+ * per spawn.
  */
-export function createAgentsSettingsPage(host: HostExtensionClient) {
-  return function AgentsSettingsPage(_props: SettingsPageProps) {
+export function createAgentsSettingsRow(host: HostExtensionClient) {
+  return function AgentsSettingsRow() {
     const [view, setView] = useState<AgentMachinesView>();
     const [error, setError] = useState<string>();
     const [attempt, setAttempt] = useState(0);
@@ -58,25 +59,20 @@ export function createAgentsSettingsPage(host: HostExtensionClient) {
     ];
     const none = view && !view.available ? "This machine keeps no list of other machines for its agents." : view && machines.length === 0 ? "To run them elsewhere, pair a machine in Settings → Machines and let this machine's agents in." : undefined;
     return (
-      <div className="settings-page agents-settings">
-        <h3>Agents</h3>
-        <SettingsSection title="Sub-agents">
-          <SettingRow
-            id="setting-agents-machine"
-            title="Run sub-agents on"
-            description={machineChoiceText(setting.value, view?.machines ?? [])}
-            help="Where a sub-agent runs when its spawn names no machine. A spawn that names one goes there."
-            status={error ? (
-              <p role="alert">
-                The list of machines did not load: {error} Only This machine and Automatic are offered.{" "}
-                <Button variant="ghost" onClick={() => setAttempt((count) => count + 1)}>Try again</Button>
-              </p>
-            ) : none ? <p>{none}</p> : undefined}
-            setting={setting}
-            control={<Select label="Run sub-agents on" value={setting.value} options={choices} width="md" onChange={setting.set} />}
-          />
-        </SettingsSection>
-      </div>
+      <SettingRow
+        id="setting-agents-machine"
+        title="Run sub-agents on"
+        description={machineChoiceText(setting.value, view?.machines ?? [])}
+        help="Where a sub-agent runs when its spawn names no machine. A spawn that names one goes there."
+        status={error ? (
+          <p role="alert">
+            The list of machines did not load: {error} Only This machine and Automatic are offered.{" "}
+            <Button variant="ghost" onClick={() => setAttempt((count) => count + 1)}>Try again</Button>
+          </p>
+        ) : none ? <p>{none}</p> : undefined}
+        setting={setting}
+        control={<Select label="Run sub-agents on" value={setting.value} options={choices} width="md" onChange={setting.set} />}
+      />
     );
   };
 }

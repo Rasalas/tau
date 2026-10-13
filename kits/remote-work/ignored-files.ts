@@ -126,7 +126,7 @@ export async function collectIgnoredFiles(root: string, paths: readonly string[]
   if (chosen.length === 0) return [];
   const output = await git(root, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ...chosen]);
   const files = output.split("\0").filter(Boolean).filter((path) => !isBuildPath(path) && !isSystemFile(path) && safeRelativePath(path));
-  if (files.length > SEND_FILES) throw new HostCommandError(`The ignored files chosen for this project are ${files.length} files; at most ${SEND_FILES} go along. Untick a folder in Settings → Remote work.`);
+  if (files.length > SEND_FILES) throw new HostCommandError(`The ignored files chosen for this project are ${files.length} files; at most ${SEND_FILES} go along. Untick a folder in Settings → Machines.`);
   const payload: IgnoredFilePayload[] = [];
   let total = 0;
   for (const path of files) {

@@ -1,4 +1,4 @@
-import { Select, SettingRow, SettingsSection, Switch, useSetting, type SettingHandle } from "tau";
+import { Select, SettingRow, SettingsPageSections, SettingsSection, Switch, useSetting, type SettingHandle, type SettingsPageProps } from "tau";
 import {
   DEFAULT_SETTINGS,
   EVIDENCE_EXTENSION_ID as ID,
@@ -34,17 +34,18 @@ export const EVIDENCE_SETTINGS_ROWS = [
 ];
 
 /**
- * Settings → Evidence: which surfaces a turn is pictured from (a project may
- * differ) and how much this machine keeps, with what is never taken.
+ * Settings → Screenshots: which surfaces a turn is pictured from (a project
+ * may differ) and how much this machine keeps, with what is never taken. The
+ * SnapShots extension attaches its window-capture sections below.
  */
-export function EvidenceSettingsPage() {
+export function EvidenceSettingsPage({ onNotify }: Partial<SettingsPageProps> = {}) {
   const preview = useSetting<boolean>(option(SETTING_KEYS.preview), { defaultValue: DEFAULT_SETTINGS.preview, scope: "both", read: readBoolean });
   const screen = useSetting<boolean>(option(SETTING_KEYS.screen), { defaultValue: DEFAULT_SETTINGS.screen, scope: "both", read: readBoolean });
   const retention = useSetting<number>(value(SETTING_KEYS.retentionDays), { defaultValue: DEFAULT_SETTINGS.retentionDays, read: readChoice(RETENTION_CHOICES), write: String, format: days });
   const space = useSetting<number>(value(SETTING_KEYS.threadMegabytes), { defaultValue: DEFAULT_SETTINGS.threadMegabytes, read: readChoice(THREAD_MEGABYTE_CHOICES), write: String, format: megabytes });
   return (
     <div className="settings-page evidence-settings">
-      <h3>Evidence</h3>
+      <h3>Screenshots</h3>
       <p className="lede">Nothing is taken while a password field has the keyboard in the Preview or while a thread is handed over to you.</p>
       <SettingsSection title="Capture">
         <SettingRow
@@ -81,6 +82,7 @@ export function EvidenceSettingsPage() {
           control={<Choice label="Space per thread" setting={space} choices={THREAD_MEGABYTE_CHOICES} unit={megabytes} />}
         />
       </SettingsSection>
+      <SettingsPageSections page="evidence" onNotify={onNotify ?? (() => undefined)} />
     </div>
   );
 }

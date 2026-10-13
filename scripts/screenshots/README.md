@@ -30,7 +30,7 @@ The shots (`shots.mjs`):
 | `stage` | The stage with a terminal in the thread's worktree: `git log` and `git status` | the stage, 500 px high |
 | `runtimes` | Settings → Runtimes: every runtime installed, with its version | 2560 × 1600 |
 | `usage` | The Usage page over 30 days: spend and plan tokens, per day, by provider and by project, in Tau and outside it | the page's top, down to the tables |
-| `kits` | Settings → Extensions: the kits Tau ships | 2560 × 1600 |
+| `kits` | Settings → Extensions: the extensions Tau ships | 2560 × 1600 |
 | `machines` | A second machine, "studio": its threads in the list and a new thread's Run on popover | 2560 × 1600 |
 | `phone` | The paired phone's thread list (headless Chromium as the `--phone` device) | the phone's screen |
 | `phone-thread` | A thread on the phone: the agent's reply and the composer | the phone's screen |

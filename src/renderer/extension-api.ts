@@ -40,6 +40,8 @@ export type { AppUpdate } from "./app-update";
 export { SettingRow, SettingsSection } from "./deferred-surfaces";
 // A page's action at the right of its head (API 1.26.0).
 export { SettingsPageAction } from "./settings/page-action";
+// The sections other extensions attached to a page of yours (API 1.61.0).
+export { SettingsPageSections } from "./settings/page-sections";
 // The controls of a Settings page (API 1.18.0): the same set core's pages use.
 export { Badge, Button, DangerAction, DangerZone, HelpTip, ListField, NumberField, SegmentedControl, Select, SettingsState, Slider, Switch, TextField, ValueList } from "./deferred-surfaces";
 export type { ChoiceOption, FieldWidth, SelectOption, ValueListItem } from "./settings/controls";
@@ -199,6 +201,7 @@ export type {
   PageSummary,
   PageSummaryProps,
   PageProps,
+  CoreSettingsSectionPage,
   SettingsCardId,
   SettingsSectionContribution,
   SettingsSectionPage,

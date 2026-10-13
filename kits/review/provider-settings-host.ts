@@ -6,7 +6,7 @@ import { SERVICES } from "./request-cli.js";
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 
 /**
- * Settings → Review's source-control part: whether each provider can be
+ * Settings → Source control's source-control part: whether each provider can be
  * used on this machine, and which provider a self-hosted server runs when
  * its name does not say.
  */

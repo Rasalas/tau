@@ -984,7 +984,7 @@ export interface ExtensionSkip {
   packages?: Array<{ id: string; name: string; directory: string }>;
 }
 
-/** The last compile of one half of a package, as Settings → Packages shows it. */
+/** The last compile of one half of a package, as Settings → Extensions shows it. */
 export interface PackageBuild {
   /** The manifest's id; absent for a loose file. */
   id?: string;

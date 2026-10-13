@@ -33,6 +33,7 @@ export const Sheet = deferred(() => import("./touch/Sheet").then((module) => mod
 export const ConfirmDialog = deferred(() => import("./components/ui/ConfirmDialog").then((module) => module.ConfirmDialog));
 export const SettingRow = deferred(() => import("./settings/settings-layout").then((module) => module.SettingRow));
 export const SettingsSection = deferred(() => import("./settings/settings-layout").then((module) => module.SettingsSection));
+export const SettingsAdvanced = deferred(() => import("./settings/settings-layout").then((module) => module.SettingsAdvanced));
 // The controls those rows hold (API 1.18.0); one chunk with the rows.
 const controls = () => import("./settings/controls");
 export const Switch = deferred(() => controls().then((module) => module.Switch));

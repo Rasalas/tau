@@ -1,4 +1,4 @@
-/* Push: Settings → Push, its key forms and the device rows. */
+/* Push: Settings → Notifications, its key forms and the device rows. */
 .push-form { display: flex; flex-direction: column; gap: var(--space-5); margin-top: var(--space-5); }
 .push-form-row { display: flex; gap: var(--space-5); flex-wrap: wrap; }
 .push-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; font: 500 var(--text-sm) var(--sans); color: var(--ink-2); }

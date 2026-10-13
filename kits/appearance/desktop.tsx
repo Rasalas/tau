@@ -4,8 +4,7 @@ import { userThemes } from "tau";
 import { AppearanceApplier, readAppearance } from "./apply.js";
 import { ThemeEditorPanel, ThemeEditorStore, draftFromWindow } from "./editor.js";
 import { AppearancePage } from "./page.js";
-import { APPEARANCE_EXTENSION_ID, APPEARANCE_SETTINGS_PAGE, TERMINAL_FONT_SERVICE, type TerminalFontService } from "./protocol.js";
-import { TerminalFontLink } from "./terminal-font.js";
+import { APPEARANCE_EXTENSION_ID, APPEARANCE_SETTINGS_PAGE } from "./protocol.js";
 import { TextSizeStore } from "./text-size.js";
 
 /**
@@ -23,9 +22,6 @@ export const appearanceExtension: DesktopExtension = {
     const textSize = new TextSizeStore();
     apply();
     const stopFollowing = plugin.preferences.subscribe(apply);
-    // The terminal's font is Terminal Kit's; this page only draws its row while that kit is on.
-    const terminalFont = new TerminalFontLink();
-    const stopTerminalFont = plugin.useService<TerminalFontService>(TERMINAL_FONT_SERVICE, (service) => terminalFont.connect(service));
 
     plugin.registerSettingsPage({
       id: APPEARANCE_SETTINGS_PAGE,
@@ -47,8 +43,8 @@ export const appearanceExtension: DesktopExtension = {
         { id: "setting-appearance-prompt-font", label: "Prompt font", keywords: ["font", "composer", "monospace"] },
         { id: "setting-appearance-code-font", label: "Code font", keywords: ["font", "monospace", "diff"] },
       ],
-      keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "terminal", "ghostty", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour", "text size", "larger text", "animation", "motion", "panels"],
-      Component: (props: SettingsPageProps) => <AppearancePage {...props} preferences={plugin.preferences} editor={editor} terminalFont={terminalFont} textSize={textSize} />,
+      keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour", "text size", "larger text", "animation", "motion", "panels"],
+      Component: (props: SettingsPageProps) => <AppearancePage {...props} preferences={plugin.preferences} editor={editor} textSize={textSize} />,
     });
     // The title bar is always there, so the editor outlives the Settings page it was opened from.
     plugin.registerRegion({
@@ -86,7 +82,6 @@ export const appearanceExtension: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+alt+shift+t", commandId: "appearance.toggle-theme-editor" });
 
     return () => {
-      stopTerminalFont();
       stopFollowing();
       editor.close();
       applier.dispose();

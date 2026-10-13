@@ -21,7 +21,7 @@ const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefine
 const readAccelerator = (raw: unknown) => (isAccelerator(raw) ? raw : undefined);
 const isMac = () => typeof navigator !== "undefined" && /Mac/u.test(navigator.platform);
 
-/** The page's rows, for the Settings search. */
+/** The sections' rows, for the Settings search. */
 export const SNAPSHOTS_SETTINGS_ROWS = [
   { id: "setting-snapshots-enabled", label: "Capture with a global shortcut", keywords: ["shortcut", "hotkey", "capture", "window"] },
   { id: "setting-snapshots-shortcut", label: "Shortcut", keywords: ["hotkey", "keys", "chord", "record"] },
@@ -81,8 +81,8 @@ function PermissionControl({ kind, state, host, refresh }: { kind: PermissionKin
   </>;
 }
 
-/** Settings → SnapShots: the shortcut, the accessibility data, the two macOS permissions and what is kept where. */
-export function createSnapShotsSettingsPage(context: DesktopExtensionContext, host: HostApi, rearm: () => void) {
+/** Sections of Settings → Screenshots: the shortcut, the accessibility data, the two macOS permissions and what is kept where. */
+export function createSnapShotsSettingsSections(context: DesktopExtensionContext, host: HostApi, rearm: () => void) {
   return function SnapShotsSettings() {
     const enabled = useSetting<boolean>(`options.${ID}.${SETTING_ENABLED}`, { defaultValue: false, read: readBoolean });
     const shortcut = useSetting<string>(`values.${ID}.${SETTING_SHORTCUT}`, { defaultValue: DEFAULT_SHORTCUT, read: readAccelerator, format: (value) => formatAccelerator(value, isMac()) });
@@ -128,15 +128,13 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
 
     if (access && !access.supported) {
       return (
-        <div className="settings-page snapshots-settings">
-          <h3>SnapShots</h3>
+        <SettingsSection title="SnapShots">
           <SettingsState kind="empty" title="SnapShots are unavailable" description="Window capture is available in the Tau desktop app on macOS, Windows and Linux." />
-        </div>
+        </SettingsSection>
       );
     }
     return (
-      <div className="settings-page snapshots-settings">
-        <h3>SnapShots</h3>
+      <>
         {access?.wayland || access?.captureMode === "picker" ? <SettingsSection title="Wayland window capture">
           {access.wayland ? <SettingRow title="Focused window" description={access.wayland.message} status={helperError}
             control={access.wayland.backend && access.wayland.backend !== "niri" ? <>
@@ -148,7 +146,7 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
             control={<Button disabled={capturing || access.screen === "unavailable"} onClick={chooseWindow}>{capturing ? "Waiting for selection…" : "Choose a window or display"}</Button>} />
           <SettingRow title="Desktop setup" description="The manual picker needs PipeWire, xdg-desktop-portal and the portal backend for your desktop. GNOME helpers also need Python 3 with PyGObject. Tau leaves compositor settings and shortcut configuration to you." />
         </SettingsSection> : null}
-        <SettingsSection title="Shortcut">
+        <SettingsSection title="Window shortcut">
           <SettingRow id="setting-snapshots-enabled" title="Capture with a global shortcut" description={access?.captureMode === "picker" ? "Opens the desktop source picker if your compositor permits this global shortcut. Off until you turn it on." : "Works while Tau runs, whichever app is in front. Off until you turn it on."} setting={enabled}
             control={<Switch label="Capture with a global shortcut" checked={enabled.value} onChange={enabled.set} />} />
           <SettingRow id="setting-snapshots-shortcut" title="Shortcut" description={conflict ?? "Click, then press a letter, digit or F-key with Control, Alt or Command."} status={shortcutStatus} setting={shortcut}
@@ -164,11 +162,11 @@ export function createSnapShotsSettingsPage(context: DesktopExtensionContext, ho
           <SettingRow id="setting-snapshots-accessibility-permission" title="Accessibility" description="To know which window is in front and to read its text and controls. Tau only reads; it never clicks or types into other apps."
             control={access ? <PermissionControl kind="accessibility" state={access.accessibility} host={host} refresh={refresh} /> : null} />
         </SettingsSection>
-        <SettingsSection title="Privacy">
+        <SettingsSection title="SnapShot privacy">
           <SettingRow title="What a SnapShot holds" description="The foreground window, or the window or display you approved in the Wayland picker. Its text may include private things — messages, names, numbers — so look at the chip before you send it." />
           <SettingRow title="Where it stays" description="On this machine, in Tau's own folder, until you send or remove it, and at most a week. When you send it, the picture and the text go to the thread's model like any attachment." />
         </SettingsSection>
-      </div>
+      </>
     );
   };
 }

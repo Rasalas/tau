@@ -180,7 +180,7 @@ export function registerGuides(
       if (!parent) return asked("failed", "Open a thread in a checkout of this repository, then write the guide from it.");
       const cwd = via.cwd ?? parent.cwd;
       const config = await settings(cwd);
-      if (!config.enabled) return asked("failed", "Review guides are off. Turn them on in Settings → Review.");
+      if (!config.enabled) return asked("failed", "Review guides are off. Turn them on in Settings → Source control.");
       if (ref.service !== "github") return asked("failed", "Guides are written for GitHub pull requests so far.");
       const project = await projectRepository(workspace, sources, cwd);
       if (project.host.toLowerCase() !== ref.host.toLowerCase() || project.repo.toLowerCase() !== ref.repo.toLowerCase()) {
@@ -345,7 +345,7 @@ export function registerGuides(
       execute: async (_id: string, params: unknown) => {
         const ref = await resolveRef(record(params), session.cwd);
         const result = await resultFor(ref, session.cwd);
-        if (!result.enabled) throw new Error("Review guides are off. Turn them on in Settings → Review.");
+        if (!result.enabled) throw new Error("Review guides are off. Turn them on in Settings → Source control.");
         const stale = result.guide !== null && result.currentHeadSha !== null && result.guide.headSha !== result.currentHeadSha;
         return toolResult({ url: ref.url, guide: result.guide, run: result.run, currentHeadSha: result.currentHeadSha, stale });
       },

@@ -163,7 +163,8 @@ describe("client profiles", () => {
     const { registry } = createKitHarness(workspaceHostStub());
     for (const extension of kits) registry.activate(extension);
     const pages = registry.getSettingsPages().filter((page) => !page.runtime);
-    expect(pages.length).toBeGreaterThan(15);
+    // Most of what the kits set sits as sections on the pages of core and of one another (API 1.61.0).
+    expect(pages.length).toBeGreaterThan(8);
     expect(pages.filter((page) => !page.description || page.description.length > 220).map((page) => page.id)).toEqual([]);
     for (const extension of kits) registry.deactivate(extension.id);
   });

@@ -344,7 +344,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
             <strong>Skipped: the project is not trusted</strong>
             <p>{entry.problem}</p>
             <p>Trust the project and the package loads; it then waits here for your approval.</p>
-            {trustPage ? <p><Button onClick={() => onOpen(trustPage)}>Trust it in Settings → Packages</Button></p> : null}
+            {trustPage ? <p><Button onClick={() => onOpen(trustPage)}>Trust it in Settings → Extensions</Button></p> : null}
           </div>
         </div>
       ) : null}

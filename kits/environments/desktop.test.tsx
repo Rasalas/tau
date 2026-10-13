@@ -3,7 +3,7 @@ import { useState, type ReactElement } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tooltipProps, type DiscoveredHost, type EnvironmentPairResult, type HostExtensionClient, type HostReadiness, type HostResources, type PlatformEnvironments, type UiDiscoveredHosts, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
-import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServicesProvider, setClientStorage, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, createMemoryStorage, HostClientProvider, RendererServicesProvider, setClientStorage, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { autoRunOn, createAutoRunOnHook, RUN_ON_KEY } from "./auto.js";
 import { ARRIVAL_KEY, createRailSection, environmentsExtension } from "./desktop.js";
 import { followArrival, otherMachines, readPendingArrival, statusText, unavailableReason } from "./machines.js";
@@ -13,7 +13,7 @@ import { createBringChoice, createBringProjectHook, createProjectIdentities, mat
 import { createMachinesPage } from "./settings.js";
 import { machineKitClient } from "./machine-kit.js";
 import { MachineSetup, setupRows, stateText } from "./setup.js";
-import { REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps, type RunOnDefault } from "./protocol.js";
+import { MACHINES_SETTINGS_PAGE, REMOTE_AGENT_THREADS_SERVICE, WORKSPACE_STORE_SERVICE, type DraftMachineProps, type RunOnDefault } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -420,7 +420,7 @@ describe("Run on", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const { registry } = createKitHarness(undefined, undefined, { environments });
     registry.activate(environmentsExtension);
-    const named = registry.getSettingsSections("general").flatMap((section) => section.rows ?? []);
+    const named = registry.getSettingsSections("threads").flatMap((section) => section.rows ?? []);
     expect(named.map((entry) => entry.label)).toContain("Run on");
     render(withSettings(<RunOnDefaultRow />));
     for (const entry of named) expect(document.getElementById(entry.id), entry.id).toBeTruthy();
@@ -751,6 +751,21 @@ describe("Settings → Machines", () => {
     render(withSettings(<Page />));
     fireEvent.click(screen.getByRole("switch", { name: "Show the last machine again" }));
     expect(environments.setPreferences).toHaveBeenCalledWith({ reopenShown: true });
+  });
+
+  it("draws the sections other extensions attach to it, below its own", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    const { registry } = createKitHarness();
+    registry.activate({
+      id: "guest.sections",
+      name: "Guest",
+      activate: (plugin) => { plugin.registerSettingsSection({ id: "guest.machines", page: MACHINES_SETTINGS_PAGE, Component: () => <h2>Attached to Machines</h2> }); },
+    });
+    const Page = createMachinesPage(environments);
+    render(<WorkbenchShellContext.Provider value={{ registry }}>{withSettings(<Page />)}</WorkbenchShellContext.Provider>);
+    const attached = screen.getByRole("heading", { level: 2, name: "Attached to Machines" });
+    const own = screen.getByRole("heading", { level: 2, name: "At start" });
+    expect(own.compareDocumentPosition(attached) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("removes a machine after asking", () => {

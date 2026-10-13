@@ -11,7 +11,7 @@ import { ReviewCommentStore } from "./comments.js";
 import { GUIDE_OPTIONS } from "./guide-settings.js";
 import { createReviewOverlay } from "./overlay.js";
 import { trackDiffSettings } from "./diff-settings.js";
-import { createReviewSettingsPage, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
+import { createReviewSettingsSections, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   REVIEW_COMPACT_PANEL,
@@ -91,21 +91,17 @@ export const reviewExtension: DesktopExtension = {
     plugin.provideService(THREAD_PULL_REQUESTS_SERVICE, threadPullRequestsService(links));
     const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs() };
     let chips: ComposerContextChips | undefined;
-    // The rest of the kit's settings are its Review page; the model picker stays here.
+    // The rest of the kit's settings are sections of Source control; the model picker stays here.
     plugin.registerOptions([...COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"), ...GUIDE_OPTIONS]);
-    plugin.registerSettingsPage({
+    // Sections of Source control's page, which Workspace owns (API 1.61.0); the page Review had before opens it.
+    plugin.registerSettingsSection({
       id: "review.settings",
-      label: "Review",
-      description: "How a thread's changes are reviewed and handed in: commit messages, pull requests, merging and the look of diffs.",
-      group: "projects",
-      Icon: GitCompare,
-      order: 36,
-      keywords: ["commit message", "pull request", "merge request", "template", "instructions", "diff", "colours", "colors", "blue", "orange", "wrap", "split", "whitespace",
-        "delete branch", "merge", "proactive panels", "composer", "strip",
-        "git hosts", "github", "gitlab", "forgejo", "gitea", "codeberg", "bitbucket", "azure devops", "self-hosted", "tea", "az"],
+      page: "workspace.source-control",
+      order: 50,
+      replaces: ["review.settings"],
       rows: REVIEW_SETTINGS_ROWS,
       profiles: ["desktop", "web"],
-      Component: createReviewSettingsPage(plugin.host),
+      Component: createReviewSettingsSections(plugin.host),
     });
     const untrackDiffSettings = trackDiffSettings(plugin.preferences);
     plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, (service) => {

@@ -16,7 +16,7 @@ Die Einstellungen zeigen deine Statistik-ID auch nach dem Ausschalten. Wenn du f
 
 ## English
 
-The desktop app offers voluntary usage statistics, initially turned off. In Settings → Usage statistics → Share usage statistics you can choose whether this device participates. The Android and iOS apps and the browser client do not send these statistics.
+The desktop app offers voluntary usage statistics, initially turned off. In Settings → General → Privacy → Share usage statistics you can choose whether this device participates. The Android and iOS apps and the browser client do not send these statistics.
 
 When you turn reporting on, Tau generates a random statistics ID and stores it with your choice on this device. On activity Tau reports interactive use and accepted composer prompts. These reports are limited locally per UTC day. Multiple windows or connection failures can cause repeated reports; Matomo counts the ID once within the selected period. A prompt accepted into a queue counts even if it is never run. Reports contain the statistics ID, activity type, app version, platform and release channel. The server adds the time received. They do not include prompt text, files, project names, provider accounts or other account identities.
 

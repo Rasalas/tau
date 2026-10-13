@@ -169,13 +169,13 @@ const evidence: DesktopExtension = {
     disposers.push(context.registerRegion({ id: "evidence.controller", placement: "transcript-header", order: 110, profiles: ["desktop", "web", "compact"], Component: createController(client, rows, () => review) }));
     disposers.push(context.registerSettingsPage({
       id: "evidence",
-      label: "Evidence",
-      description: "Pictures of the Preview and of the window an agent drives, to show what a turn did. Tau never pictures the whole screen, and pictures stay on this machine until you save or send them.",
+      label: "Screenshots",
+      description: "Pictures of the Preview and of the window an agent drives, and a shortcut for the window in front. Tau never pictures the whole screen; pictures stay on this machine until you save or send them.",
       group: "tools",
       Icon: Images,
       order: 47,
       profiles: ["desktop"],
-      keywords: ["screenshots", "pictures", "video", "recording", "privacy", "review"],
+      keywords: ["screenshots", "evidence", "snapshots", "pictures", "video", "recording", "privacy", "review"],
       rows: EVIDENCE_SETTINGS_ROWS,
       Component: EvidenceSettingsPage,
     }));

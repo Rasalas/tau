@@ -2,9 +2,10 @@
   "id": "tau.snapshots",
   "name": "SnapShots",
   "description": "A shortcut captures the window in front of you, ready to hand to an agent.",
+  "icon": "Camera",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.19.0"
+    "api": "^1.61.0"
   },
   "permissions": ["process"],
   "isolation": "in-process",
