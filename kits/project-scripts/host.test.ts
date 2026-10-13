@@ -94,6 +94,18 @@ async function activate(options: ProjectScriptsHostOptions, overrides: Partial<H
 }
 
 describe("Project Scripts host", () => {
+  it("does not run worktree scripts when project approval is unavailable", async () => {
+    const project = await checkout({ scripts: [{ name: "Setup", command: "exit:0", runOnWorktreeCreate: true }] });
+    const worktree = await checkout();
+    const { spawn } = fakeSpawner();
+    const kit = await activate({ spawn });
+    try {
+      const answer = await kit.invoke(WORKTREE_CREATED_COMMAND, { project, worktree }) as { runs: UiScriptRun[] };
+      expect(answer.runs).toEqual([]);
+      expect(spawn).not.toHaveBeenCalled();
+    } finally { await kit.registry.deactivate(PROJECT_SCRIPTS_HOST_EXTENSION_ID); }
+  });
+
   it("reads the scripts of the thread's own checkout, else the workspace's", async () => {
     const worktree = await checkout({ scripts: [{ name: "Build", command: "make" }] });
     const project = await checkout({ scripts: [{ name: "Serve", command: "npm start" }] });
@@ -171,6 +183,10 @@ describe("Project Scripts host", () => {
     const { spawn, runs } = fakeSpawner();
     const log = vi.fn();
     const kit = await activate({ spawn }, { log });
+    await kit.registry.activate({
+      id: "tau.workspace", name: "Setup approval", permissions: [],
+      activate: (context) => { context.registerCommand("approve-project-setup", () => true, { callers: [PROJECT_SCRIPTS_HOST_EXTENSION_ID] }); },
+    });
     const answer = await kit.invoke(WORKTREE_CREATED_COMMAND, { project, worktree }) as { runs: UiScriptRun[] };
     expect(answer.runs.map((run) => [run.scriptId, run.status, run.trigger])).toEqual([
       ["setup", "succeeded", "worktree-create"],

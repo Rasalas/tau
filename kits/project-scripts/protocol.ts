@@ -105,6 +105,8 @@ export interface UiWorktreeSetup {
 /** What `list` answers for one directory. */
 export interface ProjectScriptsState {
   directory: string;
+  /** Binds automatic setup approval to the file these scripts were read from. */
+  setupFingerprint?: string;
   /** The project file's absolute path, whether or not it exists. */
   file: string;
   exists: boolean;

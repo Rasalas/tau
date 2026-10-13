@@ -950,3 +950,9 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
 /* A subscription's value is not money spent; it reads quieter than a cost. */
 .workspace-card-cost-value { font: var(--text-xs) var(--mono); }
 .workspace-card-cost-value.plan { font-style: italic; color: var(--faint); }
+.project-approval-commands {
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

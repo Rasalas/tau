@@ -9,6 +9,8 @@ import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-sup
 import { WORKSPACE_HEAD_TOPIC, createWorkspaceHostClient } from "./protocol.js";
 import { createWorkspaceHostExtension } from "./host.js";
 import { createRemoteWorkHostExtension } from "../remote-work/host.js";
+import { readSetupFile } from "./project-approval-host.js";
+import { PROJECT_APPROVAL_COMMAND, PROJECT_APPROVAL_EVENT, type ProjectApprovalRequest } from "../_project-file/setup-approval.js";
 
 const directories: string[] = [];
 vi.mock("node:os", async (original) => {
@@ -76,6 +78,29 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("ignores the checked-in workspace mode until setup is approved and after commands change", async () => {
+    const repo = await workspace();
+    const stateDir = await workspace();
+    await mkdir(join(repo, ".tau"));
+    const save = (command: string) => writeFile(join(repo, ".tau", "project.json"), JSON.stringify({ workspaceMode: "worktree", runOnWorktreeCreate: command }));
+    await save("original-command");
+    let requested!: (request: ProjectApprovalRequest) => void;
+    const request = new Promise<ProjectApprovalRequest>((resolve) => { requested = resolve; });
+    const registry = await activated(repo, { stateDir }, (event) => {
+      if (event.name === PROJECT_APPROVAL_EVENT && (event.payload as ProjectApprovalRequest[])[0]) requested((event.payload as ProjectApprovalRequest[])[0]);
+    });
+    try {
+      const defaults = () => registry.invoke("tau.workspace", "project-defaults", { workspace: repo });
+      await expect(defaults()).resolves.not.toHaveProperty("workspaceMode");
+      const approval = registry.invoke("tau.workspace", PROJECT_APPROVAL_COMMAND, { project: repo, fingerprint: (await readSetupFile(repo)).fingerprint });
+      await registry.invoke("tau.workspace", "answer-project-approval", { id: (await request).id, approved: true });
+      await expect(approval).resolves.toBe(true);
+      await expect(defaults()).resolves.toMatchObject({ workspaceMode: "worktree" });
+      await save("changed-command");
+      await expect(defaults()).resolves.not.toHaveProperty("workspaceMode");
+    } finally { await registry.deactivate("tau.workspace"); }
+  });
+
   it("protects home secrets when the active workspace changes between authorization and reading", async () => {
     const home = await workspace();
     vi.mocked(homedir).mockReturnValue(home);

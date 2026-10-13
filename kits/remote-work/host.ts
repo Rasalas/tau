@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { HostCommandError, decodePromptAttachments, decodeTransferredPromptAttachments, withReceivedPromptAttachments, type HostCommandCall, type HostExtension, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
 import { worktreeSetupCommand } from "../workspace/agent-worktrees.js";
+import { setupFingerprint } from "../_project-file/fingerprint.js";
+import { PROJECT_APPROVAL_COMMAND } from "../_project-file/setup-approval.js";
 import { HostedThreads } from "./hosted-threads.js";
 import { REPO_KEY } from "./identity.js";
 import { collectIgnoredFiles, fillWorktreeFiles } from "./ignored-files.js";
@@ -221,21 +223,31 @@ async function runSetup(context: HostExtensionContext, worktree: string, step: O
       const entry = fields(run);
       return { name: String(entry.name ?? entry.scriptId ?? "script"), status: String(entry.status ?? "unknown"), ...(typeof entry.exitCode === "number" ? { exitCode: entry.exitCode } : {}) };
     });
-    if (runs.length === 0) step("setup", "skipped", "The project has no setup scripts");
+    if (runs.length === 0) step("setup", "skipped", answer.skipped === "not-approved" ? "Project setup was not approved" : "The project has no setup scripts");
     else step("setup", runs.some((run) => run.status === "failed") ? "failed" : "done", runs.map((run) => `${run.name}: ${run.status}`).join(", "));
     return runs;
   } catch (error) {
     context.services.log("remote-work.setup-fallback", error instanceof Error ? error.message : String(error));
   }
   let line: string | undefined;
+  let fingerprint: string | undefined;
   try {
-    const raw = JSON.parse(await readFile(join(worktree, ".tau", "project.json"), "utf8")) as Fields;
+    const file = await readFile(join(worktree, ".tau", "project.json"), "utf8");
+    const raw = JSON.parse(file) as Fields;
     line = text(raw.runOnWorktreeCreate);
+    fingerprint = setupFingerprint(file);
   } catch {
     line = undefined;
   }
   if (!line) {
     step("setup", "skipped", "The project has no setup");
+    return [];
+  }
+  const approved = fingerprint && await context.invokeHostExtension("tau.workspace", PROJECT_APPROVAL_COMMAND, {
+    project: worktree, fingerprint,
+  }).then((answer) => answer === true, () => false);
+  if (!approved) {
+    step("setup", "skipped", "Project setup was not approved");
     return [];
   }
   context.services.noteSubprocess();

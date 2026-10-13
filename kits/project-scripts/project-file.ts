@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PROJECT_FILE, SCRIPT_ICONS, type ProjectFileProblem, type ProjectScript, type ProjectScriptsState, type ScriptIcon } from "./protocol.js";
+import { setupFingerprint } from "../_project-file/fingerprint.js";
 
 export const MAX_SCRIPTS = 50;
 const SCRIPT_ID = /^[a-z0-9][a-z0-9-]{0,39}$/u;
@@ -160,5 +161,8 @@ export async function readProjectScripts(directory: string): Promise<ProjectScri
       : [{ source: file, message: `Could not read the file: ${failure instanceof Error ? failure.message : String(failure)}`, level: "error" }];
     return { directory, file, exists: false, scripts: [], problems };
   }
-  return { directory, file, exists: true, ...parseProjectFile(text, file) };
+  const parsed = parseProjectFile(text, file);
+  let fingerprint: string | undefined;
+  try { fingerprint = setupFingerprint(text); } catch { /* Invalid JSON cannot run setup. */ }
+  return { directory, file, exists: true, ...parsed, ...(fingerprint ? { setupFingerprint: fingerprint } : {}) };
 }

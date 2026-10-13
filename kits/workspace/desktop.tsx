@@ -44,6 +44,7 @@ import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT
 import { OpenRequests } from "./open-requests.js";
 import { NewThreadRows, SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage, ThisMachineRows, TraceTabsRow } from "./source-control-page.js";
 import { presentRead, presentWrite, READ_TOOLS, WRITE_TOOLS } from "./tool-cards.js";
+import { createProjectApprovalDialog } from "./project-approval-dialog.js";
 
 /** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
@@ -80,6 +81,10 @@ export const workspaceExtension: DesktopExtension = {
     const stopTopics = [WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC].map((topic) => context.host.watch?.(topic));
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
+    context.registerRegion({
+      id: "workspace.project-approval", placement: "composer-above", profiles: ["desktop", "web", "compact"],
+      Component: createProjectApprovalDialog(context.host),
+    });
     // The branch on screen, for any package: a public contract, unlike the store.
     context.provideService(THREAD_BRANCH_SERVICE, threadBranchService(store));
     // Pill, picker, phone list and Reviews draw the icon chosen in Project settings too.

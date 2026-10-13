@@ -673,6 +673,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    * from: a prompt is never lost to a worktree that could not be made.
    */
   async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }> {
+    await this.loadProjectDefaults();
     if (this.state.workspaceId) this.freshProjects.delete(this.state.workspaceId);
     if ((!event.force && this.workspaceMode() !== "worktree") || !this.state.workspace?.isRepo || !hostAvailable()) return {};
     this.update({ preparingWorktree: true });
