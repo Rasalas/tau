@@ -137,6 +137,13 @@ export class ThreadRuntimeLifecycle {
     this.discarded.add(thread);
     thread.backend.capabilities.extensions?.setLifecycleHooks(() => undefined, async () => undefined);
     thread.runtime?.session.dispose();
+    thread.unsubscribe?.();
+    thread.unsubscribe = undefined;
+    const lockedFile = this.lockedFiles.get(thread);
+    if (lockedFile) {
+      this.lockedFiles.delete(thread);
+      this.port.sessionLocks.release(lockedFile);
+    }
   }
 
   /** What a runtime's resources depend on; a changed answer is a new catalog. */
@@ -487,6 +494,7 @@ export class ThreadRuntimeLifecycle {
     thread.adapterAbortGeneration += 1;
     thread.unsubscribe?.();
     thread.unsubscribe = undefined;
+    thread.backend.capabilities.extensions?.setLifecycleHooks(() => undefined, async () => undefined);
     const discarded = this.discarded.has(thread);
     try {
       for (const controller of thread.adapterAbortControllers) controller.abort();
@@ -505,12 +513,21 @@ export class ThreadRuntimeLifecycle {
     // A discarded Pi session is already disconnected; normal shutdown first drains it.
     const errors = !discarded && thread.runtime ? await this.abortRuntime(thread.runtime) : [];
     const closeObservers = async () => {
-      try { await this.port.turnObservers.closed(thread.threadId); } catch (error) { errors.push(error); }
+      try {
+        if (!await beforeRuntimeDeadline(this.port.turnObservers.closed(thread.threadId), 10_000)) {
+          errors.push(new Error("Runtime observers did not close within 10 s."));
+        }
+      } catch (error) { errors.push(error); }
     };
     const closeBackend = async () => {
       if (thread.runtime) errors.push(...await this.disposeRuntime(thread.runtime));
       else {
-        try { await thread.backend.dispose(); } catch (error) { errors.push(error); }
+        try {
+          if (!await beforeRuntimeDeadline(thread.backend.dispose(), 10_000)) {
+            this.discard(thread);
+            errors.push(new Error("Runtime disposal did not finish within 10 s."));
+          }
+        } catch (error) { errors.push(error); }
       }
     };
     if (discarded) {
@@ -553,8 +570,8 @@ export class ThreadRuntimeLifecycle {
     const errors: unknown[] = [];
     let disposed = false;
     try {
-      await runtime.dispose();
-      disposed = true;
+      disposed = await beforeRuntimeDeadline(runtime.dispose(), 10_000);
+      if (!disposed) errors.push(new Error("Runtime disposal did not finish within 10 s."));
     } catch (error) {
       errors.push(error);
     }

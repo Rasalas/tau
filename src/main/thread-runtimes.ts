@@ -1,3 +1,7 @@
+import { beforeRuntimeDeadline } from "./pi-host-support.js";
+
+const DISPOSE_TIMEOUT_MS = 30_000;
+
 /**
  * Registry of live thread runtimes.
  *
@@ -32,6 +36,7 @@ export interface ThreadRuntimeRegistryOptions<TRuntime> {
   /** Live runtimes to keep before the least recently used idle one is released. */
   maxLive?: number;
   dispose(record: ThreadRuntimeRecord<TRuntime>): Promise<void>;
+  onDisposeTimeout?(record: ThreadRuntimeRecord<TRuntime>): void;
   /** Extra guard for eviction: a runtime with its own in-flight work is never released. */
   canEvict?(record: ThreadRuntimeRecord<TRuntime>): boolean;
   now?(): number;
@@ -48,7 +53,9 @@ export class ThreadRuntimeRegistry<TRuntime> {
 
   constructor(options: ThreadRuntimeRegistryOptions<TRuntime>) {
     this.maxLive = Math.max(1, options.maxLive ?? 3);
-    this.disposeRuntime = options.dispose;
+    this.disposeRuntime = async (record) => {
+      if (!await beforeRuntimeDeadline(options.dispose(record), DISPOSE_TIMEOUT_MS)) options.onDisposeTimeout?.(record);
+    };
     this.canEvict = options.canEvict ?? (() => true);
     this.now = options.now ?? Date.now;
   }

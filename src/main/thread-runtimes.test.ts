@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
+import { LifecycleQueue } from "./lifecycle-queue.js";
 
 interface Fake { name: string }
 
@@ -17,6 +18,47 @@ const record = (threadId: string) => ({
 });
 
 describe("thread runtime registry", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each(["replace", "idle", "evict", "release", "all"])("bounds a hung dispose during %s and frees the exclusive lane", async (mode) => {
+    vi.useFakeTimers();
+    const timedOut = vi.fn();
+    const reg = new ThreadRuntimeRegistry<Fake>({ maxLive: 1, dispose: () => new Promise(() => undefined), onDisposeTimeout: timedOut });
+    const queue = new LifecycleQueue();
+    await reg.adopt(record("old"));
+    const release = queue.run("dispose", async () => {
+      if (mode === "replace") await reg.adopt({ ...record("old"), runtime: { name: "replacement" } });
+      else if (mode === "idle") await reg.releaseIdle(0);
+      else if (mode === "evict") await reg.adopt(record("new"));
+      else if (mode === "release") await reg.release("old");
+      else await reg.releaseAll();
+    });
+    let available = false;
+    const next = queue.run("next", async () => { available = true; });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(available).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(available).toBe(true);
+    await release;
+    await next;
+    expect(timedOut).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ threadId: "old" }));
+    expect(reg.get("old")?.runtime.name).toBe(mode === "replace" ? "replacement" : undefined);
+  });
+
+  it("handles a late disposal rejection after its deadline", async () => {
+    vi.useFakeTimers();
+    let reject!: (error: Error) => void;
+    const reg = new ThreadRuntimeRegistry<Fake>({ dispose: () => new Promise((_resolve, fail) => { reject = fail; }) });
+    await reg.adopt(record("old"));
+    const closing = reg.release("old");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await closing;
+    await reg.adopt(record("old"));
+    reject(new Error("late failure"));
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(reg.run("old", async () => "works")).resolves.toBe("works");
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("runs work on different threads concurrently, and serialises per thread", async () => {
     const { reg } = registry();
     await reg.adopt(record("a"));

@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadBinding, type ThreadBindingPort } from "./thread-binding.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import type { RuntimeExtensionBindings } from "./runtime-types.js";
 
 function bindableThread(bind: () => Promise<void>, options: { extensions?: boolean } = {}) {
   const events: Array<(event: unknown, threadId: string) => void> = [];
@@ -64,12 +65,75 @@ function makeBinding(overrides: Partial<ThreadBindingPort> = {}) {
     logForThread: (_thread, label) => { logs.push(label); },
     fail: (error) => { failures.push(error); },
     errorMessage: (error) => error instanceof Error ? error.message : String(error),
+    discard: vi.fn(),
     ...overrides,
   };
   return { binding: new ThreadBinding(port), port, failures, logs, catalogs };
 }
 
 describe("ThreadBinding", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("fails a binding that never returns and refuses to reuse it", async () => {
+    vi.useFakeTimers();
+    const { binding, failures, catalogs } = makeBinding();
+    const { thread } = bindableThread(() => new Promise(() => undefined));
+    const bound = binding.bind(thread, true);
+    let settled = false;
+    const waiting = binding.settle(thread).catch((error: unknown) => { settled = true; return error; });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(true);
+    expect(await waiting).toEqual(expect.objectContaining({ message: expect.stringContaining("30 s") }));
+    await bound;
+    expect(failures).toHaveLength(1);
+    expect(catalogs).not.toHaveBeenCalled();
+    await expect(binding.settle(thread)).rejects.toThrow("30 s");
+  });
+
+  it("ignores late UI callbacks and catalog publication after a timeout", async () => {
+    vi.useFakeTimers();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { thread, events } = bindableThread(() => gate);
+    let bindings!: RuntimeExtensionBindings;
+    thread.backend.capabilities.extensions!.bind = async (value) => { bindings = value; await gate; };
+    const presentUi = vi.fn(() => true);
+    const title = vi.fn();
+    const { binding, catalogs, failures, port } = makeBinding({ presentUi, setWindowTitle: title });
+    const bound = binding.bind(thread, true);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await bound;
+    expect(port.discard).toHaveBeenCalledExactlyOnceWith(thread);
+    bindings.ui.setStatus?.("status", "late");
+    bindings.ui.setWindowTitle("late");
+    await expect(bindings.ui.ask({ id: "late", sessionId: "session", kind: "confirm", title: "Late?" })).resolves.toEqual({ cancelled: true });
+    bindings.onError(new Error("late"));
+    events[0]?.({}, "session");
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(catalogs).not.toHaveBeenCalled();
+    expect(presentUi).not.toHaveBeenCalled();
+    expect(title).not.toHaveBeenCalled();
+    expect(failures).toHaveLength(1);
+    await expect(binding.settle(thread)).rejects.toThrow("30 s");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("leaves an awaited binding timeout with its caller and discards the runtime", async () => {
+    vi.useFakeTimers();
+    const { binding, failures, port } = makeBinding();
+    const { thread } = bindableThread(() => new Promise(() => undefined));
+    let error: unknown;
+    const bound = binding.bind(thread).catch((reason: unknown) => { error = reason; });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(error).toEqual(expect.objectContaining({ message: expect.stringContaining("30 s") }));
+    await bound;
+    expect(failures).toEqual([]);
+    expect(port.discard).toHaveBeenCalledExactlyOnceWith(thread);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("publishes the catalog after a binding of the thread on screen", async () => {
     const { binding, catalogs } = makeBinding();
     const { thread } = bindableThread(async () => undefined);

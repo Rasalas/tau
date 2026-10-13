@@ -16,6 +16,7 @@ import { SessionHeldElsewhereError, SessionLocks } from "./session-locks.js";
 import { isUnavailableBackend } from "./unavailable-thread-backend.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { UNLIMITED_EXECUTION_POLICY, type HostExecutionPolicy } from "./host-execution-policy.js";
+import { ThreadBinding } from "./thread-binding.js";
 
 // The Linux launcher that puts a bash call in its own systemd scope; a test hands in a script of its own.
 const agentShell = vi.hoisted(() => ({ path: undefined as string | undefined }));
@@ -96,6 +97,89 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
 }
 
 describe("ThreadRuntimeLifecycle", () => {
+  it("times out a real session_start handler that never returns", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-bind-deadline-"));
+    let started = false;
+    const factory: ExtensionFactory = (pi) => {
+      pi.on("session_start", () => { started = true; return new Promise(() => undefined); });
+    };
+    const { lifecycle, port } = makeLifecycle({ agentDir: dir, cwd: () => dir, runtimeExtensions: () => [{ name: "hung-start", factory }] });
+    const failures = vi.fn();
+    const binding = new ThreadBinding({
+      ...port,
+      clientMessages: { forget: vi.fn() } as never,
+      projection: { composerCommands: () => [] } as never,
+      isActive: () => false,
+      isCurrent: () => true,
+      onSessionEvent: () => undefined,
+      emitForThread: () => undefined,
+      setWindowTitle: () => undefined,
+      publishActiveCatalog: async () => undefined,
+      recordBackground: () => undefined,
+      logPhase: () => undefined,
+      logForThread: () => undefined,
+      fail: failures,
+      discard: (thread) => lifecycle.discard(thread),
+    });
+    let thread: ThreadRuntime | undefined;
+    try {
+      thread = await lifecycle.open(SessionManager.inMemory(dir), { type: "session_start", reason: "new" });
+      vi.useFakeTimers();
+      const bound = binding.bind(thread, true);
+      let error: unknown;
+      const waiting = binding.settle(thread).catch((reason: unknown) => { error = reason; });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(started).toBe(true);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(error).toEqual(expect.objectContaining({ message: expect.stringContaining("30 s") }));
+      await bound;
+      await waiting;
+      expect(failures).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+      if (thread) await lifecycle.dispose(thread);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("disconnects a runtime whose shutdown never returns and releases its session lock", async () => {
+    const { lifecycle, port } = makeLifecycle();
+    const sessionDispose = vi.fn();
+    const runtime = { session: { abort: async () => undefined, dispose: sessionDispose }, dispose: () => new Promise(() => undefined) };
+    const thread = new ThreadRuntime(externalBackend("hung") as never, runtime as never);
+    const release = vi.spyOn(port.sessionLocks, "release");
+    (lifecycle as unknown as { lockedFiles: WeakMap<ThreadRuntime, string> }).lockedFiles.set(thread, "/fixture.jsonl");
+    vi.useFakeTimers();
+    try {
+      let error: unknown;
+      const closing = lifecycle.dispose(thread).catch((reason: unknown) => { error = reason; });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(error).toBeInstanceOf(AggregateError);
+      await closing;
+      expect((error as AggregateError).errors).toContainEqual(expect.objectContaining({ message: "Runtime disposal did not finish within 10 s." }));
+      expect(sessionDispose).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledWith("/fixture.jsonl");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("still disposes the backend when a close observer never returns", async () => {
+    const { lifecycle } = makeLifecycle({ turnObservers: { closed: () => new Promise(() => undefined) } as never });
+    const backend = externalBackend("hung-observer");
+    vi.useFakeTimers();
+    try {
+      let error: unknown;
+      const closing = lifecycle.dispose(new ThreadRuntime(backend as never)).catch((reason: unknown) => { error = reason; });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(error).toBeInstanceOf(AggregateError);
+      await closing;
+      expect(backend.dispose).toHaveBeenCalledOnce();
+      expect((error as AggregateError).errors).toContainEqual(expect.objectContaining({ message: "Runtime observers did not close within 10 s." }));
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
   it("refuses a non-Pi backend in safe mode", async () => {
     const { lifecycle } = makeLifecycle({ safeMode: true });
     await expect(lifecycle.openExternal("test", "thread", "/repo")).rejects.toThrow("Tau safe mode");
