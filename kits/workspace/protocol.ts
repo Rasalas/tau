@@ -34,6 +34,9 @@ import type { CommitFilesInput, CommitFilesResult, MergeBranchResult } from "./b
 import type { CheckoutTurn } from "./checkout-turns.js";
 import type { ThreadChangesCount } from "./thread-changes.js";
 
+/** `workspace-info`; a private "No project" folder says so, being no repository and no project to open. */
+export type WorkspaceReport = WorkspaceInfo & { projectless?: boolean };
+
 /** Keep the default branch current by fast-forward; off by default. */
 export const AUTO_PULL_OPTION = "auto-pull-default-branch";
 
@@ -306,7 +309,7 @@ export interface WorkspaceHostCommands {
   /** Review Kit's reading of the branch before it opens a request (callers: `tau.review`). */
   "review-request-context": { input: { detail?: boolean; base?: string } | undefined; output: ReviewRequestContext };
   /** Reads metadata for a known project without changing the active host workspace. */
-  "workspace-info": { input: { workspace?: string } | undefined; output: WorkspaceInfo };
+  "workspace-info": { input: { workspace?: string } | undefined; output: WorkspaceReport };
   /** Reads every linked checkout only when the picker needs cleanup safety facts. */
   "worktree-statuses": { input: { workspace?: string } | undefined; output: UiWorktreeStatus[] };
   /** Where a new worktree would start: the base ref, the commit it resolves to, and whether that came from origin. */
@@ -389,7 +392,7 @@ export interface WorkspaceHostClient {
   commit(message: string, push: boolean): Promise<CommitResult>;
   pull(workspace?: string): Promise<PullResult>;
   push(workspace?: string): Promise<PushResult>;
-  getWorkspaceInfo(workspace?: string): Promise<WorkspaceInfo>;
+  getWorkspaceInfo(workspace?: string): Promise<WorkspaceReport>;
   getWorktreeStatuses(workspace?: string): Promise<UiWorktreeStatus[]>;
   getWorktreeBase(workspace?: string, options?: { baseRef?: string; startFromOrigin?: boolean }): Promise<UiWorktreeBase>;
   createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; uniqueBranch?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef & { baseCommit?: string }>;

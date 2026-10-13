@@ -102,6 +102,8 @@ export { DraftRow, draftTitle } from "./components/DraftRow";
 export { ProviderIconStack, providerHasMark, providerStackLabel } from "./components/ProviderIconStack";
 // A thread's model by name, from its runtime's catalog (API 1.23.0).
 export { useModelName } from "./use-runtime-catalog";
+// The runtimes a new thread can start on, for a screen that says what is set up (API 1.61.0).
+export { useReadyRuntimes } from "./use-runtime-catalog";
 export { usePagedWorkspaceFiles } from "./components/usePagedWorkspaceFiles";
 // Core's own Markdown renderer, and the highlighter behind its code blocks; highlight.js loads on first use.
 export { Markdown, canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./components/Markdown";

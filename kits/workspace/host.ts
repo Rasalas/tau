@@ -592,7 +592,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("workspace-info", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
-        if (isScratchWorkspace(services.stateDir, canonical)) return { root: canonical, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: canonical };
+        if (isScratchWorkspace(services.stateDir, canonical)) return { root: canonical, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: canonical, projectless: true };
         const info = await git.getWorkspaceInfo(canonical);
         // What a client shows is what it asks about, so that is what gets watched.
         if (info.isRepo && process.env.TAU_NO_WATCH !== "1") {
