@@ -31,7 +31,7 @@ export function createProjectApprovalDialog(host: ApprovalHost) {
       if (busy) return;
       setAnswering(request.id);
       try { await host.invoke("answer-project-approval", { id: request.id, approved }); }
-      catch (error) { actions.notify(errorMessage(error)); }
+      catch (error) { actions.notify(errorMessage(error), "error"); }
       finally { setAnswering(undefined); }
     };
     return createPortal(
