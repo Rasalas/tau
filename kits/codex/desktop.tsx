@@ -41,6 +41,7 @@ import {
   type ManagedCodexState,
 } from "./protocol.js";
 import { createMcpAppCard, hasMcpApp } from "./mcp-app-card.js";
+import { isReplTool, presentRepl } from "./tool-presentation.js";
 
 const TERMINAL_HOST_EXTENSION_ID = "tau.terminal";
 /** Terminal Kit's desktop service (`kits/terminal/protocol.ts`), named here: a kit never imports another. */
@@ -582,6 +583,8 @@ export const codexExtension: DesktopExtension = {
     const updateToasts = createUpdateToasts(plugin.host, () => runner);
     const stops = [
       appCard,
+      // Its JavaScript REPL calls carry the code as their argument; the row names the action instead.
+      plugin.registerToolRenderer("codex.repl", isReplTool, presentRepl, { profiles: ["desktop", "web", "compact"] }),
       plugin.registerRegion({ id: "codex.chatgpt-plan", placement: "composer-above", order: 4, profiles: ["desktop", "web", "compact"], Component: createChatGPTPlanBanner(plugin.host) }),
       plugin.registerRegion({ id: "codex.version", placement: "composer-above", order: 5, profiles: ["desktop", "web", "compact"], Component: createVersionBanner(terminal) }),
       plugin.registerRegion({ id: "codex.update-toasts", placement: "composer-above", order: 6, profiles: ["desktop", "web", "compact"], Component: updateToasts }),
