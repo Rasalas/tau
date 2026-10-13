@@ -169,6 +169,18 @@ public class WidgetGalleryActivity extends Activity {
         else if (asks) value.put("startedAt", since - 6 * MIN).put("askedAt", since);
         else value.put("startedAt", since - 30 * MIN).put("endedAt", since);
         if (detail != null) value.put("reason", detail);
-        return value;
+        return value.put("marks", marksOf(id));
+    }
+
+    /** The marks a thread row draws: Claude Code alone, Pi on a ChatGPT plan, Codex alone, OpenCode via Anthropic, Pi on a provider without a mark. */
+    private static JSONArray marksOf(String id) throws Exception {
+        JSONArray list = new JSONArray();
+        switch (id) {
+            case "t1": return list.put(new JSONObject().put("mark", "claude-code"));
+            case "t2": return list.put(new JSONObject().put("mark", "pi")).put(new JSONObject().put("mark", "codex"));
+            case "t3": return list.put(new JSONObject().put("mark", "codex"));
+            case "t4": return list.put(new JSONObject().put("mark", "opencode")).put(new JSONObject().put("mark", "anthropic"));
+            default: return list.put(new JSONObject().put("mark", "pi")).put(new JSONObject().put("initials", "R"));
+        }
     }
 }

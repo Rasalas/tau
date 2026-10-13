@@ -49,11 +49,11 @@ enum Sample {
                 UsageSnapshot(hostId: "macbook", machine: "MacBook", updatedAt: ms(age), accounts: [older])]
     }
 
-    static let pagination = WidgetThread(id: "t-pagination", title: "Add pagination to all list endpoints", project: "shop-api", state: "waiting", startedAt: ms(-10 * minute), askedAt: ms(-4 * minute), reason: "Wants to edit src/routes/orders.ts")
-    static let flaky = WidgetThread(id: "t-flaky", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: ms(-(12 * minute + 4)))
-    static let rate = WidgetThread(id: "t-rate", title: "Rate limiting for checkout endpoint", project: "shop-api", state: "running", startedAt: ms(-(3 * minute + 41)))
-    static let audit = WidgetThread(id: "t-audit", title: "Nightly dependency audit", project: "tau", state: "done", startedAt: ms(-40 * minute), endedAt: ms(-6 * minute))
-    static let migrate = WidgetThread(id: "t-migrate", title: "Migrate CI cache to R2", project: "infra", state: "failed", startedAt: ms(-35 * minute), endedAt: ms(-20 * minute), reason: "Rate limited · Codex 5-hour, resets 16:40")
+    static let pagination = WidgetThread(id: "t-pagination", title: "Add pagination to all list endpoints", project: "shop-api", state: "waiting", startedAt: ms(-10 * minute), askedAt: ms(-4 * minute), reason: "Wants to edit src/routes/orders.ts", marks: [WidgetMark(mark: "claude-code")])
+    static let flaky = WidgetThread(id: "t-flaky", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: ms(-(12 * minute + 4)), marks: [WidgetMark(mark: "pi"), WidgetMark(mark: "codex")])
+    static let rate = WidgetThread(id: "t-rate", title: "Rate limiting for checkout endpoint", project: "shop-api", state: "running", startedAt: ms(-(3 * minute + 41)), marks: [WidgetMark(mark: "codex")])
+    static let audit = WidgetThread(id: "t-audit", title: "Nightly dependency audit", project: "tau", state: "done", startedAt: ms(-40 * minute), endedAt: ms(-6 * minute), marks: [WidgetMark(mark: "opencode"), WidgetMark(mark: "anthropic")])
+    static let migrate = WidgetThread(id: "t-migrate", title: "Migrate CI cache to R2", project: "infra", state: "failed", startedAt: ms(-35 * minute), endedAt: ms(-20 * minute), reason: "Rate limited · Codex 5-hour, resets 16:40", marks: [WidgetMark(mark: "pi"), WidgetMark(initials: "R")])
 
     static func threads(_ state: String) -> [ThreadsSnapshot] {
         switch state {
@@ -222,6 +222,13 @@ struct Gallery: View {
             WidgetFrame(width: 364, height: 170) { ThreadsMedium(state: threads("normal")).padding(.horizontal, 15).padding(.top, 13).padding(.bottom, 8) }
             WidgetFrame(width: 364, height: 170) { ThreadsMedium(state: threads("quiet")).padding(.horizontal, 15).padding(.top, 13).padding(.bottom, 8) }
             WidgetFrame(width: 364, height: 170) { ThreadsMedium(state: threads("stale")).padding(.horizontal, 15).padding(.top, 13).padding(.bottom, 8) }
+        case "threads-marks":
+            Caption(text: "Threads · marks: Claude alone · Pi + OpenAI · Codex alone · OpenCode + Anthropic · Pi + initials")
+            WidgetFrame(width: 364, height: 170) { ThreadsMedium(state: ThreadsState(threads: [Sample.migrate, Sample.audit, Sample.pagination], updated: now, now: now)).padding(.horizontal, 15).padding(.top, 13).padding(.bottom, 8) }
+            HStack(spacing: 22) {
+                WidgetFrame(width: 170, height: 170) { ThreadsSmall(state: ThreadsState(threads: [Sample.migrate], updated: now, now: now)).padding(15) }
+                WidgetFrame(width: 170, height: 170) { ThreadsSmall(state: ThreadsState(threads: [Sample.pagination, Sample.rate, Sample.flaky], updated: now, now: now)).padding(15) }
+            }
         case "lock":
             LockScreen(plan: plan("normal"), threads: threads("normal"), dark: scheme == .dark)
         case "live":
@@ -252,7 +259,7 @@ struct Gallery: View {
             expanded(display("done"))
             expanded(display("bundle"))
         default:
-            Text("pages: usage, states, large-states, threads, lock, live, live2, island, island2")
+            Text("pages: usage, states, large-states, threads, threads-marks, lock, live, live2, island, island2")
         }
     }
     func card(_ display: ActivityDisplay, stale: Bool) -> some View {

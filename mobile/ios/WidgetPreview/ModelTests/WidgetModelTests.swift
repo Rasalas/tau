@@ -71,4 +71,28 @@ final class WidgetModelTests: XCTestCase {
         XCTAssertEqual(WidgetModel.keeping(later, previous: first).accounts?.count, 1)
         XCTAssertEqual(WidgetModel.keeping(later, previous: first).updatedAt, 9)
     }
+
+    func testReadsAThreadsMarksAndLeavesThemOutOfTheLiveActivity() throws {
+        let json = """
+        {"version":4,"hostId":"mini","machine":"Mac mini","updatedAt":1,"threads":[
+        {"id":"a","title":"Pi on a plan","state":"running","startedAt":3,"marks":[{"mark":"pi"},{"mark":"codex"}]},
+        {"id":"b","title":"No provider mark","state":"running","startedAt":4,"marks":[{"mark":"pi"},{"initials":"AL"}]},
+        {"id":"c","title":"From an older app","state":"running","startedAt":5}]}
+        """
+        let snapshot = try JSONDecoder().decode(WidgetSnapshot.self, from: Data(json.utf8))
+        let threads = snapshot.threadsSnapshot.threads
+        XCTAssertEqual(threads[0].marks, [WidgetMark(mark: "pi"), WidgetMark(mark: "codex")])
+        XCTAssertEqual(threads[1].marks?[1].initials, "AL")
+        XCTAssertNil(threads[2].marks)
+        // The Live Activity draws none, and ActivityKit caps its state at 4 KB.
+        XCTAssertTrue(WidgetModel.activityRows(threads, now: Date(timeIntervalSince1970: 10)).allSatisfy { $0.marks == nil })
+    }
+
+    func testAcceptsTheSnapshotTheAppWritesAndNoOther() throws {
+        let written = WidgetSnapshot(hostId: "mini", machine: "Mac mini", updatedAt: 1, threads: [])
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(written)) as? [String: Any])
+        XCTAssertTrue(WidgetModel.accepts(object))
+        XCTAssertFalse(WidgetModel.accepts(["version": WidgetModel.wireVersion - 1, "hostId": "mini"]))
+        XCTAssertFalse(WidgetModel.accepts(["hostId": "mini"]))
+    }
 }
