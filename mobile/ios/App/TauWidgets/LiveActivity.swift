@@ -31,10 +31,12 @@ struct ActivityDisplay {
             guard let content = opened ?? (state.sealed == bootstrap ? initial : nil),
                   content["hostId"] as? String == host, content["threadId"] as? String == initial["threadId"] as? String else { unavailable = true; return }
             rows = Self.rows(content)
+            updated = (content["updatedAt"] as? Double).map { Date(ms: $0) }
         } else if let sealed = state.sealed {
             guard let content = ActivityCipher.open(sealed), content["hostId"] as? String == attributes.hostId,
                   content["threadId"] as? String == attributes.threadId else { unavailable = true; return }
             rows = Self.rows(content)
+            updated = (content["updatedAt"] as? Double).map { Date(ms: $0) }
         } else if let title = state.title, let status = state.state {
             rows = Self.rows(["title": title, "state": status, "threadId": attributes.threadId ?? "", "threads": state.threads as Any])
         } else { unavailable = true }
@@ -70,28 +72,31 @@ struct ActivityHeader: View {
             } else {
                 Text("· \(display.rows.count) threads")
                 Spacer(minLength: 4)
-                BundleState(display: display)
+                BundleState(display: display, stale: stale)
             }
         }
         .font(.system(size: 12)).foregroundStyle(Tau.muted).lineLimit(1)
     }
 }
 
-/// The right end of the head line for one thread: its clock while it runs, its state otherwise.
+/// The last reported state, with no clock that could imply continued updates.
 struct SingleState: View {
     var thread: WidgetThread
     var stale: Bool
     var body: some View {
-        switch thread.state {
-        case "running":
-            HStack(spacing: 5) {
-                Spinner(size: 12, line: 2)
-                Elapsed(since: Date(ms: thread.startedAt ?? 0)).font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.infoInk)
-                    .multilineTextAlignment(.trailing).frame(width: 64, alignment: .trailing)
+        if stale && thread.active {
+            label("clock", "No update", Tau.muted)
+        } else {
+            switch thread.state {
+            case "running":
+                HStack(spacing: 5) {
+                    Spinner(size: 12, line: 2)
+                    Text("Working")
+                }.font(.system(size: 13, weight: .semibold)).foregroundStyle(Tau.infoInk)
+            case "waiting": label("help", "Question", Tau.warn)
+            case "done": label("check", "Done", Tau.ready)
+            default: label("alert", "Failed", Tau.failInk)
             }
-        case "waiting": label("help", "Question", Tau.warn)
-        case "done": label("check", "Done", Tau.ready)
-        default: label("alert", "Failed", Tau.failInk)
         }
     }
     func label(_ glyph: String, _ text: String, _ color: Color) -> some View {
@@ -103,9 +108,12 @@ struct SingleState: View {
 /// The right end for several threads: who waits, else how many run, else how they ended.
 struct BundleState: View {
     var display: ActivityDisplay
+    var stale: Bool
     var body: some View {
         Group {
-            if display.waiting > 0 {
+            if stale && display.active {
+                HStack(spacing: 5) { Lucide(name: "clock", size: 16); Text("No update") }.foregroundStyle(Tau.muted)
+            } else if display.waiting > 0 {
                 HStack(spacing: 5) { Lucide(name: "help", size: 16); Text("\(display.waiting) \(display.waiting == 1 ? "waits" : "wait") for you") }.foregroundStyle(Tau.warn)
             } else if display.running > 0 {
                 HStack(spacing: 5) { Spinner(size: 12, line: 2); Text("\(display.running) running") }.foregroundStyle(Tau.infoInk)
@@ -150,7 +158,7 @@ struct LockScreenActivity: View {
                             StateIcon(state: row.state)
                             Text(row.title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Tau.ink).lineLimit(1)
                             Spacer(minLength: 4)
-                            RowStatus(thread: row)
+                            RowStatus(thread: row, stale: stale)
                         }
                         .opacity(stale && row.active ? 0.55 : 1)
                     }
@@ -176,16 +184,17 @@ struct LockScreenActivity: View {
         }
     }
     @ViewBuilder func callout(_ thread: WidgetThread) -> some View {
-        switch thread.state {
-        case "waiting":
-            Callout(text: lead(thread.reason ?? "Wants your answer", " — ") + Text(thread.askedAt.map { " · waiting " + coarseAgo(Date(ms: $0), now: .now) } ?? ""), background: Tau.warnChip, color: Tau.warn)
-        case "done":
-            Callout(text: Text(thread.startedAt.flatMap { start in thread.endedAt.map { "Done in " + duration(($0 - start) / 1000) } } ?? "Done").fontWeight(.semibold) + Text(" · tap to read the reply"), background: Tau.done.opacity(0.14), color: Tau.ready)
-        case "failed":
-            Callout(text: lead(thread.reason ?? "Failed", " · "), background: Tau.fail.opacity(0.14), color: Tau.failInk)
-        default:
-            if stale, let updated = display.updated {
-                Callout(text: Text("No update since \(hhmm(updated)) · open Tau to refresh"), background: Tau.track, color: Tau.muted)
+        if stale && thread.active {
+            Callout(text: Text(display.updated.map { "No update since \(hhmm($0)) · open Tau to refresh" } ?? "No update · open Tau to refresh"), background: Tau.track, color: Tau.muted)
+        } else {
+            switch thread.state {
+            case "waiting":
+                Callout(text: lead(thread.reason ?? "Wants your answer", " — ") + Text(thread.askedAt.map { " · waiting " + coarseAgo(Date(ms: $0), now: .now) } ?? ""), background: Tau.warnChip, color: Tau.warn)
+            case "done":
+                Callout(text: Text(thread.startedAt.flatMap { start in thread.endedAt.map { "Done in " + duration(($0 - start) / 1000) } } ?? "Done").fontWeight(.semibold) + Text(" · tap to read the reply"), background: Tau.done.opacity(0.14), color: Tau.ready)
+            case "failed":
+                Callout(text: lead(thread.reason ?? "Failed", " · "), background: Tau.fail.opacity(0.14), color: Tau.failInk)
+            default: EmptyView()
             }
         }
     }
@@ -193,13 +202,18 @@ struct LockScreenActivity: View {
 
 struct RowStatus: View {
     var thread: WidgetThread
+    var stale: Bool
     var body: some View {
-        switch thread.state {
-        case "running":
-            Elapsed(since: Date(ms: thread.startedAt ?? 0)).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Tau.infoInk).multilineTextAlignment(.trailing).frame(width: 56, alignment: .trailing)
-        case "waiting": Text("Question").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Tau.warn)
-        case "done": Text("Done").font(.system(size: 11.5)).foregroundStyle(Tau.ready)
-        default: Text("Failed").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Tau.failInk)
+        if stale && thread.active {
+            Text("No update").font(.system(size: 11.5)).foregroundStyle(Tau.muted)
+        } else {
+            switch thread.state {
+            case "running":
+                Text("Working").font(.system(size: 11.5)).foregroundStyle(Tau.infoInk)
+            case "waiting": Text("Question").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Tau.warn)
+            case "done": Text("Done").font(.system(size: 11.5)).foregroundStyle(Tau.ready)
+            default: Text("Failed").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Tau.failInk)
+            }
         }
     }
 }
@@ -217,16 +231,12 @@ struct CompactTrailing: View {
     var stale: Bool
     var body: some View {
         Group {
-            if stale {
+            if stale && display.active {
                 Lucide(name: "clock", size: 19).foregroundStyle(.white.opacity(0.5))
             } else if let single = display.single {
                 switch single.state {
                 case "running":
-                    HStack(spacing: 5) {
-                        Spinner(size: 13, line: 2, track: Tau.Island.working.opacity(0.3), arc: Tau.Island.working)
-                        Elapsed(since: Date(ms: single.startedAt ?? 0)).font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.Island.working)
-                            .multilineTextAlignment(.trailing).frame(maxWidth: 52, alignment: .trailing)
-                    }
+                    Spinner(size: 16, line: 2, track: Tau.Island.working.opacity(0.3), arc: Tau.Island.working)
                 case "waiting": Lucide(name: "help", size: 20).foregroundStyle(Tau.Island.waiting)
                 case "done": Lucide(name: "check", size: 19).foregroundStyle(Tau.Island.done)
                 default: Lucide(name: "alert", size: 18).foregroundStyle(Tau.Island.failed)
@@ -294,12 +304,14 @@ struct ExpandedTitle: View {
 
 struct ExpandedTrailing: View {
     var display: ActivityDisplay
+    var stale: Bool
     var body: some View {
-        if let single = display.single {
+        if stale && display.active {
+            Lucide(name: "clock", size: 26).foregroundStyle(.white.opacity(0.5))
+        } else if let single = display.single {
             switch single.state {
             case "running":
-                Elapsed(since: Date(ms: single.startedAt ?? 0)).font(.system(size: 20, weight: .semibold, design: .monospaced)).foregroundStyle(Tau.Island.working)
-                    .multilineTextAlignment(.trailing).frame(width: 66, alignment: .trailing)
+                Spinner(size: 24, line: 2, track: Tau.Island.working.opacity(0.3), arc: Tau.Island.working)
             case "waiting": Lucide(name: "help", size: 31).foregroundStyle(Tau.Island.waiting)
             case "done":
                 Text(single.startedAt.flatMap { start in single.endedAt.map { duration(($0 - start) / 1000) } } ?? "")
@@ -353,15 +365,20 @@ struct ExpandedBottom: View {
     }
     @ViewBuilder func chip(_ thread: WidgetThread) -> some View {
         HStack(spacing: 6) {
-            islandIcon(thread.state)
-            switch thread.state {
-            case "running": Text(stale ? "No update · open Tau" : thread.startedAt.map { "Working · started \(hhmm(Date(ms: $0)))" } ?? "Working")
-            case "waiting": Text("Question · " + coarseAgo(Date(ms: thread.askedAt ?? thread.startedAt ?? 0), now: .now))
-            case "done": Text("Done")
-            default: Text("Failed")
+            if stale && thread.active {
+                Lucide(name: "clock", size: 18)
+                Text("No update · open Tau")
+            } else {
+                islandIcon(thread.state)
+                switch thread.state {
+                case "running": Text(thread.startedAt.map { "Working · started \(hhmm(Date(ms: $0)))" } ?? "Working")
+                case "waiting": Text("Question · " + coarseAgo(Date(ms: thread.askedAt ?? thread.startedAt ?? 0), now: .now))
+                case "done": Text("Done")
+                default: Text("Failed")
+                }
             }
         }
-        .font(.system(size: 14, weight: .semibold)).foregroundStyle(islandColor(thread.state)).lineLimit(1)
+        .font(.system(size: 14, weight: .semibold)).foregroundStyle(stale && thread.active ? .white.opacity(0.5) : islandColor(thread.state)).lineLimit(1)
     }
     @ViewBuilder func islandIcon(_ state: String) -> some View {
         switch state {
@@ -372,10 +389,10 @@ struct ExpandedBottom: View {
         }
     }
     @ViewBuilder func islandStatus(_ thread: WidgetThread) -> some View {
-        if thread.state == "running" {
-            Elapsed(since: Date(ms: thread.startedAt ?? 0)).font(.system(size: 13, design: .monospaced)).foregroundStyle(Tau.Island.working).multilineTextAlignment(.trailing).frame(width: 60, alignment: .trailing)
+        if stale && thread.active {
+            Text("No update").font(.system(size: 13)).foregroundStyle(.white.opacity(0.5))
         } else {
-            Text(thread.state == "waiting" ? "Question" : thread.state == "done" ? "Done" : "Failed").font(.system(size: 13, weight: .semibold)).foregroundStyle(islandColor(thread.state))
+            Text(thread.state == "running" ? "Working" : thread.state == "waiting" ? "Question" : thread.state == "done" ? "Done" : "Failed").font(.system(size: 13, weight: .semibold)).foregroundStyle(islandColor(thread.state))
         }
     }
     func islandColor(_ state: String) -> Color {
@@ -396,7 +413,7 @@ struct TauLiveActivity: Widget {
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) { TauPlate(size: 36).padding(.leading, 4).padding(.top, 4) }
                 DynamicIslandExpandedRegion(.center) { ExpandedTitle(display: display).padding(.top, 4) }
-                DynamicIslandExpandedRegion(.trailing) { ExpandedTrailing(display: display).padding(.trailing, 4).padding(.top, 4) }
+                DynamicIslandExpandedRegion(.trailing) { ExpandedTrailing(display: display, stale: context.isStale).padding(.trailing, 4).padding(.top, 4) }
                 DynamicIslandExpandedRegion(.bottom) { ExpandedBottom(display: display, stale: context.isStale).padding(.horizontal, 4) }
             } compactLeading: {
                 IslandMark()
