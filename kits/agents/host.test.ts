@@ -22,6 +22,7 @@ import {
   type UiWake,
 } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { ownedProcessTree } from "../../src/main/test-support/owned-process-tree.js";
 import {
   AGENTS_HOST_EXTENSION_ID,
   AGENT_CHILD_ENTRY,
@@ -2082,6 +2083,41 @@ describe("Agents Kit orchestration", () => {
     expect(bench.started).toHaveLength(3);
     expect(bench.sent).toEqual([]);
     await expect(bench.invoke("stop-agent", { threadId: "nobody" })).rejects.toThrow("gone");
+  });
+
+  it.skipIf(process.platform === "win32").each(["parent Stop", "stop-agent", "cancel"])("%s ends child shell commands and their grandchildren", async (ending) => {
+    const bench = await activated();
+    const trees: Array<Awaited<ReturnType<typeof ownedProcessTree>>> = [];
+    try {
+      const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Child", workspace: "shared" }));
+      const grandchild = handleOf(await bench.runtime(child).call("tau_spawn_thread", { prompt: "Grandchild", workspace: "shared" }));
+      const commands = new Map<string, Awaited<ReturnType<typeof ownedProcessTree>>>();
+      for (const id of [child, grandchild]) {
+        const tree = await ownedProcessTree();
+        trees.push(tree);
+        commands.set(id, tree);
+      }
+      const unrelated = await ownedProcessTree();
+      trees.push(unrelated);
+      const abort = bench.services.sessions.abort!;
+      bench.services.sessions.abort = async (id) => {
+        await abort(id);
+        await commands.get(id)?.stop();
+      };
+      if (ending === "parent Stop") {
+        for (const observer of bench.observers) await observer.stopped?.("parent");
+      } else if (ending === "stop-agent") {
+        await bench.invoke("stop-agent", { threadId: child });
+      } else {
+        await bench.runtime("parent").call("tau_cancel_thread", { threadId: child });
+      }
+      await expect.poll(() => [...commands.values()].flatMap((tree) => tree.alive()), { timeout: 20_000 }).toEqual([]);
+      expect(unrelated.alive()).toEqual(unrelated.pids);
+      expect(bench.sent).toEqual([]);
+    } finally {
+      await Promise.all(trees.map((tree) => tree.close()));
+      await bench.registry().dispose();
+    }
   });
 
   it("stops three running children and two pending children without waking their parent", async () => {
