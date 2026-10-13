@@ -100,7 +100,7 @@ describe("what a provider cannot do is hidden", () => {
   });
 });
 
-describe("Settings → Review", () => {
+describe("Settings → Source control", () => {
   function sourceHost() {
     const statuses: SourceProviderStatus[] = [
       { service: "github", name: "GitHub", tool: "GitHub CLI (gh)", installed: true, signedIn: true, account: "octo" },

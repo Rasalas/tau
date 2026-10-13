@@ -241,7 +241,7 @@ describe("resolveMachine", () => {
 
   it("refuses a machine that cannot take work, and says where the choice came from", async () => {
     await expect(resolveMachine("box", "tool", ports([rex]))).rejects.toThrow("know no machine box (they know rex)");
-    await expect(resolveMachine("rex", "setting", ports([{ ...rex, status: "offline", detail: "last seen 5m ago" }]))).rejects.toThrow('rex is offline: last seen 5m ago. Sub-agents go there by Settings → Agents; pass machine "local"');
+    await expect(resolveMachine("rex", "setting", ports([{ ...rex, status: "offline", detail: "last seen 5m ago" }]))).rejects.toThrow('rex is offline: last seen 5m ago. Sub-agents go there by Settings → Threads; pass machine "local"');
     await expect(resolveMachine("rex", "definition", ports([{ ...rex, readOnly: true }]))).rejects.toThrow(/Read only.*The agent definition names it/u);
     await expect(resolveMachine("rex", "tool", ports([rex, { ...rex, id: "rex-2" }]))).rejects.toThrow("More than one machine is called rex");
     await expect(resolveMachine("rex", "tool", { machines: () => undefined, auto: async () => undefined })).rejects.toThrow("keeps no list of other machines");
@@ -294,7 +294,7 @@ describe("Agents Kit: sub-agents on another machine", () => {
 
   it("refuses rex when it is offline or the spawn cannot work there", async () => {
     const offline = await bench({ setting: "rex", rex: { status: "offline" } });
-    await expect(offline.call("tau_spawn_thread", { prompt: "x" })).rejects.toThrow(/rex is offline.*Settings → Agents/u);
+    await expect(offline.call("tau_spawn_thread", { prompt: "x" })).rejects.toThrow(/rex is offline.*Settings → Threads/u);
     const b = await bench();
     await expect(b.call("tau_spawn_thread", { prompt: "x", machine: "rex", workspace: "shared" })).rejects.toThrow('"shared" only works on this machine');
     await expect(b.call("tau_spawn_thread", { prompt: "x", machine: "nowhere" })).rejects.toThrow("know no machine nowhere");

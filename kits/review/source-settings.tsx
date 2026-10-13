@@ -43,7 +43,7 @@ function ProviderRow({ status }: { status: SourceProviderStatus }) {
 }
 
 /**
- * Settings → Review's source-control part: which hosts
+ * Settings → Source control's source-control part: which hosts
  * this machine can reach and as whom, and the provider of a self-hosted
  * server whose name does not say. Credentials stay with each provider's own
  * CLI or Git's credential helper; this page only reads whether they are there.

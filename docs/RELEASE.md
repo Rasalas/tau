@@ -39,8 +39,8 @@ the release order that keeps a wrong pairing from shipping.
 1. Land everything the release should contain on `main`.
 2. Raise `version` in `package.json` and commit it. Raise the one in
    `kits/package.json` too when the shipped kits changed (above). `npm run
-   build` writes it into `dist-kits/manifest.json`, and Settings → Packages
-   heads the bundled list with it, which is the quickest check that the
+   build` writes it into `dist-kits/manifest.json`, and Settings → Diagnostics
+   shows it beside Tau's own version, which is the quickest check that the
    artifact carries the version you meant.
 3. Tag the commit and push the tag:
 
@@ -1100,8 +1100,8 @@ naming the set and its version. `npm run build` writes it and the default
 archive, so `dist-kits/` is the only place the installed runtime reads a kit
 from. A second copy of the sources and build dependencies ships outside the
 archive as the seed for Tau's versioned, user-editable source tree. Its version lives in `kits/package.json`, moves
-with the set rather than with the app, and heads the bundled list in
-Settings → Packages. A release with a stale `dist-kits/` fails loudly: each
+with the set rather than with the app, and shows in Settings → Diagnostics
+and on each bundled extension's page. A release with a stale `dist-kits/` fails loudly: each
 manifest's `engines.api` is checked against the running
 `EXTENSION_API_VERSION`.
 

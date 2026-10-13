@@ -34,7 +34,7 @@ project shows no change.
 Tau loads a project's packages only in a project Pi trusts. For a project Pi
 doesn't trust yet, the install toast says *PR Title: skipped, project not
 trusted*. Click **Trust this project** in the toast, or in Settings →
-Packages. A global install skips this step.
+Extensions. A global install skips this step.
 
 ## 3. Approve it
 
@@ -102,8 +102,8 @@ To check the types from a terminal: `npx -p typescript tsc -p .`.
 ## 5. When a save breaks it
 
 Break a line in `desktop.tsx` and save. The running version stays, and a toast
-names the file, line and column of the error. Settings → Packages →
-*Develop a package* shows the last build of each half with every error. Fix
+names the file, line and column of the error. Settings → Extensions →
+Advanced → *Develop a package* shows the last build of each half with every error. Fix
 the line and save again.
 
 To build the installed packages again without saving a file, use
@@ -122,3 +122,39 @@ host half turn off, with the reason in their tooltip
 
 After you update Tau, run `tau kit types` in the kit's folder to copy in the
 new types.
+
+## 7. Give it a setting
+
+Settings has one page per topic, not one per extension. A setting for a topic
+that has a page, such as how the terminal looks, how a thread behaves or what
+a notification says, is a section of that page. Add this to `desktop.tsx` and
+call `addSetting(context)` from `activate`:
+
+```tsx
+import { SettingRow, Switch, useSetting, type DesktopExtensionContext, type SettingsSectionProps } from "tau";
+
+function ShowTitle(_props: SettingsSectionProps) {
+  const show = useSetting<boolean>(`options.${ID}.show-title`, { defaultValue: true });
+  return <SettingRow id="setting-pr-title-show" title="Show the PR title button" setting={show}
+    control={<Switch label="Show the PR title button" checked={show.value} onChange={show.set} />} />;
+}
+
+export function addSetting(context: DesktopExtensionContext) {
+  context.registerSettingsSection({
+    id: "pr-title.show",
+    page: "threads",
+    card: "running",
+    rows: [{ id: "setting-pr-title-show", label: "Show the PR title button", keywords: ["pr", "title", "button"] }],
+    Component: ShowTitle,
+  });
+}
+```
+
+`page` names the page: one of Tau's (`general`, `threads`, `connections`,
+`runtimes`, `extensions`, `inspector`) or the id of another extension's page,
+for instance `notifications.settings`; `card` is the box on the page the row
+joins, and `advanced: true` puts it under the page's Advanced fold. `rows` is
+what the search finds, and each `id` is the `id` of a `SettingRow`. Only a
+topic nothing covers gets a page of its own with `registerSettingsPage`.
+[Sections of another page](EXTENSIONS.md#sections-of-another-page) lists the
+pages, the cards and the pages that draw sections of others.

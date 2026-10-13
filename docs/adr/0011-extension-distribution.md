@@ -39,7 +39,7 @@ The file hashes are checked **before** the key is looked up. That order is the p
 ## Consequences
 
 - Tau hosts no index. An author publishes to npm or pushes a repository, and the source string is the whole address.
-- `/install`, `/remove` and `/update` read like Pi's CLI in the composer, and Settings → Packages is the same thing with a form.
+- `/install`, `/remove` and `/update` read like Pi's CLI in the composer, and Settings → Extensions is the same thing with a form.
 - `update` is whatever npm and git decide: `npm install` re-resolves the recorded range, `git pull --ff-only` refuses a diverged clone. There is no separate "check for updates" step, because there is nothing to check against but the network.
 - A signature proves the folder is the folder the publisher signed. It does not prove the publisher is trustworthy, and Tau has no revocation list: dropping a key from `trusted-publishers.json` is the whole mechanism.
 - Not solved here: a hosted registry with search and ratings, revocation and key rotation, signed npm tarballs verified before extraction (npm's own integrity check is what covers that today), and a review process for what a package may ask for.

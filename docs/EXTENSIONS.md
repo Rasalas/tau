@@ -30,8 +30,8 @@ you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
 4. **Edit and save.** The package reloads by itself, host half included, and
    a toast says *Reloaded &lt;name&gt;* ([the development loop](#the-development-loop)).
    A save that does not compile keeps the running version: the toast names the
-   file, line and column of the first error, and Settings → Packages →
-   *Develop a package* shows the last build of each half with every error.
+   file, line and column of the first error, and Settings → Extensions →
+   Advanced → *Develop a package* shows the last build of each half with every error.
    Changing `permissions` or `isolation` sends it back to step 3, and the toast
    says *&lt;name&gt; is waiting for approval*.
 5. **After updating Tau**, `tau kit types` in the folder copies the new
@@ -43,7 +43,7 @@ setup commands in `.tau/project.json` require a separate approval of the current
 definitions, owned by Workspace Kit. See [the project file](project-file.md#the-worktree-setup).
 In an untrusted project, packages are listed in Settings → Extensions as *Skipped:
 project not trusted*, the install toast says so, and **Trust this project**
-(in that toast, or in Settings → Packages) records the trust in Pi's
+(in that toast, or in Settings → Extensions) records the trust in Pi's
 `trust.json` through Pi's own store, the way Pi's `/trust` does; the packages
 then load and wait for approval. A global install needs no trust. A project
 install writes `.tau/packages.json` into the project. A folder inside the
@@ -1523,9 +1523,9 @@ that `SettingsSection`'s `headerAction`.
 places a page in the section column: `app` (the default: General,
 Appearance, Notifications, Keybindings, Extensions, and a page that names no
 group), `agents` (Runtimes, Threads, what shapes threads), `projects` (what
-works on a project: source control, review, storage, servers), `tools`
-(terminal, preview, screenshots, simulators), `machines` (Machines, remote
-work, Connections) or `diagnostics` (Diagnostics, Signals; these stand at the
+works on a project: source control, storage, servers), `tools`
+(terminal, preview, screenshots, simulators), `machines` (Machines,
+Connections) or `diagnostics` (Diagnostics; it stands at the
 foot of the column, above About Tau, without a heading). Since API 1.61.0 these
 are the groups; the older names still place a page: `general` and `extensions`
 in `app`, `threads` in `agents`, `remote` in `machines`. `projects`, `tools`
@@ -1535,6 +1535,13 @@ follow `order`; core's own pages take 0 to 90 (General 0, Keybindings 80,
 Extensions 90, Runtimes 0, Threads 10, Connections 90, Diagnostics 0). A page that lists `rows: [{ id, label,
 keywords? }]` has each row found by the search, which scrolls to the element
 with that id — give the `SettingRow` the same `id`.
+
+A topic that already has a page takes a section instead of a page of its own
+(API 1.61.0): Review's settings sit on Source control, Push's on
+Notifications, SnapShots' beside Evidence's on Screenshots, Remote Work's on
+Machines, the thread rail's and the agents' on Threads. See
+[Sections of another page](#sections-of-another-page); the old page ids keep
+opening the new place.
 
 **A place in Settings.** `actions.openSettings(target)` takes a page id, an
 extension's page as `extensions/<extension id>`, or either with `#<row id>`
@@ -4023,31 +4030,80 @@ shipped caller: it keeps the proxy listener and publishes
 Behind the proxy listener the host also reads `Tailscale-User-Login` and shows
 it beside the client in Connections — never as a login.
 
-On the desktop side, `registerSettingsSection({ id, page, order?, rows?, Component })`
-(new in API 1.13.0) adds a section to one of core's Settings pages, below
-core's own sections: `"connections"`; `"runtimes"`, below the runtimes
-(new in API 1.27.0; a link to `runtimes#runtime-permissions` lands on the section whose `rows` name
-it, as Access Kit's does);
-`"extensions"`, above the list of extensions; or `"extension"`, on every
-extension's own page after its
-settings, where the component also gets `extensionId` and `cwd` and draws
-nothing for an extension it has nothing to say about (both new in API 1.18.0;
-Packages Kit's Update and Remove for an installed package are one). The
-component gets `onNotify` and `onChanged`, which reads the page's own data
-again after the section changed something it shows (a new endpoint in the
-address list). It is profile-scoped like a panel. `rows` (new in API 1.19.0)
-are the section's rows the Settings search finds, as on a page: `{ id, label,
-keywords? }`, each the `id` of a `SettingRow` in the section.
+#### Sections of another page
 
-A section can also join one of the cards core draws (design 2i, 2h): with
-`page: "general"` and `card` set to `"new-threads"` or `"threads"` (drawn on
-Threads since API 1.61.0, as "New threads" and "Existing threads"), or `"appearance"`
-or `"notify"` (General draws them only where a package fills them), or with
-`page: "connections"` and `card: "this-machine"`, its component draws `SettingRow`s only,
-and the card puts them among its own rows in `order` under its heading. A card no
-row lands in is left out. A `general` section without `card` follows the cards.
-Workspace, Machines, Thread Rail and Resume Compaction fill Threads's cards;
-Workspace fills This machine, beside core's command line.
+On the desktop side, `registerSettingsSection({ id, page, order?, card?, advanced?,
+replaces?, rows?, profiles?, Component })` (new in API 1.13.0; on a page of
+another extension, `advanced` and `replaces` new in API 1.61.0) adds a section
+to a Settings page that is not the extension's own, below the page's own
+sections and in `order`. A setting belongs on the page of its topic, not on one
+page per extension, so an extension registers a page only for a topic nothing
+else covers. `page` is one of:
+
+| `page` | Where | Since |
+|---|---|---|
+| `"connections"` | below core's sections | 1.13.0 |
+| `"runtimes"` | below the runtimes (a link to `runtimes#runtime-permissions` lands on the section whose `rows` name it, as Access Kit's does) | 1.27.0 |
+| `"extensions"` | above the list of extensions; with `advanced`, under Advanced below it (Packages Kit's install form and sources) | 1.13.0 |
+| `"extension"` | on every extension's own page after its settings; the component also gets `extensionId` and `cwd` and draws nothing for an extension it has nothing to say about (Packages Kit's Update and Remove) | 1.18.0 |
+| `"general"`, `"threads"` | the cards of those pages (below) and, without `card`, after the cards | 1.13.0, 1.61.0 |
+| `"inspector"` | Settings → Diagnostics, below core's sections (Signals) | 1.61.0 |
+| another extension's page id | wherever that page draws `SettingsPageSections` (below): `"notifications.settings"` takes Push's phone, `"workspace.source-control"` Review's settings, `"evidence"` (Screenshots) SnapShots, `"environments.machines"` Remote Work | 1.61.0 |
+
+The component gets `onNotify`, `onChanged` (reads the page's own data again
+after the section changed something it shows: a new endpoint in the address
+list), `onOpenSettings(target)` where the page offers it, and `cwd` where it is
+a project's. It is profile-scoped like a panel. `rows` are the section's rows
+the Settings search finds, as on a page: `{ id, label, keywords? }`, each the
+`id` of a `SettingRow` in the section; the search lands on the page the section
+is drawn on. `advanced: true` puts it in the page's Advanced fold, which the
+search opens when it lands on a row inside. `replaces` lists ids of pages the
+extension used to register and no longer does: `openSettings(id)`, a link and a
+phone's `?settings=` open `page` instead, and a `#row` anchor stays valid as the
+rows keep their ids.
+
+A page of an extension's own draws what others attach to it with
+`SettingsPageSections` from `tau`, in the place it chooses:
+
+```tsx
+import { SettingsPageSections, SettingsSection, type SettingsPageProps } from "tau";
+
+export function NotesPage({ onNotify, cwd }: SettingsPageProps) {
+  return (
+    <div className="settings-page">
+      <SettingsSection title="Notes">…</SettingsSection>
+      {/* What other extensions attach to "notes.settings": plain, then the Advanced fold. */}
+      <SettingsPageSections page="notes.settings" onNotify={onNotify} cwd={cwd} />
+      <SettingsPageSections page="notes.settings" advanced onNotify={onNotify} cwd={cwd} />
+    </div>
+  );
+}
+```
+
+It takes `page`, `advanced?`, `onNotify`, `onChanged?`, `onOpenSettings?` and
+`cwd?`, draws nothing while no section is attached (the Advanced fold included)
+and follows extensions coming and going. Sections that name a `card` are the
+page's own to place; the others it draws. Where the page a section names is not
+there (its extension is off, or the client has no such page), the section is
+drawn on its own extension's page in Settings → Extensions and found there, so
+turning an extension off never loses another's settings. An extension names a
+page it does not own by its id and imports nothing of core: its component is
+the same `SettingsSectionProps` component as for a page of core.
+
+A section can also join one of the cards core draws (design 2i, 2h), with
+`card` set: its component draws `SettingRow`s only, and the card puts them among
+its own rows in `order` under its heading. A card no row lands in is left out.
+
+| Page | `card`s |
+|---|---|
+| `"general"` | `"appearance"` and `"notify"` (General draws them only where a package fills them), `"transcript"` (Transcript: detail and costs, plus Trace tabs), `"privacy"` (Usage statistics) |
+| `"threads"` | `"new-threads"`, `"rail"`, `"ask-first"`, `"running"` (While a thread runs), `"long-threads"`, and `"threads"` (Existing threads, drawn only where a package fills it); a `"general"` section for `"new-threads"` or `"threads"` still lands here |
+| `"connections"` | `"this-machine"` (beside core's command line) |
+
+`"transcript"`, `"privacy"`, `"rail"`, `"ask-first"`, `"running"` and
+`"long-threads"` are new in API 1.61.0. Workspace, Machines, Thread Rail,
+Agents and Resume Compaction fill Threads's cards, Usage Statistics Privacy,
+and Workspace This machine, beside core's command line.
 
 ### Other machines, for this machine's agents: `services.machines` (new in API 1.15.0)
 
@@ -4108,7 +4164,7 @@ machine's trash once its work is applied or let go.
 
 Agents Kit is the first caller: `tau_spawn_thread` and an agent definition take
 `machine` (a name, a host id, `local` or `auto`), and without one the setting
-`values.tau.agents.machine` (Settings → Agents) decides, this machine by
+`values.tau.agents.machine` (Settings → Threads) decides, this machine by
 default. A child on another machine is followed through that service into the
 same book as one here, so waiting, status, messages, cancelling, the parent's
 wake-up and `tau_apply_thread_changes` behave alike; its work comes back as
@@ -4187,7 +4243,7 @@ of them hears of a thread nobody is looking at. That kit is the shipped caller.
 
 Push Kit (`kits/push/`) sends push notifications through Tau's relay, sealed
 with a key only the phone and this host have, or, for a platform the user
-saved keys for (an APNs key, a Firebase service account; Settings → Push,
+saved keys for (an APNs key, a Firebase service account; Settings → Notifications,
 kept in `<userData>/kit-state/tau.push/keys.json`, mode 0600, not encrypted —
 the host has no keychain), directly to Apple or Google ([push.md](push.md)).
 The native app registers the relay's handle for this host and its key with the
@@ -4567,14 +4623,15 @@ not install reads as `any` instead of failing.
 /remove npm:@acme/hello
 ```
 
-The same four verbs live in Settings → Packages — the kit's own page, through
-`registerSettingsPage` — with a source field, a global/project switch, live
-progress lines while `install`/`update` run (they are host jobs —
-`{ long: true }` — so they never block the rest of the workbench), and
-Update/Remove buttons per row. The page lists the kits Tau ships — headed by
-the distribution they arrived in — above the installed packages, and never
-offers to remove one: shipping a kit is the approval, so it carries no grant
-and no source to drop.
+The same four verbs live in Settings → Extensions — the kit's sections of
+that page, through `registerSettingsSection` (see [Sections of another
+page](#sections-of-another-page)) — with a source field, a global/project
+switch and live progress lines while `install`/`update` run (they are host jobs
+— `{ long: true }` — so they never block the rest of the workbench) above the
+list of extensions, and under Advanced the package sources with Update/Remove
+buttons per row and *Develop a package*. It never offers to remove a kit Tau
+ships: shipping a kit is the approval, so it carries no grant and no source to
+drop.
 
 The kit manages packages while being one. A kit is loaded before any installed
 package and is never re-imported by a rescan — the activator only touches what
@@ -4600,7 +4657,7 @@ Tau keeps for edits to itself; about ten seconds), re-syncs packages, and
 reloads the renderer or restarts the app as needed. A package never needs it:
 installing, approving, trusting and saving take effect by themselves, and
 **Rebuild extension packages** in the command palette (or *Rebuild* under
-Settings → Packages → *Develop a package*) rebuilds and rescans the packages
+Settings → Extensions → Advanced → *Develop a package*) rebuilds and rescans the packages
 alone, without building Tau.
 
 **Global vs. project scope.** `~/.tau/extensions/<name>/` and
@@ -4666,7 +4723,7 @@ desktop.tsx:12:7: Expected ";" but found "y"
 The toast (an error, 15 seconds) names the first error and copies all of them;
 **Details** opens Settings → Diagnostics, which shows them all under
 *Did not build*, and the host log has the same lines. A host half that did not
-compile is reported the same way. Settings → Packages → *Develop a package*
+compile is reported the same way. Settings → Extensions → Advanced → *Develop a package*
 keeps the last build of each half of every installed package, with the time,
 whether it built and every error, updated as you save; **Rebuild** rescans the
 installed packages.
@@ -5009,7 +5066,7 @@ A package whose manifest names `styles` and neither `desktop` nor `host` is a
 **theme**. It brings CSS and no code, so it declares no `permissions` and no
 `isolation` — the manifest refuses both — and there is nothing for the user to
 approve: `/install` applies it there and then, `/remove` takes it back off, and
-neither needs a reload. Settings → Packages marks the row "Theme"; the switch
+neither needs a reload. Settings → Extensions marks the row "Theme"; the switch
 beside it turns the stylesheet off and on like any other extension's.
 
 ```json

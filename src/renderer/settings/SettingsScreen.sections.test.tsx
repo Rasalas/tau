@@ -40,15 +40,32 @@ function registryWithSections() {
     id: "lost.ext",
     name: "Lost",
     activate(plugin) {
-      plugin.registerSettingsSection({ id: "lost.section", page: "no.such.page", rows: [{ id: "setting-lost-row", label: "Lost row" }], Component: row("Lost section") });
+      plugin.registerSettingsSection({ id: "lost.section", page: "no.such.page", replaces: ["lost.old-page"], rows: [{ id: "setting-lost-row", label: "Lost row" }], Component: row("Lost section") });
     },
   });
   return registry;
 }
 
-function renderScreen(page: string) {
+/** Extensions that attach to the pages core draws sections on. */
+// Connections reads its list from the host first; its own tests draw it.
+const CORE_PAGES = ["extensions", "inspector", "threads", "general", "runtimes"] as const;
+
+function registryForCorePages() {
+  const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+  registry.activate({
+    id: "guest.core",
+    name: "Guest",
+    activate(plugin) {
+      for (const page of CORE_PAGES) plugin.registerSettingsSection({ id: `guest.${page}`, page, rows: [{ id: `setting-on-${page}`, label: `On ${page}` }], Component: row(`Section on ${page}`) });
+      plugin.registerSettingsSection({ id: "guest.folded", page: "extensions", advanced: true, Component: row("Folded on extensions") });
+    },
+  });
+  return registry;
+}
+
+function renderScreen(page: string, from = registryWithSections) {
   const onSetPage = vi.fn();
-  const registry = registryWithSections();
+  const registry = from();
   function Harness() {
     const [current, setCurrent] = useState(page);
     return <SettingsScreen page={current} registry={registry} onSetPage={(next) => { onSetPage(next); setCurrent(next); }} onClose={vi.fn()} onNotify={vi.fn()} />;
@@ -56,6 +73,18 @@ function renderScreen(page: string) {
   render(<TestProviders><Harness /></TestProviders>);
   return { onSetPage, registry, screen: screen.getByRole("dialog", { name: "Settings" }) };
 }
+
+describe("sections attached to a page of core", () => {
+  for (const page of CORE_PAGES) {
+    it(`are drawn on ${page}${page === "extensions" ? ", the folded ones under Advanced" : ""}`, async () => {
+      const { screen: dialog } = renderScreen(page, registryForCorePages);
+      expect(await within(dialog).findByRole("heading", { level: 2, name: `Section on ${page}` })).toBeTruthy();
+      if (page !== "extensions") return;
+      const fold = dialog.querySelector<HTMLDetailsElement>("details.settings-advanced")!;
+      expect(within(fold).getByRole("heading", { level: 2, name: "Folded on extensions" })).toBeTruthy();
+    });
+  }
+});
 
 describe("sections attached to another extension's page", () => {
   it("are drawn in order after the page's own, the carded ones left to the page, and the advanced ones in a fold of their own", () => {
@@ -99,5 +128,11 @@ describe("sections attached to another extension's page", () => {
     fireEvent.change(search, { target: { value: "lost row" } });
     fireEvent.keyDown(search, { key: "Enter" });
     expect(again.onSetPage).toHaveBeenCalledWith("extensions/lost.ext#setting-lost-row");
+  });
+
+  it("send the page they took over to their own extension's page where the page they joined is not there", async () => {
+    const { onSetPage, screen: dialog } = renderScreen("lost.old-page");
+    await waitFor(() => expect(onSetPage).toHaveBeenLastCalledWith("extensions/lost.ext"));
+    expect(await within(dialog).findByRole("heading", { level: 2, name: "Lost section" })).toBeTruthy();
   });
 });

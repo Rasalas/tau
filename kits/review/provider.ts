@@ -88,7 +88,7 @@ export interface SourceControlProvider {
   signedIn(target: RepositoryTarget & { cwd: string }): Promise<boolean>;
   /** The signed-in login on a host, or undefined when it will not say. */
   viewer(host: string): Promise<string | undefined>;
-  /** Whether the machine is set up for it, without a repository: for Settings → Review. */
+  /** Whether the machine is set up for it, without a repository: for Settings → Source control. */
   status(): Promise<Omit<SourceProviderStatus, "service" | "name" | "tool" | "installed">>;
 
   /** The request of a checkout's branch, open or not. */

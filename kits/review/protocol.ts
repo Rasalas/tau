@@ -232,7 +232,7 @@ export const providerInfo = (service: RequestService): ProviderInfo => PROVIDERS
 /** A request's number as its provider writes it: `#12` on GitHub, `!12` on GitLab. */
 export const requestNumber = (service: RequestService | undefined, number: number | string): string => `${providerInfo(service ?? "github").sign}${number}`;
 
-/** Whether a provider can be used on this machine, for Settings → Review. */
+/** Whether a provider can be used on this machine, for Settings → Source control. */
 export interface SourceProviderStatus {
   service: RequestService;
   name: string;

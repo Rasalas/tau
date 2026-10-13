@@ -68,7 +68,7 @@ Planned work:
 - define compatibility checks for Tau, Pi, and contribution interface versions (done: `engines.tau`, `engines.pi`, `engines.api` against the app version, the bundled Pi and `EXTENSION_API_VERSION`; a miss keeps both halves off with the reason in the Inspector)
 - let one package declare both Pi and desktop entry points (done: `desktop` and `host` entries; a Pi extension entry is still registered from the host half through `registerRuntimeExtension`)
 - add development tooling for applying changes and inspecting extensions (done: `/reload` builds Tau, reloads extensions and restarts when required; Settings → Inspector lists both registries, the package folders, versions, engines, errors and skips)
-- install, update and remove a package without touching the disk by hand (done: `tau.packages` with `/install`, `/remove`, `/update` over `npm:`, `git:` and folder sources, a source list per scope in `packages.json`, and Settings → Packages; ADR 0011)
+- install, update and remove a package without touching the disk by hand (done: `tau.packages` with `/install`, `/remove`, `/update` over `npm:`, `git:` and folder sources, a source list per scope in `packages.json`, and Settings → Extensions; ADR 0011)
 
 Completion check: a separately packaged extension can be installed, enabled, disabled, upgraded, and removed without rebuilding Tau.
 
@@ -142,7 +142,7 @@ The distribution has a name, a version of its own and an `engines.api` pinned to
 the `EXTENSION_API_VERSION` its kits declare; `dist-kits/manifest.json` carries
 all three into the installed runtime, which reads kits only from there. The
 installer also carries a separate source-and-toolchain seed for the managed,
-user-editable Tau source tree; runtime loading still never reads that seed directly. Settings → Packages lists them as bundled under that
+user-editable Tau source tree; runtime loading still never reads that seed directly. Settings → Extensions lists them as bundled under that
 version, above the packages a source installed.
 
 Completion check: the packaged app runs every kit out of its own archive, and

@@ -87,7 +87,7 @@ is free.
 
 ## Settings, notification and hosts
 
-Settings → Review gets the beta switch `review-guides` (off by default, machine
+Settings → Source control gets the beta switch `review-guides` (off by default, machine
 wide), a guide model (`review-guide-model`; empty means the parent thread's
 model) and "Guide instructions" (`review-guide-instructions`, per project). Never
 automatic. When a run ends the host emits `pr-guide-changed`; every window shows

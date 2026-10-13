@@ -110,8 +110,8 @@ version and `engines` from this `package.json` plus the ids it built. The
 version lives in that one index rather than being stamped into each kit's
 `tau-extension.json`, because a kit's `version` is its own — the set moves as a
 set, and a shipped manifest that differs from its source would be one more thing
-to keep true. Settings → Packages reads the index and heads the bundled list
-with it; from a checkout without `dist-kits/` the loader reads this file
+to keep true. Settings → Diagnostics reads the index and shows the version
+with it, and each bundled extension's page names the set; from a checkout without `dist-kits/` the loader reads this file
 instead, so the two agree.
 
 ## Versioning

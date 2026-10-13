@@ -1,12 +1,13 @@
 import { render } from "@testing-library/react";
 import { vi } from "vitest";
 import type { ComponentType } from "react";
-import type { SettingsPageContribution, SettingsPageProps, SettingsSectionContribution, SettingsSectionProps } from "../extension-system";
+import type { ExtensionRegistry, SettingsPageContribution, SettingsPageProps, SettingsSectionContribution, SettingsSectionProps } from "../extension-system";
 import type { TauConfig } from "../../shared/contracts";
 import type { HostClient } from "../../workbench/host-client";
 import { settingPath, withSetting, withoutSetting } from "../../shared/config-layers";
 import { HostClientProvider } from "../host-client-context";
 import { createFakeHostClient } from "./fake-host-client";
+import { WorkbenchShellContext } from "../workbench-context";
 import { TestProviders } from "./test-providers";
 
 /**
@@ -14,8 +15,10 @@ import { TestProviders } from "./test-providers";
  * over a host that holds `host` as this machine's config level, and records
  * what it writes and clears.
  */
-export function renderKitSettingsPage(Contribution: ComponentType<SettingsPageProps> | ComponentType<SettingsSectionProps>, { host = {}, props = {}, client = {} }: {
+export function renderKitSettingsPage(Contribution: ComponentType<SettingsPageProps> | ComponentType<SettingsSectionProps>, { host = {}, props = {}, client = {}, registry }: {
   host?: Partial<TauConfig>;
+  /** The registry whose sections a page draws that other extensions attached to it. */
+  registry?: ExtensionRegistry;
   props?: Partial<SettingsPageProps & SettingsSectionProps>;
   client?: Partial<HostClient>;
 } = {}) {
@@ -40,7 +43,8 @@ export function renderKitSettingsPage(Contribution: ComponentType<SettingsPagePr
     ...client,
   });
   const onNotify = vi.fn();
-  const view = render(<TestProviders><HostClientProvider client={fake}><Page onNotify={onNotify} onChanged={vi.fn()} {...props} /></HostClientProvider></TestProviders>);
+  const page = <Page onNotify={onNotify} onChanged={vi.fn()} {...props} />;
+  const view = render(<TestProviders><HostClientProvider client={fake}>{registry ? <WorkbenchShellContext.Provider value={{ registry }}>{page}</WorkbenchShellContext.Provider> : page}</HostClientProvider></TestProviders>);
   return { ...view, updates, cleared, onNotify, client: fake };
 }
 

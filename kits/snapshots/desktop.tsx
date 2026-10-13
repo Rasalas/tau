@@ -176,6 +176,7 @@ const snapshots: DesktopExtension = {
         type: "error",
         title: "No SnapShot taken",
         description: typeof text === "string" ? text : "The window could not be captured.",
+        // The old page id opens its sections wherever they are drawn now.
         actions: [{ label: "Settings", run: () => actions?.openSettings("snapshots.settings") }],
       });
     });

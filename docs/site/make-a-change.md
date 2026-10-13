@@ -14,11 +14,11 @@ A kit is a folder with a manifest and a module or two. Tau compiles it when it l
 
    It writes a manifest for the extension API your Tau runs, a button in the thread header and a command in the palette (`desktop.tsx`), a command that runs on the host (`host.ts`), a stylesheet, a README, and the types your editor needs (`tsconfig.json` and `.tau-types/`). There is nothing to install.
 
-2. **Install it.** Type `/install ~/tau-kits/my-kit` in the composer. Tau loads the folder where it lies, for every project. With `/install -l`, it loads for the project on screen only, and only in a project Pi trusts; for one it doesn't trust yet, the toast and Settings → Packages offer **Trust this project**.
+2. **Install it.** Type `/install ~/tau-kits/my-kit` in the composer. Tau loads the folder where it lies, for every project. With `/install -l`, it loads for the project on screen only, and only in a project Pi trusts; for one it doesn't trust yet, the toast and Settings → Extensions offer **Trust this project**.
 
 3. **Approve it.** The toast's **Review** opens it in Settings → Extensions. Click **Allow and turn on**. It starts at once.
 
-4. **Edit and save.** The kit reloads by itself and a toast says *Reloaded My kit*. A save that doesn't compile keeps the version that ran: the toast names the file, line and column, and Settings → Packages → *Develop a package* shows every error of the last build.
+4. **Edit and save.** The kit reloads by itself and a toast says *Reloaded My kit*. A save that doesn't compile keeps the version that ran: the toast names the file, line and column, and Settings → Extensions → Advanced → *Develop a package* shows every error of the last build.
 
 A kit can be smaller than that. This one is two files: a manifest,
 

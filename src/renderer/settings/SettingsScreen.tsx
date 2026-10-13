@@ -162,9 +162,11 @@ export function SettingsScreen({
   // A page about a runtime is that runtime's card on Runtimes, not a page of its own; its old id opens the runtime.
   const cards = inRuntimeOrder(contributions.filter((entry) => entry.runtime), (entry) => entry.runtime, snapshot?.runtimeBackends);
   const cardRuntime = cards.find((card) => card.id === parsedPage)?.runtime;
-  // A page an extension gave up for a section of another page (`replaces`) opens that page.
-  const requested = cardRuntime ? runtimePage(cardRuntime) : registry.settingsPageReplacedBy(parsedPage) ?? parsedPage;
   const pages = contributions.filter((entry) => !entry.runtime && !entry.standalone);
+  // A page an extension gave up for a section of another page (`replaces`) opens that page, or the extension's own where that page is not there.
+  const replacing = cardRuntime ? undefined : registry.settingsSectionReplacing(parsedPage);
+  const replacedBy = replacing && (CORE_SECTION_PAGES.includes(replacing.page) || pages.some((entry) => entry.id === replacing.page) ? replacing.page : extensionPage(replacing.extensionId));
+  const requested = cardRuntime ? runtimePage(cardRuntime) : replacedBy ?? parsedPage;
   const contributed = contributions.find((entry) => !entry.runtime && entry.id === requested);
   const isCore = requested in CORE_PAGE_TITLES;
   // An extension's id alone is the older link to its page.

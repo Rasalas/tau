@@ -69,7 +69,7 @@ interface Note {
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 function ownerOnly(call: HostCommandCall | undefined): void {
-  if (!call?.owner) throw new HostCommandError("Only this machine's owner can change push notifications (Settings → Push on the machine itself).");
+  if (!call?.owner) throw new HostCommandError("Only this machine's owner can change push notifications (Settings → Notifications on the machine itself).");
 }
 
 /** The relay's half of a registration; one that does not read is left out, not refused. */

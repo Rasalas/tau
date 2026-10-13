@@ -140,7 +140,7 @@ First set up your APNs key (and for Android your Firebase project) as in
 `docs/mobile-testflight.md`, section 8.
 
 1. [ ] Open the Mac in the app; the phone asks whether Tau may send notifications: **Allow**.
-       Settings → Push on the Mac lists the phone under Devices.
+       Settings → Notifications on the Mac lists the phone under Devices.
 2. [ ] The paper-plane button in that row: a notification "Push notifications reach this
        device." arrives within seconds. If not, the row says why.
 3. [ ] Start a turn from the phone ("Run sleep 240, then reply with one word"), lock the
@@ -151,9 +151,9 @@ First set up your APNs key (and for Android your Firebase project) as in
        shows the question.
 6. [ ] With the Mac's Tau window in front and in use, let a turn end: no notification on
        the phone.
-7. [ ] Settings → Push → Content **Title only**, one more turn: the notification shows the
+7. [ ] Settings → Notifications → Content **Title only**, one more turn: the notification shows the
        title and "Finished", no text of the answer.
-8. [ ] Revoke the phone in Connections: Settings → Push no longer lists it, and no further
+8. [ ] Revoke the phone in Connections: Settings → Notifications no longer lists it, and no further
        notifications arrive.
 
 ## Afterwards

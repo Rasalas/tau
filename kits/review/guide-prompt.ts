@@ -25,7 +25,7 @@ export interface GuidePromptInput {
   headSha: string;
   /** Resolved review conversations, already summarised. */
   settledReview: string;
-  /** The user's taste for guides (Settings → Review). */
+  /** The user's taste for guides (Settings → Source control). */
   instructions: string;
   stack?: { position: number; size: number };
 }

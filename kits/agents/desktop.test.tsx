@@ -273,7 +273,7 @@ describe("agents on another machine", () => {
     expect(seen).toHaveBeenCalled();
   });
 
-  it("says in Settings → Agents where sub-agents go and how many run there", () => {
+  it("says in Settings → Threads where sub-agents go and how many run there", () => {
     const rex = { id: "rex-id", name: "rex", status: "connected" as const, budget: 2 };
     expect(machineChoiceText("local", [rex])).toMatch(/this machine/u);
     expect(machineChoiceText("rex-id", [rex])).toBe("Sub-agents run on rex, 2 at a time (its cores); the rest wait. Their work comes back here as a branch.");

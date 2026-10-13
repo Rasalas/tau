@@ -2507,10 +2507,15 @@ export class ExtensionRegistry {
     return page === undefined ? sections : sections.filter((section) => section.page === page);
   }
 
+  /** The section that took over the page `pageId` (its `replaces`), when no page of that id is registered. */
+  settingsSectionReplacing(pageId: string): Owned<SettingsSectionContribution> | undefined {
+    if (this.settingsPages.has(pageId)) return undefined;
+    return this.sorted("settings-sections", this.settingsSections).find((section) => section.replaces?.includes(pageId));
+  }
+
   /** The page a section took over `pageId` for (its `replaces`), when no page of that id is registered. */
   settingsPageReplacedBy(pageId: string): SettingsSectionPage | undefined {
-    if (this.settingsPages.has(pageId)) return undefined;
-    return this.sorted("settings-sections", this.settingsSections).find((section) => section.replaces?.includes(pageId))?.page;
+    return this.settingsSectionReplacing(pageId)?.page;
   }
 
   /** Every extension's row states by thread id; the same object until one changes. */

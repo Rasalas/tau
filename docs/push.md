@@ -7,7 +7,7 @@ decides when; this page is about how a notification gets to the phone.
 "Away" works as on Discord. While you use Tau anywhere (a key, a click or a touch in a
 window or the app within the last minutes), Tau tells you there and the phone stays quiet.
 News you have not seen by the time you have been away for that long (5 minutes unless
-Settings → Push → **When your phone hears** says otherwise) goes to the phone. News you saw
+Settings → Notifications → **When your phone hears** says otherwise) goes to the phone. News you saw
 in the meantime is dropped. A window that only has focus but has not been used counts as
 away, and so does a window you left for another app.
 
@@ -18,9 +18,9 @@ them, and never should. So there are two routes, chosen per platform:
 | Route | When | Who reads the text |
 |---|---|---|
 | **Tau's relay** | The default: no key of your own is saved for that platform. | Only your phone and your machine. Your machine encrypts title and text with a key your phone made for it; nobody on the way can read them. |
-| **Your own keys** | You saved an APNs key (iPhone) or a Firebase service account (Android) in Settings → Push. | Apple or Google, as with any push. Your machine sends directly; the relay carries none of its pushes. |
+| **Your own keys** | You saved an APNs key (iPhone) or a Firebase service account (Android) in Settings → Notifications. | Apple or Google, as with any push. Your machine sends directly; the relay carries none of its pushes. |
 
-Settings → Push shows under **How pushes travel** which route each platform takes, and
+Settings → Notifications shows under **How pushes travel** which route each platform takes, and
 each device row says `relay`, `APNs` or `FCM`.
 
 ## What the relay sees
@@ -149,13 +149,13 @@ A new layout gets a new version number; readers refuse versions they do not know
 ## Your own keys (self-hosting)
 
 With keys of your own, your machine sends to Apple and Google itself and the relay
-carries none of its pushes: Settings → Push → iPhone (APNs key, Key ID, Team ID) or
+carries none of its pushes: Settings → Notifications → Advanced → iPhone (APNs key, Key ID, Team ID) or
 Android (Firebase service account). The steps are in [mobile-testflight.md](mobile-testflight.md#8-push-notifications).
 The phone still registers with the relay for this machine's handle, as it does for
 every machine, so the relay sees its token and address then. This is also the way for
 your own build of the app under another bundle id. The keys are kept in
 `kit-state/tau.push/keys.json` (mode 0600). A saved key that no longer reads shows as an
-error in Settings → Push, and that platform's phones get no pushes until you replace or
+error in Settings → Notifications, and that platform's phones get no pushes until you replace or
 remove it; Tau does not switch them to the relay. Removing a key switches that platform
 back to the relay.
 
@@ -244,7 +244,7 @@ Project `tau-push-e3c95`, number `712111328256`. Replace the placeholders in ang
    The deploy job stops with an error that names any variable left out.
 
 After the first deploy, `curl -si -X POST <base URL>/register -d '{}'` should answer
-`400`. A test push from Settings → Push on a machine without keys of its own should
+`400`. A test push from Settings → Notifications on a machine without keys of its own should
 reach the phone.
 
 A domain of our own (`push.tbuck.de`) would need a Firebase Hosting rewrite or a Cloud

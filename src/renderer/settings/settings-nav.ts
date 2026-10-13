@@ -62,13 +62,13 @@ export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
 
 /** What a core page governs, in one sentence under its title; the search finds it too. */
 export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> = {
-  general: "How the composer and the transcript behave, and how Tau quits.",
+  general: "How the composer and the transcript behave, how Tau quits and what it shares about its use.",
   keybindings: "Shortcuts follow the layer you are in: the app, the conversation, the stage. Conflicts are shown as you type.",
   runtimes: "A runtime is the program that runs a thread, with its own sign-in, models and tools. The star marks where a new thread starts; the composer can still pick another per thread.",
-  threads: "Where a new thread starts, and how a thread behaves while it runs and after a restart.",
+  threads: "Where a new thread starts, how the thread list settles and sorts, what asks first, how a thread behaves while it runs and when a long one is compacted.",
   connections: "Devices that talk to this machine directly, and the tools threads hand off to. Pairing uses a code you compare on both sides.",
   extensions: "Everything that adds to Tau, bundled or installed. Turn one on or off, approve what it asks for, or open its page.",
-  inspector: "Every extension both halves know and the package folders on disk, to find out why something did not load.",
+  inspector: "What this window and its machine are doing now, every extension both halves know and the package folders on disk, to find out why something did not load.",
   about: "The version of Tau on this machine, its updates and the licences of the software it ships.",
 };
 

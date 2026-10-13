@@ -135,7 +135,7 @@ iPhone and to Google for Android itself.
 3. **Download** the `.p8` file. Apple lets you download it once; keep it somewhere safe.
    Note the **Key ID** on that page (10 characters).
 4. Your **Team ID** is under **Membership details** (10 characters).
-5. On the Mac, in Tau: **Settings → Push** → "iPhone: Apple Push Notification service":
+5. On the Mac, in Tau: **Settings → Notifications** → "iPhone: Apple Push Notification service":
    **Key ID**, **Team ID**, and the key (**Choose .p8 file…**, or paste its text) →
    **Save key**. Tau checks that the key reads and never shows it again.
 
@@ -154,14 +154,14 @@ first and remembers which one a phone's token works with.
 3. **Project settings → Cloud Messaging**: "Firebase Cloud Messaging API (V1)" must say
    Enabled (it is, for a new project).
 4. **Project settings → Service accounts** → **Generate new private key** → a JSON file.
-5. On the Mac: **Settings → Push** → "Android: Firebase Cloud Messaging" → **Choose JSON
+5. On the Mac: **Settings → Notifications** → "Android: Firebase Cloud Messaging" → **Choose JSON
    file…** → **Save service account**.
 
 ### Then
 
 1. Open the Mac in the app on your phone. The first time, the phone asks whether Tau may
    send notifications: **Allow**.
-2. **Settings → Push → Devices** on the Mac lists the phone. The paper-plane button sends
+2. **Settings → Notifications → Phones** on the Mac lists the phone. The paper-plane button sends
    a test push; the row says when the last one went, or why it failed.
 3. **Content**: "Title and excerpt" (the thread's title and the first line of the agent's
    last message; the reason for "your turn", the question for a question) or "Title
@@ -170,10 +170,10 @@ first and remembers which one a phone's token works with.
 4. Tapping a notification opens its thread in the app.
 
 The keys live in Tau's user data folder, under `kit-state/tau.push/keys.json` (on macOS
-`~/Library/Application Support/tau/…`; Settings → Push names the path), a file only your
+`~/Library/Application Support/tau/…`; Settings → Notifications names the path), a file only your
 user account may read. They are not
 encrypted: the host runs without a window, often as a background service, where no
-keychain is at hand. Remove them in Settings → Push when you stop using push. Revoking a
+keychain is at hand. Remove them in Settings → Notifications when you stop using push. Revoking a
 phone in Settings → Connections also stops its pushes.
 
 Pushes stay quiet while you are at Tau: when a Tau window (or the app) has focus and
@@ -199,7 +199,7 @@ was used in the last three minutes, the notification appears there instead.
   rejects: out of date, for another name, or from something on the network in between,
   such as a hotel Wi-Fi login page. Try another network; `tailscale serve status` on the
   Mac shows whether Serve is still on.
-- **No push arrives**: Settings → Push → Devices on the Mac shows why the last one
+- **No push arrives**: Settings → Notifications → Phones on the Mac shows why the last one
   failed. `InvalidProviderToken`: the Key ID or Team ID does not match the key.
   `DeviceTokenNotForTopic` or `TopicDisallowed`: the key's team is not the one that signed
   the app. `BadDeviceToken` / `Unregistered`: the phone's token is gone; open the Mac in

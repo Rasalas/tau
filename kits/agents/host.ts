@@ -1674,7 +1674,7 @@ export function createAgentsHostExtension(options: {
           const report = await definitionReader.read(thread?.cwd ?? services.cwd());
           return { directory: report.directory, definitions: report.definitions.map(summarize), problems: report.problems };
         }, { access: "read" }),
-        // Settings → Agents: where sub-agents may run, and how many at once on each.
+        // Settings → Threads: where sub-agents may run, and how many at once on each.
         context.registerCommand("machines", (): AgentMachinesView => {
           const machines = services.machines;
           if (!machines) return { available: false, machines: [] };
