@@ -11,9 +11,9 @@ const EXTERNAL = /^https?:\/\//iu;
 
 /** Media is a result the user can inspect, independent of the tool log disclosure. */
 export function ToolMedia({ tool }: { tool: UiToolRun }) {
-  // A remote video is not a gallery entry: it waits behind its own click in `WorkspaceVideo`.
+  // Remote media is not a gallery entry: it waits behind its own click in `WorkspaceImage` or `WorkspaceVideo`.
   const gallery = tool.media?.flatMap((media, index) => {
-    const safe = media.type === "image" ? EXTERNAL.test(media.url) || IMAGE.test(media.url) : media.type === "video" && DATA_VIDEO.test(media.url);
+    const safe = media.type === "image" ? IMAGE.test(media.url) : media.type === "video" && DATA_VIDEO.test(media.url);
     return safe && (media.type === "image" || media.type === "video") ? [{ key: `${tool.id}:${index}`, kind: media.type, src: media.url, alt: media.type === "image" ? "Tool result image" : "Tool result video" }] : [];
   }) ?? [];
   return <><MessageImageGallery origin="from a tool result" images={gallery} />{tool.media?.map((media, index) => {

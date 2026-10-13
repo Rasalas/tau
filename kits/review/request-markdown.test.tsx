@@ -84,11 +84,29 @@ describe("request Markdown media", () => {
     expect(container.querySelector("video")?.controls).toBe(true);
     expect(client.media).toHaveBeenCalledWith(github.url, src);
   });
-  it("never authenticates ordinary web images or unsafe HTML", () => {
+  it("never authenticates ordinary web images or unsafe HTML, and loads an image only after a click", () => {
     const client = { media: vi.fn(async () => result()) };
-    const { container } = render(draw('![public](https://example.com/a.png)\n\n<video src="javascript:alert(1)"></video><img src="file:///secret"><script>alert(1)</script>', client));
+    const { container, getByRole } = render(draw('![public](https://example.com/a.png)\n\n<video src="javascript:alert(1)"></video><img src="file:///secret"><script>alert(1)</script>', client));
+    expect(container.querySelector("img")).toBeNull();
+    const placeholder = getByRole("button", { name: "Load image from example.com" });
+    expect(placeholder.className).toBe("md-remote-image");
+    expect(placeholder.textContent).toBe("public · Load image from example.com");
+    fireEvent.click(placeholder);
     expect(container.querySelector("img")?.getAttribute("src")).toBe("https://example.com/a.png");
     expect(container.querySelector("video")).toBeNull(); expect(container.querySelector("script")).toBeNull();
+    expect(client.media).not.toHaveBeenCalled();
+  });
+  it("asks again when an image's address changes and keeps its dimensions after the click", () => {
+    const client = { media: vi.fn(async () => result()) };
+    const draw1 = (query: string) => draw(`<img src="https://example.com/a.png?d=${query}" width="20" height="30">`, client);
+    const { container, getByRole, rerender } = render(draw1("first"));
+    fireEvent.click(getByRole("button", { name: "Load image from example.com" }));
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("https://example.com/a.png?d=first");
+    expect(container.querySelector("img")?.width).toBe(20); expect(container.querySelector("img")?.height).toBe(30);
+    rerender(draw1("next"));
+    expect(container.querySelector("img")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Load image from example.com" }));
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("https://example.com/a.png?d=next");
     expect(client.media).not.toHaveBeenCalled();
   });
   it("holds a video from another server behind a click for exactly that address", () => {

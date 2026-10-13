@@ -51,10 +51,10 @@ export function RequestMediaProvider({ client, request, children }: { client: Pi
 }
 
 /** Same placeholder as the transcript's remote media (`.md-remote-image`). */
-function RemoteVideoButton({ src, alt, onLoad }: { src: string; alt?: string | undefined; onLoad(): void }) {
+function RemoteMediaButton({ kind, src, alt, onLoad }: { kind: "image" | "video"; src: string; alt?: string | undefined; onLoad(): void }) {
   let host: string;
-  try { host = new URL(src).host; } catch { return <span role="status">The video URL is invalid.</span>; }
-  return <button type="button" className="md-remote-image" aria-label={`Load video from ${host}`} onClick={() => onLoad()}>{alt ? `${alt} · ` : ""}Load video from {host}</button>;
+  try { host = new URL(src).host; } catch { return <span role="status">The {kind} URL is invalid.</span>; }
+  return <button type="button" className="md-remote-image" aria-label={`Load ${kind} from ${host}`} onClick={() => onLoad()}>{alt ? `${alt} · ` : ""}Load {kind} from {host}</button>;
 }
 
 function RequestMedia({ src = "", alt = "", title, width, height, video = false }: { src?: string; alt?: string; title?: string; width?: string | number; height?: string | number; video?: boolean }) {
@@ -78,9 +78,8 @@ function RequestMedia({ src = "", alt = "", title, width, height, video = false 
   const current = result && result.scope === scope && result.src === src ? result : undefined;
   const external = /^https?:\/\//iu.test(src);
   const isVideo = video || current?.video || requestMediaType(known?.kind === "gitlab" ? known.fileName : src)?.startsWith("video/");
-  // A video from another server loads only after a click for exactly this address.
-  const remoteVideo = Boolean(isVideo && !known && external);
-  const waiting = remoteVideo && approved !== src;
+  // Media from another server loads only after a click for exactly this address.
+  const waiting = !known && external && approved !== src;
   const url = current?.url ?? (!known && external && !waiting ? src : undefined);
   useEffect(() => {
     const videoElement = player.current;
@@ -88,7 +87,7 @@ function RequestMedia({ src = "", alt = "", title, width, height, video = false 
   }, [url, isVideo]);
   const failure = () => { if (scope) setResult({ scope, src, ...(fallback && url !== fallback ? { url: fallback } : { error: "Upload could not be displayed." }) }); };
   const retry = () => { setResult(undefined); setAttempt((value) => value + 1); };
-  if (waiting) return <span className="pr-markdown-media"><RemoteVideoButton src={src} alt={alt || title} onLoad={() => setApproved(src)} /></span>;
+  if (waiting) return <span className="pr-markdown-media"><RemoteMediaButton kind={isVideo ? "video" : "image"} src={src} alt={alt || title} onLoad={() => setApproved(src)} /></span>;
   return <span className="pr-markdown-media">
     {url && !current?.error ? isVideo
       ? <video key={url} ref={player} src={url} controls preload="metadata" aria-label={alt || "Uploaded video"} title={title} onError={failure} />

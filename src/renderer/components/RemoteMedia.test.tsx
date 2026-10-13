@@ -13,6 +13,7 @@ afterEach(cleanup);
 
 const dataVideo = "data:video/mp4;base64,AAAA";
 const dataAudio = "data:audio/wav;base64,AAAA";
+const dataImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 
 function fixture() {
   const release = vi.fn();
@@ -113,6 +114,35 @@ describe("remote video from Markdown", () => {
 });
 
 describe("remote media in a tool result", () => {
+  it("holds a remote image behind a click and keeps it out of the gallery", () => {
+    const src = "https://example.com/shot.png?d=secret";
+    const { container, getByRole, queryByRole } = render(<ToolMedia tool={tool([{ type: "image", url: src }])} />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(queryByRole("button", { name: "Open image 1" })).toBeNull();
+    const placeholder = getByRole("button", { name: "Load image from example.com" });
+    expect(placeholder.className).toBe("md-remote-image");
+    fireEvent.click(placeholder);
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(src);
+  });
+
+  it("asks again for another image address", () => {
+    const { container, getByRole, rerender } = render(<ToolMedia tool={tool([{ type: "image", url: "https://example.com/a.png" }])} />);
+    fireEvent.click(getByRole("button", { name: "Load image from example.com" }));
+    rerender(<ToolMedia tool={tool([{ type: "image", url: "https://example.com/b.png" }])} />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(getByRole("button", { name: "Load image from example.com" })).toBeTruthy();
+  });
+
+  it("shows a data image in the gallery at once, beside a blocked remote one", () => {
+    const { container, getByRole, queryByRole } = render(<ToolMedia tool={tool([{ type: "image", url: dataImage }, { type: "image", url: "https://example.com/b.png" }])} />);
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(dataImage);
+    expect(getByRole("button", { name: "Open image 1" })).toBeTruthy();
+    expect(queryByRole("button", { name: "Open image 2" })).toBeNull();
+    expect(getByRole("button", { name: "Load image from example.com" })).toBeTruthy();
+  });
+
   it("holds a remote video behind a click and keeps it out of the gallery", () => {
     const { container, getByRole, queryByRole } = render(<ToolMedia tool={tool([{ type: "video", url: "https://example.com/clip.mp4" }])} />);
     expect(container.querySelector("video")).toBeNull();
