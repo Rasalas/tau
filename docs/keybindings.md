@@ -83,6 +83,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+shift+t` | `!terminalFocus` | `workbench.reopen-stage-tab` | Reopen the tab closed last on this thread's stage | core |
 | `mod+,` | | `runtime.settings` | Settings | core |
 | `mod+i` | | `runtime.instructions` | System prompt and instructions | core |
+| `mod+f` | `!terminalFocus && !previewFocus && !editorFocus && !overlayOpen` | `thread.find` | Find in the thread, from the composer too | core |
 | `escape` | `chatFocus` | `runtime.abort` | Stop the run | core |
 | `mod+shift+enter` | `!terminalFocus` | `thread.steerQueuedMessage` | Send the oldest queued message now | core |
 | `mod+shift+e` | `!terminalFocus` | `composer.effort` | Reasoning menu | core |
@@ -147,6 +148,12 @@ enclosing syntax node, `mod+[` / `mod+]` indent, and the fold chords are
 still saves, Escape closes the search or drops extra cursors and never stops
 the run, and chords the editor does not use (`mod+k`, `mod+w`, `mod+p`, …)
 reach the workbench as usual.
+
+`mod+f` opens the find bar over the transcript wherever the keyboard is except
+in a terminal, the preview, Files Kit's editor (CodeMirror's search) and under
+an open overlay, which have a find or a keyboard of their own; a second press
+moves the keyboard back into the bar. `/` does the same with the keyboard in
+the transcript itself. It is `thread.find`, so the page can rebind it.
 
 Inside Settings, `mod+f` and `/` focus the settings search (`mod+f` also from
 another field, never from a chord recorder), and Escape clears it first.

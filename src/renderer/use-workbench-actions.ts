@@ -24,7 +24,7 @@ import { offeringKey } from "./components/model-offerings";
 import type { NewThreadController } from "../workbench/new-thread-controller";
 import type { AppPageStore } from "../workbench/app-page-store";
 import { withAppPages } from "./app-page-actions";
-import { requestReveal } from "./components/transcript-reveal";
+import { requestFind, requestReveal } from "./components/transcript-reveal";
 import { actionableStageTab } from "./workspace-resource-navigation";
 import type { StageTab } from "../workbench/stage";
 
@@ -213,6 +213,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       // Keep this action independent of its internal CSS and virtualizer rows.
       focusTranscript: () => { options.transcriptRef.current?.focus(); },
       revealMessage: (messageId) => requestReveal(options.transcriptRef.current, messageId),
+      findInThread: () => requestFind(options.transcriptRef.current),
       focusStage,
       toggleDock: () => { options.setDockOpen((open) => !open); },
       ...(toggleSidebar ? { toggleSidebar } : {}),

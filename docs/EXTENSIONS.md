@@ -893,6 +893,13 @@ flashes) and false when the thread has no such message. Prompt Tools' "Cite"
 records the cited reply's id in the excerpt chip (`messageId`), and the sent
 excerpt's "Go to source" calls it.
 
+`actions.findInThread?.()` (API 1.61.0) opens the find bar over the transcript of
+the thread on screen, or moves the keyboard back into it when it is open. Core's
+command `thread.find` ("Find in thread", `mod+f` outside a terminal, the preview,
+the Files editor and an open overlay) calls it, so a package can run it by
+`executeCommand` or rebind the chord. Nothing happens without a transcript on
+screen.
+
 #### The thread's interaction mode (new in API 1.11.0)
 
 A thread's turns run in a mode: `default`, or one its runtime adds — `plan`

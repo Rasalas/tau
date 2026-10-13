@@ -106,6 +106,11 @@ export interface WorkbenchActions {
    * older turns first when it is not among them. False when the thread has no such message.
    */
   revealMessage?(messageId: string): Promise<boolean>;
+  /**
+   * Opens the find bar over the transcript of the thread on screen, or takes the keyboard back
+   * into it when it is open; nothing happens without a transcript (API 1.61.0).
+   */
+  findInThread?(): void;
   focusStage(): void;
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
