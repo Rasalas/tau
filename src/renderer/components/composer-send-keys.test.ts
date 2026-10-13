@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
+import { composerEnter, sendBlockReason, sendHint, sendShortcutFor } from "./composer-send-keys";
 
 const enter = (overrides: Partial<Parameters<typeof composerEnter>[0]> = {}) =>
   composerEnter({ shift: false, mod: false, shortcut: "enter", text: "hi", streaming: false, base: "followUp", ...overrides });
@@ -53,5 +53,21 @@ describe("composer send keys", () => {
     expect(sendShortcutFor(undefined, { touch: false, onScreen: false })).toBe("enter");
     // A desktop has no on-screen keyboard to yield to, whatever the attribute says.
     expect(sendShortcutFor("mod-enter", { touch: false, onScreen: true })).toBe("mod-enter");
+  });
+});
+
+describe("sendBlockReason", () => {
+  const idle = { held: false, dictating: false, asking: false, sending: false };
+
+  it("has no reason for a send that can go", () => {
+    expect(sendBlockReason(idle)).toBeUndefined();
+  });
+
+  it("names the first thing in the way, the workspace before the rest", () => {
+    expect(sendBlockReason({ ...idle, held: true, sending: true })).toMatch(/^A workspace change is under way/u);
+    expect(sendBlockReason({ ...idle, dictating: true, sending: true })).toBe("Dictation is on. Stop it to send.");
+    expect(sendBlockReason({ ...idle, asking: true })).toMatch(/^The agent is asking something/u);
+    expect(sendBlockReason({ ...idle, busyLabel: "Compacting…", sending: true })).toBe("Compacting…");
+    expect(sendBlockReason({ ...idle, sending: true })).toBe("Still sending the previous message.");
   });
 });

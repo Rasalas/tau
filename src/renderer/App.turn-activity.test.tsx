@@ -496,6 +496,10 @@ describe("last-turn activity", () => {
     expect(view.container.querySelector(".transcript .queued-message")?.textContent).toContain("after this turn");
     expect(view.container.querySelector(".transcript .message.user")).toBeNull();
 
+    // "1 queued" in the footer takes the keyboard to the queue.
+    fireEvent.click(screen.getByRole("button", { name: "1 queued" }));
+    expect(view.container.querySelector(".transcript .queued-messages")?.contains(document.activeElement)).toBe(true);
+
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
     queue.deliverHead();
     await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());

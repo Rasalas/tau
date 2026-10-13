@@ -3,7 +3,7 @@ import { useCompactForm } from "../use-layout-profile";
 
 import { useClientEnvironment } from "../client-environment";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowUp, ChevronDown, Lock, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
+import { ArrowUp, ChevronDown, CornerUpRight, ListPlus, Lock, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -66,7 +66,7 @@ import {
 import type { ChipLayerApi } from "./ComposerChipLayer";
 import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterControls";
-import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
+import { composerEnter, sendBlockReason, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
 import { isImeComposing } from "../keybindings";
@@ -140,6 +140,7 @@ export function Composer({
   onAbort,
   onCancelQueued,
   onSteerQueued,
+  onOpenQueue,
   onSetModel,
   onSetThinking,
   runtimeChoice,
@@ -180,6 +181,8 @@ export function Composer({
   onCancelQueued(id: string): void;
   /** Sends one queued message now, ahead of the rest of the queue. */
   onSteerQueued(id: string): void;
+  /** Brings the queued messages into view; "N queued" in the footer is a button when this is given. */
+  onOpenQueue?(): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
   /** Offered while the composer targets a thread that does not exist yet. */
@@ -718,9 +721,28 @@ export function Composer({
   // A question that takes typed text takes the files waiting in the composer with it.
   const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean, plain?: boolean) => void>(() => {});
+  const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
+  // Why sending is held now: the button's tooltip says it, and a key pressed anyway gets it as a notice.
+  const sendReason = sendBlockReason({
+    held,
+    dictating,
+    asking: arrival.waiting,
+    busyLabel: sendModeBusyHere?.label,
+    // An answer never waits for a prompt in flight: the prompt that asked may be the one still running.
+    sending: activeScopeSnapshot.submissionPending && !answerable,
+  });
+  const explainBlocked = useCallback((reason: string) => {
+    const actions = shellContext?.actions;
+    // One id: a key held down replaces the notice instead of stacking them.
+    if (actions?.toast) actions.toast({ id: "composer.send-blocked", title: reason });
+    else onNotify?.(reason);
+  }, [onNotify, shellContext?.actions]);
   // `plain` sends as usual, past a kit's send mode.
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false, plain = false) => {
-    if (held || arrival.waiting || dictating || sendModeBusyHere) return;
+    if (sendReason) {
+      if (hasDraft) explainBlocked(sendReason);
+      return;
+    }
     // An answer's chips go along as its files; its text is the user's own words.
     const intent = classifyComposerInput({
       text: plainChipText(text, Boolean(answerable)),
@@ -730,8 +752,6 @@ export function Composer({
       shellActionAvailable: onRunShellAction !== undefined,
       delivery,
     });
-    // An answer never waits for a prompt in flight: the prompt that asked may be the one still running.
-    if (activeScopeSnapshot.submissionPending && intent.kind !== "prompt-answer" && intent.kind !== "prompt-action") return;
     switch (intent.kind) {
       case "noop":
         return;
@@ -789,12 +809,11 @@ export function Composer({
       }
     }
   }, [
-    activeScopeSnapshot.submissionPending,
     answerHasFiles,
     answerWithDraft,
     answerable,
-    arrival.waiting,
-    held,
+    explainBlocked,
+    hasDraft,
     onAnswerPrompt,
     onNotify,
     onSubmit,
@@ -804,10 +823,9 @@ export function Composer({
     passGates,
     promptSubmit,
     recordPrompt,
-    dictating,
     runtimeChoice?.kind,
     sendMode,
-    sendModeBusyHere,
+    sendReason,
     shellContext?.actions,
     attachmentScope,
     snapshot,
@@ -844,7 +862,6 @@ export function Composer({
   // A touch screen's send button names no chord; which keyboard types decides what Enter does, when it is pressed.
   const [touchKeyboard] = useState(primaryPointerIsTouch);
   const streamingBase = registry?.streamingDelivery() ?? "followUp";
-  const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
   const inlineKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const { key, shiftKey, altKey, metaKey, ctrlKey, currentTarget } = event;
     const keyEvent = { key, shiftKey, altKey, metaKey, ctrlKey, text, selectionStart: currentTarget.selectionStart, selectionEnd: currentTarget.selectionEnd };
@@ -932,7 +949,9 @@ export function Composer({
         onSelect={onCompactContext}
       />,
     }] : []),
-    ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: <span className="composer-queued">{queue.length} queued</span> }] : []),
+    ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: onOpenQueue
+      ? <button type="button" className="composer-queued" {...tooltipProps("Show the queued messages")} onClick={onOpenQueue}>{queue.length} queued</button>
+      : <span className="composer-queued">{queue.length} queued</span> }] : []),
   ];
 
   const attachmentControl = (
@@ -1296,13 +1315,13 @@ export function Composer({
             if (answerable || !(sendMode || sendModeBusyHere)) return null;
             const Icon = sendModeBusyHere?.Icon ?? sendMode?.Icon;
             const label = sendModeBusyHere?.label ?? sendMode?.label ?? "";
-            const blocked = held || dictating || arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft;
+            const blocked = Boolean(sendReason) || !hasDraft;
             const options = sendModeBusyHere ? [] : sendMode?.options ?? [];
             return (
               <div ref={sendOptionsAnchor} className={`send-split${options.length > 0 ? " with-options" : ""}`}>
                 <button
                   className="send-button send-mode"
-                  {...tooltipProps(sendMode?.title ?? label)}
+                  {...tooltipProps(sendReason ?? sendMode?.title ?? label)}
                   aria-busy={Boolean(sendModeBusyHere) || activeScopeSnapshot.submissionPending}
                   disabled={blocked || Boolean(sendModeBusyHere)}
                   onClick={() => submitCurrent()}
@@ -1316,7 +1335,7 @@ export function Composer({
                     aria-label="Send options"
                     aria-haspopup="menu"
                     aria-expanded={sendOptionsOpen}
-                    {...tooltipProps("Send options")}
+                    {...tooltipProps(sendReason ?? "Send options")}
                     disabled={blocked}
                     onClick={() => setSendOptionsOpen((open) => !open)}
                   >
@@ -1333,10 +1352,13 @@ export function Composer({
             const { label, hint } = answerable
               ? { label: typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer", hint: undefined }
               : sendHint(prefSnapshot.sendShortcut ?? "enter", streaming, streamingBase, touchKeyboard);
+            const unanswered = answerable && !typedAnswer && (promptSubmit?.disabled ?? true);
+            // Sending, queueing and steering look different: a ring while the message goes out, a list for the queue, a turn for a steer.
+            const SendIcon = !streaming || answerable ? ArrowUp : streamingBase === "steer" ? CornerUpRight : ListPlus;
             return (
               <button
                 className="send-button"
-                {...tooltipProps(hint ?? label)}
+                {...tooltipProps(sendReason ?? (unanswered ? "Pick an answer, or type one." : undefined) ?? hint ?? label)}
                 aria-label={label}
                 aria-busy={activeScopeSnapshot.submissionPending}
                 disabled={held || dictating || (answerable
@@ -1347,7 +1369,9 @@ export function Composer({
                   else submitCurrent(streaming && !answerable ? streamingBase : undefined);
                 }}
               >
-                <ArrowUp size={16} />
+                {activeScopeSnapshot.submissionPending && !answerable
+                  ? <span className="spinner spinner-sm tone-current" aria-hidden="true" />
+                  : <SendIcon size={16} aria-hidden="true" />}
               </button>
             );
           })()}

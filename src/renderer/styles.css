@@ -1510,6 +1510,8 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 }
 .context-dial > i { width: 10px; height: 10px; border-radius: 50%; background: var(--field); }
 .composer-queued { padding-right: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+button.composer-queued { border: 0; background: none; font-family: inherit; cursor: pointer; }
+button.composer-queued:hover { color: var(--ink); text-decoration: underline; }
 .context-popover {
   position: absolute; bottom: 28px; right: -52px; width: 252px; z-index: 30;
   display: flex; flex-direction: column; gap: 10px;
