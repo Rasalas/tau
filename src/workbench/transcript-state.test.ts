@@ -1,10 +1,39 @@
 import { describe, expect, it } from "vitest";
 import type { UiMessage } from "../shared/contracts";
-import { collapseRetriedErrors } from "./transcript-state";
+import { appendMessage, appendMessageDelta, collapseRetriedErrors, EMPTY_TRANSCRIPT, removeMessage, replaceMessage, replaceTranscript } from "./transcript-state";
 
 const user = (id: string): UiMessage => ({ id, role: "user", text: "go", timestamp: 0 });
 const failed = (id: string, error: string, timestamp = 1): UiMessage => ({ id, role: "assistant", text: "", error, timestamp });
 const answer = (id: string, text = "ok"): UiMessage => ({ id, role: "assistant", text, timestamp: 9 });
+
+describe("activity revision", () => {
+  it("ignores text and thinking growth after the first visible answer", () => {
+    const initial = replaceTranscript(EMPTY_TRANSCRIPT, [user("u"), answer("a", " \n")]);
+    const thinking = appendMessageDelta(initial, "a", "thinking", "reasoning");
+    expect(thinking.activityRevision).toBe(initial.activityRevision);
+    const visible = appendMessageDelta(thinking, "a", "text", "Answer");
+    expect(visible.activityRevision).toBe(initial.activityRevision + 1);
+    const longer = appendMessageDelta(visible, "a", "text", " grows");
+    expect(longer.messages).not.toBe(visible.messages);
+    expect(longer.activityRevision).toBe(visible.activityRevision);
+    expect(longer.revision).toBeGreaterThan(visible.revision);
+  });
+
+  it.each<Partial<UiMessage>>([
+    { id: "new-id" }, { role: "user" }, { timestamp: 10 }, { sourceEntryId: "entry" }, { text: " \n" },
+  ])("invalidates placement for changed message fields %j", (fields) => {
+    const initial = replaceTranscript(EMPTY_TRANSCRIPT, [answer("a")]);
+    expect(replaceMessage(initial, "a", { ...answer("a"), ...fields }).activityRevision).toBe(initial.activityRevision + 1);
+  });
+
+  it("invalidates placement when rows arrive, disappear or history is replaced", () => {
+    const initial = replaceTranscript(EMPTY_TRANSCRIPT, [user("u")]);
+    const appended = appendMessage(initial, answer("a"));
+    expect(appended.activityRevision).toBe(initial.activityRevision + 1);
+    expect(removeMessage(appended, "a").activityRevision).toBe(appended.activityRevision + 1);
+    expect(replaceTranscript(appended, [user("older"), ...appended.messages]).activityRevision).toBe(appended.activityRevision + 1);
+  });
+});
 
 describe("collapseRetriedErrors", () => {
   it("makes a run of failed answers one row that counts the retries and keeps the newest reason", () => {

@@ -76,6 +76,7 @@
     "markdown-plain-stream-150kb",
     "tool-output-1mb",
     "transcript-1000-turns",
+    "transcript-activity-stream-2000-turns",
     "diff-2mb",
     "thread-shells-10000",
     "workspace-files-10000",

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import type { ExtensionUiPrompt, HostSnapshot, UiMessage, UiToolOutputPreview, UiToolRun } from "../shared/contracts";
-import { answerTimestampAfter, type TranscriptDetail } from "../workbench/transcript-folding";
+import type { ExtensionUiPrompt, HostSnapshot, UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../shared/contracts";
+import type { TranscriptDetail } from "../workbench/transcript-folding";
+import { ActivityMessageIndex, type ActivitySegment } from "../workbench/activity-message-index";
 import { TaskProgress } from "./components/TaskProgress";
 import { WorkGroup } from "./components/WorkRows";
 import { WorkDisclosures } from "./components/work-disclosures";
@@ -58,28 +59,39 @@ export function useConversationActivities(input: ConversationActivityInput) {
   const conversationActivityHistory = pendingNewThread
     ? NO_HISTORY
     : (turnActivityHistory.length > 0 ? turnActivityHistory : conversationSnapshot?.turnActivityHistory ?? NO_HISTORY);
-  const currentActivityToolIds = new Set(conversationActivityTools.map((tool) => tool.id));
-  const currentActivityHistoryId = conversationActivityTools.length > 0
-    ? [...conversationActivityHistory].reverse().find((entry) => (
-      (toolAnchorId !== undefined && entry.anchorMessageId === toolAnchorId)
-      || entry.tools.some((tool) => currentActivityToolIds.has(tool.id))
-    ))?.id
-    : undefined;
-  const messages = useSyncExternalStore(viewStore.subscribeToTranscript, viewStore.getTranscript).messages;
+  const currentActivityHistoryId = useMemo(() => {
+    if (conversationActivityTools.length === 0) return undefined;
+    const ids = new Set(conversationActivityTools.map((tool) => tool.id));
+    for (let index = conversationActivityHistory.length - 1; index >= 0; index -= 1) {
+      const entry = conversationActivityHistory[index];
+      if ((toolAnchorId !== undefined && entry.anchorMessageId === toolAnchorId)
+        || entry.tools.some((tool) => ids.has(tool.id))) return entry.id;
+    }
+    return undefined;
+  }, [conversationActivityHistory, conversationActivityTools, toolAnchorId]);
+  const { messages, activityRevision } = useSyncExternalStore(viewStore.subscribeToTranscript, viewStore.getTranscript);
+  const messageIndex = useMemo(() => new ActivityMessageIndex(viewStore.getTranscript().messages), [viewStore, activityRevision]);
   const sessionId = conversationSnapshot?.sessionId;
   // A thread opened again starts with every settled turn folded.
   const disclosures = useMemo(() => new WorkDisclosures(), [sessionId]);
+  const historicalCache = useMemo(() => new WeakMap<UiTurnActivityEntry, {
+    answerAt?: number; keepOpen: boolean; segments: ActivitySegment[]; rows: TranscriptActivity[];
+  }>(), [actions, copyToolOutput, detail, disclosures, loadToolOutput, recoverThread, registry, registryVersion]);
   const historicalActivityRows = useMemo(() => conversationActivityHistory
     .filter((entry) => entry.id !== currentActivityHistoryId)
     .filter((entry) => entry.tools.some((tool) => tool.name !== "todo"))
     .flatMap((entry) => {
       // The answer tells a tool that belonged to the turn from work that
       // started after it, which is the one thing the fold treats differently.
-      const answerAt = answerTimestampAfter(messages ?? [], entry.anchorMessageId);
-      return splitActivityTools(entry.tools.filter(isActivityTool), messages ?? [], entry.anchorMessageId, (tool) => Boolean(registry.toolCardFor(tool))).map((segment, index) => ({
+      const answerAt = messageIndex.answerAfter(entry.anchorMessageId);
+      const segments = messageIndex.splitTools(entry.tools.filter(isActivityTool), entry.anchorMessageId, (tool) => Boolean(registry.toolCardFor(tool)));
+      const keepOpen = disclosures.openedInTurn(entry.tools[0]!.id);
+      const cached = historicalCache.get(entry);
+      if (cached && cached.answerAt === answerAt && cached.keepOpen === keepOpen && sameSegments(cached.segments, segments)) return cached.rows;
+      const rows = segments.map((segment, index) => ({
         id: index === 0 ? entry.id : `${entry.id}:${segment.tools[0].id}`,
         afterMessageId: segment.anchorMessageId,
-        ...completedWorkMetadata(segment.tools, entry.status, (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(entry.tools[0]!.id)),
+        ...completedWorkMetadata(segment.tools, entry.status, (tool) => Boolean(registry.toolCardFor(tool)), keepOpen),
         content: <WorkGroup
           id={`${entry.id}:${segment.tools[0].id}`}
           tools={segment.tools}
@@ -95,7 +107,9 @@ export function useConversationActivities(input: ConversationActivityInput) {
           onLoadOutput={loadToolOutput}
         />,
       }));
-    }), [actions, conversationActivityHistory, copyToolOutput, currentActivityHistoryId, detail, disclosures, loadToolOutput, messages, recoverThread, registry]);
+      historicalCache.set(entry, { answerAt, keepOpen, segments, rows });
+      return rows;
+    }), [actions, conversationActivityHistory, copyToolOutput, currentActivityHistoryId, detail, disclosures, historicalCache, loadToolOutput, messageIndex, recoverThread, registry]);
   // One element per progress value, so a tool flush leaves the row list's inputs alone.
   const taskProgress = conversationSnapshot?.isStreaming ? conversationSnapshot.taskProgress : undefined;
   const liveTaskProgress = useMemo(
@@ -122,6 +136,10 @@ export function useConversationActivities(input: ConversationActivityInput) {
 
   // A yes-or-no question is an approval; the live line then says what it waits to do.
   const waitingFor = prompts[0] ? (prompts[0].kind === "confirm" ? "approval" : "question") : undefined;
+  const cardTools = useMemo(() => actions ? [...new Map([
+    ...conversationActivityHistory.flatMap((entry) => entry.tools), ...conversationActivityTools,
+  ].map((tool) => [tool.id, tool])).values()].filter((tool) => registry.toolCardFor(tool)?.transcriptRows) : NO_TOOLS,
+  [actions, conversationActivityHistory, conversationActivityTools, registry, registryVersion]);
   const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
     ...historicalActivityRows,
     ...((conversationSnapshot?.taskHistory ?? []).map((entry) => ({
@@ -131,7 +149,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
     }))),
     ...(liveTaskProgress ? [{ id: "live-task-progress", afterMessageId: visibleToolAnchorId, fallbackToTail: true, content: liveTaskProgress }] : []),
     ...extensionRows,
-    ...splitActivityTools(conversationActivityTools, messages ?? [], visibleToolAnchorId, (tool) => Boolean(registry.toolCardFor(tool))).map((segment, index, segments) => ({
+    ...messageIndex.splitTools(conversationActivityTools, visibleToolAnchorId, (tool) => Boolean(registry.toolCardFor(tool))).map((segment, index, segments) => ({
       id: index === 0 ? "turn-activity" : `turn-activity:${segment.tools[0].id}`,
       afterMessageId: segment.anchorMessageId,
       ...completedWorkMetadata(segment.tools, !conversationSnapshot?.isStreaming && prompts.length === 0 ? "completed" : "running", (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(conversationActivityTools[0]!.id)),
@@ -154,31 +172,16 @@ export function useConversationActivities(input: ConversationActivityInput) {
         onLoadOutput={loadToolOutput}
       />,
     })),
-    ...toolCardTranscriptRows([...conversationActivityHistory.flatMap((entry) => entry.tools), ...conversationActivityTools], messages ?? [], registry, actions),
-  ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, replied, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId, messages]);
+    ...toolCardTranscriptRows(cardTools, messages, registry, actions),
+  ], [abort, abortSessionId, actions, cardTools, conversationActivityTools, prompts.length, replied, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId, messageIndex, messages]);
 
   return { thinking, liveStatusLabel, transcriptActivities };
 }
 
-/** Keep calls in message order, including work after a steering prompt and its reply. */
-function splitActivityTools(tools: readonly UiToolRun[], messages: readonly UiMessage[], anchorMessageId?: string, persistent: (tool: UiToolRun) => boolean = () => false) {
-  const anchorIndex = anchorMessageId === undefined ? -1 : messages.findIndex((message) => message.id === anchorMessageId || message.sourceEntryId === anchorMessageId);
-  const following = anchorIndex < 0 ? [] : messages.slice(anchorIndex + 1);
-  const segments: { anchorMessageId?: string; tools: UiToolRun[] }[] = [];
-  for (const tool of tools) {
-    let anchor = anchorMessageId;
-    for (const message of following) {
-      if (message.role === "user") {
-        // Persistent cards keep their call position while the work they started continues.
-        if ((tool.status !== "running" || persistent(tool)) && message.timestamp > tool.startedAt) break;
-        anchor = message.id;
-        continue;
-      }
-      if (message.text.trim() && message.timestamp <= tool.startedAt) anchor = message.id;
-    }
-    const previous = segments.at(-1);
-    if (previous && previous.anchorMessageId === anchor) previous.tools.push(tool);
-    else segments.push({ anchorMessageId: anchor, tools: [tool] });
-  }
-  return segments;
+function sameSegments(left: readonly ActivitySegment[], right: readonly ActivitySegment[]): boolean {
+  return left.length === right.length && left.every((segment, index) => (
+    segment.anchorMessageId === right[index].anchorMessageId
+    && segment.tools.length === right[index].tools.length
+    && segment.tools.every((tool, toolIndex) => tool === right[index].tools[toolIndex])
+  ));
 }
