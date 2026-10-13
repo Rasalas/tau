@@ -1732,6 +1732,15 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt > footer > button.extension-prompt-send:disabled { background: var(--raised); color: var(--faint); cursor: default; }
 .extension-prompt > footer > button > kbd { font-family: var(--mono); font-weight: 400; opacity: .8; }
 @media (pointer: coarse) { .is-approval > footer > button > kbd { display: none; } }
+/* Folded, the head alone stays, the question cut to one line in it. */
+.extension-prompt-peek { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.extension-prompt-fold {
+  flex: none; width: 20px; height: 20px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer;
+}
+@media (hover: hover) { .extension-prompt-fold:hover { background: var(--raised); color: var(--ink); } }
+.extension-prompt-fold > svg { transition: transform .15s var(--ease); }
+.extension-prompt.folded .extension-prompt-fold > svg { transform: rotate(180deg); }
 
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-top-color: var(--line); }

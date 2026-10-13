@@ -89,6 +89,33 @@ describe("ExtensionPrompt", () => {
     expect(screen.getByRole("button", { name: /Add an index/u }).querySelector("small")?.textContent).toBe("one migration");
   });
 
+  it("folds a question to its head so the thread above can be read, and opens the next question unfolded", () => {
+    const first: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "select", title: "Which index?", options: ["Add an index", "Leave it"] };
+    const { rerender } = render(<ExtensionPrompt prompt={first} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    const card = screen.getByRole("region", { name: "Question" });
+    const fold = screen.getByRole("button", { name: "Fold the question" });
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(fold);
+    // Only the head stays, with the question cut to one line in it.
+    expect(card.querySelector(".extension-prompt-title, .extension-prompt-options, footer")).toBeNull();
+    expect(card.querySelector("header .extension-prompt-peek")?.textContent).toBe("Which index?");
+    const unfold = screen.getByRole("button", { name: "Show the question" });
+    expect(unfold.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(unfold);
+    expect(screen.getByRole("button", { name: /Add an index/u })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fold the question" }));
+    rerender(<ExtensionPrompt prompt={{ ...first, id: "p2", title: "Which table?" }} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    expect(card.querySelector(".extension-prompt-title")?.textContent).toBe("Which table?");
+  });
+
+  it("never folds a permission, whose Deny and Allow must stay in view", () => {
+    const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Wants to run", message: "npm run lint" };
+    render(<ExtensionPrompt prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Fold the question" })).toBeNull();
+  });
+
   it("draws a yes-or-no question as a permission: what it wants in the head, Deny and Allow, and only ⌘↵ allows (K83)", () => {
     const onAnswer = vi.fn();
     let action: PromptSubmitAction | undefined;

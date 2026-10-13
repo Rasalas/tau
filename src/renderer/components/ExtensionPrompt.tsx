@@ -1,4 +1,4 @@
-import { Check, CircleHelp, Pencil, SquareTerminal, X } from "lucide-react";
+import { Check, ChevronDown, CircleHelp, Pencil, SquareTerminal, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ExtensionUiPrompt } from "../../shared/contracts";
 import { choiceOptions, splitInputTitle, splitOption, splitPromptTitle } from "../../shared/extension-prompt-options";
@@ -6,6 +6,7 @@ import { choiceOptions, splitInputTitle, splitOption, splitPromptTitle } from ".
 import { isMacPlatform } from "../keybindings";
 import { domKeybindingContext } from "../keybinding-context";
 import { usePromptSubmit } from "./prompt-submit";
+import { tooltipProps } from "./ui/Tooltip";
 
 // Its own module, so the composer and the `tau` module reach it without loading the dialogs.
 export { PromptSubmitContext, usePromptSubmit, type PromptSubmitAction } from "./prompt-submit";
@@ -131,8 +132,11 @@ export function ExtensionPromptFrame({
   // An approval names its action in the head, a short path or command beside it (design 1a/1f); a long one is read in the body.
   const inline = approval && message && !message.includes("\n") && message.length <= HEAD_SUBJECT_MAX ? message : undefined;
   const kindLabel = approval ? title : "Question";
+  // Folded to its head so the thread above can be read (T3); the next question opens unfolded.
+  const [foldedTitle, setFoldedTitle] = useState<string>();
+  const folded = !approval && foldedTitle === title;
   return (
-    <section className={`extension-prompt is-${kind}`} aria-label={from ? `${kindLabel} from ${from}` : kindLabel}>
+    <section className={`extension-prompt is-${kind}${folded ? " folded" : ""}`} aria-label={from ? `${kindLabel} from ${from}` : kindLabel}>
       <header>
         <span className="extension-prompt-kind">
           {approval && /\b(edit|write)/iu.test(title) ? <Pencil size={11} aria-hidden="true" />
@@ -142,27 +146,41 @@ export function ExtensionPromptFrame({
         {from ? <span className="extension-prompt-from" title={from}>{from}</span> : null}
         {inline ? <code className="extension-prompt-subject" title={inline}>{inline}</code> : null}
         {pending > 0 ? <small>{pending} more</small> : null}
-        <span className="spacer" />
+        {folded ? <span className="extension-prompt-peek">{title}</span> : <span className="spacer" />}
         {header}
-        {pick ? <span className="extension-prompt-pick">pick {pick}</span> : null}
-      </header>
-      {approval ? null : <p className="extension-prompt-title">{title}</p>}
-      {message && !inline ? approval
-        ? <code className="extension-prompt-subject">{message}</code>
-        : <p className="extension-prompt-message">{message}</p> : null}
-      {children}
-      <footer>
-        {hint ? <span>{hint}</span> : null}
-        <span className="spacer" />
-        {footer}
-        {submit ? (
-          <button type="button" className="extension-prompt-send" disabled={submit.disabled} onClick={submit.onSubmit}>
-            <Check size={11} aria-hidden="true" />
-            {submit.label}
-            {submit.enter ? <kbd aria-hidden="true">{submit.enter !== "mod" ? "⏎" : isMacPlatform() ? "⌘⏎" : "Ctrl ⏎"}</kbd> : null}
+        {pick && !folded ? <span className="extension-prompt-pick">pick {pick}</span> : null}
+        {approval ? null : (
+          <button
+            type="button"
+            className="extension-prompt-fold"
+            aria-expanded={!folded}
+            aria-label={folded ? "Show the question" : "Fold the question"}
+            {...tooltipProps(folded ? "Show the question" : "Fold the question")}
+            onClick={() => setFoldedTitle(folded ? undefined : title)}
+          >
+            <ChevronDown size={13} aria-hidden="true" />
           </button>
-        ) : null}
-      </footer>
+        )}
+      </header>
+      {folded ? null : <>
+        {approval ? null : <p className="extension-prompt-title">{title}</p>}
+        {message && !inline ? approval
+          ? <code className="extension-prompt-subject">{message}</code>
+          : <p className="extension-prompt-message">{message}</p> : null}
+        {children}
+        <footer>
+          {hint ? <span>{hint}</span> : null}
+          <span className="spacer" />
+          {footer}
+          {submit ? (
+            <button type="button" className="extension-prompt-send" disabled={submit.disabled} onClick={submit.onSubmit}>
+              <Check size={11} aria-hidden="true" />
+              {submit.label}
+              {submit.enter ? <kbd aria-hidden="true">{submit.enter !== "mod" ? "⏎" : isMacPlatform() ? "⌘⏎" : "Ctrl ⏎"}</kbd> : null}
+            </button>
+          ) : null}
+        </footer>
+      </>}
     </section>
   );
 }

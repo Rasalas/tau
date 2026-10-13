@@ -127,6 +127,12 @@ body[data-profile="compact"] .extension-option { min-height: var(--touch-target)
 /* The card's buttons stay the design's size and reach 48 px for a finger. */
 body[data-profile="compact"] .extension-prompt > footer > button { position: relative; }
 body[data-profile="compact"] .extension-prompt > footer > button::before { content: ""; position: absolute; inset: calc((var(--touch-target) - 100%) / -2) 0; }
+body[data-profile="compact"] .extension-prompt-fold { position: relative; width: 36px; margin-right: -8px; }
+body[data-profile="compact"] .extension-prompt-fold::before { content: ""; position: absolute; inset: calc((var(--touch-target) - 100%) / -2) 0; }
+/* A question keeps half the screen for the thread, the keyboard's too: its options scroll. */
+body[data-profile="compact"] .extension-prompt.is-question { max-height: calc(var(--tau-viewport-height, 100dvh) / 2); }
+body[data-profile="compact"] .extension-prompt.is-question > *, body[data-profile="compact"] .extension-prompt.is-question .extension-option { flex: none; }
+body[data-profile="compact"] .extension-prompt.is-question > .extension-prompt-options { flex: 0 1 auto; min-height: var(--touch-target); overflow-y: auto; overscroll-behavior: contain; }
 body[data-profile="compact"] :is(button, a, [data-tooltip]) { -webkit-tap-highlight-color: transparent; }
 /* A long press on something with a label shows the label, not the system's callout. */
 body[data-profile="compact"] [data-tooltip] { -webkit-touch-callout: none; user-select: none; }
