@@ -118,8 +118,8 @@ export function createArgs(service: RequestService, input: { title: string; body
     : ["mr", "create", "--title", input.title, "--description", input.body, "--target-branch", input.base, "--source-branch", input.head, "--yes", ...(input.draft ? ["--draft"] : [])];
 }
 
-export function mergeArgs(service: RequestService, number: number, method: MergeMethod): string[] {
-  if (service === "github") return ["pr", "merge", String(number), `--${method}`];
+export function mergeArgs(service: RequestService, number: number, method: MergeMethod, headSha?: string): string[] {
+  if (service === "github") return ["pr", "merge", String(number), `--${method}`, ...(headSha ? ["--match-head-commit", headSha] : [])];
   return ["mr", "merge", String(number), "--yes", ...(method === "squash" ? ["--squash"] : method === "rebase" ? ["--rebase"] : [])];
 }
 

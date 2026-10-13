@@ -40,7 +40,7 @@ async function harness(options: { remote?: string; state?: string; answer?(call:
     const joined = args.join(" ");
     if (joined.startsWith("pr merge") && !args.includes("--auto") && !args.includes("--disable-auto")) state = "MERGED";
     if (joined.startsWith("pr view 7 --repo")) return JSON.stringify({ state, headRefName: "feat/output", headRepository: { name: "tau" }, headRepositoryOwner: { login: "acme" }, isCrossRepository: false });
-    if (joined.startsWith("pr view --json")) return JSON.stringify({ number: 7, title: "Add it", url: URL_7, baseRefName: "main", headRefName: "feat/output", state, isDraft: false });
+    if (joined.startsWith("pr view --json")) return JSON.stringify({ number: 7, title: "Add it", url: URL_7, baseRefName: "main", headRefName: "feat/output", headRefOid: "seen-head", state, isDraft: false });
     if (joined.startsWith("pr view")) return JSON.stringify({ ...JSON.parse(await fixture("gh-pr-view-discussed.json")) as object, state });
     if (joined.startsWith("pr list --repo github.com/acme/tau --state")) return fixture("gh-pr-list.json");
     if (args.includes("graphql") && runOptions?.input?.includes("revertPullRequest")) return JSON.stringify({ data: { revertPullRequest: { revertPullRequest: { number: 8, url: "https://github.com/acme/tau/pull/8" } } } });
@@ -63,16 +63,16 @@ async function harness(options: { remote?: string; state?: string; answer?(call:
 describe("the Changes section's merge", () => {
   it("merges and deletes the branch when asked, and says what became of it", async () => {
     const { invoke, calls } = await harness({ answer: ({ args }) => args.join(" ").endsWith("--jq .default_branch") ? "main" : args[0] === "pr" && args[1] === "list" ? "[]" : undefined });
-    const result = await invoke<ReviewRequestStatus & { merge?: { branchDeleted?: string } }>("pr-merge", { method: "squash", deleteBranch: true });
+    const result = await invoke<ReviewRequestStatus & { merge?: { branchDeleted?: string } }>("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "squash", deleteBranch: true });
     expect(result.merge).toEqual({ branchDeleted: "feat/output" });
     expect(calls.map((call) => call.args)).toContainEqual(["api", "--hostname", "github.com", "--method", "DELETE", "repos/acme/tau/git/refs/heads/feat/output"]);
   });
 
   it("arms auto-merge with the method and refuses it where the host cannot", async () => {
     const { invoke, calls } = await harness();
-    await invoke("pr-auto-merge", { enable: true, method: "rebase" });
-    await invoke("pr-auto-merge", { enable: false });
-    expect(calls.map((call) => call.args).filter((args) => args[1] === "merge")).toEqual([["pr", "merge", "7", "--auto", "--rebase"], ["pr", "merge", "7", "--disable-auto"]]);
+    await invoke("pr-auto-merge", { workspace: "/project", number: 7, headSha: "seen-head", enable: true, method: "rebase" });
+    await invoke("pr-auto-merge", { workspace: "/project", number: 7, headSha: "seen-head", enable: false });
+    expect(calls.map((call) => call.args).filter((args) => args[1] === "merge")).toEqual([["pr", "merge", "7", "--auto", "--rebase", "--match-head-commit", "seen-head"], ["pr", "merge", "7", "--disable-auto"]]);
   });
 });
 

@@ -221,6 +221,7 @@ function asRequest(raw: Json, repo: string, checks: PullRequestCheck[]): ReviewR
   return {
     provider: "bitbucket", number: ref.number, title: text(raw.title) ?? `#${ref.number}`, url: ref.url, baseRef,
     ...(text(record(record(raw.source).branch).name) ? { headRef: text(record(record(raw.source).branch).name) } : {}),
+    ...(text(record(record(raw.source).commit).hash) ? { headSha: text(record(record(raw.source).commit).hash) } : {}),
     state: state(raw.state),
     draft: raw.draft === true,
     ...(typeof raw.description === "string" ? { body: raw.description } : {}),

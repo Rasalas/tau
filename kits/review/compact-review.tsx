@@ -158,7 +158,7 @@ export function createCompactReview(deps: CompactReviewDeps) {
       return <DiffPage deps={deps} source={source} sourceKey={key} changes={changes} path={state.path} sessionId={sessionId} readOnly={readOnly} draftSource={state.draftSource} />;
     }
     if (state.page === "commit" && changes && source?.kind === "worktree") return <CommitPage deps={deps} changes={changes} info={info} {...common} />;
-    if (state.page === "request" && source?.kind === "branch") return <RequestPage deps={deps} info={info} {...common} />;
+    if (state.page === "request" && source?.kind === "branch") return <RequestPage key={sessionId} deps={deps} info={info} {...common} />;
     return <FilesPage
       deps={deps}
       source={source}
@@ -545,7 +545,8 @@ function CommitPage({ deps, changes, info, actions, readOnly, refresh }: { deps:
 function RequestPage({ deps, info, actions, readOnly, refresh }: { deps: CompactReviewDeps; info?: WorkspaceInfo } & Common) {
   const { store, requests } = deps;
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const status = useLoaded<ReviewRequestStatus>(() => requests.status(), "status", 0);
+  const workspace = useRef(actions.activeThread()?.cwd).current;
+  const status = useLoaded<ReviewRequestStatus>(() => requests.status(false, workspace), "status", 0);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState<"writing" | "opening">();
   const [error, setError] = useState<string>();
@@ -564,7 +565,7 @@ function RequestPage({ deps, info, actions, readOnly, refresh }: { deps: Compact
     setAsking(false);
     setBusy("opening");
     setError(undefined);
-    void requests.create({ title: fields.title.trim(), body: fields.body, base: ready.base, draft: fields.draft }).then((result) => {
+    void requests.create({ workspace: workspace ?? "", branch: ready.branch ?? info?.branch ?? "", title: fields.title.trim(), body: fields.body, base: ready.base, draft: fields.draft }).then((result) => {
       actions.notify(result.url ? `Opened ${result.url}` : `Opened the ${provider?.noun ?? "request"}.`);
       store.update({ request: { title: "", body: "", draft: false }, page: "files" });
       refresh();

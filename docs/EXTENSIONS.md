@@ -3410,6 +3410,14 @@ rolls back: `server_propose_upload` draws a card whose button the user clicks.
 
 ### What Reviews asks of other kits
 
+Review Kit's request lifecycle binds creation and merging to the checkout the
+client shows. `pr-create` requires `workspace` and `branch`; `pr-merge` and
+`pr-auto-merge` require `workspace`, `number` and the displayed `headSha`.
+The host refuses a changed branch, request or head before writing. GitHub merges
+also pass `--match-head-commit` so a push after the fresh read cannot merge an
+unseen head. `pr-status { workspace, full: true }` reads the full lifecycle status
+for that checkout; without `full`, a named workspace still returns only its request.
+
 Review Kit's Reviews page (`review.reviews`) writes no Git itself. It asks the
 kits that own the branches, through commands that name `tau.review` as a
 caller (ADR 0020); no core seam is involved:

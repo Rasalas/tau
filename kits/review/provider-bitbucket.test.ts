@@ -154,12 +154,12 @@ describe("the Bitbucket provider over its API", () => {
 
   it("creates, merges and reviews with the API's own shapes", async () => {
     const { invoke, sent } = await harness({ context: { branch: "feature/new" } });
-    const created = await invoke<{ url?: string }>("pr-create", { title: "Add it", body: "Why", draft: true });
+    const created = await invoke<{ url?: string }>("pr-create", { workspace: "/project", branch: "feature/new", title: "Add it", body: "Why", draft: true });
     expect(created.url).toBe("https://bitbucket.org/atlassian/bitbucket-upload-file/pull-requests/30");
     expect(sent.find((call) => call.method === "POST")!.body).toEqual({ title: "Add it", description: "Why", source: { branch: { name: "feature/new" } }, destination: { branch: { name: "master" } }, draft: true });
 
     const open = await harness({ context: { branch: "feature/PIPES-1654" } });
-    await expect(open.invoke("pr-merge", { method: "rebase" })).rejects.toThrow(/PR #26 is merged/u);
+    await expect(open.invoke("pr-merge", { workspace: "/project", ...(await open.invoke<ReviewRequestStatus>("pr-status")).request, method: "rebase" })).rejects.toThrow(/PR #26 is merged/u);
     await open.invoke("pr-review", { url: URL_11, event: "request-changes", body: "Not yet.", comments: [{ id: "c", path: "README.md", line: 4, side: "old", body: "Here." }] });
     const posts = open.sent.filter((call) => call.method === "POST");
     expect(posts.map((call) => call.url.replace(API, ""))).toEqual(["/pullrequests/11/comments", "/pullrequests/11/comments", "/pullrequests/11/request-changes"]);
@@ -172,8 +172,8 @@ describe("the Bitbucket provider over its API", () => {
   it("merges an open request by merge commit or squash only", async () => {
     const reopened = (body: string) => body.replaceAll('"state": "MERGED"', '"state": "OPEN"');
     const { invoke, sent } = await harness({ context: { branch: "feature/PIPES-1654" }, rewrite: (url, body) => url.includes("/pullrequests?") ? reopened(body) : body });
-    await expect(invoke("pr-merge", { method: "rebase" })).rejects.toThrow("Bitbucket merges by merge commit or squash only.");
-    await invoke("pr-merge", { method: "squash" });
+    await expect(invoke("pr-merge", { workspace: "/project", ...(await invoke<ReviewRequestStatus>("pr-status")).request, method: "rebase" })).rejects.toThrow("Bitbucket merges by merge commit or squash only.");
+    await invoke("pr-merge", { workspace: "/project", ...(await invoke<ReviewRequestStatus>("pr-status")).request, method: "squash" });
     expect(sent.find((call) => call.url.endsWith("/merge"))).toMatchObject({ url: `${API}/pullrequests/26/merge`, body: { merge_strategy: "squash" } });
   });
 

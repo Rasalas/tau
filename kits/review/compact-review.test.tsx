@@ -150,7 +150,7 @@ describe("the review on a compact client", () => {
     expect(open.textContent).toContain("Pushes feat/x and opens “Add c” into main on GitHub.");
     expect(requests.create).not.toHaveBeenCalled();
     fireEvent.click(within(open).getByRole("button", { name: "Open pull request" }));
-    await waitFor(() => expect(requests.create).toHaveBeenCalledWith({ title: "Add c", body: "Adds c.", base: "main", draft: false }));
+    await waitFor(() => expect(requests.create).toHaveBeenCalledWith({ workspace: "/p", branch: "feat/x", title: "Add c", body: "Adds c.", base: "main", draft: false }));
   });
 
   it("shows a Read-only device the diffs, with every write disabled and the reason given", async () => {

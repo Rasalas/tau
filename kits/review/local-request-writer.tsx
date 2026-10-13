@@ -95,7 +95,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
   };
 
   const create = (withPictures: boolean) => run(withPictures ? "Uploading the pictures and creating…" : `Creating the ${short}…`, async () => {
-    const result = await requests.create({ title: form.title.trim(), body: form.body, base: form.base.trim(), draft: form.draft, ...(withPictures ? { uploadConfirmed: true } : {}) });
+    const result = await requests.create({ workspace: root, branch: branch ?? "", title: form.title.trim(), body: form.body, base: form.base.trim(), draft: form.draft, ...(withPictures ? { uploadConfirmed: true } : {}) });
     setStep({ kind: "edit" });
     onCreated(result.status);
     const created = result.status.request;

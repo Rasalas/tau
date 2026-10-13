@@ -300,6 +300,7 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
       const request: ReviewRequest = {
         provider: kind, number, title: text(raw.title) ?? `!${number}`, url: ref.url, baseRef: branchName(raw.targetRefName) ?? "",
         ...(branchName(raw.sourceRefName) ? { headRef: branchName(raw.sourceRefName) } : {}),
+        ...(text(record(raw.lastMergeSourceCommit).commitId) ? { headSha: text(record(raw.lastMergeSourceCommit).commitId) } : {}),
         state: state(raw), draft: raw.isDraft === true,
         ...(typeof raw.description === "string" ? { body: raw.description } : {}),
         ...(found.length > 0 ? { checks: { passed: found.length - failed - pending, failed, pending, total: found.length } } : {}),

@@ -133,13 +133,13 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
     },
     create: async ({ cwd }, input) => createdUrl(await tools.cli(kind, { args: createArgs(kind, input) }, "Creating the pull request", { cwd })),
     merge: async (target, request, method, options = {}) => {
-      await tools.cli(kind, { args: [...mergeArgs(kind, request.number, method), ...inRepository(target)] }, `Merging PR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
+      await tools.cli(kind, { args: [...mergeArgs(kind, request.number, method, request.headSha), ...inRepository(target)] }, `Merging PR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
       return options.deleteBranch ? deleteHeadBranch(tools, target, request.number) : undefined;
     },
     // GitHub keeps the method with the armed merge; deleting the branch afterwards is the repository's own setting.
     autoMerge: async (target, request, enable, method) => {
       const args = enable ? ["pr", "merge", String(request.number), "--auto", `--${method ?? "merge"}`] : ["pr", "merge", String(request.number), "--disable-auto"];
-      await tools.cli(kind, { args: [...args, ...inRepository(target)] }, `${enable ? "Turning on" : "Turning off"} auto-merge for PR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
+      await tools.cli(kind, { args: [...args, ...(enable && request.headSha ? ["--match-head-commit", request.headSha] : []), ...inRepository(target)] }, `${enable ? "Turning on" : "Turning off"} auto-merge for PR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
     },
     revert: async (ref, known) => {
       if (!known.nodeId) throw new HostCommandError(`GitHub did not name ${noun(ref)}'s id; refresh and try again.`);

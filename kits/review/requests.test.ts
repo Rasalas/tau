@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { UiReviewRequest } from "tau";
-import { checksLabel, RowRequests } from "./requests.js";
+import type { HostExtensionClient, UiReviewRequest } from "tau";
+import { checksLabel, requestClient, RowRequests } from "./requests.js";
 
 const REQUEST: UiReviewRequest = { provider: "github", number: 3, title: "T", url: "https://example.com/3", baseRef: "main", state: "open" };
 
@@ -93,5 +93,23 @@ describe("rail request cache", () => {
     expect(checksLabel({ passed: 1, failed: 0, pending: 2, total: 3 })).toBe("2 pending");
     expect(checksLabel({ passed: 3, failed: 0, pending: 0, total: 3 })).toBe("3/3 passed");
     expect(checksLabel(undefined)).toBeUndefined();
+  });
+});
+
+describe("request command targets", () => {
+  it("sends the displayed workspace, branch and confirmed request head", async () => {
+    const invoke = vi.fn(async () => ({}));
+    const client = requestClient({ invoke } as unknown as HostExtensionClient);
+    const target = { workspace: "/shown", number: 3, headSha: "seen-head" };
+    await client.status(true, "/shown");
+    await client.create({ workspace: "/shown", branch: "feature/pr", title: "Add it", body: "Why", base: "main", draft: false });
+    await client.merge(target, "squash", true);
+    await client.autoMerge(target, true, "rebase");
+    expect(invoke.mock.calls).toEqual([
+      ["pr-status", { workspace: "/shown", full: true, fresh: true }],
+      ["pr-create", { workspace: "/shown", branch: "feature/pr", title: "Add it", body: "Why", base: "main", draft: false }],
+      ["pr-merge", { ...target, method: "squash", deleteBranch: true }],
+      ["pr-auto-merge", { ...target, enable: true, method: "rebase" }],
+    ]);
   });
 });
