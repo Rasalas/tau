@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,10 @@ const folders: string[] = [];
 afterEach(async () => { await Promise.all(managers.splice(0).map((work) => work.dispose())); await Promise.all(folders.splice(0).map((folder) => rm(folder, { recursive: true, force: true }))); });
 const quote = (text: string) => `'${text.replace(/'/gu, `'\\''`)}'`;
 const node = (source: string) => `${quote(process.execPath)} -e ${quote(source)}`;
+// A zombie awaiting its reaper no longer runs anything.
+function running(pid: number): boolean {
+  try { return !execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim().startsWith("Z"); } catch { return false; }
+}
 async function workspace() { const folder = await mkdtemp(join(tmpdir(), "tau-background-")); folders.push(folder); return folder; }
 function manager() { const changed = vi.fn(); const ended = vi.fn(); const work = new BackgroundCommands(changed, ended); managers.push(work); return { work, ended, changed }; }
 
@@ -69,6 +74,25 @@ describe("tracked background commands", () => {
       } catch (error) { if (!["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error; }
     });
     expect(ended).not.toHaveBeenCalled();
+  });
+
+  it.skipIf(process.platform === "win32")("reports a stop only after descendants which cleared their environment or left the process group have ended", async () => {
+    const { work } = manager();
+    const cwd = await workspace();
+    const record = join(cwd, "pids");
+    const idle = "['-e','setInterval(()=>{},1000)']";
+    const source = `const {spawn}=require('node:child_process');const a=spawn(process.execPath,${idle},{stdio:'ignore'});const b=spawn(process.execPath,${idle},{stdio:'ignore',detached:true});require('node:fs').writeFileSync(${JSON.stringify(record)},JSON.stringify([process.pid,a.pid,b.pid]));setInterval(()=>{},1000)`;
+    // `env -i` drops the ownership marker; the second grandchild also leaves the group.
+    const id = await work.start("thread", cwd, `sh -c ${quote(`env -i ${quote(process.execPath)} -e ${quote(source)} & sleep 120`)}`, "Escaping descendants");
+    let pids: number[] = [];
+    try {
+      await vi.waitFor(async () => { pids = JSON.parse(await readFile(record, "utf8")) as number[]; expect(pids).toHaveLength(3); }, { timeout: 20_000 });
+      await work.capability("thread").stop(id);
+      expect(pids.filter(running)).toEqual([]);
+      expect(work.capability("thread").current()).toEqual([]);
+    } finally {
+      for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+    }
   });
 
   it("labels a requested watch as Monitoring and never releases it as a service", async () => {

@@ -8,6 +8,8 @@ import { expect, it } from "vitest";
 import { spawnOwnedProcess } from "./owned-process.js";
 
 const fixture = fileURLToPath(new URL("../../kits/claude-code/fixtures/process-tree-cli.mjs", import.meta.url));
+const escaping = fileURLToPath(new URL("./test-support/escaping-process-tree.mjs", import.meta.url));
+const spawnOnTerm = fileURLToPath(new URL("./test-support/spawn-on-term.mjs", import.meta.url));
 function running(pid: number): boolean {
   try { return !execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim().startsWith("Z"); }
   catch { return false; }
@@ -40,6 +42,17 @@ it("allows a one-shot CLI to finish its answer after input reaches EOF", async (
   } finally { child.kill("SIGKILL"); }
 });
 
+it("delivers everything a command wrote before it exited", async () => {
+  const child = spawnOwnedProcess({ command: process.execPath, args: ["-e", "process.stdout.write('o'.repeat(500000)); process.stderr.write('e'.repeat(200000))"], env: process.env });
+  const received = { out: 0, err: 0 };
+  child.stdout.on("data", (chunk: Buffer) => { received.out += chunk.length; });
+  child.stderr.on("data", (chunk: Buffer) => { received.err += chunk.length; });
+  const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  child.stdin.end();
+  await exited;
+  expect(received).toEqual({ out: 500_000, err: 200_000 });
+});
+
 it.skipIf(process.platform === "win32")("accepts a stop before the guardian finished starting", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tau-owned-early-stop-"));
   const child = spawnOwnedProcess({ command: process.execPath, args: [fixture], env: environment(dir) });
@@ -63,7 +76,11 @@ it.skipIf(process.platform === "win32").each(["EOF", "SIGTERM", "SIGKILL", 15, "
     pids = await fixturePids(dir);
     expect(pids.every(running)).toBe(true);
     if (action === "EOF") child.stdin.end();
-    else if (action === "CLI crash") process.kill(pids[0]!, "SIGKILL");
+    else if (action === "CLI crash") {
+      // A crash right after the tree appeared would beat the guardian's first samples.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      process.kill(pids[0]!, "SIGKILL");
+    }
     else child.kill(action);
     await exited;
     await expect.poll(() => pids.filter(running), { timeout: 20_000 }).toEqual([]);
@@ -103,5 +120,51 @@ it.skipIf(process.platform === "win32")("survives an owner's SIGKILL and leaves 
     cleanup([...pids, ...otherPids]);
     await rm(dir, { recursive: true, force: true });
     await rm(otherDir, { recursive: true, force: true });
+  }
+});
+
+it.skipIf(process.platform === "win32")("ends descendants that lost the marker, left the process group or lost their parent, and exits only afterwards", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tau-owned-escape-"));
+  const record = join(dir, "pids");
+  // `env -i` drops the ownership marker for every descendant.
+  const child = spawnOwnedProcess({ command: "/usr/bin/env", args: ["-i", process.execPath, escaping, record], env: process.env });
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  let pids: number[] = [];
+  try {
+    await expect.poll(async () => {
+      pids = await readFile(record, "utf8").then((text) => JSON.parse(text) as number[]).catch(() => []);
+      const orphan = Number(await readFile(`${record}.orphan`, "utf8").catch(() => 0));
+      if (orphan) pids = [...pids, orphan];
+      return pids.length === 5 && !running(pids[3]!);
+    }, { timeout: 20_000 }).toBe(true);
+    expect(pids.filter((pid) => pid !== pids[3]).every(running)).toBe(true);
+    child.kill("SIGTERM");
+    await exited;
+    // No polling: the guardian reports its exit only after the last descendant is gone.
+    expect(pids.filter(running)).toEqual([]);
+  } finally {
+    child.kill("SIGKILL");
+    cleanup(pids);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it.skipIf(process.platform === "win32")("also ends a descendant which a dying parent starts during the stop", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tau-owned-late-"));
+  const record = join(dir, "helper");
+  const child = spawnOwnedProcess({ command: "/usr/bin/env", args: ["-i", process.execPath, spawnOnTerm, record], env: process.env });
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  let pids: number[] = [];
+  try {
+    await expect.poll(() => readFile(`${record}.ready`, "utf8").then(() => true, () => false), { timeout: 20_000 }).toBe(true);
+    child.kill("SIGTERM");
+    await exited;
+    pids = [Number(await readFile(record, "utf8"))];
+    expect(pids[0]).toBeGreaterThan(0);
+    expect(pids.filter(running)).toEqual([]);
+  } finally {
+    child.kill("SIGKILL");
+    cleanup(pids.length ? pids : [Number(await readFile(record, "utf8").catch(() => 0))]);
+    await rm(dir, { recursive: true, force: true });
   }
 });
