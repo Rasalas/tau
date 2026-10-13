@@ -484,10 +484,11 @@ export function nextStaging(native: NativeUpdater): Promise<void> {
   });
 }
 
-/** electron-updater runs pkexec for a package; 126 is its dialog closed. */
+/** pkexec returns 126 when its password dialog is closed. */
 function installFailure(version: string | undefined, error: unknown): string {
   const name = version ? `Tau ${version}` : "The update";
-  if (/exited with code 126\b/u.test(reason(error))) return `${name} was not installed: the password dialog was closed. Restart again to install it.`;
+  const cancelled = error instanceof Error && "code" in error && error.code === 126;
+  if (cancelled || /exited with code 126\b/u.test(reason(error))) return `${name} was not installed: the password dialog was closed. Restart again to install it.`;
   return `${name} was not installed: ${reason(error)}`;
 }
 

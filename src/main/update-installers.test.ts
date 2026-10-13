@@ -61,8 +61,14 @@ describe("debInstaller", () => {
   it("reports what the helper refused", async () => {
     const refused = fakeSystem({ files: present, run: (command) => command === "/usr/bin/pkexec" ? { code: 65, stdout: "", stderr: "tau-update-helper: the package does not match the release's checksum.\n" } : { code: 0, stdout: "", stderr: "" } });
     await expect(debInstaller(refused.system).install(STAGED)).rejects.toThrow("tau-update-helper: the package does not match the release's checksum");
-    const denied = fakeSystem({ files: present, run: (command) => command === "/usr/bin/pkexec" ? { code: 126, stdout: "", stderr: "" } : { code: 0, stdout: "", stderr: "" } });
+    const denied = fakeSystem({ files: present, run: (command) => command === "/usr/bin/pkexec" ? { code: 127, stdout: "", stderr: "" } : { code: 0, stdout: "", stderr: "" } });
     await expect(debInstaller(denied.system).install(STAGED)).rejects.toThrow(/polkit/u);
+  });
+
+  it("preserves pkexec's cancellation status separately from authorization failure", async () => {
+    const cancelled = fakeSystem({ run: () => ({ code: 126, stdout: "", stderr: "" }) });
+    await expect(debInstaller(cancelled.system).install(STAGED)).rejects.toMatchObject({ code: 126, message: expect.stringContaining("password dialog was closed") });
+    expect(cancelled.calls).toHaveLength(1);
   });
 });
 
