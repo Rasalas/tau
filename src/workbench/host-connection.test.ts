@@ -138,6 +138,90 @@ describe("host connection", () => {
     expect(connection.getState()).toBe("connected");
   });
 
+  it.each([
+    { subscribed: false, retry: "timer" },
+    { subscribed: true, retry: "timer" },
+    { subscribed: false, retry: "reopen" },
+    { subscribed: true, retry: "reopen" },
+  ])("retries a failed resync via $retry (subscriptions: $subscribed)", async ({ subscribed, retry }) => {
+    vi.useFakeTimers();
+    const link = harness();
+    if (subscribed) link.capabilities.push("subscriptions");
+    let attempts = 0;
+    const request = link.transport.request;
+    link.transport.request = async (method, params) => {
+      const response = await request(method, params);
+      if (method === "bootstrap" && ++attempts === 1) throw new Error("bootstrap timed out");
+      return response;
+    };
+    const connection = new HostConnection(link.transport);
+    try {
+      await connection.start();
+      if (subscribed) {
+        connection.watchThread("s1");
+        connection.limitToWatched();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      const seen: HostEvent[] = [];
+      connection.onEvent((event) => seen.push(event));
+      link.buffered = [{ seq: 40, event: agentStatus(true) }];
+      link.nextSeq = 41;
+      link.push(40, agentStatus(true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toBe(1);
+      expect(connection.getState()).toBe("reconnecting");
+      link.push(41, agentStatus(false), 40);
+      expect(seen).toEqual([]);
+      if (retry === "reopen") link.reopen();
+      await vi.advanceTimersByTimeAsync(retry === "timer" ? 1_000 : 0);
+      expect(attempts).toBe(2);
+      expect(seen).toEqual([
+        { type: "thread-index", threadIndex: bootstrap.threadIndex },
+        { type: "host-update", update: { version: 1, type: "catalog", catalog: bootstrap.catalog } },
+        { type: "host-update", update: { version: 1, type: "project", project: bootstrap.project } },
+        { type: "host-update", update: { version: 1, type: "thread-detail", detail: bootstrap.detail } },
+        agentStatus(false),
+      ]);
+      expect(connection.getState()).toBe("connected");
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(attempts).toBe(2);
+    } finally {
+      connection.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["close", "refuse"] as const)("cancels a pending recovery retry on %s", async (stop) => {
+    vi.useFakeTimers();
+    const link = harness();
+    const request = link.transport.request;
+    link.transport.request = async (method, params) => {
+      const response = await request(method, params);
+      if (method === "bootstrap") throw new Error("bootstrap timed out");
+      return response;
+    };
+    const connection = new HostConnection(link.transport);
+    try {
+      await connection.start();
+      link.buffered = [{ seq: 40, event: agentStatus(true) }];
+      link.nextSeq = 41;
+      link.push(40, agentStatus(true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(connection.getState()).toBe("reconnecting");
+      if (stop === "close") connection.close();
+      else connection.refuse("certificate changed");
+      const calls = link.calls.length;
+      await vi.advanceTimersByTimeAsync(5_000);
+      link.reopen();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(link.calls).toHaveLength(calls);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      connection.close();
+      vi.useRealTimers();
+    }
+  });
+
   it("stays refused once refused: no request, no reconnect, the reason kept", async () => {
     const link = harness();
     const closed = vi.fn();
