@@ -91,6 +91,24 @@ describe("request Markdown media", () => {
     expect(container.querySelector("video")).toBeNull(); expect(container.querySelector("script")).toBeNull();
     expect(client.media).not.toHaveBeenCalled();
   });
+  it("holds a video from another server behind a click for exactly that address", () => {
+    const client = { media: vi.fn(async () => result()) };
+    const clip = "https://example.com/clip.mp4?d=first";
+    const { container, getAllByRole, rerender } = render(draw(`<video src="${clip}"></video>\n\n![](https://example.com/shot.mp4)`, client));
+    expect(container.querySelector("video")).toBeNull();
+    const placeholders = getAllByRole("button", { name: "Load video from example.com" });
+    expect(placeholders).toHaveLength(2);
+    expect(placeholders[0]!.className).toBe("md-remote-image");
+    fireEvent.click(placeholders[0]!);
+    expect(container.querySelectorAll("video")).toHaveLength(1);
+    expect(container.querySelector("video")?.getAttribute("src")).toBe(clip);
+    expect(container.querySelector("video")?.controls).toBe(true);
+    expect(container.querySelectorAll("button.md-remote-image")).toHaveLength(1);
+    rerender(draw("<video src=\"https://example.com/clip.mp4?d=next\"></video>\n\n![](https://example.com/shot.mp4)", client));
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelectorAll("button.md-remote-image")).toHaveLength(2);
+    expect(client.media).not.toHaveBeenCalled();
+  });
   it("revokes a capability that arrives after closing the request", async () => {
     let finish!: (value: ReturnType<typeof result>) => void;
     const client = { media: vi.fn(() => new Promise<ReturnType<typeof result>>((resolve) => { finish = resolve; })), releaseMedia: vi.fn(async () => undefined) };

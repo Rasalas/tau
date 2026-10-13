@@ -356,6 +356,10 @@ const COMPONENTS: MarkdownComponents = {
     if (typeof src === "string" && isVideoPath(src)) return <WorkspaceVideo src={src} alt={alt} />;
     return <WorkspaceImage src={typeof src === "string" ? src : undefined} alt={alt} title={title} width={width} height={height} />;
   },
+  // A policy's `<video>` takes the same road as a video image; its `poster` and `<source>` children are never drawn.
+  video({ src, title }) {
+    return typeof src === "string" && src ? <WorkspaceVideo src={src} alt={title} /> : null;
+  },
   // `pre` owns fenced blocks; the nested `code` is read for its text and language
   // and never rendered, so the `code` override below only ever sees inline spans.
   pre({ children }) {

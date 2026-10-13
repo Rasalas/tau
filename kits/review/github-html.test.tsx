@@ -91,6 +91,18 @@ describe("Markdown with GitHub's HTML", () => {
     expect(root.textContent).toContain("kept text");
   });
 
+  it("holds a remote video behind a click and never draws its poster or sources", () => {
+    const root = html("<video src=\"https://example.com/a.mp4\" poster=\"https://tracker.example/p.jpg\" onerror=\"window.xss=1\"><source src=\"https://tracker.example/b.mp4\"></video>");
+    const placeholder = root.querySelector<HTMLButtonElement>("button.md-remote-image")!;
+    expect(placeholder.getAttribute("aria-label")).toBe("Load video from example.com");
+    expect(root.querySelector("video, source, [poster]")).toBeNull();
+    fireEvent.click(placeholder);
+    expect(root.querySelector("video")?.getAttribute("src")).toBe("https://example.com/a.mp4");
+    expect(root.querySelector("video")?.getAttribute("onerror")).toBeNull();
+    expect(root.querySelector("source, [poster]")).toBeNull();
+    expect((window as { xss?: number }).xss).toBeUndefined();
+  });
+
   const HOSTILE: Record<string, string> = {
     "img onerror": "<img src=x onerror=\"window.xss=1\">",
     "https img onerror": "<img src=\"https://e.com/a.png\" onerror=\"window.xss=1\">",

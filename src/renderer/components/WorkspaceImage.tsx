@@ -1,6 +1,7 @@
 import { useMediaGallery } from "./MediaGallery";
 import { AttachmentLightbox } from "../deferred-surfaces";
 import { MediaLinkContext } from "./media-link-context";
+import { RemoteMediaButton, remoteHost } from "./RemoteMedia";
 import { useContext, useEffect, useState } from "react";
 import { RESOURCE_UNAVAILABLE, resourceRelativePath, transcriptFilePath, useWorkspaceResources, type WorkspaceResources } from "../workspace-resource-context";
 
@@ -39,16 +40,11 @@ function PreviewImage({ src, alt, title, width, height, onError }: ImageProps & 
 function RemoteImage(props: ImageProps) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
-  let domain: string;
-  try { domain = new URL(props.src).host; }
-  catch { return <UnavailableImage name={props.alt || "Image"} reason="The image URL is invalid." />; }
+  const host = remoteHost(props.src);
+  if (!host) return <UnavailableImage name={props.alt || "Image"} reason="The image URL is invalid." />;
   if (failed) return <UnavailableImage name={props.alt || "Image"} reason="The image could not be displayed." />;
   if (loaded) return <PreviewImage {...props} onError={() => setFailed(true)} />;
-  return <button type="button" className="md-remote-image" aria-label={`Load image from ${domain}`} onClick={(event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setLoaded(true);
-  }}>{props.alt ? `${props.alt} · ` : ""}Load image from {domain}</button>;
+  return <RemoteMediaButton kind="image" host={host} alt={props.alt} onLoad={() => setLoaded(true)} />;
 }
 
 /** Relative Markdown images are files of the transcript's origin, not this device. */

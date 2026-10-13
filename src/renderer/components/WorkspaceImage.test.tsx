@@ -303,6 +303,7 @@ it("navigates between an inline video and image in the same message", async () =
   const { draw } = fixture();
   const { findByRole, getByRole } = render(draw("![Recording](https://example.com/clip.mp4)\n\n![Screenshot](a.png)"));
   await findByRole("button", { name: "Open Screenshot" });
+  fireEvent.click(getByRole("button", { name: "Load video from example.com" }));
   fireEvent.click(getByRole("button", { name: "Open video 1" }));
   const dialog = await findByRole("dialog");
   expect(dialog.querySelector("video")?.getAttribute("src")).toBe("https://example.com/clip.mp4");
