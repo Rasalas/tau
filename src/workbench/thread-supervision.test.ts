@@ -100,6 +100,16 @@ describe("the compact thread list", () => {
     expect(threadListGroups(threads, idle, { query: "flaky" }).flatMap((group) => group.rows.map((row) => row.id))).toEqual(["t3"]);
   });
 
+  it("keeps a held list's drawn order and puts rows it did not draw below them", () => {
+    const threads = [thread("a", 30), thread("b", 20), thread("c", 10), thread("n", 40)];
+    const ids = (options: Parameters<typeof threadListGroups>[2]) => threadListGroups(threads, { ...idle, runningThreadIds: ["c"] }, options)
+      .map((group) => [group.id, group.rows.map((row) => row.id)]);
+    expect(ids({})).toEqual([["active", ["c", "n", "a", "b"]]]);
+    expect(ids({ held: ["a", "b", "c"] })).toEqual([["active", ["a", "b", "c", "n"]]]);
+    // A pin or a settle is the user's own move: it changes the group at once.
+    expect(ids({ held: ["a", "b", "c"], pinned: ["b"], settled: ["a"] })).toEqual([["pinned", ["b"]], ["active", ["c", "n"]], ["settled", ["a"]]]);
+  });
+
   it("gives the whole list's order, past every page", () => {
     const threads = Array.from({ length: 45 }, (_, index) => thread(`t${index}`, index));
     const order = threadListOrder(threads, idle, { pinned: ["t0"], settled: ["t44"] });

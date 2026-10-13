@@ -28,6 +28,21 @@ function externalThread() {
 }
 
 describe("ThreadProjection for a backend without a journal", () => {
+  it("shows a steer sent while an answer streamed below that answer, as the live view did", () => {
+    const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => undefined);
+    const thread = externalThread();
+    // The kit stored the steer when it was sent, the answer only when it ended.
+    thread.adapterMessages = [
+      { id: "u1", role: "user", text: "do it", timestamp: 1 },
+      { id: "u2", role: "user", text: "and the tests", timestamp: 5 },
+      { id: "a1", role: "assistant", text: "On it.", timestamp: 2 },
+    ];
+    expect(projection.messages(thread).map((message) => message.id)).toEqual(["u1", "a1", "u2"]);
+    thread.adapterMessages = thread.adapterMessages.filter((message) => message.id !== "a1");
+    thread.liveAssistant = { id: "a1", text: "On", thinking: "", timestamp: 2 };
+    expect(projection.messages(thread).map((message) => message.id)).toEqual(["u1", "a1", "u2"]);
+  });
+
   it("projects the backend's catalog, its live turn and its activity history into the snapshot", () => {
     const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => undefined);
     const thread = externalThread();

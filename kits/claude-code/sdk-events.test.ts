@@ -47,6 +47,18 @@ describe("SdkTurnTranslator", () => {
     ]);
   });
 
+  it("stamps a streamed message with the time it began, so a steer sent while it streams stays below it", () => {
+    let now = 100;
+    const translator = new SdkTurnTranslator(() => now, () => "a1");
+    const events = [messageStart(), textDelta("Look")].flatMap((message) => translator.push(message));
+    now = 900;
+    events.push(...translator.push(assistant([{ type: "text", text: "Looking." }])));
+    expect(events.filter((event) => event.type === "assistant-start" || event.type === "assistant-end")).toEqual([
+      { type: "assistant-start", id: "a1", timestamp: 100 },
+      { type: "assistant-end", message: { id: "a1", role: "assistant", text: "Looking.", timestamp: 100 } },
+    ]);
+  });
+
   it("streams the main loop's text, opens tool cards from the whole assistant message and closes them on the result", () => {
     let ids = 0;
     const translator = new SdkTurnTranslator(() => 42, () => `a${++ids}`);

@@ -558,7 +558,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     macInset ? "window-inset" : "",
   ].filter(Boolean).join(" ");
 
-  const openSupervisedThread = (row: { path: string }) => { void actions.switchSession(row.path); };
+  const openSupervisedThread = (row: { path: string }) => actions.switchSession(row.path);
   // As ⌘N, with the filtered project first.
   const startTouchThread = () => actions.newSession(touchProject ? { workspace: touchProject.workspaceId ?? touchProject.path, pick: true } : undefined);
   const threadBrowserProps = {

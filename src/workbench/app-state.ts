@@ -196,20 +196,12 @@ export function isSameUserMessage(left: UiMessage, right: UiMessage): boolean {
     && JSON.stringify(left.images ?? []) === JSON.stringify(right.images ?? []);
 }
 
-export function mergeTranscriptMessages(authoritative: readonly UiMessage[], optimistic: readonly UiMessage[]): UiMessage[] {
-  if (optimistic.length === 0) return authoritative as UiMessage[];
-  const merged = [...authoritative];
-  for (const message of optimistic) {
-    let low = 0;
-    let high = merged.length;
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2);
-      if (merged[middle].timestamp <= message.timestamp) low = middle + 1;
-      else high = middle;
-    }
-    merged.splice(low, 0, message);
-  }
-  return merged;
+/**
+ * Prompts not yet confirmed go after everything confirmed: they are the newest
+ * rows, and the phone's clock, which stamped them, need not agree with the host's.
+ */
+function withUnconfirmed(confirmed: readonly UiMessage[], unconfirmed: readonly UiMessage[]): UiMessage[] {
+  return unconfirmed.length === 0 ? confirmed as UiMessage[] : [...confirmed, ...unconfirmed];
 }
 
 export function backgroundNewThreadDetail(
@@ -223,7 +215,7 @@ export function backgroundNewThreadDetail(
     sessionId,
     messages: messages.some((entry) => isSameUserMessage(entry, message))
       ? messages
-      : mergeTranscriptMessages(messages, [message]),
+      : withUnconfirmed(messages, [message]),
     isStreaming: true,
     activeTools: cached?.activeTools ?? [],
   };
@@ -287,7 +279,7 @@ export function conversationMessagesFor(
 ): UiMessage[] {
   const scoped = optimistic.filter((entry) => entry.scope === activeDraftKey);
   const unconfirmed = reconcileOptimisticMessages(scoped, messages).map((entry) => entry.message);
-  return pendingNewThread ? unconfirmed : mergeTranscriptMessages(messages, unconfirmed);
+  return pendingNewThread ? unconfirmed : withUnconfirmed(messages, unconfirmed);
 }
 
 /** Splits the host's reported context usage over transcript and tool output. */
