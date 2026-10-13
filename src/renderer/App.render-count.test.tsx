@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setHostClient } from "./host-client-context";
 import { setClientStorage } from "../workbench/client-storage";
@@ -79,6 +79,7 @@ describe("app render isolation", () => {
           messages: [{ id: "user-1", role: "user", text: "hello", timestamp: 1 }],
           isStreaming: false,
           activeTools: [],
+          contextUsage: { tokens: 8000, contextWindow: 10000, percent: 80 },
         },
         catalog: { sessionId: "session", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
         project: { cwd: "/project" },
@@ -93,7 +94,7 @@ describe("app render isolation", () => {
     setHostClient(client);
   });
 
-  it("streams assistant text without re-rendering App or the workbench", async () => {
+  it("streams assistant text without re-rendering App, the workbench or the composer", async () => {
     const frames: FrameRequestCallback[] = [];
     const requestFrame = vi.spyOn(window, "requestAnimationFrame")
       .mockImplementation((callback: FrameRequestCallback) => frames.push(callback));
@@ -110,6 +111,7 @@ describe("app render isolation", () => {
 
       const appBefore = appRenders.count;
       const workbenchBefore = workbenchRenders.count;
+      const composerBefore = composerRenders.count;
       act(() => {
         client.emit({ type: "assistant-delta", sessionId: "session", id: "assistant-1", delta: " answer" });
         client.emit({ type: "assistant-thinking", sessionId: "session", id: "assistant-1", delta: "because" });
@@ -119,6 +121,14 @@ describe("app render isolation", () => {
       await waitFor(() => expect(view.container.querySelector(".transcript")?.textContent ?? "").toContain("streamed answer"));
       expect(appRenders.count).toBe(appBefore);
       expect(workbenchRenders.count).toBe(workbenchBefore);
+      expect(composerRenders.count).toBe(composerBefore);
+
+      // The meter still updates when the estimate reaches its next displayed thousand.
+      fireEvent.mouseEnter(screen.getByRole("button", { name: "Context 80 percent used" }).parentElement!);
+      await waitFor(() => expect(screen.getByText("messages").closest("span")?.textContent).toBe("messages0"));
+      act(() => client.emit({ type: "assistant-delta", sessionId: "session", id: "assistant-1", delta: "x".repeat(4000) }));
+      act(() => { frames.splice(0).forEach((frame) => frame(0)); });
+      await waitFor(() => expect(screen.getByText("messages").closest("span")?.textContent).toBe("messages1k"));
     } finally {
       requestFrame.mockRestore();
     }

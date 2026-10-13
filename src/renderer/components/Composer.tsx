@@ -387,14 +387,6 @@ export function Composer({
     saveStoredPromptHistory(clientStorage, promptHistoryRef.current.getEntries());
   }, [clientStorage]);
 
-  useEffect(() => {
-    if (!snapshot?.messages) return;
-    for (const message of snapshot.messages) {
-      if (message.role === "user" && typeof message.text === "string" && message.text.trim()) {
-        recordPrompt(message.text);
-      }
-    }
-  }, [snapshot?.sessionId, snapshot?.messages, recordPrompt]);
   const chipLayer = useRef<ChipLayerApi | undefined>(undefined);
   const updateDraft = useCallback((edited: string) => {
     // An edit that cut into a chip (a Backspace, Vim's `x`, Readline's ctrl+w) takes the whole chip.
