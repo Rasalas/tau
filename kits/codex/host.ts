@@ -669,6 +669,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
                 onMessage: thread.onMessage,
                 onEvent: thread.onEvent,
                 ask: thread.ask,
+                cancelPrompts: thread.cancelPrompts,
                 ...mcpApps.forThread(threadId),
                 // Codex starts no turn when a background command ends; the wake tells the agent.
                 onBackgroundEnded: (command) => {

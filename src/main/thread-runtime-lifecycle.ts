@@ -266,6 +266,9 @@ export class ThreadRuntimeLifecycle {
       },
       priceUsage: (tallies) => this.port.priceUsage(tallies),
       executionPolicy: () => this.port.executionPolicy(cwd),
+      cancelPrompts: () => {
+        if (!owned || !this.discarded.has(owned)) this.port.extensionUi.cancelFor(threadId);
+      },
       ask: (prompt) => this.port.extensionUi.ask(
         { ...prompt, id: `backend-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, sessionId: threadId },
         this.port.currentRuntime(threadId),

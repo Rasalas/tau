@@ -197,7 +197,7 @@ export class CursorThreadRuntimeBackend extends AcpThreadBackend<CursorSessionLi
       cwd: this.cwd,
       onUpdate: (update) => this.onUpdate(update),
       onPermission: (request) => this.onPermission(request),
-      onElicitation: (request) => answerElicitation(request, this.options.ask, "Cursor"),
+      onElicitation: (request) => answerElicitation(request, this.sessionAsk(session), "Cursor"),
       onNotification: (method, params) => this.onExtension(method, params),
       onExit: (error) => this.onExit(session, error),
     });

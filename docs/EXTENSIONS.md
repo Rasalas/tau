@@ -2579,6 +2579,11 @@ Protocol, whose client, thread backend (`AcpThreadBackend`: turn queue, steer,
 replay filtering, transcript) and session store they share as `kits/_acp/` (a
 folder of shared code, not a kit).
 
+`cancelPrompts()` (optional, API 1.61.0) withdraws every pending question of
+this thread and answers it as cancelled. Call it when the live runtime
+process exits, before settling its turns, including a clean exit. A backend
+that loses its event stream calls it too.
+
 The context also carries `executionPolicy()` (new in API 1.14.0): what the
 thread's project lets its commands reach, merged from every provider of
 `services.executionPolicy` (below). Ask it before every turn — the user can set

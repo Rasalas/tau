@@ -1,3 +1,4 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,7 +63,7 @@ async function agentAsks(agent: FakeAgent, id: number, method: string, params: o
   return (answer.result ?? answer.error) as Record<string, unknown>;
 }
 
-function harness(store: CursorSessionStore, agents: FakeAgent[], settings: { level?: RuntimePermissionLevel; ask?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer>; policy?: () => Promise<HostExecutionPolicy> } = {}) {
+function harness(store: CursorSessionStore, agents: FakeAgent[], settings: { level?: RuntimePermissionLevel; ask?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer>; policy?: () => Promise<HostExecutionPolicy>; cancelPrompts?: () => void } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   let opened = 0;
   const backend = new CursorThreadRuntimeBackend("thread", "/repo", {
@@ -74,6 +75,7 @@ function harness(store: CursorSessionStore, agents: FakeAgent[], settings: { lev
     },
     storedModels: async () => [{ id: "default", name: "Auto", efforts: [] }, { id: "gpt-5.4", name: "GPT-5.4", efforts: ["low", "high"] }],
     onEvent: (event) => events.push(event),
+    cancelPrompts: settings.cancelPrompts,
     ...(settings.ask ? { ask: settings.ask } : {}),
     permissionLevel: () => settings.level ?? "full",
     ...(settings.policy ? { executionPolicy: settings.policy } : {}),
@@ -296,4 +298,34 @@ describe("CursorThreadRuntimeBackend", () => {
     expect(cursorMode("default", "ask", modes)).toBe("agent");
     expect(cursorMode("default", "full", [{ value: "code", name: "Code" }])).toBe("code");
   });
+});
+
+it.each(["approval", "form"])("withdraws an open %s request after process exit and reconnects", async (kind) => {
+  const dialogs = backendPrompts("thread");
+  const agent = cursorAgent();
+  const replacement = cursorAgent({ stored: ["s-new"] });
+  agent.respond("session/prompt", async () => {
+    if (kind === "form") await agentAsks(agent, 90, "elicitation/create", { sessionId: "s-new", ...{ message: "Details", requestedSchema: { type: "object", properties: { first: { type: "string" }, second: { type: "string" } } } } });
+    else await agentAsks(agent, 90, "session/request_permission", { sessionId: "s-new", toolCall: { toolCallId: "edit", kind: "edit", title: "Edit file", locations: [{ path: "/repo/a.ts" }] }, options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }] });
+    return { stopReason: "end_turn" };
+  });
+  replacement.respond("session/prompt", () => ({ stopReason: "end_turn" }));
+  const { backend } = harness(await scratchStore(), [agent, replacement], { level: "ask", ask: dialogs.ask, cancelPrompts: dialogs.cancelPrompts });
+  await backend.start("create");
+  try {
+    const running = backend.prompt({ text: "Edit file", delivery: "prompt" });
+    await dialogs.opened;
+    expect(dialogs.ui.hasOpen("thread")).toBe(true);
+    agent.exit(1);
+    await running;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(dialogs.ui.hasOpen("thread")).toBe(false);
+    expect(dialogs.ui.replay()).toEqual([]);
+    expect(dialogs.answers).toEqual([{ cancelled: true }]);
+    expect(backend.state().idle).toBe(true);
+    await backend.dispose();
+    await backend.start("resume");
+    await backend.prompt({ text: "Continue", delivery: "prompt" });
+    expect(replacement.received.some((message) => message.method === "session/load")).toBe(true);
+  } finally { await backend.dispose(); }
 });

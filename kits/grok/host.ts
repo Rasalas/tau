@@ -260,6 +260,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
               onEvent: thread.onEvent,
               onBackgroundEnded: (text) => { void services.sessions.send?.(threadId, text, { delivery: "queue", wake: { source: "background", label: "Native background task ended" } }).catch((error: unknown) => services.log("background.wake-failed", error instanceof Error ? error.message : String(error))); },
               ask: thread.ask,
+              cancelPrompts: thread.cancelPrompts,
               ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
             });
             await backend.start(resume ? "resume" : "create");

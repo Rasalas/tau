@@ -118,6 +118,8 @@ export interface HostBackendOpenContext {
    * the thread waits for it. Aborting the thread answers it as cancelled.
    */
   ask(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
+  /** Withdraws this thread's pending questions when its runtime exits. API 1.61.0. */
+  cancelPrompts?(): void;
   /**
    * The thread's total from its tallies, priced as core prices every thread,
    * for `catalogView().usage`. Prices can change under a thread, so ask on

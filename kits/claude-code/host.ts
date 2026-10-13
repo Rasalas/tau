@@ -322,6 +322,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,
               ask: thread.ask,
+              cancelPrompts: thread.cancelPrompts,
               ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
               billing: () => limits.get(id)?.billing,
               onRateLimits: (infos) => noteRateLimits(id, infos),

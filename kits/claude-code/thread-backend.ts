@@ -111,6 +111,7 @@ export interface ClaudeThreadBackendOptions {
   onEvent?(event: ThreadRuntimeEvent): void;
   /** The workbench's dialog surface; with it Claude's questions reach the user and the `ask` level works. */
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
+  cancelPrompts?(): void;
   projectName: string;
   branch?: string;
   permissionLevel?: () => RuntimePermissionLevel;
@@ -807,6 +808,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private onExit(live: LiveSession, error: unknown): void {
     const authentication = error instanceof ClaudeAuthenticationError;
     if (this.live === live) {
+      this.options.cancelPrompts?.();
       this.live = undefined;
       for (const event of authentication ? this.nativeAgents.tracker.fail(error.message) : this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
       this.clearBackground();

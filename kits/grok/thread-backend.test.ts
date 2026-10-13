@@ -1,3 +1,4 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,7 +68,7 @@ async function agentAsks(agent: FakeAgent, id: number, method: string, params: o
   return (answer.result ?? answer.error) as Record<string, unknown>;
 }
 
-function harness(store: GrokSessionStore, agents: FakeAgent[], settings: { level?: () => RuntimePermissionLevel; ask?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer>; grokHome?: string } = {}) {
+function harness(store: GrokSessionStore, agents: FakeAgent[], settings: { level?: () => RuntimePermissionLevel; ask?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer>; grokHome?: string; cancelPrompts?: () => void } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const spawned: string[][] = [];
   let opened = 0;
@@ -83,6 +84,7 @@ function harness(store: GrokSessionStore, agents: FakeAgent[], settings: { level
     },
     storedModels: async () => [{ id: "grok-4.6", name: "Grok 4.6", efforts: ["high", "low"] }, { id: "grok-4.6-fast", name: "Grok 4.6 Fast", efforts: [] }],
     onEvent: (event) => events.push(event),
+    cancelPrompts: settings.cancelPrompts,
     ...(settings.ask ? { ask: settings.ask } : {}),
     permissionLevel: settings.level ?? (() => "full"),
     now: (() => { let clock = 1_000; return () => clock++; })(),
@@ -297,4 +299,34 @@ describe("GrokThreadRuntimeBackend", () => {
     expect(events.filter((event) => event.type === "turn-settled").map((event) => (event as { status: string }).status)).toEqual(["interrupted", "completed"]);
     await backend.dispose();
   });
+});
+
+it.each(["approval", "form"])("withdraws an open %s request after process exit and reconnects", async (kind) => {
+  const dialogs = backendPrompts("thread");
+  const agent = grokAgent();
+  const replacement = grokAgent({ stored: ["s-new"] });
+  agent.respond("session/prompt", async () => {
+    if (kind === "form") await agentAsks(agent, 90, "elicitation/create", { sessionId: "s-new", ...{ message: "Details", requestedSchema: { type: "object", properties: { first: { type: "string" }, second: { type: "string" } } } } });
+    else await agentAsks(agent, 90, "session/request_permission", { sessionId: "s-new", toolCall: { toolCallId: "edit", kind: "edit", title: "Edit file", locations: [{ path: "/repo/a.ts" }] }, options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }] });
+    return { stopReason: "end_turn" };
+  });
+  replacement.respond("session/prompt", () => ({ stopReason: "end_turn" }));
+  const { backend } = harness(await scratchStore(), [agent, replacement], { level: () => "ask", ask: dialogs.ask, cancelPrompts: dialogs.cancelPrompts });
+  await backend.start("create");
+  try {
+    const running = backend.prompt({ text: "Edit file", delivery: "prompt" });
+    await dialogs.opened;
+    expect(dialogs.ui.hasOpen("thread")).toBe(true);
+    agent.exit(1);
+    await running;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(dialogs.ui.hasOpen("thread")).toBe(false);
+    expect(dialogs.ui.replay()).toEqual([]);
+    expect(dialogs.answers).toEqual([{ cancelled: true }]);
+    expect(backend.state().idle).toBe(true);
+    await backend.dispose();
+    await backend.start("resume");
+    await backend.prompt({ text: "Continue", delivery: "prompt" });
+    expect(replacement.received.some((message) => message.method === "session/load")).toBe(true);
+  } finally { await backend.dispose(); }
 });

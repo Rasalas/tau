@@ -158,6 +158,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             onEvent: thread.onEvent,
               onBackgroundEnded: (text) => { void services.sessions.send?.(threadId, text, { delivery: "queue", wake: { source: "background", label: "Native background task ended" } }).catch((error: unknown) => services.log("background.wake-failed", error instanceof Error ? error.message : String(error))); },
             ask: thread.ask,
+            cancelPrompts: thread.cancelPrompts,
             ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
             // A Google sign-in is a plan (or its free tier); a key is billed per token.
             billing: () => (usesBrowser(signInSettings.current.method) ? "subscription" : "api-key"),
