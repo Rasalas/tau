@@ -177,7 +177,7 @@ export class HostConnection {
   }
 
   async request<T>(method: string, params: readonly unknown[] = []): Promise<T> {
-    if (this.refusal !== undefined) throw new HostRequestError("Tau refused the connection to this computer.", "refused");
+    if (this.refusal !== undefined) throw new HostRequestError("Tau refused the connection to this machine.", "refused");
     if (this.subscriptionQueued) this.sendSubscription();
     const response = await this.transport.request(method, params);
     if (response.error) throw new HostRequestError(response.error.message, response.error.code);
@@ -411,7 +411,7 @@ export class HostConnection {
       ...(subscription ? { subscription } : {}),
     };
     const reply = decodeHostHelloReply(await this.request<unknown>("hello", [hello]));
-    if (!reply) throw new HostRequestError("The computer answered with something this client cannot read.", "invalid-hello");
+    if (!reply) throw new HostRequestError("The machine answered with something this client cannot read.", "invalid-hello");
     const resync = reply.resync || (this.bootId !== undefined && reply.bootId !== this.bootId);
     this.bootId = reply.bootId;
     this.capabilities = new Set(reply.capabilities);
@@ -449,7 +449,7 @@ export class HostConnection {
     this.toolOutputs.clear();
     this.messageTexts.clear();
     // Their `job-done` may be among the pushes skipped; waiting for it could last forever.
-    for (const job of this.jobs.values()) job.reject(new HostRequestError("The link to the computer was reset before the job finished.", HOST_ERROR.failed));
+    for (const job of this.jobs.values()) job.reject(new HostRequestError("The link to the machine was reset before the job finished.", HOST_ERROR.failed));
     this.jobs.clear();
     await this.resync();
     this.resyncPending = false;

@@ -4,7 +4,7 @@ import { RacingSocket, listAddresses, socketCandidates, type AttemptSocket, type
 import type { SavedHost } from "./hosts";
 import { connectCandidate, type MobileConnect } from "./relay-connect";
 
-/** A computer to pair with, from a QR code, a pasted link or a Bonjour record. */
+/** A machine to pair with, from a QR code, a pasted link or a Bonjour record. */
 export interface PairTarget {
   hostId: string;
   name: string;
@@ -76,13 +76,13 @@ export function pairingBinding(candidate: SocketCandidate, seen: { fingerprint?:
 export function pairingFailureMessage(failure: PairingFailure): string {
   switch (failure.reason) {
     case "no-address":
-      return "This phone cannot reach any address in this link. On your computer, turn on Local network or Tailscale in Settings → Connections, then scan a new QR code.";
+      return "This phone cannot reach any address in this link. On your machine, turn on Local network or Tailscale in Settings → Connections, then scan a new QR code.";
     case "unreachable":
-      return "Your computer did not answer. Is this phone on the same Wi-Fi network, or connected through Tailscale?";
+      return "Your machine did not answer. Is this phone on the same Wi-Fi network, or connected through Tailscale?";
     case "certificate-mismatch":
-      return `${listAddresses(failure.addresses)} is not the computer this link is for, so the phone sent it nothing. Create a new link on your computer and try again.`;
+      return `${listAddresses(failure.addresses)} is not the machine this link is for, so the phone sent it nothing. Create a new link on your machine and try again.`;
     case "untrusted-certificate":
-      return `${listAddresses(failure.addresses)} could not show that it is your computer, so the phone sent it nothing. Something on this network may be in between; try another network.`;
+      return `${listAddresses(failure.addresses)} could not show that it is your machine, so the phone sent it nothing. Something on this network may be in between; try another network.`;
   }
 }
 

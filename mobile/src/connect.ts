@@ -36,7 +36,7 @@ export interface ConnectCallbacks {
 export function certificateRefusalNotice(hostName: string, refusal: CertificateRefusal): string {
   const addresses = listAddresses(refusal.addresses);
   return refusal.reason === "certificate-mismatch"
-    ? `${addresses} answered for ${hostName}, but not as the computer this phone paired with, so the phone sent it nothing. If ${hostName} was set up again on purpose, remove it here and pair it again.`
+    ? `${addresses} answered for ${hostName}, but not as the machine this phone paired with, so the phone sent it nothing. If ${hostName} was set up again on purpose, remove it here and pair it again.`
     : `${addresses} could not show that it is ${hostName}, so the phone did not connect. Something on this network may be in between; try another network.`;
 }
 

@@ -64,7 +64,7 @@ tokens are random and separate. The host keeps its registration in
 after a restart and reconnects after network changes or relay outages.
 
 Copy the Tau Connect pairing link and paste it into Settings → Machines on the
-other desktop, or Add computer on a phone. The phone also scans a QR code containing
+other desktop, or Add machine on a phone. The phone also scans a QR code containing
 the link and opens `tau-connect:` links from another app. Allow the request on the host after comparing the six digits.
 The link expires in two minutes. It includes the relay transport credential and
 the host key; treat it as a secret. A transport credential alone cannot call

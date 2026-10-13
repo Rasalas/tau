@@ -98,7 +98,7 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
     const onReply = async (reply: HostPairReply): Promise<void> => {
       switch (reply.state) {
         case "challenge": {
-          if (!nonce) { finish({ state: "failed", message: "Pairing stopped because the computer answered in an unexpected way. Try again." }); return; }
+          if (!nonce) { finish({ state: "failed", message: "Pairing stopped because the machine answered in an unexpected way. Try again." }); return; }
           ownCode = await pairingVerificationCode({
             ...(options.publicKey !== undefined ? { publicKey: options.publicKey } : { fingerprint: options.fingerprint ?? "" }),
             deviceNonce: nonce,
@@ -110,7 +110,7 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
         case "waiting":
           // Bound digits are this device's own; the host's copy only has to agree.
           if (ownCode && ownCode !== reply.verification) {
-            finish({ state: "failed", message: "The codes do not match, so something between this device and the computer may not be the computer. Do not allow the request." });
+            finish({ state: "failed", message: "The codes do not match, so something between this device and the machine may not be the machine. Do not allow the request." });
             return;
           }
           options.onWaiting?.({ verification: ownCode ?? reply.verification, expiresAt: reply.expiresAt });
@@ -127,7 +127,7 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
       if (frame?.type !== "pair-reply" || frame.id !== id) return;
       void onReply(frame.reply).catch((error: unknown) => finish({ state: "failed", message: error instanceof Error ? error.message : String(error) }));
     });
-    socket.addEventListener("error", () => finish({ state: "failed", message: "The computer could not be reached." }));
-    socket.addEventListener("close", () => finish({ state: "failed", message: "The computer closed the connection." }));
+    socket.addEventListener("error", () => finish({ state: "failed", message: "The machine could not be reached." }));
+    socket.addEventListener("close", () => finish({ state: "failed", message: "The machine closed the connection." }));
   });
 }

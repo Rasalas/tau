@@ -622,7 +622,7 @@ describe("a phone's thread list as design 1m, 1x and 2p draw it", () => {
     expect(reconnect).toHaveBeenCalled();
   });
 
-  it("says in plain words that the computer is not answering, updating or refusing this device", async () => {
+  it("says in plain words that the machine is not answering, updating or refusing this device", async () => {
     const client = createFakeHostClient({ bootstrap: bootstrapWith(THREADS, { home: true, projects: PROJECTS }) });
     let state: "connected" | "reconnecting" | "resyncing" | "refused" = "connected";
     const listeners = new Set<() => void>();
@@ -638,12 +638,12 @@ describe("a phone's thread list as design 1m, 1x and 2p draw it", () => {
     await screen.findByRole("list", { name: "Threads" });
     const move = (next: typeof state) => act(() => { state = next; for (const listener of [...listeners]) listener(); });
     move("reconnecting");
-    expect(await screen.findByText("Your computer not reachable · last seen just now")).toBeTruthy();
+    expect(await screen.findByText("Your machine not reachable · last seen just now")).toBeTruthy();
     move("resyncing");
-    expect(await screen.findByText("Getting the latest threads from your computer…")).toBeTruthy();
+    expect(await screen.findByText("Getting the latest threads from your machine…")).toBeTruthy();
     move("refused");
-    expect(await screen.findByText("Your computer refused this device")).toBeTruthy();
-    expect(screen.getByText("Pair it again in Tau’s Settings → Connections on that computer.")).toBeTruthy();
+    expect(await screen.findByText("Your machine refused this device")).toBeTruthy();
+    expect(screen.getByText("Pair it again in Tau’s Settings → Connections on that machine.")).toBeTruthy();
     for (const alert of screen.getAllByRole("alert")) expect(alert.textContent).not.toMatch(/\bhost\b/iu);
   });
 });

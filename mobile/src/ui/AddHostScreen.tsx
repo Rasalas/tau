@@ -7,14 +7,14 @@ export function pairingTextProblem(text: string): string | undefined {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
   const payload = parseMobilePairingPayload(trimmed);
-  if (!payload) return "This is not a pairing link. Copy the whole link from Settings → Connections on your computer.";
-  if (payload.endpoints.length === 0) return "This link has no address this phone can reach. Turn on Local network or Tailscale in Settings → Connections on your computer, then create a new link.";
+  if (!payload) return "This is not a pairing link. Copy the whole link from Settings → Connections on your machine.";
+  if (payload.endpoints.length === 0) return "This link has no address this phone can reach. Turn on Local network or Tailscale in Settings → Connections on your machine, then create a new link.";
   return undefined;
 }
 
 /**
- * Adding a computer: scan the QR code Settings → Connections shows, or paste
- * its link. Either way the owner then allows the phone on that computer after
+ * Adding a machine: scan the QR code Settings → Connections shows, or paste
+ * its link. Either way the owner then allows the phone on that machine after
  * comparing the digits.
  */
 export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmit }: {
@@ -36,11 +36,11 @@ export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmi
   const payload = text.trim() && !problem ? parseMobilePairingPayload(text) : undefined;
   return <main className="shell-screen" aria-labelledby="add-title">
     <header className="shell-header">
-      <button type="button" className="shell-icon-button" aria-label="Back to computers" onClick={onBack}><ChevronLeft size={24} /></button>
-      <h1 id="add-title">Add computer</h1>
+      <button type="button" className="shell-icon-button" aria-label="Back to machines" onClick={onBack}><ChevronLeft size={24} /></button>
+      <h1 id="add-title">Add machine</h1>
     </header>
     <div className="shell-scroll shell-form">
-      <p>On the computer running Tau, open Settings → Connections, choose Pair a device and create a link. Scan its QR code, or paste the link here.</p>
+      <p>On the machine running Tau, open Settings → Connections, choose Pair a device and create a link. Scan its QR code, or paste the link here.</p>
       {error ? <p className="shell-notice" role="alert">{error}</p> : null}
       <button type="button" className="shell-primary" onClick={onScan}><QrCode size={20} />Scan QR code</button>
       <form onSubmit={(event) => { event.preventDefault(); if (payload) onSubmit(payload, text); }}>

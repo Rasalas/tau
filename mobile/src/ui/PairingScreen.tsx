@@ -1,14 +1,14 @@
 import { formatVerification } from "../../../src/shared/pairing";
 
 /**
- * While the owner decides on the computer: the digits to compare, like
- * pairing a Bluetooth device. Before the computer has the request, which
+ * While the owner decides on the machine: the digits to compare, like
+ * pairing a Bluetooth device. Before the machine has the request, which
  * address is tried.
  */
 export function PairingScreen({ hostName, verification, address, onCancel }: {
   hostName: string;
   verification?: string;
-  /** "Local network", "Tailscale": how the phone reached the computer. */
+  /** "Local network", "Tailscale": how the phone reached the machine. */
   address?: string;
   onCancel(): void;
 }) {

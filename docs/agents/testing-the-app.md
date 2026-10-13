@@ -468,7 +468,7 @@ node mobile/scripts/sim-device.mjs up                              # new simulat
 #   up --ipad: an 11-inch iPad instead of an iPhone
 node mobile/scripts/sim.mjs wait-for "text().length > 0" 60000     # the app's web view is connected
 npm run cdp:mobile -- link --label "Simulator"                     # prints the loopback pairing link
-node mobile/scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add computer\"]'))"
+node mobile/scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add machine\"]'))"
 node mobile/scripts/sim.mjs eval "type(document.querySelector('textarea'), '<link>')"
 node mobile/scripts/sim.mjs eval "tap(byText('button', /^Connect$/))"
 node mobile/scripts/sim.mjs wait-for "document.querySelector('[aria-label=\"Code to compare\"]')?.textContent" 30000

@@ -103,9 +103,9 @@ describe("connectHost and the phone's token", () => {
 });
 
 describe("certificateRefusalNotice", () => {
-  it("names the address and the computer, for a wrong key and for an untrusted certificate, without the jargon", () => {
+  it("names the address and the machine, for a wrong key and for an untrusted certificate, without the jargon", () => {
     const mismatch = certificateRefusalNotice("Mac mini", { reason: "certificate-mismatch", addresses: ["100.64.1.2:7788"] });
-    expect(mismatch).toMatch(/^100\.64\.1\.2:7788 answered for Mac mini, but not as the computer this phone paired with/u);
+    expect(mismatch).toMatch(/^100\.64\.1\.2:7788 answered for Mac mini, but not as the machine this phone paired with/u);
     const untrusted = certificateRefusalNotice("Mac mini", { reason: "untrusted-certificate", addresses: ["mac.tail0000.ts.net"] });
     expect(untrusted).toMatch(/^mac\.tail0000\.ts\.net could not show that it is Mac mini, so the phone did not connect\./u);
     expect(mismatch + untrusted).not.toMatch(/\bhost\b|certificate|pinned|\bkey\b/iu);

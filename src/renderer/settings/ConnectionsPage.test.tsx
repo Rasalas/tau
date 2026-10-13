@@ -102,7 +102,7 @@ describe("Settings → Connections", () => {
 
   it("tells a paired client that the owner manages connections", async () => {
     renderPage({ listConnections: async () => { throw Object.assign(new Error("no"), { code: "forbidden" }); } });
-    expect(await screen.findByText("Connections are managed on your computer")).toBeTruthy();
+    expect(await screen.findByText("Connections are managed on your machine")).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/\bhost\b|token/iu);
   });
 

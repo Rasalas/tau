@@ -33,7 +33,7 @@ The client-side coordination of a person's threads, drafts, submissions and navi
 
 The process that owns an agent runtime and exposes it to a workbench client. A host may run on the same machine as the client or remotely.
 
-Where a person reads about it on the phone or in the browser's sign-in, a host is a **computer** and the host token is the **access key**; neither "host" nor "token" nor a file path appears there. The words stay in the docs and in the desktop's Advanced settings.
+Where a person reads about it on the phone or in the browser's sign-in, a host is a **machine**, as on the desktop's Machines page, and the host token is the **access key**; neither "host" nor "token" nor a file path appears there. The words stay in the docs and in the desktop's Advanced settings.
 
 ## Project
 

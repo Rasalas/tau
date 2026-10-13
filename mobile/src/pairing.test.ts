@@ -140,7 +140,7 @@ describe("pairDevice", () => {
     expect(silent.state === "failed" && silent.message).toMatch(/did not answer/u);
     const sockets = hostSockets({ "wss://10.0.0.2:7788/": "mismatch" });
     const mismatch = await pairDevice({ hostId: "h", name: "Mac", fingerprint: FP, endpoints: [{ url: "https://10.0.0.2:7788/" }] }, { device: DEVICE, openSocket: sockets.openSocket });
-    expect(mismatch).toEqual({ state: "failed", message: "10.0.0.2:7788 is not the computer this link is for, so the phone sent it nothing. Create a new link on your computer and try again." });
+    expect(mismatch).toEqual({ state: "failed", message: "10.0.0.2:7788 is not the machine this link is for, so the phone sent it nothing. Create a new link on your machine and try again." });
     // One probe, and no pairing socket after it: the phone sent that host nothing.
     expect(sockets.opened).toEqual(["wss://10.0.0.2:7788/"]);
   });
@@ -151,7 +151,7 @@ describe("pairDevice", () => {
       hostId: "h", name: "Mac", publicKey: KEY,
       endpoints: [{ url: "https://192.168.1.2:7788/", kind: "lan" }, { url: "https://mac.tail0000.ts.net/", kind: "magicdns", trustedCertificate: true }],
     }, { device: DEVICE, openSocket: sockets.openSocket, race: { graceMs: 0 } });
-    expect(outcome.state === "failed" && outcome.message).toMatch(/^mac\.tail0000\.ts\.net could not show that it is your computer/u);
+    expect(outcome.state === "failed" && outcome.message).toMatch(/^mac\.tail0000\.ts\.net could not show that it is your machine/u);
     expect(sockets.opened).toHaveLength(2);
   });
 

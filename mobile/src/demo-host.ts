@@ -6,7 +6,7 @@ import { HostConnection, type HostTransport } from "../../src/workbench/host-con
 
 const PROJECT = "demo-project";
 const MODEL: UiModel = { provider: "demo", id: "sample", name: "Demo · scripted replies", billing: "local" };
-const INTRO = "This is a local demonstration. These are sample conversations, not live AI output. You can send a message to try the composer; the reply is scripted. Pair your own computer for real agent work.";
+const INTRO = "This is a local demonstration. These are sample conversations, not live AI output. You can send a message to try the composer; the reply is scripted. Pair your own machine for real agent work.";
 
 /** An in-memory host. It has no socket, provider, filesystem or saved credentials. */
 export function createDemoHost() {
@@ -45,7 +45,7 @@ export function createDemoHost() {
     if (!transcript) throw new Error("This demo thread does not exist.");
     if (transcript.length >= 100) throw new Error("This demo thread is full. Exit and reopen the demo to reset it.");
     const correlation = typeof identity === "string" ? { clientMessageId: identity } : identity && typeof identity === "object" ? identity : {};
-    transcript.push({ ...message("user", text.slice(0, 8000)), ...correlation }, message("assistant", "Simulated reply: your message stayed on this phone. No AI model was called.\n\nIn a paired session, Tau on your computer runs the selected agent and sends its answer here. You can browse another sample thread or exit the demo to pair a computer."));
+    transcript.push({ ...message("user", text.slice(0, 8000)), ...correlation }, message("assistant", "Simulated reply: your message stayed on this phone. No AI model was called.\n\nIn a paired session, Tau on your machine runs the selected agent and sends its answer here. You can browse another sample thread or exit the demo to pair a machine."));
     const row = sessions.find((entry) => entry.id === id);
     if (row) row.modifiedAt = Date.now();
     emit({ type: "thread-index", threadIndex: index() });
@@ -91,7 +91,7 @@ export function createDemoHost() {
       case "environments-list": return { environments: [] };
       case "set-badge": return undefined;
       case "thread-markdown": return (messages.get(String(args[0] || active)) ?? []).map((entry) => `## ${entry.role}\n\n${entry.text}`).join("\n\n");
-      default: throw new Error("This feature needs a paired computer. Exit the demo and connect your computer to use it.");
+      default: throw new Error("This feature needs a paired machine. Exit the demo and connect your machine to use it.");
     }
   }
   const transport: HostTransport = {

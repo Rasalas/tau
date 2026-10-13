@@ -29,7 +29,7 @@ export class BrowserConnectSocket implements HostSocket, PairingSocket {
   private authenticated = false;
 
   constructor(route: BrowserConnectRoute, private readonly onFailure?: (message: string) => void, factory: TunnelFactory = loadBrowserTls, createRelay = (url: string) => new WebSocket(url, "tau-connect-v1")) {
-    this.deadline = setTimeout(() => this.fail("Tau Connect did not reach your computer in time. Check that it is on and online, then try again."), 15_000);
+    this.deadline = setTimeout(() => this.fail("Tau Connect did not reach your machine in time. Check that it is on and online, then try again."), 15_000);
     void factory(route.url, new URL(route.url).hostname.replace(/^\[|\]$/gu, ""), route.pin, route.key).then((tunnel) => {
       if (this.readyState === 3) { tunnel.free(); return; }
       this.tunnel = tunnel;
@@ -37,7 +37,7 @@ export class BrowserConnectSocket implements HostSocket, PairingSocket {
       relay.onopen = () => relay.send(JSON.stringify({ type: "authenticate", token: route.token }));
       relay.onerror = () => this.fail("Tau Connect could not be reached. Check this device’s internet connection.", false);
       relay.onclose = (event) => {
-        if (event.code === 4401) this.fail("Tau Connect no longer accepts this link. Copy a new one in Tau on your computer.");
+        if (event.code === 4401) this.fail("Tau Connect no longer accepts this link. Copy a new one in Tau on your machine.");
         else this.finish(event.code, event.reason || "The relay connection closed.");
       };
       relay.onmessage = (event) => {

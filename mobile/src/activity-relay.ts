@@ -25,12 +25,12 @@ export function relayActivities(port: ActivityPort, options: ActivityRelayOption
   }
   async function registration(token: ActivityToken, current: number): Promise<ActivityToken> {
     const key = await serial(token.hostId, async () => {
-      if (!(await options.authorized(token.hostId)) || generation(token.hostId) !== current) throw new Error("Access to this computer changed.");
+      if (!(await options.authorized(token.hostId)) || generation(token.hostId) !== current) throw new Error("Access to this machine changed.");
       const value = await options.keys.forHost(token.hostId);
-      if (generation(token.hostId) !== current) throw new Error("Access to this computer changed.");
+      if (generation(token.hostId) !== current) throw new Error("Access to this machine changed.");
       await options.installKey({ hostId: token.hostId, ...value });
       // A clear queued during installation runs immediately after this operation.
-      if (generation(token.hostId) !== current) throw new Error("Access to this computer changed.");
+      if (generation(token.hostId) !== current) throw new Error("Access to this machine changed.");
       return value;
     });
     const response = await fetcher(`${options.url.replace(/\/$/u, "")}/register`, {
@@ -40,7 +40,7 @@ export function relayActivities(port: ActivityPort, options: ActivityRelayOption
     });
     const answer = await response.json() as { handle?: unknown; purpose?: unknown };
     if (!response.ok || answer.purpose !== "activity" || typeof answer.handle !== "string" || !/^[A-Za-z0-9_-]{40,6000}$/u.test(answer.handle)) throw new Error("Tau's relay does not support Live Activity updates yet.");
-    if (!(await options.authorized(token.hostId)) || generation(token.hostId) !== current) throw new Error("Access to this computer changed.");
+    if (!(await options.authorized(token.hostId)) || generation(token.hostId) !== current) throw new Error("Access to this machine changed.");
     return { ...token, relay: { handle: answer.handle, ...key } };
   }
   return {

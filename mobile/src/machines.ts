@@ -319,7 +319,7 @@ export class PhoneMachines implements PlatformEnvironments {
       return;
     }
     if (end.kind === "certificate") {
-      this.set(machine, { status: "refused", detail: end.refusal.reason === "certificate-mismatch" ? `${machine.host.name} answered, but not as the computer this phone paired with.` : `${machine.host.name} could not show that it is the computer this phone paired with.` });
+      this.set(machine, { status: "refused", detail: end.refusal.reason === "certificate-mismatch" ? `${machine.host.name} answered, but not as the machine this phone paired with.` : `${machine.host.name} could not show that it is the machine this phone paired with.` });
     }
     // A link that closed after its visit leaves the machine as it was.
   }

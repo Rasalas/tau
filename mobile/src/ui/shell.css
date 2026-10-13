@@ -74,7 +74,7 @@ html, body { margin: 0; background: var(--shell); }
   font: 550 var(--text-md) var(--sans); cursor: pointer;
 }
 
-/* Add computer: the list's primary action, bottom right above the safe area. */
+/* Add machine: the list's primary action, bottom right above the safe area. */
 .shell-fab {
   position: absolute; z-index: 2;
   right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px));

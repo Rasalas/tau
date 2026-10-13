@@ -33,7 +33,7 @@ export function usedAgo(iso: string | undefined, now: number): string | undefine
   return `used ${Math.floor(elapsed / (24 * 60 * MINUTE))} d ago`;
 }
 
-const KIND_LABEL: Record<string, string> = { lan: "Local network", mdns: "Local network", tailscale: "Tailscale", magicdns: "Tailscale", loopback: "This computer" };
+const KIND_LABEL: Record<string, string> = { lan: "Local network", mdns: "Local network", tailscale: "Tailscale", magicdns: "Tailscale", loopback: "This machine" };
 
 /** "Local network · 192.168.1.20 · used 5 min ago": how the phone reached it last, and when. */
 export function hostMeta(row: HostRowInfo, now: number): string {
@@ -53,8 +53,8 @@ export function hostMeta(row: HostRowInfo, now: number): string {
 }
 
 /**
- * The start screen: computers this phone paired with, computers on this
- * network it could ask, and Add computer as the floating button at the
+ * The start screen: machines this phone paired with, machines on this
+ * network it could ask, and Add machine as the floating button at the
  * bottom right.
  */
 export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteActivity, onAdd, onDemo, onScan, onAsk, onRetry, now = Date.now() }: {
@@ -68,7 +68,7 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteAc
   onDemo?(): void;
   onScan(): void;
   onAsk(host: DiscoveredHost): void;
-  /** Looks for computers on the network again; offered when the first look failed. */
+  /** Looks for machines on the network again; offered when the first look failed. */
   onRetry?(): void;
   now?: number;
 }) {
@@ -77,10 +77,10 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteAc
   const saved = new Set(rows.map((row) => row.host.id));
   const unknownNearby = nearby.state === "searching" ? nearby.hosts.filter((host) => !saved.has(host.hostId)) : [];
   return <main className="shell-screen" aria-labelledby="hosts-title">
-    <header className="shell-header"><h1 id="hosts-title">Computers</h1></header>
+    <header className="shell-header"><h1 id="hosts-title">Machines</h1></header>
     <div className="shell-scroll">
       {notice ? <p className="shell-notice" role="alert">{notice}</p> : null}
-      {sorted.length > 0 ? <ul className="shell-list" aria-label="Paired computers">
+      {sorted.length > 0 ? <ul className="shell-list" aria-label="Paired machines">
         {sorted.map((row) => <li key={row.host.id} className="shell-row shell-paired-host" data-signed-out={row.signedOut ? "" : undefined}>
           <div className="shell-host-main-row"><button type="button" className="shell-row-main" aria-label={`Open ${row.host.name}`} onClick={() => onOpen(row.host)}>
             <span className="shell-row-icon" aria-hidden="true">{row.nearby ? <Wifi size={20} /> : <Monitor size={20} />}</span>
@@ -96,8 +96,8 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteAc
           </div> : null}
         </li>)}
       </ul> : <div className="shell-empty">
-        <strong>No computers yet</strong>
-        <p>On the computer running Tau, open Settings → Connections, choose Pair a device and create a link. Then scan its QR code here.</p>
+        <strong>No machines yet</strong>
+        <p>On the machine running Tau, open Settings → Connections, choose Pair a device and create a link. Then scan its QR code here.</p>
         <button type="button" onClick={onScan}><QrCode size={18} />Scan a QR code</button>
       </div>}
 
@@ -109,36 +109,36 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteAc
       <p className="shell-hint"><a href="https://tbuck.de/privacy/tau/" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
       {onDemo ? <section className="shell-demo" aria-label="Local demo">
         <button type="button" className="shell-secondary" onClick={onDemo}>Try demo</button>
-        <p className="shell-hint">Explore sample threads with scripted replies. No computer or AI account needed. Demo messages disappear when you exit.</p>
+        <p className="shell-hint">Explore sample threads with scripted replies. No machine or AI account needed. Demo messages disappear when you exit.</p>
       </section> : null}
     </div>
-    <button type="button" className="shell-fab" aria-label="Add computer" onClick={onAdd}><Plus size={28} /></button>
+    <button type="button" className="shell-fab" aria-label="Add machine" onClick={onAdd}><Plus size={28} /></button>
     {removing ? <RemoveDialog host={removing} onKeep={() => setRemoving(undefined)} onRemove={() => { onRemove(removing); setRemoving(undefined); }} /> : null}
   </main>;
 }
 
 function NearbyList({ state, hosts, onAsk, onRetry }: { state: NearbyState; hosts: DiscoveredHost[]; onAsk(host: DiscoveredHost): void; onRetry?(): void }) {
-  if (state.state === "denied") return <p className="shell-hint">Tau may not look for computers on this network. Allow Local Network for Tau in the system settings, or scan a QR code instead.</p>;
+  if (state.state === "denied") return <p className="shell-hint">Tau may not look for machines on this network. Allow Local Network for Tau in the system settings, or scan a QR code instead.</p>;
   if (state.state === "failed") return <>
-    <p className="shell-hint" role="status">Tau could not look for computers on this network just now. Try again, or scan a QR code instead.</p>
+    <p className="shell-hint" role="status">Tau could not look for machines on this network just now. Try again, or scan a QR code instead.</p>
     {onRetry ? <div className="shell-retry"><button type="button" className="shell-secondary" onClick={onRetry}>Try again</button></div> : null}
   </>;
-  if (state.state === "unavailable") return <p className="shell-hint">This device cannot look for computers on the network. Scan a QR code instead.</p>;
-  if (hosts.length === 0) return <p className="shell-hint" role="status">Looking for computers running Tau… One shows up here while Local network is on in its Settings → Connections.</p>;
-  return <ul className="shell-list" aria-label="Computers on this network">
+  if (state.state === "unavailable") return <p className="shell-hint">This device cannot look for machines on the network. Scan a QR code instead.</p>;
+  if (hosts.length === 0) return <p className="shell-hint" role="status">Looking for machines running Tau… One shows up here while Local network is on in its Settings → Connections.</p>;
+  return <ul className="shell-list" aria-label="Machines on this network">
     {hosts.map((host) => <li key={host.hostId} className="shell-row">
       <button type="button" className="shell-row-main" aria-label={`Ask ${host.name} to connect`} onClick={() => onAsk(host)}>
         <span className="shell-row-icon" aria-hidden="true"><Wifi size={20} /></span>
         <span className="shell-row-text">
           <strong>{host.name}</strong>
-          <small>Ask to connect · you allow it in Tau on that computer</small>
+          <small>Ask to connect · you allow it in Tau on that machine</small>
         </span>
       </button>
     </li>)}
   </ul>;
 }
 
-/** Names what goes and what stays: the computer keeps listing the phone until the owner unpairs it there. */
+/** Names what goes and what stays: the machine keeps listing the phone until the owner unpairs it there. */
 function RemoveDialog({ host, onKeep, onRemove }: { host: SavedHost; onKeep(): void; onRemove(): void }) {
   const surface = useRef<HTMLDivElement>(null);
   useFocusReturn(true, surface);

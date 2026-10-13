@@ -33,7 +33,7 @@ it("names the key field by its visible label and keeps the key out of sight", ()
 });
 
 it("names no host, token or file path, and no step in a console", () => {
-  const gate = render(<TokenGate notice="Your computer did not answer." onSubmit={() => {}} onAsk={() => {}} onConnect={() => {}} />);
+  const gate = render(<TokenGate notice="Your machine did not answer." onSubmit={() => {}} onAsk={() => {}} onConnect={() => {}} />);
   expect(screen.getByRole("heading", { name: "Connect to Tau" })).toBeTruthy();
   expect(spoken(gate.container)).not.toMatch(/\bhost\b|token|~\/|\.tau|terminal|console/iu);
   gate.unmount();
@@ -41,10 +41,10 @@ it("names no host, token or file path, and no step in a console", () => {
   expect(screen.getByLabelText("Code to compare").textContent).toBe("123 456");
   expect(spoken(wait.container)).not.toMatch(/\bhost\b|token|pairing code/iu);
   wait.rerender(<PairingWait onCancel={() => {}} />);
-  expect(screen.getByText("Asking your computer…")).toBeTruthy();
+  expect(screen.getByText("Asking your machine…")).toBeTruthy();
 });
 
-it("asks the owner to allow the request on the computer", () => {
+it("asks the owner to allow the request on the machine", () => {
   const onAsk = vi.fn();
   render(<TokenGate onSubmit={() => {}} onAsk={onAsk} />);
   fireEvent.click(screen.getByRole("button", { name: "Ask to connect" }));

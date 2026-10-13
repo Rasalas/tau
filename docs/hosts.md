@@ -394,8 +394,8 @@ renews the certificate, so a renewal needs no new pairing. The Tailscale Serve a
 has a certificate a public CA issued; the link marks it, and the app checks it the way a
 browser would instead of pinning. Tokens live in the Keychain or behind a Keystore key.
 
-Add a computer by scanning the QR code in Settings → Connections (or pasting its link), or
-tap a computer listed under "On this network". Either way the host's window asks
+Add a machine by scanning the QR code in Settings → Connections (or pasting its link), or
+tap a machine listed under "On this network". Either way the host's window asks
 "<phone> wants to connect" with six digits; allow it only if the phone shows the same
 ones. With a pinned key the digits depend on it, so something between the two that
 presents another key cannot make them agree ([ADR 0024](adr/0024-pairing-allowed-on-the-host.md), [ADR 0026](adr/0026-devices-pin-the-hosts-key.md)). The link names every
@@ -404,7 +404,7 @@ host added over Bonjour becomes reachable over Tailscale too; the app races
 them each time it connects (local network first,
 then `.local`, then Tailscale), so it follows a phone from home Wi-Fi to cellular on its
 own. Coming back to the foreground or to a network makes it check the link at once. More
-→ Computers in the thread list goes back to the computer list. `tau://thread?host=<id>&thread=<id>`
+→ Machines in the thread list goes back to the machine list. `tau://thread?host=<id>&thread=<id>`
 opens a thread of a paired host; a tapped push notification uses it ([push.md](push.md)).
 The same link without `host` is how a message mentions a thread: the transcript draws it as a
 chip with the thread's current title.

@@ -57,7 +57,7 @@ type View =
 /** A notice that must survive the reload a workbench leaves with. */
 const NOTICE_KEY = "tau.mobile.notice";
 
-const ADDRESS_LABEL: Record<string, string> = { lan: "the local network", mdns: "the local network", tailscale: "Tailscale", magicdns: "Tailscale", loopback: "this computer" };
+const ADDRESS_LABEL: Record<string, string> = { lan: "the local network", mdns: "the local network", tailscale: "Tailscale", magicdns: "Tailscale", loopback: "this machine" };
 
 const documentVisibility: Visibility = {
   visible: () => document.visibilityState === "visible",
@@ -74,7 +74,7 @@ export function payloadTarget(payload: MobilePairingPayload): PairTarget {
   }
   return {
     hostId: payload.hostId ?? fallbackHostId(payload.fingerprint ?? payload.publicKey, payload.endpoints),
-    name: name || "Computer",
+    name: name || "Machine",
     ...targetPins(payload),
     endpoints: payload.endpoints,
     code: payload.code,
@@ -91,7 +91,7 @@ function nearbyState(services: NativeService[], error: string | undefined, virtu
 }
 
 /** An error nobody planned for: the phone says what to do, not what the system threw. */
-const PAIRING_FAILED = "Pairing did not work. Try again, or create a new link on your computer.";
+const PAIRING_FAILED = "Pairing did not work. Try again, or create a new link on your machine.";
 
 const scanProblem: Record<Exclude<ScanResult, { text: string }>["error"], string | undefined> = {
   cancelled: undefined,
@@ -110,7 +110,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   const [view, setView] = useState<View>({ name: "loading" });
   const [hosts, setHosts] = useState<Array<{ host: SavedHost; signedOut: boolean }>>([]);
   const [nearby, setNearby] = useState<NearbyState>({ state: "searching", hosts: [] });
-  /** Bumped by Try again: the look for computers starts over. */
+  /** Bumped by Try again: the look for machines starts over. */
   const [lookRound, setLookRound] = useState(0);
   const [remoteStatus, setRemoteStatus] = useState<Record<string, import("./activity-start").RemoteActivityStatus>>({});
   const [remoteNotice, setRemoteNotice] = useState<string>();
@@ -213,7 +213,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     const environment: ClientEnvironment = {
       ...context.environment,
       createPlatform: (ports) => ({ ...context.environment.createPlatform(ports), environments: machines }),
-      shell: { hostLabel: host.name, actions: [{ id: "hosts", label: "Computers", Icon: Server, run: () => leaveTo("?view=hosts") }] },
+      shell: { hostLabel: host.name, actions: [{ id: "hosts", label: "Machines", Icon: Server, run: () => leaveTo("?view=hosts") }] },
     };
     setView({ name: "workbench", host, client, storage: scoped, services: createRendererServices(), environment });
   }, [book, context, device, leaveTo, storage]);
@@ -259,7 +259,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     if ("text" in result) {
       const payload = parseMobilePairingPayload(result.text);
       if (payload && payload.endpoints.length > 0) { startPairing(payloadTarget(payload), from); return; }
-      setView({ name: "add", error: "This is not a Tau QR code. Scan the one in Settings → Connections on your computer." });
+      setView({ name: "add", error: "This is not a Tau QR code. Scan the one in Settings → Connections on your machine." });
       return;
     }
     const problem = scanProblem[result.error];
@@ -276,7 +276,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       if (initial.view === "workbench") {
         const saved = list.find((entry) => entry.host.id === initial.hostId);
         if (saved) { await openHost(saved.host, initial.threadId, initial.page); return; }
-        setView({ name: "hosts", notice: "That link is for a computer this phone is not paired with." });
+        setView({ name: "hosts", notice: "That link is for a machine this phone is not paired with." });
         return;
       }
       if (initial.view === "add") {

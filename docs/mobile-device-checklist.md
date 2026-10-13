@@ -49,7 +49,7 @@ real account changes or reset-credit consumption.
 
 ## 2. Bonjour, without a link
 
-1. [ ] In the app, go back to the computer list and remove the Mac (trash icon, confirm).
+1. [ ] In the app, go back to the machine list and remove the Mac (trash icon, confirm).
 2. [ ] Under **On this network** the Mac appears within a few seconds, by its computer name.
 3. [ ] Tap it, then **Ask to connect**. The Mac shows a request "without a pairing link",
        and both sides show the same digits. **Allow**.
@@ -233,7 +233,7 @@ Keychain entitlement. APNs setup and a deployed relay that accepts
 simulator build do not complete this checklist.
 
 - [ ] Confirm the host's **Live Activities** switch starts off in the phone's
-      Computers screen. A turn from the Mac does not remotely create an activity.
+      Machines screen. A turn from the Mac does not remotely create an activity.
 - [ ] Enable the switch on the phone, then close Tau. Start a new turn on the Mac.
       A Live Activity appears with the matching title and running status. Tap it
       and verify the correct paired host and thread open.
