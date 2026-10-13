@@ -126,7 +126,7 @@ describe("extensions on and off across clients", () => {
     const snapshot = { cwd: "/work/app", workspaceId: "ws-app", models: [], thinkingLevels: [] } as unknown as HostSnapshot;
     render(<HostClientProvider client={phone.client}>
       <TestProviders preferences={phone.preferences}>
-        <SettingsScreen page="extensions" snapshot={snapshot} registry={phone.registry} projects={[]} onSetPage={vi.fn()} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
+        <SettingsScreen page="extensions" snapshot={snapshot} registry={phone.registry} projects={[]} onSetPage={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
       </TestProviders>
     </HostClientProvider>);
     const page = screen.getByRole("dialog", { name: "Settings" });

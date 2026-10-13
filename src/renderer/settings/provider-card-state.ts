@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect } from "react";
 
 /**
- * The state words in a Providers card's head. The card's own rows name them
+ * The state words in a runtime's head on Runtimes. The card's own rows name them
  * (the program's row, the account's row) through this context, which
- * `ProvidersPage` provides around each card; elsewhere it is absent and a
+ * `RuntimeDetail` provides around each card; elsewhere it is absent and a
  * row says nothing upwards.
  */
 export type ProviderCardBadgeTone = "neutral" | "success" | "warn" | "danger";

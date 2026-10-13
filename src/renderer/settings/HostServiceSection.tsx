@@ -3,6 +3,7 @@ import { errorMessage } from "../../workbench/error-message";
 import type { UiHostService } from "../../shared/connections";
 import { CONFIG_DEFAULTS } from "../../shared/config-layers";
 import { useHostClient } from "../host-client-context";
+import { usePreferences } from "../renderer-services-context";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Badge, Button, SettingsState, ValueList, type ValueListItem } from "./controls";
 import { SettingRow, SettingsSection, Switch, useSetting } from "./settings-layout";
@@ -37,9 +38,10 @@ function serviceSummary(service: UiHostService): { tone: "neutral" | "success" |
 const SERVICE_TITLE = "Run as a system service";
 
 /**
- * Settings → Connections, Background: the host as a service of the machine it
- * runs on, and whether that machine stays awake while turns run. The host
- * answers for its own machine, whichever device asks.
+ * Settings → Connections, Background: whether Tau keeps running after its
+ * window closes, the host as a service of the machine it runs on, and whether
+ * that machine stays awake while turns run. The host answers for its own
+ * machine, whichever device asks.
  */
 export function HostServiceSection({ onNotify }: { onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
@@ -47,6 +49,8 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string, lev
   const [confirm, setConfirm] = useState<Pending>();
   const [busy, setBusy] = useState<Pending>();
   const mounted = useRef(true);
+  const preferences = usePreferences();
+  const hostBackground = useSetting<boolean>("hostBackground", { defaultValue: CONFIG_DEFAULTS.hostBackground as boolean, read: readBoolean, offline: (value) => preferences.setHostBackground(value) });
   const keepAwake = useSetting<boolean>("hostKeepAwake", { defaultValue: CONFIG_DEFAULTS.hostKeepAwake as boolean, read: readBoolean });
 
   const load = useCallback(async (): Promise<UiHostService | undefined> => {
@@ -220,6 +224,13 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string, lev
 
   return (
     <SettingsSection title="Background">
+      <SettingRow
+        id={settingAnchor("Keep Tau running in the background")}
+        title="Keep Tau running in the background"
+        description="threads keep working after you quit"
+        setting={hostBackground}
+        control={<Switch label="Keep Tau running in the background" checked={hostBackground.value} onChange={hostBackground.set} />}
+      />
       {serviceRow}
       {displayRow}
       <SettingRow

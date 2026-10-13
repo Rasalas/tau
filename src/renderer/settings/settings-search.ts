@@ -1,4 +1,4 @@
-import { CORE_PAGE_DESCRIPTIONS, extensionPage, type CoreSettingsPage } from "./settings-nav";
+import { CORE_PAGE_DESCRIPTIONS, extensionPage, runtimePage, type CoreSettingsPage } from "./settings-nav";
 
 /**
  * What the Settings search finds: core's own rows with the words people use
@@ -31,7 +31,7 @@ export function settingAnchor(label: string): string {
 
 type CoreRow = readonly [label: string, keywords: readonly string[]];
 
-const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keywords: readonly string[]; rows: readonly CoreRow[] }> = [
+const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonly string[]; rows: readonly CoreRow[] }> = [
   {
     page: "general",
     label: "General",
@@ -42,57 +42,53 @@ const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keyword
       ["Composer editing mode", ["vim", "readline", "emacs", "modal"]],
       ["Fold the composer while scrolling", ["fold", "composer", "scroll"]],
       ["Send with", ["send", "enter", "submit", "shortcut"]],
-      ["Theme", ["appearance", "dark", "light", "system", "color", "colour"]],
-      ["Keep Tau running in the background", ["host", "background", "quit"]],
-      ["Continue threads after restarts", ["restart", "resume", "interrupted"]],
-      ["Reload files when they change", ["watch", "hot reload", "extensions", "packages", "themes", "config"]],
+      ["Reload files when they change", ["watch", "hot reload", "extensions", "packages", "themes", "config", "advanced"]],
       ["Quit shortcut", ["quit", "cmd q", "hold", "press twice", "confirm", "confirmation"]],
       ["Ask before quitting while threads work", ["quit", "confirm", "confirmation", "running", "ask"]],
-      ["Terminal command", ["tau command", "cli", "command line", "terminal", "shell", "path", "install", "symlink", "tau app"]],
     ],
   },
   {
-    page: "models",
-    label: "Models",
-    keywords: ["defaults", "new threads", "model"],
+    page: "threads",
+    label: "Threads",
+    keywords: ["new threads", "worktree", "restart", "wake", "steer", "queue", "settle", "compaction"],
     rows: [
-      ["Default model", ["model", "provider", "add provider", "custom model"]],
-      ["Thinking level", ["thinking", "reasoning", "effort"]],
-      ["Temperature", ["temperature", "sampling", "model parameters"]],
-      ["Max tokens", ["max tokens", "answer length", "model parameters"]],
+      ["Continue threads after restarts", ["restart", "resume", "interrupted"]],
+      ["Wakes during a turn", ["wake", "pull request", "steer", "queue", "turn"]],
     ],
   },
   {
     page: "runtimes",
     label: "Runtimes",
-    keywords: ["harness", "backend", "program", "cli", "version", "update", "install", "instance", "permissions"],
+    keywords: ["harness", "backend", "program", "cli", "version", "update", "install", "instance", "permissions", "providers", "models", "sign in", "login"],
     rows: [
-      ["Runtime for new threads", ["default runtime", "runtime", "backend", "program", "make default"]],
+      ["Runtime for new threads", ["default runtime", "runtime", "backend", "program", "star"]],
       ["Keep agent tools up to date", ["agent tools", "update", "upgrade", "homebrew", "brew", "npm", "refresh", "models", "automatic"]],
     ],
   },
   {
-    page: "pi",
+    page: runtimePage("pi"),
     label: "Pi",
-    keywords: ["agent", "settings.json"],
+    keywords: ["agent", "settings.json", "model providers", "providers", "models"],
     rows: [
-      ["Write Pi settings to", ["global", "project", "scope", "settings.json", "all projects"]],
-      ["Project trust", ["trust", "ask", "always", "never", "project settings"]],
-      ["Startup model", ["default model", "pi model"]],
-      ["Startup thinking level", ["thinking", "reasoning", "effort", "default thinking"]],
-      ["Quiet startup", ["startup", "header", "banner"]],
-      ["Automatic compaction", ["compaction", "compact", "summarize", "context window"]],
-      ["Reserve tokens", ["compaction", "reply", "context"]],
-      ["Keep recent tokens", ["compaction", "unsummarized", "context"]],
-      ["Retry on transient errors", ["retry", "retries", "errors", "backoff"]],
-      ["Max retries", ["retry", "retries", "attempts"]],
-      ["Base delay", ["retry", "delay", "backoff", "ms"]],
-      ["Steering messages", ["message delivery", "steering", "steer", "queue"]],
-      ["Follow-up messages", ["message delivery", "follow-up", "follow up", "queue"]],
-      ["Built-in tools", ["tools", "read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]],
-      ["Shell path", ["shell", "bash", "cygwin"]],
-      ["Command prefix", ["shell", "bash", "prefix"]],
-      ["npm command", ["npm", "packages", "mise"]],
+      ["Default model", ["model", "provider", "add provider", "custom model", "startup model", "pi model", "new threads"]],
+      ["Default thinking", ["thinking", "reasoning", "effort", "startup thinking level", "thinking level", "new threads"]],
+      ["Write Pi settings to", ["global", "project", "scope", "settings.json", "all projects", "advanced"]],
+      ["Project trust", ["trust", "ask", "always", "never", "project settings", "advanced"]],
+      ["Quiet startup", ["startup", "header", "banner", "advanced"]],
+      ["Automatic compaction", ["compaction", "compact", "summarize", "context window", "advanced"]],
+      ["Room for the reply", ["reserve tokens", "reservetokens", "compaction", "reply", "context", "advanced"]],
+      ["Keep recent", ["keep recent tokens", "keeprecenttokens", "compaction", "unsummarized", "context", "advanced"]],
+      ["Retry on transient errors", ["retry", "retries", "errors", "backoff", "advanced"]],
+      ["Retries", ["max retries", "maxretries", "retry", "attempts", "advanced"]],
+      ["First wait", ["base delay", "basedelayms", "retry", "delay", "backoff", "ms", "advanced"]],
+      ["Steering messages", ["message delivery", "steering", "steer", "queue", "advanced"]],
+      ["Follow-up messages", ["message delivery", "follow-up", "follow up", "queue", "advanced"]],
+      ["Built-in tools", ["tools", "read", "bash", "powershell", "edit", "write", "grep", "find", "ls", "advanced"]],
+      ["Shell path", ["shell", "bash", "cygwin", "advanced"]],
+      ["Command prefix", ["shell", "bash", "prefix", "advanced"]],
+      ["npm command", ["npm", "packages", "mise", "advanced"]],
+      ["Temperature", ["temperature", "sampling", "model parameters", "advanced"]],
+      ["Max tokens", ["max tokens", "answer length", "model parameters", "advanced"]],
     ],
   },
   {
@@ -117,6 +113,8 @@ const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keyword
       ["Run as a system service", ["service", "background", "launchd", "launchagent", "systemd", "task scheduler", "login", "boot", "daemon"]],
       ["Invisible display", ["xvfb", "display", "headless", "linux", "preview", "screen", "x11"]],
       ["Keep this machine awake while turns run", ["awake", "sleep", "caffeinate", "power"]],
+      ["Keep Tau running in the background", ["host", "background", "quit", "this machine"]],
+      ["Command line", ["tau command", "cli", "terminal command", "terminal", "shell", "path", "install", "symlink", "tau app"]],
       ["Sign out every other device", ["revoke others", "sign out", "devices"]],
       ["Rotate the host token", ["host token", "rotate", "token", "secret"]],
     ],
@@ -155,7 +153,7 @@ export interface SettingsSearchSources {
   /** Pages extensions contributed, with the rows they named for the search. */
   pages: ReadonlyArray<{ id: string; label: string; description?: string | undefined; keywords?: readonly string[] | undefined; extensionName?: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Sections extensions added to a core page, with the rows they named. */
-  sections?: ReadonlyArray<{ page: string; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
+  sections?: ReadonlyArray<{ page: string; card?: string | undefined; rows?: ReadonlyArray<{ id: string; label: string; keywords?: readonly string[] | undefined }> | undefined }>;
   /** Every extension with a page of its own in the nav. */
   extensions: ReadonlyArray<{ id: string; name: string; core?: boolean; options?: ReadonlyArray<{ label: string }> }>;
   /** Live keybindings; leave out for a search that should find pages only. */
@@ -165,7 +163,8 @@ export interface SettingsSearchSources {
 export function settingsSearchEntries(sources: SettingsSearchSources): SettingsSearchEntry[] {
   const entries: SettingsSearchEntry[] = [];
   for (const core of CORE_PAGES) {
-    entries.push({ id: `page:${core.page}`, page: core.page, label: core.label, section: "Settings", keywords: core.keywords, description: CORE_PAGE_DESCRIPTIONS[core.page] });
+    const description = CORE_PAGE_DESCRIPTIONS[core.page as CoreSettingsPage];
+    entries.push({ id: `page:${core.page}`, page: core.page, label: core.label, section: "Settings", keywords: core.keywords, ...(description ? { description } : {}) });
     for (const [label, keywords] of core.rows) {
       entries.push({
         id: `${core.page}:${label}`, page: core.page, label, section: core.label, keywords,
@@ -188,7 +187,9 @@ export function settingsSearchEntries(sources: SettingsSearchSources): SettingsS
     }
   }
   for (const section of sources.sections ?? []) {
-    const page = CORE_PAGES.find((core) => core.page === section.page);
+    // General's New threads and Threads cards are drawn on Threads.
+    const sectionPage = section.page === "general" && (section.card === "new-threads" || section.card === "threads") ? "threads" : section.page;
+    const page = CORE_PAGES.find((core) => core.page === sectionPage);
     if (!page) continue;
     for (const row of section.rows ?? []) {
       entries.push({ id: `${page.page}:${row.id}`, page: page.page, label: row.label, section: page.label, keywords: row.keywords ?? [], target: row.id });

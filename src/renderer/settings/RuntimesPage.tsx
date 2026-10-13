@@ -23,7 +23,7 @@ function RuntimeListItem({ row, selected, onOpen }: { row: RuntimeRow; selected:
   const enabled = useRuntimeEnabled(row.kind);
   return (
     <li className="runtimes-item" data-selected={selected ? "" : undefined} data-off={enabled.value ? undefined : ""}>
-      <button type="button" className="runtimes-item-open" aria-current={selected ? "true" : undefined} aria-label={row.label} onClick={onOpen}>
+      <button type="button" className="runtimes-item-open" aria-current={selected ? "true" : undefined} onClick={onOpen}>
         <ProviderIconStack runtimeProvider={row.kind} hint={false} className="runtimes-mark" />
         <span className="runtimes-item-text">
           <b>{row.label}</b>

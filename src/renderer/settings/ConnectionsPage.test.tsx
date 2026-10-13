@@ -193,7 +193,8 @@ describe("the search's rows on Settings → Connections", () => {
     };
     renderPage({ listConnections: async () => connections({ network, fingerprint: "AB:CD" }), serviceStatus: async () => linux });
     await screen.findByText(":99 · window starts when needed");
-    const targets = settingsSearchEntries({ pages: [], extensions: [] }).filter((entry) => entry.page === "connections" && entry.target);
+    // The command line row waits for this machine's window to answer, which a page without one never gets.
+    const targets = settingsSearchEntries({ pages: [], extensions: [] }).filter((entry) => entry.page === "connections" && entry.target && entry.label !== "Command line");
     expect(targets.length).toBeGreaterThan(10);
     for (const entry of targets) expect(document.getElementById(entry.target!), entry.label).toBeTruthy();
     expect(document.querySelectorAll("#setting-certificate")).toHaveLength(1);

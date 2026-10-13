@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Sparkles } from "lucide-react";
 import type { HostSnapshot, TauCompactionConfig, TauConfig, TauRetryConfig, UiModel } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
+import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
 import { errorMessage } from "../../workbench/error-message";
 import { ModelPicker, modelKey } from "../components/ModelPicker";
 import { ProviderIconStack } from "../components/ProviderIconStack";
@@ -119,6 +120,9 @@ export function usePiConfig(snapshot: HostSnapshot | undefined, onNotify: (messa
 /** The rows of Pi's "Default model" section; nothing is drawn before the file has been read, so no control shows a default that is a guess. */
 export function PiDefaults({ pi, snapshot }: { pi: PiConfigHandle; snapshot: HostSnapshot | undefined }) {
   const { config, write } = pi;
+  // The host refuses a write from a device paired Read only; the rows say so instead.
+  const { readOnly } = useHostCapabilities();
+  const readOnlyReason = readOnly ? READ_ONLY_REASON : undefined;
   if (!pi.connected) {
     return <SettingsState kind="empty" title="No machine connected" description="Pi's settings live on the machine. Connect to one to read and change them." />;
   }
@@ -136,6 +140,7 @@ export function PiDefaults({ pi, snapshot }: { pi: PiConfigHandle; snapshot: Hos
         title="Default model"
         description="What a new Pi thread starts on. A thread changes it in the composer."
         help="Pi's file stores it as provider/model-id."
+        disabledReason={readOnlyReason}
         control={<DefaultModel value={config.models?.default ?? ""} models={piModels} onChange={(value) => write({ models: { ...config.models, default: value } })} />}
       />
       <SettingRow
@@ -143,6 +148,7 @@ export function PiDefaults({ pi, snapshot }: { pi: PiConfigHandle; snapshot: Hos
         title="Default thinking"
         description="How much the model reasons before it answers."
         help="A model that does not think in levels ignores it. The composer's thinking chip sets it for one thread."
+        disabledReason={readOnlyReason}
         control={<Select
           label="Default thinking"
           value={thinking}
@@ -230,7 +236,7 @@ export function PiAdvanced({ pi, snapshot }: { pi: PiConfigHandle; snapshot: Hos
           control={<Switch label="Automatic compaction" checked={compaction.enabled !== false} onChange={(enabled) => write({ compaction: { ...compaction, enabled } })} />}
         />
         <SettingRow
-          id={settingAnchor("Reserve tokens")}
+          id={settingAnchor("Room for the reply")}
           title="Room for the reply"
           description="Held back for the model's reply (Pi's reserveTokens). Empty uses Pi's 16,384."
           control={<NumberField label="Room for the reply" value={compaction.reserveTokens} integer min={1} max={1_000_000} step={1024} unit="tokens" placeholder="16384" width="md"
@@ -238,7 +244,7 @@ export function PiAdvanced({ pi, snapshot }: { pi: PiConfigHandle; snapshot: Hos
             onClear={() => write({ compaction: without(compaction, "reserveTokens") })} />}
         />
         <SettingRow
-          id={settingAnchor("Keep recent tokens")}
+          id={settingAnchor("Keep recent")}
           title="Keep recent"
           description="The latest part of the conversation left unsummarized (Pi's keepRecentTokens). Empty uses Pi's 20,000."
           control={<NumberField label="Keep recent" value={compaction.keepRecentTokens} integer min={0} max={1_000_000} step={1000} unit="tokens" placeholder="20000" width="md"
@@ -255,7 +261,7 @@ export function PiAdvanced({ pi, snapshot }: { pi: PiConfigHandle; snapshot: Hos
           control={<Switch label="Retry on transient errors" checked={retry.enabled !== false} onChange={(enabled) => write({ retry: { ...retry, enabled } })} />}
         />
         <SettingRow
-          id={settingAnchor("Max retries")}
+          id={settingAnchor("Retries")}
           title="Retries"
           description="Attempts after the first (Pi's maxRetries). Empty uses Pi's 3."
           control={<NumberField label="Retries" value={retry.maxRetries} integer min={0} max={20} placeholder="3" width="md"
@@ -263,7 +269,7 @@ export function PiAdvanced({ pi, snapshot }: { pi: PiConfigHandle; snapshot: Hos
             onClear={() => write({ retry: without(retry, "maxRetries") })} />}
         />
         <SettingRow
-          id={settingAnchor("Base delay")}
+          id={settingAnchor("First wait")}
           title="First wait"
           description="The wait before the first retry, doubled for each one after (Pi's baseDelayMs). Empty uses Pi's 2,000 ms."
           control={<NumberField label="First wait" value={retry.baseDelayMs} integer min={0} max={60_000} step={500} unit="ms" placeholder="2000" width="md"

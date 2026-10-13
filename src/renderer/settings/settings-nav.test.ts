@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { extensionOfPage, extensionPage, isSettingsNavGroup, parentSettingsPage, parseSettingsTarget, settingsNavGroupOpen, settingsNavGroups, settingsTarget } from "./settings-nav";
+import { extensionOfPage, extensionPage, isSettingsNavGroup, parentSettingsPage, parseSettingsTarget, runtimeOfPage, runtimePage, settingsNavGroupOpen, settingsNavGroups, settingsTarget } from "./settings-nav";
 
 describe("settings links", () => {
   it("names a page, an extension's page and a row on a page", () => {
-    expect(parseSettingsTarget("models#setting-thinking-level")).toEqual({ page: "models", anchor: "setting-thinking-level" });
+    expect(parseSettingsTarget("general#setting-show-costs")).toEqual({ page: "general", anchor: "setting-show-costs" });
     expect(parseSettingsTarget("extensions/tau.terminal")).toEqual({ page: "extensions/tau.terminal" });
     expect(settingsTarget("general", "setting-show-costs")).toBe("general#setting-show-costs");
     expect(settingsTarget("general")).toBe("general");
@@ -21,6 +21,25 @@ describe("settings links", () => {
     expect(extensionOfPage("extensions")).toBeUndefined();
     expect(parentSettingsPage("extensions/acme.hello")).toBe("extensions");
     expect(parentSettingsPage("general")).toBeUndefined();
+  });
+});
+
+describe("links to the pages that became Runtimes", () => {
+  it("lands the older Models, Pi and Providers pages on Runtimes", () => {
+    expect(parseSettingsTarget("models#setting-thinking-level")).toEqual({ page: "runtimes/pi", anchor: "setting-default-thinking" });
+    expect(parseSettingsTarget("models#setting-default-model")).toEqual({ page: "runtimes/pi", anchor: "setting-default-model" });
+    expect(parseSettingsTarget("pi#setting-startup-model")).toEqual({ page: "runtimes/pi", anchor: "setting-default-model" });
+    expect(parseSettingsTarget("pi#setting-max-retries")).toEqual({ page: "runtimes/pi", anchor: "setting-retries" });
+    expect(parseSettingsTarget("providers")).toEqual({ page: "runtimes" });
+    expect(parseSettingsTarget("providers#runtime-models-codex@work")).toEqual({ page: "runtimes/codex@work", anchor: "runtime-models-codex@work" });
+    expect(parseSettingsTarget("runtimes#runtime-permissions")).toEqual({ page: "runtimes", anchor: "runtime-permissions" });
+  });
+
+  it("names a runtime under the list of runtimes", () => {
+    expect(runtimePage("codex@work")).toBe("runtimes/codex@work");
+    expect(runtimeOfPage("runtimes/codex@work")).toBe("codex@work");
+    expect(runtimeOfPage("runtimes")).toBeUndefined();
+    expect(parentSettingsPage("runtimes/codex")).toBe("runtimes");
   });
 });
 

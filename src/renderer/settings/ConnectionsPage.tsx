@@ -24,7 +24,7 @@ import { Badge, Button, DangerAction, DangerZone, SegmentedControl, Select, Sett
 import { AccessChoice, PairingRequestDialog } from "../pairing/PairingRequestDialog";
 import { DialogClose, submitOnEnter, useFieldValue } from "../pairing/dialog-parts";
 import { requestTitle } from "../pairing/pairing-format";
-import { SettingRow, SettingsCard, SettingsSection } from "./settings-layout";
+import { SettingRow, SettingsAdvanced, SettingsCard, SettingsSection } from "./settings-layout";
 import { SettingsPageAction } from "./page-action";
 import { settingAnchor } from "./settings-search";
 import { LINK_LIFETIMES, describeDevice, describeLastChange, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
@@ -34,6 +34,8 @@ import { NearbyMachinesDialog } from "./NearbyMachines";
 import { ConnectSettings } from "./ConnectSettings";
 import type { SettingsCardId, SettingsSectionProps } from "../extension-system";
 import { HostServiceSection } from "./HostServiceSection";
+import { CommandLineRow } from "./CommandLineRow";
+import { useHostCapabilities } from "../use-host-capabilities";
 
 type PageState =
   | { status: "loading" }
@@ -82,6 +84,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   sections?: ReadonlyArray<{ id: string; card?: SettingsCardId | undefined; order?: number | undefined; Component: ComponentType<SettingsSectionProps> }>;
 }) {
   const client = useHostClient();
+  const { localFiles } = useHostCapabilities();
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [created, setCreated] = useState<UiCreatedPairingLink>();
   const [creating, setCreating] = useState(false);
@@ -138,6 +141,11 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
       await refresh();
     }
   };
+
+  const reloadCertificate = () => void act("reload", async () => {
+    const { changed } = await client!.reloadCertificate();
+    onNotify(changed ? "Tau now serves the renewed certificate" : "The certificate on disk is the one Tau serves");
+  });
 
   const copy = (text: string, what: string) => {
     void client?.copyText(text).then(() => onNotify(`${what} copied`), (error: unknown) => onNotify(errorOf(error).message, "error"));
@@ -204,23 +212,47 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
         </table>
       </div>
 
-      {thisMachine.length ? (
+      {thisMachine.length || localFiles ? (
         <SettingsCard title="This machine">
           {thisMachine.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
+          {localFiles ? <CommandLineRow onNotify={onNotify} /> : null}
         </SettingsCard>
       ) : null}
 
-      {/* The design leaves the network out; it stays, folded. */}
-      <details className="connections-advanced">
-        <summary>Advanced</summary>
-        <SettingsSection title="This host">
+      <HostServiceSection onNotify={onNotify} />
+
+      {data.network ? (
+        <NetworkAccessSection
+          part="network"
+          network={data.network}
+          busy={busy === "network" || busy === "reload"}
+          onChange={changeNetwork}
+          onReload={reloadCertificate}
+        />
+      ) : null}
+
+      {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
+
+      <ConnectSettings onNotify={onNotify} />
+
+      <SettingsSection title="Other machines">
+        <SettingRow
+          id={settingAnchor("Other machines")}
+          title="Other machines"
+          description="Tau machines nearby that announce themselves. macOS may ask about local network access the first time."
+          control={<Button onClick={() => setFindingMachines(true)}>Find machines…</Button>}
+        />
+      </SettingsSection>
+
+      <SettingsAdvanced hint="address, port, certificate, access key">
+        <SettingsSection title="Addresses">
           <SettingRow
             id={settingAnchor("Address")}
             title="Address"
             description={data.endpoints.some((endpoint) => endpoint.reachability === "network")
-              ? "Other devices on these networks can open the host in a browser. A device picks whichever it reaches."
+              ? "Other devices on these networks can open this machine in a browser. A device picks whichever it reaches."
               : data.network
-                ? "Reachable from this machine only. Turn on Local network or Tailscale below to pair another device."
+                ? "Reachable from this machine only. Turn on Local network or Tailscale above to pair another device."
                 : "Reachable from this machine only. To pair another device, start the host with TAU_HOST_LISTEN=0.0.0.0:<port> and TAU_HOST_TLS=1."}
             status={<ul className="connection-endpoints">
               {data.endpoints.map((endpoint) => (
@@ -230,36 +262,24 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           />
           {data.fingerprint ? (
             <SettingRow
-              // Network access has its own Certificate row, which the search finds.
+              // Port and certificate have their own Certificate row, which the search finds.
               {...(data.network ? {} : { id: settingAnchor("Certificate") })}
               title="Certificate"
               description="A self-signed certificate is met with a browser warning. Trust it only if the browser shows this SHA-256 fingerprint. Pairing links carry it, so the Tau app pins it without asking."
               status={<code className="connection-fingerprint">{data.fingerprint}</code>}
             />
           ) : null}
-          <SettingRow
-            id={settingAnchor("Other machines")}
-            title="Other machines"
-            description="Tau hosts nearby that announce themselves. macOS may ask about local network access the first time."
-            control={<Button onClick={() => setFindingMachines(true)}>Find machines…</Button>}
-          />
         </SettingsSection>
 
         {data.network ? (
           <NetworkAccessSection
+            part="advanced"
             network={data.network}
             busy={busy === "network" || busy === "reload"}
             onChange={changeNetwork}
-            onReload={() => void act("reload", async () => {
-              const { changed } = await client!.reloadCertificate();
-              onNotify(changed ? "Tau now serves the renewed certificate" : "The certificate on disk is the one Tau serves");
-            })}
+            onReload={reloadCertificate}
           />
         ) : null}
-
-        {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
-
-        <HostServiceSection onNotify={onNotify} />
 
         <DangerZone>
           <DangerAction
@@ -288,8 +308,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
             onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Host token rotated")}
           />
         </DangerZone>
-        <ConnectSettings onNotify={onNotify} />
-      </details>
+      </SettingsAdvanced>
 
       {creating ? (
         <CreateLinkDialog
