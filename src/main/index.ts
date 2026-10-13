@@ -900,6 +900,7 @@ if (primaryInstance) app.whenReady().then(async () => {
     enabled: app.isPackaged,
     ...(unsupported ? { unsupported } : {}),
     ...(linux?.installOnQuit === false ? { installOnQuit: false } : {}),
+    ...(linux?.installDownloaded ? { installDownloaded: linux.installDownloaded } : {}),
     log: hostLog,
     onDownloaded: (version, info) => {
       publish({ type: "app-update", version });

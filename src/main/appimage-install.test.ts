@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import {
   environmentOutsideAppImage,
   installCommand,
   installFailure,
+  nodeInstallSystem,
   offerPackageInstall,
   packageFile,
   parseReleaseInfo,
@@ -23,6 +24,8 @@ import {
 
 const DEB = Buffer.from("a stand-in for Tau_0.7.5_amd64.deb");
 const DEB_SHA512 = createHash("sha512").update(DEB).digest("base64");
+const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+const RELEASE_KEY = publicKey.export({ type: "spki", format: "pem" }).toString();
 
 /** electron-builder's `latest-linux.yml` of a release, trimmed to its shape. */
 const RELEASE_INFO = `version: 0.7.5
@@ -75,13 +78,13 @@ interface FakeMachine {
 /** A Debian machine that refuses user namespaces, with nothing of Tau installed. */
 function fakeSystem(machine: FakeMachine = {}) {
   const files = new Set(machine.files ?? ["/usr/bin/dpkg", "/usr/bin/dpkg-query", "/usr/bin/apt-get", "/usr/bin/unshare", "/home/u", APPIMAGE_ENV.APPIMAGE]);
-  const runs: Array<{ command: string; args: readonly string[]; env: NodeJS.ProcessEnv }> = [];
+  const runs: Array<{ command: string; args: readonly string[]; env: NodeJS.ProcessEnv; stdinFile?: string }> = [];
   const relaunches: Array<{ pid: number; command: string; args: readonly string[]; env: NodeJS.ProcessEnv; cwd: string }> = [];
   const removed: string[] = [];
   const system: InstallSystem = {
     exists: (path) => files.has(path),
-    run: async (command, args, env) => {
-      runs.push({ command, args, env });
+    run: async (command, args, env, options) => {
+      runs.push({ command, args, env, ...options });
       if (command.endsWith("/unshare")) return { code: machine.unshare ?? 1, stdout: "", stderr: "" };
       if (command.endsWith("/dpkg-query")) {
         return machine.installed ? { code: 0, stdout: machine.installed, stderr: "" } : { code: 1, stdout: "", stderr: "dpkg-query: no packages found matching tau" };
@@ -134,6 +137,7 @@ function fakeFetch(routes: Record<string, () => Response | Promise<Response>>) {
 const FEED = "http://127.0.0.1:8123/feed/";
 const releaseRoutes = (deb: Buffer = DEB) => ({
   [`${FEED}latest-linux.yml`]: () => new Response(RELEASE_INFO),
+  [`${FEED}latest-linux.yml.sig`]: () => new Response(sign(null, Buffer.from(RELEASE_INFO), privateKey).toString("base64")),
   [`${FEED}Tau_0.7.5_amd64.deb`]: () => new Response(new Uint8Array(deb)),
 });
 
@@ -147,6 +151,7 @@ function offer(overrides: Partial<PackageInstallOptions> & { system: InstallSyst
     pid: 4242,
     argv: ["--no-sandbox", "/home/u/project"],
     noSandbox: true,
+    releaseKeys: [RELEASE_KEY],
     folder: tempFolder(),
     ask: fakeAsk().ask,
     copyText,
@@ -241,13 +246,22 @@ describe("downloadVerified", () => {
 
 describe("the privileged step", () => {
   it("is one pkexec call that checks the package again as root before apt installs it", () => {
-    const { command, args } = installCommand("/home/u/.config/tau/package-install/Tau_0.7.5_amd64.deb", DEB_SHA512);
+    const { command, args, stdinFile } = installCommand("/home/u/.config/tau/package-install/Tau_0.7.5_amd64.deb", DEB_SHA512);
     expect(command).toBe("pkexec");
-    expect(args.slice(0, 3)).toEqual(["--disable-internal-agent", "/bin/sh", "-c"]);
-    expect(args[3]).toMatch(/sha512sum --check/u);
-    expect(args[3]).toMatch(/apt-get install -y/u);
-    expect(args.slice(4)).toEqual(["sh", "/home/u/.config/tau/package-install/Tau_0.7.5_amd64.deb", Buffer.from(DEB_SHA512, "base64").toString("hex")]);
+    expect(args.slice(0, 3)).toEqual(["--disable-internal-agent", "/usr/bin/env", "-i"]);
+    expect(args[7]).toMatch(/sha512sum --check/u);
+    expect(args[7]).toMatch(/cat > "\$dir\/tau.deb"/u);
+    expect(args[7]).toMatch(/apt-get install -y/u);
+    expect(args.slice(8)).toEqual(["sh", Buffer.from(DEB_SHA512, "base64").toString("hex")]);
+    expect(stdinFile).toBe("/home/u/.config/tau/package-install/Tau_0.7.5_amd64.deb");
     expect(args.join(" ")).not.toMatch(/no-sandbox/u);
+  });
+
+  it("passes the package bytes on stdin without interpreting the path", async () => {
+    const file = join(tempFolder(), "package with spaces.deb");
+    writeFileSync(file, DEB);
+    const result = await nodeInstallSystem().run(process.execPath, ["-e", "process.stdout.write(require('node:fs').readFileSync(0))"], process.env, { stdinFile: file });
+    expect(result).toEqual({ code: 0, stdout: DEB.toString(), stderr: "" });
   });
 
   it("names what failed and when the terminal is the way left", () => {
@@ -296,6 +310,20 @@ describe("appImageSituation", () => {
 });
 
 describe("offerPackageInstall", () => {
+  it.each(["missing", "modified"])("refuses a %s release signature before downloading or elevating", async (failure) => {
+    const machine = fakeSystem();
+    const { ask, prompts } = fakeAsk();
+    const routes = releaseRoutes();
+    if (failure === "missing") routes[`${FEED}latest-linux.yml.sig`] = () => new Response("", { status: 404 });
+    else routes[`${FEED}latest-linux.yml`] = () => new Response(RELEASE_INFO.replace(DEB_SHA512, "untrusted"));
+    const { fetch, urls } = fakeFetch(routes);
+    const { run } = offer({ system: machine.system, ask, fetch });
+    expect(await run()).toBe(false);
+    expect(urls).not.toContain(`${FEED}Tau_0.7.5_amd64.deb`);
+    expect(machine.runs.some((entry) => entry.command === "pkexec")).toBe(false);
+    expect(prompts.at(-1)?.detail).toMatch(/signature|not signed/u);
+  });
+
   it("downloads, installs through pkexec and restarts from /opt/Tau without --no-sandbox", async () => {
     const machine = fakeSystem();
     const { ask, prompts } = fakeAsk();
@@ -305,10 +333,11 @@ describe("offerPackageInstall", () => {
     expect(await run()).toBe(true);
     expect(prompts.map((prompt) => prompt.message)).toEqual(["Install Tau properly (recommended)", "Downloading Tau 0.7.5…"]);
     expect(prompts[0]!.detail).toMatch(/preview/u);
-    expect(urls).toEqual([`${FEED}latest-linux.yml`, `${FEED}Tau_0.7.5_amd64.deb`]);
+    expect(urls).toEqual([`${FEED}latest-linux.yml`, `${FEED}latest-linux.yml.sig`, `${FEED}Tau_0.7.5_amd64.deb`]);
     const pkexec = machine.runs.find((entry) => entry.command === "pkexec")!;
     const debPath = join(options.folder, "Tau_0.7.5_amd64.deb");
-    expect(pkexec.args.slice(-2)).toEqual([debPath, Buffer.from(DEB_SHA512, "base64").toString("hex")]);
+    expect(pkexec.stdinFile).toBe(debPath);
+    expect(pkexec.args.slice(-1)).toEqual([Buffer.from(DEB_SHA512, "base64").toString("hex")]);
     expect(existsSync(debPath)).toBe(false);
     expect(machine.relaunches).toEqual([{
       pid: 4242,
