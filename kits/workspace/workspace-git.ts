@@ -830,13 +830,19 @@ export type SnapshotGitRunner = (
   env?: NodeJS.ProcessEnv,
 ) => Promise<string>;
 
+function gitCommandTimeout(args: readonly string[]): number {
+  if (["commit", "pull", "push", "clean", "read-tree"].includes(args[0] ?? "")) return 0;
+  if (args[0] === "worktree" && (args[1] === "add" || args[1] === "remove")) return 5 * 60 * 1000;
+  return 10_000;
+}
+
 export async function runGitCommand(
   cwd: string,
   args: string[],
   maxBuffer = 4 * 1024 * 1024,
   signal?: AbortSignal,
   env?: NodeJS.ProcessEnv,
-  timeout = 10_000,
+  timeout = gitCommandTimeout(args),
 ): Promise<string> {
   const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
     cwd,
