@@ -584,6 +584,7 @@ Only the owner's connections may call these; a paired device gets `forbidden`:
 | `connections-revoke-client` | `id` | `{ revoked }`; its open connections close with 4401 `revoked` |
 | `connections-revoke-others` | – | `{ revoked }`: how many devices were signed out |
 | `connections-rotate-host-token` | – | `{ token }`; every other host-token connection closes with 4401 `token-rotated` |
+| `connections-host-token` | – | `{ token }`: the access key itself, for Settings → Connections to show and copy (API 1.61.0; an older host answers `unknown-method`). Only the host token on this machine's loopback listener gets it: no paired device, Full or Read only, and not the host token over a LAN or proxy listener. It never appears in a list, a snapshot or a push, and `start-job` refuses it ([ADR 0040](adr/0040-the-owner-may-read-the-access-key.md)) |
 | `connections-set-network` | `{ lan?, tailscale?, announce?, port?, proxyPort?, certificate?: { certPath, keyPath } \| null }` | `UiNetworkAccess`; opens and closes the listeners of [network access](#network-access) in the running host, and its [Bonjour](#bonjour) announcement |
 | `connections-discover` | `{ timeoutMs? }` (default 3000, 500–10000) | `UiDiscoveredHosts`: `{ hosts, serviceType, problem? }`, the Tau hosts that answered while this host looked ([Bonjour](#bonjour)) |
 | `connections-reload-certificate` | – | `{ changed }`; every listener re-reads its certificate |

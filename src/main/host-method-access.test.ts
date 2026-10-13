@@ -56,6 +56,26 @@ describe("the access every host method needs", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("gives the access key to the owner on this machine and to no one else", () => {
+    expect(methodAccess("connections-host-token")).toBe("owner");
+    expect(() => authorizeMethod(owner, "connections-host-token")).not.toThrow();
+    expect(() => authorizeMethod({ kind: "workbench-client" }, "connections-host-token")).not.toThrow();
+    // No paired device, whatever its preset; not the host token beyond this machine either.
+    for (const device of [full, readOnly, remoteOwner]) expect(() => authorizeMethod(device, "connections-host-token")).toThrow(/access key/u);
+  });
+
+  it("never runs the access key as a job, whose result every client would receive", async () => {
+    const { table, start } = methods();
+    for (const method of ["connections-host-token", "connections-rotate-host-token"]) {
+      // Refused to a device for what it is, and to the owner for where the answer would go.
+      await expect(invokeHostMethod(table, "start-job", [method, []], full), method).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
+      await expect(invokeHostMethod(table, "start-job", [method, []], readOnly), method).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
+      await expect(invokeHostMethod(table, "start-job", [method, []], remoteOwner), method).rejects.toMatchObject({ code: HOST_ERROR.forbidden });
+      await expect(invokeHostMethod(table, "start-job", [method, []], owner), method).rejects.toThrow(/cannot run as a job/u);
+    }
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it("lets a Read-only device look", async () => {
     const { table } = methods();
     // It reaches the handler, which refuses for its own reason here.
@@ -107,7 +127,7 @@ describe("the access every host method needs", () => {
 describe("what one host may ask another for its agents (ADR 0027)", () => {
   it("is a short list of thread methods, never access management, jobs, subscriptions or a kit command", () => {
     for (const method of MACHINE_REQUEST_METHODS) expect(HOST_METHOD_ACCESS[method], method).not.toBe("owner");
-    for (const method of ["connections-approve", "connections-list", "machines-add", "host.shutdown", "start-job", "subscribe", "host-extension", "environments-open", "prompt", "switch-session"]) {
+    for (const method of ["connections-approve", "connections-list", "connections-host-token", "machines-add", "host.shutdown", "start-job", "subscribe", "host-extension", "environments-open", "prompt", "switch-session"]) {
       expect(isMachineRequestMethod(method), method).toBe(false);
     }
     expect(isMachineRequestMethod("transcript-page")).toBe(true);
