@@ -54,6 +54,8 @@ export interface WorkspaceStoreApi {
   refresh(): Promise<void>;
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
   registerWorkspaceSummarySection?(section: ComponentType<import("tau").RegionProps>): () => void;
+  /** The request Review can open for the checkout, until the returned function takes it back; absent from an older Workspace Kit (API 1.61.0). */
+  offerRequestStep?(step: RequestStep): () => void;
   /** Absent on a Workspace Kit that keeps its Changes panel whatever draws the review. */
   registerReviewView?(): () => void;
   stageFile?(path: string): Promise<void>;
@@ -63,6 +65,13 @@ export interface WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
   /** A section on a rail row's hover card (API 1.23.0); absent from an older Workspace Kit. */
   registerThreadCardSection?(section: { place: "section"; order?: number; Component: ComponentType<ThreadCardSectionProps> }): () => void;
+}
+
+/** A request Review can open for the checkout, as Workspace Kit's Git button leads with it (`RequestStep` in `kits/workspace/protocol.ts`). */
+export interface RequestStep {
+  /** "PR" or "MR". */
+  noun: string;
+  open(): void;
 }
 
 /** What Workspace Kit hands a hover card's section (`ThreadCardSectionProps` in `kits/workspace/protocol.ts`). */

@@ -116,6 +116,17 @@ describe("the local pull request view", () => {
     await waitFor(() => expect(requests.create).toHaveBeenCalledTimes(1));
   });
 
+  it("reports a failed creation as an error toast and keeps what was typed", async () => {
+    const { requests, actions } = setup();
+    await screen.findByRole("region", { name: "Pictures of feat: save the page" });
+    vi.mocked(requests.create).mockRejectedValueOnce(new Error("GitHub CLI (gh) is not signed in."));
+    fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Save" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
+    await waitFor(() => expect(actions.notify).toHaveBeenCalledWith("GitHub CLI (gh) is not signed in.", "error"));
+    expect((screen.getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("Save");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("attaches the chosen pictures to the branch's open request as a comment", async () => {
     const { client } = setup({ request: OPEN });
     await screen.findByRole("region", { name: "Pictures of feat: save the page" });

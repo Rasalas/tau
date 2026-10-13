@@ -578,3 +578,20 @@ describe("Workspace Kit's Changes entry", () => {
     expect(workspaceStore.openChangesView()).toBe(false);
   });
 });
+
+describe("Workspace Kit's request step", () => {
+  it("holds the step another kit offers until it takes it back, and the newest offer wins", () => {
+    const workspaceStore = storeOver({});
+    const first = { noun: "PR", open: vi.fn() };
+    const second = { noun: "MR", open: vi.fn() };
+
+    const releaseFirst = workspaceStore.offerRequestStep(first);
+    expect(workspaceStore.getSnapshot().requestStep).toBe(first);
+    const releaseSecond = workspaceStore.offerRequestStep(second);
+    // A late take-back of the replaced offer leaves the current one alone.
+    releaseFirst();
+    expect(workspaceStore.getSnapshot().requestStep).toBe(second);
+    releaseSecond();
+    expect(workspaceStore.getSnapshot().requestStep).toBeUndefined();
+  });
+});

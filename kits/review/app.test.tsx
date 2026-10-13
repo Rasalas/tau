@@ -232,6 +232,11 @@ describe("Review Kit in the workbench", () => {
 });
 
 const NO_REQUEST = { branch: "feat/review", base: "main", remote: "git@github.com:acme/tau.git", service: "github" };
+/** What the Local PR tab asks besides the request's status. */
+const LOCAL_PR = {
+  "local-pr": { root: "/project", branch: "feat/review", base: "main", commits: [], forkedAt: 0 },
+  "local-pr-evidence": { available: false, evidence: [] },
+};
 const OPEN_REQUEST = { provider: "github", number: 7, title: "Review everything", url: "https://github.com/acme/tau/pull/7", baseRef: "main", state: "open", draft: true, body: "Why", checks: { passed: 2, failed: 0, pending: 1, total: 3 } };
 
 /**
@@ -239,17 +244,16 @@ const OPEN_REQUEST = { provider: "github", number: 7, title: "Review everything"
  * the review's file list, which the Changes entry opens, and the mark on the thread's rail row.
  */
 describe("Review Kit request lifecycle in the workbench", () => {
-  it("commits, drafts a title and body, and creates a draft pull request after the form is confirmed", async () => {
+  it("commits, opens the one local PR form and creates a draft pull request from it", async () => {
     const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: false, detail: "Committed abc1234" }));
     let status: Record<string, unknown> = NO_REQUEST;
     const review = vi.fn(async (command: string, input?: unknown) => {
       if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? { request: status.request } : status;
-      if (command === "pr-draft") return { title: "Review every changed file", body: "## Summary\nAll of it.", base: "main", generated: true };
       if (command === "pr-create") {
         status = { ...NO_REQUEST, request: OPEN_REQUEST };
         return { status, url: OPEN_REQUEST.url };
       }
-      return undefined;
+      return LOCAL_PR[command as keyof typeof LOCAL_PR];
     });
     renderApp(workbench({ commit }, review), { extensions: [workspaceExtension, reviewExtension] });
 
@@ -264,15 +268,34 @@ describe("Review Kit request lifecycle in the workbench", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /Commit & create PR…/u }));
 
     await waitFor(() => expect(commit).toHaveBeenCalledWith("Update a", false));
-    expect(await screen.findByDisplayValue("Review every changed file")).toBeTruthy();
+    // The form is the Local PR tab's, the one the workspace card and the Git button open too.
+    const title = await screen.findByRole("textbox", { name: "PR title" });
     expect(review).not.toHaveBeenCalledWith("pr-create", expect.anything());
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Create draft PR" }));
+    fireEvent.change(title, { target: { value: "Review every changed file" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Draft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create draft PR…" }));
 
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Review every changed file", body: "## Summary\nAll of it.", base: "main", draft: true }));
-    expect(await screen.findByRole("button", { name: "PR #7" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Draft" }).getAttribute("data-tooltip")).toBe("Draft");
-    expect(screen.getByText("checks 1 pending")).toBeTruthy();
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Review every changed file", body: "", base: "", draft: true }));
+    expect(await screen.findByText("PR #7 created.")).toBeTruthy();
+  });
+
+  it("leads the Git button to the same form once the branch is committed", async () => {
+    const clean = { branch: "feat/review", files: [], fileCount: 0, added: 0, removed: 0 };
+    const review = vi.fn(async (command: string, input?: unknown) => {
+      if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? {} : NO_REQUEST;
+      if (command === "pr-create") return { status: { ...NO_REQUEST, request: OPEN_REQUEST }, url: OPEN_REQUEST.url };
+      return LOCAL_PR[command as keyof typeof LOCAL_PR];
+    });
+    renderApp(workbench({ getChanges: async () => clean, getWorkspaceInfo: async () => ({ ...WORKSPACE, isDirty: false, ahead: 1 }) }, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    const trigger = await screen.findByRole("button", { name: "Project actions" });
+    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+    const card = await screen.findByRole("region", { name: "Project workspace" });
+    fireEvent.click(await within(card).findByRole("button", { name: "Create PR" }));
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "PR title" }), { target: { value: "Ship it" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Ship it", body: "", base: "", draft: false }));
   });
 
   it("opens the request as a stage tab from the review, read through the kit's own host commands", async () => {

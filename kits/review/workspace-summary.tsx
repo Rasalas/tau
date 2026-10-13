@@ -37,10 +37,16 @@ export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: Ro
     const request = cached?.headRef && cached.headRef !== branch ? undefined : cached;
     const linked = useSyncExternalStore(links.subscribe, () => links.get(threadId));
     const found = stripRequests(request, linked);
+    const known = useSyncExternalStore(rows.subscribe, () => Boolean(workspace && branch && rows.known(workspace)));
+    const activeBranchRequest = request && request.state !== "merged" && request.state !== "closed";
+    // Workspace Kit's Git button leads with this and lists it; not while the answer may still be another branch's.
+    const offered = known && cached === request && !readOnly && !activeBranchRequest;
+    const noun = providerInfo(request?.provider ?? found?.primary.service ?? "github").short;
+    const latest = useRef(actions);
+    latest.current = actions;
+    useEffect(() => offered ? store.offerRequestStep?.({ noun, open: () => { openLocalPullRequest(latest.current); } }) : undefined, [offered, noun, store]);
     if (!workspace || !branch) return null;
     const open = (entry: StripRequest, focus?: "checks") => { openPullRequest(actions, { url: entry.url, number: entry.number, provider: entry.service }, workspace, focus); };
-    const create = () => { openLocalPullRequest(actions); };
-    const activeBranchRequest = request && request.state !== "merged" && request.state !== "closed";
     return <div className="workspace-request-summary" aria-label="Pull request">
       {found ? <>
         <div className={`workspace-card-row workspace-card-split workspace-request-heading state-${found.primary.state}`}>
@@ -55,7 +61,6 @@ export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: Ro
           {expanded ? found.others.map((entry) => <button key={entry.url} type="button" className="workspace-card-row" onClick={() => open(entry)}><span className="workspace-card-icon"><RequestStateIcon state={entry.state} size={16} /></span><span className="workspace-card-label">{providerInfo(entry.service).short} {requestNumber(entry.service, entry.number)}{entry.title ? ` · ${entry.title}` : ""}</span><span className="workspace-card-tail"><ChevronRight className="workspace-card-chevron" size={16} /></span></button>) : null}
         </> : null}
       </> : null}
-      {!readOnly && !activeBranchRequest ? <button type="button" className="workspace-card-row workspace-request-create" onClick={create}><Plus className="workspace-card-icon" size={16} /><span className="workspace-card-label">Create PR…</span><span className="workspace-card-tail"><ChevronRight className="workspace-card-chevron" size={16} /></span></button> : null}
     </div>;
   };
 }

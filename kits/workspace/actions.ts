@@ -1,6 +1,6 @@
 import type { UiWorkspaceChanges, WorkspaceInfo } from "tau";
 
-export type GitQuickActionKind = "commit" | "commit-push" | "pull" | "push" | "none";
+export type GitQuickActionKind = "commit" | "commit-push" | "pull" | "push" | "request" | "none";
 
 export interface GitQuickAction {
   label: string;
@@ -9,10 +9,15 @@ export interface GitQuickAction {
   hint: string;
 }
 
+/**
+ * `request` is set when the branch is committed, has no request yet and may get one:
+ * with nothing left to commit, the request is the next step, not a push.
+ */
 export function resolveGitQuickAction(
   changes: UiWorkspaceChanges,
   workspace: WorkspaceInfo | undefined,
   busy: boolean,
+  request?: { noun: string },
 ): GitQuickAction {
   if (busy) return { label: "Working…", kind: "none", disabled: true, hint: "Git action in progress" };
   if (!workspace?.isRepo) return { label: "Commit", kind: "none", disabled: true, hint: "This folder is not a Git repository" };
@@ -29,6 +34,10 @@ export function resolveGitQuickAction(
     return workspace.upstream
       ? { label: "Commit & push", kind: "commit-push", disabled: false, hint: `${changes.files.length} changed files` }
       : { label: "Commit", kind: "commit", disabled: false, hint: `${changes.files.length} changed files · no upstream` };
+  }
+  if (request) {
+    const pushed = Boolean(workspace.upstream) && ahead === 0;
+    return { label: `Create ${request.noun}`, kind: "request", disabled: false, hint: `Write the ${request.noun} for ${workspace.branch}${pushed ? "" : "; the branch is pushed when it is created"}` };
   }
   if (ahead > 0 && workspace.upstream) {
     return { label: "Push", kind: "push", disabled: false, hint: `${ahead} local ${ahead === 1 ? "commit" : "commits"} to push` };

@@ -47,17 +47,16 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
   const [step, setStep] = useState<Step>({ kind: "edit" });
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState<string>();
-  const [error, setError] = useState<string>();
   const [writtenBy, setWrittenBy] = useState<string>();
   const { short, sign, capabilities } = providerInfo(status?.service ?? "github");
   const request = status?.request;
   const open: ReviewRequest | undefined = request && (request.state === undefined || request.state === "open") ? request : undefined;
   const media = selected.map((frame): EvidenceMedia => ({ threadId: frame.threadId, source: frame.source, id: frame.id, caption: frame.caption }));
 
+  // A failure stays on screen as an error toast until dismissed; the form keeps what was typed.
   const run = async (label: string, work: () => Promise<void>) => {
     setBusy(label);
-    setError(undefined);
-    try { await work(); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(undefined); }
+    try { await work(); } catch (reason) { actions.notify(errorMessage(reason), "error"); } finally { setBusy(undefined); }
   };
 
   const write = () => run("Writing the description…", async () => {
@@ -132,7 +131,6 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
             return frame ? <EvidenceThumb key={evidenceKey(entry)} frame={frame} client={client} /> : <span key={evidenceKey(entry)} className="lpr-missing" title={entry.caption}>Gone</span>;
           })}
         </div>
-        {error ? <p className="pr-error" role="alert">{error}</p> : null}
         {busy ? <p className="request-busy">{busy}</p> : null}
         <div className="commit-actions">
           {step.action === "create" ? (
@@ -142,7 +140,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
           ) : (
             <Button variant="primary" disabled={!going || Boolean(busy) || !open} onClick={() => { if (open) void attach(open); }}>Upload and comment</Button>
           )}
-          <button disabled={Boolean(busy)} onClick={() => { setStep({ kind: "edit" }); setError(undefined); }}>Back</button>
+          <button disabled={Boolean(busy)} onClick={() => setStep({ kind: "edit" })}>Back</button>
         </div>
       </div>
     );
@@ -200,7 +198,6 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
         ) : null}
       </div>
       {blocked && !open ? <p className="request-problem" role="note">{blocked}</p> : null}
-      {error ? <p className="pr-error" role="alert">{error}</p> : null}
       {busy ? <p className="request-busy">{busy}</p> : null}
     </div>
   );

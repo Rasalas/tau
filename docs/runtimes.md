@@ -80,7 +80,7 @@ Tau also stops checking a runtime's program for updates once no project uses it:
 
 ## Pull and merge requests
 
-When `gh` or `glab` is installed and logged in, the Review's branch scope diffs against the base branch of the current branch's pull or merge request and links to it; the Changes panel then commits, pushes and opens that request (title and description written by the commit-message model, filled into the repository's template, optionally as a draft), edits and merges it, and the thread's rail row shows its state and checks. Without the CLI, its login or a remote, the panel says which one is missing.
+When `gh` or `glab` is installed and logged in, the Review's branch scope diffs against the base branch of the current branch's pull or merge request and links to it. The project card's Git button leads from the commit to that request in one form (a small model writes the title and description on a click, filled into the repository's template, optionally as a draft) and pushes the branch with it; the Changes panel edits and merges it, and the thread's rail row shows its state and checks. Without the CLI, its login or a remote, the panel says which one is missing.
 
 Forgejo and Gitea (through `tea`, signed in with `tea login add`), Bitbucket Cloud (with an API token Git's credential helper holds for `api.bitbucket.org`) and Azure DevOps (through `az` with its DevOps extension) open, edit, merge and review requests the same way, as far as each host's tools reach; what one cannot do is hidden rather than offered. Settings → Review lists which of them this machine can reach and lets you name the provider of a self-hosted server whose host name does not say.
 

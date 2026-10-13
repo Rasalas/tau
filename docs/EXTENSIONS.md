@@ -2014,6 +2014,13 @@ the phone's and the tablet's thread list draw the same marks through
 `setThreadRowStatuses?(owner, { [threadId]: { label, hint?, icon } })` gives rows a
 state of the kit's own, drawn like a question in place of Working (Takeover Kit's
 "Your turn"); `{}` withdraws them.
+`offerRequestStep?({ noun, open })` (new in API 1.61.0) offers the pull or merge request a
+kit can open for the checkout: once the branch's work is committed, the header's Git button
+leads with "Create PR" (`noun` is "PR" or "MR") instead of the push, and its menu lists it;
+`open()` shows the kit's one form. Call the returned function when none can be made (a
+request is open, the device is Read only). An older Workspace Kit lacks it, so call it as
+`offerRequestStep?.(…)`. Review Kit offers its Local PR tab this way, once it knows the
+branch has no open request.
 `registerThreadCardSection?({ place, order?, Component })` (new in API 1.23.0) adds to
 the card a rail row opens: a pointer resting 180 ms on a row
 (a sweep over the rail opens nothing) or keyboard focus on it shows the whole title and a

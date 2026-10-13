@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RegionProps, WorkbenchActions, WorkspaceInfo } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -247,6 +247,66 @@ describe("Workspace Kit title actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     fireEvent.click(screen.getByRole("button", { name: "Tests" }));
     expect(runShellAction).toHaveBeenCalledWith("npm test", false, "Tests");
+  });
+});
+
+describe("Workspace Kit Git button leading to a request", () => {
+  const clean = { files: [], added: 0, removed: 0 };
+  const feature = (patch: Partial<WorkspaceInfo> = {}) => workspace({ branch: "feat/x", isDirty: false, upstream: "origin/feat/x", ahead: 1, ...patch });
+
+  function leading(info: WorkspaceInfo, options: { threadChanges?: unknown; step?: boolean } = {}) {
+    const open = vi.fn();
+    const invoke = vi.fn(async (command: string) => command === "default-branch" ? "main" : command === "thread-changes" ? options.threadChanges : undefined);
+    const view = setup(info, false, true, undefined, invoke);
+    act(() => view.workspaceStore.update({ changes: clean, ...(options.step === false ? {} : { requestStep: { noun: "PR", open } }) }));
+    return { ...view, open, invoke };
+  }
+  const mainLineKnown = (store: WorkspaceStore) => waitFor(() => expect(store.getSnapshot().defaultBranches["/project"]).toBe("main"));
+
+  it("leads with Create PR for committed work on a branch of its own, and opens the one form", async () => {
+    const { open, workspaceStore } = leading(feature());
+    fireEvent.click(await screen.findByRole("button", { name: "Create PR" }));
+    expect(open).toHaveBeenCalledOnce();
+    await mainLineKnown(workspaceStore);
+  });
+
+  it("keeps the push on the project's main line and when no request is offered", async () => {
+    const onMain = leading(feature({ branch: "main" }));
+    await mainLineKnown(onMain.workspaceStore);
+    expect(screen.getByRole("button", { name: "Push" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create PR" })).toBeNull();
+    cleanup();
+    leading(feature(), { step: false });
+    expect(screen.getByRole("button", { name: "Push" })).toBeTruthy();
+  });
+
+  it("counts the branch's committed files when it has no upstream to be ahead of", async () => {
+    setHostClient(createFakeHostClient());
+    try {
+      const some = leading(feature({ upstream: undefined, ahead: undefined }), { threadChanges: { files: 2, scope: "branch", uncommitted: 0 } });
+      expect(await screen.findByRole("button", { name: "Create PR" })).toBeTruthy();
+      await mainLineKnown(some.workspaceStore);
+    } finally {
+      setHostClient(undefined);
+    }
+  });
+
+  it("commits first when files are changed, and lists Create PR in the menu", async () => {
+    const { workspaceStore, openReview, open } = leading(feature());
+    act(() => workspaceStore.update({ changes: dirty }));
+    fireEvent.click(await screen.findByRole("button", { name: "Commit & push" }));
+    expect(openReview).toHaveBeenCalledWith(undefined, true);
+    fireEvent.click(screen.getByRole("button", { name: "Choose Git action" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Create PR/u }));
+    expect(open).toHaveBeenCalledOnce();
+    await mainLineKnown(workspaceStore);
+  });
+
+  it("disables the menu's Create PR on a branch without one of its own", async () => {
+    const { workspaceStore } = leading(feature({ branch: "main" }));
+    await mainLineKnown(workspaceStore);
+    fireEvent.click(screen.getByRole("button", { name: "Choose Git action" }));
+    expect((await screen.findByRole("menuitem", { name: /^Create PR/u })).hasAttribute("disabled")).toBe(true);
   });
 });
 

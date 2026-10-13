@@ -4,7 +4,6 @@ import { errorMessage, useHostCapabilities, type DesktopExtensionContext, type W
 import type { LinkDialogs } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
-import { commitMessageModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import { providerInfo, type ChangesSectionProps, type MergeMethod, type ReviewRequest, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
 import { RequestStateIcon } from "./request-state-icon.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
@@ -13,7 +12,7 @@ import { openLocalPullRequest } from "./local-request-tab.js";
 import { PublishForm } from "./publish-form.js";
 import { deleteBranchByDefault, outcomeText, preferredMethod, rememberMethod } from "./merge-controls.js";
 
-type Mode = "idle" | "create" | "merge" | "edit" | "publish";
+type Mode = "idle" | "merge" | "edit" | "publish";
 
 interface Form {
   title: string;
@@ -32,9 +31,9 @@ const METHODS: Array<{ value: MergeMethod; label: string }> = [
 
 /**
  * Above the review's file list (and in the Changes panel without it): where the branch's pull or merge
- * request stands, and the steps after a commit — create (with a generated
- * title and body), edit, merge. Each step shows its form or question first;
- * nothing reaches the hosting service before the user confirms it there.
+ * request stands, and the steps after a commit — create, edit, merge. Creating
+ * is the Local PR tab's one form, opened after the commit; edit and merge show their form
+ * or question first. Nothing reaches the hosting service before the user confirms it there.
  */
 export function createRequestSection(plugin: DesktopExtensionContext, store: WorkspaceStoreApi, client: RequestClient, rows: RowRequests, links: LinkedParts) {
   return function RequestSection({ actions, message, committed, composing, offer }: ChangesSectionProps) {
@@ -85,15 +84,13 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     // Checks still running or failing: the host can merge it later, once they pass.
     const waiting = Boolean(open && !open.autoMerge && capabilities.autoMerge && open.checks && (open.checks.pending > 0 || open.checks.failed > 0));
 
-    const startCreate = () => run("Writing title and description…", async () => {
+    const startCreate = () => run("Committing…", async () => {
       if (hasChanges) {
         if (!message.trim()) throw new Error("Write a commit message first.");
         if (!await store.commit(message, false)) return;
         committed();
       }
-      setForm({ ...EMPTY_FORM, base: status?.base ?? "" });
-      setMode("create");
-      await generate();
+      openLocalPullRequest(actions);
     });
 
     // With the review's commit bar on screen, "Commit & create" lives in its menu; elsewhere the commit
@@ -114,21 +111,6 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
         run: () => startRef.current(),
       });
     }, [offer, offerable, short, working]);
-
-    const generate = async () => {
-      const model = commitMessageModel(actions.activeThread()?.model, plugin.preferences);
-      const draft = await client.draft(model, form.base || status?.base, { instructions: writingInstructions(plugin.preferences), template: followRequestTemplate(plugin.preferences) });
-      setForm((current) => ({ ...current, title: draft.title, body: draft.body, base: current.base || draft.base }));
-    };
-
-    const create = () => run(`Creating ${short}…`, async () => {
-      const result = await client.create(form);
-      publish(result.status);
-      setMode("idle");
-      void store.refresh();
-      const created = result.status.request;
-      actions.notify(created ? `${requestShort(created)} ${providerInfo(created.provider).sign}${created.number} created${form.draft ? " as draft" : ""}.` : `${short} created.`);
-    });
 
     const merge = () => run(`Merging ${short}…`, async () => {
       rememberMethod(chosen);
@@ -220,29 +202,19 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
           />
         ) : null}
 
-        {mode === "create" || mode === "edit" ? (
+        {mode === "edit" ? (
           <div className="request-form">
-            {mode === "create" || capabilities.edit ? <>
+            {capabilities.edit ? <>
               <input aria-label={`${short} title`} placeholder="Title" value={form.title} onChange={field("title")} />
               <textarea aria-label={`${short} description`} placeholder="Description" value={form.body} onChange={field("body")} />
             </> : null}
-            {mode === "create" ? (
-              <label className="request-base">into <input aria-label="Base branch" value={form.base} onChange={field("base")} /></label>
-            ) : null}
             {capabilities.draft ? (
               <label className="request-draft">
                 <input type="checkbox" checked={form.draft} onChange={(event) => setForm((current) => ({ ...current, draft: event.target.checked }))} /> Draft
               </label>
             ) : null}
             <div className="commit-actions">
-              {mode === "create" ? (
-                <button className="primary" disabled={Boolean(busy) || !form.title.trim()} onClick={() => void create()}>
-                  {form.draft ? `Create draft ${short}` : `Create ${short}`}
-                </button>
-              ) : (
-                <button className="primary" disabled={Boolean(busy) || !form.title.trim()} onClick={() => void save()}>Save</button>
-              )}
-              {mode === "create" ? <button disabled={Boolean(busy)} onClick={() => void run("Writing title and description…", generate)}>Regenerate</button> : null}
+              <button className="primary" disabled={Boolean(busy) || !form.title.trim()} onClick={() => void save()}>Save</button>
               <button disabled={Boolean(busy)} onClick={() => { setMode("idle"); setError(undefined); }}>Cancel</button>
             </div>
           </div>
