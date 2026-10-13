@@ -13,7 +13,7 @@
 .preview-toolbar input:focus { outline: none; border-color: var(--line-float); }
 .preview-status {
   flex: none; padding: 4px 10px; border-bottom: 1px solid var(--line);
-  color: var(--faint); font: 10px var(--mono);
+  color: var(--faint); font: var(--text-2xs) var(--mono);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -37,7 +37,7 @@
   color: var(--ink-2); font: var(--text-xs) var(--mono); cursor: pointer;
 }
 .preview-suggestion:hover { border-color: var(--acid-line); background: var(--acid-bg); color: var(--ink); }
-.preview-suggestion small { color: var(--muted-2); font: 10px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preview-suggestion small { color: var(--muted-2); font: var(--text-2xs) var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Pick, annotate, record and the profile; the same row carries each mode's own controls. */
 /* A flex item of the dock's panel: without this the widest row would widen the panel past the dock. */
@@ -51,7 +51,7 @@
 .preview-tools .text-button { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; }
 .preview-tools .text-button.primary { color: var(--acid-text); }
 .preview-hint { min-width: 0; color: var(--muted); font: var(--text-xs) var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.preview-recording-clock { color: var(--stop); font: 10px var(--mono); }
+.preview-recording-clock { color: var(--stop); font: var(--text-2xs) var(--mono); }
 .preview-profile, .preview-profile-name input {
   height: 22px; max-width: 120px; padding: 0 4px;
   border: 1px solid var(--line-control); border-radius: 6px;
@@ -74,7 +74,7 @@
 .screen-app { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; color: var(--muted); }
 .screen-app img { width: 16px; height: 16px; }
 .screen-title { flex: 1; min-width: 0; color: var(--ink-2); font: var(--text-xs) var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.screen-mode { flex: none; color: var(--faint); font: 10px var(--mono); }
+.screen-mode { flex: none; color: var(--faint); font: var(--text-2xs) var(--mono); }
 .screen-mode.live { color: var(--acid-text); }
 .screen-mode.live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--acid); vertical-align: 1px; }
 .screen-stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px; background: var(--sunken); container-type: size; }
@@ -112,7 +112,7 @@
 }
 
 /* The page's zoom beside the tools, while it is not 100%. */
-.preview-zoom { color: var(--acid-text); font: 10px var(--mono); }
+.preview-zoom { color: var(--acid-text); font: var(--text-2xs) var(--mono); }
 .preview-tools .text-button.danger { color: var(--danger); }
 .preview-profile-confirm { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 
@@ -139,7 +139,7 @@
 .preview-recent-text strong, .preview-recent-text small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .preview-recent-text strong { color: var(--ink-2); font: 500 var(--text-sm) var(--sans); }
 .preview-recent.compact .preview-recent-text strong { font: var(--text-xs) var(--mono); flex: none; max-width: 60%; }
-.preview-recent-text small { color: var(--faint); font: 10.5px var(--sans); }
+.preview-recent-text small { color: var(--faint); font: var(--text-2xs) var(--sans); }
 .preview-recent-forget { position: absolute; right: 6px; opacity: 0; }
 .preview-recent:hover .preview-recent-forget, .preview-recent-forget:focus-visible { opacity: 1; }
 
@@ -179,7 +179,7 @@
 .preview-mini-body.cropped img { object-fit: cover; object-position: top center; }
 .preview-mini-body:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .preview-mini-waiting { display: grid; place-items: center; height: 100%; color: var(--faint); font: var(--text-xs) var(--sans); }
-.preview-mini-error { padding: 3px 8px; border-top: 1px solid var(--line); color: var(--danger); font: 10.5px var(--sans); }
+.preview-mini-error { padding: 3px 8px; border-top: 1px solid var(--line); color: var(--danger); font: var(--text-2xs) var(--sans); }
 /* The inner edge, below the header: only the width is the user's, the height follows the picture. */
 .preview-mini-resize { position: absolute; top: 26px; bottom: 0; width: 6px; z-index: 1; cursor: ew-resize; }
 .preview-mini-resize.left { left: 0; }
@@ -192,7 +192,7 @@
 .cookie-import-dialog { width: 520px; max-height: calc(100vh - 80px); gap: 12px; }
 .cookie-import-route { display: flex; align-items: flex-end; gap: 10px; color: var(--faint); }
 .cookie-import-route label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.cookie-import-route label > span { color: var(--muted-2); font: 500 10.5px var(--sans); letter-spacing: .04em; text-transform: uppercase; }
+.cookie-import-route label > span { color: var(--muted-2); font: 500 var(--text-2xs) var(--sans); letter-spacing: .04em; text-transform: uppercase; }
 .cookie-import-route svg { flex: none; margin-bottom: 7px; }
 .cookie-import-dialog select { height: 30px; min-width: 0; padding: 0 6px; font: var(--text-sm) var(--sans); }
 .cookie-import-sites { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); }

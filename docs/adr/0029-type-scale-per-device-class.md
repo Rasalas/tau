@@ -16,6 +16,12 @@ input role and follow Text size. Geometry and icon roles are documented in
 [Control sizes](../design/control-sizes.md), with a
 [T3 Code field comparison](../research/t3code-control-sizes-2026-10-07.md).
 
+Revised 2026-10-13 (project review 72): a floor role, `--text-2xs`, sits under
+meta. About 150 rules set hints, timestamps, shortcuts and tags at a fixed 9.5 to
+11.5 px; they now read `--text-2xs`, which is 11 px on a desktop, 12 on a touch
+device and never under 11 whatever the Text size. Only a letter in a fixed tile
+(a project's mark, a provider's, a checkbox) keeps its pixel size.
+
 ## Context
 
 The workbench design (`.scratch/design/tau-workbench-2026-09-29/`) draws a
@@ -88,6 +94,7 @@ revision above; the design remains the layout reference.
 
 | Role | Token | Desktop | Tablet | Phone | Why |
 |---|---|---|---|---|---|
+| Floor: a hint, a timestamp, a shortcut, a tag | `--text-2xs` | 11 | 12 | 12 | HIG's minimum is 11; never under 12 on a touch device |
 | Meta: age, branch, counts, section labels | `--text-xs` | 12 | 12 | 13 | never under 12 on a touch device; HIG Footnote 13, M3 Body Small 12 |
 | Secondary: descriptions and sub-lines | `--text-sm` | 13 | 13 | 14 | M3 Body Medium 14; one step under body, as in the design |
 | Control labels: buttons, choices, menus | `--text-control` | 14 | 15 | 16 | aliases the body role; density does not shrink labels |

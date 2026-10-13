@@ -25,5 +25,5 @@
 }
 .project-modal-help kbd {
   border: 0; border-radius: 5px; background: var(--raised); padding: 3px 6px;
-  color: var(--ink-3); font: 10px var(--mono);
+  color: var(--ink-3); font: var(--text-2xs) var(--mono);
 }

@@ -5051,9 +5051,9 @@ The design's divider is the ink at a low alpha, so one hairline reads on either 
 | `--ink-3` | secondary text | `#504a43` | `#b3b8c1` |
 | `--ink-code` | code and diff bodies | `#433e38` | `#c2c6ce` |
 | `--muted` | labels | `#6d665d` | `#9197a1` |
-| `--muted-2` | small print | `#8f887e` | `#71767f` |
-| `--faint` | glyphs and disabled text | `#8f887e` | `#71767f` |
-| `--fainter` | a mark that is only a hint of one | `#b7b1a8` | `#45484d` |
+| `--muted-2` | small print; 4.5:1 on every text surface | `#726b62` | `#7f848e` |
+| `--faint` | faint print and glyphs; the same floor | `#726b62` | `#7f848e` |
+| `--fainter` | a mark that is only a hint of one; never text | `#b7b1a8` | `#45484d` |
 | `--scrollbar` | the scrollbar thumb | `#d8d4cd` | `#2e3136` |
 | `--scrollbar-hover` | the same, hovered | `#b7b1a8` | `#45484d` |
 
@@ -5162,7 +5162,9 @@ A provider's own colour, for its share in a chart or a limit bar; never a state.
 
 Text uses the platform face (SF Pro on Apple systems, Segoe UI on Windows), drawn with grayscale `antialiased` smoothing; Tau bundles no font and fetches none. Code and the terminal keep `--mono`.
 
-The type scale is one size per text role and device class ([ADR 0029](adr/0029-type-scale-per-device-class.md)): the values below are a desktop's, the design's; `data-device="tablet"` and `"phone"` on `<html>` set the `--type-*` bases larger (the ADR has the table). Each `--text-*` is its base times `--text-scale`, the system's text size on a touch device, plus `--text-step`, Tau's own Text size; a kit reads the `--text-*` tokens and never a pixel size, and sizes a row that holds text with `min-height` or `em` so a larger text size never cuts it.
+The type scale is one size per text role and device class ([ADR 0029](adr/0029-type-scale-per-device-class.md)): the values below are a desktop's, the design's; `data-device="tablet"` and `"phone"` on `<html>` set the `--type-*` bases larger (the ADR has the table). Each `--text-*` is its base times `--text-scale`, the system's text size on a touch device, plus `--text-step`, Tau's own Text size; a kit reads the `--text-*` tokens and never a pixel size (`--text-2xs` is the smallest, `11px`, and the least text may be set in), and sizes a row that holds text with `min-height` or `em` so a larger text size never cuts it.
+
+Small print is text: `--muted-2` and `--faint` reach 4.5:1 (WCAG AA) on every surface text sits on, as `--muted` does, and `--fainter` is a mark for glyphs and rules, never words. `--info`, `--done` and `--fail` are 3:1 marks; text in those hues takes `--info-ink`, `--ready` or `--fail-ink`. A theme that sets the small inks should keep that floor.
 
 | Token | Role | Value |
 |---|---|---|
@@ -5176,6 +5178,7 @@ The type scale is one size per text role and device class ([ADR 0029](adr/0029-t
 | `--label-case` | its text-transform | `none` |
 | `--label-tracking` | its letter-spacing | `normal` |
 | `--label-size` | its size | `var(--text-xs)` |
+| `--text-2xs` | the floor: a hint, a timestamp, a shortcut, a tag; never under `11px`, whatever the Text size | `11px` (tablet 12, phone 12) |
 | `--text-xs` | meta: a branch, an age, a status | `12px` (tablet 12, phone 13) |
 | `--text-sm` | secondary text and descriptions | `13px` (tablet 13, phone 14) |
 | `--text-control` | a button, choice or menu label; aliases the body role | `var(--text-md)` |
@@ -5207,6 +5210,8 @@ The type scale is one size per text role and device class ([ADR 0029](adr/0029-t
 | `--motion` | a row or a card arriving | `180ms` |
 | `--motion-slow` | a curtain | `320ms` |
 | `--ease` | the curve all three use | `cubic-bezier(.4, 0, .2, 1)` |
+
+When the system asks for reduced motion, one rule in `styles.css` cuts every animation and transition to `.01ms` (the events still fire) and turns off CSS smooth scrolling, so a kit's keyframes need no media query of their own. A scripted scroll asks for `scrollBehavior()` instead of `"smooth"`.
 
 **Spacing**
 

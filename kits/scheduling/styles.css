@@ -15,7 +15,7 @@
 .scheduling-row-main p { margin: 0 0 5px; font-size: var(--text-xs); color: var(--ink-3); line-height: 1.55; overflow-wrap: anywhere; }
 .scheduling-row-main small { color: var(--muted); font-size: var(--text-xs); }
 .scheduling-row.needs-you .scheduling-row-main p { color: var(--warn); }
-.scheduling-error { width: 100%; margin: 4px 0; color: var(--fail); font-size: var(--text-xs); line-height: 1.5; }
+.scheduling-error { width: 100%; margin: 4px 0; color: var(--fail-ink); font-size: var(--text-xs); line-height: 1.5; }
 .scheduling-note { color: var(--muted); font-size: var(--text-xs); }
 .scheduling-page .scheduling-switch, .scheduling-summary .scheduling-switch { flex: none; width: 30px; height: 18px; padding: 2px; border: 0; border-radius: 20px; background: var(--line); cursor: pointer; }
 .scheduling-switch span { display: block; width: 14px; height: 14px; border-radius: 50%; background: var(--float); transition: transform 120ms ease; }

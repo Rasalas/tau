@@ -31,7 +31,7 @@ export const TOKEN_GROUPS: ReadonlyArray<{ id: string; title: string; tokens: Re
     title: "Ink",
     tokens: [
       ["--ink", "headings and emphasis"], ["--ink-prose", "assistant prose"], ["--ink-2", "body text of the chrome"], ["--ink-3", "secondary text"],
-      ["--ink-code", "code and diff bodies"], ["--muted", "labels"], ["--muted-2", "small print"], ["--faint", "glyphs and disabled text"],
+      ["--ink-code", "code and diff bodies"], ["--muted", "labels"], ["--muted-2", "small print"], ["--faint", "faint print and glyphs"],
       ["--fainter", "a hint of a mark"], ["--scrollbar", "the scrollbar thumb"], ["--scrollbar-hover", "the thumb, hovered"],
     ],
   },

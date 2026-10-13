@@ -39,7 +39,7 @@
 .takeover-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .takeover-bar > .takeover-link { color: inherit; font-size: 13px; }
 .takeover-bar > .takeover-done { font-size: 13px; padding: 7px 14px; }
-.takeover-footer { flex: none; margin: 0; padding: 10px 16px 12px; background: var(--stage); color: var(--muted); font: 11.5px/1.45 var(--sans); text-align: center; }
+.takeover-footer { flex: none; margin: 0; padding: 10px 16px 12px; background: var(--stage); color: var(--muted); font: var(--text-xs)/1.45 var(--sans); text-align: center; }
 
 .takeover-line > .work-live-line { cursor: default; }
 .takeover-line svg { flex: none; }

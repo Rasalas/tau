@@ -12,7 +12,7 @@ import {
   type TranscriptTurnStart,
 } from "../../workbench/transcript-navigation";
 import { useTranscriptNavigation } from "./transcript-navigation-dom";
-import { contentTop, FrameLoop, nearTranscriptStart, nearTranscriptTail } from "./transcript-scroll-controller";
+import { contentTop, FrameLoop, nearTranscriptStart, nearTranscriptTail, scrollBehavior } from "./transcript-scroll-controller";
 import {
   buildTranscriptTurnNavigation,
   shouldShowTranscriptTurnNavigation,
@@ -385,14 +385,14 @@ export const TranscriptViewport = memo(function TranscriptViewport({
 
     const scrollByAmount = (delta: number) => {
       if (typeof node.scrollBy === "function") {
-        node.scrollBy({ top: delta, behavior: "smooth" });
+        node.scrollBy({ top: delta, behavior: scrollBehavior() });
       } else {
         node.scrollTop += delta;
       }
     };
     const scrollToAmount = (target: number) => {
       if (typeof node.scrollTo === "function") {
-        node.scrollTo({ top: target, behavior: "smooth" });
+        node.scrollTo({ top: target, behavior: scrollBehavior() });
       } else {
         node.scrollTop = target;
       }
