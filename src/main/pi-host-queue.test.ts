@@ -148,6 +148,23 @@ describe("PiHost queue and limits", () => {
     await bench.host.queue.flush();
   });
 
+  it("delivers background results after the parent turn ends while native children still run", async () => {
+    const bench = await host();
+    const thread = bench.internals.threadFor("thread-1") as ThreadRuntime;
+    const state = thread.backend.state.bind(thread.backend);
+    // Claude's idle flag also includes its native children, even with no parent turn.
+    vi.spyOn(thread.backend, "state").mockImplementation(() => ({ ...state(), idle: false }));
+    await bench.host.prompt("delegate work", [], "thread-1");
+    await bench.internals.hostExtensions.services.sessions.send("thread-1", "Tests passed.", {
+      delivery: "queue", wake: { source: "background", label: "Background command ended" },
+    });
+    expect(bench.delivered).toEqual([{ text: "delegate work" }]);
+    bench.settle();
+    await vi.waitFor(() => expect(bench.delivered.at(-1)?.text).toContain("Tests passed."));
+    expect(bench.host.queue.list("thread-1")).toEqual([]);
+    await bench.host.queue.flush();
+  });
+
   it("keeps a queued message across a host restart and holds it for the user", async () => {
     const first = await host();
     await first.host.prompt("long job", [], "thread-1");
