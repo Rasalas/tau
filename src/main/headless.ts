@@ -1,3 +1,4 @@
+import "./compile-cache.js";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -220,7 +221,8 @@ async function main(): Promise<void> {
   const folderLock = await claimOrLeave();
   const nativeGrants = await serveNativeExtensionGrants(userData);
   exposePiSessionLockExtension();
-  await installShellEnvironment().catch((error: unknown) => hostLog.warn("shell-environment.failed", error));
+  await installShellEnvironment({ cachePath: join(userData, "shell-path.json"), onRefreshError: (error) => hostLog.warn("shell-environment.refresh.failed", error) })
+    .catch((error: unknown) => hostLog.warn("shell-environment.failed", error));
   const projectHistory = new ProjectHistory(join(userData, "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
   await projectHistory.load();
   const startupWorkspace = workspace ?? resolveStartupWorkspace(undefined, projectHistory.list()).cwd;

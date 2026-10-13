@@ -12,6 +12,7 @@ import type { EnvironmentMonitor, EnvironmentMonitorOptions, MonitorState } from
 import type { PairEnvironmentOptions, PairEnvironmentResult } from "./environment-pairing.js";
 import { CERTIFICATE_ACCEPT, CERTIFICATE_DEFAULT, CERTIFICATE_REJECT } from "./host-tls-trust.js";
 import { WindowEnvironments, answerEnvironmentCommand, type EnvironmentConnection, type WindowEnvironmentsOptions } from "./window-environments.js";
+import { EnvironmentCatalog } from "./environment-catalog.js";
 
 const directories: string[] = [];
 const opened: WindowEnvironments[] = [];
@@ -98,6 +99,33 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
 }
 
 describe("the machines of a window", () => {
+  it("reopens a reachable machine while another saved route is still waking", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "tau-window-environments-"));
+    directories.push(directory);
+    const catalogPath = join(directory, "environments.json");
+    const catalog = await EnvironmentCatalog.open(catalogPath, box, logger);
+    await catalog.save({ ...studio, id: "blocked", managed: { wsl: "slow" } });
+    await catalog.save(studio);
+    await catalog.setPreferences({ reopenShown: true, lastShown: studio.id });
+    let release!: () => void;
+    const blocked = new Promise<string>((resolve) => { release = () => resolve("http://127.0.0.1:7000"); });
+    const show = vi.fn(async () => undefined);
+    const environments = new WindowEnvironments({
+      catalogPath, box, logger, deviceName: "laptop", local: { id: "host-laptop", name: "laptop" },
+      publish: () => undefined, show, reopenWaitMs: 100,
+      wsl: { list: async () => [], bootstrap: async () => { throw new Error("unused"); }, resume: () => blocked },
+      monitor: (options) => {
+        if (options.token === studio.token) queueMicrotask(() => options.onChange({ status: "connected", running: new Set(), address: "wss://192.168.1.4:7788/" }));
+        return { close: vi.fn(), retryNow: vi.fn() } as unknown as EnvironmentMonitor;
+      },
+    });
+    opened.push(environments);
+    const ready = environments.start();
+    try { await vi.waitFor(() => expect(show).toHaveBeenCalledOnce(), { timeout: 500 }); }
+    finally { release(); await ready; }
+    expect(environments.shown).toBe(studio.id);
+  });
+
   it("lists this machine first, always, with what its own host reports", async () => {
     const { environments, monitors } = await setup();
     monitors.get("ws://127.0.0.1:5000")!.set({

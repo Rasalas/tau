@@ -197,9 +197,10 @@ stays the gate, as ADR 0023 has it.
   addresses and typed ones stay, since a machine reached one way may not list
   the others at that moment.
 - The window may show the machine it showed last again at start (a setting,
-  off by default). It waits 2.5 s for that machine before the first page
-  loads, so the page never loads twice; a machine that does not answer in
-  time leaves the window on this one.
+  off by default). Since 2026-10-13, the first page loads before the host
+  starts. Saved routes then wake independently, with a 2.5 s budget for
+  reopening that machine. A reachable machine reloads the page there;
+  otherwise the window stays on this one.
 
 ## Out of scope
 

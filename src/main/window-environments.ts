@@ -148,19 +148,22 @@ export class WindowEnvironments {
 
   async start(): Promise<void> {
     this.catalog = await EnvironmentCatalog.open(this.options.catalogPath, this.options.box, this.options.logger);
-    for (const saved of this.catalog.list()) {
+    if (this.closed) return;
+    const restoring = Promise.all(this.catalog.list().map(async (saved) => {
       try { await this.resumeRoute(saved); }
       catch (error: unknown) { this.options.logger.warn("environment.route.failed", { id: saved.id, error: error instanceof Error ? error.message : String(error) }); }
+      if (this.closed) return;
       this.watchSaved(saved);
-    }
+      this.schedulePublish();
+    }));
     this.schedulePublish();
-    await this.reopenShown();
+    await Promise.all([restoring, this.reopenShown()]);
   }
 
   /**
    * Shows the machine the window showed last, when the user asked for that
    * and it answers within a moment; otherwise the window starts on this one.
-   * Runs before the page first loads, so no page is loaded twice.
+   * Runs after the first page loads; slow routes do not hold up the window.
    */
   private async reopenShown(): Promise<void> {
     const { reopenShown, lastShown } = this.catalog?.preferences ?? {};
@@ -298,6 +301,7 @@ export class WindowEnvironments {
       await bridge.start();
     } else if (saved.managed?.wsl && this.options.wsl) {
       const url = await this.options.wsl.resume(saved.managed.wsl);
+      if (this.closed) return;
       await this.catalog?.update(saved.id, { endpoints: [{ url }], lastUrl: url });
     }
   }

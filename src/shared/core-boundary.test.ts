@@ -53,6 +53,7 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  * not. `test-support` is excluded from the walk, so harnesses are free.
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
+  "./desktop-startup.js", "./compile-cache.js",
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
   // The `tau` command linked from Settings → General.
   "./command-line.js",

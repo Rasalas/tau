@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { posix, win32 } from "node:path";
+import { writePersistedJson } from "./persisted-json.js";
 
 /**
  * A GUI launch inherits launchd's or the session manager's environment, not
@@ -37,11 +39,14 @@ export interface ShellEnvironmentOptions {
   timeoutMs?: number;
   /** Whether a directory exists; Windows adds well-known tool folders only when they do. */
   directoryExists?: (path: string) => boolean;
+  /** Last successful PATH for this data folder; no credentials are stored. */
+  cachePath?: string;
+  onRefreshError?(error: unknown): void;
 }
 
 export interface ShellEnvironmentResult {
   /** Where PATH came from; "process" means the login shell (or registry) gave nothing. */
-  pathSource: "login-shell" | "launchctl" | "registry" | "process";
+  pathSource: "login-shell" | "launchctl" | "registry" | "process" | "cache";
   installed: string[];
 }
 
@@ -230,6 +235,41 @@ async function installWindowsEnvironment(env: NodeJS.ProcessEnv, options: ShellE
  * Windows reads the registry instead (`installWindowsEnvironment`).
  */
 export async function installShellEnvironment(options: ShellEnvironmentOptions = {}): Promise<ShellEnvironmentResult> {
+  if (!options.cachePath) return refreshShellEnvironment(options);
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const shell = options.shell ?? env.SHELL ?? "";
+  const key = envKey(env, "PATH", platform);
+  let cached: string | undefined;
+  try {
+    const value = JSON.parse(await readFile(options.cachePath, "utf8")) as Record<string, unknown>;
+    if (value.version === 1 && value.platform === platform && value.shell === shell && typeof value.path === "string" && value.path.trim()) cached = value.path;
+  } catch { /* A missing or invalid cache is a cold start. */ }
+  const refreshEnv = cached ? { ...env } : env;
+  const refresh = async () => {
+    const result = await refreshShellEnvironment({ ...options, env: refreshEnv });
+    if (cached) {
+      for (const name of new Set([key, ...result.installed])) env[name] = refreshEnv[name];
+    }
+    if (result.pathSource !== "process" && refreshEnv[key]) {
+      await writePersistedJson(options.cachePath!, 1, { platform, shell, path: refreshEnv[key] })
+        .catch((error: unknown) => options.onRefreshError?.(error));
+    }
+    return result;
+  };
+  if (!cached) return refresh();
+  const installed: string[] = [];
+  const merged = mergePaths([cached, env[key]], platform);
+  if (merged !== env[key]) { env[key] = merged; installed.push("PATH"); }
+  if (platform === "darwin" && LOCALE_NAMES.every((name) => !env[name]?.trim())) {
+    env.LC_CTYPE = FALLBACK_LC_CTYPE;
+    installed.push("LC_CTYPE");
+  }
+  void refresh().catch((error: unknown) => options.onRefreshError?.(error));
+  return { pathSource: "cache", installed };
+}
+
+async function refreshShellEnvironment(options: ShellEnvironmentOptions): Promise<ShellEnvironmentResult> {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
   if (platform === "win32") return installWindowsEnvironment(env, options);

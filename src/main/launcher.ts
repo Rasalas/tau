@@ -1,3 +1,4 @@
+import "./compile-cache.js";
 import { app } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
