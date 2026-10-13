@@ -106,6 +106,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-resources.js",
   "./agent-scope.js", // Linux scopes for agent CLIs, terminals and Pi's bash (docs/CORE.md, memory pressure).
   "./owned-process.js", // Runtime-neutral cleanup of CLI subprocesses when the CLI or its owner exits.
+  "./owned-shell.js", // Local shell execution belongs to the host, including background children.
   // Files those machines' agents send in pieces, taken once by a kit (plan-H).
   "./host-blobs.js",
   "./machine-prompt-attachments.js", // Generic prompt-content transport over core's authenticated blobs.

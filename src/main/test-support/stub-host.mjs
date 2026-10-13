@@ -5,6 +5,7 @@
 // leave, takes its port, and writes `host.json` itself. Like the real host it
 // takes `<userData>/host.lock` first and leaves with 75 when another holds it.
 // Never used by the app.
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
@@ -68,6 +69,11 @@ if (process.env.STUB_LOCK_FROM && process.env.TAU_USER_DATA) {
     console.error(`another Tau host (pid ${JSON.parse(readFileSync(lockPath, "utf8")).pid}) owns this data folder`);
     process.exit(75);
   }
+}
+if (process.env.STUB_CHILD_PREFIX) {
+  const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); console.log(process.pid); setInterval(() => {}, 1000);"], { stdio: ["ignore", "pipe", "ignore"] });
+  await new Promise((resolve) => child.stdout.once("data", resolve));
+  writeFileSync(`${process.env.STUB_CHILD_PREFIX}-${process.pid}`, String(child.pid));
 }
 const listenPort = port ?? Number((process.env.TAU_HOST_LISTEN ?? "127.0.0.1:0").split(":").pop());
 const server = new WebSocketServer({ host: "127.0.0.1", port: listenPort });

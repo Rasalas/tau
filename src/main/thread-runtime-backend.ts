@@ -20,6 +20,7 @@ import { completeText } from "./model-completion.js";
 import { createExtensionUiContext } from "./extension-ui.js";
 import { promptImages } from "./prompt-attachments.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { ownedBashOperations } from "./owned-shell.js";
 import type { AgentSession, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { basename } from "node:path";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
@@ -387,7 +388,7 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private async runShellCommand(command: string, includeInContext: boolean): Promise<ShellCommandResult> {
-    const result = await this.session.executeBash(command, undefined, { excludeFromContext: !includeInContext });
+    const result = await this.session.executeBash(command, undefined, { excludeFromContext: !includeInContext, operations: ownedBashOperations(this.session.settingsManager) });
     return {
       output: result.output,
       ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),

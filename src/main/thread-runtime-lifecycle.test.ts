@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { SessionManager, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { processRunning } from "./test-support/process-running.js";
 import { ThreadRuntimeLifecycle, composeShellCommandPrefix, type ThreadRuntimeLifecyclePort } from "./thread-runtime-lifecycle.js";
 import { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
 import type { RuntimeSessionInfo } from "./host-extensions.js";
@@ -404,6 +406,33 @@ describe.skipIf(process.platform === "win32")("the shell of Pi's bash tool", () 
       session.dispose();
     }
   }
+
+  it("ends a shell and its resistant children when a tool call is aborted", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-shell-abort-"));
+    const pids: number[] = [];
+    try {
+      const { lifecycle } = makeLifecycle();
+      const create = (lifecycle as unknown as { create: (options: unknown) => Promise<{ session: any }> }).create;
+      const { session } = await create({ cwd: dir, agentDir: dir, sessionManager: SessionManager.inMemory(dir) });
+      const fixture = fileURLToPath(new URL("./test-support/shell-process-tree.mjs", import.meta.url));
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const controller = new AbortController();
+      try {
+        const executing = session.getToolDefinition("bash").execute("call-1", { command: `${quote(process.execPath)} ${quote(fixture)}` }, controller.signal, (update: { content: { text?: string }[] }) => {
+          const text = update.content.map((part) => part.text ?? "").join("").trim();
+          if (!text) return;
+          pids.push(...JSON.parse(text) as number[]);
+          controller.abort();
+        }, undefined);
+        await expect(executing).rejects.toThrow("Command aborted");
+        expect(pids).toHaveLength(2);
+        await expect.poll(() => pids.filter(processRunning)).toEqual([]);
+      } finally { session.dispose(); }
+    } finally {
+      for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   it("runs a bash call through the agent shell, which starts the real shell with the call's arguments", async () => {
     const dir = await mkdtemp(join(tmpdir(), "tau-agent-shell-"));

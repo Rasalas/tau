@@ -1,6 +1,6 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { AGENT_OOM_MESSAGE, commandInvocation, killProcessTree, wrapAgentCommand } from "tau/host-extension";
+import { AGENT_OOM_MESSAGE, commandInvocation, spawnOwnedProcess, wrapAgentCommand } from "tau/host-extension";
 import type { OpenCodeApi } from "./api.js";
 import { connectOpenCodeApi } from "./connect.js";
 
@@ -97,13 +97,11 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
   const invocation = commandInvocation(input.command, args, { env });
   // On Linux the server runs in its own systemd scope, so a memory kill takes it and not the host.
   const launch = (input.wrap ?? wrapAgentCommand)({ command: invocation.command, args: invocation.args, name: "opencode", env });
-  const child: ChildProcess = spawn(launch.command, launch.args, {
+  const child: ChildProcess = spawnOwnedProcess({
+    command: launch.command,
+    args: launch.args,
     cwd: input.cwd,
     env,
-    stdio: ["ignore", "pipe", "pipe"],
-    // Its own process group, so closing it also ends the MCP servers and LSPs it started.
-    detached: process.platform !== "win32",
-    windowsHide: true,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   });
   let output = "";
@@ -127,7 +125,7 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
     };
     const stop = () => {
       if (exited || child.pid === undefined) return;
-      killProcessTree(child.pid);
+      child.kill();
     };
     child.stdout!.setEncoding("utf8");
     child.stderr!.setEncoding("utf8");
@@ -154,7 +152,7 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
             closedByTau = true;
             stop();
             const grace = new Promise<boolean>((done) => setTimeout(() => done(false), input.closeGraceMs ?? CLOSE_GRACE_MS).unref?.());
-            if (!await Promise.race([exit.then(() => true), grace]) && child.pid !== undefined) killProcessTree(child.pid, "SIGKILL");
+            if (!await Promise.race([exit.then(() => true), grace]) && child.pid !== undefined) child.kill("SIGKILL");
             await exit;
           },
         });
