@@ -20,9 +20,8 @@ export class RequestReceipts<T> {
     const receipt = new Promise<T>((accepted, rejected) => { resolve = accepted; reject = rejected; });
     receipts.set(id, receipt);
     if (receipts.size > RECEIPTS_PER_SCOPE) receipts.delete(receipts.keys().next().value!);
-    const held = receipts;
-    // A refused submission did not happen, so its retry runs again.
-    receipt.catch(() => { if (held.get(id) === receipt) held.delete(id); });
+    // Clients mint a new id per send, so a repeated id is a transport retry and gets the same answer, refusals too.
+    receipt.catch(() => undefined);
     try {
       void submit().then(resolve, reject);
     } catch (error) {

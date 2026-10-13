@@ -9,10 +9,12 @@ describe("request receipts", () => {
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
-  it("runs a retry again after the first attempt was refused", async () => {
+  it("answers a repeated id with the first refusal", async () => {
     const receipts = new RequestReceipts<string>();
+    const again = vi.fn(async () => "second");
     await expect(receipts.run("t", "m1", async () => { throw new Error("busy"); })).rejects.toThrow("busy");
-    await expect(receipts.run("t", "m1", async () => "second")).resolves.toBe("second");
+    await expect(receipts.run("t", "m1", again)).rejects.toThrow("busy");
+    expect(again).not.toHaveBeenCalled();
   });
 
   it("keeps only the most recent receipts of a scope", async () => {
