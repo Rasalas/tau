@@ -9,7 +9,7 @@ import { ago } from "./status-model.js";
 import { Group, PlanRow } from "./upload-panel.js";
 import type { HistoryDeployment, HistoryEntry, ServerDiffSource, ServerHistory, TargetStatus } from "./view-protocol.js";
 
-const DEPLOYMENT_STATUS: Record<HistoryDeployment["status"], string> = { uploaded: "not committed", verified: "checked, not committed", committed: "committed", "rolled-back": "rolled back" };
+const DEPLOYMENT_STATUS: Record<HistoryDeployment["status"], string> = { "in-progress": "in progress", incomplete: "incomplete upload", uploaded: "not committed", verified: "checked, not committed", committed: "committed", "rolled-back": "rolled back" };
 
 export function historyTitle(entry: HistoryEntry, first: boolean): string {
   if (entry.deployment) return entry.deployment.kind === "rollback" ? `Rollback ${entry.deployment.seq}` : `Deployment ${entry.deployment.seq}`;
@@ -44,15 +44,15 @@ function DeploymentActions({ deployment, busy, onRollBack, onMark }: {
 }) {
   const canRollBack = useCommandAllowed(SERVERS_EXTENSION_ID, "rollback");
   const canMark = useCommandAllowed(SERVERS_EXTENSION_ID, "deployment-mark");
-  const markable = deployment.status === "uploaded" || deployment.status === "verified";
+  const markable = deployment.status === "uploaded" || deployment.status === "verified" || deployment.status === "incomplete";
   return (
     <div className="servers-plan-actions servers-history-actions">
-      {deployment.status !== "rolled-back" ? (
+      {deployment.status !== "rolled-back" && deployment.status !== "in-progress" ? (
         <button type="button" className="text-button" disabled={busy || !canRollBack} {...tooltipProps(canRollBack ? "See what a rollback would write before anything changes" : READ_ONLY_REASON)} onClick={onRollBack}>
           <RotateCcw size={12} aria-hidden="true" />Roll back…
         </button>
       ) : null}
-      {markable && deployment.status === "uploaded" ? (
+      {markable && (deployment.status === "uploaded" || deployment.status === "incomplete") ? (
         <button type="button" className="text-button" disabled={busy || !canMark} {...tooltipProps(canMark ? "You checked it on the server; the mark stays until it is committed" : READ_ONLY_REASON)} onClick={() => onMark(true)}>
           <CheckCircle2 size={12} aria-hidden="true" />Mark as checked
         </button>

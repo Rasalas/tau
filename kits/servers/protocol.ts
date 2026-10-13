@@ -23,8 +23,8 @@ export interface ServerCapabilities {
   mtimeSet: boolean;
 }
 
-/** `committed` once HEAD holds every file of the deployment; `rolled-back` once undone. */
-export type DeploymentStatus = "uploaded" | "verified" | "committed" | "rolled-back";
+/** Open uploads require review; `committed` means HEAD holds the files, `rolled-back` means undone. */
+export type DeploymentStatus = "in-progress" | "incomplete" | "uploaded" | "verified" | "committed" | "rolled-back";
 
 /**
  * The kit's settings are this machine's only: a project level would mean a

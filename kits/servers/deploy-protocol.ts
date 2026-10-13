@@ -103,12 +103,13 @@ export interface DeploymentRecord {
   checkout: DeploymentCheckout;
   /** The target's folder in the project, `""` for its root, to find the files in a commit. */
   context: string;
+  /** Planned writes while in progress; confirmed writes once completed or recovered. */
   files: DeploymentFile[];
   failed: DeploymentFailure[];
   /** Chosen files that did not go: conflicts, blocked, already there. */
   skipped: DeployFilePlan[];
   status: DeploymentStatus;
-  /** On `refs/tau/deploy/<seq>`: tree = the server after, parent = the server before. */
+  /** On `refs/tau/deploy/<seq>`: planned tree while in progress, actual tree after; parent = backup. */
   commit: string;
   /** The mirror state this deployment recorded (`refs/tau/server`). */
   mirrorCommit: string;
@@ -118,7 +119,7 @@ export interface DeploymentRecord {
 /** `deploy`: what went through, what did not, and why. */
 export interface DeployResult {
   targetId: string;
-  /** Absent when nothing went through; nothing is recorded then. */
+  /** Absent when no write was confirmed. An open journal may still require review. */
   deployment?: DeploymentRecord;
   files: DeployFilePlan[];
   failed: DeploymentFailure[];

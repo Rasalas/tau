@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HostCommandError, type HostCommandCall, type HostExtensionCommandHandler, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
 import { DeployService } from "./deploy";
 import type { DeployPreview, DeployResolveResult, DeployResult, DeploymentRecord } from "./deploy-protocol";
@@ -57,20 +57,22 @@ interface World {
   call<T>(name: string, input?: unknown): Promise<T>;
 }
 
-function world(options: { shell?: boolean; filePerm?: number } = {}): World {
-  const dir = mkdtempSync(join(tmpdir(), "tau-deploy-"));
+function world(options: { shell?: boolean; filePerm?: number; dir?: string } = {}): World {
+  const dir = options.dir ?? mkdtempSync(join(tmpdir(), "tau-deploy-"));
   const server = join(dir, "server");
   const local = join(dir, "local");
-  put(server, "index.php", "<?php echo 'home';\n", { mode: 0o640 });
-  put(server, "about.php", "<?php echo 'about';\n");
-  put(server, "contact.php", "<?php echo 'contact';\n");
-  put(server, "css/site.css", "body{}\n");
-  put(server, "bin/cron.sh", "#!/bin/sh\necho cron\n", { mode: 0o755 });
-  mkdirSync(local);
-  git(local, "init", "-q");
-  git(local, "config", "user.email", "tester@example.invalid");
-  git(local, "config", "user.name", "Tester");
-  git(local, "config", "commit.gpgsign", "false");
+  if (!options.dir) {
+    put(server, "index.php", "<?php echo 'home';\n", { mode: 0o640 });
+    put(server, "about.php", "<?php echo 'about';\n");
+    put(server, "contact.php", "<?php echo 'contact';\n");
+    put(server, "css/site.css", "body{}\n");
+    put(server, "bin/cron.sh", "#!/bin/sh\necho cron\n", { mode: 0o755 });
+    mkdirSync(local);
+    git(local, "init", "-q");
+    git(local, "config", "user.email", "tester@example.invalid");
+    git(local, "config", "user.name", "Tester");
+    git(local, "config", "commit.gpgsign", "false");
+  }
   const store = new ServersStore(join(dir, "state"), { warn: () => undefined });
   const commands = new Map<string, HostExtensionCommandHandler>();
   const events: World["events"] = [];
@@ -162,6 +164,84 @@ describe.skipIf(!posix)("deployments", () => {
     expect(compared.pending?.rows.map((row) => row.change)).toEqual(Array(5).fill("deleted"));
     const preview = await w.call<DeployPreview>("deploy-preview", { ...ref(w), files: [{ path: "contact.php", op: "delete" }] });
     expect(preview.files).toMatchObject([{ path: "contact.php", outcome: "delete" }]);
+  });
+
+  it.each([
+    { atomicRename: true, op: "modify" }, { atomicRename: false, op: "modify" },
+    { atomicRename: true, op: "add" }, { atomicRename: true, op: "delete" },
+  ] as const)("recovers two of five files without drift ($op, atomic rename: $atomicRename)", async ({ atomicRename, op }) => {
+    await downloaded(w);
+    const paths = ["about.php", op === "add" ? "new.php" : "contact.php", "css/site.css", "index.php", "bin/cron.sh"];
+    for (const path of paths) put(w.local, path, `new ${path}\n`, { mtime: 1_700_000_100 });
+    if (op === "delete") unlinkSync(join(w.local, paths[1]!));
+    await w.status.idle();
+    w.status.dispose();
+    let stopped!: () => void;
+    const interruption = new Promise<void>((resolve) => { stopped = resolve; });
+    w.fs.caps.atomicRename = atomicRename;
+    let written = 0;
+    const stopAfterWrite = async () => {
+      written += 1;
+      if (written === 2) {
+        stopped();
+        // Suspend the old writer permanently, as if its process had exited.
+        await new Promise<void>(() => undefined);
+      }
+    };
+    const rename = w.fs.rename.bind(w.fs);
+    w.fs.rename = async (...args) => { await rename(...args); if (atomicRename) await stopAfterWrite(); };
+    const write = w.fs.write.bind(w.fs);
+    w.fs.write = async (...args) => { await write(...args); if (!atomicRename) await stopAfterWrite(); };
+    const remove = w.fs.remove.bind(w.fs);
+    w.fs.remove = async (...args) => { await remove(...args); await stopAfterWrite(); };
+    void w.call("deploy", { ...ref(w), files: paths.map((path, index) => ({ path, op: index === 1 ? op : "modify" })) });
+    await interruption;
+    expect((await readDeployments(w.store, KEY))[0]?.status).toBe("in-progress");
+    w = world({ dir: w.dir });
+    const status = await pendingOf(w);
+    expect(status.state).toBe("incomplete");
+    expect(status.pending.map((row) => row.path).sort()).toEqual(paths.slice(2).sort());
+    const comparison = await w.call<CompareResult>("compare", { ...ref(w), thorough: true });
+    expect(comparison.drift?.rows).toEqual([]);
+    const records = await readDeployments(w.store, KEY);
+    expect(records[0]).toMatchObject({ status: "incomplete", files: paths.slice(0, 2).map((path) => ({ path })) });
+    const history = await w.call<ServerHistory>("server-history", ref(w));
+    expect(history.entries[0]?.deployment).toMatchObject({ seq: 1, status: "incomplete" });
+    put(w.server, "about.php", "a colleague's edit\n", { mtime: 1_700_000_500 });
+    const changed = await w.call<CompareResult>("compare", { ...ref(w), thorough: true });
+    expect(changed.drift?.rows.map((row) => row.path)).toEqual(["about.php"]);
+  });
+
+  it("recovers after the final ref moved but the completed journal could not be saved", async () => {
+    await downloaded(w);
+    put(w.local, "about.php", "changed\n", { mtime: 1_700_000_100 });
+    const write = w.store.write.bind(w.store);
+    vi.spyOn(w.store, "write").mockImplementation(async (key, spec, value) => {
+      if (spec.name === "deployments.json" && JSON.stringify(value).includes('"status":"uploaded"')) throw new Error("Journal unavailable");
+      return write(key, spec, value);
+    });
+    await expect(w.call("deploy", { ...ref(w), files: [{ path: "about.php", op: "modify" }] })).rejects.toThrow("Journal unavailable");
+    await w.status.idle();
+    w.status.dispose();
+    mirrorGit(w.store, "gc", "--prune=now", "--quiet");
+    w = world({ dir: w.dir });
+    expect((await pendingOf(w)).state).toBe("incomplete");
+    const comparison = await w.call<CompareResult>("compare", { ...ref(w), thorough: true });
+    expect(comparison.drift?.rows).toEqual([]);
+    expect(comparison.pending?.rows).toEqual([]);
+    expect((await readDeployments(w.store, KEY))[0]).toMatchObject({ status: "incomplete", files: [{ path: "about.php" }] });
+  });
+
+  it("refuses server writes when the in-progress journal cannot be saved", async () => {
+    await downloaded(w);
+    put(w.local, "about.php", "changed\n", { mtime: 1_700_000_100 });
+    const write = w.store.write.bind(w.store);
+    vi.spyOn(w.store, "write").mockImplementation(async (key, spec, value) => {
+      if (spec.name === "deployments.json") throw new Error("Journal unavailable");
+      return write(key, spec, value);
+    });
+    await expect(w.call("deploy", { ...ref(w), files: [{ path: "about.php", op: "modify" }] })).rejects.toThrow("Journal unavailable");
+    expect(read(w.server, "about.php")).toBe("<?php echo 'about';\n");
   });
 
   it("uploads chosen changes with the old mode, deletes with a backup, journals it and records the new mirror state", async () => {

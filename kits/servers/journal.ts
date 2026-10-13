@@ -10,7 +10,7 @@ import { isSyncPath } from "./sync/paths.js";
  * The deployment journal: `deployments.json` in the target's folder, one
  * record per deployment, oldest first. Each record's blobs are kept alive by
  * `refs/tau/deploy/<seq>` in the shadow repository: a commit whose tree is the
- * server after the deployment and whose parent is the server before it.
+ * planned upload while in progress, then the actual server state; its parent is the backup.
  */
 
 export const DEPLOY_REF_PREFIX = "refs/tau/deploy/";
@@ -25,7 +25,7 @@ export interface DeploymentsFile extends Record<string, unknown> {
 }
 
 const HEX = /^[0-9a-f]{40,64}$/u;
-const STATUSES: readonly DeploymentStatus[] = ["uploaded", "verified", "committed", "rolled-back"];
+const STATUSES: readonly DeploymentStatus[] = ["in-progress", "incomplete", "uploaded", "verified", "committed", "rolled-back"];
 const OUTCOMES = new Set(["upload", "delete", "same", "gone", "conflict", "blocked", "stale"]);
 const str = (value: unknown): value is string => typeof value === "string";
 const oid = (value: unknown) => (str(value) && HEX.test(value) ? value : undefined);

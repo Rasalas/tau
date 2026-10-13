@@ -9,7 +9,7 @@ import {
 } from "./deploy-protocol.js";
 import { unmergedDriftPaths, unmergedDriftReason, type DriftState } from "./drift-protocol.js";
 import { CommitMarks } from "./commit-mark.js";
-import { deployRef, nextDeploySeq, readDeployments, recordDeployment } from "./journal.js";
+import { deployRef, nextDeploySeq, readDeployments, recordDeployment, updateDeployments } from "./journal.js";
 import type { ServerFs } from "./server-fs.js";
 import type { SftpJsonTarget } from "./sftp-json.js";
 import type { ServersStore, TargetKey } from "./store.js";
@@ -17,7 +17,7 @@ import { comparePending } from "./sync/compare.js";
 import { applyIntents, inspectIntents, readServerFile, writes, type DeployIntent, type InspectedIntent } from "./sync/deploy.js";
 import { gitCall, type GitCall } from "./sync/git.js";
 import { hasConflictMarkers, readLocalFile, removeLocalFile, writeLocalFile } from "./sync/local.js";
-import { loadMirrorState, recordMirrorState, saveMirrorState, sortedEntries, type MirrorEntry, type MirrorState } from "./sync/mirror.js";
+import { entryOf, loadMirrorState, recordMirrorState, saveMirrorState, sortedEntries, type MirrorEntry, type MirrorState } from "./sync/mirror.js";
 import { byPath, isSyncPath } from "./sync/paths.js";
 import type { SyncChange } from "./sync/protocol.js";
 import { scanLocal } from "./sync/scan.js";
@@ -235,8 +235,8 @@ export class DeployService {
 
   /**
    * Writes what the inspected intents say should go and records it: the
-   * backup ref before the first write, then the deployment commit, the new
-   * mirror state and the journal entry. An upload and a rollback both end here.
+   * journal and backup before the first write, then the deployment commit,
+   * mirror state and completed journal entry. An upload and a rollback both end here.
    */
   async execute(session: SyncSession, state: MirrorState, fs: ServerFs, spec: DeploymentSpec): Promise<Omit<DeployResult, "targetId">> {
     const { store } = this.options;
@@ -258,21 +258,46 @@ export class DeployService {
       const beforeCommit = sameTree(before, state.entries)
         ? state.commit
         : await session.mirror.commit(sortedEntries(before), `Server state ${fs.root} ${at.toISOString()} (before deployment ${seq})`, state.commit);
-      // The backup is reachable before anything is written.
-      await session.mirror.setRef(deployRef(seq), beforeCommit);
+      const checkout = await this.checkout(session.workspace);
+      const planned = new Map(before);
+      const plannedFiles: DeploymentFile[] = [];
+      for (const { intent, now, plan } of inspected) {
+        if (!writes(plan)) continue;
+        const old = now.kind === "file" ? { before: now.entry.oid, beforeMode: now.stat.mode } : {};
+        if (intent.op === "delete") {
+          planned.delete(intent.path);
+          plannedFiles.push({ path: intent.path, op: "delete", ...old });
+        } else {
+          const mode = now.kind === "file" ? now.stat.mode : intent.newMode;
+          const entry = entryOf(intent.content ?? Buffer.alloc(0), { mode, mtime: 0 });
+          planned.set(intent.path, entry);
+          plannedFiles.push({ path: intent.path, op: intent.op, ...old, after: entry.oid, mode });
+        }
+      }
+      // Keep both planned blobs and the backup reachable before the first server write.
+      const plannedCommit = await session.mirror.commit(sortedEntries(planned), `Deployment ${seq} in progress`, beforeCommit);
+      await session.mirror.setRef(deployRef(seq), plannedCommit);
+      await recordDeployment(store, session.key, {
+        seq, kind: spec.kind, ...(spec.rollbackOf !== undefined ? { rollbackOf: spec.rollbackOf } : {}),
+        at: at.toISOString(), origin: spec.origin, checkout, context: session.target.context,
+        files: plannedFiles, failed: [], skipped: [...spec.plans, ...inspected.filter(({ plan }) => !writes(plan)).map(({ plan }) => plan)].sort(byOutcome), status: "in-progress",
+        commit: plannedCommit, mirrorCommit: state.commit, ...(spec.note ? { note: spec.note } : {}),
+      });
       const outcome = await applyIntents(fs, inspected, { dirMode: session.target.dirPerm ?? 0o755, signal: session.signal });
       failed = outcome.failed;
       for (const plan of outcome.raced) raced.set(plan.path, plan);
       if (outcome.applied.length === 0) {
         // Nothing went up: no deployment. A failed write may have left the server half-written, so the backup stays.
-        if (!failed.length) await session.mirror.deleteRef(deployRef(seq));
+        if (!failed.length) {
+          await updateDeployments(store, session.key, (records) => records.filter((record) => record.seq !== seq));
+          await session.mirror.deleteRef(deployRef(seq));
+        }
       } else {
         const after = new Map(before);
         for (const { file, entry } of outcome.applied) {
           if (entry) { after.set(file.path, entry); next.set(file.path, entry); } else { after.delete(file.path); next.delete(file.path); }
           settled.push(file.path);
         }
-        const checkout = await this.checkout(session.workspace);
         const files = outcome.applied.map(({ file }) => file).sort((a, b) => byPath(a.path, b.path));
         const subject = spec.subject(seq, files);
         const body = [`From ${checkout.branch ?? "a detached HEAD"}${checkout.head ? ` at ${checkout.head.slice(0, 12)}` : ""} in ${checkout.path}.`, spec.note ?? ""].filter(Boolean).join("\n\n");

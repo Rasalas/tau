@@ -39,6 +39,7 @@ export function worstState(states: Iterable<ServerSyncState>): ServerSyncState |
 export const STATE_LABELS: Readonly<Record<ServerSyncState, string>> = {
   unusable: "Not usable",
   unreachable: "Unreachable",
+  incomplete: "Incomplete deployment",
   conflict: "Conflict",
   drift: "Server changed",
   pending: "Not uploaded",
@@ -50,6 +51,7 @@ export const STATE_LABELS: Readonly<Record<ServerSyncState, string>> = {
 export const STATE_TONES: Readonly<Record<ServerSyncState, "danger" | "warn" | "info" | "ok" | "muted">> = {
   unusable: "danger",
   unreachable: "danger",
+  incomplete: "warn",
   conflict: "danger",
   drift: "warn",
   pending: "info",
@@ -74,6 +76,7 @@ export function statusSentence(target: Pick<TargetStatus, "state" | "pendingTota
     case "never-read": return target.checking ? "Reading the server…" : "Tau has not read this server yet.";
     case "conflict": return `${files(target.conflicts.length)} changed here and on the server.`;
     case "drift": return `The server changed ${files(drift)}${target.pendingTotal ? `; ${files(target.pendingTotal)} not uploaded` : ""}.`;
+    case "incomplete": return "An upload was interrupted. Review the deployment in History before uploading again.";
     case "pending": return `${files(target.pendingTotal)} not uploaded.`;
     case "in-sync": return "The server matches the local copy.";
   }

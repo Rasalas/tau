@@ -9,7 +9,7 @@ import { DeployService } from "./deploy";
 import type { DeployResult } from "./deploy-protocol";
 import { DRIFT_FILE, DriftService } from "./drift";
 import { FolderServerFs } from "./fixtures/fake-server-fs";
-import { DEPLOYMENTS_FILE, readDeployments } from "./journal";
+import { DEPLOYMENTS_FILE, readDeployments, setDeploymentStatus } from "./journal";
 import { RollbackService } from "./rollback";
 import type { HistoryCleanupResult, RollbackPreview, RollbackResult } from "./rollback-protocol";
 import type { SftpJsonTarget } from "./sftp-json";
@@ -246,6 +246,14 @@ describe.skipIf(!posix)("rollback", () => {
     expect(result.rolledBack).toBe(false);
   });
 
+  it("lets the user finish reviewing an incomplete deployment", async () => {
+    await downloaded(w);
+    await deploy(w, { "index.php": "new\n" });
+    await setDeploymentStatus(w.store, KEY, 1, "incomplete");
+    const result = await w.call<{ status: string }>("deployment-mark", { ...ref(w), seq: 1, checked: true });
+    expect(result.status).toBe("verified");
+  });
+
   it("marks a deployment checked, then committed once HEAD holds it; it stays in the history and can still be rolled back", async () => {
     await downloaded(w);
     await deploy(w, { "about.php": "<?php echo 'about v2';\n" });
@@ -286,6 +294,18 @@ describe.skipIf(!posix)("history cleanup", () => {
   let w: World;
   beforeEach(() => { w = world(); });
   afterEach(async () => { await w.status.idle(); w.status.dispose(); await w.cleanup.dispose(); rmSync(w.dir, { recursive: true, force: true }); });
+
+  it.each(["in-progress", "incomplete"] as const)("keeps an unresolved %s deployment beyond retention", async (status) => {
+    await downloaded(w);
+    await deploy(w, { "index.php": "new\n" });
+    await setDeploymentStatus(w.store, KEY, 1, status);
+    w.clock.now = new Date(w.clock.now.getTime() + 100 * 24 * 60 * 60 * 1000);
+    w.settings.retentionDays = "1";
+    const result = await w.cleanup.sweep();
+    expect(result[0]?.removed).toEqual([]);
+    expect((await readDeployments(w.store, KEY))[0]?.status).toBe(status);
+    expect(w.mirrorGit("rev-parse", "refs/tau/deploy/1")).toMatch(/^[0-9a-f]{40}$/u);
+  });
 
   it("keeps only the newest deployment with a retention of one, prunes the rest and can still roll that one back", async () => {
     await downloaded(w);
