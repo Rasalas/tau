@@ -271,6 +271,7 @@ function asRequest(raw: Json): ReviewRequest | undefined {
   return {
     provider: "forgejo", number: ref.number, title: text(raw.title) ?? `#${ref.number}`, url: ref.url, baseRef,
     ...(text(record(raw.head).ref) ? { headRef: text(record(raw.head).ref) } : {}),
+    ...(text(record(raw.head).sha) ? { headSha: text(record(raw.head).sha) } : {}),
     state: state(raw),
     draft: isDraft(raw),
     ...(typeof raw.body === "string" ? { body: raw.body } : {}),

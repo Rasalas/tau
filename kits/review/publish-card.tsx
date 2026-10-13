@@ -128,7 +128,7 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
 
   useEffect(() => {
     alive.current = true;
-    parts.requests.status().then((next) => { if (alive.current) setStatus(next); }, () => undefined);
+    parts.requests.status(false, workspace).then((next) => { if (alive.current) setStatus(next); }, () => undefined);
     void generate(!target.message?.trim());
     return () => { alive.current = false; };
     // Once, when the card opens.
@@ -147,7 +147,7 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
         void store.refresh();
       },
       create: async () => {
-        const result = await parts.requests.create({ title: title.trim(), body, base: "", draft });
+        const result = await parts.requests.create({ workspace: workspace ?? "", branch: branch ?? "", title: title.trim(), body, base: "", draft });
         if (workspace) parts.rows.set(workspace, result.status.request);
         void store.refresh();
         const created = result.status.request;

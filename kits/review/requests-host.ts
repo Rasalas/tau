@@ -204,6 +204,18 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     return request;
   };
 
+  const requireWorkspace = (fields: Record<string, unknown>): void => {
+    if (!text(fields.workspace)?.trim()) throw new HostCommandError("Name the workspace shown before changing a request.");
+  };
+
+  const confirmedRequest = (inspected: Inspected, fields: Record<string, unknown>): ReviewRequest => {
+    const request = openRequest(inspected);
+    if (fields.number !== request.number || !text(fields.headSha) || fields.headSha !== request.headSha) {
+      throw new HostCommandError("The request or its head changed; refresh and review it before merging.");
+    }
+    return request;
+  };
+
   /** A rail row's request: any thread's checkout, named by its workspace. */
   const rowRequest = async (named: string, fresh: boolean): Promise<ReviewRequest | undefined> => {
     const git = await workspace<ReviewRequestContext>("review-request-context", { workspace: named }).catch(() => undefined);
@@ -213,7 +225,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
   context.registerCommand("pr-status", async (input) => {
     const named = text(record(input).workspace);
     // A rail row asks about any thread's checkout and only wants the request.
-    if (named) return { request: await rowRequest(named, record(input).fresh === true) };
+    if (named && record(input).full !== true) return { request: await rowRequest(named, record(input).fresh === true) };
     return status(record(input).fresh === true);
   }, { access: "read", callers: [THREAD_RAIL_EXTENSION_ID] }); // a merged or closed request settles a Thread Rail thread
 
@@ -254,8 +266,10 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const fields = record(input);
     const title = text(fields.title)?.trim();
     if (!title) throw new HostCommandError("A title is required.");
+    requireWorkspace(fields);
     const inspected = await ready();
     const { current, git, provider, target } = inspected;
+    if (!text(fields.branch) || fields.branch !== git.branch) throw new HostCommandError("The branch changed; refresh before creating the request.");
     const { info } = provider;
     if (!info.capabilities.create) throw new HostCommandError(`${info.name} does not let Tau open a ${info.noun}; open it on the website.`);
     if (current.request?.state === "open") throw new HostCommandError(`${info.short} ${info.sign}${current.request.number} is already open for this branch.`);
@@ -266,6 +280,8 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const written = text(fields.body) ?? "";
     if (findEvidenceTokens(written).length > 0 && fields.uploadConfirmed !== true) throw new HostCommandError("Confirm what is uploaded first.");
     const embedded = await embedMedia({ provider, target, ...(git.branch ? { branch: git.branch } : {}), body: written, read: attachmentReader(context), tools: sources.tools });
+    const beforePush = await workspace<ReviewRequestContext>("review-request-context");
+    if (beforePush.branch !== git.branch || beforePush.remote?.url !== git.remote?.url) throw new HostCommandError("The branch or remote changed; refresh before creating the request.");
     await workspace("push");
     const created = await provider.create(target, { title, body: embedded.body, base, head: git.branch!, draft });
     services.log("request.created", created ?? title);
@@ -279,9 +295,10 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const fields = record(input);
     const method = MERGE_METHODS.find((candidate) => candidate === fields.method);
     if (!method) throw new HostCommandError("Choose squash, merge or rebase.");
+    requireWorkspace(fields);
     const inspected = await ready();
     const { provider, target } = inspected;
-    const request = openRequest(inspected);
+    const request = confirmedRequest(inspected, fields);
     refuseMethod(provider, method);
     const deleteBranch = fields.deleteBranch === true && provider.info.capabilities.deleteBranch;
     const outcome = await provider.merge(target, request, method, { deleteBranch });
@@ -294,9 +311,10 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const fields = record(input);
     const enable = fields.enable !== false;
     const method = MERGE_METHODS.find((candidate) => candidate === fields.method);
+    requireWorkspace(fields);
     const inspected = await ready();
     const { provider, target } = inspected;
-    const request = openRequest(inspected);
+    const request = confirmedRequest(inspected, fields);
     const arm = provider.autoMerge;
     if (!arm || !provider.info.capabilities.autoMerge) throw new HostCommandError(`${provider.info.name} does not let Tau merge automatically; merge when it is ready.`);
     if (enable && method) refuseMethod(provider, method);

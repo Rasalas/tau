@@ -116,7 +116,7 @@ describe("the Forgejo provider through tea", () => {
 
   it("pushes, then creates a draft with the prefix Forgejo reads as one, and merges by the chosen method", async () => {
     const { invoke, calls, pushes } = await harness({ context: { branch: "feature/new" } });
-    const created = await invoke<{ url?: string }>("pr-create", { title: "Add it", body: "Why", draft: true });
+    const created = await invoke<{ url?: string }>("pr-create", { workspace: "/project", branch: "feature/new", title: "Add it", body: "Why", draft: true });
     expect(pushes).toHaveBeenCalledTimes(1);
     const post = calls.find((call) => call.args.includes("POST"))!;
     expect(post.args).toEqual(["api", "--include", "--login", "codeberg.org", "--method", "POST", "--data", "@-", `${API}/pulls`]);
@@ -124,7 +124,7 @@ describe("the Forgejo provider through tea", () => {
     expect(created.url).toBe("https://codeberg.org/forgejo/forgejo/pulls/14600");
 
     const open = await harness();
-    await open.invoke("pr-merge", { method: "rebase" });
+    await open.invoke("pr-merge", { workspace: "/project", ...(await open.invoke<ReviewRequestStatus>("pr-status")).request, method: "rebase" });
     const merge = open.calls.find((call) => call.args.at(-1)!.endsWith("/pulls/14535/merge"))!;
     expect(JSON.parse(merge.input!)).toEqual({ Do: "rebase" });
     await open.invoke("pr-edit", { draft: true });

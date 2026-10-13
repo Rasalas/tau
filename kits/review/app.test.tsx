@@ -242,7 +242,7 @@ const LOCAL_PR = {
   "local-pr": { root: "/project", branch: "feat/review", base: "main", commits: [], forkedAt: 0 },
   "local-pr-evidence": { available: false, evidence: [] },
 };
-const OPEN_REQUEST = { provider: "github", number: 7, title: "Review everything", url: "https://github.com/acme/tau/pull/7", baseRef: "main", state: "open", draft: true, body: "Why", checks: { passed: 2, failed: 0, pending: 1, total: 3 } };
+const OPEN_REQUEST = { headSha: "seen-head", provider: "github", number: 7, title: "Review everything", url: "https://github.com/acme/tau/pull/7", baseRef: "main", state: "open", draft: true, body: "Why", checks: { passed: 2, failed: 0, pending: 1, total: 3 } };
 
 /**
  * The request lifecycle through the kit's own host commands: the section above
@@ -254,7 +254,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     const push = vi.fn(async () => ({ detail: "Pushed abc1234" }));
     let status: Record<string, unknown> = NO_REQUEST;
     const review = vi.fn(async (command: string, input?: unknown) => {
-      if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? { request: status.request } : status;
+      if (command === "pr-status") return (input as { full?: boolean; workspace?: string } | undefined)?.workspace && !(input as { full?: boolean }).full ? { request: status.request } : status;
       if (command === "local-pr-describe") return { title: "Review every changed file", body: "## Summary\nAll of it.", base: "main", generated: true };
       if (command === "pr-create") {
         status = { ...NO_REQUEST, request: OPEN_REQUEST };
@@ -284,7 +284,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     fireEvent.click(within(card).getByRole("checkbox", { name: "Draft" }));
     fireEvent.click(within(card).getByRole("button", { name: "Commit, push & PR" }));
 
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Review every changed file", body: "## Summary\nAll of it.", base: "", draft: true }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { workspace: "/project", branch: "feat/review", title: "Review every changed file", body: "## Summary\nAll of it.", base: "", draft: true }));
     expect(commit).toHaveBeenCalledWith("Update a", false);
     expect(push).toHaveBeenCalledOnce();
     expect(await screen.findByText("PR #7 created as draft.")).toBeTruthy();
@@ -296,7 +296,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     const push = vi.fn(async () => ({ detail: "Pushed abc1234" }));
     let status: Record<string, unknown> = NO_REQUEST;
     const review = vi.fn(async (command: string, input?: unknown) => {
-      if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? { request: status.request } : status;
+      if (command === "pr-status") return (input as { full?: boolean; workspace?: string } | undefined)?.workspace && !(input as { full?: boolean }).full ? { request: status.request } : status;
       if (command === "suggest-commit-message") return { message: "feat(review): preview the request" };
       if (command === "local-pr-describe") return { title: "Preview the request", body: "Shows the files first.", base: "main", generated: true };
       if (command === "pr-create") {
@@ -317,7 +317,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     expect(commit).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Commit, push & PR" }));
 
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Preview the request", body: "Shows the files first.", base: "", draft: false }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { workspace: "/project", branch: "feat/review", title: "Preview the request", body: "Shows the files first.", base: "", draft: false }));
     expect(commit).toHaveBeenCalledWith("feat(review): preview the request", false);
     expect(push).toHaveBeenCalledOnce();
     expect(await screen.findByText("PR #7 created.")).toBeTruthy();
@@ -329,7 +329,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     const push = vi.fn(async () => ({ detail: "Pushed abc1234" }));
     push.mockRejectedValueOnce(new Error("remote: permission denied"));
     const review = vi.fn(async (command: string, input?: unknown) => {
-      if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? {} : NO_REQUEST;
+      if (command === "pr-status") return (input as { full?: boolean; workspace?: string } | undefined)?.workspace && !(input as { full?: boolean }).full ? {} : NO_REQUEST;
       if (command === "local-pr-describe") return { title: "Preview the request", body: "Shows the files first.", base: "main", generated: true };
       if (command === "pr-create") return { status: { ...NO_REQUEST, request: OPEN_REQUEST }, url: OPEN_REQUEST.url };
       return LOCAL_PR[command as keyof typeof LOCAL_PR];
@@ -360,7 +360,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
   it("leads the Git button to the same form once the branch is committed, and the form writes itself", async () => {
     const clean = { branch: "feat/review", files: [], fileCount: 0, added: 0, removed: 0 };
     const review = vi.fn(async (command: string, input?: unknown) => {
-      if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? {} : NO_REQUEST;
+      if (command === "pr-status") return (input as { full?: boolean; workspace?: string } | undefined)?.workspace && !(input as { full?: boolean }).full ? {} : NO_REQUEST;
       if (command === "local-pr") return { ...LOCAL_PR["local-pr"], commits: [{ sha: "c1", subject: "feat: add the card", body: "", at: 1_000 }] };
       if (command === "local-pr-describe") return { title: "Add the card", body: "It previews the request.", base: "main", generated: true };
       if (command === "pr-create") return { status: { ...NO_REQUEST, request: OPEN_REQUEST }, url: OPEN_REQUEST.url };
@@ -374,7 +374,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     // Opened empty, the form wrote the title and description from the commits.
     await waitFor(() => expect((screen.getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("Add the card"));
     fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Add the card", body: "It previews the request.", base: "main", draft: false }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { workspace: "/project", branch: "feat/review", title: "Add the card", body: "It previews the request.", base: "main", draft: false }));
   });
 
   it("opens the request as a stage tab from the review, read through the kit's own host commands", async () => {
@@ -419,7 +419,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     expect(screen.getByRole("button", { name: "Enable auto-merge" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Merge now" }));
 
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-merge", { method: "rebase" }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-merge", { workspace: "/project", number: OPEN_REQUEST.number, headSha: "seen-head", method: "rebase" }));
     expect(await screen.findByRole("img", { name: "Merged" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Merge…" })).toBeNull();
   });
@@ -442,12 +442,12 @@ describe("Review Kit request lifecycle in the workbench", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Merge…" }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Delete feature\/pr after merging/u }));
     fireEvent.click(screen.getByRole("button", { name: "Enable auto-merge" }));
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-auto-merge", { enable: true, method: "squash", deleteBranch: true }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-auto-merge", { workspace: "/project", number: OPEN_REQUEST.number, headSha: "seen-head", enable: true, method: "squash", deleteBranch: true }));
     expect(await screen.findByText("auto-merge · squash")).toBeTruthy();
 
     // The request's line shows the new status before the actions come back.
     fireEvent.click(await screen.findByRole("button", { name: "Disable auto-merge" }));
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-auto-merge", { enable: false }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-auto-merge", { workspace: "/project", number: OPEN_REQUEST.number, headSha: "seen-head", enable: false }));
     await waitFor(() => expect(screen.queryByText("auto-merge · squash")).toBeNull());
   });
 

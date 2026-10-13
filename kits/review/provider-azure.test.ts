@@ -109,7 +109,7 @@ describe("the Azure DevOps provider through az", () => {
 
   it("creates a draft, merges by squash and refuses a rebase", async () => {
     const { invoke, calls } = await harness({ context: { branch: "feature/new" } });
-    const created = await invoke<{ url?: string }>("pr-create", { title: "Add it", body: "Why", draft: true });
+    const created = await invoke<{ url?: string }>("pr-create", { workspace: "/project", branch: "feature/new", title: "Add it", body: "Why", draft: true });
     expect(created.url).toBe("https://dev.azure.com/powershell/PowerShell/_git/PowerShell/pullrequest/60");
     expect(calls.find((call) => call.args[2] === "create")!.args).toEqual([
       "repos", "pr", "create", "--project", "PowerShell", "--repository", "PowerShell", "--source-branch", "feature/new", "--target-branch", "master",
@@ -117,8 +117,8 @@ describe("the Azure DevOps provider through az", () => {
     ]);
 
     const open = await harness({ rewrite: (args, body) => args[2] === "list" ? body.replaceAll('"completed"', '"active"') : body });
-    await expect(open.invoke("pr-merge", { method: "rebase" })).rejects.toThrow("Azure DevOps merges by squash or merge commit only.");
-    await open.invoke("pr-merge", { method: "squash" });
+    await expect(open.invoke("pr-merge", { workspace: "/project", ...(await open.invoke<ReviewRequestStatus>("pr-status")).request, method: "rebase" })).rejects.toThrow("Azure DevOps merges by squash or merge commit only.");
+    await open.invoke("pr-merge", { workspace: "/project", ...(await open.invoke<ReviewRequestStatus>("pr-status")).request, method: "squash" });
     expect(open.calls.find((call) => call.args[2] === "update")!.args).toEqual(["repos", "pr", "update", "--id", "46", "--status", "completed", "--squash", "true", ...ORG]);
   });
 

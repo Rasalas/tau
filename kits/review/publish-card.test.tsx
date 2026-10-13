@@ -28,7 +28,7 @@ function setup(options: Options = {}) {
   const files = options.files ?? [file("a.ts")];
   const changes: UiWorkspaceChanges = { files, added: files.length * 2, removed: files.length, branch: "feat/card", proposedMessage: "Update files" };
   const store = {
-    getSnapshot: () => ({ cwd: "/work", workspaceId: "w1", changes, committing: false, workspace: { branch: "feat/card" } }),
+    getSnapshot: vi.fn(() => ({ cwd: "/work", workspaceId: "w1", changes, committing: false, workspace: { branch: "feat/card" } })),
     suggestCommitMessage: vi.fn(options.suggest ?? (async () => "feat(card): preview")),
     refresh: vi.fn(async () => undefined),
   } as unknown as WorkspaceStoreApi;
@@ -104,8 +104,22 @@ describe("the Commit, push & PR card", () => {
     fireEvent.change(within(dialog).getByRole("textbox", { name: "PR title" }), { target: { value: "By hand" } });
     expect(confirm.disabled).toBe(false);
     fireEvent.click(confirm);
-    await waitFor(() => expect(requests.create).toHaveBeenCalledWith({ title: "By hand", body: "", base: "", draft: false }));
+    await waitFor(() => expect(requests.create).toHaveBeenCalledWith({ workspace: "w1", branch: "feat/card", title: "By hand", body: "", base: "", draft: false }));
     expect(workspace.invoke).toHaveBeenCalledWith("commit", { message: "Update files", push: false, workspace: "w1" });
+    expect(workspace.invoke).toHaveBeenCalledWith("push", { workspace: "w1" });
+  });
+
+  it("keeps creation on the displayed checkout when the workspace changes before confirmation", async () => {
+    const { store, requests, workspace } = setup({ message: "Update the card" });
+    const dialog = await card();
+    const confirm = within(dialog).getByRole("button", { name: "Commit, push & PR" }) as HTMLButtonElement;
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    vi.mocked(store.getSnapshot).mockReturnValue({
+      ...store.getSnapshot(), cwd: "/other", workspaceId: "w2", workspace: { branch: "other-branch" },
+    });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(requests.create).toHaveBeenCalledWith({ workspace: "w1", branch: "feat/card", title: "Preview the request", body: "Both texts first.", base: "", draft: false }));
+    expect(requests.status).toHaveBeenCalledWith(false, "w1");
     expect(workspace.invoke).toHaveBeenCalledWith("push", { workspace: "w1" });
   });
 

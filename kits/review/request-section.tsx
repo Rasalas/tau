@@ -60,7 +60,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     const refresh = useCallback(async (fresh = false) => {
       const request = ++latest.current;
       try {
-        const next = await client.status(fresh);
+        const next = await client.status(fresh, cwd);
         if (request === latest.current) { publish(next); setError(undefined); }
       } catch (reason) {
         if (request === latest.current) setError(errorMessage(reason));
@@ -113,8 +113,9 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     }, [offer, offerable, short, working]);
 
     const merge = () => run(`Merging ${short}…`, async () => {
+      if (!cwd || !open?.headSha) throw new Error("Refresh the request before merging; its head commit is missing.");
       rememberMethod(chosen);
-      const next = await client.merge(chosen, deleteBranch && capabilities.deleteBranch);
+      const next = await client.merge({ workspace: cwd, number: open.number, headSha: open.headSha }, chosen, deleteBranch && capabilities.deleteBranch);
       publish(next);
       setMode("idle");
       void store.refresh();
@@ -122,8 +123,9 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     });
 
     const autoMerge = (enable: boolean) => run(enable ? "Turning on auto-merge…" : "Turning off auto-merge…", async () => {
+      if (!cwd || !open?.headSha) throw new Error("Refresh the request before changing auto-merge; its head commit is missing.");
       if (enable) rememberMethod(chosen);
-      const next = await client.autoMerge(enable, enable ? chosen : undefined, enable && deleteBranch && capabilities.deleteBranch);
+      const next = await client.autoMerge({ workspace: cwd, number: open.number, headSha: open.headSha }, enable, enable ? chosen : undefined, enable && deleteBranch && capabilities.deleteBranch);
       publish(next);
       setMode("idle");
       actions.notify(enable ? `Auto-merge turned on for ${short} ${sign}${open?.number ?? ""}: it merges as soon as the host allows.` : `Auto-merge turned off for ${short} ${sign}${open?.number ?? ""}.`);

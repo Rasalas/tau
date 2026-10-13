@@ -16,21 +16,22 @@ const CONTEXT: ReviewRequestContext = {
   base: "main",
 };
 
-const OPEN: UiReviewRequest = { provider: "github", number: 7, title: "Add it", url: "https://github.com/acme/tau/pull/7", baseRef: "main", state: "open", draft: true };
+const OPEN: UiReviewRequest = { headSha: "seen-head", provider: "github", number: 7, title: "Add it", url: "https://github.com/acme/tau/pull/7", baseRef: "main", state: "open", draft: true };
 
 interface Fixture {
   context?: Partial<ReviewRequestContext>;
   request?: UiReviewRequest;
   tools?: Record<string, string>;
-  cli?(args: string[]): string | Promise<string>;
+  cli?(args: string[], cwd: string): string | Promise<string>;
   complete?(): Promise<string>;
+  workspace?(input: unknown): Partial<ReviewRequestContext>;
 }
 
 /** The branch's request as `gh pr view` or `glab mr view` print it; none makes the CLI fail as it does. */
 function branchView(request: UiReviewRequest | undefined, args: string[]): string {
   if (!request) throw new Error("no pull requests found for branch \"feature/pr\"");
   if (args[0] === "pr") {
-    return JSON.stringify({ number: request.number, title: request.title, url: request.url, baseRefName: request.baseRef, state: request.state?.toUpperCase(), isDraft: request.draft });
+    return JSON.stringify({ number: request.number, title: request.title, url: request.url, baseRefName: request.baseRef, headRefOid: request.headSha, state: request.state?.toUpperCase(), isDraft: request.draft });
   }
   return JSON.stringify({ iid: request.number, title: request.title, web_url: request.url, target_branch: request.baseRef, state: request.state === "open" ? "opened" : request.state, draft: request.draft });
 }
@@ -39,6 +40,7 @@ function branchView(request: UiReviewRequest | undefined, args: string[]): strin
 async function harness(fixture: Fixture = {}) {
   let request = fixture.request;
   const pushes = vi.fn();
+  const contexts = vi.fn();
   const calls: string[][] = [];
   const workspace = {
     id: "tau.workspace",
@@ -46,19 +48,23 @@ async function harness(fixture: Fixture = {}) {
     permissions: [] as string[],
     activate(context: HostExtensionContext) {
       const callers = { callers: [REVIEW_HOST_EXTENSION_ID] };
-      context.registerCommand("review-request-context", (input) => ({
-        ...CONTEXT,
-        ...fixture.context,
-        ...((input as { detail?: boolean } | undefined)?.detail ? { commits: [{ subject: "feat: add it", body: "" }], diffStat: " a.ts | 2 +-" } : {}),
-      }), callers);
-      context.registerCommand("push", () => { pushes(); return { detail: "Pushed" }; }, callers);
+      context.registerCommand("review-request-context", (input) => {
+        contexts(input);
+        return {
+          ...CONTEXT,
+          ...fixture.context,
+          ...fixture.workspace?.(input),
+          ...((input as { detail?: boolean } | undefined)?.detail ? { commits: [{ subject: "feat: add it", body: "" }], diffStat: " a.ts | 2 +-" } : {}),
+        };
+      }, callers);
+      context.registerCommand("push", (input) => { pushes(input); return { detail: "Pushed" }; }, callers);
     },
   };
   const tools = fixture.tools ?? { gh: "/bin/gh", git: "/usr/bin/git" };
-  const run = vi.fn(async (_command: string, args: string[]) => {
+  const run = vi.fn(async (_command: string, args: string[], cwd: string) => {
     calls.push(args);
     if ((args[0] === "pr" || args[0] === "mr") && args[1] === "view" && (args[2] === "--json" || args[2] === "-F")) return branchView(request, args);
-    const answer = await (fixture.cli?.(args) ?? "");
+    const answer = await (fixture.cli?.(args, cwd) ?? "");
     if (args[0] === "pr" && args[1] === "create") request = { ...OPEN, draft: args.includes("--draft") };
     if (args[0] === "pr" && args[1] === "merge" && request) request = { ...request, state: "merged" };
     return answer;
@@ -73,7 +79,7 @@ async function harness(fixture: Fixture = {}) {
   });
   await registry.activate(createReviewHostExtension({ run }));
   const invoke = (command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input);
-  return { registry, invoke, calls, pushes, complete, setRequest: (next: UiReviewRequest | undefined) => { request = next; } };
+  return { registry, invoke, calls, pushes, contexts, complete, setRequest: (next: UiReviewRequest | undefined) => { request = next; } };
 }
 
 describe("Review Kit request lifecycle", () => {
@@ -84,6 +90,65 @@ describe("Review Kit request lifecycle", () => {
     await expect(invoke("pr-status", { workspace: "ws-a" })).resolves.toMatchObject({ request: { state: "open" } });
     await expect(invoke("pr-status", { workspace: "ws-a", fresh: true })).resolves.toMatchObject({ request: { state: "merged" } });
     expect(calls.filter((args) => args[0] === "pr" && args[1] === "view")).toHaveLength(2);
+  });
+
+  it("refuses a merge when the displayed head has moved", async () => {
+    const { invoke, calls } = await harness({ request: { ...OPEN, headSha: "new-head" } });
+    await expect(invoke("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "squash" })).rejects.toThrow("changed");
+    expect(calls.some((args) => args[1] === "merge")).toBe(false);
+  });
+
+  it("creates and pushes in the displayed workspace after the host switches checkout", async () => {
+    const { invoke, pushes, contexts, calls } = await harness({
+      workspace: (input) => (input as { workspace?: string } | undefined)?.workspace === "/project"
+        ? CONTEXT : { root: "/other", branch: "other-branch" },
+    });
+    await invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Add it" });
+    expect(pushes).toHaveBeenCalledWith({ workspace: "/project" });
+    expect(contexts.mock.calls.every(([input]) => input?.workspace === "/project")).toBe(true);
+    expect(calls.find((args) => args[1] === "create")).toContain("feature/pr");
+  });
+
+  it("merges the displayed request in its workspace, with a server-side head guard", async () => {
+    const cli = vi.fn(() => "");
+    const { invoke, contexts } = await harness({
+      request: OPEN, cli,
+      workspace: (input) => (input as { workspace?: string } | undefined)?.workspace === "/project"
+        ? CONTEXT : { root: "/other", branch: "other-branch" },
+    });
+    await invoke("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "squash" });
+    expect(cli).toHaveBeenCalledWith(["pr", "merge", "7", "--squash", "--match-head-commit", "seen-head"], "/project");
+    expect(contexts.mock.calls.every(([input]) => input?.workspace === "/project")).toBe(true);
+  });
+
+  it("passes through a head change rejected by the hosting CLI after the status read", async () => {
+    const { invoke } = await harness({ request: OPEN, cli: (args) => {
+      if (args[1] === "merge" && args.includes("--match-head-commit")) throw new Error("Head commit changed");
+      return "";
+    } });
+    await expect(invoke("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "squash" })).rejects.toThrow("Head commit changed");
+  });
+
+  it("refuses a different request, a missing head, and unbound writes", async () => {
+    const { invoke, calls, pushes } = await harness({ request: OPEN });
+    await expect(invoke("pr-merge", { workspace: "/project", number: 8, headSha: "seen-head", method: "squash" })).rejects.toThrow("changed");
+    await expect(invoke("pr-merge", { workspace: "/project", number: 7, method: "squash" })).rejects.toThrow("changed");
+    await expect(invoke("pr-merge", { number: 7, headSha: "seen-head", method: "squash" })).rejects.toThrow("workspace");
+    await expect(invoke("pr-create", { title: "Add it" })).rejects.toThrow("workspace");
+    expect(calls.some((args) => args[1] === "merge")).toBe(false);
+    expect(pushes).not.toHaveBeenCalled();
+  });
+
+  it("refuses to create after the displayed branch changed", async () => {
+    const { invoke, pushes, calls } = await harness({ context: { branch: "other-branch" } });
+    await expect(invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Add it" })).rejects.toThrow("branch changed");
+    expect(pushes).not.toHaveBeenCalled();
+    expect(calls.some((args) => args[1] === "create")).toBe(false);
+  });
+
+  it("returns full status for the displayed workspace", async () => {
+    const { invoke } = await harness({ request: OPEN });
+    await expect(invoke("pr-status", { workspace: "/project", full: true })).resolves.toMatchObject({ branch: "feature/pr", base: "main", request: OPEN });
   });
 
   it("reports the branch's request with its status and nothing missing", async () => {
@@ -99,7 +164,7 @@ describe("Review Kit request lifecycle", () => {
     expect((await (await harness({ tools: {} })).invoke("pr-status") as ReviewRequestStatus).problem).toMatch(/GitHub CLI \(gh\) is not installed/u);
     const loggedOut = await harness({ cli: (args) => { if (args[0] === "auth") throw new Error("You are not logged into any GitHub hosts. To log in, run: gh auth login"); return ""; } });
     expect((await loggedOut.invoke("pr-status") as ReviewRequestStatus).problem).toMatch(/not signed in. Run `gh auth login`/u);
-    await expect(loggedOut.invoke("pr-create", { title: "Add it" })).rejects.toThrow("not signed in");
+    await expect(loggedOut.invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Add it" })).rejects.toThrow("not signed in");
     expect(loggedOut.registry.isActive(REVIEW_HOST_EXTENSION_ID)).toBe(true);
   });
 
@@ -134,35 +199,35 @@ describe("Review Kit request lifecycle", () => {
 
   it("pushes, then creates a draft request against the base", async () => {
     const { invoke, calls, pushes } = await harness({ cli: (args) => (args[1] === "create" ? "https://github.com/acme/tau/pull/7\n" : "") });
-    const result = await invoke("pr-create", { title: "Add it", body: "Why", draft: true }) as { status: ReviewRequestStatus; url?: string };
+    const result = await invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Add it", body: "Why", draft: true }) as { status: ReviewRequestStatus; url?: string };
     expect(pushes).toHaveBeenCalledTimes(1);
     expect(calls).toContainEqual(["pr", "create", "--title", "Add it", "--body", "Why", "--base", "main", "--head", "feature/pr", "--draft"]);
     expect(result).toMatchObject({ url: "https://github.com/acme/tau/pull/7", status: { request: { number: 7, draft: true } } });
   });
 
   it("refuses to create a second request or one into its own branch", async () => {
-    await expect((await harness({ request: OPEN })).invoke("pr-create", { title: "Again" })).rejects.toThrow("PR #7 is already open");
-    await expect((await harness({ context: { base: "feature/pr" } })).invoke("pr-create", { title: "Self" })).rejects.toThrow("into itself");
-    await expect((await harness()).invoke("pr-create", { title: " " })).rejects.toThrow("A title is required.");
+    await expect((await harness({ request: OPEN })).invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Again" })).rejects.toThrow("PR #7 is already open");
+    await expect((await harness({ context: { base: "feature/pr" } })).invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Self" })).rejects.toThrow("into itself");
+    await expect((await harness()).invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: " " })).rejects.toThrow("A title is required.");
   });
 
   it("explains a create the CLI rejected", async () => {
     const { invoke } = await harness({ cli: (args) => { if (args[1] === "create") throw new Error("a pull request for branch \"feature/pr\" into branch \"main\" already exists:\nhttps://github.com/acme/tau/pull/6"); return ""; } });
-    await expect(invoke("pr-create", { title: "Add it" })).rejects.toThrow("A pull request for this branch already exists.");
+    await expect(invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Add it" })).rejects.toThrow("A pull request for this branch already exists.");
   });
 
   it("merges an open request with the chosen method and refuses a merged one", async () => {
     const { invoke, calls } = await harness({ request: { ...OPEN, draft: false } });
-    await expect(invoke("pr-merge", { method: "fast" })).rejects.toThrow("Choose squash, merge or rebase.");
-    await expect(invoke("pr-merge", { method: "squash" })).resolves.toMatchObject({ request: { state: "merged" } });
-    expect(calls).toContainEqual(["pr", "merge", "7", "--squash"]);
-    await expect(invoke("pr-merge", { method: "squash" })).rejects.toThrow("PR #7 is merged.");
-    await expect((await harness()).invoke("pr-merge", { method: "merge" })).rejects.toThrow("no pull request yet");
+    await expect(invoke("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "fast" })).rejects.toThrow("Choose squash, merge or rebase.");
+    await expect(invoke("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "squash" })).resolves.toMatchObject({ request: { state: "merged" } });
+    expect(calls).toContainEqual(["pr", "merge", "7", "--squash", "--match-head-commit", "seen-head"]);
+    await expect(invoke("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "squash" })).rejects.toThrow("PR #7 is merged.");
+    await expect((await harness()).invoke("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "merge" })).rejects.toThrow("no pull request yet");
   });
 
   it("passes a failed merge through in the tool's words", async () => {
     const { invoke } = await harness({ request: OPEN, cli: (args) => { if (args[1] === "merge") throw new Error("Pull request acme/tau#7 is still a draft"); return ""; } });
-    await expect(invoke("pr-merge", { method: "merge" })).rejects.toThrow("Merging PR #7 failed: Pull request acme/tau#7 is still a draft");
+    await expect(invoke("pr-merge", { workspace: "/project", number: 7, headSha: "seen-head", method: "merge" })).rejects.toThrow("Merging PR #7 failed: Pull request acme/tau#7 is still a draft");
   });
 
   it("edits title and body and flips the draft state", async () => {

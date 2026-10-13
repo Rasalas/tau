@@ -84,7 +84,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
   const load = useCallback(async (fresh: boolean) => {
     if (!root) return;
     setLoading(true);
-    const [branch, status, changes] = await Promise.allSettled([parts.client.branch(), parts.requests.status(fresh), parts.changes.changes({ scope: "branch" })]);
+    const [branch, status, changes] = await Promise.allSettled([parts.client.branch(), parts.requests.status(fresh, root), parts.changes.changes({ scope: "branch" })]);
     setData((current) => ({
       ...current,
       ...(branch.status === "fulfilled" ? { branch: branch.value, branchError: undefined } : { branchError: errorMessage(branch.reason) }),

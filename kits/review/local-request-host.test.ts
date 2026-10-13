@@ -130,9 +130,9 @@ describe("the local pull request's host commands", () => {
   it("uploads a public GitHub repository's pictures to a ref of their own, then creates the request with the links", async () => {
     const { invoke, calls } = await harness();
     await expect(invoke("local-pr-upload-plan")).resolves.toEqual({ kind: "github-ref", destination: "refs/tau/evidence/feature/pr in github.com/acme/demo" });
-    await expect(invoke("pr-create", { title: "Save", body })).rejects.toThrow("Confirm what is uploaded first.");
+    await expect(invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Save", body })).rejects.toThrow("Confirm what is uploaded first.");
     expect(calls.some((call) => call.args.includes("repos/acme/demo/git/blobs"))).toBe(false);
-    await expect(invoke("pr-create", { title: "Save", body, uploadConfirmed: true })).resolves.toMatchObject({ uploaded: 2, kept: 0 });
+    await expect(invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Save", body, uploadConfirmed: true })).resolves.toMatchObject({ uploaded: 2, kept: 0 });
     const blobs = calls.filter((call) => call.args.includes("repos/acme/demo/git/blobs"));
     expect(blobs.map((call) => JSON.parse(call.input!) as unknown)).toEqual([{ content: JPEG, encoding: "base64" }, { content: JPEG, encoding: "base64" }]);
     const tree = JSON.parse(calls.find((call) => call.args.includes("repos/acme/demo/git/trees"))!.input!) as { tree: Array<{ path: string; sha: string }> };
@@ -147,7 +147,7 @@ describe("the local pull request's host commands", () => {
   it("keeps a private GitHub repository's pictures on this machine and takes them out of the description", async () => {
     const { invoke, calls } = await harness({ visibility: "private" });
     await expect(invoke("local-pr-upload-plan")).resolves.toMatchObject({ kind: "none", reason: expect.stringMatching(/no upload API.*private/u) });
-    await expect(invoke("pr-create", { title: "Save", body, uploadConfirmed: true })).resolves.toMatchObject({ uploaded: 0, kept: 2 });
+    await expect(invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Save", body, uploadConfirmed: true })).resolves.toMatchObject({ uploaded: 0, kept: 2 });
     expect(calls.some((call) => call.args.some((arg) => arg.includes("/git/")))).toBe(false);
     const create = calls.find((call) => call.args[1] === "create")!.args;
     expect(create[create.indexOf("--body") + 1]).toBe("## Summary\nIt saves.");
@@ -156,7 +156,7 @@ describe("the local pull request's host commands", () => {
   it("uploads to GitLab's uploads API with the picture's bytes and links what it answers", async () => {
     const { invoke, calls } = await harness({ context: { remote: { name: "origin", url: "https://gitlab.com/acme/demo.git" } } });
     await expect(invoke("local-pr-upload-plan")).resolves.toEqual({ kind: "gitlab-uploads", destination: "the uploads of gitlab.com/acme/demo" });
-    await invoke("pr-create", { title: "Save", body, uploadConfirmed: true });
+    await invoke("pr-create", { workspace: "/project", branch: "feature/pr", title: "Save", body, uploadConfirmed: true });
     const uploads = calls.filter((call) => call.args.includes("projects/acme%2Fdemo/uploads"));
     expect(uploads).toHaveLength(2);
     expect(uploads[0]!.args).toEqual(expect.arrayContaining(["--hostname", "gitlab.com", "--method", "POST", "--form"]));
