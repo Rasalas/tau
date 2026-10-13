@@ -87,7 +87,8 @@ export function debInstaller(system: InstallerSystem, pid: number = process.pid)
       const args = ["--disable-internal-agent", UPDATE_HELPER, "install", "--version", update.version, "--channel", update.channel];
       const result = await system.run(PKEXEC, args, { stdinFile: update.file, timeoutMs: 15 * 60_000 });
       if (result.code === 0) return "restart";
-      if (result.code === 126 || result.code === 127) throw new Error("polkit did not allow the update helper; nothing was installed.");
+      if (result.code === 126) throw Object.assign(new Error("The password dialog was closed; nothing was installed."), { code: 126 });
+      if (result.code === 127) throw new Error("polkit did not allow the update helper; nothing was installed.");
       throw new Error(lastLine(result.stderr) || `The update helper stopped with ${result.code}; nothing was installed.`);
     },
   };

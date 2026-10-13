@@ -371,17 +371,50 @@ electron-updater reads the `latest-mac.yml`, `latest-linux.yml` and
 `latest.yml` files the release carries. `latest-linux.yml` lists the AppImage
 and the `.deb`; which one a Linux Tau takes is decided in `linuxInstall`
 (`src/main/app-updates.ts`): `APPIMAGE` in the environment means the AppImage,
-`/opt/Tau/tau` with `resources/package-type` = `deb` means the package, which
-electron-updater's `DebUpdater` installs by running
-`pkexec … dpkg -i <file> || apt-get install -f -y` (synchronously, in the
-window's process) and relaunching. electron-builder writes `package-type` into
+`/opt/Tau/tau` with `resources/package-type` = `deb` means the package.
+`DebUpdater` downloads it; Tau installs it through its root update helper
+(`src/main/update-installers.ts`, `bin/tau-update-helper.mjs`). One `pkexec`
+call sends the verified file on stdin, and the helper checks it again and
+runs `apt-get install -y` on its private copy before Tau restarts. The cache
+path never enters a shell command. The two elevated commands in
+electron-updater 6.8.9's own `.deb` installer (`dpkg -i`, then
+`apt-get install -f` on failure) and its `installerPath` escaping are bypassed.
+electron-builder writes `package-type` into
 the folder both Linux targets are packed from, so an AppImage may carry it
 too; Tau does not trust it alone. Anything else is a copy unpacked by hand,
 which cannot replace itself and says so. The `.deb` installs on Restart only
 (`installOnQuit: false`), so the password dialog never surprises a quit; with
 no polkit agent (no desktop session) pkexec fails and the update waits. The
-release workflow's Linux job checks the package after building it (Xvfb in
+helper's exit 126 means the password dialog was closed; Tau keeps the
+download for another Restart. Exit 127 reports an authorization failure.
+The release workflow's Linux job checks the package after building it (Xvfb in
 `Recommends`, the AppArmor profile and `bin/tau` inside, the feed naming it).
+
+After changing the updater, verify an installed Debian/Ubuntu copy with the
+next nightly: close the password dialog, retry Restart, and confirm the new
+version and loaded AppArmor profile. On Windows, verify Restart installs the
+downloaded NSIS package and reopens the app. Unit tests check cancellation,
+paths containing shell characters, signed downloads and redirect credentials;
+they do not replace these installed-app checks.
+
+Dependency security fixes are configured for every current ecosystem in
+`.github/dependabot.yml`, including the root, mobile and relay manifests.
+Only Pi SDK version updates remain enabled, in a separate block with an
+explicit `target-branch: main`; GitHub applies that block to version updates
+only. Security blocks have no allowlist and use `open-pull-requests-limit: 0`
+to disable version updates. See the
+[Dependabot configuration reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch).
+After merging, enable **Dependabot security updates** in the repository's
+Settings → Code security. This setting cannot be enabled by the YAML file.
+
+The remaining production advisory is
+[GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv) in `node-forge`,
+used by the sandbox runtime to create certificates. No patched version is
+published as of 2026-10-14. `npm audit` suggests rolling the runtime back to
+0.0.50, which predates this dependency; that is not a patched runtime.
+Check that advisory and the runtime's dependency
+on the next dependency review; update the runtime when it takes a fixed
+version. Development dependency upgrades are tracked separately in ticket 82.
 
 An AppImage that runs without Chromium's sandbox offers the `.deb` instead
 (`src/main/appimage-install.ts`, before the host and the window start): when

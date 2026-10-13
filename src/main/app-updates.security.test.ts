@@ -13,12 +13,12 @@ const key = publicKey.export({ type: "spki", format: "pem" }).toString();
 const folders: string[] = [];
 afterEach(() => { for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
 
-function fixture(extension: string, tampered = false, installDownloaded?: InstallDownloaded) {
+function fixture(extension: string, tampered = false, installDownloaded?: InstallDownloaded, cacheName = "tau-update-security-") {
   const bytes = Buffer.from("trusted installer");
   const file = { url: `Tau_0.8.0_amd64.${extension}`, sha512: createHash("sha512").update(bytes).digest("base64"), size: bytes.length };
   const text = `version: 0.8.0\nfiles:\n  - url: ${file.url}\n    sha512: ${file.sha512}\n    size: ${file.size}\n`;
   const signature = sign(null, Buffer.from(text), privateKey).toString("base64");
-  const folder = mkdtempSync(join(tmpdir(), "tau-update-security-"));
+  const folder = mkdtempSync(join(tmpdir(), cacheName));
   folders.push(folder);
   const downloadedFile = join(folder, file.url);
   writeFileSync(downloadedFile, bytes);
@@ -97,7 +97,7 @@ describe("signed desktop updates", () => {
     const updaters = { DebUpdater: class {} } as unknown as Parameters<typeof linuxUpdates>[0];
     const system = { run } as unknown as import("./update-installers.js").InstallerSystem;
     const linux = linuxUpdates(updaters, "deb", system, restart);
-    const test = fixture("deb", false, linux.installDownloaded);
+    const test = fixture("deb", false, linux.installDownloaded, "tau-update ' $() ; & cache-");
     await test.subject.checkForUpdates();
     test.events.emit("update-downloaded", test.info);
     expect(test.subject.install()).toBe(true);
@@ -106,6 +106,27 @@ describe("signed desktop updates", () => {
     expect(test.updater.quitAndInstall).not.toHaveBeenCalled();
     expect(test.install).not.toHaveBeenCalled();
     expect(test.updater.autoInstallOnAppQuit).toBe(false);
+  });
+
+  it("reports a cancelled helper password dialog and retries without a dependency-repair dialog", async () => {
+    const run = vi.fn(async () => ({ code: 126, stdout: "", stderr: "" }));
+    const restart = vi.fn();
+    const updaters = { DebUpdater: class {} } as unknown as Parameters<typeof linuxUpdates>[0];
+    const linux = linuxUpdates(updaters, "deb", { run } as unknown as import("./update-installers.js").InstallerSystem, restart);
+    const test = fixture("deb", false, linux.installDownloaded);
+    await test.subject.checkForUpdates();
+    test.events.emit("update-downloaded", test.info);
+    test.subject.install();
+    await vi.waitFor(() => expect(test.tell).toHaveBeenCalledWith("Tau 0.8.0 was not installed: the password dialog was closed. Restart again to install it."));
+    expect(run).toHaveBeenCalledOnce();
+    expect(restart).not.toHaveBeenCalled();
+    expect(test.subject.downloaded()).toBe("0.8.0");
+    expect(test.updater.quitAndInstall).not.toHaveBeenCalled();
+
+    run.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+    test.subject.install();
+    await vi.waitFor(() => expect(restart).toHaveBeenCalledOnce());
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it.each(["deb", "exe"])("rehashes the %s cache before Restart", async (extension) => {

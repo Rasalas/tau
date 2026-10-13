@@ -1,6 +1,22 @@
 version: 2
 updates:
+  # Security fixes have no dependency allowlist; version updates stay off.
   - package-ecosystem: npm
+    directories:
+      - /
+      - /examples/hello-package
+      - /mobile
+      - /mobile/plugins/tau-native
+      - /relay
+      - /connect-relay
+      - /kits
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+    labels: []
+  # An explicit target branch keeps this allowlist out of security updates.
+  - package-ecosystem: npm
+    target-branch: main
     directories:
       - /
       - /examples/hello-package
@@ -18,4 +34,41 @@ updates:
           - "@earendil-works/pi-coding-agent"
     versioning-strategy: increase
     open-pull-requests-limit: 1
+    labels: []
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    labels: []
+  - package-ecosystem: gradle
+    directories:
+      - /mobile/android
+      - /mobile/plugins/tau-native/android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    labels: []
+  - package-ecosystem: swift
+    directories:
+      - /mobile/ios/App/CapApp-SPM
+      - /mobile/plugins/tau-native
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    labels: []
+  - package-ecosystem: cargo
+    directories:
+      - /browser-connect
+      - /kits/snapshots/native/hyprland
+      - /kits/snapshots/native/kde
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    labels: []
+  - package-ecosystem: docker
+    directory: /connect-relay
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
     labels: []
