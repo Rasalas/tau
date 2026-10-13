@@ -16,8 +16,8 @@ export const SERVERS_SETTINGS_PAGE = "servers.settings";
  * Worst first: what the title-bar dot shows when a project has several targets.
  * `unusable`: sftp.json names no server Tau can reach; `never-read`: no mirror state yet.
  */
-export type ServerSyncState = "unusable" | "unreachable" | "conflict" | "drift" | "pending" | "never-read" | "in-sync";
-export const SYNC_STATE_ORDER: readonly ServerSyncState[] = ["unusable", "unreachable", "conflict", "drift", "pending", "never-read", "in-sync"];
+export type ServerSyncState = "unusable" | "unreachable" | "incomplete" | "conflict" | "drift" | "pending" | "never-read" | "in-sync";
+export const SYNC_STATE_ORDER: readonly ServerSyncState[] = ["unusable", "unreachable", "incomplete", "conflict", "drift", "pending", "never-read", "in-sync"];
 
 /** One pending file as the upload list shows it: its default choice and why a credentials file starts unchosen. */
 export interface PendingUploadRow {

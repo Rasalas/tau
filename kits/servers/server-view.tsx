@@ -202,6 +202,12 @@ export default function ServerView({ params, handle, actions, parts }: { params:
             <button type="button" className="text-button" disabled={act.busy !== undefined || target.checking} onClick={act.check}>Try again</button>
           </p>
         ) : null}
+        {target.state === "incomplete" ? (
+          <p className="servers-banner warn" role="status">
+            <AlertTriangle size={13} aria-hidden="true" /><span>{statusSentence(target)}</span>
+            <button type="button" className="text-button" onClick={() => setTab("history")}>Review deployment…</button>
+          </p>
+        ) : null}
         {target.state === "unusable" ? <p className="servers-banner danger" role="alert"><AlertTriangle size={13} aria-hidden="true" /><span>{statusSentence(target)}</span></p> : null}
         {target.error ? <p className="servers-banner warn" role="status"><AlertTriangle size={13} aria-hidden="true" /><span>{target.error}</span></p> : null}
         {target.liveConfigs.length > 0 ? (

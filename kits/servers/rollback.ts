@@ -221,7 +221,7 @@ export class RollbackService {
     return this.options.sync.exclusive(input, async (session) => {
       const record = (await readDeployments(this.options.store, session.key)).find((entry) => entry.seq === seq);
       if (!record) throw new HostCommandError(`Tau no longer holds deployment ${seq} of this server.`);
-      if (record.status !== "uploaded" && record.status !== "verified") throw new HostCommandError(`Deployment ${seq} is ${record.status === "committed" ? "committed" : "rolled back"} already.`);
+      if (record.status !== "uploaded" && record.status !== "verified" && record.status !== "incomplete") throw new HostCommandError(`Deployment ${seq} is ${record.status === "committed" ? "committed" : "rolled back"} already.`);
       const status = checked ? "verified" : "uploaded";
       await setDeploymentStatus(this.options.store, session.key, seq, status);
       return { seq, status };

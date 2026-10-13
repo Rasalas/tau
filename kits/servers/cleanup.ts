@@ -129,6 +129,7 @@ export async function cleanTarget(options: CleanTargetOptions): Promise<Omit<His
   const young = (time: number | undefined) => time !== undefined && Number.isFinite(time) && now.getTime() - time <= retention.days * DAY_MS;
   const newest = [...records].sort((a, b) => b.seq - a.seq);
   const kept = new Set(newest.filter((record, rank) => rank < retention.count && young(Date.parse(record.at))).map((record) => record.seq));
+  for (const record of records) if (record.status === "in-progress" || record.status === "incomplete") kept.add(record.seq);
   const last = newest[0]?.seq ?? 0;
   for (const seq of refs.keys()) if (!records.some((record) => record.seq === seq) && seq > last && young(refTimes.get(seq))) kept.add(seq);
   const removed = [...new Set([...records.map((record) => record.seq), ...refs.keys()])].filter((seq) => !kept.has(seq)).sort((a, b) => a - b);

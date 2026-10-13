@@ -39,10 +39,10 @@ const PREVIEW: RollbackPreview = {
   ],
 };
 
-function harness(options: { readOnly?: boolean } = {}) {
+function harness(options: { readOnly?: boolean; incomplete?: boolean } = {}) {
   const invoke = vi.fn(async (command: string, input?: unknown): Promise<unknown> => {
     const request = input as { threeWay?: boolean; seq?: number } | undefined;
-    if (command === "server-history") return HISTORY;
+    if (command === "server-history") return options.incomplete ? { ...HISTORY, entries: [{ ...HISTORY.entries[0]!, deployment: { ...HISTORY.entries[0]!.deployment!, status: "incomplete" } }] } : HISTORY;
     if (command === "rollback-preview") {
       if (request?.seq === 2) return { targetId: "sftp-site-1", seq: 2, newer: [], threeWay: false, files: [{ path: "index.php", op: "modify", outcome: "upload" }] };
       return request?.threeWay ? { ...PREVIEW, threeWay: true, files: [{ ...PREVIEW.files[0]!, outcome: "upload", merged: true, reason: "Merged." }, PREVIEW.files[1]!] } : PREVIEW;
@@ -66,6 +66,13 @@ function harness(options: { readOnly?: boolean } = {}) {
 }
 
 describe("the history tab", () => {
+  it("shows an incomplete upload and offers to mark it checked", async () => {
+    const h = harness({ incomplete: true });
+    await screen.findByText("incomplete upload");
+    fireEvent.click(await screen.findByRole("button", { name: "Mark as checked" }));
+    expect(h.invoke).toHaveBeenCalledWith("deployment-mark", { cwd: "/work/site", targetId: TARGET.targetId, seq: 2, checked: true });
+  });
+
   it("shows each deployment's status, marks one checked and says when older history was cleaned up", async () => {
     const { invoke } = harness();
     await flush();

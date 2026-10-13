@@ -205,6 +205,7 @@ export class ServerStatusService {
         uncommittedThreads: await this.options.uncommittedThreads?.(key, project.root).catch(() => []) ?? [],
       };
       const journal = await readDeployments(this.options.store, key).catch(() => []);
+      if (journal.some((entry) => entry.status === "in-progress" || entry.status === "incomplete") && target.usable && !record.unreachable) status.state = "incomplete";
       if (journal.length) status.deployments = journal.map((entry) => `${entry.seq}:${entry.status}`).join(" ");
       if (record.mirror) status.mirror = record.mirror;
       if (driftRows) status.drift = driftRows;
@@ -323,7 +324,7 @@ export class ServerStatusService {
         ...(record.note ? { note: record.note } : {}),
       };
     };
-    const byMirror = new Map(records.map((record) => [record.mirrorCommit, record]));
+    const byMirror = new Map(records.filter((record) => record.status !== "in-progress").map((record) => [record.mirrorCommit, record]));
     const limit = 30;
     const boundaries = await readShallow(mirror.dir);
     const logged = await readHistory(this.git, mirror, limit);

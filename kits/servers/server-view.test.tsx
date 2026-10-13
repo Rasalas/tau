@@ -60,6 +60,16 @@ function harness(target: TargetStatus, options: { readOnly?: boolean; repository
 const handle = { id: "tab", setTitle: vi.fn(), setDirty: vi.fn(), onClose: () => () => undefined } as unknown as StageTabHandle;
 
 describe("the server view", () => {
+  it("offers an interrupted deployment for review in History", async () => {
+    const h = harness({ ...BASE, state: "incomplete" });
+    render(h.wrap(<ServerView params={{ workspace: "/work/site", targetId: BASE.targetId }} handle={handle} actions={h.actions} parts={h.parts} />));
+    const review = await screen.findByRole("button", { name: "Review deployment…" });
+    expect(screen.getByText(/An upload was interrupted/u)).toBeTruthy();
+    fireEvent.click(review);
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    await screen.findByText(/No history/u);
+  });
+
   it("lists what an upload would take, deletions as their own group, and shows a file's diff", async () => {
     const h = harness(PENDING);
     render(h.wrap(<ServerView params={{ workspace: "/work/site", targetId: "sftp-site-1" }} handle={handle} actions={h.actions} parts={h.parts} />));

@@ -4,10 +4,11 @@ import { ServerPathError, type ServerFs } from "../server-fs.js";
 import { SftpError } from "../sftp-client.js";
 import type { SftpJsonTarget } from "../sftp-json.js";
 import type { ServersStore, TargetKey } from "../store.js";
+import { recoverDeployments } from "../recover-deployment.js";
 import { readTrust, recordLiveConfigs } from "../trust.js";
 import { compareDrift, comparePending, deletedFrom } from "./compare.js";
 import { download } from "./download.js";
-import { GitError, type GitCall } from "./git.js";
+import { GitError, gitCall, type GitCall } from "./git.js";
 import { SyncIgnore } from "./ignore.js";
 import { loadMirrorState, Mirror, saveMirrorState } from "./mirror.js";
 import { isSyncPath } from "./paths.js";
@@ -133,7 +134,10 @@ export class SyncService {
   /** Runs `run` alone on the target's queue, with the session the sync commands use. */
   async exclusive<T>(input: { cwd: string; targetId: string }, run: (session: SyncSession) => Promise<T>): Promise<T> {
     const session = await this.open(decodeInput(input));
-    return this.serial(session.key, () => run(session));
+    return this.serial(session.key, async () => {
+      await recoverDeployments(this.options.store, session, this.options.git ?? gitCall());
+      return run(session);
+    });
   }
 
   private async connect(input: SyncInput, report: ReturnType<SyncService["progress"]>): Promise<ServerFs> {
@@ -161,6 +165,7 @@ export class SyncService {
     const session = await this.open(input);
     return this.serial(session.key, async () => {
       const report = this.progress("compare", session.workspace, session.target.id);
+      await recoverDeployments(this.options.store, session, this.options.git ?? gitCall());
       const state = await loadMirrorState(this.options.store, session.key, session.mirror);
       const result: CompareResult = { targetId: session.target.id };
       if (!state) return result;
