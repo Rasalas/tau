@@ -24,7 +24,7 @@ describe("local files over a socket", () => {
     expect(socketCapabilities(base, "127.0.0.1", {})).toEqual(base);
   });
 
-  it.each(["proxy", "network"] as const)("never announces local files on a %s listener, even to 127.0.0.1", (trust) => {
+  it.each(["proxy", "network", "tunnel"] as const)("never announces local files on a %s listener, even to 127.0.0.1", (trust) => {
     expect(socketCapabilities(base, "127.0.0.1", { TAU_HOST_LOCAL_FILES: "1" }, trust)).toEqual(base);
     expect(isLocalPeer(trust, "127.0.0.1")).toBe(false);
   });
@@ -34,6 +34,7 @@ describe("the address of a peer", () => {
   it("is the socket's own address outside a proxy, whatever the client forwards", () => {
     expect(peerAddress("loopback", request("127.0.0.1", "100.64.0.9"))).toBe("127.0.0.1");
     expect(peerAddress("network", request("192.168.1.9", "100.64.0.9"))).toBe("192.168.1.9");
+    expect(peerAddress("tunnel", request("127.0.0.1", "10.9.9.9, 100.64.0.9"))).toBe("127.0.0.1");
   });
 
   it("is the hop the proxy added behind one, not what the client claimed before it", () => {
@@ -54,6 +55,7 @@ describe("the user a proxy names", () => {
     expect(proxyUser("proxy", named("alice@example.com"))).toBe("alice@example.com");
     expect(proxyUser("network", named("alice@example.com"))).toBeUndefined();
     expect(proxyUser("loopback", named("alice@example.com"))).toBeUndefined();
+    expect(proxyUser("tunnel", named("alice@example.com"))).toBeUndefined();
   });
 
   it("decodes the Q-encoded form Serve sends a name outside ASCII in, and drops control characters", () => {

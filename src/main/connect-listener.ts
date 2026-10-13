@@ -5,7 +5,7 @@ import type { ConnectListener } from "./host-connect.js";
 export async function openConnectListener(transport: Pick<SocketHostTransport, "attach">, material: { cert: string; key: string; publicKey: string; fingerprint: string }): Promise<ConnectListener> {
   const server = createProtocolServer(material);
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
-  const detach = transport.attach(server, "proxy");
+  const detach = transport.attach(server, "tunnel");
   return {
     port: (server.address() as { port: number }).port,
     publicKey: material.publicKey,
