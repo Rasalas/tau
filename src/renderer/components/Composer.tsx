@@ -69,6 +69,7 @@ import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterContro
 import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
+import { isImeComposing } from "../keybindings";
 import { THINKING_LABELS, carriedLevel } from "../thinking-levels";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerSendMode, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
@@ -1073,7 +1074,9 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
+            // IME keys still defer incoming questions.
             arrival.noteTyping();
+            if (isImeComposing(event.nativeEvent)) return;
             if (historySearch.handleSearchKeyDown(event)) {
               return;
             }

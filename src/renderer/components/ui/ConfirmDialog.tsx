@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Dialog } from "./Dialog";
+import { isImeComposing } from "../../keybindings";
 
 /**
  * A yes-or-no question over the window: the title asks, the
@@ -44,7 +45,10 @@ export function ConfirmDialog({
         <label className="confirm-dialog-type">
           <span>Type <b>{confirmText}</b> to confirm</span>
           <input value={typed} autoFocus spellCheck={false} onChange={(event) => setTyped(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter" && !locked) { event.preventDefault(); onConfirm(skip); } }} />
+            onKeyDown={(event) => {
+              if (isImeComposing(event.nativeEvent)) return;
+              if (event.key === "Enter" && !locked) { event.preventDefault(); onConfirm(skip); }
+            }} />
         </label>
       ) : null}
       {dontAskAgain ? (

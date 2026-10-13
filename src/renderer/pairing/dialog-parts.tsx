@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
 import { tooltipProps } from "../components/ui/Tooltip";
+import { isImeComposing } from "../keybindings";
 import "./pairing.css";
 
 /** The X at a dialog's top right. Put it last, so the dialog's first field still gets focus. */
@@ -22,7 +23,8 @@ export function useFieldValue<T>(initial: T): readonly [T, (next: T) => void, { 
 /** Enter in a dialog's text field submits it, as a form would. */
 export function submitOnEnter(submit: () => void) {
   return (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement) || event.nativeEvent.isComposing) return;
+    if (isImeComposing(event.nativeEvent)) return;
+    if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
     event.preventDefault();
     submit();
   };

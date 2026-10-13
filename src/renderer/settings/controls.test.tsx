@@ -106,6 +106,18 @@ describe("NumberField", () => {
 });
 
 describe("TextField", () => {
+  it.each([{ isComposing: true }, { keyCode: 229 }])("keeps a name draft on IME Enter (%j)", (composition) => {
+    const onCommit = vi.fn();
+    render(<TextField label="Name" value="" onCommit={onCommit} />);
+    const input = screen.getByRole("textbox", { name: "Name" });
+    fireEvent.change(input, { target: { value: "日本語" } });
+    const allowed = fireEvent.keyDown(input, { key: "Enter", ...composition });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(allowed).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCommit).toHaveBeenCalledWith("日本語");
+  });
+
   it("writes what `validate` accepts and keeps what it refuses", () => {
     const onCommit = vi.fn();
     render(<TextField label="Font" value="" validate={(text) => (text.includes(";") ? "No semicolons." : undefined)} onCommit={onCommit} />);

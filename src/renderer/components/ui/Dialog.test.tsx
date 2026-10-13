@@ -144,6 +144,18 @@ it("keeps a parent popover open while a nested portal is selected and dismisses 
 });
 
 describe("ConfirmDialog (1v)", () => {
+  it.each([{ isComposing: true }, { keyCode: 229 }])("does not confirm typed text on IME Enter (%j)", (composition) => {
+    const onConfirm = vi.fn();
+    render(<ConfirmDialog title="Delete it?" confirmText="日本語" confirmLabel="Delete" onConfirm={onConfirm} onCancel={() => undefined} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "日本語" } });
+    const allowed = fireEvent.keyDown(input, { key: "Enter", ...composition });
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(allowed).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onConfirm).toHaveBeenCalledWith(false);
+  });
+
   it("draws the action's icon before its label, as the design's Delete", () => {
     render(<ConfirmDialog title="Delete it?" confirmLabel="Delete" destructive icon={<svg data-testid="trash" />} onConfirm={() => undefined} onCancel={() => undefined} />);
     const action = screen.getByRole("button", { name: "Delete" });

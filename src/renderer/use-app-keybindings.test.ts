@@ -8,6 +8,39 @@ import { useAppKeybindings } from "./use-app-keybindings";
 import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
 
 describe("useAppKeybindings", () => {
+  it.each([
+    { keys: "enter", modified: false, composition: { isComposing: true } },
+    { keys: "enter", modified: false, composition: { keyCode: 229 } },
+    { keys: "mod+shift+enter", modified: true, composition: { isComposing: true } },
+    { keys: "mod+shift+enter", modified: true, composition: { keyCode: 229 } },
+  ])("leaves IME Enter to the field before dispatching a command (%j)", async ({ keys, modified, composition }) => {
+    const registry = new ExtensionRegistry();
+    const run = vi.fn();
+    await registry.activate({ id: "test", name: "Test", activate(context) {
+      context.registerCommand({ id: "send", label: "Send", group: "Test", run });
+      context.registerKeybinding({ keys, commandId: "send", when: "editableFocus" });
+    } });
+    const actions = {} as WorkbenchActions;
+    renderHook(() => useAppKeybindings(registry, actions, vi.fn()));
+    const field = document.body.appendChild(document.createElement("textarea"));
+    const sawKey = vi.fn();
+    field.addEventListener("keydown", sawKey);
+    field.focus();
+    const isMac = /mac|iphone|ipad/iu.test(navigator.platform);
+    const key = { key: "Enter", metaKey: modified && isMac, ctrlKey: modified && !isMac, shiftKey: modified, bubbles: true, cancelable: true };
+    try {
+      const allowed = field.dispatchEvent(new KeyboardEvent("keydown", { ...key, ...composition }));
+      expect(run).not.toHaveBeenCalled();
+      expect(allowed).toBe(true);
+      expect(sawKey).toHaveBeenCalledOnce();
+      field.dispatchEvent(new KeyboardEvent("keydown", key));
+      expect(run).toHaveBeenCalledOnce();
+      expect(run).toHaveBeenCalledWith(actions);
+    } finally {
+      field.remove();
+    }
+  });
+
   it("dispatches matched keybindings on keydown", async () => {
     const registry = new ExtensionRegistry();
     const run = vi.fn();

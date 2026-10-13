@@ -75,6 +75,11 @@ export function isModified(chord: KeyChord): boolean {
   return chord.mod || chord.ctrl || chord.alt || chord.meta;
 }
 
+/** A key inside an IME composition; Safari reports the committing Enter only as keyCode 229. */
+export function isImeComposing(event: Pick<KeyboardEvent, "isComposing" | "keyCode">): boolean {
+  return event.isComposing || event.keyCode === 229;
+}
+
 export function isMacPlatform(platform = typeof navigator === "undefined" ? "" : navigator.platform): boolean {
   return /mac|iphone|ipad/iu.test(platform);
 }

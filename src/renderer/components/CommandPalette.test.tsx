@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type PaletteItem, type PaletteSearchContext, type WorkbenchActions } from "../extension-system";
 import { CommandPalette } from "./CommandPalette";
@@ -56,6 +56,17 @@ function setup() {
 }
 
 describe("command palette sources", () => {
+  it.each([{ isComposing: true }, { keyCode: 229 }])("does not run a row on IME Enter (%j)", async (composition) => {
+    const { actions, input, opened } = setup();
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    fireEvent.change(input, { target: { value: "alp" } });
+    await screen.findByText("Alpha project");
+    expect(fireEvent.keyDown(input, { key: "Enter", ...composition })).toBe(true);
+    expect(opened).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(opened).toHaveBeenCalledWith(actions);
+  });
+
   it("shows a source's rows as they arrive under its heading, in source order, with core's Settings rows among the commands", async () => {
     const { input, pending, rows, heads } = setup();
     fireEvent.change(input, { target: { value: "alp" } });

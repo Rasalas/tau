@@ -4,6 +4,7 @@ import { tooltipProps } from "../components/ui/Tooltip";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Empty, Skeleton } from "../components/ui/Feedback";
 import { useHostClient } from "../host-client-context";
+import { isImeComposing } from "../keybindings";
 import "./controls.css";
 
 /*
@@ -155,6 +156,7 @@ function useDraft(value: string, commit: (text: string) => string | undefined, m
     onChange: (text: string) => { editing.current = true; setDraft(text); if (error) setError(undefined); },
     onBlur: apply,
     onKeyDown: (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (isImeComposing(event.nativeEvent)) return;
       // Several lines take Return as a line break; ⌘Return or Ctrl+Return writes.
       if (event.key === "Enter" && (!multiline || event.metaKey || event.ctrlKey)) { event.preventDefault(); apply(); }
       if (event.key === "Escape" && (draft !== value || error)) {
