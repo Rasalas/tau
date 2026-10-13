@@ -62,6 +62,10 @@ export class HostConnection {
   private refusal: string | undefined;
   private recovering = false;
   private recoveryRequested = false;
+  private recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Failed recoveries in a row; the next try waits longer, up to 15 s. */
+  private recoveryFailures = 0;
+  private resyncPending = false;
   private closed = false;
   private queued: HostPush[] = [];
   private capabilities = new Set<string>();
@@ -126,6 +130,7 @@ export class HostConnection {
   refuse(reason: string): void {
     if (this.refusal !== undefined) return;
     this.refusal = reason;
+    clearTimeout(this.recoveryTimer);
     this.setState("refused");
     this.transport.close?.();
   }
@@ -223,6 +228,7 @@ export class HostConnection {
 
   close(): void {
     this.closed = true;
+    clearTimeout(this.recoveryTimer);
     this.transport.close?.();
   }
 
@@ -318,7 +324,7 @@ export class HostConnection {
 
   private receive(push: HostPush): void {
     if (push.seq <= this.lastSeq) return;
-    if (this.recovering) {
+    if (this.recovering || this.resyncPending) {
       this.queued.push(push);
       return;
     }
@@ -359,16 +365,24 @@ export class HostConnection {
    * client lacks starts it over as a new client, so the host sends whole texts again.
    */
   private async recover(): Promise<void> {
-    if (this.recovering || this.closed) return;
+    if (this.recovering || this.closed || this.refusal !== undefined) return;
+    clearTimeout(this.recoveryTimer);
     this.recovering = true;
     this.setState("reconnecting");
-    const restart = this.messageTexts.lost;
+    const textLost = this.messageTexts.lost;
+    const restart = textLost || this.resyncPending;
     this.messageTexts.lost = false;
     try {
       await this.hello(restart ? undefined : this.lastSeq, restart);
+      this.recoveryFailures = 0;
     } catch {
-      if (restart) this.messageTexts.lost = true;
+      if (textLost) this.messageTexts.lost = true;
       this.setState("reconnecting");
+      if (!this.closed && this.refusal === undefined) {
+        const wait = Math.min(15_000, 1_000 * 2 ** this.recoveryFailures);
+        this.recoveryFailures += 1;
+        this.recoveryTimer = setTimeout(() => { void this.recover(); }, wait);
+      }
     } finally {
       this.recovering = false;
       this.drain();
@@ -410,8 +424,8 @@ export class HostConnection {
     }
     if (lastSeq === undefined) {
       // A first connection starts from the bootstrap it is about to fetch.
-      this.lastSeq = reply.nextSeq - 1;
       if (restart) await this.startOver();
+      this.lastSeq = reply.nextSeq - 1;
       this.setState("connected");
       return reply;
     }
@@ -419,20 +433,22 @@ export class HostConnection {
     // A filtered replay may end before the host's newest push; nothing after it was for this client.
     if (this.confirmed && !reply.resync) this.lastSeq = Math.max(this.lastSeq, reply.nextSeq - 1);
     if (reply.resync) {
-      this.lastSeq = reply.nextSeq - 1;
       await this.startOver();
+      this.lastSeq = reply.nextSeq - 1;
     }
     this.setState("connected");
     return reply;
   }
 
   private async startOver(): Promise<void> {
+    this.resyncPending = true;
     this.toolOutputs.clear();
     this.messageTexts.clear();
     // Their `job-done` may be among the pushes skipped; waiting for it could last forever.
     for (const job of this.jobs.values()) job.reject(new HostRequestError("The link to the host was reset before the job finished.", HOST_ERROR.failed));
     this.jobs.clear();
     await this.resync();
+    this.resyncPending = false;
   }
 
   /** Refetches the bootstrap and republishes it as the updates a client already applies. */
@@ -447,6 +463,7 @@ export class HostConnection {
   }
 
   private drain(): void {
+    if (this.resyncPending) return;
     const queued = this.queued.sort((left, right) => left.seq - right.seq);
     this.queued = [];
     for (const push of queued) if (push.seq > this.lastSeq && this.follows(push)) this.apply(push);
