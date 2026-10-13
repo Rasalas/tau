@@ -227,6 +227,46 @@ describe("Workspace Kit host extension", () => {
     } finally { await registry.deactivate("tau.workspace"); }
   });
 
+  it("closes stdin for fallback setup and reports the failed command without undoing the worktree", async () => {
+    const root = await workspace();
+    const repo = join(root, "repo");
+    await mkdir(join(repo, ".tau"), { recursive: true });
+    const command = `"${process.execPath}" setup-input.cjs`;
+    await writeFile(join(repo, ".tau", "project.json"), JSON.stringify({
+      worktreeDirectory: join(root, "worktrees"), runOnWorktreeCreate: command,
+    }));
+    await writeFile(join(repo, "setup-input.cjs"), `
+      const timeout = setTimeout(() => { console.error("stdin remained open"); process.exit(2); }, 2000);
+      process.stdin.on("end", () => {
+        clearTimeout(timeout);
+        console.error("Setup requires input");
+        process.exitCode = 1;
+      });
+      process.stdin.resume();
+    `);
+    const git = (...args: string[]) => execFileSync("git", ["-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.test", ...args], { stdio: "pipe" });
+    git("init", "-q", "-b", "main");
+    git("add", ".tau/project.json", "setup-input.cjs");
+    git("commit", "-qm", "base");
+    const log = vi.fn();
+    let requested!: (request: ProjectApprovalRequest) => void;
+    const request = new Promise<ProjectApprovalRequest>((resolve) => { requested = resolve; });
+    const registry = await activated(repo, { stateDir: join(root, "state"), log }, (event) => {
+      if (event.name === PROJECT_APPROVAL_EVENT && (event.payload as ProjectApprovalRequest[])[0]) requested((event.payload as ProjectApprovalRequest[])[0]);
+    });
+    try {
+      const pending = registry.invoke("tau.workspace", "create-worktree", { workspace: repo, branch: "needs-input", startFromOrigin: false });
+      await registry.invoke("tau.workspace", "answer-project-approval", { id: (await request).id, approved: true });
+      const created = await pending as { path: string };
+      expect(existsSync(join(created.path, ".git"))).toBe(true);
+      expect(log).toHaveBeenCalledWith("git.worktree.setup-fallback", expect.any(String));
+      expect(log).toHaveBeenCalledWith("git.worktree.setup-failed", expect.stringContaining("Setup requires input"));
+      expect(log).toHaveBeenCalledWith("git.worktree.setup-failed", expect.stringContaining(command));
+      expect(log).not.toHaveBeenCalledWith("git.worktree.setup", expect.anything());
+      expect(log).not.toHaveBeenCalledWith("git.worktree.setup-failed", expect.stringContaining("stdin remained open"));
+    } finally { await registry.dispose(); }
+  });
+
   it("says a private No project folder is projectless in its workspace info", async () => {
     const stateDir = await workspace();
     const folder = await workspace();

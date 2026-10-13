@@ -271,7 +271,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         services.noteSubprocess();
         try {
           const setup = worktreeSetupCommand(runOnWorktreeCreate);
-          await execFileAsync(setup.command, setup.args, {
+          const running = execFileAsync(setup.command, setup.args, {
             windowsVerbatimArguments: setup.windowsVerbatimArguments,
             windowsHide: true,
             cwd: worktree,
@@ -279,6 +279,8 @@ export function createWorkspaceHostExtension(): HostExtension {
             maxBuffer: 4 * 1024 * 1024,
             env: { ...process.env, TAU_PROJECT_ROOT: project, TAU_WORKTREE_PATH: worktree },
           });
+          running.child.stdin?.end();
+          await running;
           services.log("git.worktree.setup", runOnWorktreeCreate);
         } catch (error) {
           services.log("git.worktree.setup-failed", error instanceof Error ? error.message : String(error));
