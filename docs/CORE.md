@@ -163,6 +163,10 @@ the workbench (`window-action`: menu, quit, release notes) — and a kit that
 needs the window's process for a native view ships a `window` half the host
 calls with `callClient`.
 
+Host shutdown disposes the threads before closing the listeners and their
+sockets. Sockets are terminated without waiting for a peer's close frame;
+repeated shutdown requests share the first shutdown and its exit code.
+
 The host records unhandled promise rejections in `host-process.log` and keeps
 serving the other threads. An uncaught exception is logged there before the
 host exits with code 1, so its supervisor can restart it.

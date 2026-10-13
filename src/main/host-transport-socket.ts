@@ -473,7 +473,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         if (origin !== target) continue;
         origins.delete(socket);
         forget(socket);
-        socket.close();
+        socket.terminate();
       }
     };
   };
@@ -535,9 +535,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     close: async () => {
       stopPings();
       timers.close();
-      // One that never said hello would otherwise hold the port open.
-      for (const socket of server.clients) if (!authenticated.has(socket)) socket.terminate();
-      for (const socket of [...authenticated.keys()]) { forget(socket); socket.close(); }
+      // Shutdown must not wait for a close frame from an unreachable peer.
+      for (const socket of [...server.clients]) { forget(socket); socket.terminate(); }
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await new Promise<void>((resolve) => http.close(() => resolve()));
     },

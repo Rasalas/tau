@@ -43,6 +43,7 @@ import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { PiHost } from "./pi-host.js";
 import { HostStart } from "./host-start.js";
+import { createHostShutdown } from "./host-shutdown.js";
 import { ClientCalls } from "./client-calls.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
@@ -443,10 +444,13 @@ async function main(): Promise<void> {
   });
   localMethods = methods;
 
-  const shutdown = (code = 0): void => {
-    void (async () => {
+  const shutdown = createHostShutdown(
+    async () => {
       // A host on its way out starts no window on the display.
       clientCalls.setWindowLauncher(undefined);
+      await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
+    },
+    async (code) => {
       clientCalls.dispose();
       nativeGrants.close();
       machines.close();
@@ -464,11 +468,10 @@ async function main(): Promise<void> {
         await rm(hostDescriptorPath(userData), { force: true }).catch(() => undefined);
       }
       await access.flush().catch((error: unknown) => hostLog.warn("host.access.flush-failed", error));
-      await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
       folderLock.release();
       process.exit(code);
-    })();
-  };
+    },
+  );
   // Not part of the client protocol: the supervisor that started this process
   // asks for a clean stop here before it reaches for a signal (ADR 0021).
   methods["host.shutdown"] = async (_params, context) => {

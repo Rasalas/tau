@@ -87,6 +87,35 @@ async function hello(port: number, token: string, lastSeq?: number, profile?: st
 }
 
 describe("socket host transport", () => {
+  it.each(["primary", "attached"] as const)("terminates a half-open authenticated client on the %s listener", async (listener) => {
+    const clients = new HostClientRegistry();
+    const { transport: started } = await listen(new HostPushLog(), "127.0.0.1:0", false, clients);
+    const extra = listener === "attached" ? createProtocolServer() : undefined;
+    const detach = extra ? started.attach(extra, "network") : undefined;
+    if (extra) await new Promise<void>((resolve) => extra.listen(0, "127.0.0.1", resolve));
+    const server = extra ?? started.server;
+    const port = extra ? (extra.address() as { port: number }).port : started.port;
+    let peer: Socket | undefined;
+    server.once("upgrade", (_request, stream: Socket) => { peer = stream; });
+    const client = await hello(port, TOKEN);
+    await client.frame;
+    expect(clients.count()).toBe(1);
+    client.socket.pause();
+
+    detach?.();
+    const closing = extra ? new Promise<void>((resolve) => extra.close(() => resolve())) : started.close();
+    try {
+      // No close frame can arrive from the paused peer.
+      expect(peer!.destroyed).toBe(true);
+      await closing;
+      expect(clients.count()).toBe(0);
+    } finally {
+      peer!.destroy();
+      client.socket.resume();
+      await closing;
+    }
+  });
+
   it("sends remote topic relays to their subscribed client only and never replays them to another connection", async () => {
     const pushLog = new HostPushLog();
     const relays = new Map<string, (event: HostPushEvent) => void>();
