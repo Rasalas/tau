@@ -103,21 +103,21 @@ function suite(mode: "plain" | "explicit") {
     expect(result.files).toBe(4);
     expect(readFileSync(join(local, "index.php"), "utf8")).toBe("<?php echo 'home';\n");
     expect(readFileSync(join(local, "css", "site.css"), "utf8")).toBe("body{}\n");
-    expect(asked).toHaveLength(1);
+    expect(asked).toHaveLength(2);
     const trust = ftpTrustOf(await readTargetFile(store, { workspaceId: "ws1", targetId: "site" }));
     if (mode === "plain") {
-      expect(asked[0]!.title).toBe("Send the password unencrypted?");
+      expect(asked[1]!.title).toBe("Send the password unencrypted?");
       expect(trust.plain).toBe(`ftp://tester@127.0.0.1:${running.port}`);
     } else {
-      expect(asked[0]!.title).toBe("Trust this server's certificate?");
-      expect(asked[0]!.detail).toContain("SHA-256 ");
+      expect(asked[1]!.title).toBe("Trust this server's certificate?");
+      expect(asked[1]!.detail).toContain("SHA-256 ");
       expect(Object.keys(trust.certificates ?? {})).toEqual([`127.0.0.1:${running.port}`]);
     }
-    // A new connection (the project reopened) does not ask again.
+    // A new host session asks for the repository connection again; TLS/plain grants remain.
     await ftp.dispose();
     ftp = newFtp();
     const compared = await call<CompareResult>("compare", ref());
-    expect(asked).toHaveLength(1);
+    expect(asked).toHaveLength(3);
     expect(compared.drift?.rows).toEqual([]);
     expect(compared.pending?.rows).toEqual([]);
   }, 60_000);

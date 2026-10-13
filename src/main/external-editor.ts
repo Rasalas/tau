@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -159,16 +159,14 @@ export async function openExternalEditor(options: ExternalEditorOptions = {}): P
   const command = resolveEditorCommand(options);
   const initialText = options.initialText ?? "";
 
-  const tempDir = join(tmpdir(), "tau-editor");
-  await mkdir(tempDir, { recursive: true });
+  const tempDir = await mkdtemp(join(tmpdir(), "tau-editor-"));
 
   const randomId = randomBytes(6).toString("hex");
   const tempFile = join(tempDir, `prompt-${randomId}.md`);
   const doneFile = join(tempDir, `prompt-${randomId}.done`);
 
-  await writeFile(tempFile, initialText, "utf8");
-
   try {
+    await writeFile(tempFile, initialText, { encoding: "utf8", mode: 0o600, flag: "wx" });
     const isCli = isTerminalEditor(command, platform);
 
     if (isCli && platform === "darwin") {
@@ -226,7 +224,7 @@ export async function openExternalEditor(options: ExternalEditorOptions = {}): P
     return { text: newText, modified };
   } finally {
     try {
-      if (existsSync(tempFile)) await unlink(tempFile);
+      await rm(tempDir, { recursive: true, force: true });
     } catch {}
   }
 }

@@ -75,7 +75,7 @@ export interface AgentGitOptions {
 export type AgentGitRunner = (cwd: string, args: string[], options?: AgentGitOptions) => Promise<string>;
 
 export const runAgentGit: AgentGitRunner = async (cwd, args, options = {}) => {
-  const child = execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
+  const child = execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", "-c", "core.fsmonitor=false", ...args], {
     cwd,
     maxBuffer: PATCH_BUFFER,
     timeout: 120_000,

@@ -104,7 +104,7 @@ export function sshBaseArgs(target: SshTarget, options: SshArgsOptions = {}): { 
   if (target.privateKeyPath) args.push("-i", expandLocalPath(target.privateKeyPath, options), "-o", "IdentitiesOnly=yes");
   if (target.agent) args.push("-o", `IdentityAgent=${optionPath(expandLocalPath(target.agent, options))}`);
   if (target.knownHostsPath) args.push("-o", `UserKnownHostsFile=${optionPath(expandLocalPath(target.knownHostsPath, options))}`);
-  if (target.hostVerification === false) args.push("-o", "StrictHostKeyChecking=accept-new");
+  if (target.hostVerification !== undefined) args.push("-o", target.hostVerification ? "StrictHostKeyChecking=ask" : "StrictHostKeyChecking=accept-new");
   if (target.hop?.length) args.push("-J", target.hop.map(hopSpec).join(","));
   args.push("-o", `ConnectTimeout=${Math.max(1, Math.round((target.connectTimeout ?? 10_000) / 1000))}`);
   args.push("-o", "BatchMode=no", "-o", "ServerAliveInterval=30", "-o", "ForwardAgent=no", "-o", "ForwardX11=no");

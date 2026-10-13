@@ -1,8 +1,8 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runGitCommand } from "./workspace-git.js";
+import { assertWorkspacePath, getFileDiff, runGitCommand } from "./workspace-git.js";
 import { runAgentGit } from "./agent-worktrees.js";
 import { storageGit } from "./worktree-storage.js";
 
@@ -36,6 +36,31 @@ describe.skipIf(process.platform === "win32")("Git process policy", () => {
     vi.stubEnv("GIT_OPTIONAL_LOCKS", "1");
     const cwd = await command('printf "%s" "$GIT_OPTIONAL_LOCKS"');
     expect(await run(cwd, ["status"])).toBe("0");
+  });
+
+  it.each([
+    ["workspace", runGitCommand], ["worktrees", runAgentGit], ["storage", storageGit],
+  ] as const)("disables repository fsmonitor commands for %s Git", async (_name, run) => {
+    const cwd = await command('printf "%s\\n" "$@"');
+    expect(await run(cwd, ["status"])).toContain("core.fsmonitor=false");
+  });
+
+  it("disables repository fsmonitor commands for streamed Git", async () => {
+    const cwd = await command("exit 0");
+    await writeFile(join(cwd, "file.txt"), "changed\n");
+    await command('printf "%s\\n" "$@" > "' + join(cwd, "stream-args") + '"');
+    await getFileDiff(cwd, "file.txt");
+    expect(await readFile(join(cwd, "stream-args"), "utf8")).toContain("core.fsmonitor=false");
+  });
+
+  it("rejects dangling symlinks before a write can create their outside target", async () => {
+    const folder = await realpath(await command("exit 0"));
+    const cwd = join(folder, "workspace");
+    await mkdir(cwd);
+    await symlink(join(folder, "not-created"), join(cwd, "dangling"));
+    await expect(assertWorkspacePath(cwd, "dangling")).rejects.toThrow();
+    await expect(assertWorkspacePath(cwd, "dangling/child.txt")).rejects.toThrow();
+    await expect(assertWorkspacePath(cwd, "new/child.txt")).resolves.toBeUndefined();
   });
 
   it("keeps the explicit environment while disabling optional locks", async () => {

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -26,7 +26,6 @@ async function built(root: string): Promise<void> {
 }
 
 afterEach(async () => {
-  const { rm } = await import("node:fs/promises");
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -44,10 +43,46 @@ describe("workbench source checkout", () => {
     const tau = await fixture();
     const userData = await realpath(await mkdtemp(join(tmpdir(), "tau-user-data-")));
     roots.push(userData);
-    await writeWorkbenchSourceRoot(userData, tau);
-
-    await expect(readWorkbenchSourceRoot(userData)).resolves.toBeUndefined();
     await built(tau);
+    await writeWorkbenchSourceRoot(userData, tau);
     await expect(readWorkbenchSourceRoot(userData)).resolves.toBe(tau);
+    await rm(join(tau, "dist-electron/preload/bundle.cjs"));
+    await expect(readWorkbenchSourceRoot(userData)).resolves.toBeUndefined();
   });
+});
+
+it("refuses changed compiled code until the user selects the build again", async () => {
+  const tau = await fixture();
+  await built(tau);
+  const userData = await fixture();
+  await writeWorkbenchSourceRoot(userData, tau);
+  await expect(readWorkbenchSourceRoot(userData)).resolves.toBe(tau);
+  await writeFile(join(tau, "dist-electron/main/other.js"), "changed imported module");
+  await expect(readWorkbenchSourceRoot(userData)).resolves.toBeUndefined();
+  await writeWorkbenchSourceRoot(userData, tau);
+  await expect(readWorkbenchSourceRoot(userData)).resolves.toBe(tau);
+  await writeFile(join(tau, "dist-electron/main/index.js"), "changed entry point");
+  await expect(readWorkbenchSourceRoot(userData)).resolves.toBeUndefined();
+});
+
+it("does not load a legacy source pointer that has no build digest", async () => {
+  const tau = await fixture();
+  const userData = await fixture();
+  await built(tau);
+  await writeFile(join(userData, "workbench-source.json"), JSON.stringify({ version: 1, root: tau }));
+  await expect(readWorkbenchSourceRoot(userData)).resolves.toBeUndefined();
+});
+
+it.skipIf(process.platform === "win32")("rejects a symlink replacing a pinned build file even if its bytes are unchanged", async () => {
+  const tau = await fixture();
+  const userData = await fixture();
+  await built(tau);
+  await writeWorkbenchSourceRoot(userData, tau);
+  const file = join(tau, "dist-electron/main/index.js");
+  const replacement = join(userData, "index.js");
+  await writeFile(replacement, "");
+  await rm(file);
+  await symlink(replacement, file);
+  await expect(readWorkbenchSourceRoot(userData)).resolves.toBeUndefined();
+  await expect(writeWorkbenchSourceRoot(userData, tau)).rejects.toThrow(/symbolic links/u);
 });

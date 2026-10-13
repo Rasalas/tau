@@ -165,7 +165,7 @@ export class SyncService {
     const session = await this.open(input);
     return this.serial(session.key, async () => {
       const report = this.progress("compare", session.workspace, session.target.id);
-      await recoverDeployments(this.options.store, session, this.options.git ?? gitCall());
+      if (wantDrift) await recoverDeployments(this.options.store, session, this.options.git ?? gitCall());
       const state = await loadMirrorState(this.options.store, session.key, session.mirror);
       const result: CompareResult = { targetId: session.target.id };
       if (!state) return result;

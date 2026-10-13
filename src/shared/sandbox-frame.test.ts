@@ -39,6 +39,13 @@ describe("frame policy", () => {
     expect(frameContentSecurityPolicy(undefined)).toContain("connect-src 'none'; frame-src 'none'");
   });
 
+  it("drops local network origins, including alternate loopback spellings", () => {
+    const local = ["http://127.0.0.1:8080", "https://127.1", "ws://2130706433", "http://0x7f000001", "https://localhost", "https://foo.localhost", "https://192.168.1.2", "https://10.0.0.1", "https://172.16.0.1", "https://169.254.169.254", "https://printer.local"];
+    expect(readFrameCsp({ connectDomains: [...local, "https://api.example.com"] })?.connectDomains).toEqual(["https://api.example.com"]);
+    expect(readFrameCsp({ resourceDomains: local, frameDomains: local, baseUriDomains: local })).toBeUndefined();
+    expect(frameContentSecurityPolicy({ connectDomains: local })).toContain("connect-src 'none'");
+  });
+
   it("drops junk and caps each list at 32 origins", () => {
     const many = Array.from({ length: 40 }, (_, index) => `https://h${index}.example.com`);
     const csp = readFrameCsp({
@@ -95,10 +102,10 @@ describe("frame document", () => {
     expect(withBom.match(/<!doctype/giu)).toHaveLength(1);
   });
 
-  it("escapes the policy it writes into the meta tag", () => {
+  it("drops malformed origins before writing the policy into the meta tag", () => {
     const html = prepareFrameDocument("<p></p>", { csp: { resourceDomains: ['https://a.example.com"><script>x</script>'] } });
     expect(html).not.toContain('"><script>x');
-    expect(html).toContain("&quot;>&lt;script>x&lt;/script>");
+    expect(html).toContain("script-src 'unsafe-inline'");
   });
 });
 

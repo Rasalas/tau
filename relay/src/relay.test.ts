@@ -96,6 +96,14 @@ describe("the push relay", () => {
     expect(await noApns.call("/send", { handle: await noApns.register("ios", IOS_TOKEN), payload: SEALED })).toMatchObject({ status: 503, json: { reason: "apns-not-configured" } });
   });
 
+  it("limits invalid sends across handles from the same address", async () => {
+    const { call } = relay();
+    const burst = await Promise.all(Array.from({ length: 120 }, (_, index) => call("/send", { handle: `invalid-${index}`, payload: SEALED })));
+    expect(burst.every((response) => response.status === 410)).toBe(true);
+    expect((await call("/send", { handle: "another", payload: SEALED })).status).toBe(429);
+    expect((await call("/send", { handle: "another", payload: SEALED }, { headers: { "x-forwarded-for": "203.0.113.8" } })).status).toBe(410);
+  });
+
   it("limits sends per handle and registrations per address", async () => {
     const { call, register, tick } = relay();
     const handle = await register("android", ANDROID_TOKEN);

@@ -57,6 +57,8 @@ export function createWebClientServer(options: WebClientServerOptions): WebClien
     : createServer(listener);
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    response.setHeader("content-security-policy", "frame-ancestors 'none'");
+    response.setHeader("x-frame-options", "DENY");
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     // Pairing moved to the socket, where the owner allows each device (ADR 0024).
     if (url.pathname === "/pair") { request.resume(); send(response, 410, "text/plain; charset=utf-8", "pair over the host socket"); return; }

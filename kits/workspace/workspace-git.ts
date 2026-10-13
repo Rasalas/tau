@@ -801,6 +801,13 @@ export async function assertWorkspacePath(cwd: string, path: string): Promise<vo
       return;
     } catch (error) {
       if (error instanceof Error && error.message === "Path is outside the workspace.") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // A missing path is writable; an existing dangling link is not.
+      const entry = await lstat(probe).catch((failure: NodeJS.ErrnoException) => {
+        if (failure.code !== "ENOENT") throw failure;
+        return undefined;
+      });
+      if (entry?.isSymbolicLink()) throw new Error("Path is outside the workspace.", { cause: error });
       if (probe === cwd) throw error;
       probe = dirname(probe);
     }
@@ -845,7 +852,7 @@ export async function runGitCommand(
   env?: NodeJS.ProcessEnv,
   timeout = gitCommandTimeout(args),
 ): Promise<string> {
-  const run = () => execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
+  const run = () => execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", "-c", "core.fsmonitor=false", ...args], {
     cwd,
     maxBuffer,
     timeout,
@@ -2140,7 +2147,7 @@ async function streamFilePatch(
 ): Promise<StreamedPatch> {
   const { hunkOffset: offset, hunkLimit: limit } = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS);
   return new Promise((settle, reject) => {
-    const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
+    const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", "-c", "core.fsmonitor=false", ...args], {
       cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
     });
     child.stdout.setEncoding("utf8");

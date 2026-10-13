@@ -1,8 +1,9 @@
+import { createExternalPrompt } from "./external-prompt.js";
 import { publishedHead } from "./published-head.js";
 import { createNamedProject, createScratchWorkspace, isScratchWorkspace } from "./project-starts.js";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { deviceReadPaths } from "../_filesystem/device-read-paths.js";
@@ -973,11 +974,10 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("edit-prompt-external", async (input) => {
         const text = optionalString(input, "text") ?? "";
         const editorId = optionalString(input, "editorId");
-        const promptFile = join(tmpdir(), `tau-prompt-${Date.now()}.md`);
-        await writeFile(promptFile, text, "utf8");
         const available = installedEditors().filter((editor) => editor.id !== FILE_MANAGER_ID);
         const chosen = editorId && available.some((e) => e.id === editorId) ? editorId : available[0]?.id;
         if (!chosen) throw new HostCommandError("No supported editor found on this machine.");
+        const promptFile = await createExternalPrompt(text);
         await openEditor(chosen, dirname(promptFile), promptFile, true);
         return { path: promptFile, editor: chosen };
       });

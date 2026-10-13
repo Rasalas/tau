@@ -11,6 +11,7 @@ import { ServerStatusService } from "./status";
 import { ServersStore } from "./store";
 import { SyncService } from "./sync/service";
 import { TARGET_FILE } from "./target-settings";
+import { recordDeployment, readDeployments } from "./journal.js";
 import { blockUpload } from "./trust";
 import { SERVERS_STATUS_EVENT, SERVERS_STATUS_TOPIC, type ServerHistory, type ServersStatus, type TargetStatus } from "./view-protocol";
 import type { UiFileDiff } from "tau/host-extension";
@@ -33,6 +34,7 @@ interface World {
   store: ServersStore;
   fs: FolderServerFs;
   reachable: boolean;
+  connections: number;
   status: ServerStatusService;
   events: Array<{ name: string; payload: unknown; topic?: string }>;
   call<T>(name: string, input?: unknown): Promise<T>;
@@ -65,8 +67,9 @@ function world(options: { shell?: boolean } = {}): World {
   } as unknown as HostExtensionContext;
   const target = { id: TARGET_ID, name: "site", protocol: "sftp", host: "127.0.0.1", port: 2222, username: "tester", remotePath: "/srv/site", context: "", profiles: [], usable: true, issues: [], ignore: [], concurrency: 4 } as unknown as SftpJsonTarget;
   const fs = new FolderServerFs(server, { shell: options.shell ?? true });
-  const w = { dir, server, local, store, fs, reachable: true, events } as World;
+  const w = { dir, server, local, store, fs, reachable: true, connections: 0, events } as World;
   const transport = async () => {
+    w.connections += 1;
     if (!w.reachable) throw new Error("Could not connect to site: Connection refused");
     return Object.assign(fs, { probe: { commands: ["git"] } });
   };
@@ -90,7 +93,7 @@ function world(options: { shell?: boolean } = {}): World {
 const only = (status: ServersStatus): TargetStatus => status.targets[0]!;
 
 async function settle(w: World): Promise<TargetStatus> {
-  // The first status starts a check by itself; `check` joins it.
+  // Only an explicit check reaches the server.
   return only(await w.call<ServersStatus>("check", { cwd: w.local, targetId: TARGET_ID }));
 }
 
@@ -99,9 +102,12 @@ describe.skipIf(!posix)("the server view's status", () => {
   beforeEach(() => { w = world(); });
   afterEach(async () => { await w.status.idle(); w.status.dispose(); rmSync(w.dir, { recursive: true, force: true }); });
 
-  it("says a target was never read, checks the server once by itself and tells the watching clients", async () => {
+  it("reads local status without connecting, and checks only on request", async () => {
     const first = only(await w.call<ServersStatus>("status", { cwd: w.local }));
     expect(first).toMatchObject({ targetId: TARGET_ID, label: "site", address: "sftp://tester@127.0.0.1:2222/srv/site", state: "never-read", level: "ask", pending: [] });
+    await w.status.idle();
+    expect(w.fs.calls).toEqual([]);
+    expect(w.connections).toBe(0);
     const checked = await settle(w);
     // Drift before the first read goes against HEAD; this project has no commit, so there is none.
     expect(checked.state).toBe("never-read");
@@ -113,6 +119,19 @@ describe.skipIf(!posix)("the server view's status", () => {
     // Asking again does not reach the server again.
     await w.call("status", { cwd: w.local });
     expect(w.fs.calls.filter((call) => call.startsWith("exec git")).length).toBe(1);
+  });
+
+  it("leaves interrupted deployment recovery for an explicit server check", async () => {
+    const key = { workspaceId: WORKSPACE_ID, targetId: TARGET_ID };
+    await recordDeployment(w.store, key, {
+      seq: 1, kind: "upload", at: "2026-10-13T10:00:00Z", origin: { actor: "user", via: "view" },
+      checkout: { path: w.local }, context: "", files: [], failed: [], skipped: [],
+      status: "in-progress", commit: "a".repeat(40), mirrorCommit: "b".repeat(40),
+    });
+    const result = only(await w.call<ServersStatus>("status", { cwd: w.local }));
+    expect(w.connections).toBe(0);
+    expect(result.state).toBe("incomplete");
+    expect((await readDeployments(w.store, key))[0]?.status).toBe("in-progress");
   });
 
   it("goes from in sync to pending, with deletions as a group of their own and credential files unchosen", async () => {

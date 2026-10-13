@@ -42,3 +42,8 @@ describe("sealed pushes on the phone", () => {
     expect(connect).toEqual(["'self'", "capacitor://localhost", "https://localhost", new URL(PUSH_RELAY_URL).origin]);
   });
 });
+
+it("never accepts unsealed activity data in the Android messaging service", () => {
+  const source = readFileSync(new URL("../plugins/tau-native/android/src/main/java/de/tbuck/tau/plugin/TauMessagingService.java", import.meta.url), "utf8");
+  expect(source).not.toContain('message.getData().get("activity")');
+});

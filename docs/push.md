@@ -56,8 +56,9 @@ gcloud logging sinks update _Default --project tau-push-e3c95 \
 ```
 
 Rate limits live in memory: 30 sends in a burst per handle, then one every 6 seconds; 60
-per phone over all its handles, then one every 3 seconds; 10 registrations per address,
-then one a minute. The address is the last `X-Forwarded-For` entry, the one Google's
+per phone over all its handles, then one every 3 seconds; 120 sends per address across
+all handles, then one every second; 10 registrations per address, then one a minute.
+The address send bucket includes malformed requests and unknown handles. The address is the last `X-Forwarded-For` entry, the one Google's
 front end appends; the entries before it are the caller's to write. At most two
 instances run, each taking 10 requests at a time.
 

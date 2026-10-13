@@ -72,7 +72,7 @@ describe("WorkbenchReloader", () => {
 
     await expect(reloader.rebuild(source)).resolves.toEqual({ ...successfulBuild, mainChanged: true });
     expect(rebuild).toHaveBeenCalledWith(source, expect.any(Object));
-    expect(JSON.parse(await readFile(workbenchSourceStatePath(userData), "utf8"))).toEqual({ version: 1, root: source });
+    expect(JSON.parse(await readFile(workbenchSourceStatePath(userData), "utf8"))).toEqual({ version: 2, root: source, buildHash: expect.stringMatching(/^[0-9a-f]{64}$/u) });
 
     reloader.relaunch();
     expect(app.relaunch).toHaveBeenCalledWith();

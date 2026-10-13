@@ -60,6 +60,9 @@ export interface RelayOptions {
   /** Per address: a burst of this many registrations, then one per `registerRefillMs`. */
   registerBurst?: number;
   registerRefillMs?: number;
+  /** Per address across all handles, including invalid sends. */
+  addressSendBurst?: number;
+  addressSendRefillMs?: number;
 }
 
 const BASE_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -112,6 +115,7 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
   const sends = new RateLimiter({ capacity: options.sendBurst ?? 30, refillMs: options.sendRefillMs ?? 6_000, now });
   // Minting more handles for one token does not buy more sends.
   const tokenSends = new RateLimiter({ capacity: options.tokenBurst ?? 60, refillMs: options.tokenRefillMs ?? 3_000, now });
+  const addressSends = new RateLimiter({ capacity: options.addressSendBurst ?? 120, refillMs: options.addressSendRefillMs ?? 1_000, now });
   const registers = new RateLimiter({ capacity: options.registerBurst ?? 10, refillMs: options.registerRefillMs ?? 60_000, now });
   const limited = (wait: number, headers: Record<string, string> = {}) => reply(429, { error: "rate-limited" }, { ...headers, "retry-after": String(Math.max(1, Math.ceil(wait / 1000))) });
 
@@ -168,6 +172,10 @@ export function createRelay(options: RelayOptions): (request: RelayRequest) => P
     if (route === "register" && request.method === "OPTIONS") return { status: 204, headers: { ...CORS_HEADERS }, body: "" };
     const cors = route === "register" ? CORS_HEADERS : {};
     if (request.method !== "POST") return reply(405, { error: "method-not-allowed" }, { ...cors, allow: "POST" });
+    if (route === "send") {
+      const wait = addressSends.take(`address:${callerAddress(request.headers) ?? "unknown"}`);
+      if (wait > 0) return limited(wait);
+    }
     const body = readJson(request.body);
     if (body === "too-large") return reply(413, { error: "too-large" }, cors);
     if (!body) return reply(400, { error: "bad-request", detail: "The body is not a JSON object." }, cors);
