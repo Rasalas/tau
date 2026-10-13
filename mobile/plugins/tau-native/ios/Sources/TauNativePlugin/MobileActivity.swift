@@ -18,7 +18,7 @@ public enum MobileActivityStore {
     /// The host's snapshot: the widgets read it from the App Group, and the host's Live Activity follows its threads.
     @available(iOS 16.2, *)
     public static func snapshot(_ value: [String: Any], token: @escaping ([String: Any]) -> Void) async {
-        guard value["version"] as? Int == 3, let data = try? JSONSerialization.data(withJSONObject: value),
+        guard WidgetModel.accepts(value), let data = try? JSONSerialization.data(withJSONObject: value),
               var snapshot = try? JSONDecoder().decode(WidgetSnapshot.self, from: data) else { return }
         if let defaults = shared {
             let key = "widget." + snapshot.hostId

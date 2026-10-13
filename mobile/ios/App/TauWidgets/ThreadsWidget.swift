@@ -104,7 +104,11 @@ struct ThreadRow: View {
                 ThreadPlace(thread: thread).font(.system(size: 11)).foregroundStyle(Tau.muted)
             }
             Spacer(minLength: 4)
-            ThreadStatus(state: state, thread: thread)
+            // The marks sit under the status, so every row's end lines up and the title keeps its width.
+            VStack(alignment: .trailing, spacing: 2) {
+                ThreadStatus(state: state, thread: thread)
+                if let marks = thread.marks, !marks.isEmpty { ThreadMarks(marks: marks) }
+            }
         }
         .padding(.vertical, 5)
         .opacity(state.stale && thread.active ? 0.55 : 1)
@@ -130,7 +134,12 @@ struct ThreadsSmall: View {
                 Text(top.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Tau.ink).lineLimit(2).lineSpacing(0).padding(.top, 5)
                 ThreadPlace(thread: top).font(.system(size: 11.5)).foregroundStyle(Tau.muted).padding(.top, 3)
                 Spacer(minLength: 0)
-                more(top)
+                // The marks take the bottom corner; the "more" line gives way before they do.
+                HStack(spacing: 4) {
+                    more(top).lineLimit(1).minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                    if let marks = top.marks, !marks.isEmpty { ThreadMarks(marks: marks) }
+                }
             }
         }
         .opacity(state.stale ? 0.7 : 1)

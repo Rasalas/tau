@@ -85,8 +85,14 @@ object WidgetModel {
         }.takeIf { it > 0 } ?: value.optLong("startedAt").takeIf { it > 0 } ?: updatedAt
         return Thread(
             id, value.optString("title").take(100).ifEmpty { "Agent work" }, value.optString("project").take(60).ifEmpty { null },
-            state, entered, updatedAt, value.optString("reason").take(120).ifEmpty { null },
+            state, entered, updatedAt, value.optString("reason").take(120).ifEmpty { null }, marks(value.optJSONArray("marks")),
         )
+    }
+
+    /** A thread's marks as the app names them, at most two as the desktop stacks them; an entry with neither a mark nor initials draws as "·". */
+    private fun marks(list: JSONArray?): List<ThreadMark> = objects(list).take(2).map { item ->
+        val mark = mark(item.optString("mark"))
+        ThreadMark(mark, item.optString("initials").take(2).ifEmpty { "·" })
     }
 
     private fun thread(value: JSONObject): Thread? {
@@ -95,7 +101,7 @@ object WidgetModel {
         if (id.isEmpty() || id.length > 200) return null
         return Thread(
             id, value.optString("title").take(100).ifEmpty { "Agent work" }, value.optString("project").take(60).ifEmpty { null },
-            state, value.optLong("since"), value.optLong("updatedAt"), value.optString("detail").take(120).ifEmpty { null },
+            state, value.optLong("since"), value.optLong("updatedAt"), value.optString("detail").take(120).ifEmpty { null }, marks(value.optJSONArray("marks")),
         )
     }
 
@@ -125,7 +131,10 @@ object WidgetModel {
         .put("threads", JSONArray(snapshot.threads.map { thread ->
             JSONObject().put("id", thread.id).put("title", thread.title).put("state", thread.state.key)
                 .put("since", thread.since).put("updatedAt", thread.updatedAt)
-                .apply { thread.project?.let { put("project", it) }; thread.detail?.let { put("detail", it) } }
+                .apply {
+                    thread.project?.let { put("project", it) }; thread.detail?.let { put("detail", it) }
+                    if (thread.marks.isNotEmpty()) put("marks", JSONArray(thread.marks.map { mark -> JSONObject().apply { mark.mark?.let { put("mark", it) }; put("initials", mark.initials) } }))
+                }
         }))
 
     /**
@@ -147,7 +156,7 @@ object WidgetModel {
         val state = if (pushed == ThreadState.DONE && kept?.state == ThreadState.FAILED) ThreadState.FAILED else pushed
         val since = if (kept != null && kept.state == state) kept.since else at
         val title = activity.optString("title").take(100).ifEmpty { kept?.title ?: "Agent work" }
-        val next = Thread(id, title, kept?.project, state, since, at, kept?.detail.takeIf { kept?.state == state })
+        val next = Thread(id, title, kept?.project, state, since, at, kept?.detail.takeIf { kept?.state == state }, kept?.marks.orEmpty())
         return base.copy(threads = listOf(next) + base.threads.filter { it.id != id })
     }
 
@@ -286,7 +295,9 @@ enum class ThreadState(val key: String, val rank: Int, val active: Boolean) {
 
 data class Window(val label: String, val short: String, val usedPercent: Double, val resetsAt: Long?, val level: Level?, val pace: Pace?, val paceAt: Long?)
 data class Account(val poolKey: String?, val label: String, val plan: String?, val tone: Tone, val mark: String?, val initials: String?, val checkedAt: Long, val windows: List<Window>)
-data class Thread(val id: String, val title: String, val project: String?, val state: ThreadState, val since: Long, val updatedAt: Long, val detail: String?)
+/** One of a thread row's marks: the drawable's name, or without one (or as "other") the initials in a box. */
+data class ThreadMark(val mark: String?, val initials: String)
+data class Thread(val id: String, val title: String, val project: String?, val state: ThreadState, val since: Long, val updatedAt: Long, val detail: String?, val marks: List<ThreadMark> = emptyList())
 data class Snapshot(val hostId: String, val machine: String, val updatedAt: Long, val accounts: List<Account>?, val threads: List<Thread>)
 
 data class LimitWindow(val label: String, val short: String, val left: Int, val resetsAt: Long?, val level: Level, val pace: Pace? = null, val paceAt: Long? = null)

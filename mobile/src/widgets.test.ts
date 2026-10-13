@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { UsageLimitAccount, UsageLimitWindow, UsageLimitsSummary } from "../../kits/usage/protocol";
 import type { ExtensionUiPrompt } from "../../src/shared/contracts";
-import { ThreadBoard, widgetSnapshot, widgetUsage } from "./widgets";
+import { declareRuntimeMarks } from "../../src/renderer/runtime-marks";
+import { BUNDLED_RUNTIME_MARKS } from "../../src/renderer/test-support/runtime-marks";
+import { ThreadBoard, WIDGET_SNAPSHOT_VERSION, widgetSnapshot, widgetUsage } from "./widgets";
 
 const NOW = new Date(2026, 9, 1, 14, 2).getTime();
 const MINUTE = 60_000;
@@ -61,6 +64,7 @@ describe("Plan limits snapshot", () => {
   });
 });
 
+const PI = [{ mark: "pi" }];
 const prompt = (id: string, sessionId: string, title: string): ExtensionUiPrompt => ({ id, sessionId, kind: "confirm", title });
 
 describe("thread board", () => {
@@ -69,8 +73,8 @@ describe("thread board", () => {
     const session = (id: string, patch: object) => ({ id, title: `Thread ${id}`, path: "", projectPath: "", projectName: "tau", messageCount: 2, modifiedAt: NOW - 20 * MINUTE, ...patch });
     board.index({ sessions: [session("ok", {}), session("bad", { modifiedAt: NOW - 5 * MINUTE, turnError: "Rate limited" }), session("old", { modifiedAt: NOW - 5 * 60 * MINUTE }), session("empty", { messageCount: 0 })], runs: {} });
     expect(board.threads()).toEqual([
-      { id: "bad", title: "Thread bad", project: "tau", state: "failed", endedAt: NOW - 5 * MINUTE, reason: "Rate limited" },
-      { id: "ok", title: "Thread ok", project: "tau", state: "done", endedAt: NOW - 20 * MINUTE },
+      { id: "bad", title: "Thread bad", project: "tau", state: "failed", endedAt: NOW - 5 * MINUTE, reason: "Rate limited", marks: [{ mark: "pi" }] },
+      { id: "ok", title: "Thread ok", project: "tau", state: "done", endedAt: NOW - 20 * MINUTE, marks: [{ mark: "pi" }] },
     ]);
   });
 
@@ -90,12 +94,12 @@ describe("thread board", () => {
     board.apply({ type: "agent-status", sessionId: "b", running: true, startedAt: NOW });
     board.apply({ type: "extension-ui-prompt", sessionId: "b", prompt: prompt("p1", "b", "Wants to edit src/routes/orders.ts") });
     expect(board.threads()).toEqual([
-      { id: "b", title: "Add pagination", project: "shop-api", state: "waiting", startedAt: NOW, askedAt: NOW + MINUTE, reason: "Wants to edit src/routes/orders.ts" },
-      { id: "a", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: NOW - 12 * MINUTE },
-      { id: "c", title: "Nightly audit", project: "tau", state: "done", startedAt: NOW - 30 * MINUTE, endedAt: NOW + MINUTE },
+      { id: "b", title: "Add pagination", project: "shop-api", state: "waiting", startedAt: NOW, askedAt: NOW + MINUTE, reason: "Wants to edit src/routes/orders.ts", marks: PI },
+      { id: "a", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: NOW - 12 * MINUTE, marks: PI },
+      { id: "c", title: "Nightly audit", project: "tau", state: "done", startedAt: NOW - 30 * MINUTE, endedAt: NOW + MINUTE, marks: PI },
     ]);
     board.apply({ type: "extension-ui-resolved", id: "p1", sessionId: "b" });
-    expect(board.threads()[0]).toEqual({ id: "a", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: NOW - 12 * MINUTE });
+    expect(board.threads()[0]).toEqual({ id: "a", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: NOW - 12 * MINUTE, marks: PI });
     expect(board.threads()[1]).toMatchObject({ id: "b", state: "running" });
   });
 
@@ -113,5 +117,75 @@ describe("thread board", () => {
     board.apply({ type: "agent-status", sessionId: "r", running: false });
     now += 25 * 60 * MINUTE;
     expect(board.threads()).toEqual([]);
+  });
+});
+
+describe("thread marks", () => {
+  beforeAll(() => declareRuntimeMarks(BUNDLED_RUNTIME_MARKS));
+  afterAll(() => declareRuntimeMarks([]));
+
+  const usage = (total: number, subscription: number) => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: total, costUsd: 0, turns: 1,
+    ...(subscription ? { subscription: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: subscription, turns: 1, apiValueUsd: 0 } } : {}) });
+  const marksOf = (patch: object, declared = true) => {
+    const board = new ThreadBoard(() => NOW);
+    if (!declared) declareRuntimeMarks([]);
+    board.index({ sessions: [{ id: "t", title: "Thread", path: "", projectPath: "", projectName: "tau", messageCount: 2, modifiedAt: NOW - MINUTE, ...patch }], runs: {} });
+    if (!declared) declareRuntimeMarks(BUNDLED_RUNTIME_MARKS);
+    return board.threads()[0]?.marks;
+  };
+
+  it("draws the stack the desktop's thread row draws: the runtime's mark, then the model provider's", () => {
+    expect(marksOf({})).toEqual([{ mark: "pi" }]);
+    expect(marksOf({ backendKind: "pi", modelProvider: "openai" })).toEqual([{ mark: "pi" }, { mark: "openai" }]);
+    expect(marksOf({ backendKind: "pi", modelProvider: "google" })).toEqual([{ mark: "pi" }, { mark: "gemini" }]);
+    expect(marksOf({ backendKind: "opencode", modelProvider: "anthropic" })).toEqual([{ mark: "opencode" }, { mark: "anthropic" }]);
+  });
+
+  it("gives a runtime with a provider of its own that mark alone, an instance like its program", () => {
+    expect(marksOf({ backendKind: "codex", modelProvider: "openai" })).toEqual([{ mark: "codex" }]);
+    expect(marksOf({ backendKind: "claude-code", modelProvider: "anthropic" })).toEqual([{ mark: "claude-code" }]);
+    expect(marksOf({ backendKind: "codex@work", modelProvider: "openai" })).toEqual([{ mark: "codex" }]);
+    expect(marksOf({ backendKind: "grok", modelProvider: "xai" })).toEqual([{ mark: "grok" }]);
+  });
+
+  it("draws a subscription as its product's mark: Claude's spark, OpenAI's knot", () => {
+    expect(marksOf({ backendKind: "pi", modelProvider: "anthropic", usage: usage(100, 90) })).toEqual([{ mark: "pi" }, { mark: "claude-code" }]);
+    expect(marksOf({ backendKind: "pi", modelProvider: "anthropic", usage: usage(100, 20) })).toEqual([{ mark: "pi" }, { mark: "anthropic" }]);
+    expect(marksOf({ backendKind: "pi", modelProvider: "openai-codex" })).toEqual([{ mark: "pi" }, { mark: "codex" }]);
+  });
+
+  it("falls back to the desktop's initials for a provider without a mark", () => {
+    expect(marksOf({ backendKind: "pi", modelProvider: "radius" })).toEqual([{ mark: "pi" }, { initials: "R" }]);
+    expect(marksOf({ backendKind: "pi", modelProvider: "ant-ling" })).toEqual([{ mark: "pi" }, { initials: "AL" }]);
+    expect(marksOf({ backendKind: "acme" })).toEqual([{ initials: "A" }]);
+  });
+
+  it("shows a thread taken over from another machine with that machine's runtime", () => {
+    expect(marksOf({ backendKind: "pi", machine: { id: "m", name: "Mac mini", backendKind: "claude-code", modelProvider: "anthropic" } })).toEqual([{ mark: "claude-code" }]);
+  });
+
+  it("draws at write time, so runtimes declared after the index still count", () => {
+    expect(marksOf({ backendKind: "codex", modelProvider: "openai" }, false)).toEqual([{ mark: "codex" }]);
+    const board = new ThreadBoard(() => NOW);
+    declareRuntimeMarks([]);
+    board.index({ sessions: [{ id: "t", title: "Thread", path: "", projectPath: "", projectName: "tau", messageCount: 2, modifiedAt: NOW, backendKind: "codex", modelProvider: "openai" }], runs: {} });
+    expect(board.threads()[0]?.marks).toEqual([{ mark: "codex" }, { mark: "openai" }]);
+    declareRuntimeMarks(BUNDLED_RUNTIME_MARKS);
+    expect(board.threads()[0]?.marks).toEqual([{ mark: "codex" }]);
+  });
+
+  it("has none for a thread the index never listed", () => {
+    const board = new ThreadBoard(() => NOW);
+    board.apply({ type: "agent-status", sessionId: "unknown", running: true });
+    expect(board.threads()[0]).not.toHaveProperty("marks");
+  });
+});
+
+describe("snapshot version", () => {
+  // Both native readers refuse a snapshot of another version, so a bump on one side alone blanks every widget.
+  const native = (path: string, pattern: RegExp) => Number(pattern.exec(readFileSync(new URL(path, import.meta.url), "utf8"))?.[1]);
+  it("is the one the iOS and Android readers expect", () => {
+    expect(native("../plugins/tau-native/ios/Sources/TauNativePlugin/WidgetModel.swift", /static let wireVersion = (\d+)/u)).toBe(WIDGET_SNAPSHOT_VERSION);
+    expect(native("../plugins/tau-native/android/src/main/java/de/tbuck/tau/plugin/widgets/WidgetModel.kt", /const val WIRE_VERSION = (\d+)/u)).toBe(WIDGET_SNAPSHOT_VERSION);
   });
 });

@@ -45,7 +45,7 @@ describe("widget snapshots", () => {
       expect(native.snapshot).toHaveBeenLastCalledWith({
         version: 4, hostId: "host-a", machine: "Mac mini", updatedAt: NOW,
         accounts: [expect.objectContaining({ label: "Codex", plan: "ChatGPT Plus", tone: "openai", mark: "codex", windows: [expect.objectContaining({ short: "wk", level: "warn" })] })],
-        threads: [{ id: "t1", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: NOW - 600_000 }],
+        threads: [{ id: "t1", title: "Fix flaky pairing test", project: "tau", state: "running", startedAt: NOW - 600_000, marks: [{ mark: "pi" }] }],
       });
       clock += 60_000;
       event({ type: "extension-ui-prompt", sessionId: "t1", prompt: { id: "p", sessionId: "t1", kind: "confirm", title: "Allow edit?" } });

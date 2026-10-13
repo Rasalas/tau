@@ -3,7 +3,8 @@ import type { UsageLimitsSummary } from "../../kits/usage/protocol";
 import type { LimitGroup } from "../../kits/usage/accounts";
 import { juicebarGroups, type Juicebar } from "../../kits/usage/juicebars";
 import type { UsageTone } from "../../kits/usage/tones";
-import { monogram } from "../../src/renderer/runtime-marks";
+import { displayRuntime } from "../../src/shared/contracts";
+import { DEFAULT_RUNTIME, monogram, providerIconKey, providerMarks, threadOnPlan } from "../../src/renderer/runtime-marks";
 
 /** Finished threads stay in the Threads widget this long. */
 const ENDED_KEPT_MS = 24 * 60 * 60_000;
@@ -35,6 +36,9 @@ export interface WidgetAccount {
   windows: WidgetWindow[];
 }
 
+/** One provider or runtime mark: its id (as `WidgetAccount.mark`), or without one the desktop's initials. */
+export type WidgetMark = { mark: string } | { initials: string };
+
 export type WidgetThreadState = "waiting" | "running" | "done" | "failed";
 export interface WidgetThread {
   id: string;
@@ -47,6 +51,8 @@ export interface WidgetThread {
   askedAt?: number;
   /** The question, or why the turn failed. */
   reason?: string;
+  /** What the desktop's thread row draws: the runtime's mark, then the model provider's when it is another. Absent for a thread the index does not know. */
+  marks?: WidgetMark[];
 }
 /**
  * What the app hands the phone for one host, the same on iOS (App Group, Live Activity) and Android
@@ -80,14 +86,30 @@ const MARKS: Readonly<Record<string, string>> = {
 /** A plan wears its product's mark, as the Usage page draws it: a ChatGPT plan OpenAI's knot, a Claude plan Claude's spark. */
 const PLAN_MARKS: Readonly<Record<string, string>> = { openai: "codex", "openai-codex": "codex", anthropic: "claude-code", claude: "claude-code" };
 
+/** The mark for a provider or runtime by name; `plan` is a subscription, which wears its product's mark. */
+function markFor(name: string, plan: boolean): WidgetMark {
+  const key = providerIconKey(name);
+  const mark = plan ? PLAN_MARKS[key] ?? MARKS[key] : MARKS[key];
+  return mark ? { mark } : { initials: monogram(name) };
+}
+
 function markOf(group: LimitGroup): Pick<WidgetAccount, "mark" | "initials"> {
-  const key = (name: string) => name.split("@")[0]!.toLowerCase().replace(/[_.\s]/gu, "-");
   const account = group.members[0]!;
   // A shared account or a Pi login is a plan of its provider; a runtime of its own is itself.
   const plan = group.members.length > 1 && group.shown.identity ? group.shown.identity.provider : account.runtime === "pi" && account.id.startsWith("pi:") ? account.id.slice(3) : undefined;
-  const name = plan ?? account.runtime;
-  const mark = plan !== undefined ? PLAN_MARKS[key(plan)] ?? MARKS[key(plan)] : MARKS[key(account.runtime)];
-  return mark ? { mark } : { initials: monogram(name) };
+  return markFor(plan ?? account.runtime, plan !== undefined);
+}
+
+/** What a thread row's marks follow: its runtime, the provider of its model and whether a subscription paid for it. */
+interface ThreadRuntime { runtime: string; provider: string | undefined; plan: boolean }
+
+/** A thread row's marks as `ProviderIconStack` draws them: the runtime's, then the model's where it is not the runtime's own. */
+function threadMarks({ runtime, provider, plan }: ThreadRuntime): WidgetMark[] {
+  const marks = providerMarks(provider, runtime, { plan });
+  const drawn: WidgetMark[] = [];
+  if (marks.runtime) drawn.push(markFor(marks.runtime, false));
+  if (marks.model) drawn.push(markFor(marks.model, marks.plan === true));
+  return drawn;
 }
 
 function shortLabel(window: Juicebar["window"]): string {
@@ -150,7 +172,7 @@ interface Tracked extends WidgetThread {
  */
 export class ThreadBoard {
   private rows = new Map<string, Tracked>();
-  private titles = new Map<string, { title: string; project?: string; child: boolean }>();
+  private titles = new Map<string, { title: string; project?: string; child: boolean; runtime: ThreadRuntime }>();
 
   constructor(private readonly now: () => number) {}
 
@@ -169,7 +191,11 @@ export class ThreadBoard {
   index(index: Pick<ThreadIndexSnapshot, "sessions" | "runs">): void {
     const at = this.now();
     for (const session of index.sessions) {
-      this.titles.set(session.id, { title: session.title, ...(session.projectName ? { project: session.projectName } : {}), child: Boolean(session.parentThreadId) });
+      const home = displayRuntime(session);
+      this.titles.set(session.id, {
+        title: session.title, ...(session.projectName ? { project: session.projectName } : {}), child: Boolean(session.parentThreadId),
+        runtime: { runtime: home.backendKind ?? DEFAULT_RUNTIME, provider: home.modelProvider, plan: threadOnPlan(session.usage) },
+      });
       if (index.runs?.[session.id] === undefined && !this.rows.has(session.id) && session.messageCount > 0 && at - session.modifiedAt <= SEEDED_KEPT_MS) {
         const row = this.row(session.id);
         row.endedAt = session.modifiedAt;
@@ -236,10 +262,13 @@ export class ThreadBoard {
       .slice(0, THREADS_KEPT)
       .map(({ id, state, startedAt, endedAt, askedAt, reason }) => {
         const named = this.titles.get(id);
+        // Drawn at write time: the runtimes' declarations may arrive after the index.
+        const marks = named ? threadMarks(named.runtime) : [];
         return {
           id, title: (named?.title || "Agent work").slice(0, 80), ...(named?.project ? { project: named.project.slice(0, 40) } : {}), state,
           ...(startedAt !== undefined ? { startedAt } : {}), ...(endedAt !== undefined && state !== "running" && state !== "waiting" ? { endedAt } : {}),
           ...(askedAt !== undefined && state === "waiting" ? { askedAt } : {}), ...(reason && (state === "waiting" || state === "failed") ? { reason } : {}),
+          ...(marks.length ? { marks } : {}),
         };
       });
   }

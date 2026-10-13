@@ -72,6 +72,13 @@ public struct UsageSnapshot: Hashable {
     public var accounts: [UsageAccount]
 }
 
+/// A provider or runtime mark on a thread row: its id, or without one the desktop's initials.
+public struct WidgetMark: Codable, Hashable {
+    public var mark: String?
+    public var initials: String?
+    public init(mark: String? = nil, initials: String? = nil) { self.mark = mark; self.initials = initials }
+}
+
 public struct WidgetThread: Codable, Hashable, Identifiable {
     public var id: String
     public var title: String
@@ -82,12 +89,14 @@ public struct WidgetThread: Codable, Hashable, Identifiable {
     public var endedAt: Double?
     public var askedAt: Double?
     public var reason: String?
+    /// The desktop row's marks: the runtime's, then the model provider's. Absent in older snapshots and for a thread the app did not know.
+    public var marks: [WidgetMark]? = nil
     /// Set when rows of several hosts are merged.
     public var hostId: String? = nil
     public var machine: String? = nil
     public var active: Bool { state == "waiting" || state == "running" }
-    public init(id: String, title: String, project: String? = nil, state: String, startedAt: Double? = nil, endedAt: Double? = nil, askedAt: Double? = nil, reason: String? = nil, hostId: String? = nil, machine: String? = nil) {
-        self.id = id; self.title = title; self.project = project; self.state = state; self.startedAt = startedAt; self.endedAt = endedAt; self.askedAt = askedAt; self.reason = reason; self.hostId = hostId; self.machine = machine
+    public init(id: String, title: String, project: String? = nil, state: String, startedAt: Double? = nil, endedAt: Double? = nil, askedAt: Double? = nil, reason: String? = nil, marks: [WidgetMark]? = nil, hostId: String? = nil, machine: String? = nil) {
+        self.id = id; self.title = title; self.project = project; self.state = state; self.startedAt = startedAt; self.endedAt = endedAt; self.askedAt = askedAt; self.reason = reason; self.marks = marks; self.hostId = hostId; self.machine = machine
     }
 }
 
@@ -109,7 +118,7 @@ public struct WidgetSnapshot: Codable, Hashable {
     public var accounts: [UsageAccount]?
     public var threads: [WidgetThread]
     public init(hostId: String, machine: String? = nil, updatedAt: Double, accounts: [UsageAccount]? = nil, threads: [WidgetThread] = []) {
-        self.version = 4; self.hostId = hostId; self.machine = machine; self.updatedAt = updatedAt; self.accounts = accounts; self.threads = threads
+        self.version = WidgetModel.wireVersion; self.hostId = hostId; self.machine = machine; self.updatedAt = updatedAt; self.accounts = accounts; self.threads = threads
     }
     public var usage: UsageSnapshot? { accounts.map { UsageSnapshot(hostId: hostId, machine: machine, updatedAt: updatedAt, accounts: $0) } }
     public var threadsSnapshot: ThreadsSnapshot { ThreadsSnapshot(hostId: hostId, machine: machine, updatedAt: updatedAt, threads: threads) }
@@ -125,6 +134,10 @@ public struct PlanAccount: Hashable {
 }
 
 public enum WidgetModel {
+    /// The version of the app's snapshot (`WIDGET_SNAPSHOT_VERSION` in `mobile/src/widgets.ts`); Android's `WIRE_VERSION` is the same number.
+    public static let wireVersion = 4
+    /// Whether a snapshot from the app is one this build reads.
+    public static func accepts(_ snapshot: [String: Any]) -> Bool { snapshot["version"] as? Int == wireVersion }
     /// A reading older than this is drawn faded with its age.
     public static let staleAfter: TimeInterval = 15 * 60
     /// A finished thread stays in a host's Live Activity this long.
@@ -203,10 +216,10 @@ public enum WidgetModel {
         }
     }
 
-    /// What a host's Live Activity lists: the threads at work and those that ended a moment ago.
+    /// What a host's Live Activity lists: the threads at work and those that ended a moment ago. It draws no marks, and ActivityKit caps its state at 4 KB.
     public static func activityRows(_ threads: [WidgetThread], now: Date) -> [WidgetThread] {
         Array(threads.filter { $0.active || ($0.endedAt.map { now.timeIntervalSince1970 * 1000 - $0 < endedShown * 1000 } ?? false) }
-            .sorted(by: ordered).prefix(4))
+            .sorted(by: ordered).prefix(4)).map { row in var row = row; row.marks = nil; return row }
     }
 
     public static func count(_ threads: [WidgetThread], _ state: String) -> Int { threads.filter { $0.state == state }.count }

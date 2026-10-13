@@ -202,6 +202,36 @@ class WidgetModelTest {
         assertEquals(listOf("other" to "R", null to "A"), limits.accounts.sortedByDescending { it.checkedAt }.map { it.mark to it.initials })
     }
 
+    private fun marks(vararg items: Pair<String?, String?>) = JSONArray(items.map { (mark, initials) -> JSONObject().apply { mark?.let { put("mark", it) }; initials?.let { put("initials", it) } } })
+
+    @Test fun readsAThreadsMarksAsAndroidsDrawablesAndKeepsTheirOrder() {
+        val board = WidgetModel.threadBoard(listOf(snapshot("a", null, listOf(
+            thread("pi", "running", now).put("marks", marks("pi" to null, "codex" to null)),
+            thread("own", "running", now - min).put("marks", marks("claude-code" to null)),
+            thread("box", "running", now - 2 * min).put("marks", marks("pi" to null, null to "AL")),
+            thread("old", "running", now - 3 * min),
+        ))), now)
+        val byId = board.items.associate { it.thread.id to it.thread.marks }
+        assertEquals(listOf(ThreadMark("pi", "·"), ThreadMark("openai", "·")), byId["pi"])
+        assertEquals(listOf(ThreadMark("claude-code", "·")), byId["own"])
+        assertEquals(listOf(ThreadMark("pi", "·"), ThreadMark(null, "AL")), byId["box"])
+        assertEquals(emptyList<ThreadMark>(), byId["old"])
+    }
+
+    @Test fun stopsAtTwoMarksAsTheDesktopStacksNoMore() {
+        val board = WidgetModel.threadBoard(listOf(snapshot("a", null, listOf(thread("t", "running", now).put("marks", marks("pi" to null, "openai" to null, "grok" to null))))), now)
+        assertEquals(listOf("pi", "openai"), board.items[0].thread.marks.map { it.mark })
+    }
+
+    @Test fun keepsMarksThroughStorageAndAPushedActivity() {
+        val original = snapshot("a", null, listOf(thread("t", "running", now - 10 * min).put("marks", marks("pi" to null, null to "R"))))
+        val stored = WidgetModel.parse(WidgetModel.toJson(original).toString())!!
+        assertEquals(original, stored)
+        assertEquals(listOf(ThreadMark("pi", "·"), ThreadMark(null, "R")), stored.threads[0].marks)
+        val activity = JSONObject().put("version", 1).put("hostId", "a").put("threadId", "t").put("title", "Fix").put("state", "completed").put("updatedAt", now).put("expiresAt", now + 15 * min)
+        assertEquals(stored.threads[0].marks, WidgetModel.withActivity(stored, activity, now)!!.threads[0].marks)
+    }
+
     @Test fun resetTimesReadCoarsely() {
         assertEquals("in 40 min", WidgetModel.resetsIn(now, now + 40 * min))
         assertEquals("in 1 h", WidgetModel.resetsIn(now, now + 68 * min))
