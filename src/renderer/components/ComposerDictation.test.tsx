@@ -41,7 +41,7 @@ describe("local composer dictation", () => {
   it("inserts at the captured selection and preserves edits made between speech results", async () => {
     const native = port();
     let update!: (value: DictationUpdate) => void;
-    native.listen = async (listener) => { update = listener; return vi.fn(); };
+    native.listen = async (listener) => { update = listener; return vi.fn<() => void>(); };
     native.finish = async () => "new words.";
     function Editor() {
       const [text, setText] = useState("Hello old");

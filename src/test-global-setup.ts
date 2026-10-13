@@ -18,13 +18,19 @@ export default function setup(project: TestProject): () => Promise<void> {
   const run = randomUUID();
   project.provide("tauTestRun", run);
   return async () => {
-    const survivors = await settle(run);
-    if (survivors.length === 0) return;
-    for (const survivor of survivors) {
-      try { process.kill(survivor.pid, "SIGKILL"); } catch { /* exited meanwhile */ }
+    try {
+      const survivors = await settle(run);
+      if (survivors.length === 0) return;
+      for (const survivor of survivors) {
+        try { process.kill(survivor.pid, "SIGKILL"); } catch { /* exited meanwhile */ }
+      }
+      const lines = survivors.map((survivor) => `  ${survivor.pid} ${survivor.command}${survivor.file ? `\n      started by ${survivor.file}` : ""}`);
+      throw new Error(`The tests left ${survivors.length} process(es) running; they were killed now:\n${lines.join("\n")}`);
+    } catch (error) {
+      // Vitest 4 logs global teardown errors without failing the command.
+      process.exitCode = 1;
+      throw error;
     }
-    const lines = survivors.map((survivor) => `  ${survivor.pid} ${survivor.command}${survivor.file ? `\n      started by ${survivor.file}` : ""}`);
-    throw new Error(`The tests left ${survivors.length} process(es) running; they were killed now:\n${lines.join("\n")}`);
   };
 }
 

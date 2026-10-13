@@ -34,7 +34,7 @@ async function writeProjectFile(directory: string, file: unknown): Promise<void>
 
 interface FakeRun {
   options: ScriptSpawnOptions;
-  kill: ReturnType<typeof vi.fn>;
+  kill: ReturnType<typeof vi.fn<ScriptProcess["kill"]>>;
   output(text: string): void;
   exit(code: number | null, signal?: string | null): void;
 }

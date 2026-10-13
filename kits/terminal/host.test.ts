@@ -12,9 +12,9 @@ import { createTerminalHostClient, TERMINAL_HOST_EXTENSION_ID, TERMINAL_DATA_EVE
 
 interface FakePty {
   pty: PtyProcess;
-  write: ReturnType<typeof vi.fn>;
-  resize: ReturnType<typeof vi.fn>;
-  kill: ReturnType<typeof vi.fn>;
+  write: ReturnType<typeof vi.fn<PtyProcess["write"]>>;
+  resize: ReturnType<typeof vi.fn<PtyProcess["resize"]>>;
+  kill: ReturnType<typeof vi.fn<PtyProcess["kill"]>>;
   output(data: string): void;
   exit(code: number): void;
   options: Parameters<PtyFactory>[0];

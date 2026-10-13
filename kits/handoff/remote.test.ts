@@ -87,7 +87,7 @@ describe("Handoff Kit: continue on another machine and bring it back", () => {
   let rexReadiness: HostReadiness;
   let calls: Array<{ command: string; input: unknown }>;
   let abort: ReturnType<typeof vi.fn>;
-  let archive: ReturnType<typeof vi.fn>;
+  let archive: ReturnType<typeof vi.fn<() => Promise<object>>>;
   const registries: Registry[] = [];
 
   beforeEach(async () => {

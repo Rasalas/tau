@@ -529,7 +529,7 @@ describe("rewinding to a checkpoint", () => {
     const fixture = await rewindFixture({ leaseManager, checkoutTurns: async () => busy ? [{ sessionId: "foreign", title: "Another thread" }] : [] });
     const source = fixture.host.thread()!;
     const acquire = leaseManager.acquire.bind(leaseManager);
-    let release: ReturnType<typeof vi.fn>;
+    let release: ReturnType<typeof vi.fn<() => Promise<void>>>;
     vi.spyOn(leaseManager, "acquire").mockImplementation(async (cwd, options) => {
       const lease = await acquire(cwd, options);
       release = vi.fn(lease.release);
