@@ -8,7 +8,7 @@ import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput, type ClaudeQue
 import type { ClaudeSdkSession, ResultMessage, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend, promptContent } from "./thread-backend.js";
-import { ThreadBackgroundWork } from "../../src/main/thread-background-work.js";
+import { combinedBackgroundWork } from "../../src/main/test-support/thread-background-work.js";
 
 const directories: string[] = [];
 const WORKSPACE = process.cwd();
@@ -178,8 +178,7 @@ describe("thread runtime backends", () => {
     try {
       await backend.start("create");
       await backend.prompt({ text: "Review", delivery: "prompt" });
-      const registry = new ThreadBackgroundWork(() => backend.capabilities.background, () => undefined);
-      await registry.forThread("tau-thread")!.stop("task");
+      await combinedBackgroundWork(backend.capabilities.background!).stop("task");
       expect(sessions[0]!.stopTask).toHaveBeenCalledWith("task");
       expect(backend.state().idle).toBe(true);
     } finally { await backend.dispose(); }
