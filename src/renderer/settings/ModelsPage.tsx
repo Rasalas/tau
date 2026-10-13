@@ -71,7 +71,7 @@ export function ModelsPage({ snapshot, providersHere, onSetModel, onSetThinking,
         <SettingRow
           id={settingAnchor("Thinking level")}
           title="Thinking"
-          description="How much the model reasons before it answers. Shift-Tab cycles it in the composer."
+          description="How much the model reasons before it answers. The composer's thinking chip sets it too."
           disabledReason={threadDefaults}
           control={levels.length > 0
             ? <Select label="Thinking" value={snapshot?.thinkingLevel} options={levels.map((level) => ({ value: level, label: THINKING_LABELS[level] ?? level }))} onChange={onSetThinking} />

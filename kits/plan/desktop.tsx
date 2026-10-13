@@ -50,6 +50,7 @@ function PlanModeControl({ snapshot, actions }: ComposerControlProps) {
 
 /** While a thread plans, the footer says so beside the model; a click goes back to building. */
 function PlanningChip({ snapshot, actions }: ComposerControlProps) {
+  const { registry } = useWorkbenchShell();
   if (snapshot?.mode !== PLAN_MODE || !actions?.setMode) return null;
   const label = "Plan mode — click to return to build mode";
   return (
@@ -58,7 +59,7 @@ function PlanningChip({ snapshot, actions }: ComposerControlProps) {
       className="runtime-chip plan-mode-chip active"
       aria-pressed
       aria-label={label}
-      {...tooltipProps(label)}
+      {...tooltipProps(label, { shortcut: registry.keybindingLabel("plan.toggle") })}
       onClick={() => { void actions.setMode?.(DEFAULT_MODE); }}
     >
       <PencilRuler size={13} />
@@ -248,6 +249,8 @@ export const planKitExtension: DesktopExtension = {
         await actions.setMode(active.mode === PLAN_MODE ? DEFAULT_MODE : PLAN_MODE);
       },
     });
+    // As in T3 Code. Only in the composer's text field, so ⇧Tab keeps moving focus back in a dialog, a form and everywhere else.
+    plugin.registerKeybinding({ keys: "shift+tab", commandId: "plan.toggle", when: "composerFocus && editableFocus && !overlayOpen" });
   },
 };
 

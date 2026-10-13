@@ -8,3 +8,6 @@
 .access-permissions > li > h3 > svg { flex: none; color: var(--muted); }
 .access-permissions > li > p { margin: var(--space-2) 0 0; font: var(--text-sm)/1.45 var(--sans); color: var(--ink-3); }
 .access-permissions-note { margin: 0; font: var(--text-sm)/1.5 var(--sans); color: var(--muted); }
+
+/* A phone's footer is short of width: the default level shows its lock alone; the button's label names it. */
+:root[data-device="phone"] .composer-access-status.access-full .composer-access-label { display: none; }

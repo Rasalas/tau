@@ -88,6 +88,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+shift+enter` | `!terminalFocus` | `thread.steerQueuedMessage` | Send the oldest queued message now | core |
 | `mod+shift+e` | `!terminalFocus` | `composer.effort` | Reasoning menu | core |
 | `mod+shift+a` | `!terminalFocus` | `composer.mode` | Access menu | Access |
+| `shift+tab` | `composerFocus && editableFocus && !overlayOpen` | `plan.toggle` | Switch between plan and build mode, with the caret in the prompt | Plan |
 | `mod+shift+x` | `!terminalFocus` | `composer.workspace` | Where the thread runs | Workspace |
 | `mod+shift+g` | `!terminalFocus` | `composer.branch` | Branch picker | Workspace |
 | `mod+alt+t` | | `runtime.transcript-detail` | Cycle transcript detail | core |
@@ -96,7 +97,6 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+\` | | `workbench.split-stage` | Split or join the stage | core |
 | `mod+shift+\` | | `workbench.toggle-spine` | Collapse the conversation to its spine, or open it | core |
 | `ctrl+p` | `composerFocus` | `runtime.cycle-model` | Next model (Pi's chord) | core |
-| `shift+tab` | | `runtime.cycle-thinking` | Next thinking level | core |
 | `ctrl+g` | | `runtime.open-prompt-editor` | Prompt in `$EDITOR` | core |
 | `mod+alt+1` | | `workbench.focus-composer` | Focus the composer | core |
 | `mod+alt+2` | | `workbench.focus-transcript` | Focus the transcript | core |
@@ -197,8 +197,14 @@ latest", beside Copy and Paste.
   Shift. It opens the panel in front as a stage tab beside the chat, or moves
   it back.
 - `composer.mode` opens Access Kit's menu, since a runtime's mode is Tau's
-  access level. Plan mode is Plan Kit's `plan.toggle`, without a chord: ⇧Tab
-  in the composer is Pi's thinking-level cycle.
+  access level; the access chip before the model, shown at every level, opens
+  the same menu. Plan mode is Plan Kit's `plan.toggle` on ⇧Tab, as in T3 Code,
+  but only with the caret in the prompt: in a form, a dialog, a menu, a
+  terminal, the Files editor or on a footer button ⇧Tab still moves focus
+  back. The thinking level has no default chord (`runtime.cycle-thinking` is
+  in the palette); ⌘⇧E opens its menu. A `keybindings.json` that binds Pi's
+  `app.thinking.cycle` to `shift+tab` gives ⇧Tab back to the thinking level,
+  everywhere: the file wins over the default.
 - `composer.*` commands click the composer control that carries their id in
   `data-composer-shortcut`; a control another kit draws can answer the same way.
   The attribute is a space-separated list, matched with `~=`: when a narrow
