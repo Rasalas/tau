@@ -193,7 +193,7 @@ export function Composer({
   onAnswerPrompt?(value: string | boolean, typed?: boolean, attachments?: UiPromptAttachment[]): void;
   onCancelPrompt?(): void;
   onCompactContext(): void;
-  /** An extension is changing the workspace; submitting would target the wrong thread. */
+  /** Submitting would go wrong now: an extension is changing the workspace, or the draft's runtime cannot start a thread. */
   held?: boolean;
   onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   /** Opens the current draft in an external editor via workspace extension. */

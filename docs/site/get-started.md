@@ -37,7 +37,7 @@ Tau uses the tools and sign-ins you already have. It never copies a login from o
 
 1. Press <kbd>⌘</kbd><kbd>N</kbd> (<kbd>Ctrl</kbd><kbd>N</kbd> on Windows and Linux), or the **+** above the thread list, and pick a project.
 2. Under the new thread's heading, choose where it runs and on which branch. A branch of its own gets a Git worktree of its own, so the thread doesn't touch your checkout.
-3. Pick the runtime and model in the composer, type what you want done, and send.
+3. Type what you want done and send. The thread starts on the first runtime that is signed in, unless you pick one: the runtime and model are chips in the composer. A runtime that is signed out says so over the composer, with a button to its card in Settings → Providers.
 4. Open **Terminal** or **Files** at the top right of the thread to watch the work.
 5. When the thread is done, its branch waits in **Reviews** at the foot of the sidebar. Merge it, or send it back with a note.
 

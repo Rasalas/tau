@@ -3,6 +3,7 @@ import { ChevronDown, Plus, Sparkles } from "lucide-react";
 import type { HostSnapshot } from "../../shared/contracts";
 import { usePreferences } from "../renderer-services-context";
 import { effectiveNewThreadRuntime } from "../new-thread-runtime";
+import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import { ModelPicker, modelKey } from "../components/ModelPicker";
 import { AddModelProviderModal } from "../components/AddModelProviderModal";
 import { ProviderIconStack } from "../components/ProviderIconStack";
@@ -35,7 +36,8 @@ export function ModelsPage({ snapshot, providersHere, onSetModel, onSetThinking,
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const preferences = usePreferences();
   const { newThreadRuntime: runtimePreference } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot);
+  const catalogs = useRuntimeCatalogs(true, false);
+  const newThreadRuntime = effectiveNewThreadRuntime(runtimePreference, snapshot, catalogs);
   // Model and thinking are the host's; a Read-only device starts no thread to pick them for.
   const { readOnly } = useHostCapabilities();
   const threadDefaults = readOnly ? READ_ONLY_REASON : undefined;

@@ -32,6 +32,7 @@ import { ProvidersPage, providerCardId } from "./ProvidersPage";
 import { RuntimesPage } from "./RuntimesPage";
 import { inRuntimeOrder } from "../runtime-order";
 import { effectiveNewThreadRuntime } from "../new-thread-runtime";
+import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import "./settings.css";
 
 function projectName(path?: string): string {
@@ -124,6 +125,7 @@ export function SettingsScreen({
 }) {
   const preferences = usePreferences();
   const client = useHostClient();
+  const catalogs = useRuntimeCatalogs(true, false);
   const { readOnly } = useHostCapabilities();
   const appPages = useAppPageStore();
   // Past an app page Settings was opened over, too.
@@ -316,7 +318,7 @@ export function SettingsScreen({
     };
   }, [onClose]);
 
-  const runtimeLabel = snapshot?.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, snapshot))?.label;
+  const runtimeLabel = snapshot?.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, snapshot, catalogs))?.label;
   const navItems: NavItem[] = [
     ...CORE_SETTINGS_PAGES
       // A phone has no keys to bind (design 1s).

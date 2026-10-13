@@ -3,6 +3,7 @@ import { Clock, RotateCcw, TriangleAlert } from "lucide-react";
 import type { UiThreadLimit } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
 import { errorMessage } from "../../workbench/error-message";
+import type { NewThreadSetup } from "../new-thread-runtime";
 import { noticeHeadline } from "./notice-text";
 import { providerLabel } from "./ProviderIconStack";
 // Loaded with the bar: a failed turn is rare, so its styles stay out of the first paint.
@@ -31,6 +32,7 @@ export interface ComposerNoticeProps {
   provider?: string | undefined;
   onRetry?: (() => void) | undefined;
   onSwitchModel?: (() => void) | undefined;
+  /** Opens Settings → Providers, for a refused key and for a thread with no model. */
   onReplaceKey(): void;
 }
 
@@ -66,6 +68,13 @@ function ErrorBar({ error = "", provider, onRetry, onSwitchModel, onReplaceKey }
   const retry = onRetry ? <button type="button" className="primary" onClick={onRetry}><RotateCcw size={12} aria-hidden="true" />Retry</button> : null;
   const alert = <TriangleAlert size={12} aria-hidden="true" />;
   const detail = <span title={text === error.trim() ? undefined : error}>{text}</span>;
+  // Pi's own words point at /login and its docs folder; neither exists in Tau. Checked first: they also say "API key".
+  if (/no models? (?:selected|available)/iu.test(text)) {
+    return <Bar tone="fail" icon={alert} title="No model selected" text={<span title={error}>Sign in to a provider or add an API key under Providers, then pick a model.</span>}>
+      <SwitchModel onSwitchModel={onSwitchModel} />
+      <button type="button" className="primary" onClick={onReplaceKey}>Open Providers</button>
+    </Bar>;
+  }
   if (/could not authenticate|failed to authenticate|authentication_failed|OAuth session expired|not logged in/iu.test(error)) {
     return <Bar tone="fail" icon={alert} title="Sign in again" text={detail}>
       <SwitchModel onSwitchModel={onSwitchModel} />
@@ -114,5 +123,28 @@ function LimitBar({ sessionId, limit, provider, onSwitchModel }: ComposerNoticeP
     {limit.resumeAt !== undefined
       ? <button type="button" className="secondary" disabled={busy} onClick={() => resume("cancel")}>Don’t wait</button>
       : future ? <button type="button" className="secondary" disabled={busy} onClick={() => resume("reset")}>Wait</button> : null}
+  </Bar>;
+}
+
+const SETUP_COPY = {
+  "signed-out": { title: (label: string) => `${label} is signed out`, text: "Sign in on its card in Providers to start a thread, or pick another runtime.", open: "Sign in" },
+  "not-installed": { title: (label: string) => `${label} is not installed`, text: "Set it up on its card in Providers, or pick another runtime.", open: "Set up" },
+} as const;
+
+/** Over a new thread's composer: what is missing before it can start, and the way to it. The send button waits. */
+export function SetupNotice({ setup, onOpen, onSwitchRuntime }: { setup: NewThreadSetup; onOpen(): void; onSwitchRuntime?: (() => void) | undefined }) {
+  const alert = <TriangleAlert size={12} aria-hidden="true" />;
+  if (setup.state === "none") {
+    return <Bar tone="warn" icon={alert} title="No provider is set up yet" text="Sign in to a runtime or add an API key under Providers to start a thread.">
+      <button type="button" className="primary" onClick={onOpen}>Open Providers</button>
+    </Bar>;
+  }
+  // Pi signs in to no account of its own: what it lacks is a model provider.
+  const copy = setup.backend.kind === "pi" && setup.state === "signed-out"
+    ? { title: () => "Pi has no model provider yet", text: "Add an API key or sign in to a provider in Providers, or pick another runtime.", open: "Add a provider" }
+    : SETUP_COPY[setup.state];
+  return <Bar tone="warn" icon={alert} title={copy.title(setup.backend.label)} text={copy.text}>
+    {onSwitchRuntime ? <button type="button" onClick={onSwitchRuntime}>Switch runtime</button> : null}
+    <button type="button" className="primary" onClick={onOpen}>{copy.open}</button>
   </Bar>;
 }

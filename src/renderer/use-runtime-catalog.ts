@@ -32,11 +32,13 @@ export function useRuntimeCatalog(kind: ThreadBackendKind | undefined): RuntimeC
 /**
  * Every runtime's catalog while `open` (a picker is open): opening fetches what
  * is missing and has the host revalidate; closed, nothing re-renders for them.
+ * `revalidate: false` takes what the host holds and no more, for a screen that
+ * only needs to know which runtime is ready.
  */
-export function useRuntimeCatalogs(open: boolean): ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> {
+export function useRuntimeCatalogs(open: boolean, revalidate = true): ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> {
   const client = useHostClient();
   const store = open ? runtimeCatalogStore(client) : undefined;
-  useEffect(() => { void store?.refresh(); }, [store]);
+  useEffect(() => { void store?.refresh(revalidate); }, [revalidate, store]);
   return useSyncExternalStore(store?.subscribe ?? idle, () => store?.all() ?? NONE);
 }
 
