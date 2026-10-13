@@ -83,6 +83,22 @@ it("keeps one row for an agent SendMessage resumes", () => {
   expect(agents.owns("resume")).toBe(false);
 });
 
+it("ends an agent resumed after a restart in one row, though its replies name the first launch", () => {
+  // As CLI 2.1.296 sends it: the replies carry the first launch's id and the task as `agent_id`.
+  const agents = new ClaudeNativeAgents();
+  agents.push({ type: "assistant", message: { content: [{ type: "tool_use", id: "resume", name: "SendMessage", input: { to: "a", message: "Again" } }] } });
+  agents.push({ type: "system", subtype: "task_started", task_id: "a", tool_use_id: "resume", task_type: "local_agent", is_backgrounded: true, description: "Agent A" });
+  // SendMessage's own answer still belongs to the main loop.
+  expect(agents.push({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "resume", content: "Resuming agent a" }] } })).toEqual([]);
+  expect(agents.ownsResult("resume")).toBe(false);
+  const reply = agents.push({ type: "assistant", parent_tool_use_id: "launch", agent_id: "a", task_description: "Agent A", message: { id: "second", content: [{ type: "text", text: "A_SECOND" }] } });
+  expect(reply.at(-1)).toMatchObject({ tool: { id: "native-agent:claude-code:resume", output: "A_SECOND" } });
+  const done = agents.push({ type: "system", subtype: "task_notification", task_id: "a", tool_use_id: "resume", status: "completed" });
+  expect(done.at(-1)).toMatchObject({ tool: { id: "native-agent:claude-code:resume", status: "done" } });
+  expect(agents.owns("launch")).toBe(false);
+  expect(agents.tracker.busy).toBe(false);
+});
+
 it("names a subagent whose launch it missed by the task its frames carry", () => {
   const agents = new ClaudeNativeAgents();
   const child = agents.push({ type: "assistant", parent_tool_use_id: "earlier", subagent_type: "Explore", task_description: "Find the parser", message: { id: "reply", content: [{ type: "text", text: "Found it" }] } });

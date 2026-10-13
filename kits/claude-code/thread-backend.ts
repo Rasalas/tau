@@ -626,7 +626,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if ((frame.type === "assistant" || frame.type === "user") && Array.isArray(frame.message.content)) {
       frame = { ...frame, message: { ...frame.message, content: frame.message.content.filter((block) => {
         if (block.type === "tool_use") return block.name !== "Agent" && block.name !== "Task";
-        if (block.type === "tool_result") return !this.nativeAgents.owns(block.tool_use_id);
+        if (block.type === "tool_result") return !this.nativeAgents.ownsResult(block.tool_use_id);
         return true;
       }) } } as typeof frame;
     }
