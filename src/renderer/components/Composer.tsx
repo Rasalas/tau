@@ -983,7 +983,8 @@ export function Composer({
   }
 
   return (
-    <footer className="composer-zone" data-keybinding-context="composer">
+    // `question`: the agent awaits an answer; a chord for the prompt field (Plan's Shift+Tab) stands back.
+    <footer className="composer-zone" data-keybinding-context={prompt ? "composer question" : "composer"}>
       <div className="composer-surface" data-composer-surface="true">
       {prompt ? (() => {
         // An extension that recognises the prompt draws it; core draws the four dialogs.

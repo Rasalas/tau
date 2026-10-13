@@ -313,7 +313,10 @@ come from the page when the key goes down. Mark an element
 `data-keybinding-context="<name>"` (several names may be space-separated) and
 `<name>Focus` holds while the keyboard is inside it, `<name>Open` while one is
 drawn (`src/renderer/keybinding-context.ts`). Core marks `chat` (the
-transcript and the composer), `composer`, `stage` and `modelPicker`; Terminal
+transcript and the composer), `composer`, `stage` and `modelPicker`, and
+`question` on the composer while the agent waits for an answer (new in API
+1.61.0), so a chord for the prompt field can stand back with `!questionFocus`;
+Plan Kit marks `plan` while the thread's runtime offers plan mode; Terminal
 Kit marks `terminal`, Files Kit's editor `editor` and Preview Kit's panel
 `preview`. Two contexts nothing marks: `editableFocus` (new in API 1.11.0)
 holds while a text field, a select or anything `contenteditable` has the

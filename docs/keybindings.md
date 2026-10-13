@@ -48,8 +48,10 @@ empty list for a command a Pi action still names.
 Contexts: `chatFocus` (the transcript and the composer), `terminalFocus`,
 `editorFocus`, `previewFocus`, `composerFocus`, `stageFocus`,
 `modelPickerFocus`, and the matching `…Open` (`modelPickerOpen`,
-`terminalOpen`, …). `editableFocus` holds while any text field, select or
-`contenteditable` element has the keyboard; `overlayOpen` while a menu,
+`terminalOpen`, …). `questionFocus` holds in the composer while the agent waits
+for an answer (a question or an approval), in the card's own fields and in the
+prompt field that answers it. `editableFocus` holds while any text field,
+select or `contenteditable` element has the keyboard; `overlayOpen` while a menu,
 popover, picker, dialog, sheet or app page (Usage, Pull requests) is open.
 `isDesktop` holds in the Electron window and not in a browser tab, on a phone
 or on a tablet (see "In a browser tab" below). Any extension can add its own with
@@ -90,7 +92,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+shift+enter` | `!terminalFocus` | `thread.steerQueuedMessage` | Send the oldest queued message now | core |
 | `mod+shift+e` | `!terminalFocus` | `composer.effort` | Reasoning menu | core |
 | `mod+shift+a` | `!terminalFocus` | `composer.mode` | Access menu | Access |
-| `shift+tab` | `composerFocus && editableFocus && !overlayOpen` | `plan.toggle` | Switch between plan and build mode, with the caret in the prompt | Plan |
+| `shift+tab` | `composerFocus && editableFocus && !overlayOpen && planOpen && !questionFocus` | `plan.toggle` | Switch between plan and build mode, with the caret in the prompt of a thread whose runtime offers plan mode | Plan |
 | `mod+shift+x` | `!terminalFocus` | `composer.workspace` | Where the thread runs | Workspace |
 | `mod+shift+g` | `!terminalFocus` | `composer.branch` | Branch picker | Workspace |
 | `mod+alt+t` | | `runtime.transcript-detail` | Cycle transcript detail | core |
@@ -228,12 +230,14 @@ latest", beside Copy and Paste.
 - `composer.mode` opens Access Kit's menu, since a runtime's mode is Tau's
   access level; the access chip before the model, shown at every level, opens
   the same menu. Plan mode is Plan Kit's `plan.toggle` on ⇧Tab, as in T3 Code,
-  but only with the caret in the prompt: in a form, a dialog, a menu, a
-  terminal, the Files editor or on a footer button ⇧Tab still moves focus
-  back. The thinking level has no default chord (`runtime.cycle-thinking` is
-  in the palette); ⌘⇧E opens its menu. A `keybindings.json` that binds Pi's
-  `app.thinking.cycle` to `shift+tab` gives ⇧Tab back to the thinking level,
-  everywhere: the file wins over the default.
+  but only with the caret in the prompt of a thread whose runtime offers plan
+  mode (Plan Kit marks the composer `planOpen` then, and not on a device paired
+  Read only): in a form, a dialog, a menu, a terminal, the Files editor, on a
+  footer button, in a runtime without plan mode or while a question waits for
+  its answer ⇧Tab still moves focus back. The thinking level has no default
+  chord (`runtime.cycle-thinking` is in the palette); ⌘⇧E opens its menu. A
+  `keybindings.json` that binds Pi's `app.thinking.cycle` to `shift+tab` gives
+  ⇧Tab back to the thinking level, everywhere: the file wins over the default.
 - `composer.*` commands click the composer control that carries their id in
   `data-composer-shortcut`; a control another kit draws can answer the same way.
   The attribute is a space-separated list, matched with `~=`: when a narrow
