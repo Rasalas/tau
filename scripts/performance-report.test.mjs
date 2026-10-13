@@ -228,6 +228,28 @@ describe("performance report checks", () => {
     expect(evaluateRendererBudgets({ scenarios: [{ ...scenario, streamEndCommitMs: { median: 2.3, p95: 3, maximum: 3.1 } }] }, budgets)).toEqual([]);
   });
 
+  it("holds the fully scrolled file stack to its DOM and heap budgets", () => {
+    const scenario = {
+      id: "diff-stack-300-files",
+      longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 17 },
+      mountDurationsMs: { p95: 2 },
+      longTasksMs: { maximum: 0 },
+      updateDurationsMs: { p95: 8 },
+      domNodes: 9_000,
+      heapBytes: { maximum: 100 * 1024 * 1024 },
+    };
+    const budgets = { rendererDomNodes: 5_000, rendererScenarioBudgets: { "diff-stack-300-files": { domNodes: 10_000, heapBytes: 128 * 1024 * 1024 } } };
+    expect(evaluateRendererBudgets({ scenarios: [scenario] }, budgets)).toEqual([]);
+    expect(evaluateRendererBudgets({ scenarios: [{ ...scenario, domNodes: 10_001, heapBytes: { maximum: 134217729 } }] }, budgets)).toEqual([
+      "diff-stack-300-files DOM nodes 10001 > 10000",
+      "diff-stack-300-files heap bytes 134217729 > 134217728",
+    ]);
+    expect(evaluateRendererBudgets({ scenarios: [{ ...scenario, heapBytes: undefined }] }, budgets)).toEqual([
+      "diff-stack-300-files heap bytes was not reported by the renderer fixture",
+    ]);
+  });
+
   it("keeps documented renderer budgets aligned with the release gate", async () => {
     const [budgetText, documentation] = await Promise.all([
       readFile(new URL("./performance-budgets.json", import.meta.url), "utf8"),

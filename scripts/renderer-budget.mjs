@@ -19,8 +19,11 @@ export function evaluateRendererBudgets(report, budgets) {
       ["mount p95", scenario.mountDurationsMs?.p95, scenarioBudget.mountP95Ms ?? budgets.rendererMountP95Ms, "ms", scenario.mountDurationsMs],
       ["long task", scenario.longTasksMs?.maximum, scenarioBudget.longTaskMs ?? budgets.rendererLongTaskMs, "ms", scenario.longTasksMs],
       ["commit p95", scenario.updateDurationsMs?.p95 ?? scenario.commitDurationsMs?.p95, scenarioBudget.commitP95Ms ?? budgets.rendererCommitP95Ms, "ms", scenario.updateDurationsMs ?? scenario.commitDurationsMs],
-      ["DOM nodes", scenario.domNodes, budgets.rendererDomNodes, "", undefined],
+      ["DOM nodes", scenario.domNodes, scenarioBudget.domNodes ?? budgets.rendererDomNodes, "", undefined],
     ];
+    if (scenarioBudget.heapBytes !== undefined) {
+      measurements.push(["heap bytes", scenario.heapBytes?.maximum, scenarioBudget.heapBytes, "", undefined]);
+    }
     // A scenario that ends its stream reports the end commit: the whole reparse used to land there.
     if (scenario.fixture?.streamEnd || scenario.streamEndCommitMs) {
       measurements.push(["stream end commit p95", scenario.streamEndCommitMs?.p95, budgets.rendererStreamEndCommitMs, "ms", scenario.streamEndCommitMs]);

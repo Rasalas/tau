@@ -13,6 +13,7 @@ import { ExtensionRegistry } from "./extension-system";
 import ActivityStreamScenario from "./RendererBenchmarkActivityStream";
 import AppToolStreamScenario from "./RendererBenchmarkApp";
 import ComposerTypingScenario from "./RendererBenchmarkComposer";
+import DiffStackScenario from "./RendererBenchmarkDiffStack";
 import "./renderer-benchmark.css";
 
 /**
@@ -61,6 +62,7 @@ interface BenchmarkResult {
   domNodes: number;
   heapBytes?: number;
   payloadBytes?: number;
+  stackVisitedFiles?: number;
   longMessageInteraction?: { mode: "expand" | "prop-update"; expanded: boolean; contentBytes: number };
   /** Streaming flips off after the last delta: commit, first painted frame, and deferred work done. */
   streamEnd?: { commitMs: number; paintMs: number; settleMs: number; contentBytes: number };
@@ -241,7 +243,7 @@ function makeLongUserMessage(bytes: number, revision: number): UiMessage {
 export default function RendererBenchmark() {
   const params = new URLSearchParams(window.location.search);
   const scenario = params.get("scenario") ?? "markdown-code-stream-150kb";
-  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; activities?: number; items?: number; streamEnd?: boolean; updates?: number; linesPerUpdate?: number; chars?: number; chips?: number };
+  const scenarioConfig = JSON.parse(params.get("config") ?? "{}") as { bytes?: number; turns?: number; activities?: number; items?: number; files?: number; lines?: number; streamEnd?: boolean; updates?: number; linesPerUpdate?: number; chars?: number; chips?: number };
   const targetBytes = scenarioConfig.bytes ?? 0;
   const fenced = scenario.includes("fenced");
   const fencedText = useMemo(() => fenced ? fencedDocument(targetBytes) : "", [fenced, targetBytes]);
@@ -264,6 +266,13 @@ export default function RendererBenchmark() {
   const [benchmarkPulse, setBenchmarkPulse] = useState(0);
   const [longUserRevision, setLongUserRevision] = useState(0);
   const payloadBytes = useRef(0);
+  const stackVisitedFiles = useRef<number | undefined>(undefined);
+  const finishStack = useCallback((visited: number) => {
+    stackVisitedFiles.current = visited;
+    updateStartedAt.current = performance.now();
+    setBenchmarkPulse((pulse) => pulse + 1);
+    finishRef.current?.();
+  }, []);
   const longMessageInteraction = useRef<BenchmarkResult["longMessageInteraction"]>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const registry = useMemo(() => new ExtensionRegistry(), []);
@@ -392,6 +401,7 @@ export default function RendererBenchmark() {
           domNodes: document.getElementsByTagName("*").length,
           heapBytes: memory.memory?.usedJSHeapSize,
           payloadBytes: payloadBytes.current || undefined,
+          stackVisitedFiles: stackVisitedFiles.current,
           longMessageInteraction: longMessageInteraction.current,
           streamEnd: streamEnd.current,
         };
@@ -501,7 +511,7 @@ export default function RendererBenchmark() {
           });
         });
       });
-    } else if (scenario === "app-tool-output-stream" || scenario === "transcript-activity-stream-2000-turns" || scenario.startsWith("composer-typing")) {
+    } else if (scenario === "app-tool-output-stream" || scenario === "transcript-activity-stream-2000-turns" || scenario.startsWith("composer-typing") || scenario === "diff-stack-300-files") {
       // The scenario drives itself and calls back; see RendererBenchmarkApp and RendererBenchmarkComposer.
       finishRef.current = finish;
     } else if (scenario === "transcript-viewport-streaming-1000-turns") {
@@ -597,6 +607,8 @@ export default function RendererBenchmark() {
     />;
   } else if (scenario === "long-user-message") {
     content = <Message message={longUserMessage!} />;
+  } else if (scenario === "diff-stack-300-files") {
+    content = <DiffStackScenario files={scenarioConfig.files ?? 300} lines={scenarioConfig.lines ?? 150} onFinished={finishStack} />;
   } else {
     content = <DiffView diff={diff!} mode="unified" />;
   }

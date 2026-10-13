@@ -20,7 +20,7 @@ export interface StackFile {
 }
 
 export { BOUNDED_LINES } from "./diff-stack-constants";
-/** How far below the viewport a file is fetched and drawn. */
+/** How far outside the viewport a file is fetched and drawn. */
 const AHEAD = "900px";
 
 const lineCount = (diff: UiFileDiff) => diff.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
@@ -120,10 +120,26 @@ export function DiffStack({ files, layout, wrap, diffs, read, version, lines, ex
   const [near, setNear] = useState<ReadonlySet<string>>(() => new Set());
   const paths = useMemo(() => files.map((file) => file.path), [files]);
   const sections = useRef(new Map<string, HTMLElement>());
+  const bodies = useRef(new Map<string, HTMLElement>());
+  const heights = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    const kept = new Set(paths);
+    for (const path of heights.current.keys()) if (!kept.has(path)) heights.current.delete(path);
+    setNear((current) => new Set([...current].filter((path) => kept.has(path))));
+  }, [paths]);
 
   useOnScreen(scroll, paths, { rootMargin: `${AHEAD} 0px` }, (path, visible) => {
-    if (!visible) return;
-    setNear((current) => current.has(path) ? current : new Set(current).add(path));
+    if (!visible) {
+      const height = bodies.current.get(path)?.getBoundingClientRect().height;
+      if (height !== undefined && height > 0) heights.current.set(path, height);
+    }
+    setNear((current) => {
+      if (current.has(path) === visible) return current;
+      const next = new Set(current);
+      if (visible) next.add(path); else next.delete(path);
+      return next;
+    });
   });
   // The file at the top of the page is the first of those in its top fifth.
   const band = useRef(new Set<string>());
@@ -179,9 +195,11 @@ export function DiffStack({ files, layout, wrap, diffs, read, version, lines, ex
                 </button>
               ) : null}
             </header>
-            {closed ? null : body?.(file) ?? (drawn
-              ? <FileBody path={file.path} diff={diffs?.get(file.path)} read={read} version={version} layout={layout} wrap={wrap} lines={lines?.(file.path)} unavailable={unavailable} onLoadMore={onLoadMore ? () => onLoadMore(file.path) : undefined} context={context} find={find} />
-              : <div className="rvd-loading" style={{ height: guess(file) }} aria-hidden="true" />)}
+            {closed ? null : drawn
+              ? <div ref={(element) => { if (element) bodies.current.set(file.path, element); else bodies.current.delete(file.path); }}>
+                {body?.(file) ?? <FileBody path={file.path} diff={diffs?.get(file.path)} read={read} version={version} layout={layout} wrap={wrap} lines={lines?.(file.path)} unavailable={unavailable} onLoadMore={onLoadMore ? () => onLoadMore(file.path) : undefined} context={context} find={find} />}
+              </div>
+              : <div className="rvd-loading" style={{ height: heights.current.get(file.path) ?? guess(file), minHeight: 0 }} aria-hidden="true" />}
           </section>
         );
       })}

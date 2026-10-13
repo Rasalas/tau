@@ -24,6 +24,10 @@
   "rendererCommitP95Ms": 24,
   "rendererStreamEndCommitMs": 16,
   "rendererScenarioBudgets": {
+    "diff-stack-300-files": {
+      "domNodes": 10000,
+      "heapBytes": 134217728
+    },
     "transcript-1000-turns": {
       "mountP95Ms": 40,
       "longTaskMs": 60
@@ -78,6 +82,7 @@
     "transcript-1000-turns",
     "transcript-activity-stream-2000-turns",
     "diff-2mb",
+    "diff-stack-300-files",
     "thread-shells-10000",
     "workspace-files-10000",
     "picker-catalog-10000",

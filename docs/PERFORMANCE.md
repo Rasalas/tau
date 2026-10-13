@@ -303,6 +303,14 @@ The budget for the kits' desktop halves rises from 3,100,000 to 3,200,000 bytes.
 
 ## Interaction budgets
 
+The `diff-stack-300-files` renderer scenario scrolls through all 300 files of
+150 changed lines in the real `DiffStack`, waiting for each file's rows before
+advancing. Its final DOM budget is 10,000 elements, including all 300 headers
+and height placeholders, and its heap budget is 128 MiB. The fixture rejects
+incomplete traversal, and the budget check rejects a missing heap measurement.
+These are limits to verify, not a measured baseline; the existing `diff-2mb`
+scenario exercises one `DiffView` and does not cover this stack.
+
 Initial local targets:
 
 - `transcript-activity-stream-2000-turns` uses the real thread store and activity hook with 4,000 messages, 1,000 historical tool groups and 40 deltas totalling 150 KB while the viewport stays on turn 5. It uses the default renderer budgets and is a required scenario. Text-only deltas retain the historical groups; message membership, anchor metadata and empty-to-text transitions invalidate their placement index.
