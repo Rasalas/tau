@@ -1,4 +1,4 @@
-# ADR 0040: Remote code stays out of native clients
+# ADR 0041: Remote code stays out of native clients
 
 Accepted, 2026-10-13. Amends [ADR 0025](0025-a-window-follows-the-threads-machine.md)
 and the trusted workbench model in [ADR 0020](0020-host-command-authority.md).

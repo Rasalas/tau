@@ -3,7 +3,7 @@
 ## Status
 
 Accepted, 2026-09-24. Partly superseded by
-[ADR 0040](0040-remote-code-stays-out-of-native-clients.md) (2026-10-13):
+[ADR 0041](0041-remote-code-stays-out-of-native-clients.md) (2026-10-13):
 native clients accept only remote bundles matching their own shipped kits,
 execute their local copies and refuse remote calls into local window halves.
 Partly superseded by
