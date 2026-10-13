@@ -45,6 +45,7 @@ export const SHOW_HTML_PAGE_DESCRIPTION = [
  */
 export function showHtmlPageTool(show: (input: ShowInput) => Promise<ShownPage>): AnyTool {
   const tool: ToolDefinition<typeof parameters, undefined> = {
+    annotations: { readOnlyHint: true },
     name: SHOW_HTML_PAGE_TOOL,
     label: SHOW_HTML_PAGE_TOOL,
     description: SHOW_HTML_PAGE_DESCRIPTION,

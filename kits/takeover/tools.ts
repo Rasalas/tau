@@ -58,6 +58,7 @@ const ANSWERS: Record<TakeoverOutcome, { text: string; isError?: true; terminate
  */
 export function requestTakeoverTool(request: Request): AnyTool {
   const tool: ToolDefinition<typeof parameters, undefined> = {
+    annotations: { readOnlyHint: false },
     name: REQUEST_TAKEOVER_TOOL,
     label: REQUEST_TAKEOVER_TOOL,
     description: "Get human help with sign-in, 2FA, captchas or consent. Waits for completion or cancellation; stop if cancelled. Never enter passwords yourself or ask for them in chat.",

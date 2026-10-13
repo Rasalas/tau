@@ -259,6 +259,7 @@ export function registerThreadLinks(
 
   const tools = (session: RuntimeSessionInfo): HostMcpTool[] => [
     {
+      annotations: { readOnlyHint: false },
       name: "link_pull_request",
       label: "Link pull request",
       description: "Track a pull or merge request worked on in this thread and show its status beside the conversation. Does not create the request.",
@@ -271,6 +272,7 @@ export function registerThreadLinks(
       },
     },
     {
+      annotations: { readOnlyHint: false },
       name: "unlink_pull_request",
       label: "Unlink pull request",
       description: "Remove an incorrect pull or merge request association from this thread. Does not close or delete the request.",
@@ -284,6 +286,7 @@ export function registerThreadLinks(
       },
     },
     {
+      annotations: { readOnlyHint: true },
       name: "list_thread_pull_requests",
       label: "List thread pull requests",
       description: "Check which pull or merge requests this thread tracks and their last known state.",

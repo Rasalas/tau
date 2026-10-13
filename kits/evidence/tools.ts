@@ -23,6 +23,7 @@ const parameters = Type.Object({
  */
 export function attachEvidenceTool(attach: Attach): AnyTool {
   const tool: ToolDefinition<typeof parameters, undefined> = {
+    annotations: { readOnlyHint: true },
     name: ATTACH_EVIDENCE_TOOL,
     label: ATTACH_EVIDENCE_TOOL,
     description: "Show the user visual evidence of a change or bug with a captioned screenshot. Captures the current preview or driven window, not a saved image.",

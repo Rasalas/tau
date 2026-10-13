@@ -32,6 +32,8 @@ const READ_ONLY_COMPUTER_USE_TOOLS = new Set([
 const RESERVED_READ_TOOLS = new Set(["read", "grep", "find", "ls", "tool_search"]);
 const RESERVED_PREFIXES = ["computer_use_", "tau_"];
 
+const INPUT_DEPENDENT_TOOLS = new Set(["tau_background_tasks", "computer_use_check_permissions", "computer_use_page", "computer_use_browser_dialog"]);
+
 /** What a tool says about itself, in the meaning of MCP tool annotations. */
 export interface ToolHints {
   readOnlyHint?: boolean;
@@ -79,11 +81,14 @@ export function toolMetadataOf(
   try { tools = getAllTools(); } catch { return { origin: "foreign" }; }
   const tool = tools.find((candidate) => candidate.name === toolName);
   if (!tool) return undefined;
-  return { origin: isTauOwned(tool) ? "tau" : "foreign", ...(tool.annotations ? { annotations: tool.annotations } : {}) };
+  const owned = isTauOwned(tool);
+  const annotations = tool.annotations ?? (owned && (tool.sourceInfo?.source === "builtin" || RESERVED_READ_TOOLS.has(toolName))
+    ? { readOnlyHint: RESERVED_READ_TOOLS.has(toolName) } : undefined);
+  return { origin: owned ? "tau" : "foreign", ...(annotations ? { annotations } : {}) };
 }
 
 function mutatesByName(toolName: string, input: Record<string, unknown>): boolean {
-  if (toolName === "tau_background_tasks") return input.action === "stop";
+  if (toolName === "tau_background_tasks") return input.action !== "list" && input.action !== "read";
   if (MUTATING_TOOLS.has(toolName)) return true;
   if (!toolName.startsWith("computer_use_")) return false;
 
@@ -96,18 +101,20 @@ function mutatesByName(toolName: string, input: Record<string, unknown>): boolea
 }
 
 /**
- * The one classification behind every gate. Tau's own tools keep the name policy; a
+ * The one classification behind every gate. Tau's own tools declare their effects; a
  * tool from elsewhere runs unasked only when its own hint says read-only and it takes
- * no name Tau or Pi owns. A hint that says "mutates" is believed from anyone.
+ * no name Tau or Pi owns. Tau's mixed tools classify their individual operations.
  */
 export function isMutatingToolCall(
   toolName: string,
   input: Record<string, unknown>,
   metadata: ToolMetadata = { origin: "tau" },
 ): boolean {
-  if (mutatesByName(toolName, input)) return true;
   const hints = metadata.annotations;
-  if (hints?.destructiveHint === true || hints?.readOnlyHint === false) return true;
+  if (hints?.destructiveHint === true) return true;
+  // Mixed tools advertise writes, but their inspection calls stay available.
+  if (metadata.origin === "tau" && INPUT_DEPENDENT_TOOLS.has(toolName)) return mutatesByName(toolName, input);
+  if (mutatesByName(toolName, input) || hints?.readOnlyHint === false) return true;
   if (metadata.origin === "tau") return false;
   if (RESERVED_READ_TOOLS.has(toolName) || RESERVED_PREFIXES.some((prefix) => toolName.startsWith(prefix))) return true;
   return hints?.readOnlyHint !== true;

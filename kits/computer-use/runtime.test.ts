@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { ComputerUseDriverSession } from "./driver.js";
+import { ComputerUseDriverSession, loadComputerUseManifest } from "./driver.js";
 import { ComputerUseRuntime } from "./runtime.js";
 import { ScreenFeed } from "./screen-feed.js";
 
@@ -36,9 +36,33 @@ it("keeps Pi usable after discovery failure and registers exact live tools on re
     // The connect tool and the tools it registers are found through tool_search, not declared up front.
     for (const name of ["computer_use_connect", "computer_use_platform_action"]) {
       expect(tools.get(name)).toMatchObject({ exposure: "deferred", namespace: { name: "computer_use" } });
+      expect(tools.get(name)?.annotations?.readOnlyHint).toBe(false);
     }
     await runtime.closeThread("retry");
     await expect(connect.execute("stale", {}, undefined, undefined, {} as never)).rejects.toThrow("thread closed");
     expect(discovery).toHaveBeenCalledTimes(3);
+  } finally { await runtime.close(); }
+});
+
+it("preserves annotations on every driver tool and treats unknown tools as writes", async () => {
+  const manifest = await loadComputerUseManifest("node_modules/@amaster.ai/pi-computer-use");
+  vi.spyOn(ComputerUseDriverSession.prototype, "listTools").mockResolvedValue([
+    ...manifest, { name: "future_action", inputSchema: { type: "object" } },
+  ]);
+  const runtime = new ComputerUseRuntime({
+    resolveConfig: () => ({}), loadConfigFromFile: () => ({}), resolveDriverLayout: () => ({}),
+    CuaDriverClient: class {
+      async listAllTools() { return []; }
+      async callTool(): Promise<never> { throw new Error("No driver actions during annotation tests."); }
+      async close() {}
+    },
+  }, new ScreenFeed(() => undefined), () => false, vi.fn());
+  try {
+    const tools = await runtime.tools({ sessionId: "annotations", cwd: "/workspace" });
+    expect(tools).toHaveLength(manifest.length + 1);
+    for (const tool of tools) expect(typeof tool.annotations?.readOnlyHint, tool.name).toBe("boolean");
+    expect(tools.find((tool) => tool.name === "computer_use_get_window_state")?.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((tool) => tool.name === "computer_use_browser_download")?.annotations?.readOnlyHint).toBe(false);
+    expect(tools.find((tool) => tool.name === "computer_use_future_action")?.annotations?.readOnlyHint).toBe(false);
   } finally { await runtime.close(); }
 });

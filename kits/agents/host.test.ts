@@ -287,6 +287,23 @@ async function activated(paths: { settingsPath?: string; linksPath?: string; sta
   return bench;
 }
 
+it("annotates thread creation and delegated actions as writes, and inspection as reads", async () => {
+  const bench = await activated();
+  try {
+    let independent = 0;
+    for (const backend of bench.choices.map((choice) => choice.backend.kind)) {
+      bench.backends.set("parent", backend);
+      const tools = (await Promise.all(bench.mcpProviders.map((provider) => provider({ sessionId: "parent", cwd: "/project" })))).flat();
+      const reads = new Set(["tau_get_thread_status", "tau_wait_for_thread", "tau_list_threads"]);
+      for (const tool of tools) expect(tool.annotations?.readOnlyHint, tool.name).toBe(reads.has(tool.name));
+      expect(tools.find((tool) => tool.name === "tau_spawn_thread")?.annotations?.readOnlyHint).toBe(false);
+      const create = tools.find((tool) => tool.name === "tau_create_thread");
+      if (create) { independent++; expect(create.annotations?.readOnlyHint).toBe(false); }
+    }
+    expect(independent).toBeGreaterThan(0);
+  } finally { await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID); }
+});
+
 /** Long enough for the kit's coalesced publish; a check that something did not happen waits this long. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 120));
 

@@ -86,6 +86,7 @@ export function agentTools(ports: AgentToolPorts, session: RuntimeSessionInfo): 
       },
     },
     {
+      annotations: { readOnlyHint: false },
       name: "tau_thread_organize",
       label: "Organize thread",
       description: "Settle, unsettle, snooze or wake a thread in the rail. Omit threadId for this thread. snooze needs snoozedUntil. Settling or snoozing a thread that is running, this one included, takes effect when its run ends successfully (appliesWhenRunEnds is true); a failed or stopped run, or a message queued behind it, leaves it as it was. Nothing is deleted.",

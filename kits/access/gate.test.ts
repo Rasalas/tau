@@ -41,6 +41,7 @@ describe("access gate", () => {
     const readOnly = gate("read-only", confirm);
     await expect(readOnly("tau_background_command", { command: "npm test", label: "Tests" })).resolves.toMatchObject({ block: true });
     await expect(readOnly("tau_background_tasks", { action: "stop", taskId: "tests" })).resolves.toMatchObject({ block: true });
+    await expect(readOnly("tau_background_tasks", { action: "release", taskId: "tests" })).resolves.toMatchObject({ block: true });
     await expect(readOnly("tau_background_tasks", { action: "list" })).resolves.toBeUndefined();
     await expect(readOnly("tau_background_tasks", { action: "read", taskId: "tests" })).resolves.toBeUndefined();
     expect(confirm).not.toHaveBeenCalled();
@@ -83,12 +84,36 @@ describe("isMutatingToolCall", () => {
     expect(isMutatingToolCall("edit", {})).toBe(true);
     expect(isMutatingToolCall("bash", {})).toBe(true);
   });
+
+  it("uses the input of mixed Tau tools despite their conservative write annotation", () => {
+    const metadata = { origin: "tau" as const, annotations: { readOnlyHint: false } };
+    for (const [name, read, write] of [
+      ["tau_background_tasks", { action: "read" }, { action: "release" }],
+      ["computer_use_page", { action: "query_dom" }, { action: "click_element" }],
+      ["computer_use_browser_dialog", { action: "inspect" }, { action: "accept" }],
+      ["computer_use_check_permissions", { prompt: false }, { prompt: true }],
+    ] as const) {
+      expect(isMutatingToolCall(name, read, metadata)).toBe(false);
+      expect(isMutatingToolCall(name, write, metadata)).toBe(true);
+      expect(isMutatingToolCall(name, read, { ...metadata, origin: "foreign" })).toBe(true);
+      expect(isMutatingToolCall(name, read, { ...metadata, annotations: { destructiveHint: true } })).toBe(true);
+    }
+  });
 });
 
 const fromTau = (name: string, annotations?: Registered["annotations"]): Registered => ({ name, annotations, sourceInfo: { path: "<inline:tau-preview>", source: "inline" } });
 const fromProject = (name: string, annotations?: Registered["annotations"]): Registered => ({ name, annotations, sourceInfo: { path: "/project/.pi/extensions/db.ts", source: "local" } });
 
 describe("tools from other sources", () => {
+  it("annotates runtime built-ins from the name policy when the SDK supplies no hints", () => {
+    for (const name of ["read", "grep", "find", "ls", "edit", "write", "bash", "powershell", "future_builtin"]) {
+      const registry = [{ name, sourceInfo: { path: `builtin:${name}`, source: "builtin" } }];
+      expect(toolMetadataOf(() => registry, name)).toEqual({
+        origin: "tau", annotations: { readOnlyHint: ["read", "grep", "find", "ls"].includes(name) },
+      });
+    }
+  });
+
   it("asks for a foreign tool without hints and blocks it when read-only", async () => {
     const confirm = vi.fn(async () => true);
     const registry = [fromProject("query_db")];

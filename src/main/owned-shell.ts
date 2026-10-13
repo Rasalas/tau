@@ -64,6 +64,7 @@ export function ownedShellExtension(cwd: string, settings: SettingsManager): Ext
           return { ...input, command: prefix ? `${prefix}\n${input.command}` : input.command };
         },
       }),
+      annotations: { readOnlyHint: false },
       // Retain the built-in tool's initial selection from defaultTools.
       defaultActive: false,
     });
