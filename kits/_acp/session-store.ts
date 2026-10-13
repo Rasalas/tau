@@ -1,6 +1,7 @@
 import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { SessionStorePersistence } from "../_shared/session-store-persistence.js";
 
 /**
  * App-data persistence for an ACP runtime's threads, one file per kit: the
@@ -186,10 +187,16 @@ export class AcpSessionStore<K extends string = string> {
   /** The models each instance's account offers, by instance id. */
   private models = new Map<string, AcpStoredModel[]>();
   private loading?: Promise<void>;
-  private writing: Promise<void> = Promise.resolve();
+  private readonly persistence: SessionStorePersistence<AcpSessionRecord, AcpStoredModel>;
 
   constructor(private readonly options: AcpSessionStoreOptions<K>) {
     this.now = options.now ?? Date.now;
+    this.persistence = new SessionStorePersistence({
+      filePath: options.filePath,
+      version: CURRENT_VERSION,
+      logger: options.logger,
+      decode: (value) => decodeFile(value, options.backendKind),
+    });
   }
 
   /** Beside the Pi session directory, like the other backends' stores, so a dev instance never writes into the user's own. */
@@ -198,11 +205,11 @@ export class AcpSessionStore<K extends string = string> {
   }
 
   private load(): Promise<void> {
-    this.loading ??= readPersistedJson(this.options.filePath, { expectedVersion: CURRENT_VERSION, decode: (value) => decodeFile(value, this.options.backendKind), ...(this.options.logger ? { logger: this.options.logger } : {}) })
-      .then(async (result) => {
-        for (const record of result?.data.sessions ?? []) this.records.set(record.tauThreadId, record as AcpSessionRecord<K>);
-        this.models = new Map(Object.entries(result?.data.models ?? {}));
-        if (result) await chmod(this.options.filePath, 0o600).catch(() => undefined);
+    this.loading ??= this.persistence.load()
+      .then(async (data) => {
+        for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record as AcpSessionRecord<K>);
+        this.models = new Map(Object.entries(data?.models ?? {}));
+        if (data) await chmod(this.options.filePath, 0o600).catch(() => undefined);
       })
       .catch(() => undefined);
     return this.loading;
@@ -335,10 +342,7 @@ export class AcpSessionStore<K extends string = string> {
     await this.persist();
   }
 
-  /** Writes one after the other, so a slow write never lands after a newer one. */
   private persist(): Promise<void> {
-    const data = { sessions: [...this.records.values()], models: Object.fromEntries(this.models) };
-    this.writing = this.writing.catch(() => undefined).then(() => writePersistedJson(this.options.filePath, CURRENT_VERSION, data, this.options.logger ? { logger: this.options.logger } : {}));
-    return this.writing;
+    return this.persistence.write({ sessions: [...this.records.values()], models: Object.fromEntries(this.models) });
   }
 }

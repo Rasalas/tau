@@ -48,6 +48,12 @@ use the runtime-neutral lifecycle helpers in `kits/_shared/`. That common
 library imports only `tau/*` and itself; it never reaches a protocol folder or
 an individual kit. Kits stay apart while the protocol and lifecycle code live once.
 
+Runtime session stores retain their paths beside Pi's sessions. Their shared
+`_shared/session-store-persistence.ts` rereads the file under `tryProcessLock`
+before writing and merges only locally changed thread IDs and model catalogs.
+Unchanged cached records cannot revert another host's edits or deletions.
+Concurrent edits to the same ID use the last writer's record.
+
 A kit's `pi` entry is the exception to "a kit is two halves": when a Pi TUI
 owns the session and Tau is only attached, the host half cannot hand a closure
 to that process. `pi.ts` default-exports `(pi, bridge) => void`, is prebuilt to

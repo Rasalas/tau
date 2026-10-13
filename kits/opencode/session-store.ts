@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, readPersistedJson, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage } from "tau/host-extension";
+import { SessionStorePersistence } from "../_shared/session-store-persistence.js";
 
 /**
  * App-data persistence for OpenCode threads: the Tau thread → OpenCode session
@@ -185,10 +186,16 @@ export class OpenCodeSessionStore {
   /** The models each instance's providers offer, by instance id. */
   private models = new Map<string, OpenCodeStoredModel[]>();
   private loading?: Promise<void>;
-  private writing: Promise<void> = Promise.resolve();
+  private readonly persistence: SessionStorePersistence<OpenCodeSessionRecord, OpenCodeStoredModel>;
 
   constructor(private readonly options: { filePath: string; now?(): number; logger?: PersistedJsonLogger }) {
     this.now = options.now ?? Date.now;
+    this.persistence = new SessionStorePersistence({
+      filePath: options.filePath,
+      version: CURRENT_VERSION,
+      logger: options.logger,
+      decode: decodeFile,
+    });
   }
 
   /** Beside the Pi session directory, like the other backends' stores, so a dev instance never writes into the user's own. */
@@ -197,10 +204,10 @@ export class OpenCodeSessionStore {
   }
 
   private load(): Promise<void> {
-    this.loading ??= readPersistedJson(this.options.filePath, { expectedVersion: CURRENT_VERSION, decode: decodeFile, ...(this.options.logger ? { logger: this.options.logger } : {}) })
-      .then((result) => {
-        for (const record of result?.data.sessions ?? []) this.records.set(record.tauThreadId, record);
-        this.models = new Map(Object.entries(result?.data.models ?? {}));
+    this.loading ??= this.persistence.load()
+      .then((data) => {
+        for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record);
+        this.models = new Map(Object.entries(data?.models ?? {}));
       })
       .catch(() => undefined);
     return this.loading;
@@ -364,10 +371,7 @@ export class OpenCodeSessionStore {
     await this.persist();
   }
 
-  /** Writes one after the other, so a slow write never lands after a newer one. */
   private persist(): Promise<void> {
-    const data = { sessions: [...this.records.values()], models: Object.fromEntries(this.models) };
-    this.writing = this.writing.catch(() => undefined).then(() => writePersistedJson(this.options.filePath, CURRENT_VERSION, data, this.options.logger ? { logger: this.options.logger } : {}));
-    return this.writing;
+    return this.persistence.write({ sessions: [...this.records.values()], models: Object.fromEntries(this.models) });
   }
 }

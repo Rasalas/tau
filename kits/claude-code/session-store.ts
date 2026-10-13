@@ -1,7 +1,8 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, parseSkillEnvelope, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, parseSkillEnvelope, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { SessionStorePersistence } from "../_shared/session-store-persistence.js";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -426,11 +427,22 @@ export class ClaudeRuntimeSessionStore {
   private readonly merged = new WeakMap<readonly UsageTurn[], UsageTally[]>();
   private readonly now: () => number;
   private readonly records = new Map<string, ClaudeRuntimeSessionRecord>();
+  private readonly persistence: SessionStorePersistence<ClaudeRuntimeSessionRecord>;
   private loaded = false;
   private loading?: Promise<void>;
 
   constructor(private readonly options: ClaudeRuntimeSessionStoreOptions) {
     this.now = options.now ?? Date.now;
+    this.persistence = new SessionStorePersistence({
+      filePath: options.filePath,
+      version: CURRENT_VERSION,
+      logger: options.logger,
+      decode: (value) => {
+        const sessions = decodeSessions(value);
+        return sessions ? { sessions } : undefined;
+      },
+      encode: (data) => ({ sessions: data.sessions.map(serializeRecord) }),
+    });
   }
 
   /**
@@ -460,13 +472,9 @@ export class ClaudeRuntimeSessionStore {
 
   private async readFromDisk(): Promise<void> {
     try {
-      const result = await readPersistedJson(this.options.filePath, {
-        expectedVersion: CURRENT_VERSION,
-        decode: decodeSessions,
-        logger: this.options.logger,
-      });
-      if (result) {
-        for (const record of result.data) this.records.set(record.tauThreadId, record);
+      const data = await this.persistence.load();
+      if (data) {
+        for (const record of data.sessions) this.records.set(record.tauThreadId, record);
         await chmod(this.options.filePath, 0o600).catch(() => undefined);
       }
     } catch {
@@ -773,7 +781,6 @@ export class ClaudeRuntimeSessionStore {
   }
 
   private persist(): Promise<void> {
-    const sessions = [...this.records.values()].map(serializeRecord);
-    return writePersistedJson(this.options.filePath, CURRENT_VERSION, { sessions }, { logger: this.options.logger });
+    return this.persistence.write({ sessions: [...this.records.values()] });
   }
 }
