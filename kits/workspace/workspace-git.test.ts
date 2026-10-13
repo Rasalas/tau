@@ -1313,7 +1313,15 @@ describe("worktree creation", () => {
       execFileSync("git", ["init", "-q", "-b", "main"], { cwd });
       execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "base"], { cwd });
       const stale = { ...(await readProjectGitState(cwd)).workspace, worktreeParent: join(cwd, "worktrees") };
-      const created = await Promise.all(Array.from({ length: 3 }, () => createWorktree(cwd, "fix/chat-scroll", { startFromOrigin: false, uniqueBranch: true }, async () => stale)));
+      // Keep branch allocation concurrent; unrelated metadata writes share one config lock.
+      let configWrite: Promise<string> = Promise.resolve("");
+      const runGit = (path: string, args: string[]) => {
+        if (args[0] !== "config" || args[1]?.startsWith("--")) return runGitCommand(path, args);
+        const writing = configWrite.then(() => runGitCommand(path, args));
+        configWrite = writing.catch(() => "");
+        return writing;
+      };
+      const created = await Promise.all(Array.from({ length: 3 }, () => createWorktree(cwd, "fix/chat-scroll", { startFromOrigin: false, uniqueBranch: true }, async () => stale, runGit)));
       expect(new Set(created).size).toBe(3);
       const branches = await Promise.all(created.map(async (path) => (await runGitCommand(path, ["branch", "--show-current"])).trim()));
       expect(branches.sort()).toEqual(["fix/chat-scroll", "fix/chat-scroll-2", "fix/chat-scroll-3"]);

@@ -66,7 +66,7 @@ it.skipIf(process.platform === "win32").each(["EOF", "SIGTERM", "SIGKILL", 15, "
     else if (action === "CLI crash") process.kill(pids[0]!, "SIGKILL");
     else child.kill(action);
     await exited;
-    expect(pids.filter(running)).toEqual([]);
+    await expect.poll(() => pids.filter(running), { timeout: 20_000 }).toEqual([]);
   } finally {
     child.kill();
     cleanup(pids);

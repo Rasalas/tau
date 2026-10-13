@@ -377,7 +377,7 @@ describe("Agents Kit priority", () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-agents-settings-"));
     const path = join(directory, "agents.json");
     await writeFile(path, JSON.stringify(settings), "utf8");
-    try { await check(path); } finally { await rm(directory, { recursive: true, force: true }); }
+    try { await check(path); } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
   };
 
   it("puts a spawned thread's commands at low priority and leaves the user's own threads alone", async () => {
@@ -528,7 +528,7 @@ describe("Agents Kit", () => {
     } finally {
       await first.registry().dispose();
       await second?.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -611,7 +611,7 @@ describe("Agents Kit", () => {
     expect(calls.some(([, ...args]) => args.join(" ") === `branch -D ${spawned.branch}`)).toBe(true);
     // Its worktree is gone, so there is nothing left to take.
     await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId })).rejects.toThrow(/already applied/u);
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it.each(["child branch", "detached child", "parent branch", "parent branch with patch"])("keeps the child's work when Apply refuses a changed %s", async (scenario) => {
@@ -659,7 +659,7 @@ describe("Agents Kit", () => {
       expect(await readFile(join(child, "result.txt"), "utf8")).toBe("child work\n");
       expect((await bench.state()).links[0]?.workspace?.settled).toBeUndefined();
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -751,7 +751,7 @@ describe("Agents Kit", () => {
       expect(git(repo, "worktree", "list")).not.toContain(child);
       expect(git(repo, "branch", "--list", spawned.branch)).toBe("");
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -804,7 +804,7 @@ describe("Agents Kit", () => {
       expect(git(project, "branch", "--list", spawned.branch)).toBe("");
       expect((await bench.state()).links[0]?.workspace?.settled).toBe("discarded");
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -851,7 +851,7 @@ describe("Agents Kit", () => {
     expect(await readFile(join(project, "basket.txt"), "utf8")).toBe("a basket\n");
     expect(await readFile(join(project, "draft.txt"), "utf8")).toBe("the parent's draft\n");
     expect(git(project, "log", "--format=%s", "-1", "--", "fruit.txt")).toBe("pear");
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("takes a deleted thread's worktree only when it holds nothing", async () => {
@@ -889,7 +889,7 @@ describe("Agents Kit", () => {
 
     // Either way the link is gone: the panel does not list a deleted thread.
     await expect(parent.call("tau_list_threads")).resolves.toEqual({ threads: [] });
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("shares the parent's checkout when asked, and always outside a repository", async () => {
@@ -1003,7 +1003,7 @@ describe("Agents Kit", () => {
       }
       expect(statuses).toEqual(["running", "running", "pending"]);
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1023,7 +1023,7 @@ describe("Agents Kit", () => {
       await vi.waitFor(async () => expect((await readAgentLinks(linksPath))[0]).toMatchObject({ threadId: handle, turn: 2 }));
     } finally {
       await bench.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1179,21 +1179,22 @@ describe("Agents Kit", () => {
       await expect(bench.state()).resolves.toMatchObject({ links: [expect.objectContaining({ threadId: "child-a" })] });
       await vi.waitFor(async () => expect(await readAgentLinks(linksPath)).toEqual([expect.objectContaining({ threadId: "child-a" })]));
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
   it("writes a spawned agent into the index file", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-agents-links-"));
     const linksPath = join(directory, "agents-links.json");
+    const bench = await activated({ linksPath });
     try {
-      const bench = await activated({ linksPath });
       await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Reply with ALPHA" });
       await vi.waitFor(async () => expect(await readAgentLinks(linksPath)).toEqual([
         { threadId: "child-1", id: expect.any(String), runtime: "pi", model: "anthropic/parent-model", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread", startedAt: expect.any(Number), pendingTurns: 1 },
       ]));
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await bench.registry().dispose();
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1222,7 +1223,7 @@ describe("Agents Kit", () => {
         { threadId: "old-child", parentThreadId: "parent", depth: 1, spawnedAt: 7, projectPath: "/project", title: "Old", spawnedBy: "tau_spawn_thread" },
       ]);
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1238,7 +1239,7 @@ describe("Agents Kit", () => {
       ]));
     } finally {
       await bench.registry().dispose();
-      await rm(stateDir, { recursive: true, force: true });
+      await rm(stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1263,8 +1264,8 @@ describe("Agents Kit", () => {
       await writeAgentLinks([], join(stateDir, "agents-links.json"));
       await expect(readAgentLinksWithMigration(join(stateDir, "agents-links.json"), legacy)).resolves.toEqual([]);
     } finally {
-      await rm(home, { recursive: true, force: true });
-      await rm(stateDir, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await rm(stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1281,7 +1282,7 @@ describe("Agents Kit", () => {
       const [restored] = (await bench.state()).links;
       expect(restored).toMatchObject({ threadId: "child-1", startedAt: 1_100, endedAt: 4_600 });
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1625,7 +1626,7 @@ describe("Agents Kit spawn for another kit", () => {
       // No wake is owed to a parent that did not use its own tool.
       expect((await bench.state()).links[0]).toMatchObject({ spawnedBy: "tau.review" });
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1664,7 +1665,7 @@ describe("Agents Kit orchestration", () => {
       release();
       await first.registry().dispose();
       await recovered.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     } };
   };
 
@@ -1751,7 +1752,7 @@ describe("Agents Kit orchestration", () => {
       if (blocked) { await rm(directory, { force: true }); await rename(backup, directory); }
       await first.registry().dispose();
       await recovered?.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1820,7 +1821,7 @@ describe("Agents Kit orchestration", () => {
     } finally {
       await first.registry().dispose();
       await second?.registry().dispose();
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1838,7 +1839,7 @@ describe("Agents Kit orchestration", () => {
       expect(recovered.sent).toEqual([]);
     } finally {
       await recovered.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1869,7 +1870,7 @@ describe("Agents Kit orchestration", () => {
       release?.();
       await first.registry().dispose();
       await second?.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1895,7 +1896,7 @@ describe("Agents Kit orchestration", () => {
     } finally {
       await first.registry().dispose();
       await second?.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1934,7 +1935,7 @@ describe("Agents Kit orchestration", () => {
     } finally {
       await first.registry().dispose();
       await second?.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1949,7 +1950,7 @@ describe("Agents Kit orchestration", () => {
       expect(await bench.runtime("parent").call("tau_list_threads")).toEqual({ threads: [] });
     } finally {
       await bench.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -1985,7 +1986,7 @@ describe("Agents Kit orchestration", () => {
     } finally {
       await first.registry().dispose();
       await second?.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -2002,7 +2003,7 @@ describe("Agents Kit orchestration", () => {
     } finally {
       await first.registry().dispose();
       await second?.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -2028,7 +2029,7 @@ describe("Agents Kit orchestration", () => {
       expect(recovered.sent.filter((entry) => entry.sessionId === "parent")).toHaveLength(1);
     } finally {
       for (const bench of registries) await bench.registry().dispose();
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 

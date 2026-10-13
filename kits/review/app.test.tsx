@@ -344,13 +344,15 @@ describe("Review Kit request lifecycle in the workbench", () => {
 
     // The error toast carries the reason; the card names the step and offers to go on.
     expect(await screen.findByText("Pushing failed: remote: permission denied")).toBeTruthy();
+    const retry = await within(dialog).findByRole("button", { name: "Try again" });
+    await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false));
     const steps = within(dialog).getByRole("list", { name: "Progress" });
     expect(within(steps).getByText("Committed")).toBeTruthy();
     expect(within(steps).getByText("Pushing failed")).toBeTruthy();
     expect(review).not.toHaveBeenCalledWith("pr-create", expect.anything());
     expect((within(dialog).getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).disabled).toBe(true);
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+    fireEvent.click(retry);
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", expect.anything()));
     expect(commit).toHaveBeenCalledOnce();
     expect(push).toHaveBeenCalledTimes(2);

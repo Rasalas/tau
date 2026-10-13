@@ -1,9 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline";
 import { expect, it } from "vitest";
 import { createClaudeCodeRuntimeAdapter } from "./runtime-adapter.js";
 
@@ -31,6 +32,7 @@ it.skipIf(process.platform === "win32").each(["close", "auth-parent", "auth-chil
     expect(pids.every(running)).toBe(true);
     if (ending === "close") await session.close();
     else {
+      process.kill(Number(await readFile(join(dir, "root"), "utf8")), "SIGUSR2");
       expect(await pending).toMatchObject({ name: "ClaudeAuthenticationError" });
       expect(session.closed).toBe(true);
     }
@@ -39,5 +41,38 @@ it.skipIf(process.platform === "win32").each(["close", "auth-parent", "auth-chil
     await session.close();
     for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+
+it.skipIf(process.platform === "win32")("emits an authentication failure when the fixture is signalled", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tau-sdk-auth-signal-"));
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./fixtures/process-tree-cli.mjs", import.meta.url)), "--input-format", "stream-json"], {
+    cwd: dir, env: { ...process.env, TAU_PROCESS_FIXTURE_ROOT: join(dir, "root"), TAU_PROCESS_FIXTURE_PIDS: join(dir, "pids") },
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  const lines = createInterface({ input: child.stdout });
+  const failure = new Promise<unknown>((resolve, reject) => {
+    lines.on("line", (line) => { const frame = JSON.parse(line); if (frame.error) resolve(frame); });
+    child.once("exit", () => reject(new Error("Fixture exited before authentication failure")));
+  });
+  // Observe a rejection even if readiness fails before the signal is sent.
+  void failure.catch(() => undefined);
+  let pids: number[] = [];
+  try {
+    child.stdin.write(`${JSON.stringify({ type: "user", message: { content: "auth-parent" } })}\n`);
+    await expect.poll(async () => {
+      pids = await readFile(join(dir, "pids"), "utf8").then((text) => text.trim().split(/\s+/u).map(Number)).catch(() => []);
+      return pids.length;
+    }, { timeout: 20_000 }).toBe(2);
+    child.kill("SIGUSR2");
+    expect(await failure).toMatchObject({ type: "assistant", error: "authentication_failed", parent_tool_use_id: null });
+  } finally {
+    child.stdin.end();
+    await exited;
+    lines.close();
+    for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
