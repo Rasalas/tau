@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { RESOURCE_UNAVAILABLE, transcriptFilePath, useWorkspaceResources, type WorkspaceResources } from "../workspace-resource-context";
 import { MessageImageGallery } from "./MessageImages";
+import { RemoteMedia } from "./RemoteMedia";
 
 export const isVideoPath = (path: string) => /\.(?:mp4|m4v|webm|ogv|mov)(?:[?#].*)?$/iu.test(path);
 
 /** Embedded chat videos open the lightbox; Markdown file links keep opening the stage. */
-export function WorkspaceVideo({ src, alt = "Video" }: { src: string; alt?: string }) {
+export function WorkspaceVideo({ src, alt }: { src: string; alt?: string }) {
   const resources = useWorkspaceResources();
-  const external = /^https?:\/\//iu.test(src) || /^data:video\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/iu.test(src);
+  const remote = /^https?:\/\//iu.test(src);
+  const external = remote || /^data:video\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+$/iu.test(src);
   const [result, setResult] = useState<{ resources: WorkspaceResources; src: string; url?: string; error?: string }>();
   useEffect(() => {
     if (external || !resources?.available || !resources.loadMedia) return;
@@ -28,6 +30,11 @@ export function WorkspaceVideo({ src, alt = "Video" }: { src: string; alt?: stri
   }, [external, resources, src]);
   const current = result && result.resources === resources && result.src === src ? result : undefined;
   const url = external ? src : current?.url;
-  if (url) return <MessageImageGallery origin="from the conversation" images={[{ key: src, kind: "video", src: url, alt, label: alt }]} />;
+  if (url) {
+    const label = alt ?? "Video";
+    const gallery = <MessageImageGallery origin="from the conversation" images={[{ key: src, kind: "video", src: url, alt: label, label }]} />;
+    // A foreign server learns of the reader only after a click.
+    return remote ? <RemoteMedia kind="video" src={src} alt={alt}>{gallery}</RemoteMedia> : gallery;
+  }
   return <span role="status">{current?.error || (resources?.available ? "Loading video…" : RESOURCE_UNAVAILABLE)}</span>;
 }
