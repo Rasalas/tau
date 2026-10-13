@@ -11,6 +11,7 @@ import { createWorkspaceHostExtension } from "./host.js";
 import { createRemoteWorkHostExtension } from "../remote-work/host.js";
 import { readSetupFile } from "./project-approval-host.js";
 import { PROJECT_APPROVAL_COMMAND, PROJECT_APPROVAL_EVENT, type ProjectApprovalRequest } from "../_project-file/setup-approval.js";
+import { TURN_CHECKPOINT_CUSTOM_TYPE, turnSnapshotRef } from "./turn-checkpoint-codec.js";
 
 const directories: string[] = [];
 vi.mock("node:os", async (original) => {
@@ -295,6 +296,45 @@ describe("Workspace Kit host extension", () => {
     } finally {
       await registry.deactivate("tau.workspace");
     }
+  });
+
+  it("refuses restore while another thread works in the checkout without reserving the thread queue", async () => {
+    const cwd = await workspace();
+    const path = join(cwd, "source.jsonl");
+    await writeFile(path, "");
+    const entries = [
+      { type: "message", id: "answer", message: { role: "assistant" } },
+      { type: "custom", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: {
+        id: "turn", turnId: "turn", sessionId: "source", anchorMessageId: "answer",
+        beforeSnapshotId: turnSnapshotRef("source", "turn", "before"), afterSnapshotId: turnSnapshotRef("source", "turn", "after"),
+        startedAt: 1, endedAt: 2, files: [], added: 0, removed: 0,
+      } },
+    ];
+    const source = { sessionId: "source", cwd, sessionFile: path, backendKind: "pi", isIdle: () => true, isStreaming: () => false } as HostThread;
+    const foreign = { sessionId: "foreign", cwd, isStreaming: () => true, sessionName: () => "Fix the header" } as HostThread;
+    const observers: HostTurnObserver[] = [];
+    const exclusive = vi.fn();
+    const runExclusive: HostExtensionServices["sessions"]["exclusive"] = (work) => { exclusive(); return work(); };
+    const registry = await activated(cwd, {
+      thread: (id) => id === "foreign" ? foreign : source,
+      registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
+      sessions: {
+        list: async () => [], open: () => ({
+          path, sessionId: "source", cwd, entries: () => entries, leafId: () => "answer",
+          appendEntry: () => undefined, appendInfo: () => undefined, branch: () => undefined,
+        }),
+        prepare: async () => { throw new Error("No runtime should be prepared"); },
+        start: async () => { throw new Error("No thread should be started"); }, exclusive: runExclusive,
+        remove: async () => undefined, restore: async () => undefined, trash: async () => [], purge: async () => undefined,
+        refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
+      },
+    });
+    try {
+      for (const observer of observers) await observer.accepted?.("foreign", "running", { deferBefore: false });
+      await expect(registry.invoke("tau.workspace", "restore", { sessionId: "source", checkpointId: "turn" })).rejects.toThrow("Fix the header is working in this checkout");
+      expect(exclusive).not.toHaveBeenCalled();
+      await expect(runExclusive(async () => "another thread opened")).resolves.toBe("another thread opened");
+    } finally { await registry.deactivate("tau.workspace"); }
   });
 
   it.each(["pi", "claude-code", "machine"])("restores the recorded worktree before a %s turn only when the thread runs locally", async (backendKind) => {

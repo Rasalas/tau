@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,11 +9,13 @@ import {
   type HostSessionFile,
   type HostThread,
 } from "tau/host-extension";
-import { TURN_CHECKPOINT_CUSTOM_TYPE, TURN_RESTORE_BACKUP_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
+import { TURN_CHECKPOINT_CUSTOM_TYPE, TURN_RESTORE_BACKUP_CUSTOM_TYPE, TURN_RESTORE_TRANSACTION_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
 import { createTurnWorkspaceSnapshot } from "./workspace-git.js";
 import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { WorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
-import { createWorkspaceKitLifecycle, prioritizeRestoreTargetSession } from "./host-lifecycle.js";
+import { createWorkspaceKitLifecycle, prioritizeRestoreTargetSession, type WorkspaceKitLifecycleOptions } from "./host-lifecycle.js";
+import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+import { createCheckoutTurns } from "./checkout-turns.js";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -307,7 +309,7 @@ describe("restore target discovery", () => {
 });
 
 /** A repository with one checkpointed turn, and a later edit nobody committed. */
-async function rewindFixture() {
+async function rewindFixture(options: Partial<WorkspaceKitLifecycleOptions> = {}) {
   const cwd = await workspace();
   const git = (...args: string[]) => execFileSync("git", args, { cwd, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } }).toString();
   git("init", "-q");
@@ -353,7 +355,7 @@ async function rewindFixture() {
   });
   const activate = vi.fn(async () => ({ version: 1 as const, updates: [] }));
   const refreshIndex = vi.fn(async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }));
-  const kit = createWorkspaceKitLifecycle(services({
+  const host = services({
     cwd: () => cwd,
     thread: () => thread({ sessionId, cwd, sessionFile: sourceFile, entries: () => entries }),
     sessions: {
@@ -365,11 +367,142 @@ async function rewindFixture() {
       remove: async () => undefined, restore: async () => undefined, trash: async () => [], purge: async () => undefined,
       refreshIndex,
     },
-  }), { emit: () => undefined, maintenance: maintenance() });
-  return { cwd, git, sessionId, kit, branches, activate, refreshIndex, note: () => readFile(join(cwd, "note.txt"), "utf8") };
+  });
+  const kit = createWorkspaceKitLifecycle(host, { emit: () => undefined, maintenance: maintenance(), ...options });
+  return { cwd, git, sessionId, kit, host, branches, activate, refreshIndex, note: () => readFile(join(cwd, "note.txt"), "utf8") };
 }
 
 describe("rewinding to a checkpoint", () => {
+  it.each([true, false])("refuses another thread's turn only in the same checkout: %s", async (sameCheckout) => {
+    const leaseManager = new WorkspaceCheckpointLeaseManager();
+    let checkoutTurns: ReturnType<typeof createCheckoutTurns>;
+    const fixture = await rewindFixture({ leaseManager, checkoutTurns: (cwd) => checkoutTurns.running(cwd) });
+    const foreignCwd = sameCheckout ? join(fixture.cwd, "subdirectory") : await workspace();
+    if (sameCheckout) await mkdir(foreignCwd);
+    const foreign = thread({ sessionId: "foreign", cwd: foreignCwd, isStreaming: () => true, isIdle: () => false, sessionName: () => "Fix the header" });
+    checkoutTurns = createCheckoutTurns({ thread: (id) => id === "foreign" ? foreign : fixture.host.thread(id) }, (cwd) => leaseManager.canonicalKey(cwd));
+    checkoutTurns.observer.accepted?.("foreign", "turn", { deferBefore: false });
+    const exclusive = vi.spyOn(fixture.host.sessions, "exclusive");
+    const acquisition = vi.spyOn(leaseManager, "acquire");
+    if (sameCheckout) {
+      acquisition.mockRejectedValue(new Error("Unexpected lease acquisition"));
+      await expect(fixture.kit.restore(fixture.sessionId, "turn-1")).rejects.toThrow("Fix the header is working in this checkout. Wait for the turn to finish");
+      expect(acquisition).not.toHaveBeenCalled();
+      expect(exclusive).not.toHaveBeenCalled();
+      expect(fixture.branches).toHaveLength(0);
+      expect(await fixture.note()).toBe("later, uncommitted\n");
+      await expect(fixture.host.sessions.exclusive(async () => "another thread opened")).resolves.toBe("another thread opened");
+    } else {
+      await fixture.kit.restore(fixture.sessionId, "turn-1");
+      expect(await fixture.note()).toBe("checkpoint\n");
+    }
+  });
+
+  it("reports a lease timeout without entering the exclusive queue or creating a thread", async () => {
+    const leaseManager = new WorkspaceCheckpointLeaseManager();
+    const fixture = await rewindFixture({ leaseManager });
+    vi.spyOn(leaseManager, "acquire").mockRejectedValue(new Error("Timed out waiting for the workspace checkpoint lease."));
+    const exclusive = vi.spyOn(fixture.host.sessions, "exclusive");
+
+    await expect(fixture.kit.restore(fixture.sessionId, "turn-1")).rejects.toThrow("The checkout is busy. Wait for its active turn or checkpoint to finish");
+
+    expect(exclusive).not.toHaveBeenCalled();
+    expect(fixture.branches).toHaveLength(0);
+    expect(await fixture.note()).toBe("later, uncommitted\n");
+  });
+
+  it.each(["selection", "turn"])("rechecks %s after lease admission and releases the lease on refusal", async (changed) => {
+    const leaseManager = new WorkspaceCheckpointLeaseManager();
+    let busy = false;
+    const fixture = await rewindFixture({ leaseManager, checkoutTurns: async () => busy ? [{ sessionId: "foreign", title: "Another thread" }] : [] });
+    const source = fixture.host.thread()!;
+    const acquire = leaseManager.acquire.bind(leaseManager);
+    let release: ReturnType<typeof vi.fn>;
+    vi.spyOn(leaseManager, "acquire").mockImplementation(async (cwd, options) => {
+      const lease = await acquire(cwd, options);
+      release = vi.fn(lease.release);
+      if (changed === "selection") fixture.host.thread = () => thread({ sessionId: "different", cwd: source.cwd });
+      else busy = true;
+      return { ...lease, release };
+    });
+
+    await expect(fixture.kit.restore(fixture.sessionId, "turn-1")).rejects.toThrow(changed === "selection" ? "selected thread changed" : "Another thread is working");
+
+    expect(release!).toHaveBeenCalledOnce();
+    expect(fixture.branches).toHaveLength(0);
+    expect(await fixture.note()).toBe("later, uncommitted\n");
+  });
+
+  it("leaves thread navigation available while restore waits for a bounded lease", async () => {
+    const leaseManager = new WorkspaceCheckpointLeaseManager();
+    const fixture = await rewindFixture({ leaseManager });
+    const acquire = leaseManager.acquire.bind(leaseManager);
+    let begin!: () => void;
+    const begun = new Promise<void>((resolve) => { begin = resolve; });
+    let admit!: () => void;
+    const admission = new Promise<void>((resolve) => { admit = resolve; });
+    const acquisition = vi.spyOn(leaseManager, "acquire").mockImplementation(async (cwd, options) => {
+      begin();
+      await admission;
+      return acquire(cwd, options);
+    });
+    const exclusive = vi.spyOn(fixture.host.sessions, "exclusive");
+    const restoring = fixture.kit.restore(fixture.sessionId, "turn-1");
+    try {
+      await begun;
+      expect(exclusive).not.toHaveBeenCalled();
+      expect(acquisition).toHaveBeenCalledWith(fixture.cwd, expect.objectContaining({ timeoutMs: 1_000 }));
+      await expect(fixture.host.sessions.exclusive(async () => "another thread opened")).resolves.toBe("another thread opened");
+    } finally {
+      admit();
+      await restoring;
+    }
+    expect(await fixture.note()).toBe("checkpoint\n");
+  });
+
+  it("reuses the admitted restore lease when repairing an unfinished restore", async () => {
+    const leaseManager = new WorkspaceCheckpointLeaseManager();
+    const fixture = await rewindFixture({ leaseManager });
+    await fixture.kit.restore(fixture.sessionId, "turn-1");
+    await writeFile(fixture.host.thread()!.sessionFile!, "");
+    const backup = fixture.branches.find((created) => created.appended.some((entry) => entry.customType === TURN_RESTORE_BACKUP_CUSTOM_TYPE))!;
+    const lastTransaction = backup.appended.filter((entry) => entry.customType === TURN_RESTORE_TRANSACTION_CUSTOM_TYPE).at(-1)!;
+    lastTransaction.data = { ...lastTransaction.data as object, state: "workspace-applied" };
+    await writeFile(backup.path, "");
+    const open = fixture.host.sessions.open;
+    fixture.host.sessions.open = (path) => path === backup.path ? backup : open(path);
+    fixture.host.sessions.list = async () => [{ sessionId: backup.sessionId, path: backup.path, cwd: fixture.cwd }];
+    const acquire = leaseManager.acquire.bind(leaseManager);
+    let acquisitions = 0;
+    vi.spyOn(leaseManager, "acquire").mockImplementation(async (cwd, options) => {
+      if (++acquisitions > 1) throw new Error("Unexpected nested lease acquisition");
+      return acquire(cwd, options);
+    });
+
+    await fixture.kit.restore(fixture.sessionId, "turn-1");
+
+    expect(acquisitions).toBe(1);
+    expect(backup.appended.at(-1)).toMatchObject({ customType: TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, data: { state: "recovered" } });
+    expect(await fixture.note()).toBe("checkpoint\n");
+  });
+
+  it("skips ref housekeeping for the new restore target while its lease is held", async () => {
+    const upkeep = maintenance();
+    const fixture = await rewindFixture({ maintenance: upkeep });
+    const prepare = fixture.host.sessions.prepare;
+    fixture.host.sessions.prepare = async (session, options) => {
+      await fixture.kit.lifecycle.beforeOpen!(session);
+      return prepare(session, options);
+    };
+
+    await fixture.kit.restore(fixture.sessionId, "turn-1");
+
+    expect(upkeep.calls.cleanupOrphanRefs).not.toHaveBeenCalled();
+    await fixture.kit.lifecycle.beforeOpen!(fixture.branches[0]!);
+    expect(upkeep.calls.cleanupOrphanRefs).toHaveBeenCalledOnce();
+    expect(await fixture.note()).toBe("checkpoint\n");
+  });
+
   it("keeps changes: a new branch at the checkpoint's answer, every file as it was", async () => {
     const fixture = await rewindFixture();
 

@@ -36,19 +36,23 @@ import { readHeadReflog, type ReflogEntry } from "./turn-attribution.js";
 import {
   createWorkspaceKitCheckpointFeature,
   createWorkspaceKitCheckpointMaintenance,
+  DEFAULT_LEASE_TIMEOUT_MS,
   pageAttribution,
   reviseLegacyCheckpoint,
   type WorkspaceKitCheckpointFeature,
   type WorkspaceKitCheckpointMaintenance,
   type WorkspaceKitLiveCheckpointSession,
 } from "./workspace-kit-checkpoints.js";
-import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
+import { WorkspaceCheckpointLeaseManager, type WorkspaceCheckpointLease } from "./workspace-checkpoint-lease.js";
+import type { CheckoutTurn } from "./checkout-turns.js";
 import type { StoredTurnCheckpoint, TurnRestoreTransaction } from "./turn-checkpoint-types.js";
 import { WORKSPACE_HOST_EXTENSION_ID, type CheckpointEvent, type WorkspaceCheckpointList } from "./protocol.js";
 
 export interface WorkspaceKitLifecycleOptions {
   leaseManager?: WorkspaceCheckpointLeaseManager;
   maintenance?: WorkspaceKitCheckpointMaintenance;
+  /** Running turns that share the checkout Restore would rewrite. */
+  checkoutTurns?(cwd: string): Promise<CheckoutTurn[]>;
   /** Checkpoint events for the desktop half. */
   emit(event: CheckpointEvent): void;
   /** The kit's Git cache, staled after a workspace was rewritten. */
@@ -115,6 +119,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
   const branchOf = (cwd: string) => options.branch?.(cwd);
   /** A restore of this workspace is in progress; its own activation must not replay its journal. */
   let restoringCwd: string | undefined;
+  let restoringSessionId: string | undefined;
 
   const emit = (event: CheckpointEvent) => {
     try { options.emit(event); } catch { /* UI delivery is best effort */ }
@@ -231,7 +236,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
    * sufficient to identify the only safe recovery target without trusting the
    * partially-created target runtime.
    */
-  const recoverPendingRestoreTransactions = async (workspaceCwd: string): Promise<void> => {
+  const recoverPendingRestoreTransactions = async (workspaceCwd: string, heldLease?: WorkspaceCheckpointLease): Promise<void> => {
     if (services.attachedRuntime()) return;
     const sessions = await services.sessions.list();
     const byId = new Map(sessions.map((session) => [session.sessionId, session] as const));
@@ -267,7 +272,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         if (transactionWorkspace !== currentWorkspace) continue;
         let file: HostSessionFile;
         try { file = services.sessions.open(session.path); } catch { break; }
-        await recoverRestoreTransaction(transaction, file, byId);
+        await recoverRestoreTransaction(transaction, file, byId, heldLease);
       }
     }
   };
@@ -276,17 +281,19 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     transaction: TurnRestoreTransaction,
     backup: HostSessionFile,
     sessions: ReadonlyMap<string, HostSessionSummary>,
+    heldLease?: WorkspaceCheckpointLease,
   ): Promise<void> => {
     const [transactionWorkspace, backupWorkspace] = await Promise.all([
       leaseManager.canonicalKey(transaction.cwd),
       leaseManager.canonicalKey(backup.cwd),
     ]);
-    if (transactionWorkspace !== backupWorkspace) {
+    if (transactionWorkspace !== backupWorkspace || (heldLease && heldLease.key !== transactionWorkspace)) {
       throw new Error(`Restore recovery refused a workspace mismatch for backup ${transaction.backupSessionId.slice(0, 12)}.`);
     }
-    const lease = await leaseManager.acquire(transaction.cwd, {
+    const lease = heldLease ?? await leaseManager.acquire(transaction.cwd, {
       sessionId: transaction.backupSessionId,
       turnId: `restore-recovery-${transaction.transactionId}`,
+      timeoutMs: DEFAULT_LEASE_TIMEOUT_MS,
     });
     try {
       if (transaction.kind === "backup-open") {
@@ -335,7 +342,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     } catch (error) {
       throw new Error(`Restore recovery failed for backup ${transaction.backupSessionId.slice(0, 12)}; the workspace was not exposed as restored. ${errorMessage(error)}`, { cause: error });
     } finally {
-      await lease.release();
+      if (!heldLease) await lease.release();
     }
   };
 
@@ -373,7 +380,9 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       { sessionId: backup.sessionId, turnId: backup.turnId },
     );
     const rollbackTurnId = `open-backup-${randomUUID()}`;
-    const lease = await leaseManager.acquire(thread.cwd, { sessionId: thread.sessionId, turnId: rollbackTurnId });
+    const lease = await leaseManager.acquire(thread.cwd, {
+      sessionId: thread.sessionId, turnId: rollbackTurnId, timeoutMs: DEFAULT_LEASE_TIMEOUT_MS,
+    });
     let rollbackBefore: workspaceGit.WorkspaceSnapshot | undefined;
     let rollbackAfter: workspaceGit.WorkspaceSnapshot | undefined;
     let handedOff = false;
@@ -529,8 +538,35 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     if (services.attachedRuntime()) {
       throw new Error("Restore is unavailable while Pi owns this thread. Use Fork to keep the current workspace unchanged.");
     }
-    return services.sessions.exclusive(async () => {
-      await recoverPendingRestoreTransactions(services.cwd());
+    const requested = verifiedAnchor(sessionId, checkpointId);
+    const assertCheckoutIdle = async () => {
+      const turns = await options.checkoutTurns?.(requested.source.cwd) ?? [];
+      if (turns.length > 0) {
+        throw new Error(`${turns[0]!.title} is working in this checkout. Wait for the turn to finish before restoring.`);
+      }
+    };
+    await assertCheckoutIdle();
+    let lease: WorkspaceCheckpointLease;
+    try {
+      lease = await leaseManager.acquire(requested.source.cwd, {
+        sessionId,
+        turnId: `restore-${randomUUID()}`,
+        timeoutMs: DEFAULT_LEASE_TIMEOUT_MS,
+      });
+    } catch (error) {
+      if (errorMessage(error).includes("Timed out waiting for the workspace checkpoint lease")) {
+        throw new Error("The checkout is busy. Wait for its active turn or checkpoint to finish before restoring.", { cause: error });
+      }
+      throw error;
+    }
+    let released = false;
+    const applyRestore = () => services.sessions.exclusive(async () => {
+      const current = verifiedAnchor(sessionId, checkpointId);
+      if (current.source.cwd !== requested.source.cwd || current.sourceFile !== requested.sourceFile) {
+        throw new Error("The selected thread changed before it could be restored.");
+      }
+      await assertCheckoutIdle();
+      await recoverPendingRestoreTransactions(current.source.cwd, lease);
       const { source, sourceFile, sourceCheckpoints, checkpoint } = await verifiedRestoreCheckpoint(sessionId, checkpointId);
       const cwd = source.cwd;
 
@@ -551,7 +587,6 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       let restoreAttempted = false;
       let restoreCommitted = false;
       const startedAt = performance.now();
-      let lease: Awaited<ReturnType<WorkspaceCheckpointLeaseManager["acquire"]>> | undefined;
       let activated: HostActionResult | undefined;
       const cleanupTarget = async (): Promise<void> => {
         if (prepared) {
@@ -573,9 +608,9 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       };
 
       restoringCwd = cwd;
+      restoringSessionId = targetThreadId;
       try {
         prepared = await services.sessions.prepare(target, { previousSessionFile: sourceFile });
-        lease = await leaseManager.acquire(cwd, { sessionId: source.sessionId, turnId: `restore-${randomUUID()}` });
 
         // Create the backup from the source branch's current leaf. This is the
         // first durable artifact and is complete before any workspace restore.
@@ -707,13 +742,20 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         throw new Error(`Restore failed; the original thread and workspace were kept unchanged. ${message}`, { cause: error });
       } finally {
         restoringCwd = undefined;
-        await lease?.release();
+        restoringSessionId = undefined;
+        await lease.release();
+        released = true;
       }
       // The backup must stay indexed as its own thread. The index sweep takes
       // the workspace lease, so it runs only after the restore released it.
       const index = await services.sessions.refreshIndex();
       return { ...activated!, updates: [index, ...activated!.updates] };
     });
+    try {
+      return await applyRestore();
+    } finally {
+      if (!released) await lease.release();
+    }
   };
 
   /** Records without HEAD, read again once each; they never change. */
@@ -811,6 +853,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
   const lifecycle: HostThreadLifecycle = {
     beforeWorkspace: (cwd) => recoverPendingRestoreTransactions(cwd),
     beforeOpen: async (session) => {
+      // The new restore target has no refs until rehomeFork runs under its lease.
+      if (session.sessionId === restoringSessionId) return;
       // A previous process may have died after publishing a snapshot ref but
       // before appending its custom entry. Clean that incomplete phase before a
       // runtime can start another turn in the same session.
