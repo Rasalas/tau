@@ -3,8 +3,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { Archive, Bot, ChartColumn, GitPullRequest } from "lucide-react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, UiProject, UiSession } from "../shared/contracts";
+import type { HostActionResult, TranscriptPage } from "../shared/host-protocol";
 import type { DesktopExtension } from "../renderer/extension-system";
+import { testDomRect } from "../renderer/components/test-dom-geometry";
 import { installPointerEvents } from "../renderer/test-support/pointer-events";
+import { MOVED_PRESS_MS, ORDER_HOLD_MS } from "../renderer/touch/steady-rows";
 import { setHostClient } from "../renderer/host-client-context";
 import { createFakeHostClient, type FakeHostClient } from "../renderer/test-support/fake-host-client";
 import { createRendererServices } from "../renderer/renderer-services";
@@ -158,6 +161,78 @@ describe("the web client at 400 px", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open thread Rename the store" }));
     await waitFor(() => expect(client.calls.some((call) => call.method === "switchSession")).toBe(true));
     expect(client.calls.find((call) => call.method === "switchSession")?.args[0]).toBe("/sessions/t-a.json");
+  });
+
+  it("keeps its order under a finger and opens no row that just slid under one", async () => {
+    // jsdom lays nothing out: a row's top is its place in the list.
+    const layout = Element.prototype.getBoundingClientRect;
+    const geometry = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (!(this instanceof HTMLElement) || !this.dataset.steadyRow) return layout.call(this);
+      const rows = [...this.closest(".touch-thread-active")!.querySelectorAll("[data-steady-row]")];
+      return testDomRect({ top: rows.indexOf(this) * 72, height: 72 });
+    });
+    try {
+      const client = renderHome();
+      const list = await screen.findByRole("list", { name: "Threads" });
+      const order = () => within(list).getAllByRole("listitem").map((row) => row.dataset.steadyRow);
+      const switched = () => client.calls.filter((call) => call.method === "switchSession").map((call) => call.args[0]);
+      const tap = (title: string) => {
+        const button = within(list).getByRole("button", { name: `Open thread ${title}` });
+        fireEvent.pointerDown(button, { pointerType: "touch", pointerId: 3, button: 0 });
+        fireEvent.pointerUp(button, { pointerType: "touch", pointerId: 3, button: 0 });
+        fireEvent.click(button, { detail: 1 });
+      };
+      expect(order()).toEqual(["t-a", "t-b", "t-c"]);
+
+      // A run moves "Fix the flaky test" to the top while nothing touches the list; the finger was on its way to the first row.
+      act(() => client.emit(running("t-c")));
+      await waitFor(() => expect(order()).toEqual(["t-c", "t-a", "t-b"]));
+      tap("Rename the store");
+      expect(switched()).toEqual([]);
+
+      // That press holds the order: another run moves no row until the list has rested.
+      act(() => client.emit(running("t-b")));
+      await waitFor(() => expect(rowNamed("Ship the web client").dataset.status).toBe("running"));
+      expect(order()).toEqual(["t-c", "t-a", "t-b"]);
+      await waitFor(() => expect(order()).toEqual(["t-b", "t-c", "t-a"]), { timeout: ORDER_HOLD_MS + 2_000 });
+
+      // Once the rows have been still a moment, a tap opens the row it lands on.
+      await new Promise((resolve) => setTimeout(resolve, MOVED_PRESS_MS + 50));
+      tap("Rename the store");
+      await waitFor(() => expect(switched()).toEqual(["/sessions/t-a.json"]));
+    } finally {
+      geometry.mockRestore();
+    }
+  });
+
+  it("shows a thread it has not loaded yet only once it is there, never the thread it left", async () => {
+    let page!: (page: TranscriptPage) => void;
+    let answer!: (result: HostActionResult) => void;
+    renderCompactClient({
+      loadTranscript: () => new Promise((resolve) => { page = resolve; }),
+      switchSession: () => new Promise((resolve) => { answer = resolve; }),
+    });
+    const list = await screen.findByRole("list", { name: "Threads" });
+    const row = within(list).getByRole("button", { name: "Open thread Ship the web client" });
+    fireEvent.click(row);
+    // The list stays, the tapped row says it is opening, and "Rename the store" stays where it was: behind it.
+    await waitFor(() => expect(row.getAttribute("aria-busy")).toBe("true"));
+    expect(routeFromState(window.history.state)).toEqual({ kind: "threads" });
+    act(() => page({ sessionId: "t-b", messages: [{ id: "b1", role: "user", text: "Ship it", timestamp: 2 }], hasMore: false }));
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "t-b" }));
+    expect(await screen.findByText("Ship it")).toBeTruthy();
+    expect(screen.queryByText("Rename it")).toBeNull();
+    act(() => answer({ version: 1, updates: [{ version: 1, type: "thread-detail", detail: { sessionId: "t-b", messages: [{ id: "b1", role: "user", text: "Ship it", timestamp: 2 }], isStreaming: false, activeTools: [] } }] }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+    const back = await screen.findByRole("button", { name: "Open thread Ship the web client" });
+    expect(back.getAttribute("aria-busy")).toBeNull();
+  });
+
+  it("stays on the list when a thread does not open, and says why", async () => {
+    renderCompactClient({ switchSession: async () => { throw new Error("The thread is held by another host."); } });
+    fireEvent.click(await screen.findByRole("button", { name: "Open thread Ship the web client" }));
+    expect(await screen.findByText("The thread is held by another host.")).toBeTruthy();
+    expect(routeFromState(window.history.state)).toEqual({ kind: "threads" });
   });
 
   it("stops a running thread from its sheet, without opening it; the row itself has no stop button", async () => {
