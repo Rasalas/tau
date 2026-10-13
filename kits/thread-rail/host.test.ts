@@ -18,6 +18,7 @@ import type {
 } from "tau/host-extension";
 import type { UiSession } from "tau";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
+import { ownedProcessTree } from "../../src/main/test-support/owned-process-tree.js";
 import { MACHINE_STATE_TOPIC, MACHINE_META_EVENT, MACHINE_TRASH_EVENT } from "./machine-state.js";
 import { DAY_MS, railSections } from "./meta.js";
 import { createThreadRailHostExtension } from "./host.js";
@@ -501,6 +502,21 @@ describe("Thread Rail agent tools", () => {
     await callTool((await tools("t1")).get("tau_thread_organize"), { action: "snooze", snoozedUntil: new Date(NOW + DAY_MS).toISOString() });
     observers[0]!.runEnded?.("t1", "completed");
     expect((await invoke("state")).threads.t1?.snoozedUntil).toBe(NOW + DAY_MS);
+  });
+
+  it.skipIf(process.platform === "win32")("snoozing keeps owned shell work alive and reports the thread as running", async () => {
+    const tree = await ownedProcessTree();
+    try {
+      const { tools, observers, invoke } = await harness({ index: [shell("t1", "Run tests")] });
+      observers[0]!.accepted?.("t1", "turn-1", { deferBefore: false });
+      await invoke("patch", { patches: { t1: { snoozedUntil: NOW + DAY_MS } } });
+      expect((await invoke("state")).threads.t1?.snoozedUntil).toBe(NOW + DAY_MS);
+      const directory = await callTool((await tools("t1")).get("tau_find_threads"), {});
+      expect(directory.threads[0]).toMatchObject({ threadId: "t1", running: true, snoozed: true });
+      expect(tree.alive()).toEqual(tree.pids);
+      await tree.stop();
+      await expect.poll(tree.alive, { timeout: 20_000 }).toEqual([]);
+    } finally { await tree.close(); }
   });
 
   it("lists threads with their rail state, links and requests, and filters by state, words and request", async () => {

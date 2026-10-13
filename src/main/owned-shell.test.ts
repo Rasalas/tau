@@ -8,7 +8,7 @@ import { expect, it } from "vitest";
 import { processRunning } from "./test-support/process-running.js";
 import { ownedBashOperations } from "./owned-shell.js";
 
-it.skipIf(process.platform === "win32")("retains background shell work after success and ends it when its owner is killed", async () => {
+it.skipIf(process.platform === "win32").each(["SIGTERM", "SIGKILL"] as const)("retains background shell work after success and ends it on owner %s", async (signal) => {
   const dir = await mkdtemp(join(tmpdir(), "tau-shell-owner-"));
   const bundled = join(dir, "owned.cjs");
   const fixture = fileURLToPath(new URL("./test-support/shell-process-tree.mjs", import.meta.url));
@@ -30,7 +30,7 @@ it.skipIf(process.platform === "win32")("retains background shell work after suc
     expect(processRunning(guardian!)).toBe(true);
     expect(processRunning(background!)).toBe(true);
     const exited = new Promise((resolve) => owner.once("exit", resolve));
-    owner.kill("SIGKILL");
+    owner.kill(signal);
     await exited;
     await expect.poll(() => pids.filter(processRunning), { timeout: 10_000 }).toEqual([]);
   } finally {
