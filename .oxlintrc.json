@@ -1,12 +1,30 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["oxc"],
+  "plugins": ["oxc", "jsx-a11y"],
   "categories": {
     "correctness": "error",
     "suspicious": "error",
     "perf": "warn"
   },
-  "rules": {},
+  "rules": {
+    // Off by design: widget roles on buttons (option, menuitemradio, tab) are the ARIA pattern; a dialog focuses its first field
+    // on purpose; media comes from tool output and attachments, which have no caption tracks.
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/no-autofocus": "off",
+    "jsx-a11y/media-has-caption": "off",
+    // Open backlog, a warning each: fix a site, and a rule with none left goes to "error".
+    "jsx-a11y/no-static-element-interactions": "warn",
+    "jsx-a11y/no-noninteractive-element-interactions": "warn",
+    "jsx-a11y/click-events-have-key-events": "warn",
+    "jsx-a11y/no-noninteractive-tabindex": "warn",
+    "jsx-a11y/label-has-associated-control": "warn",
+    "jsx-a11y/control-has-associated-label": "warn",
+    "jsx-a11y/interactive-supports-focus": "warn",
+    "jsx-a11y/no-noninteractive-element-to-interactive-role": "warn",
+    "jsx-a11y/role-has-required-aria-props": "warn",
+    "jsx-a11y/role-supports-aria-props": "warn",
+    "jsx-a11y/no-interactive-element-to-noninteractive-role": "warn"
+  },
   "ignorePatterns": ["dist/", "dist-electron/", "node_modules/", "mobile/ios/App/App/public/", "mobile/android/app/src/main/assets/public/", "mobile/.build/", "relay/lib/", "browser-connect/pkg/tau_browser_connect.js"],
   "overrides": [
     {
