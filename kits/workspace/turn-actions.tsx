@@ -92,7 +92,7 @@ export function createForkAsker(asks: ForkAsks, checkpoints: CheckpointStore, wo
         actions.notify(errorMessage(error), "error");
       }
       // A worktree made for a fork that did not happen goes again.
-      if (made) await workspace.host.removeWorktree(made.path, name.trim(), project).catch(() => undefined);
+      if (made) await workspace.host.removeWorktree(made.path, name.trim(), project, { force: true, forceBranch: true }).catch(() => undefined);
       setBusy(false);
     };
     const body = <form onSubmit={(event) => { event.preventDefault(); void fork(); }}>

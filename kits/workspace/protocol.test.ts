@@ -11,6 +11,16 @@ function recorder() {
 }
 
 describe("Workspace Kit client encoding", () => {
+  it("sends worktree destruction confirmations separately and leaves them absent by default", async () => {
+    const { calls, client } = recorder();
+    await client.removeWorktree("/trees/manual", "manual", "ws1_project");
+    await client.removeWorktree("/trees/manual", "manual", "ws1_project", { force: true, forceBranch: true });
+    expect(calls).toEqual([
+      { command: "remove-worktree", input: { path: "/trees/manual", branch: "manual", workspace: "ws1_project" } },
+      { command: "remove-worktree", input: { path: "/trees/manual", branch: "manual", workspace: "ws1_project", force: true, forceBranch: true } },
+    ]);
+  });
+
   it("names the workspace on Git writes and branch safety reads", async () => {
     const { calls, client } = recorder();
     await client.stageFile("a", "ws1_rex");

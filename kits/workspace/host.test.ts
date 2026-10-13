@@ -78,6 +78,84 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  async function manualWorktree(detached = false) {
+    const repo = await workspace();
+    const tree = await workspace();
+    const stateDir = await workspace();
+    const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
+    git(repo, ["init", "-q", "-b", "main"]);
+    git(repo, ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "base"]);
+    git(repo, ["worktree", "add", ...(detached ? ["--detach"] : ["-b", "manual"]), tree, "HEAD"]);
+    git(tree, ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "unpublished work"]);
+    const registry = await activated(repo, { stateDir });
+    return { repo, tree, git, registry, input: { path: tree, workspace: repo } };
+  }
+
+  it("previews unpublished commits in a worktree created outside Tau", async () => {
+    const { registry, input } = await manualWorktree();
+    try {
+      await expect(registry.invoke("tau.workspace", "worktree-removal-preview", input)).resolves.toMatchObject({
+        branch: "manual", ahead: 1, unpushedCommits: 1, ignoredFiles: 0, openThreads: 0,
+      });
+    } finally { await registry.dispose(); }
+  });
+
+  it("keeps an unmerged branch when removing its worktree without a force confirmation", async () => {
+    const { repo, tree, git, registry, input } = await manualWorktree();
+    const tip = git(tree, ["rev-parse", "HEAD"]);
+    try {
+      await registry.invoke("tau.workspace", "remove-worktree", input);
+      expect(existsSync(tree)).toBe(false);
+      expect(git(repo, ["rev-parse", "refs/heads/manual"])).toBe(tip);
+    } finally { await registry.dispose(); }
+  });
+
+  it("deletes an unmerged branch only after an explicit force confirmation", async () => {
+    const { repo, git, registry, input } = await manualWorktree();
+    try {
+      await registry.invoke("tau.workspace", "remove-worktree", { ...input, forceBranch: true });
+      expect(git(repo, ["branch", "--list", "manual"])).toBe("");
+    } finally { await registry.dispose(); }
+  });
+
+  it("names ignored files and refuses newly added local files without confirmation", async () => {
+    const { tree, registry, input } = await manualWorktree();
+    try {
+      await registry.invoke("tau.workspace", "worktree-removal-preview", input);
+      await writeFile(join(tree, ".gitignore"), ".env\n");
+      await writeFile(join(tree, ".env"), "local data\n");
+      await expect(registry.invoke("tau.workspace", "worktree-removal-preview", input)).resolves.toMatchObject({ dirtyFiles: 1, ignoredFiles: 1 });
+      await expect(registry.invoke("tau.workspace", "remove-worktree", input)).rejects.toThrow(/Confirm discarding/u);
+      expect(await readFile(join(tree, ".env"), "utf8")).toBe("local data\n");
+      await registry.invoke("tau.workspace", "remove-worktree", { ...input, force: true });
+      expect(existsSync(tree)).toBe(false);
+    } finally { await registry.dispose(); }
+  });
+
+  it("protects a detached worktree's exclusive commits and never deletes a branch named detached", async () => {
+    const { repo, tree, git, registry, input } = await manualWorktree(true);
+    git(repo, ["branch", "detached", "main"]);
+    try {
+      const preview = await registry.invoke("tau.workspace", "worktree-removal-preview", input);
+      expect(preview).toMatchObject({ ahead: 1, unpushedCommits: 1 });
+      expect(preview).not.toHaveProperty("branch");
+      await expect(registry.invoke("tau.workspace", "remove-worktree", input)).rejects.toThrow(/detached worktree's unpushed commits/u);
+      expect(existsSync(tree)).toBe(true);
+      await registry.invoke("tau.workspace", "remove-worktree", { ...input, forceBranch: true });
+      expect(git(repo, ["branch", "--list", "detached"])).toContain("detached");
+    } finally { await registry.dispose(); }
+  });
+
+  it("leaves a worktree alone when Git cannot inspect its base", async () => {
+    const { tree, git, registry, input } = await manualWorktree();
+    git(tree, ["config", "branch.manual.tau-base", "missing-base"]);
+    try {
+      await expect(registry.invoke("tau.workspace", "worktree-removal-preview", input)).rejects.toThrow();
+      await expect(registry.invoke("tau.workspace", "remove-worktree", { ...input, force: true, forceBranch: true })).rejects.toThrow();
+      expect(existsSync(tree)).toBe(true);
+    } finally { await registry.dispose(); }
+  });
+
   it("ignores the checked-in workspace mode until setup is approved and after commands change", async () => {
     const repo = await workspace();
     const stateDir = await workspace();

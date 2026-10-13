@@ -99,6 +99,16 @@ export interface UiWorktreeRemoval {
   branch?: string;
   dirtyFiles: number;
   ahead: number;
+  unpushedCommits: number;
+  ignoredFiles: number;
+  openThreads: number;
+}
+
+export interface WorktreeRemovalOptions {
+  /** Explicit consent to discard uncommitted and ignored files. */
+  force?: boolean;
+  /** Explicit consent to delete an unmerged branch or exclusive detached commits. */
+  forceBranch?: boolean;
 }
 
 /**
@@ -303,10 +313,10 @@ export interface WorkspaceHostCommands {
   "worktree-base": { input: { workspace?: string; baseRef?: string; startFromOrigin?: boolean } | undefined; output: UiWorktreeBase };
   /** Adds a worktree next to `workspace` (the host's own by default) and answers with its identity; opening it is the caller's move. */
   "create-worktree": { input: { branch: string; baseRef?: string; startFromOrigin?: boolean; submodules?: WorktreeSubmodules; workspace?: string }; output: WorkspaceRef & { baseCommit?: string } };
-  /** What removing a worktree would lose: uncommitted files and commits beyond its base. */
+  /** Fresh file, commit and open-thread facts for a linked worktree. */
   "worktree-removal-preview": { input: { path: string; workspace?: string }; output: UiWorktreeRemoval };
-  /** Removes a linked worktree and the branch it held; the caller confirmed what the preview named. */
-  "remove-worktree": { input: { path: string; branch?: string; workspace?: string }; output: void };
+  /** Removes a linked worktree; keeps an unmerged branch unless its deletion was confirmed. */
+  "remove-worktree": { input: { path: string; branch?: string; workspace?: string } & WorktreeRemovalOptions; output: void };
   /** Recreates a worktree whose folder vanished, so opening it still works; `true` when it had to. */
   "ensure-worktree": { input: { path: string; branch?: string; workspace?: string }; output: boolean };
   /** The project's main line by name (`origin/HEAD`, `init.defaultBranch`, `main`); read once per project. */
@@ -384,7 +394,7 @@ export interface WorkspaceHostClient {
   getWorktreeBase(workspace?: string, options?: { baseRef?: string; startFromOrigin?: boolean }): Promise<UiWorktreeBase>;
   createWorktree(branch: string, options?: { baseRef?: string; startFromOrigin?: boolean; uniqueBranch?: boolean; submodules?: WorktreeSubmodules }, workspace?: string): Promise<WorkspaceRef & { baseCommit?: string }>;
   getWorktreeRemoval(path: string, workspace?: string): Promise<UiWorktreeRemoval>;
-  removeWorktree(path: string, branch?: string, workspace?: string): Promise<void>;
+  removeWorktree(path: string, branch?: string, workspace?: string, options?: WorktreeRemovalOptions): Promise<void>;
   ensureWorktree(path: string, branch?: string, workspace?: string): Promise<boolean>;
   getProjectDefaults(workspace?: string): Promise<ProjectDefaults>;
   getDefaultBranch(workspace?: string): Promise<string>;
@@ -443,7 +453,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     getWorktreeBase: (workspace, options) => call("worktree-base", { workspace, ...options }),
     createWorktree: (branch, options, workspace) => call("create-worktree", { branch, ...options, workspace }),
     getWorktreeRemoval: (path, workspace) => call("worktree-removal-preview", { path, workspace }),
-    removeWorktree: (path, branch, workspace) => call("remove-worktree", { path, branch, workspace }),
+    removeWorktree: (path, branch, workspace, options) => call("remove-worktree", { path, branch, workspace, ...options }),
     ensureWorktree: (path, branch, workspace) => call("ensure-worktree", { path, branch, workspace }),
     getProjectDefaults: (workspace) => call("project-defaults", { workspace }),
     getDefaultBranch: (workspace) => call("default-branch", workspace === undefined ? undefined : { workspace }),

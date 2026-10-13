@@ -113,12 +113,21 @@ function statusLine(status?: UiWorktreeStatus): string {
   return [status.isDirty ? "uncommitted changes" : "clean", status.threadCount === 0 ? "unused" : `${status.threadCount} thread${status.threadCount === 1 ? "" : "s"}`].join(" · ");
 }
 
+function removalSummary(preview: UiWorktreeRemoval): string {
+  const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
+  return [
+    count(preview.dirtyFiles, "uncommitted file"), count(preview.ignoredFiles, "ignored file"),
+    count(preview.unpushedCommits, "unpushed commit"), `${count(preview.ahead, "commit")} beyond its base`,
+    count(preview.openThreads, "open thread"),
+  ].join(" · ");
+}
+
 /** The checkout of a running thread: switch or create a branch, open, add or remove a worktree. */
 export function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone(): void }) {
   const { store, state } = useWorkspaceState();
   const info = state.workspace;
   const [statuses, setStatuses] = useState<UiWorktreeStatus[]>();
-  const [removing, setRemoving] = useState<{ tree: UiWorktree; preview?: UiWorktreeRemoval }>();
+  const [removing, setRemoving] = useState<{ tree: UiWorktree; preview?: UiWorktreeRemoval; error?: string; force?: boolean; forceBranch?: boolean }>();
   const [busy, setBusy] = useState<{ ref: string; who: string }>();
   useEffect(() => {
     let current = true;
@@ -162,9 +171,20 @@ export function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone
       {info.worktrees.map((tree) => removing?.tree.path === tree.path ? <div className="worktree-remove" key={tree.path}>
         <span className="menu-label">
           <em>Remove {tree.branch ?? tree.name}?</em>
-          <small>{removing.preview ? `${removing.preview.dirtyFiles} uncommitted file${removing.preview.dirtyFiles === 1 ? "" : "s"} · ${removing.preview.ahead} commit${removing.preview.ahead === 1 ? "" : "s"} beyond its base` : "reading what it holds…"}</small>
+          <small>{removing.preview ? removalSummary(removing.preview) : removing.error ?? "reading what it holds…"}</small>
+          {removing.preview ? <>
+            {removing.preview.dirtyFiles > 0 || removing.preview.ignoredFiles > 0 ? <label><input type="checkbox" checked={!!removing.force} onChange={(event) => setRemoving({ ...removing, force: event.target.checked })} />Discard uncommitted and ignored files</label> : null}
+            {removing.preview.branch ? <>
+              <small>Unmerged branches are kept unless you choose to delete them.</small>
+              <label><input type="checkbox" checked={!!removing.forceBranch} onChange={(event) => setRemoving({ ...removing, forceBranch: event.target.checked })} />Delete branch even if unmerged</label>
+            </> : removing.preview.unpushedCommits > 0 ? <label><input type="checkbox" checked={!!removing.forceBranch} onChange={(event) => setRemoving({ ...removing, forceBranch: event.target.checked })} />Discard detached worktree's unpushed commits</label> : null}
+          </> : null}
         </span>
-        <button type="button" className="danger" onClick={() => { setRemoving(undefined); void store.removeWorktree(tree.path, tree.branch); }}>Remove</button>
+        <button type="button" className="danger" disabled={!removing.preview || removing.preview.openThreads > 0 || ((removing.preview.dirtyFiles > 0 || removing.preview.ignoredFiles > 0) && !removing.force) || (!removing.preview.branch && removing.preview.unpushedCommits > 0 && !removing.forceBranch)} onClick={() => {
+          if (!removing.preview) return;
+          void store.removeWorktree(tree.path, removing.preview.branch, { force: !!removing.force, forceBranch: !!removing.forceBranch });
+          setRemoving(undefined);
+        }}>Remove</button>
         <button type="button" onClick={() => setRemoving(undefined)}>Cancel</button>
       </div> : <button key={tree.path} type="button" className={tree.isCurrent ? "selected" : ""} onClick={() => (tree.isCurrent ? onDone() : done(store.openWorktree(tree.path)))}>
         {tree.isMain ? <Folder size={13} /> : <FolderGit2 size={13} />}
@@ -177,8 +197,8 @@ export function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone
           onClick={(event) => {
             event.stopPropagation();
             setRemoving({ tree });
-            void store.host.getWorktreeRemoval(tree.path, state.cwd)
-              .then((preview) => setRemoving((shown) => shown?.tree.path === tree.path ? { tree, preview } : shown), () => undefined);
+            void store.host.getWorktreeRemoval(tree.path, store.workspace())
+              .then((preview) => setRemoving((shown) => shown?.tree.path === tree.path ? { tree, preview } : shown), (error: unknown) => setRemoving((shown) => shown?.tree.path === tree.path ? { tree, error: error instanceof Error ? error.message : String(error) } : shown));
           }}
         ><Trash2 size={12} /></span> : null}
       </button>)}
