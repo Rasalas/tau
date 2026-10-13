@@ -115,6 +115,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-power-state.js", // Native sleep/wake lifecycle of core's host connections.
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./linux-sandbox.js",   "./live-turn-state.js",
+  "./kit-message-order.js", // A runtime kit's messages in the order they began, as the live view shows them.
   "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-completion.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",
   "./opencode-catalog.js",
   "./editable-json.js", "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
