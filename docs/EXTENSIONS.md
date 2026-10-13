@@ -286,7 +286,11 @@ over a default on the same chord instead of colliding with it. Keybindings Kit
 uses it for the actions the user rebound in `~/.pi/agent/keybindings.json`:
 someone who wrote `app.session.new` there meant that key, not that key and
 Tau's default too. Without `replaces`, a binding is additive, which is what a
-package adding a chord of its own wants.
+package adding a chord of its own wants. When `replaces` names a command other
+than the binding's own (Thread Rail's "Settle or un-settle thread" replaces
+Workspace Kit's "Settle thread"), the named command is a stand-in: the palette
+and the keymap list only the replacement while it is registered, and the stand-in
+still runs by its id (API 1.61.0).
 
 `registerUserKeymap({ id, label, setChords, resetAll })` (new in API 1.12.0)
 offers the file Settings → Keybindings writes the chords the user records.
@@ -892,6 +896,13 @@ that for any caller: it resolves true once the message is in view (its row
 flashes) and false when the thread has no such message. Prompt Tools' "Cite"
 records the cited reply's id in the excerpt chip (`messageId`), and the sent
 excerpt's "Go to source" calls it.
+
+`actions.findInThread?.()` (API 1.61.0) opens the find bar over the transcript of
+the thread on screen, or moves the keyboard back into it when it is open. Core's
+command `thread.find` ("Find in thread", `mod+f` outside a terminal, the preview,
+the Files editor and an open overlay) calls it, so a package can run it by
+`executeCommand` or rebind the chord. Nothing happens without a transcript on
+screen.
 
 #### The thread's interaction mode (new in API 1.11.0)
 

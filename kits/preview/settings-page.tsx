@@ -1,6 +1,7 @@
 import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, useSetting, type SettingHandle } from "tau";
 import { PREVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
 import { PREVIEW_SETTINGS as KEYS } from "./settings.js";
+import { pageChord, pageModifier } from "./shortcut.js";
 import { FRAME_RATES, VIEWPORT_PRESETS, ZOOM_LEVELS, readAppearance, readFrameRate, readViewport, readZoom, viewportLabel } from "./viewport.js";
 
 const value = (key: string) => `values.${ID}.${key}`;
@@ -61,14 +62,14 @@ export function PreviewSettingsPage() {
       <SettingRow id="setting-preview-viewport" title="Viewport" description="A fixed size keeps its CSS width and is scaled down to fit the panel." setting={viewport}
         control={<Select label="Default viewport" width="lg" value={viewport.value} onChange={viewport.set}
           options={[{ value: "fill", label: "Fill the panel" }, ...VIEWPORT_PRESETS.map((preset) => ({ value: preset.id, label: `${preset.label} · ${preset.width}×${preset.height}` }))]} />} />
-      <SettingRow id="setting-preview-zoom" title="Zoom" description="⌘+, ⌘− and ⌘0 zoom the page while it has the keyboard." setting={zoom}
+      <SettingRow id="setting-preview-zoom" title="Zoom" description={`${pageChord("+")}, ${pageChord("−")} and ${pageChord("0")} zoom the page while it has the keyboard.`} setting={zoom}
         control={<Select label="Default zoom" width="sm" value={String(readZoom(zoom.value) ?? 1)} onChange={zoom.set}
           options={ZOOM_LEVELS.map((level) => ({ value: String(level), label: percent(level) }))} />} />
       <SettingRow id="setting-preview-appearance" title="Appearance" description="The prefers-color-scheme the page sees." setting={appearance}
         control={<SegmentedControl label="Default appearance" value={appearance.value} options={APPEARANCES} onChange={appearance.set} />} />
     </SettingsSection>
     <SettingsSection title="Links">
-      <SettingRow id="setting-preview-links" title="Open links from a thread in" description="A web link in a reply opens here or in the system browser; ⌘-click always takes the browser." setting={linkTarget}
+      <SettingRow id="setting-preview-links" title="Open links from a thread in" description={`A web link in a reply opens here or in the system browser; ${pageModifier()}-click always takes the browser.`} setting={linkTarget}
         control={<SegmentedControl label="Open links in" value={linkTarget.value} options={LINK_TARGETS} onChange={linkTarget.set} />} />
     </SettingsSection>
     <SettingsSection title="Recording">

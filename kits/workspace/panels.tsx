@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, FileDiff, PanelTop, RotateCw, Search, SquarePen, WrapText } from "lucide-react";
-import { ChangesTree, DiffStack, FileKindIcon, tooltipProps, useHostCapabilities, useDiffPresentation, useWorkbench, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
+import { ChangesTree, DiffStack, FileKindIcon, tooltipProps, useHostCapabilities, useDiffPresentation, useWorkbench, useWorkbenchShell, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
 import { FileReader } from "./file-reader.js";
 import { relativeHostPath } from "./host-paths.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
@@ -210,6 +210,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   const workspaceStore = useWorkspaceStore();
   const { fileTree, changes, cwd, workspace } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
+  const { registry } = useWorkbenchShell();
   const touch = useCompactLayout();
   const inSheet = placement === "sheet";
   const onStage = placement === "stage";
@@ -267,7 +268,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
     type="button"
     className="icon-button files-panel-search"
     aria-label="Go to file"
-    {...tooltipProps("Go to file", { shortcut: "⌘P", side: "bottom" })}
+    {...tooltipProps("Go to file", { shortcut: registry.keybindingLabel("search.files"), side: "bottom" })}
     onClick={() => searcher.pickFile(inSheet || onStage ? setReading : undefined)}
   ><Search size={touch ? 18 : 14} /></button> : null;
 

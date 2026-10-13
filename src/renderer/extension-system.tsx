@@ -106,6 +106,11 @@ export interface WorkbenchActions {
    * older turns first when it is not among them. False when the thread has no such message.
    */
   revealMessage?(messageId: string): Promise<boolean>;
+  /**
+   * Opens the find bar over the transcript of the thread on screen, or takes the keyboard back
+   * into it when it is open; nothing happens without a transcript (API 1.61.0).
+   */
+  findInThread?(): void;
   focusStage(): void;
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
@@ -1242,7 +1247,10 @@ export interface KeybindingContribution {
    * joining. The user who rebound an action in `keybindings.json` means *that*
    * key, not that one and Tau's default too; a kit passes the command id here
    * and core hides the default while the binding lives (Keybindings Kit is the
-   * caller). Usually the same id as `commandId`.
+   * caller). Usually the same id as `commandId`. Naming another registered
+   * command makes that one a stand-in the palette and the keymap no longer
+   * list (it still runs by id): Workspace Kit's "Settle thread" gives way to
+   * Thread Rail's (API 1.61.0).
    */
   replaces?: string;
 }
@@ -2598,7 +2606,16 @@ export class ExtensionRegistry {
   }
 
   getCommands(): Array<Owned<CommandContribution>> {
-    return this.sorted("commands", this.commands, false);
+    const cached = this.sortedCache.get("commands:listed");
+    if (cached?.version === this.version) return cached.value as Array<Owned<CommandContribution>>;
+    // A command that a registered command's binding `replaces` is its stand-in; listing both would show one action twice.
+    const standIns = new Set<string>();
+    for (const { binding } of this.keybindingEntries) {
+      if (binding.replaces && binding.replaces !== binding.commandId && this.commands.has(binding.commandId)) standIns.add(binding.replaces);
+    }
+    const value = this.sorted("commands", this.commands, false).filter((command) => !standIns.has(command.id));
+    this.sortedCache.set("commands:listed", { version: this.version, value });
+    return value;
   }
 
   /** The palette's sources, in `order`. */

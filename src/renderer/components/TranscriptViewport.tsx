@@ -22,6 +22,7 @@ import { VirtualTranscript, type TranscriptVisibleRange } from "./VirtualTranscr
 import type { JumpToLatestStore } from "./JumpToLatest";
 import { composerReserve } from "./ComposerReserve";
 import { useTranscriptFind, useTranscriptReveal } from "./use-transcript-reveal";
+import { answerFind } from "./transcript-reveal";
 
 export type { TranscriptNavigationScope, TranscriptTurnStart } from "../../workbench/transcript-navigation";
 export { useTranscriptNavigation } from "./transcript-navigation-dom";
@@ -350,6 +351,12 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   useEffect(() => () => jumpToLatest?.set(undefined), [jumpToLatest]);
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [findToken, setFindToken] = useState(0);
+  // `thread.find` and the `findInThread` action arrive as an event on the node, from outside the viewport.
+  useEffect(() => {
+    const node = scrollRef.current;
+    return node ? answerFind(node, () => { setSearchOpen(true); setFindToken((token) => token + 1); }) : undefined;
+  }, [scrollRef]);
   const reveal = useTranscriptReveal({ scrollRef, sessionId, messages, jumpToMessage: navigation.jumpToMessage, loadThrough });
   const { find, onActive } = useTranscriptFind(scrollRef, sessionId);
 
@@ -359,7 +366,8 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     const node = scrollRef.current;
     if (!node) return;
 
-    if (event.key === "/" || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f")) {
+    // The find chord is `thread.find`'s, so rebinding it moves it; the bare `/` is the transcript's own.
+    if (event.key === "/") {
       event.preventDefault();
       setSearchOpen(true);
       return;
@@ -471,6 +479,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
         find={find}
         onJump={reveal}
         onActive={onActive}
+        focusToken={findToken}
         onClose={() => {
           setSearchOpen(false);
           scrollRef.current?.focus();

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
+import { answerFind } from "./components/transcript-reveal";
 import { useWorkbenchActions, type UseWorkbenchActionsOptions } from "./use-workbench-actions";
 import type { HostSnapshot, UiModel } from "../shared/contracts";
 import type { StageFileTab } from "../workbench/stage";
@@ -206,6 +207,18 @@ describe("useWorkbenchActions", () => {
     expect(querySelector).not.toHaveBeenCalled();
     querySelector.mockRestore();
     transcript.remove();
+  });
+
+  it("asks the active transcript to open its find bar, and does nothing without one", () => {
+    const transcript = document.createElement("div");
+    const asked = vi.fn();
+    answerFind(transcript, asked);
+    const { result } = renderHook(() => useWorkbenchActions(createMockOptions({ transcriptRef: { current: transcript } })));
+    result.current.findInThread?.();
+    expect(asked).toHaveBeenCalledOnce();
+
+    const { result: none } = renderHook(() => useWorkbenchActions(createMockOptions()));
+    expect(() => none.current.findInThread?.()).not.toThrow();
   });
 
   it("delegates stage focus and instructions through explicit callbacks", () => {

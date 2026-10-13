@@ -190,6 +190,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.restart-session", label: "Restart agent session", group: "Thread", access: "write", run: async (app) => { await app.restartAgentSession?.(); } });
     plugin.registerCommand({ id: "runtime.reload", label: "Apply changes and reload Tau", group: "Runtime", access: "write", run: async (app) => { await app.reloadWorkbench(); } });
     plugin.registerCommand({ id: "runtime.open-source", label: "Open Tau source", group: "Runtime", access: "write", run: async (app) => { await app.openWorkbenchSource(); } });
+    plugin.registerCommand({ id: "thread.find", label: "Find in thread", group: "Thread", access: "read", run: (app) => app.findInThread?.() });
     plugin.registerCommand({ id: "workbench.focus-composer", label: "Focus composer", group: "Workbench", access: "read", run: (app) => app.focusComposer() });
     plugin.registerCommand({ id: "workbench.focus-transcript", label: "Focus transcript", group: "Workbench", access: "read", run: (app) => app.focusTranscript() });
     plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", access: "read", run: (app) => app.focusStage() });
@@ -228,7 +229,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.cycle-model", label: "Cycle model forward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(1); } });
     plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });
     plugin.registerCommand({ id: "runtime.cycle-thinking", label: "Cycle thinking level", group: "Thread", access: "write", run: async (app) => { await app.cycleThinking?.(); } });
-    plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Open prompt in external editor", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
+    plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Edit prompt in $EDITOR", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
     const goalCommand = (id: string, label: string, action: "pause" | "resume" | "clear", refusal: "pause" | "resume" | "end") => plugin.registerCommand({
       id, label, group: "Thread", access: "write",
       unavailable: () => goalCommandRefusal(refusal),
@@ -244,6 +245,8 @@ export const runtimeControls: DesktopExtension = {
     }
     plugin.registerSlashCommand({ name: "goal", description: "Set a goal the runtime pursues across turns, or pause, resume or end it", argumentHint: "<objective> | pause | resume | end", run: runGoalCommand });
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
+    // T3 Code's `chat.find` chord. A terminal, the preview, the Files editor and an open overlay (Settings, a dialog) have a find of their own.
+    plugin.registerKeybinding({ keys: "mod+f", commandId: "thread.find", when: "!terminalFocus && !previewFocus && !editorFocus && !overlayOpen" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     // In a terminal ⌘[ and ⌘] move between its splits (Terminal Kit).
     plugin.registerKeybinding({ keys: "mod+[", commandId: "navigation.back", when: "!terminalFocus" });

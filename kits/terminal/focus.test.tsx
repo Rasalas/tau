@@ -2,6 +2,7 @@
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, WorkbenchActions } from "tau";
+import { KitShell } from "../../src/renderer/test-support/kit-harness.js";
 import { TerminalPanel } from "./panel.js";
 import { connectTerminalHost, terminalServices, terminalStore } from "./store.js";
 import { openTerminal, toggleTerminal } from "./controller.js";
@@ -113,7 +114,7 @@ afterEach(() => {
 
 /** The panel drawn on the stage, with the keyboard still in the composer. */
 async function panelWithShell(actions: WorkbenchActions) {
-  render(<TerminalPanel active extensionName="Terminal" actions={actions} placement="stage" />);
+  render(<TerminalPanel active extensionName="Terminal" actions={actions} placement="stage" />, { wrapper: KitShell });
   await act(async () => { await toggleTerminal(actions); });
   await waitFor(() => expect(document.activeElement).toBe(xtermOf("t1")));
 }
@@ -125,7 +126,7 @@ describe("mod+j and the keyboard", () => {
     // The stage attaches a panel's host after the panel drew into it.
     const host = document.createElement("div");
     try {
-      render(<TerminalPanel active extensionName="Terminal" actions={actions} placement="stage" />, { container: host });
+      render(<TerminalPanel active extensionName="Terminal" actions={actions} placement="stage" />, { wrapper: KitShell, container: host });
       await act(async () => { await toggleTerminal(actions); });
       await waitFor(() => expect(xtermOf("t1") ?? host.querySelector("textarea")).toBeTruthy());
       await act(async () => { await Promise.resolve(); });

@@ -473,7 +473,7 @@ export function SettingsScreen({
               {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the host keeps its settings as they are. Theme and layout stay on this device.</p> : null}
               <SettingsPageActionSlot.Provider value={actionSlot}>
                 {page === "general" ? (
-                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} />
+                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} detailShortcut={registry.keybindingLabel("runtime.transcript-detail")} />
                 ) : page === "models" ? (
                   <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
                 ) : page === "runtimes" ? (

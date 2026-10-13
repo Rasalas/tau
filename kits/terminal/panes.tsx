@@ -7,6 +7,7 @@ import { moveDivider, paneIds, resizeGroupSplit, splitShares, type PaneNode, typ
 import { closeTerminals, moveTerminalToStage, restartTerminal } from "./controller.js";
 import type { UiTerminalSession } from "./protocol.js";
 import { placeOf, type TerminalPlace } from "./scope.js";
+import { useTerminalChord } from "./shortcut.js";
 
 export { placeOf, type TerminalPlace } from "./scope.js";
 
@@ -88,6 +89,7 @@ function Pane({ session, split, group, place, actions, run, activeSessionId }: O
   const exited = session.exitCode !== undefined;
   const directory = shellDirectory(session);
   const { readOnly } = useHostCapabilities();
+  const chord = useTerminalChord();
   // A pane alone in its tab is named by the tab, whose tooltip has the path, and its buttons are the tab bar's.
   return <section className="terminal-pane" aria-label={session.label}>
     {split || exited ? <header className="terminal-pane-header">
@@ -104,7 +106,7 @@ function Pane({ session, split, group, place, actions, run, activeSessionId }: O
           {...tooltipProps("Open as a stage tab; the shell keeps running")}
           onClick={() => run(() => moveTerminalToStage(actions, session.id))}
         ><SquareArrowOutUpRight size={13} /></button> : null}
-        {readOnly ? null : <button type="button" className="terminal-pane-button" aria-label={`Close ${session.label}`} {...tooltipProps("Close this shell", place === "panel" ? { shortcut: "⌘W" } : {})} onClick={() => run(() => closeTerminals([session.id]))}><X size={13} /></button>}
+        {readOnly ? null : <button type="button" className="terminal-pane-button" aria-label={`Close ${session.label}`} {...tooltipProps("Close this shell", place === "panel" ? { shortcut: chord("close") } : {})} onClick={() => run(() => closeTerminals([session.id]))}><X size={13} /></button>}
       </span>
     </header> : null}
     <TerminalView session={session} place={place} focused={split && group.focused === session.id} />

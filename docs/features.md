@@ -9,7 +9,7 @@ The first builds of Tau set out to prove that Pi can stay the agent runtime whil
 - optional Working section on desktop and web: enable **Separate working threads** in Settings → Thread rail to collect running active threads until they finish, fail or need an answer or approval. It starts off; pinned, snoozed, settled and archived threads keep their sections, and manual order and sibling groups stay saved. Connected machines use their reported activity. The compact phone list keeps its current layout
 - searchable recent-project modal (`Cmd/Ctrl+P`) and extension-provided add-project sources
 - working local-folder and Git-clone project flows, plus thread search (`/`)
-- find in the thread (`Cmd/Ctrl+F` or `/` in the transcript) searches the whole history, also turns not loaded yet and a reply's plan: it starts at the newest match (Enter goes to the next older one, Shift+Enter back), loads older turns on the way, marks the words in the text and the row it stands on
+- find in the thread (`Cmd/Ctrl+F`, also from the composer, or `/` in the transcript) searches the whole history, also turns not loaded yet and a reply's plan: it starts at the newest match (Enter goes to the next older one, Shift+Enter back), loads older turns on the way, marks the words in the text and the row it stands on
 - a quote sent from a reply or a terminal reads as a chip above the message (what you wrote about it, else the start of the quote); a click opens the source, the quote and your comment, and "Go to source" jumps to the cited reply
 - file index marked with the working tree's changes, and a Signals event stream
 - full-window diff review (`Cmd/Ctrl+Shift+D`) with unified and split views, driven by a real `git diff`

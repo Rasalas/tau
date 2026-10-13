@@ -143,6 +143,22 @@ describe("client profiles", () => {
     for (const extension of kits) registry.deactivate(extension.id);
   });
 
+  // The palette and the keymap list an action once: a command another kit's binding stands in for gives way
+  // (Workspace Kit's fallback "Settle thread" to Thread Rail's), and two commands never share a name.
+  it("lists each command of core and the kits Tau ships once", () => {
+    const { registry } = createKitHarness(workspaceHostStub());
+    registry.activateCore(runtimeControls);
+    for (const extension of kits) registry.activate(extension);
+    const labels = registry.getCommands().map((command) => command.label);
+    expect(labels.filter((label, index) => labels.indexOf(label) !== index)).toEqual([]);
+    expect(registry.getCommands().map((command) => command.id)).not.toContain("workspace.settle");
+    expect(registry.getCommand("workspace.settle")).toBeDefined();
+    // Without Thread Rail the fallback is the only way to settle, so it is listed.
+    registry.deactivate(threadRail.id);
+    expect(registry.getCommands().map((command) => command.id)).toContain("workspace.settle");
+    for (const extension of kits) registry.deactivate(extension.id);
+  });
+
   // The app menu takes its accelerators before the page sees them; Settings is
   // the one chord both bind, to the same command. A preview that wants the zoom
   // chords for its own page takes them in that view (`src/main/app-menu.ts`).
