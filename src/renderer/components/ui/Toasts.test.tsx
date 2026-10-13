@@ -204,21 +204,21 @@ describe("ToastViewport's place", () => {
   it("follows a new thread header and composer while the same notification stays open", async () => {
     vi.stubGlobal("innerWidth", 390);
     vi.stubGlobal("innerHeight", 844);
-    const screen = element("workbench", [0, 0, 390, 844]);
-    const header = element("thread-header", [0, 44, 390, 100], screen);
-    const host = element("conversation-composer-host", [0, 746, 390, 844], screen);
+    const chat = element("workbench", [0, 0, 390, 844]);
+    const header = element("thread-header", [0, 44, 390, 100], chat);
+    const host = element("conversation-composer-host", [0, 746, 390, 844], chat);
     try {
       const { store } = setup(undefined, true);
       act(() => { store.show({ type: "error", description: "Saved" }); });
       expect(stackStyle().top).toBe("108px");
       header.remove();
       host.remove();
-      element("thread-header", [0, 44, 390, 120], screen);
-      element("conversation-composer-host", [0, 420, 390, 472], screen);
+      element("thread-header", [0, 44, 390, 120], chat);
+      element("conversation-composer-host", [0, 420, 390, 472], chat);
       await act(async () => { await Promise.resolve(); });
       expect(stackStyle().top).toBe("128px");
       expect(stackStyle().getPropertyValue("--toast-available-height")).toBe("284px");
-    } finally { screen.remove(); }
+    } finally { chat.remove(); }
   });
 
   it("places notifications beside the overview's floating button, then under the chat title", async () => {
