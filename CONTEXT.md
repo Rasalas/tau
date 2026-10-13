@@ -47,7 +47,7 @@ Wherever a person reads about it, in Settings, on the phone or in the browser's 
 
 ## Access key
 
-What the owner of a machine holds: a window with it manages who may connect, rotates the key and signs devices out. The code and the docs call it the host token. A paired device holds a key of its own, which the owner can revoke without changing the access key.
+What the owner of a machine holds: a window with it manages who may connect, rotates the key, signs devices out and can show and copy the key under Settings → Connections → This machine, to enter it on their own devices or browsers. The code and the docs call it the host token. A paired device holds a key of its own, which the owner can revoke without changing the access key.
 
 ## Device
 

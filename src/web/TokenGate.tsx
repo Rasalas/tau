@@ -26,7 +26,7 @@ export function TokenGate({ notice, onSubmit, onAsk, onConnect }: {
       <div className="token-gate-entry">
         <label htmlFor="token-gate-token">{onConnect ? "Access key or Tau Connect link" : "Access key"}</label>
         <input id="token-gate-token" type="password" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={value} onChange={(event) => setValue(event.target.value)} />
-        <p>An access key is for whoever runs Tau on that machine. Everyone else {onAsk ? "asks to connect or opens a pairing link." : "opens a pairing link."}</p>
+        <p>An access key is for whoever runs Tau on that machine, who finds it in Settings → Connections → This machine. Everyone else {onAsk ? "asks to connect or opens a pairing link." : "opens a pairing link."}</p>
         <button type="submit" className={onAsk ? undefined : "token-gate-primary"} disabled={!token}>Connect</button>
       </div>
     </form>

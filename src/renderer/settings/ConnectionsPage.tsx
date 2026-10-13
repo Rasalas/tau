@@ -34,6 +34,7 @@ import { NearbyMachinesDialog } from "./NearbyMachines";
 import { ConnectSettings } from "./ConnectSettings";
 import type { SettingsCardId, SettingsSectionProps } from "../extension-system";
 import { HostServiceSection } from "./HostServiceSection";
+import { AccessKeyRow } from "./AccessKeyRow";
 import { CommandLineRow } from "./CommandLineRow";
 import { useHostCapabilities } from "../use-host-capabilities";
 
@@ -92,6 +93,8 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   const [editing, setEditing] = useState<UiPairedClient>();
   const [findingMachines, setFindingMachines] = useState(false);
   const [busy, setBusy] = useState<string>();
+  // A shown access key is out of date once rotated; a new row asks again.
+  const [rotations, setRotations] = useState(0);
   const now = useNow(15_000);
 
   const refresh = useCallback(async () => {
@@ -212,12 +215,11 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
         </table>
       </div>
 
-      {thisMachine.length || localFiles ? (
-        <SettingsCard title="This machine">
-          {thisMachine.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
-          {localFiles ? <CommandLineRow onNotify={onNotify} /> : null}
-        </SettingsCard>
-      ) : null}
+      <SettingsCard title="This machine">
+        {thisMachine.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
+        <AccessKeyRow key={rotations} onNotify={onNotify} />
+        {localFiles ? <CommandLineRow onNotify={onNotify} /> : null}
+      </SettingsCard>
 
       <HostServiceSection onNotify={onNotify} />
 
@@ -305,7 +307,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
             busy={busy === "rotate"}
             confirmTitle="Rotate the access key?"
             confirmMessage="Every other connection that uses the access key closes at once: other windows on this machine, and any browser the key was pasted into. This window carries on with the new key."
-            onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Access key rotated")}
+            onConfirm={() => void act("rotate", async () => { await client!.rotateHostToken(); setRotations((count) => count + 1); }, "Access key rotated")}
           />
         </DangerZone>
       </SettingsAdvanced>

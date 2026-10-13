@@ -114,6 +114,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
       ["Invisible display", ["xvfb", "display", "headless", "linux", "preview", "screen", "x11"]],
       ["Keep this machine awake while turns run", ["awake", "sleep", "caffeinate", "power"]],
       ["Keep Tau running in the background", ["host", "background", "quit", "this machine"]],
+      ["Access key", ["host token", "key", "token", "secret", "show", "copy", "sign in", "log in", "browser"]],
       ["Command line", ["tau command", "cli", "terminal command", "terminal", "shell", "path", "install", "symlink", "tau app"]],
       ["Sign out every other device", ["revoke others", "sign out", "devices"]],
       ["Rotate the access key", ["host token", "access key", "rotate", "token", "secret"]],

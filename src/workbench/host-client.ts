@@ -257,6 +257,8 @@ export interface HostClient {
   denyPairing(id: string): Promise<{ denied: boolean }>;
   /** Closes every other connection on the old host token; this one carries on with the new one. */
   rotateHostToken(): Promise<void>;
+  /** The host token itself, for the owner to enter on another device (API 1.61.0); refused to everyone else, and an older host does not know it. */
+  hostToken(): Promise<string>;
   /** Opens or closes the listeners beyond loopback in the running host. */
   setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
   connectStatus?(): Promise<ConnectStatus>;
@@ -488,6 +490,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       const { token } = await call<{ token: string }>("connections-rotate-host-token");
       connection.updateToken(token);
     },
+    hostToken: async () => (await call<{ token: string }>("connections-host-token")).token,
     setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
     connectStatus: () => call<ConnectStatus>("connect-status"),
     configureConnect: (input) => call<ConnectStatus>("connect-configure", [input]),
