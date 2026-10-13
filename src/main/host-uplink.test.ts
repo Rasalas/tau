@@ -34,6 +34,38 @@ async function fakeHost(): Promise<{ url: string; hellos: unknown[]; sockets: We
 }
 
 describe("the window process's uplink", () => {
+  it("never executes a rejected queued call after reconnect", async () => {
+    const host = await fakeHost();
+    let reportClosed!: () => void;
+    const dropped = new Promise<void>((resolve) => { reportClosed = resolve; });
+    let reportHello!: () => void;
+    const reopened = new Promise<void>((resolve) => { reportHello = resolve; });
+    let hellos = 0;
+    const executed: string[] = [];
+    server!.on("connection", (socket) => socket.on("message", (bytes) => {
+      const frame = JSON.parse(String(bytes));
+      if (frame.type !== "request") return;
+      executed.push(frame.request.method);
+      socket.send(JSON.stringify({ type: "response", response: { id: frame.request.id, result: true } }));
+    }));
+    uplink = new HostUplink({
+      url: host.url, token: "t",
+      onHello: () => { if (++hellos === 2) reportHello(); },
+      logger: { debug: (_message, fields) => { if (String((fields as { reason?: string } | undefined)?.reason).startsWith("socket-closed")) reportClosed(); }, info: () => undefined, warn: () => undefined, error: () => undefined },
+    });
+    await uplink.hello();
+    hostPowerState.change("suspend");
+    const call = uplink.request("write-once").then(() => "accepted", () => "rejected");
+    host.sockets[0]!.close();
+    await dropped;
+    expect(await call).toBe("rejected");
+    hostPowerState.change("resume");
+    await reopened;
+    await uplink.request("barrier");
+    expect(executed).toEqual(["barrier"]);
+    expect(host.sockets).toHaveLength(2);
+  });
+
   it("preserves an in-flight native call across sleep without reconnecting or repeating it", async () => {
     const host = await fakeHost();
     uplink = new HostUplink({ url: host.url, token: "t", requestTimeoutMs: 2_000 });

@@ -82,7 +82,7 @@ export class HostConnection {
   /** A job that finished before its `start-job` response arrived. */
   private readonly earlyJobResults = new Map<string, HostJobEvent>();
   /** `start-job` calls still unanswered; other clients' jobs are only kept while one is. */
-  private startingJobs = 0;
+  private readonly startingJobs = new Set<PendingJob>();
   private readonly toolOutputs = new ToolOutputStream();
   private readonly messageTexts = new MessageTextStream();
   /** `thread:`, `request:` or `topic:` keys, with how many watchers hold each. */
@@ -96,7 +96,10 @@ export class HostConnection {
 
   constructor(private readonly transport: HostTransport) {
     transport.onPush((push) => this.receive(push));
-    transport.onClose?.(() => this.setState("reconnecting"));
+    transport.onClose?.(() => {
+      this.failJobs("The connection to the machine dropped before the job finished.");
+      if (!this.closed && this.refusal === undefined) this.setState("reconnecting");
+    });
     transport.onOpen?.(() => {
       if (this.closed) return;
       if (this.recovering) this.recoveryRequested = true;
@@ -132,6 +135,7 @@ export class HostConnection {
     if (this.refusal !== undefined) return;
     this.refusal = reason;
     clearTimeout(this.recoveryTimer);
+    this.failJobs("The connection to the machine was refused before the job finished.");
     this.setState("refused");
     this.transport.close?.();
   }
@@ -178,6 +182,7 @@ export class HostConnection {
 
   async request<T>(method: string, params: readonly unknown[] = []): Promise<T> {
     if (this.refusal !== undefined) throw new HostRequestError("Tau refused the connection to this machine.", "refused");
+    if (this.closed) throw new HostRequestError("The connection to the machine was closed.", HOST_ERROR.failed);
     if (this.subscriptionQueued) this.sendSubscription();
     const response = await this.transport.request(method, params);
     if (response.error) throw new HostRequestError(response.error.message, response.error.code);
@@ -205,20 +210,23 @@ export class HostConnection {
    * a promise. A job failure is a rejected promise, never a lost connection.
    */
   async runJob<T>(method: string, params: readonly unknown[] = [], onProgress?: (message: string, fraction?: number) => void): Promise<T> {
-    this.startingJobs += 1;
-    let jobId: string;
-    try {
-      ({ jobId } = await this.request<{ jobId: string }>("start-job", [method, params]));
-    } finally {
-      this.startingJobs -= 1;
-    }
-    const early = this.earlyJobResults.get(jobId);
-    // Every client hears every job; ids restart with the host, so an old one must not be kept.
-    if (this.startingJobs === 0) this.earlyJobResults.clear();
-    else this.earlyJobResults.delete(jobId);
-    if (early) return this.settleJob<T>(early);
     return new Promise<T>((resolve, reject) => {
-      this.jobs.set(jobId, { resolve: (value) => resolve(value as T), reject, ...(onProgress ? { onProgress } : {}) });
+      const job: PendingJob = { resolve: (value) => resolve(value as T), reject, ...(onProgress ? { onProgress } : {}) };
+      this.startingJobs.add(job);
+      void this.request<{ jobId: string }>("start-job", [method, params]).then(({ jobId }) => {
+        // A late start response must not register a job after its caller saw a reset.
+        if (!this.startingJobs.delete(job)) return;
+        const early = this.earlyJobResults.get(jobId);
+        if (this.startingJobs.size === 0) this.earlyJobResults.clear();
+        else this.earlyJobResults.delete(jobId);
+        if (early) {
+          try { job.resolve(this.settleJob<T>(early)); } catch (error) { job.reject(error as Error); }
+        } else this.jobs.set(jobId, job);
+      }).catch((error: Error) => {
+        if (!this.startingJobs.delete(job)) return;
+        if (this.startingJobs.size === 0) this.earlyJobResults.clear();
+        job.reject(error);
+      });
     });
   }
 
@@ -229,6 +237,7 @@ export class HostConnection {
 
   close(): void {
     this.closed = true;
+    this.failJobs("The connection to the machine was closed before the job finished.");
     clearTimeout(this.recoveryTimer);
     this.transport.close?.();
   }
@@ -353,7 +362,7 @@ export class HostConnection {
       return;
     }
     if (!job) {
-      if (this.startingJobs > 0) this.earlyJobResults.set(event.jobId, event);
+      if (this.startingJobs.size > 0) this.earlyJobResults.set(event.jobId, event);
       return;
     }
     this.jobs.delete(event.jobId);
@@ -444,13 +453,20 @@ export class HostConnection {
     return reply;
   }
 
+  private failJobs(message: string): void {
+    const error = new HostRequestError(message, HOST_ERROR.failed);
+    for (const job of [...this.jobs.values(), ...this.startingJobs]) job.reject(error);
+    this.jobs.clear();
+    this.startingJobs.clear();
+    this.earlyJobResults.clear();
+  }
+
   private async startOver(): Promise<void> {
     this.resyncPending = true;
     this.toolOutputs.clear();
     this.messageTexts.clear();
     // Their `job-done` may be among the pushes skipped; waiting for it could last forever.
-    for (const job of this.jobs.values()) job.reject(new HostRequestError("The link to the machine was reset before the job finished.", HOST_ERROR.failed));
-    this.jobs.clear();
+    this.failJobs("The link to the machine was reset before the job finished.");
     await this.resync();
     this.resyncPending = false;
   }

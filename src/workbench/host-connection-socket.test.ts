@@ -316,6 +316,32 @@ async function liveClient(options: { heartbeat?: boolean } = {}) {
 }
 
 describe("socket host client on a mobile network", () => {
+  it("fetches a fresh bootstrap after the host drops a slow client", async () => {
+    const { connection, first, wake } = await liveClient();
+    first.deliver({ type: "push", push: { seq: 1, event: logEvent("before") } });
+    first.drop(1013, "resync required");
+    wake("online");
+    const next = FakeSocket.opened[1]!;
+    next.accept();
+    await vi.advanceTimersByTimeAsync(0);
+    const hello = answerHello(next, helloReply(2));
+    expect(hello).not.toHaveProperty("lastSeq");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(connection.getState()).toBe("resyncing");
+    const request = next.frames().find((frame) => frame.type === "request" && (frame.request as { method: string }).method === "bootstrap");
+    expect(request).toBeDefined();
+    const bootstrap = {
+      threadIndex: { projects: [], sessions: [] },
+      catalog: { models: [], thinkingLevel: "none", thinkingLevels: [], allTools: [], extensionCount: 0 },
+      project: { cwd: "/tmp/project" },
+      detail: { sessionId: "s1", messages: [], isStreaming: false, activeTools: [] },
+    };
+    next.deliver({ type: "response", response: { id: (request!.request as { id: string }).id, result: bootstrap } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(connection.getState()).toBe("connected");
+    connection.close();
+  });
+
   it("holds a prompt queued during sleep until the fresh wake probe answers", async () => {
     const { connection, client, first, wake } = await liveClient();
     wake("foreground");

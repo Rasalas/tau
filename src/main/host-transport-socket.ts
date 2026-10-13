@@ -6,6 +6,7 @@ import {
   HOST_CAPABILITY,
   HOST_CLOSE_CODE,
   HOST_ERROR,
+  HOST_PUSH_BUFFER_BYTES,
   HOST_TRANSPORT_MAX_FRAME_BYTES,
   decodeHostClientFrame,
   decodeHostSubscription,
@@ -210,9 +211,21 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     options.clients?.detached(clientId);
   };
 
-  const send = (socket: WebSocket, frame: HostServerFrame): void => {
-    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
+  const sendText = (socket: WebSocket, text: string): boolean => {
+    if (socket.readyState !== socket.OPEN) return false;
+    const bytes = Buffer.byteLength(text);
+    // One large reply still fits; accumulated writes get only the push budget.
+    const limit = bytes > HOST_PUSH_BUFFER_BYTES
+      ? HOST_PUSH_BUFFER_BYTES + Math.min(bytes, HOST_TRANSPORT_MAX_FRAME_BYTES) : HOST_PUSH_BUFFER_BYTES;
+    if (bytes > HOST_TRANSPORT_MAX_FRAME_BYTES || socket.bufferedAmount + bytes > limit) {
+      forget(socket);
+      socket.close(1013, "resync required");
+      return false;
+    }
+    socket.send(text);
+    return true;
   };
+  const send = (socket: WebSocket, frame: HostServerFrame): boolean => sendText(socket, JSON.stringify(frame));
   /** A paired device's access as it stands now: a new preset applies to its next request and push. */
   const readOnlySession = (session: { connection: string; principal: HostInvocationPrincipal }): boolean =>
     session.principal.kind === "workbench-client" && session.principal.pairedClient !== undefined && (access.accessOf?.(session.connection) ?? "read-only") === "read-only";
@@ -229,7 +242,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
 
   const pairReply = (socket: WebSocket, id: string, reply: HostPairReply): boolean => {
     if (socket.readyState !== socket.OPEN) return false;
-    send(socket, { type: "pair-reply", id, reply });
+    if (!send(socket, { type: "pair-reply", id, reply })) return false;
     if (reply.state === "approved") {
       setTimeout(() => {
         if (!authenticated.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
@@ -267,11 +280,11 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   };
 
   const followTopics = (socket: WebSocket, session: Session, topics: readonly string[]): void => {
+    if (authenticated.get(socket) !== session) return;
     options.onTopicsSubscribed?.(session.connection, topics, (event) => {
       if (authenticated.get(socket) !== session || socket.readyState !== socket.OPEN) return;
       const push = options.pushLog.record(event, { replay: false });
-      send(socket, { type: "push", push: { ...push, ...(session.lastSent === push.seq - 1 ? {} : { prev: session.lastSent }) } });
-      session.lastSent = push.seq;
+      if (send(socket, { type: "push", push: { ...push, ...(session.lastSent === push.seq - 1 ? {} : { prev: session.lastSent }) } })) session.lastSent = push.seq;
     });
   };
 
@@ -336,6 +349,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     const address = peerAddress(trust, request);
     const viaProxy = proxyUser(trust, request);
     socket.on("message", (data) => {
+      if (socket.readyState !== socket.OPEN) return;
       alive.add(socket);
       let payload: unknown;
       try { payload = JSON.parse(String(data)) as unknown; } catch { payload = undefined; }
@@ -411,8 +425,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         if (!filter && frame.hello.lastSeq !== undefined && !reply.resync) session.lastSent = reply.missed.at(-1)?.seq ?? frame.hello.lastSeq;
         // Said here so a client that manages nothing never asks for the list it would be refused.
         const owner = isHostOwner(session.principal);
-        send(socket, { type: "hello-reply", id: frame.id, reply: { ...reply, ...(readOnly ? { access: "read-only" as const } : {}), owner } });
+        if (!send(socket, { type: "hello-reply", id: frame.id, reply: { ...reply, ...(readOnly ? { access: "read-only" as const } : {}), owner } })) return;
         followTopics(socket, session, frame.hello.subscription?.topics ?? []);
+        if (authenticated.get(socket) !== session) return;
         if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
         if (options.clients && !frame.hello.auxiliary) {
           clientIds.set(socket, options.clients.attached({
@@ -522,15 +537,13 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         const text = prev
           ? `{"type":"push","push":{"seq":${push.seq}${prev},"event":${event}}}`
           : (frame ??= `{"type":"push","push":{"seq":${push.seq},"event":${event}}}`);
-        socket.send(text);
-        session.lastSent = push.seq;
+        if (sendText(socket, text)) session.lastSent = push.seq;
       }
     },
     sendCall: (connection, call) => {
       const socket = sockets.get(connection);
       if (!socket || socket.readyState !== socket.OPEN) return false;
-      socket.send(JSON.stringify({ type: "client-call", call } satisfies HostServerFrame));
-      return true;
+      return send(socket, { type: "client-call", call });
     },
     close: async () => {
       stopPings();

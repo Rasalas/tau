@@ -18,6 +18,7 @@ interface Harness {
   /** Answers a `subscribe`; the default accepts it. */
   subscribe?: () => Promise<HostResponse>;
   reopen(): void;
+  drop(): void;
   calls: Array<{ method: string; params: readonly unknown[] }>;
   buffered: HostPush[];
   nextSeq: number;
@@ -27,6 +28,7 @@ interface Harness {
 function harness(): Harness {
   const pushListeners = new Set<(push: HostPush) => void>();
   const openListeners = new Set<() => void>();
+  const closeListeners = new Set<() => void>();
   const state: Harness = {
     calls: [],
     buffered: [],
@@ -34,6 +36,7 @@ function harness(): Harness {
     capabilities: ["jobs", "replay"],
     push: (seq, event, prev) => { for (const listener of pushListeners) listener({ seq, event, ...(prev === undefined ? {} : { prev }) }); },
     reopen: () => { for (const listener of openListeners) listener(); },
+    drop: () => { for (const listener of closeListeners) listener(); },
     transport: {
       platform: "test",
       request: async (method, params): Promise<HostResponse> => {
@@ -52,6 +55,7 @@ function harness(): Harness {
       },
       onPush: (listener) => { pushListeners.add(listener); return () => pushListeners.delete(listener); },
       onOpen: (listener) => { openListeners.add(listener); return () => openListeners.delete(listener); },
+      onClose: (listener) => { closeListeners.add(listener); return () => closeListeners.delete(listener); },
     },
   };
   return state;
@@ -268,6 +272,70 @@ describe("host connection", () => {
     await settle();
     expect(link.calls.length).toBe(before);
     expect(states).toEqual(["refused"]);
+  });
+
+  it.each(["drop", "close", "refuse"] as const)("rejects a registered job on %s", async (stop) => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const rejected = vi.fn();
+    const job = connection.runJob("new-session").catch(rejected);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (stop === "drop") link.drop();
+    else if (stop === "close") connection.close();
+    else connection.refuse("untrusted");
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.waitFor(() => expect(rejected).toHaveBeenCalledOnce());
+    expect(rejected.mock.calls[0]![0]).toMatchObject({ code: "failed" });
+    await job;
+    connection.close();
+  });
+
+  it.each(["drop", "close", "resync"] as const)("rejects a job awaiting its start response on %s and ignores its late result", async (stop) => {
+    const link = harness();
+    let answer!: (response: HostResponse) => void;
+    const request = link.transport.request;
+    link.transport.request = (method, params) => method === "start-job"
+      ? new Promise((resolve) => { answer = resolve; }) : request(method, params);
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const rejected = vi.fn();
+    const job = connection.runJob("new-session").catch(rejected);
+    link.push(1, { type: "job-done", jobId: "job-1", result: "stale" });
+    link.nextSeq = 2;
+    if (stop === "drop") link.drop();
+    else if (stop === "close") connection.close();
+    else {
+      const recovered = new Promise<void>((resolve) => connection.onState((state) => { if (state === "connected") resolve(); }));
+      link.buffered = [{ seq: 40, event: agentStatus(true) }];
+      link.nextSeq = 41;
+      link.push(40, agentStatus(true));
+      await recovered;
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.waitFor(() => expect(rejected).toHaveBeenCalledOnce());
+    answer({ id: "1", result: { jobId: "job-1" } });
+    await job;
+    if (stop !== "close") {
+      link.transport.request = request;
+      const fresh = connection.runJob("new-session");
+      await Promise.resolve();
+      await Promise.resolve();
+      link.push(link.nextSeq, { type: "job-done", jobId: "job-1", result: "fresh" });
+      await expect(fresh).resolves.toBe("fresh");
+    }
+    connection.close();
+  });
+
+  it("rejects new requests after close even on a transport without close", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    connection.close();
+    await expect(connection.request("prompt")).rejects.toThrow("closed");
+    expect(link.calls).toEqual([]);
   });
 
   it("waits for job-done and reports progress on the way", async () => {
