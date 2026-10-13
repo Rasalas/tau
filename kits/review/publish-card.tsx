@@ -151,7 +151,7 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
         if (workspace) parts.rows.set(workspace, result.status.request);
         void store.refresh();
         const created = result.status.request;
-        actions.notify(created ? `${requestShort(created)} #${created.number} created${draft ? " as draft" : ""}.` : `${short} created.`);
+        actions.notify(created ? `${requestShort(created)} ${providerInfo(created.provider).sign}${created.number} created${draft ? " as draft" : ""}.` : `${short} created.`);
         if (created) openPullRequest(actions, created, opened.cwd);
       },
     }, (next) => { if (alive.current) setProgress(next); }, (step, reason) => actions.notify(`${stepWords(step, short).failed}: ${errorMessage(reason)}`, "error"));
