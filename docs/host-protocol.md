@@ -414,7 +414,7 @@ only a valid hello raises it to 112 MiB for requests with images or file data.
 Compression remains available.
 
 Upgrades are limited to 32 simultaneous connections per TCP peer address and
-256 in total per listener trust (`loopback`, `network`, `proxy`), across all
+256 in total per listener trust (`loopback`, `network`, `proxy`, `tunnel`), across all
 listeners of that trust. Authenticated and pairing connections still count
 until the TCP socket closes. Excess upgrades receive HTTP 429. Forwarded
 addresses do not change this budget, so all clients behind one reverse proxy
@@ -488,7 +488,8 @@ Limits: 20 open links; five requests waiting at once; without a link, one per
 address and three in all, and an address the owner denied waits ten minutes;
 per address, five attempts (twenty from this machine on the loopback
 listener), then a backoff doubling up to a minute. Each listener kind counts
-apart, and behind a proxy the address is the one it forwarded.
+apart, and behind a proxy the address is the one it forwarded. An opaque TLS
+tunnel uses its TCP peer's address and ignores forwarded headers.
 
 `POST /pair` of the web client's server answers 410.
 
@@ -747,6 +748,9 @@ the transport what it may conclude about a peer:
   which Tailscale Serve sets (Q-encoded outside ASCII) and strips from what a
   client sent, is read here alone and listed as the client's `proxyUser` in
   Connections: shown, never a login.
+- `tunnel`: remote TLS bytes arrive over loopback. No local privileges, a strict
+  pairing limit of its own, and the TCP peer's address is shown. All forwarded
+  address, host and proxy-user headers are ignored.
 
 The origin check at the upgrade follows the same trust. `file://` is refused
 on every listener. A proxy listener also

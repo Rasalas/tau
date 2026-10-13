@@ -203,6 +203,7 @@ export class HostAccess {
       loopback: createAuthRateLimiter(this.now),
       network: createAuthRateLimiter(this.now, { strict: true }),
       proxy: createAuthRateLimiter(this.now, { strict: true }),
+      tunnel: createAuthRateLimiter(this.now, { strict: true }),
     };
   }
 

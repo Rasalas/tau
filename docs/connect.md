@@ -66,8 +66,11 @@ after a restart and reconnects after network changes or relay outages.
 Copy the Tau Connect pairing link and paste it into Settings → Machines on the
 other desktop, or Add machine on a phone. The phone also scans a QR code containing
 the link and opens `tau-connect:` links from another app. Allow the request on the host after comparing the six digits.
-The link expires in two minutes. It includes the relay transport credential and
-the host key; treat it as a secret. A transport credential alone cannot call
+The pairing code expires in two minutes and is spent by a pairing attempt.
+The link also includes the relay transport credential and the host key; treat
+it as a secret. The relay credential remains valid for saved devices to reconnect
+until the registration is disconnected; expiring the code does not revoke it.
+A transport credential alone cannot call
 host methods. Each approved device still has its own host token and access
 preset, and may be revoked in Connections. The desktop encrypts its saved
 transport credential in the system keychain together with its machine record.
@@ -157,8 +160,13 @@ size to 64 KiB, drops unanswered control heartbeats, and expires pending
 connections after ten seconds. A control disconnect closes that route's data
 connections; the host reconnects with backoff up to thirty seconds. Application
 clients then reconnect and replay their missed pushes as usual. All relay peers
-enter the host through a `proxy` listener, so a forwarded loopback address never
-grants local owner or local file privileges.
+enter the host through a `tunnel` listener. It ignores `X-Forwarded-For`,
+`X-Forwarded-Host` and `Tailscale-User-Login` because those headers came from the
+client inside TLS. The pairing prompt shows the tunnel's TCP address,
+`127.0.0.1`, and all relay clients share one strict pairing-attempt bucket,
+separate from loopback, network and proxy listeners. No relay client gets local
+owner or local file privileges. Denying an unlinked request also makes other
+relay clients at that tunnel address wait through the denial cooldown.
 
 The deployment is a single relay process with one persisted route store. It
 does not provide multi-region routing, accounts, quota billing, or shared-store

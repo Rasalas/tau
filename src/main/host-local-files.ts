@@ -10,8 +10,9 @@ export const LOCAL_FILES_ENV = "TAU_HOST_LOCAL_FILES";
  * peer is this machine. `network`: nothing is local, whatever the address.
  * `proxy`: bound on loopback but fed by a reverse proxy such as `tailscale
  * serve`, so every peer shows up as 127.0.0.1 and none of them is local.
+ * `tunnel`: remote TLS bytes arrive over loopback; proxy headers are untrusted.
  */
-export type ListenerTrust = "loopback" | "network" | "proxy";
+export type ListenerTrust = "loopback" | "network" | "proxy" | "tunnel";
 
 export function isLoopbackPeer(address: string | undefined): boolean {
   if (!address) return false;

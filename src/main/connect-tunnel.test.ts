@@ -46,8 +46,10 @@ it("pairs and authenticates through an opaque TLS relay, refuses wrong credentia
   const route = { ...registered.body, relay: relayUrl } as { id: string; relay: string; hostToken: string; clientToken: string };
   const stored = readFileSync(join(folder, "routes.json"), "utf8");
   expect(stored).not.toContain(route.hostToken); expect(stored).not.toContain(route.clientToken);
+  const pairingAddresses: string[] = [];
   const access = await HostAccess.open({ tokenFile: new HostTokenFile(join(folder, "host-token")), storePath: join(folder, "clients.json"), onChange: () => {
-    const waiting = access.overview().requests[0]; if (waiting) void access.approvePairing(waiting.id);
+    const waiting = access.overview().requests[0];
+    if (waiting) { pairingAddresses.push(waiting.address!); void access.approvePairing(waiting.id); }
   } });
   cleanup.push(() => access.flush());
   const pushLog = new HostPushLog();
@@ -72,6 +74,13 @@ it("pairs and authenticates through an opaque TLS relay, refuses wrong credentia
   await vi.waitFor(() => expect(received).toContainEqual(expect.objectContaining({ event: { type: "event-log", label: "live relay push", timestamp: 0 } })));
   const wrongPin = pairingUrl(endpoint, { code: access.createLink().code, publicKey: publicKeyPin(certificate().cert), hostId: "test-host" });
   expect(await pairEnvironment({ text: wrongPin, deviceName: "Wrong pin" })).toMatchObject({ state: "failed" });
+  const spoofed = new WebSocket(endpoint.replace("https:", "wss:"), { ca: inner.cert, headers: { "x-forwarded-for": "100.64.0.9" } });
+  cleanup.push(() => spoofed.terminate());
+  await once(spoofed, "open");
+  const spoofedReply = once(spoofed, "message");
+  spoofed.send(JSON.stringify({ type: "pair", id: "p", pair: { code: access.createLink().code, name: "Forwarded address" } }));
+  expect(JSON.parse(String((await spoofedReply)[0]))).toMatchObject({ type: "pair-reply", reply: { state: "waiting" } });
+  expect(pairingAddresses.at(-1)).toBe("127.0.0.1");
   relay.close(); relay = await createConnectRelay(server, { adminToken, store: join(folder, "routes.json") });
   await vi.waitFor(() => expect(relay.stats().hosts).toBe(1), { timeout: 10_000 });
   const reconnected = new HostUplink({ url: endpoint.replace("https:", "wss:"), token: paired.environment.token, trust: { pin: { publicKey: pin } } }); cleanup.push(() => reconnected.close());
