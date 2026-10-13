@@ -808,6 +808,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       context.registerCommand("turn-stats", () => turnStats.all(), { access: "read" });
       const checkpoints = createWorkspaceKitLifecycle(services, {
+        checkoutTurns: (project) => checkoutTurns.running(project),
         emit: (event) => {
           if (event.type === "turn-checkpoint") void turnStats.record(event.sessionId, turnStatOf(event.checkpoint));
           context.emit(CHECKPOINT_EVENT, event, { topic: WORKSPACE_CHECKPOINT_TOPIC });
