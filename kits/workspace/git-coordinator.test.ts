@@ -18,7 +18,7 @@ function fakeGit(overrides: Record<string, string> = {}, delay = 0) {
     if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return "/project";
     if (args[0] === "rev-parse") return "main\n";
     if (args[0] === "status") return " M src/index.ts\0?? notes.txt\0";
-    if (args[0] === "diff") return "2\t1\tsrc/index.ts\0";
+    if (args[0] === "diff-index") return "2\t1\tsrc/index.ts\0";
     if (args[0] === "worktree") return "worktree /project\nbranch refs/heads/main\n";
     return "main\n";
   };
@@ -56,7 +56,7 @@ describe("GitCoordinator", () => {
       if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return "/project";
       if (args[0] === "rev-parse") return scan === 1 ? "old\n" : "new\n";
       if (args[0] === "status") return "";
-      if (args[0] === "diff") return "";
+      if (args[0] === "diff-index") return "";
       if (args[0] === "worktree") return `worktree /project\nbranch refs/heads/${scan === 1 ? "old" : "new"}\n`;
       return "main\n";
     };
@@ -101,7 +101,7 @@ describe("GitCoordinator", () => {
       active -= 1;
       if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return `${cwd}\n`;
       if (args[0] === "rev-parse") return `branch-${cwd.slice(-1)}\n`;
-      if (args[0] === "status" || args[0] === "diff") return "";
+      if (args[0] === "status" || args[0] === "diff-index") return "";
       if (args[0] === "worktree") return `worktree ${cwd}\nbranch refs/heads/main\n`;
       return "main\n";
     };
@@ -164,7 +164,7 @@ describe("bounded untracked statistics", () => {
           if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return `${cwd}\n`;
           if (args[0] === "rev-parse") return "main\n";
           if (args[0] === "status") return "?? binary.bin\0?? large.txt\0";
-          if (args[0] === "diff") return "";
+          if (args[0] === "diff-index") return "";
           if (args[0] === "worktree") return `worktree ${cwd}\nbranch refs/heads/main\n`;
           return "main\n";
         },

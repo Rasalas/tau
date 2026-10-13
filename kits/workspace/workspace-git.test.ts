@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -56,6 +56,54 @@ process.env.GIT_CONFIG_SYSTEM = "/dev/null";
 // session id alone, so a second test process must not match these names.
 const LIVE_LINKED_SESSION = `live-linked-${process.pid}`;
 const RACE_WRITER_SESSION = `race-writer-${process.pid}`;
+
+describe("workspace reads beside index writers", () => {
+  async function repository() {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-git-read-locks-"));
+    execFileSync("git", ["init", "-q"], { cwd });
+    await writeFile(join(cwd, "clean.txt"), "unchanged\n");
+    await writeFile(join(cwd, "changed.txt"), "before\n");
+    execFileSync("git", ["add", "."], { cwd });
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "fixture"], { cwd });
+    await writeFile(join(cwd, "changed.txt"), "after\n");
+    // Changed stat metadata forces porcelain Git to try saving its refreshed index.
+    await utimes(join(cwd, "clean.txt"), 1_000_000_000, 1_000_000_000);
+    return cwd;
+  }
+
+  it.each(["status", "project refresh", "file diff"])("%s leaves the index untouched", async (operation) => {
+    const cwd = await repository();
+    try {
+      const index = join(cwd, ".git", "index");
+      const before = await readFile(index);
+      if (operation === "status") {
+        expect(await runGitCommand(cwd, ["status", "--porcelain"])).toContain("changed.txt");
+      } else if (operation === "project refresh") {
+        expect((await readProjectGitState(cwd, { throwOnError: true })).changes.files).toEqual([
+          expect.objectContaining({ path: "changed.txt", added: 1, removed: 1 }),
+        ]);
+      } else {
+        expect((await getFileDiff(cwd, "changed.txt")).hunks).toHaveLength(1);
+        await getFileDiff(cwd, "clean.txt");
+      }
+      expect(await readFile(index)).toEqual(before);
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
+  it("refreshes status while git add stages a file without a lock error", async () => {
+    const cwd = await repository();
+    try {
+      const [state] = await Promise.all([
+        readProjectGitState(cwd, { throwOnError: true }),
+        runGitCommand(cwd, ["add", "--", "changed.txt"]),
+      ]);
+      expect(state.changes.files).toContainEqual(expect.objectContaining({ path: "changed.txt" }));
+      expect((await readProjectGitState(cwd, { throwOnError: true })).changes.files).toEqual([
+        expect.objectContaining({ path: "changed.txt", staged: true, added: 1, removed: 1 }),
+      ]);
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+});
 
 describe("selective workspace changes", () => {
   it("commits successfully with a fifteen-second pre-commit hook", async () => {

@@ -20,7 +20,7 @@ function gitEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) if (!REPOSITORY_ENV.test(key)) env[key] = value;
   delete env.ELECTRON_RUN_AS_NODE;
-  return { ...env, ...extra };
+  return { ...env, ...extra, GIT_OPTIONAL_LOCKS: "0" };
 }
 
 function spawnGit(args: readonly string[], options: GitOptions = {}) {
