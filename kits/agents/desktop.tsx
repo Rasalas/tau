@@ -8,6 +8,7 @@ import { SpawnCard } from "./spawn-card.js";
 import { AgentsSpine } from "./spine.js";
 import { SUBAGENT_VIEW, SubagentTitle, SubagentView } from "./subagent-view.js";
 import { agentsHost, agentsStore, definitionsStore, lineageOf, remoteAgentThreads, siblingsSource } from "./store.js";
+import { agentReturnRows } from "./return-rows.js";
 
 /**
  * Agents Kit's desktop half. The spawned threads live in the project card; the navigator only learns which threads are agents,
@@ -55,6 +56,7 @@ export const agentsExtension: DesktopExtension = {
       match: (tool) => tauToolName(tool.name) === SPAWN_TOOL || tool.kind === "subagent",
       profiles: ["desktop", "web", "compact"],
       Component: SpawnCard,
+      transcriptRows: agentReturnRows,
     });
     context.registerSettingsPage({
       id: AGENTS_SETTINGS_PAGE,
