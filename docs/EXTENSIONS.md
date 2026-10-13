@@ -151,6 +151,18 @@ lists everything), and a runtime extension that narrows the active tools can dro
 `tool_search` to keep the rest out of reach, as Agents Kit does for a read-only
 persona. Measured in [PERFORMANCE.md](PERFORMANCE.md#request-weight-of-the-kits-tools).
 
+Every shipped tool definition declares `annotations.readOnlyHint`. Use `true`
+for inspection and publishing a result in the thread, and `false` for workspace,
+application or external state changes, arbitrary code, or starting delegated work.
+The same definition supplies runtime registration and MCP. Access supplies hints
+for runtime built-ins from its existing name policy; unknown built-ins count as writes.
+Tools with both inspection and mutation
+operations declare `false`. Access's input policies keep background-task inspection
+and Computer Use's page, permission and dialog inspection available.
+The inventory test in `kits/tool-annotations.test.ts`
+checks definitions and inline registrations, including deferred tools. Computer
+Use preserves the driver's annotations and defaults an unannotated tool to writes.
+
 The factory's second argument says which session it serves: `sessionId`, `cwd`
 and, for a thread another one spawned (`sessions.start({ parent })`),
 `parentThreadId`. The option `shellCommandPrefix(session)` (API 1.15.0) gives

@@ -91,6 +91,7 @@ export class ComputerUseRuntime {
     const state = this.state(thread);
     const tools = await this.sessions.forThread(thread.sessionId, state.config).listTools();
     return tools.map((tool): HostMcpTool => ({
+      annotations: { ...tool.annotations, readOnlyHint: tool.annotations?.readOnlyHint ?? false },
       name: `${COMPUTER_USE_TOOL_PREFIX}${tool.name}`, label: tool.title ?? tool.name,
       description: tool.description ?? tool.name, parameters: Type.Unsafe(tool.inputSchema), executionMode: "sequential",
       execute: (id, args, signal, _update, ctx) => { state.lifecycle.signal.throwIfAborted(); return this.run(thread, `${COMPUTER_USE_TOOL_PREFIX}${tool.name}`, args as Record<string, unknown>, signal,
@@ -115,6 +116,7 @@ export class ComputerUseRuntime {
       catch {
         state.lifecycle.signal.throwIfAborted();
         pi.registerTool({
+          annotations: { readOnlyHint: false },
           name: `${COMPUTER_USE_TOOL_PREFIX}connect`, label: "Connect Computer Use",
           description: "Retry driver startup and register this platform's available computer-use tools.",
           parameters: Type.Object({}),

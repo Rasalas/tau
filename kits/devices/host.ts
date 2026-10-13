@@ -17,11 +17,13 @@ export function deviceTools(manager: DeviceManager): AnyTool[] {
   const result = (value: unknown) => ({ details: {}, content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value) }] });
   return [
     {
+      annotations: { readOnlyHint: true },
       name: "device_list", label: "List devices", description: "Discover iOS simulators and Android emulators on a configured host. Requires explicit agent device consent in Settings → Simulators.",
       parameters: Type.Object({ hostId: Type.Optional(Type.String()) }),
       execute: async (_id: string, input: { hostId?: string }) => { await manager.consent(); return result(await manager.discover(input.hostId ?? "local")); },
     },
     {
+      annotations: { readOnlyHint: true },
       name: "device_screenshot", label: "Device screenshot", description: "Capture the selected booted device's current screen. Coordinates use image pixels. Agent consent is required.",
       parameters: Type.Object(target),
       execute: async (_id: string, input: Target) => {
@@ -31,6 +33,7 @@ export function deviceTools(manager: DeviceManager): AnyTool[] {
       },
     },
     {
+      annotations: { readOnlyHint: false },
       name: "device_control", label: "Control device", description: "Boot, shut down, open an app, inspect its accessibility snapshot, send input, or change device settings. Use exact device IDs from device_list. Open an app before snapshot or input. Agent consent is required. Back/fold are Android only; clearLocation is iOS only. Fold requires a foldable emulator. appearance: light/dark. textSize: small/default/large/extra-large. rotate: portrait/landscape-left/landscape-right/portrait-upside-down. permission: camera/microphone/location/contacts/calendar with grant/revoke and appId. accessibility: reduceMotion, iOS also increaseContrast/reduceTransparency/voiceOver, with enabled.",
       parameters: Type.Object({ ...target, action: Type.Union(["boot", "shutdown", "open", "snapshot", "home", "back", "rotate", "tap", "swipe", "text", "appearance", "textSize", "location", "clearLocation", "permission", "accessibility", "fold"].map((action) => Type.Literal(action))), value: Type.Optional(Type.String()), appId: Type.Optional(Type.String()), permission: Type.Optional(Type.String()), enabled: Type.Optional(Type.Boolean()), x: Type.Optional(Type.Number()), y: Type.Optional(Type.Number()), endX: Type.Optional(Type.Number()), endY: Type.Optional(Type.Number()), latitude: Type.Optional(Type.Number()), longitude: Type.Optional(Type.Number()) }),
       execute: async (_id: string, input: ActionInput, signal?: AbortSignal) => { await manager.consent(); return result(await manager.action(input, signal, true)); },

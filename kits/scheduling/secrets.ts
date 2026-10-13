@@ -58,6 +58,7 @@ export class WebhookSecrets {
     }, { access: "owner" });
     context.registerCommand("decline-secret", (input) => { const v = object(input, ["id"]); this.finish(text(v.id, "Request ID", 36), "declined"); return { declined: true }; }, { access: "owner" });
     const tools = (session: RuntimeSessionInfo): HostMcpTool[] => [{
+      annotations: { readOnlyHint: false },
       name: "request_secret", label: "Request private webhook secret",
       description: "Ask the user for a signature key for an existing webhook automation in this project. The host stores and binds it only to that webhook. Returns an opaque reference, never the key. Does not enable the automation.",
       parameters: Type.Object({ consumer: Type.Literal("webhook-signature"), target: Type.String(), label: Type.String(), reason: Type.String() }),

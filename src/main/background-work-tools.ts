@@ -8,6 +8,7 @@ export const BACKGROUND_WORK_INSTRUCTIONS = "Background work belongs to the curr
 /** The MCP credential supplies the thread; the caller cannot pick a different thread. */
 export function backgroundWorkTool(background: () => ThreadBackgroundCapability | undefined): HostMcpTool {
   return {
+    annotations: { readOnlyHint: false },
     name: "tau_background_tasks",
     label: "Background work",
     description: "List this thread's background tasks and unhandled results, read tracked command output, or stop a task when its runtime supports stopping it. Use release only after checking that a command is a ready service which should keep running independently of the completed request. Tests, builds, installs, reviews and monitors must remain required. Releasing does not stop the process or mark the thread done.",

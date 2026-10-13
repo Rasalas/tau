@@ -15,6 +15,7 @@ export function registerComputerUseVision(pi: ExtensionAPI, config: VisionConfig
   if (!vision) return;
   pi.registerTool({
     ...COMPUTER_USE_TOOL_GROUP,
+    annotations: { readOnlyHint: true },
     name: "computer_use_analyze_screenshot",
     label: "computer_use_analyze_screenshot",
     description: "Capture a window and analyze its screenshot with the configured vision model. Use pid and window_id from list_windows.",

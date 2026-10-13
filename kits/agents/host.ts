@@ -1291,6 +1291,7 @@ export function createAgentsHostExtension(options: {
       const agentTools = (session: RuntimeSessionInfo): HostMcpTool[] => {
         const threadId = session.sessionId;
         const independent: HostMcpTool[] = nativeDelegation(services.thread(threadId)?.backendKind ?? "") ? [{
+          annotations: { readOnlyHint: false },
           name: "tau_create_thread",
           label: "Create Tau thread",
           description: "Create an independent Tau conversation only when the user explicitly asks for a new Tau thread. Use tau_spawn_thread or native subagents for delegation.",
@@ -1317,6 +1318,7 @@ export function createAgentsHostExtension(options: {
         return [
           ...independent,
           {
+            annotations: { readOnlyHint: false },
             name: "tau_spawn_thread",
             label: "Spawn thread",
             description: "Start a background Tau child, optionally on another runtime or model, locally or on another machine. Use native subagents for the parent's runtime and model when available. Uses an isolated Git worktree by default in Git projects. Results arrive automatically; changes require separate application.",
@@ -1343,6 +1345,7 @@ export function createAgentsHostExtension(options: {
             },
           },
           {
+            annotations: { readOnlyHint: true },
             name: "tau_get_thread_status",
             label: "Thread status",
             description: "Check a delegated task's current progress and latest answer without waiting.",
@@ -1358,6 +1361,7 @@ export function createAgentsHostExtension(options: {
             },
           },
           {
+            annotations: { readOnlyHint: true },
             name: "tau_wait_for_thread",
             label: "Wait for thread",
             description: "Wait when further work depends on a delegated task's result. Returns early for questions that require the user's answer in the child thread.",
@@ -1377,6 +1381,7 @@ export function createAgentsHostExtension(options: {
             },
           },
           {
+            annotations: { readOnlyHint: false },
             name: "tau_send_to_thread",
             label: "Send to thread",
             description: "Give a delegated task a correction, missing context or follow-up work. Can interrupt its current turn when restarting.",
@@ -1391,6 +1396,7 @@ export function createAgentsHostExtension(options: {
               toolResult(await once(threadId, "send", decodeClientRequestId(params), () => sendTo(threadId, params))),
           },
           {
+            annotations: { readOnlyHint: false },
             name: "tau_cancel_thread",
             label: "Cancel thread",
             description: "Stop delegated work that is no longer needed. Preserves its transcript and worktree; the thread can be resumed.",
@@ -1403,6 +1409,7 @@ export function createAgentsHostExtension(options: {
               toolResult(await once(threadId, "cancel", decodeClientRequestId(params), () => cancelChild(threadId, params))),
           },
           {
+            annotations: { readOnlyHint: false },
             name: "tau_apply_thread_changes",
             label: "Apply thread changes",
             description: "Integrate a delegated task's changes into this checkout, or discard them. Removes the worktree on success; conflicts leave it intact. Discard refuses changes unless force is true and retains a recovery ref before removing the worktree and branch.",
@@ -1419,6 +1426,7 @@ export function createAgentsHostExtension(options: {
             },
           },
           {
+            annotations: { readOnlyHint: true },
             name: "tau_list_threads",
             label: "List spawned threads",
             description: "Get an overview of this thread's delegated tasks and their current activity.",

@@ -130,6 +130,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
 
   return [
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_open",
       label: "preview_open",
       description: "View the app or page you are developing in Tau's preview.",
@@ -143,6 +144,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_download",
       label: "preview_download",
       description: "Download an http(s) URL to an explicit new file in the Preview window's workspace. No Save dialog; existing files are never replaced. Use this rather than clicking download links.",
@@ -156,6 +158,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_navigate",
       label: "preview_navigate",
       description: "Check another page, revisit navigation history or reload the preview after changes.",
@@ -168,6 +171,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       execute: (_id, params, signal) => run(signal, async () => answer(describeState(await controller.navigate(params)))),
     }),
     defineTool({
+      annotations: { readOnlyHint: true },
       name: "preview_status",
       label: "preview_status",
       description: "Check the preview's location, viewport and loading state; diagnose console errors and failed requests.",
@@ -180,6 +184,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: true },
       name: "preview_snapshot",
       label: "preview_snapshot",
       description: "Read page content and find interactive elements without an image. Element refs are replaced by each snapshot.",
@@ -193,6 +198,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: true },
       name: "preview_screenshot",
       label: "preview_screenshot",
       description: "Inspect layout, styling and rendering bugs in a PNG of the visible preview.",
@@ -212,6 +218,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_click",
       label: "preview_click",
       description: "Test buttons, links and other click interactions in the preview.",
@@ -225,6 +232,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_type",
       label: "preview_type",
       description: "Test forms and text inputs in the preview. Replaces existing text; can also submit the form.",
@@ -243,6 +251,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_press",
       label: "preview_press",
       description: "Test keyboard interaction and focus navigation in the preview.",
@@ -259,6 +268,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_scroll",
       label: "preview_scroll",
       description: "Reach content outside the visible preview or test scrollable containers.",
@@ -280,6 +290,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_evaluate",
       label: "preview_evaluate",
       description: "Inspect DOM details, computed styles or app state through JavaScript. Expressions can change the page.",
@@ -295,6 +306,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: true },
       name: "preview_wait_for",
       label: "preview_wait_for",
       description: "Wait for expected content or navigation before continuing a preview test.",
@@ -322,6 +334,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_resize",
       label: "preview_resize",
       description: "Test responsive layouts at different viewport sizes. Does not change the browser user agent.",
@@ -343,6 +356,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_set_appearance",
       label: "preview_set_appearance",
       description: "Check the page's light, dark or system-following appearance.",
@@ -355,6 +369,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_recording_start",
       label: "preview_recording_start",
       description: "Document a preview interaction flow as video. Recording stops automatically after 10 minutes.",
@@ -367,6 +382,7 @@ export function previewTools(controller: PreviewToolController, threadId: string
       }),
     }),
     defineTool({
+      annotations: { readOnlyHint: false },
       name: "preview_recording_stop",
       label: "preview_recording_stop",
       description: "Finish documenting an interaction flow and obtain the saved WebM recording.",

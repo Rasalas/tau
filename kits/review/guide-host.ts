@@ -281,6 +281,8 @@ export function registerGuides(
       execute: async (_id: string, params: unknown) => toolResult(await diffTool(session, params)),
     },
     {
+      // Publishing the guide result changes no project or remote state.
+      annotations: { readOnlyHint: true },
       name: GUIDE_SUBMIT_TOOL,
       label: "Submit pull request guide",
       description: "Only for the guide agent. Hands in the finished tour; call it once. The stops are held to the change: excerpts to changed lines, notes to excerpts.",

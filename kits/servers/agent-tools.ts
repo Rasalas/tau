@@ -249,6 +249,7 @@ export class ServerAgentTools {
     const connect = async (resolved: Resolved) => this.options.transport({ cwd, targetId: resolved.target.id });
     return [
       {
+        annotations: { readOnlyHint: true },
         name: SERVER_TOOLS.status,
         label: "Server status",
         description: "Review server targets, permitted operations, pending uploads and changes detected on the server. Read only.",
@@ -277,6 +278,7 @@ export class ServerAgentTools {
         },
       },
       {
+        annotations: { readOnlyHint: true },
         name: SERVER_TOOLS.list,
         label: "List a server folder",
         description: "Find files and folders on the server without changing them.",
@@ -294,6 +296,7 @@ export class ServerAgentTools {
         },
       },
       {
+        annotations: { readOnlyHint: true },
         name: SERVER_TOOLS.read,
         label: "Read a server file",
         description: "Inspect a server-side file without changing it. Excludes .git.",
@@ -312,6 +315,7 @@ export class ServerAgentTools {
         },
       },
       {
+        annotations: { readOnlyHint: true },
         name: SERVER_TOOLS.diff,
         label: "Diff local and server",
         description: "Compare local files with the current server versions before an upload or when investigating drift. Read only; removals are server lines, additions are local lines.",
@@ -342,6 +346,7 @@ export class ServerAgentTools {
         },
       },
       {
+        annotations: { readOnlyHint: false },
         name: SERVER_TOOLS.exec,
         label: "Run on the server",
         description: "Run server-side diagnostics and checks, subject to the user's access settings. Never upload or change site files; server-side Git is read-only.",
@@ -376,6 +381,7 @@ export class ServerAgentTools {
         },
       },
       {
+        annotations: { readOnlyHint: false },
         name: SERVER_TOOLS.putTmp,
         label: "Write to ~/tmp on the server",
         description: "Prepare a scratch file or diagnostic script in the server's ~/tmp. Never writes site files; asks for approval unless already allowed.",
@@ -415,6 +421,7 @@ export class ServerAgentTools {
         },
       },
       {
+        annotations: { readOnlyHint: true },
         name: SERVER_TOOLS.proposeUpload,
         label: "Propose an upload",
         description: "Present local changes for the user's upload approval. Uploads nothing itself; files holding live credentials remain for the user to select.",
