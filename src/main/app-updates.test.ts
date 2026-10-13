@@ -276,7 +276,7 @@ describe("app updates", () => {
   it("hands the release notes of a download on", () => {
     const { updater, emit } = fakeUpdater();
     const onDownloaded = vi.fn();
-    createAppUpdates({ updater, enabled: true, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, onDownloaded, tell: () => undefined });
+    createAppUpdates({ updater, enabled: true, releaseKeys: [], log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, onDownloaded, tell: () => undefined });
     emit("update-downloaded", { version: "0.5.0", releaseNotes: "## What's Changed\n* One thing" });
     expect(onDownloaded).toHaveBeenCalledWith("0.5.0", { version: "0.5.0", releaseNotes: "## What's Changed\n* One thing" });
   });
@@ -395,7 +395,7 @@ describe("app updates", () => {
       class DebUpdater { kind = "deb"; }
       const updaters = { AppImageUpdater, DebUpdater } as unknown as Parameters<typeof linuxUpdates>[0];
       expect(linuxUpdates(updaters, "appimage")).toEqual({ updater: expect.objectContaining({ kind: "appimage" }) });
-      expect(linuxUpdates(updaters, "deb")).toEqual({ updater: expect.objectContaining({ kind: "deb" }), installOnQuit: false });
+      expect(linuxUpdates(updaters, "deb")).toEqual({ updater: expect.objectContaining({ kind: "deb" }), installOnQuit: false, installDownloaded: expect.any(Function) });
       expect(linuxUpdates(updaters, "unpacked")).toEqual({ unsupported: UNPACKED_UPDATES });
     });
   });
@@ -427,10 +427,10 @@ describe("app updates", () => {
       expect(updater.allowDowngrade).toBe(false);
     });
 
-    it("keeps the build's own feed on stable and never takes a prerelease", async () => {
+    it("pins stable to the verified version and never takes a prerelease", async () => {
       const { subject, updater } = updates();
       await subject.checkForUpdates();
-      expect(updater.setFeedURL).not.toHaveBeenCalled();
+      expect(updater.setFeedURL).toHaveBeenLastCalledWith({ provider: "generic", url: "https://github.com/Rasalas/tau-releases/releases/download/v0.4.0" });
       expect(updater.allowPrerelease).toBe(false);
       expect(updater.allowDowngrade).toBe(false);
     });
@@ -496,7 +496,7 @@ describe("app updates", () => {
 
       channel = "stable";
       await subject.channelChanged();
-      expect(updater.setFeedURL).toHaveBeenLastCalledWith({ provider: "github", owner: "Rasalas", repo: "tau-releases" });
+      expect(updater.setFeedURL).toHaveBeenLastCalledWith({ provider: "generic", url: "https://github.com/Rasalas/tau-releases/releases/download/v0.4.0" });
       expect(updater.allowPrerelease).toBe(false);
     });
 

@@ -1,12 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { dialog } from "electron";
+import { app, dialog } from "electron";
 import type { AppUpdatePhase } from "../shared/contracts.js";
 import { DEFAULT_UPDATE_CHANNEL, defaultUpdateChannel, isNightlyVersion, type UpdateChannel } from "../shared/app-version.js";
 import { compareVersions } from "../shared/runtime-version.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
-import { NIGHTLY_TAG, UNPACKED_UPDATES, readUpdateRelease, releaseInfoName, type Fetch, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
+import { ChecksumMismatch, safeReleaseName, type ReleaseFile, NIGHTLY_TAG, UNPACKED_UPDATES, readUpdateRelease, releaseInfoName, type Fetch, type LinuxInstall, type UpdateFeed, type UpdateLog, type UpdateRelease } from "./release-feed.js";
+import { debInstaller, nodeInstallerSystem, type InstallerSystem, type StagedUpdate } from "./update-installers.js";
 
 // Moved to release-feed.ts, which the host process can load without Electron.
 export { DEB_EXECUTABLE, DEB_PACKAGE, NIGHTLY_TAG, UNPACKED_UPDATES, linuxInstall, readUpdateFeed, type LinuxInstall, type UpdateFeed, type UpdateLog } from "./release-feed.js";
@@ -27,6 +29,8 @@ export interface DesktopUpdater {
   checkForUpdates(): Promise<unknown>;
   downloadUpdate(): Promise<unknown>;
   quitAndInstall(): void;
+  /** BaseUpdater uses this for both Restart and automatic installation on quit. */
+  install?(isSilent?: boolean, isForceRunAfter?: boolean): boolean;
 }
 
 /** Electron's own `autoUpdater` (Squirrel.Mac), which electron-updater hands a download to. */
@@ -45,8 +49,7 @@ export interface InstallStep {
 }
 
 /** What electron-updater reports about a release; `releaseNotes` is the release's body, or one per version. */
-export interface UpdateInfo {
-  version: string;
+export interface UpdateInfo extends DesktopReleaseInfo {
   releaseNotes?: unknown;
 }
 
@@ -99,6 +102,8 @@ export interface AppUpdatesOptions {
   preserveNightlyChannel?(): Promise<void>;
   fetch?: Fetch;
   releaseKeys?: readonly string[];
+  /** The .deb window uses the same root helper as the host. */
+  installDownloaded?(update: StagedUpdate): Promise<void>;
   /** False where nobody sees the window (a test instance, an invisible display): the host installs there. */
   interactive?: boolean;
   /**
@@ -144,6 +149,51 @@ function reason(error: unknown): string {
   return message.split("\n", 1)[0]?.trim() || "unknown error";
 }
 
+interface DesktopReleaseInfo {
+  version: string;
+  files?: ReleaseFile[];
+  downloadedFile?: string;
+  packages?: unknown;
+}
+
+/** The updater reads its own feed; none of its fields may replace signed checksums. */
+function verifyDesktopRelease(info: DesktopReleaseInfo, release: UpdateRelease | undefined): void {
+  if (!release || info.version !== release.info.version || !info.files?.length || info.packages) {
+    throw new Error("The update does not match the signed release.");
+  }
+  if (info.files.length !== release.info.files.length || info.files.some((file) => !release.info.files.some((trusted) =>
+    file.url === trusted.url && file.sha512 === trusted.sha512 && file.size === trusted.size))) {
+    throw new Error("The update files do not match the signed release.");
+  }
+}
+
+/** Synchronous because electron-updater's automatic install runs in the quit event. */
+function verifyDesktopFile(update: StagedUpdate): void {
+  const input = openSync(update.file, "r");
+  try {
+    const hash = createHash("sha512");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let bytes: number;
+    while ((bytes = readSync(input, buffer)) > 0) hash.update(buffer.subarray(0, bytes));
+    if (hash.digest("base64") !== update.sha512 || (update.size !== undefined && fstatSync(input).size !== update.size)) {
+      throw new ChecksumMismatch("The download does not match the signed release's checksum; nothing was installed.");
+    }
+  } finally {
+    closeSync(input);
+  }
+}
+
+function desktopDownload(info: DesktopReleaseInfo, release: UpdateRelease | undefined): StagedUpdate {
+  verifyDesktopRelease(info, release);
+  const name = safeReleaseName((info.downloadedFile ?? "").replaceAll("\\", "/"));
+  if (!name) throw new Error("The download has no valid release file name.");
+  const file = release!.info.files.find((candidate) => safeReleaseName(candidate.url) === name);
+  if (!file || !info.downloadedFile) throw new Error("The download is not a file of the signed release.");
+  const update = { version: info.version, channel: release!.channel, file: info.downloadedFile, sha512: file.sha512, ...(file.size === undefined ? {} : { size: file.size }) };
+  verifyDesktopFile(update);
+  return update;
+}
+
 export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   const { updater, enabled, log, onDownloaded } = options;
   const tell = options.tell ?? ((message: string) => { void dialog.showMessageBox({ message: "Software update", detail: message, buttons: ["OK"] }); });
@@ -161,12 +211,32 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   let installing = false;
   /** The failure the event listener already handled; `checkForUpdates` rejects with it too. */
   let handled: unknown;
+  const keys = options.releaseKeys ?? RELEASE_PUBLIC_KEYS;
+  const verifies = keys.length > 0;
+  let selected: UpdateRelease | undefined;
+  let downloadingRelease: UpdateRelease | undefined;
+  let stagedDownload: StagedUpdate | undefined;
+  const originalInstall = updater.install?.bind(updater);
+  if (originalInstall && verifies) updater.install = (...args) => {
+    try {
+      if (!stagedDownload) throw new Error("No verified update is ready to install.");
+      verifyDesktopFile(stagedDownload);
+      return originalInstall(...args);
+    } catch (error) {
+      ready = undefined;
+      stagedDownload = undefined;
+      updater.autoInstallOnAppQuit = false;
+      failed(error instanceof Error ? error : new Error(String(error)));
+      return false;
+    }
+  };
 
   const readyMessage = (version: string) => `Tau ${version} is ready. Restart to install it.`;
 
   // Tau starts every download itself: electron-updater would fetch and stage
   // the version on disk again at each check.
   function fetch(version: string): void {
+    downloadingRelease = selected;
     fetching = version;
     shownPercent = undefined;
     log.info("update.downloading", version);
@@ -178,6 +248,7 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   function take(info: UpdateInfo): void {
     if (fetching === info.version) fetching = undefined;
     ready = info.version;
+    updater.autoInstallOnAppQuit = options.installOnQuit ?? true;
     onDownloaded(info.version, info);
     if (wanted) quit();
   }
@@ -189,8 +260,20 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     log.info("update.installing", ready);
     step({ version: ready, phase: "installing" });
     const ms = options.noticeMs ?? DEFAULT_NOTICE_MS;
-    if (ms > 0) setTimeout(() => updater.quitAndInstall(), ms);
-    else updater.quitAndInstall();
+    const install = () => {
+      try {
+        if (verifies) {
+          if (!stagedDownload) throw new Error("No verified update is ready to install.");
+          verifyDesktopFile(stagedDownload);
+        }
+        if (options.installDownloaded) {
+          if (!stagedDownload) throw new Error("No verified package is ready to install.");
+          void options.installDownloaded(stagedDownload).catch(failed);
+        } else updater.quitAndInstall();
+      } catch (error) { failed(error instanceof Error ? error : new Error(String(error))); }
+    };
+    if (ms > 0) setTimeout(install, ms);
+    else install();
   }
 
   /** An install that did not happen leaves the toast's Restart for another try. */
@@ -201,6 +284,10 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
   }
 
   updater.on("update-available", (info) => {
+    if (verifies) {
+      try { verifyDesktopRelease(info, selected); }
+      catch (error) { failed(error as Error); return; }
+    }
     log.info("update.available", info.version);
     // A temporarily missing nightly may leave only an older stable visible.
     if (applied === "nightly" && ready && compareVersions(info.version, ready) < 0) {
@@ -224,6 +311,16 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     step({ version: fetching, phase: "downloading", progress: rounded });
   });
   updater.on("update-downloaded", (info) => {
+    if (verifies || options.installDownloaded) {
+      try { stagedDownload = desktopDownload(info, downloadingRelease); }
+      catch (error) {
+        ready = undefined;
+        stagedDownload = undefined;
+        updater.autoInstallOnAppQuit = false;
+        failed(error as Error);
+        return;
+      }
+    }
     log.info("update.downloaded", info.version);
     // Subscribed now: electron-updater hands the file to Squirrel right after this event.
     const staged = options.whenStaged?.();
@@ -231,7 +328,7 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     if (wanted) step({ version: info.version, phase: "preparing" });
     staged.then(() => { log.info("update.staged", info.version); take(info); }, () => undefined);
   });
-  updater.on("error", (error) => {
+  function failed(error: Error): void {
     handled = error;
     log.warn("update.failed", error);
     if (installing) tell(installFailure(ready, error));
@@ -241,7 +338,8 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     // A check fails before anything downloads; while one runs, this is its failure.
     fetching = undefined;
     if (wanted || installing) settle();
-  });
+  }
+  updater.on("error", failed);
 
   updater.autoDownload = false;
   // Installing is the user's call, but a Tau that is quit anyway may as well
@@ -255,7 +353,7 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     const channel = chosen === "nightly" && !options.feed ? DEFAULT_UPDATE_CHANNEL : chosen;
     if (channel === applied) return channel;
     if (chosen !== channel) log.warn("update.channel.unavailable", "No GitHub feed in this build; staying on stable.");
-    // The first stable check keeps the feed the build wrote; only a switch needs a new one.
+    // A switch resets the provider; the verified selection below pins the release.
     if (options.feed && (applied !== undefined || channel !== "stable")) updater.setFeedURL(feedFor(channel, options.feed));
     updater.allowPrerelease = channel === "nightly";
     // Leaving nightly means going back to the last stable release, which is older.
@@ -270,20 +368,21 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
     checking ??= (async () => {
       try {
         const channel = await applyChannel();
-        if (channel === "nightly" && options.feed) {
-          const selected = await readUpdateRelease({
+        selected = undefined;
+        if (options.feed || verifies) {
+          selected = await readUpdateRelease({
             fetch: options.fetch ?? globalThis.fetch,
             channel,
             feed: options.feed,
             name: releaseInfoName(process.platform, process.arch),
-            keys: options.releaseKeys ?? RELEASE_PUBLIC_KEYS,
+            keys,
             log,
           });
-          if (selected.channel === "stable" && compareVersions(selected.info.version, options.currentVersion ?? "") > 0) await options.preserveNightlyChannel?.();
+          if (channel === "nightly" && selected.channel === "stable" && compareVersions(selected.info.version, options.currentVersion ?? "") > 0) await options.preserveNightlyChannel?.();
           // Pin a stable winner to its tag. A GitHub provider with prereleases
           // enabled could select a different release than the one compared.
-          updater.setFeedURL(selected.channel === "nightly" ? feedFor("nightly", options.feed) : {
-            provider: "generic", url: `https://github.com/${options.feed.owner}/${options.feed.repo}/releases/download/v${encodeURIComponent(selected.info.version)}`,
+          updater.setFeedURL(selected.channel === "nightly" ? feedFor("nightly", options.feed!) : {
+            provider: "generic", url: `https://github.com/${options.feed!.owner}/${options.feed!.repo}/releases/download/v${encodeURIComponent(selected.info.version)}`,
           });
         }
         await updater.checkForUpdates();
@@ -400,12 +499,15 @@ export interface LinuxUpdaters {
 
 /**
  * The updater of a Linux install and how it installs. A .deb installs with
- * `dpkg -i` through pkexec's password dialog (electron-updater's DebUpdater),
+ * the root update helper through pkexec's password dialog,
  * so it does so on Restart only, never on quit.
  */
-export function linuxUpdates(updaters: LinuxUpdaters, install: LinuxInstall): Pick<AppUpdatesOptions, "installOnQuit" | "unsupported"> & { updater?: DesktopUpdater } {
+export function linuxUpdates(updaters: LinuxUpdaters, install: LinuxInstall, system: InstallerSystem = nodeInstallerSystem(), restart: () => void = () => { app.relaunch(); app.quit(); }): Pick<AppUpdatesOptions, "installOnQuit" | "unsupported" | "installDownloaded"> & { updater?: DesktopUpdater } {
   if (install === "appimage") return { updater: new updaters.AppImageUpdater() };
-  if (install === "deb") return { updater: new updaters.DebUpdater(), installOnQuit: false };
+  if (install === "deb") return {
+    updater: new updaters.DebUpdater(), installOnQuit: false,
+    installDownloaded: async (update) => { await debInstaller(system).install(update); restart(); },
+  };
   return { unsupported: UNPACKED_UPDATES };
 }
 

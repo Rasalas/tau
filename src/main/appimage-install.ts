@@ -1,10 +1,11 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { isNightlyVersion } from "../shared/app-version.js";
 import { compareVersions } from "../shared/runtime-version.js";
-import { ChecksumMismatch, DEB_EXECUTABLE, DEB_PACKAGE, NIGHTLY_TAG, downloadVerified, parseReleaseInfo, type ReleaseFile, type UpdateFeed, type UpdateLog } from "./release-feed.js";
+import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
+import { ChecksumMismatch, DEB_EXECUTABLE, DEB_PACKAGE, NIGHTLY_TAG, downloadVerified, readReleaseInfo, type ReleaseFile, type UpdateFeed, type UpdateLog } from "./release-feed.js";
 
 export { ChecksumMismatch, downloadVerified, parseReleaseInfo, type ReleaseFile } from "./release-feed.js";
 
@@ -35,7 +36,7 @@ export interface CommandResult {
 export interface InstallSystem {
   exists(path: string): boolean;
   /** Runs a command without a shell; a missing one is code 127 with ENOENT in stderr. */
-  run(command: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<CommandResult>;
+  run(command: string, args: readonly string[], env: NodeJS.ProcessEnv, options?: { stdinFile?: string }): Promise<CommandResult>;
   /** Starts `command` once the process `pid` has exited. */
   relaunch(pid: number, command: string, args: readonly string[], env: NodeJS.ProcessEnv, cwd: string): void;
   remove(path: string): void;
@@ -54,6 +55,7 @@ export interface PackageInstallOptions {
   noSandbox: boolean;
   /** The build's GitHub feed; the release of `version` holds `latest-linux.yml`. */
   feed?: UpdateFeed;
+  releaseKeys?: readonly string[];
   /** Holds the decision and the download. */
   folder: string;
   ask(prompt: InstallPrompt, signal?: AbortSignal): Promise<number>;
@@ -145,16 +147,17 @@ const INSTALL_PACKAGE = [
   "dir=$(mktemp -d)",
   "trap 'rm -rf \"$dir\"' EXIT",
   "chmod 0755 \"$dir\"",
-  "install -m 0644 \"$1\" \"$dir/tau.deb\"",
-  "printf '%s  %s\\n' \"$2\" \"$dir/tau.deb\" | sha512sum --check --status || { echo 'The package does not match its checksum.' >&2; exit 1; }",
+  "cat > \"$dir/tau.deb\"",
+  "chmod 0644 \"$dir/tau.deb\"",
+  "printf '%s  %s\\n' \"$1\" \"$dir/tau.deb\" | sha512sum --check --status || { echo 'The package does not match its checksum.' >&2; exit 1; }",
   "DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=120 \"$dir/tau.deb\"",
 ].join("\n");
 
 /** The one pkexec call that installs the downloaded package. */
-export function installCommand(debPath: string, sha512: string): { command: string; args: string[] } {
+export function installCommand(debPath: string, sha512: string): { command: string; args: string[]; stdinFile: string } {
   const hex = Buffer.from(sha512, "base64").toString("hex");
   // pkexec's own text agent would ask on a terminal Tau does not have.
-  return { command: "pkexec", args: ["--disable-internal-agent", "/bin/sh", "-c", INSTALL_PACKAGE, "sh", debPath, hex] };
+  return { command: "pkexec", args: ["--disable-internal-agent", "/usr/bin/env", "-i", `PATH=${SYSTEM_DIRECTORIES.join(":")}`, "LANG=C.UTF-8", "/bin/sh", "-c", INSTALL_PACKAGE, "sh", hex], stdinFile: debPath };
 }
 
 function shellQuote(value: string): string {
@@ -262,9 +265,9 @@ export async function offerPackageInstall(options: PackageInstallOptions): Promi
   const downloaded = await download(options);
   if (!downloaded) return false;
   const debPath = downloaded.path;
-  const { command, args } = installCommand(debPath, downloaded.sha512);
+  const { command, args, stdinFile } = installCommand(debPath, downloaded.sha512);
   options.log.info("package-install.installing", debPath);
-  const result = await system.run(command, args, environmentOutsideAppImage(options.env));
+  const result = await system.run(command, args, environmentOutsideAppImage(options.env), { stdinFile });
   if (result.code !== 0 || !system.exists(DEB_EXECUTABLE)) {
     const failure = result.code === 0 ? { reason: `The package installed, but ${DEB_EXECUTABLE} is missing.`, terminal: false } : installFailure(result);
     options.log.warn("package-install.failed", { code: result.code, stderr: result.stderr.slice(-2000) });
@@ -293,10 +296,9 @@ async function download(options: PackageInstallOptions): Promise<{ path: string;
     cancelId: 0,
   }, done.signal).then(() => { if (!done.signal.aborted) controller.abort(); });
   try {
-    const infoUrl = new URL(releaseInfoFile(options.arch), base).href;
-    const response = await options.fetch(infoUrl, { signal: controller.signal });
-    if (!response.ok) throw new Error(`${infoUrl} answered ${response.status}.`);
-    const file = packageFile(parseReleaseInfo(await response.text()), options.arch, base);
+    const info = await readReleaseInfo(options.fetch, base, releaseInfoFile(options.arch), options.releaseKeys ?? RELEASE_PUBLIC_KEYS, controller.signal);
+    if (info.version !== options.version) throw new Error(`The release is version ${info.version}, not ${options.version}.`);
+    const file = packageFile(info, options.arch, base);
     if (!file) throw new Error(`The release lists no .deb for ${options.arch}.`);
     mkdirSync(options.folder, { recursive: true });
     const target = join(options.folder, file.name);
@@ -371,7 +373,20 @@ const AFTER_EXIT = "while kill -0 \"$0\" 2>/dev/null; do sleep 0.2; done; exec \
 export function nodeInstallSystem(): InstallSystem {
   return {
     exists: existsSync,
-    run: (command, args, env) => new Promise((resolve) => {
+    run: (command, args, env, options = {}) => new Promise((resolve) => {
+      if (options.stdinFile) {
+        const input = openSync(options.stdinFile, "r");
+        const child = spawn(command, [...args], { env, stdio: [input, "pipe", "pipe"] });
+        closeSync(input);
+        let stdout = "";
+        let stderr = "";
+        child.stdout!.setEncoding("utf8").on("data", (chunk: string) => { if (stdout.length < 4 * 1024 * 1024) stdout += chunk; });
+        child.stderr!.setEncoding("utf8").on("data", (chunk: string) => { if (stderr.length < 4 * 1024 * 1024) stderr += chunk; });
+        const timer = setTimeout(() => child.kill(), 15 * 60_000);
+        child.once("error", (error) => { clearTimeout(timer); resolve({ code: 127, stdout, stderr: stderr || error.message }); });
+        child.once("close", (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr }); });
+        return;
+      }
       // A password dialog waits for the user; no limit short of a quarter hour.
       execFile(command, [...args], { env, timeout: 15 * 60_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
         const code = error ? (typeof (error as { code?: unknown }).code === "number" ? (error as { code: number }).code : 127) : 0;

@@ -25,9 +25,16 @@ after a stable update. The selected release's source controls the download
 URL and the channel passed to the Linux update helper; it does not change
 `updates.channel`. A local test feed replaces both sources.
 
+Every channel verifies the release info's Ed25519 signature before downloading.
+The window pins Stable to the selected version's tag and compares
+electron-updater's version, file names, sizes and SHA-512 values with that
+signed list. It hashes the downloaded file before announcing it as ready and
+again before installation, including automatic installation on quit on Linux
+and Windows. A feed or package that fails any check cannot be installed.
+
 | What runs on the machine | Checks | Downloads and installs |
 |---|---|---|
-| A Tau window a person sees (packaged) | the window's electron-updater, as before; the host too, for the status | the window: on Restart or on quit, as before. Update now from anywhere asks the window through core's window half (`update-state`, `update-install`) |
+| A Tau window a person sees (packaged) | the window verifies the signed release, then checks it with electron-updater; the host too, for the status | the window: on Restart or on quit; `.deb` only on Restart through the root helper. Update now from anywhere asks the window through core's window half (`update-state`, `update-install`) |
 | A host without such a window: a service (systemd, launchd, Task Scheduler), a host left running after its window quit, a host whose only window is the invisible display's | the host | the host, at a quiet moment or on request |
 | A checkout (`npm start`, a dev instance) | nobody | nobody; the status says `git pull` |
 
@@ -63,6 +70,12 @@ display's window) cannot install, so the host does.
 | Linux AppImage | copies the new AppImage beside the old one, `chmod 755`, renames it over `$APPIMAGE` | write access to that file and its folder |
 | macOS | unpacks the release's zip beside the app with `ditto`, checks bundle id and version, and, when the running app is signed, a valid signature by the same team (`codesign`); swaps the bundles, as Squirrel.Mac would after a quit | the user owns the app and its folder |
 | Windows | runs the NSIS installer detached, `/S --updated`, then `schtasks /Run` for the host's task | a per-user install (writable folder) |
+
+The `.deb` window also passes its verified download to this helper on stdin.
+It never calls electron-updater's `dpkg` installer. The helper independently
+verifies the signed release and hashes the bytes in its root-only temporary
+folder, so replacing the user-writable cache cannot change what root installs.
+An older install without the helper needs one manual package update.
 
 Where root or an administrator is needed and not granted, the status says so
 (`reason`) and the machine's Tau window installs through its own password
@@ -131,6 +144,14 @@ helper fetch the `.sig` beside the feed and refuse the feed unless a line
 verifies against a listed key; nothing is downloaded before that. An update
 is checked against the keys of the Tau already installed, so a new key has to
 ship before anything is signed with it alone.
+
+The window and the AppImage-to-`.deb` offer use the same release keys and
+signature check on Stable and Nightly. For the first `.deb` installation,
+where no installed helper exists yet, the offer runs its bootstrap shell
+helper through `pkexec /usr/bin/env -i`. The package arrives on stdin, is
+copied into a root-owned temporary folder and is hashed again against the
+signed checksum before `apt-get` runs. Subsequent `.deb` updates always use
+`/opt/Tau/bin/tau-update-helper`.
 
 The same key signs Tau's model catalog (`catalog/models.json`, published by
 the Pages workflow as `catalog/models.json` and `.sig`, see
@@ -240,13 +261,12 @@ moment.
   the container).
 - **The network** sees only HTTPS to GitHub. Whoever can serve files as the
   project's GitHub release (or break that TLS) still cannot ship an update
-  to a host or the helper without the release key (above). That includes
+  to the host, window or helper without the release key (above). That includes
   whoever holds the key of the GitHub App that publishes to
   `Rasalas/tau-releases`. It can upload files there, but not sign them. A mirror in
-  `/etc/tau/update-helper.json` has to serve the `.sig` files too. The
-  window's own updater (electron-updater) and its AppImage-to-`.deb` offer
-  (`appimage-install.ts`) do not read the `.sig`; they trust the checksum
-  from HTTPS, and on macOS the code signature.
+  `/etc/tau/update-helper.json` has to serve the `.sig` files too. The same
+  signature requirement protects the window's updater and its
+  AppImage-to-`.deb` offer (`appimage-install.ts`) on every channel.
 - **A paired device** reaches `update-install` only over its authenticated
   connection (its token, TLS with a pinned key off loopback) and only with
   Full access, which the owner granted at pairing. A Full-access device can
@@ -260,5 +280,6 @@ moment.
   own. A restart drops open terminals of Terminal Kit (their shells end with
   the host).
 - **macOS and Windows** run no privileged helper. On macOS a signed Tau
-  accepts only the same team's valid signature; an unsigned build (today's)
-  relies on the checksum. On Windows the NSIS installer runs as the user.
+  accepts only the same team's valid code signature in addition to the signed
+  release checksum. Windows has no Authenticode signing yet; its NSIS
+  installer runs as the user after verification against the signed release.
