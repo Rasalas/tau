@@ -12,6 +12,8 @@ export const STORAGE_KEYS = {
   /** New threads' drafts the user left with text in them. */
   keptDrafts: "tau.kept-drafts.v1",
   turnActivityCache: "tau.turn-activity.v1",
+  /** Prefix; one bounded turn per thread. */
+  threadTurnActivity: "tau.turn-activity.v2",
   /** Prefix of the stage kept per project before K72; read once, to hand it to a thread. */
   stage: "tau.stage.v1",
   /** Prefix; `threadStageKey` adds the thread or draft. */
@@ -42,6 +44,7 @@ export const HOST_STORAGE_KEYS: readonly string[] = [
   STORAGE_KEYS.activeNewThread,
   STORAGE_KEYS.keptDrafts,
   STORAGE_KEYS.turnActivityCache,
+  STORAGE_KEYS.threadTurnActivity,
 ];
 
 /** `tau.stage.v1:<workspace>`, the old per-project stage; `workspace` is a workspace id, or a path from a host that mints none. */

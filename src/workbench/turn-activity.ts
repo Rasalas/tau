@@ -1,60 +1,8 @@
 import type { UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts";
 import type { UiWorkspaceChanges } from "../shared/workspace-kit-types";
 import type { ClientStorage } from "./client-storage";
-import { STORAGE_KEYS } from "./storage-keys";
-
-const TURN_ACTIVITY_CACHE_KEY = STORAGE_KEYS.turnActivityCache;
-
-export interface CachedTurnActivity {
-  sessionId: string;
-  /** Kept for older caches; Workspace Kit stores its own baseline now. */
-  baseline?: UiWorkspaceChanges;
-  tools: UiToolRun[];
-  anchorMessageId?: string;
-}
-
-function boundedTools(tools: UiToolRun[]): UiToolRun[] {
-  return tools.slice(-200).map((tool) => ({
-    ...tool,
-    output: tool.output && tool.output.length > 8_192
-      ? `${tool.output.slice(0, 8_192)}\n[Cached output truncated]`
-      : tool.output,
-  }));
-}
-
-export function readCachedTurnActivity(storage: ClientStorage, sessionId: string): CachedTurnActivity | undefined {
-  try {
-    const entries = JSON.parse(storage.get(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
-    const entry = entries[sessionId];
-    return entry?.sessionId === sessionId ? entry : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export function writeCachedTurnActivity(storage: ClientStorage, activity: CachedTurnActivity): void {
-  try {
-    const entries = JSON.parse(storage.get(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
-    delete entries[activity.sessionId];
-    entries[activity.sessionId] = { ...activity, tools: boundedTools(activity.tools) };
-    const recent = Object.fromEntries(Object.entries(entries).slice(-12));
-    storage.set(TURN_ACTIVITY_CACHE_KEY, JSON.stringify(recent));
-  } catch {
-    // A full storage area must not break the transcript.
-  }
-}
-
-/** Drops a thread's cached turn, so a run that died leaves no ghost activity behind. */
-export function clearCachedTurnActivity(storage: ClientStorage, sessionId: string): void {
-  try {
-    const entries = JSON.parse(storage.get(TURN_ACTIVITY_CACHE_KEY) ?? "{}") as Record<string, CachedTurnActivity>;
-    if (!(sessionId in entries)) return;
-    delete entries[sessionId];
-    storage.set(TURN_ACTIVITY_CACHE_KEY, JSON.stringify(entries));
-  } catch {
-    // A full or blocked storage area must not break recovery.
-  }
-}
+import { cacheTurnActivity, flushCachedTurnActivity } from "./turn-activity-cache";
+export { readCachedTurnActivity, writeCachedTurnActivity, clearCachedTurnActivity, type CachedTurnActivity } from "./turn-activity-cache";
 
 /**
  * The restored live work, unless it belongs to a turn before the last prompt.
@@ -137,22 +85,32 @@ export interface TurnActivitySource {
   subscribeToTools(listener: () => void): () => void;
 }
 
-/**
- * Writes the visible thread's live turn to the cache whenever it changes. It
- * listens to the store, not a render, so tool output re-renders nothing here.
- */
-export function followTurnActivity(source: TurnActivitySource, storage: ClientStorage): () => void {
+/** Follows tool state in memory; persistence runs once a second or at a lifecycle boundary. */
+export function followTurnActivity(
+  source: TurnActivitySource,
+  storage: ClientStorage,
+  subscribeToFlush?: (flush: () => void) => () => void,
+): () => void {
   let written: { sessionId?: string; tools?: readonly UiToolRun[]; anchorMessageId?: string } = {};
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const flush = () => {
+    clearTimeout(timer);
+    timer = undefined;
+    flushCachedTurnActivity(storage);
+  };
   const write = () => {
     const sessionId = source.getSnapshot()?.sessionId;
+    if (written.sessionId && written.sessionId !== sessionId) flush();
     const { tools, toolAnchorId, turnActivitySessionId } = source.getToolView();
     if (!sessionId || turnActivitySessionId !== sessionId) return;
     if (written.sessionId === sessionId && written.tools === tools && written.anchorMessageId === toolAnchorId) return;
     written = { sessionId, tools, anchorMessageId: toolAnchorId };
-    writeCachedTurnActivity(storage, { sessionId, tools: [...tools], anchorMessageId: toolAnchorId });
+    cacheTurnActivity(storage, { sessionId, tools: [...tools], anchorMessageId: toolAnchorId });
+    if (timer === undefined) timer = setTimeout(flush, 1_000);
   };
   write();
   const stopTools = source.subscribeToTools(write);
   const stopSnapshot = source.subscribeToSnapshot(write);
-  return () => { stopTools(); stopSnapshot(); };
+  const stopFlush = subscribeToFlush?.(flush);
+  return () => { stopFlush?.(); stopTools(); stopSnapshot(); flush(); };
 }
