@@ -563,7 +563,7 @@ export const threadRailExtension: DesktopExtension = {
     ] as const) {
       disposers.push(context.registerCommand({ id: `thread.${item}`, label, group: "Thread", access, run: (app) => withActiveSession(app, async (session) => organizer.runMenu(session, item, app)) }));
     }
-    // The open model picker answers the same digits with its own jumps.
+    // The open model picker answers the same digits with its own jumps. A browser's ⌘1–⌘9 switch its tabs, so a tab leaves them to it.
     for (let position = 1; position <= 9; position += 1) {
       const id = `thread.jump-${position}`;
       disposers.push(
@@ -574,7 +574,7 @@ export const threadRailExtension: DesktopExtension = {
           access: "read",
           run: (app) => { const thread = store.displayed[position - 1]; if (thread) void app.switchSession(thread.path); },
         }),
-        context.registerKeybinding({ keys: `mod+${position}`, commandId: id, when: "!modelPickerOpen" }),
+        context.registerKeybinding({ keys: `mod+${position}`, commandId: id, when: "!modelPickerOpen && isDesktop" }),
       );
     }
     return () => { for (const dispose of disposers.reverse()) dispose(); };

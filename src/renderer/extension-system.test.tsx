@@ -504,6 +504,51 @@ describe("ExtensionRegistry keybinding contexts", () => {
     } });
     expect(registry.matchKeybinding(press("k"), within())?.command.id).toBe("split");
   });
+
+  // ⌘W and ⌘N never reach a page, so a browser tab binds other chords and a window keeps the usual ones.
+  describe.each([["desktop", true], ["web", false], ["compact", false]] as const)("on the %s profile", (profile, desktop) => {
+    const registryFor = () => {
+      const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile });
+      registry.activate({ id: "core", name: "Core", activate(context) {
+        commands(context, "close-tab", "close-shell");
+        context.registerKeybinding({ keys: "mod+w", commandId: "close-tab", when: "isDesktop" });
+        context.registerKeybinding({ keys: "mod+alt+w", commandId: "close-tab", when: "!isDesktop" });
+        context.registerKeybinding({ keys: "mod+w", commandId: "close-shell", when: "terminalFocus && !stageFocus && isDesktop" });
+        context.registerKeybinding({ keys: "mod+alt+w", commandId: "close-shell", when: "terminalFocus && !stageFocus && !isDesktop" });
+      } });
+      return registry;
+    };
+
+    it("binds only the chords that can hold on this client", () => {
+      const registry = registryFor();
+      const keys = desktop ? ["mod+w", "mod+w"] : ["mod+alt+w", "mod+alt+w"];
+      expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(keys);
+      expect(registry.getKeybindingConflicts()).toEqual([]);
+      expect(registry.getDefaultKeybindings("close-tab").map((binding) => binding.keys)).toEqual([keys[0]]);
+      // The hint names the chord that works here.
+      expect(/Alt|⌥/u.test(registry.keybindingLabel("close-tab") ?? "")).toBe(!desktop);
+    });
+
+    it("runs the command of this client's chord, and the terminal's first in a terminal", () => {
+      const registry = registryFor();
+      const mine = desktop ? press("w") : press("w", { altKey: true, code: "KeyW" });
+      const other = desktop ? press("w", { altKey: true, code: "KeyW" }) : press("w");
+      expect(registry.matchKeybinding(mine, within())?.command.id).toBe("close-tab");
+      expect(registry.matchKeybinding(mine, within("terminalFocus"))).toMatchObject({ command: { id: "close-shell" }, specific: true });
+      expect(registry.matchKeybinding(other, within())).toBeUndefined();
+    });
+  });
+
+  it("does not take isDesktop for a focus a key needs", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "core", name: "Core", activate(context) {
+      commands(context, "close-tab", "close-shell");
+      context.registerKeybinding({ keys: "mod+w", commandId: "close-tab", when: "isDesktop" });
+      context.registerKeybinding({ keys: "mod+w", commandId: "close-shell", when: "terminalFocus" });
+    } });
+    expect(registry.matchKeybinding(press("w"), within())).toMatchObject({ command: { id: "close-tab" }, specific: false });
+    expect(registry.matchKeybinding(press("w"), within("terminalFocus"))?.command.id).toBe("close-shell");
+  });
 });
 
 describe("ExtensionRegistry recorded chords", () => {

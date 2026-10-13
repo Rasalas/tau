@@ -65,8 +65,8 @@ export const filesExtension: DesktopExtension = {
 
     context.registerStageTab<FileEditorParams>({
       kind: FILE_EDITOR_TAB,
-      // A tablet edits beside the chat as the desktop does; a phone draws no stage and reads in the Files sheet.
-      profiles: ["desktop", "compact"],
+      // A browser tab and a tablet edit beside the chat as the desktop does; a phone draws no stage and reads in the Files sheet.
+      profiles: ["desktop", "web", "compact"],
       title: (params) => fileName(fileEditorParams(params).path),
       Icon: FilePen,
       restore: (params) => Boolean(fileEditorParams(params).path),

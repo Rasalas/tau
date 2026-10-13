@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, FileDiff, PanelTop, RotateCw, Search, SquarePen, WrapText } from "lucide-react";
-import { ChangesTree, DiffStack, FileKindIcon, tooltipProps, useHostCapabilities, useDiffPresentation, useWorkbench, useWorkbenchShell, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
+import { ChangesTree, DiffStack, FileKindIcon, tooltipProps, useClientEnvironment, useHostCapabilities, useDiffPresentation, useWorkbench, useWorkbenchShell, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
 import { FileReader } from "./file-reader.js";
 import { relativeHostPath } from "./host-paths.js";
+import { clientDrawsReview } from "./store.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
 interface FlatNode { node: FileNode; depth: number; }
@@ -362,6 +363,7 @@ export function ChangesPanel({ active, actions }: PanelProps) {
   const workspaceStore = useWorkspaceStore();
   const { changes, committing, pushPrimary, commitFocusToken, cwd, workspace, changesSections } = useWorkspaceKit();
   const { activeDocumentPath: activePath } = useWorkbench();
+  const hasReview = clientDrawsReview(useClientEnvironment().profile);
   const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
   const canPush = Boolean(workspace?.upstream);
   const refreshChanges = () => workspaceStore.refreshChanges();
@@ -394,7 +396,7 @@ export function ChangesPanel({ active, actions }: PanelProps) {
       {changes.branch ? <small>{changes.branch}</small> : null}
       <span className="spacer" />
       {changes.refreshStatus?.state === "error" ? <small title={changes.refreshStatus.message}>stale · refresh failed</small> : null}
-      <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><FileDiff size={14} /></button>
+      {hasReview ? <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><FileDiff size={14} /></button> : null}
       <button className="icon-button compact" aria-label="Rescan changes" {...tooltipProps("Rescan changes", { side: "bottom" })} onClick={() => void refreshChanges()}><RotateCw size={14} /></button>
     </header>
     {changesSections.map((Section, index) => <Section key={index} actions={actions} message={message} committed={() => setDirty(false)} />)}

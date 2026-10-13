@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ExternalLink, GitPullRequest, GitPullRequestDraft, Link2, RefreshCw, X } from "lucide-react";
-import { errorMessage, useHostCapabilities, type DesktopExtensionContext, type WorkbenchActions } from "tau";
+import { errorMessage, useClientEnvironment, useHostCapabilities, type DesktopExtensionContext, type WorkbenchActions } from "tau";
 import type { LinkDialogs } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
@@ -37,7 +37,7 @@ const METHODS: Array<{ value: MergeMethod; label: string }> = [
  * or question first. Nothing reaches the hosting service before the user confirms it there.
  */
 export function createRequestSection(plugin: DesktopExtensionContext, store: WorkspaceStoreApi, client: RequestClient, rows: RowRequests, links: LinkedParts, publishing?: RequestPublishing) {
-  return function RequestSection({ actions, message, committed, composing, offer }: ChangesSectionProps) {
+  function RequestSection({ actions, message, committed, composing, offer }: ChangesSectionProps) {
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const cwd = snapshot.cwd;
     const branch = snapshot.workspace?.branch;
@@ -249,6 +249,10 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
         <LinkedRequests actions={actions} parts={links} />
       </div>
     );
+  }
+  // The publish card and the Local PR tab are the desktop's, so the Changes panel of a browser tab leaves the step out rather than offer a button that opens nothing.
+  return function RequestSectionOnDesktop(props: ChangesSectionProps) {
+    return useClientEnvironment().profile === "desktop" ? <RequestSection {...props} /> : null;
   };
 }
 

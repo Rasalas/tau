@@ -22,6 +22,7 @@ import takeover from "./takeover/desktop.js";
 import tailscale from "./tailscale/desktop.js";
 import composerContext from "./composer-context/desktop.js";
 import files from "./files/desktop.js";
+import { FILE_EDITOR_TAB } from "./files/protocol.js";
 import review from "./review/desktop.js";
 import signals from "./signals/desktop.js";
 import subscriptionLogin from "./subscription-login/desktop.js";
@@ -110,15 +111,52 @@ describe("client profiles", () => {
   // Two bindings claiming one chord means one of them silently never fires.
   // Core's own chords count, `mod` is Ctrl off macOS, and a `when` clause that
   // cannot hold beside the other one's keeps two bindings apart.
-  for (const mac of [true, false]) {
-    it(`binds no default chord twice across core and the kits Tau ships (${mac ? "macOS" : "Linux and Windows"})`, () => {
-      const { registry } = createKitHarness(workspaceHostStub());
+  for (const profile of CLIENT_PROFILES) {
+    for (const mac of [true, false]) {
+      it(`binds no default chord twice across core and the kits Tau ships (${profile}, ${mac ? "macOS" : "Linux and Windows"})`, () => {
+        const { registry } = createKitHarness(workspaceHostStub(), profile);
+        registry.activateCore(runtimeControls);
+        for (const extension of kits) registry.activate(extension);
+        expect(registry.getKeybindingConflicts(mac).map((conflict) => `${conflict.keys}: ${conflict.commandId} vs ${conflict.boundTo.commandId}`)).toEqual([]);
+        for (const extension of kits) registry.deactivate(extension.id);
+      });
+    }
+  }
+
+  // A browser takes ⌘W, ⌘N, ⇧⌘T, ⌘1-9 and Ctrl+Tab for its own tabs and windows; a page that binds them is never asked.
+  it("binds no chord a browser keeps for itself in a tab, and names the ones a tab uses instead", () => {
+    const mac = /mac/iu.test(navigator.platform);
+    const reserved = ["mod+w", "mod+n", "mod+shift+n", "mod+shift+t", "ctrl+tab", "ctrl+shift+tab", ...Array.from({ length: 9 }, (_, index) => `mod+${index + 1}`)];
+    for (const profile of ["web", "compact"] as const) {
+      const { registry } = createKitHarness(workspaceHostStub(), profile);
       registry.activateCore(runtimeControls);
       for (const extension of kits) registry.activate(extension);
-      expect(registry.getKeybindingConflicts(mac).map((conflict) => `${conflict.keys}: ${conflict.commandId} vs ${conflict.boundTo.commandId}`)).toEqual([]);
+      const bound = registry.getKeybindings().map((binding) => binding.keys);
+      expect(reserved.filter((chord) => bound.includes(normalizeKeyChord(chord) ?? chord)), profile).toEqual([]);
+      const hint = (commandId: string) => registry.keybindingLabel(commandId);
+      expect(hint("workbench.close-stage-tab"), profile).toMatch(/Alt|⌥/u);
+      expect(hint("workbench.reopen-stage-tab"), profile).toMatch(/Alt|⌥/u);
+      expect(hint("runtime.new-session"), profile).toMatch(/Alt|⌥/u);
+      expect(hint("terminal.new"), profile).toMatch(/Alt|⌥/u);
+      expect(hint("terminal.close"), profile).toMatch(/Alt|⌥/u);
+      expect(hint("thread.jump-1"), profile).toBeUndefined();
+      const press = (key: string, code: string, contexts: string[] = [], init: Partial<KeyboardEventInit> = {}) => registry.matchKeybinding(
+        new KeyboardEvent("keydown", { key, code, metaKey: mac, ctrlKey: !mac, ...init }),
+        (name) => contexts.includes(name),
+      )?.command.id;
+      expect(press("w", "KeyW"), profile).toBeUndefined();
+      expect(press("w", "KeyW", [], { altKey: true }), profile).toBe("workbench.close-stage-tab");
+      expect(press("w", "KeyW", ["terminalFocus"], { altKey: true }), profile).toBe("terminal.close");
+      expect(press("n", "KeyN"), profile).toBeUndefined();
+      expect(press("n", "KeyN", [], { altKey: true }), profile).toBe("runtime.new-session");
+      expect(press("n", "KeyN", ["terminalFocus"], { altKey: true }), profile).toBe("terminal.new");
+      expect(press("1", "Digit1"), profile).toBeUndefined();
+      expect(press("W", "KeyW", [], { altKey: true, shiftKey: true }), profile).toBe("workbench.reopen-stage-tab");
+      expect(press("]", "BracketRight", [], { altKey: true }), profile).toBe("workbench.next-stage-tab");
+      expect(press("[", "BracketLeft", [], { altKey: true }), profile).toBe("workbench.prev-stage-tab");
       for (const extension of kits) registry.deactivate(extension.id);
-    });
-  }
+    }
+  });
 
   // Each page's head says what it governs (K73); a runtime's card on Providers has no head of its own.
   it("gives every Settings page of the kits Tau ships a short description", () => {
@@ -208,16 +246,16 @@ describe("client profiles", () => {
     for (const extension of kits) registry.deactivate(extension.id);
   });
 
-  it("leaves the host half of a kit alone when this client draws none of it", () => {
+  it("leaves the host half of a kit alone when this client draws only part of it", () => {
     const invoked: string[] = [];
     const host = async (extensionId: string, command: string) => { invoked.push(`${extensionId}:${command}`); return undefined; };
     const { registry } = createKitHarness(host, "web");
     registry.activate(workspace);
-    // Workspace Kit is desktop-only, so nothing of it is drawn here …
-    expect(registry.getPanels()).toEqual([]);
+    // A browser tab draws Workspace Kit's Files and Changes, with the documents they open …
+    expect(registry.getPanels().map((panel) => panel.id)).toEqual(["files", "changes"]);
+    expect(registry.getDocumentSource()?.id).toBe("workspace.documents");
+    // … but not its sidebar, and every contribution it leaves out is named as absent, not lost.
     expect(registry.getSidebarContributions()).toEqual([]);
-    expect(registry.getDocumentSource()).toBeUndefined();
-    // … and every one of those contributions is named as absent, not lost.
     const unrendered = registry.getUnrenderedContributions();
     expect(unrendered.length).toBeGreaterThan(8);
     expect(unrendered.every((entry) => entry.extensionId === workspace.id)).toBe(true);
@@ -226,6 +264,18 @@ describe("client profiles", () => {
     expect(invoked.some((entry) => entry.includes("deactivate"))).toBe(false);
     registry.deactivate(workspace.id);
   });
+});
+
+// Files' Edit button opens this tab, so a client that draws Files must draw it.
+describe("Files Kit's editor tab", () => {
+  for (const profile of CLIENT_PROFILES) {
+    it(`is drawn on the ${profile} profile`, () => {
+      const { registry } = createKitHarness(workspaceHostStub(), profile);
+      registry.activate(files);
+      expect(registry.getStageTabKinds().map((tab) => tab.kind)).toEqual([FILE_EDITOR_TAB]);
+      registry.deactivate(files.id);
+    });
+  }
 });
 
 describe("kits that meet through a service", () => {

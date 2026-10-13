@@ -26,6 +26,7 @@ import {
   AUTO_PULL_OPTION,
   isWorktreeSubmodules,
   WORKSPACE_HOST_EXTENSION_ID,
+  WORKSPACE_CHANGES_PANEL,
   WORKSPACE_FILES_PANEL,
   type ChangesSectionProps,
   type CommitMessageSuggester,
@@ -138,6 +139,11 @@ function writeBaseline(sessionId: string, baseline: UiWorkspaceChanges | undefin
   } catch { /* cache only */ }
 }
 
+/** Review Kit's `review.diff` panel claims the desktop alone; a browser tab and a phone have the Changes panel and Files. */
+export function clientDrawsReview(profile: string): boolean {
+  return profile === "desktop";
+}
+
 /**
  * Workspace Kit's own state: Git status, workspace info, editors, the file
  * index, the running turn's baseline and the review request. Core never reads
@@ -149,6 +155,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private actions?: WorkbenchActions;
   /** Kits that draw the review overlay. */
   private reviewViews = 0;
+  /** Whether this client draws `review.diff`; a client that does not reviews in the Changes panel. */
+  private reviewDrawn = true;
   private rowStatuses = new Map<string, Readonly<Record<string, ThreadRowStatusMark>>>();
   private changesRequest = 0;
   private workspaceRequest = 0;
@@ -535,8 +543,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   openReview(path?: string, pushPrimary = Boolean(this.state.workspace?.upstream)): void {
     void this.refreshChanges();
     this.update({ pushPrimary, review: { path: path ?? this.state.changes.files[0]?.path, primaryPush: pushPrimary } });
-    // The review shares the stage with Files and Terminal.
-    this.actions?.openPanel("review.diff");
+    // The review shares the stage with Files and Terminal; a client without it commits from the Changes panel.
+    this.actions?.openPanel(this.reviewDrawn ? "review.diff" : WORKSPACE_CHANGES_PANEL);
   }
 
   selectReviewPath(path: string): void {
@@ -555,7 +563,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const token = (this.state.filesFocus?.token ?? 0) + 1;
     const path = this.state.changes.files[0]?.path;
     this.update({ filesFocus: { token, ...(path ? { path } : {}) } });
-    this.actions?.openPanel(this.reviewViews > 0 ? "review.diff" : WORKSPACE_FILES_PANEL);
+    this.actions?.openPanel(this.reviewDrawn && this.reviewViews > 0 ? "review.diff" : WORKSPACE_FILES_PANEL);
   }
 
   private async mutate(what: string, run: () => Promise<UiWorkspaceChanges>): Promise<void> {
@@ -821,9 +829,14 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return () => { if (registered) { registered = false; this.reviewViews -= 1; } };
   }
 
+  /** Told by the follower which client this is: only the desktop draws `review.diff` (Review Kit). */
+  drawsReview(drawn: boolean): void {
+    this.reviewDrawn = drawn;
+  }
+
   /** The review in place of the Changes panel, while a kit draws it; false leaves the panel to open. */
   openChangesView(): boolean {
-    if (this.reviewViews === 0) return false;
+    if (!this.reviewDrawn || this.reviewViews === 0) return false;
     void this.refreshChanges();
     this.actions?.openPanel("review.diff");
     return true;

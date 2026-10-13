@@ -5,7 +5,7 @@ import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-
 import { workspaceHostStub, type WorkspaceHostStubOverrides } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { PreferencesStore, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
-import { WorkspaceStore, WorktreeDeclined } from "./store.js";
+import { clientDrawsReview, WorkspaceStore, WorktreeDeclined } from "./store.js";
 
 /** A store over the kit's own command names, answered by the stub. */
 function storeOver(overrides: WorkspaceHostStubOverrides, preferences = new PreferencesStore()): WorkspaceStore {
@@ -576,6 +576,34 @@ describe("Workspace Kit's Changes entry", () => {
     release();
     release();
     expect(workspaceStore.openChangesView()).toBe(false);
+  });
+});
+
+// A browser tab has no `review.diff`: an entry that opened it would stage a tab with nothing in it.
+describe("Workspace Kit's review entries on a client that draws no review", () => {
+  it("send Commit and Inspect changes to the Changes panel and Files, and leave the panel to open", () => {
+    const workspaceStore = storeOver({});
+    const actions = { openPanel: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
+    workspaceStore.bind(actions);
+    workspaceStore.registerReviewView();
+
+    workspaceStore.drawsReview(false);
+    expect(workspaceStore.openChangesView()).toBe(false);
+    workspaceStore.openReview();
+    expect(actions.openPanel).toHaveBeenLastCalledWith("changes");
+    workspaceStore.showChangedFiles();
+    expect(actions.openPanel).toHaveBeenLastCalledWith("files");
+
+    workspaceStore.drawsReview(true);
+    expect(workspaceStore.openChangesView()).toBe(true);
+    workspaceStore.openReview();
+    expect(actions.openPanel).toHaveBeenLastCalledWith("review.diff");
+    workspaceStore.showChangedFiles();
+    expect(actions.openPanel).toHaveBeenLastCalledWith("review.diff");
+  });
+
+  it("is the desktop's alone to draw", () => {
+    expect([clientDrawsReview("desktop"), clientDrawsReview("web"), clientDrawsReview("compact")]).toEqual([true, false, false]);
   });
 });
 

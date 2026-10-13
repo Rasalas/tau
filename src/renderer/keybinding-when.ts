@@ -2,7 +2,8 @@
  * `when` clauses on keybindings: identifiers joined by `!`, `&&`, `||` and
  * parentheses, as in VS Code ("terminalFocus && !stageFocus").
  * `true` and `false` are constants; every other identifier is a context the
- * window answers when a key goes down (see `keybinding-context.ts`).
+ * window answers when a key goes down (see `keybinding-context.ts`), except
+ * `isDesktop`, which the client answers (`clientClause`).
  */
 export type WhenNode =
   | { type: "name"; name: string }
@@ -59,6 +60,15 @@ export function parseWhen(source: string): WhenNode | undefined {
   return tree && at === tokens.length ? tree : undefined;
 }
 
+/** True on the Electron window, false in a browser: a browser keeps chords the page never sees (⌘W, ⌘N). */
+export const DESKTOP_CONTEXT = "isDesktop";
+
+/** What every binding's clause must be able to hold beside on this client; a binding that cannot is not bound. */
+export function clientClause(desktop: boolean): WhenNode {
+  const name: WhenNode = { type: "name", name: DESKTOP_CONTEXT };
+  return desktop ? name : { type: "not", node: name };
+}
+
 export function evaluateWhen(node: WhenNode, context: (name: string) => boolean): boolean {
   switch (node.type) {
     case "name": return node.name === "true" || (node.name !== "false" && context(node.name));
@@ -80,8 +90,9 @@ function names(node: WhenNode, into = new Set<string>()): Set<string> {
  * open. Such a binding wins over one without that need, and runs before the
  * focused element sees the key.
  */
-export function isSpecificWhen(node: WhenNode | undefined): boolean {
-  return node !== undefined && !evaluateWhen(node, () => false);
+export function isSpecificWhen(node: WhenNode | undefined, desktop = false): boolean {
+  // `isDesktop` is the client's, not the page's: it is no focus a key needs.
+  return node !== undefined && !evaluateWhen(node, (name) => name === DESKTOP_CONTEXT && desktop);
 }
 
 /** Whether both clauses can hold at once; a missing clause always holds. */

@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiWorkspaceChanges, WorkbenchContextValue } from "tau";
-import { createKitHarness, KitShell, PreferencesStore, RendererServicesProvider, WorkbenchContext, type KitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { ClientEnvironmentProvider, createKitHarness, electronClientEnvironment, KitShell, PreferencesStore, RendererServicesProvider, WorkbenchContext, type ClientProfile, type KitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { changedTreeRows, ChangesPanel, FilesPanel, serviceSlot, type SearchFilesService } from "./panels.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { withWorkspaceStore } from "./store-context.js";
@@ -68,6 +68,22 @@ describe("ChangesPanel", () => {
     expect(commit).toHaveBeenCalledWith("feat: a", true);
     fireEvent.click(screen.getByRole("button", { name: "Commit all" }));
     expect(commit).toHaveBeenCalledWith("feat: a", false);
+  });
+
+  it.each([["desktop", true], ["web", false], ["compact", false]] as const)("offers the full review on the %s profile only where it is drawn", (profile: ClientProfile, offered: boolean) => {
+    const workspaceStore = newStore();
+    kitState(workspaceStore);
+    vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
+    render(<ClientEnvironmentProvider environment={{ ...electronClientEnvironment(new URLSearchParams()), profile }}>
+      {withServices(workspaceStore,
+        <WorkbenchContext.Provider value={workbench()}>
+          <ChangesPanel active extensionName="Workspace" actions={{} as never} />
+        </WorkbenchContext.Provider>,
+      )}
+    </ClientEnvironmentProvider>);
+
+    expect(screen.queryByRole("button", { name: "Open full review" }) !== null).toBe(offered);
+    expect(screen.getByRole("button", { name: "Rescan changes" })).toBeTruthy();
   });
 
   it("marks the file shown in the stage and leads with push when asked", () => {

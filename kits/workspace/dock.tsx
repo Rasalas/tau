@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { useThreadStore, type RegionProps } from "tau";
+import { useClientEnvironment, useThreadStore, type RegionProps } from "tau";
+import { clientDrawsReview } from "./store.js";
 import { useWorkspaceStore } from "./store-context.js";
 
 /**
@@ -8,6 +9,7 @@ import { useWorkspaceStore } from "./store-context.js";
  */
 export function WorkspaceFollower({ actions }: RegionProps) {
   const workspaceStore = useWorkspaceStore();
+  const { profile } = useClientEnvironment();
   const thread = actions.activeThread();
   const cwd = thread?.cwd;
   const workspaceId = thread?.workspaceId;
@@ -16,6 +18,7 @@ export function WorkspaceFollower({ actions }: RegionProps) {
   useEffect(() => {
     workspaceStore.bind(actions);
   }, [actions, workspaceStore]);
+  useEffect(() => { workspaceStore.drawsReview(clientDrawsReview(profile)); }, [profile, workspaceStore]);
   const threadStore = useThreadStore();
   // Another thread's turn in the draft's folder; a thread in a worktree has a folder of its own.
   const busyCheckout = useSyncExternalStore(threadStore.subscribe, () => draftPending && threadStore.getActivity().runningThreadIds.some((id) => {

@@ -322,7 +322,15 @@ keyboard, so a chord native editing shares yields to it — Thread Rail's
 holds while an overlay is drawn: anything with `aria-modal="true"`, a
 `role="dialog"`, `"alertdialog"` or `"menu"`, an app page (`registerPage`),
 or an element marked `data-overlay`. A non-modal tool window that stays open beside the work (the
-theme editor) opts out with `data-overlay="false"`. A clause Tau cannot read
+theme editor) opts out with `data-overlay="false"`. `isDesktop` (new in API 1.61.0)
+is the one context the client answers, not the page: true in the Electron window,
+false in a browser tab and on a phone or tablet. A browser keeps some chords for
+its own tabs and windows (⌘W, ⌘N, ⇧⌘N, ⇧⌘T, Ctrl+Tab) and never hands them to the
+page, and ⌘1–⌘9 switch its tabs, so bind those `&& isDesktop` and give a tab another
+chord with `!isDesktop`. A binding whose clause cannot hold on this client is not bound at
+all: the keymap, the hints (`keybindingLabel`) and the conflict check list only
+the chords that work here, and a chord you rebind without `when` takes the
+clause of the default that is live on this client. A clause Tau cannot read
 throws at registration.
 
 Escape belongs to the topmost overlay. `Dialog`, `Popover` and `Menu` close
@@ -1253,7 +1261,9 @@ panel over the machine's own files or a native view over the window is
 desktop-only, and saying so is the correct answer, not a gap.
 
 Commands, palette sources, keybindings, slash commands, prompt hooks and services carry no
-profile: they are not surfaces, and they work wherever the workbench does. See
+profile: they are not surfaces, and they work wherever the workbench does. (A keybinding
+can still say which kind of client its chord is for: `isDesktop` in its `when`, see
+"Keybindings".) See
 [ADR 0016](adr/0016-client-profiles.md).
 
 `styles` is not compiled: the loader reads the file, the host publishes it
