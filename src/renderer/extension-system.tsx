@@ -1562,6 +1562,8 @@ export interface ToolCardContribution extends ProfileScoped {
   id: string;
   match(tool: UiToolRun): boolean;
   Component: ComponentType<ToolCardProps>;
+  /** Additional rows from durable tool state, e.g. background returns. Pure; anchors outside the loaded window stay hidden (API 1.61.0). */
+  transcriptRows?(props: ToolCardProps & { messages: readonly UiMessage[] }): readonly TranscriptRow[];
 }
 
 /** Options an extension declares at activation; Tau renders the settings page from these. */

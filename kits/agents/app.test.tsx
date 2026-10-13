@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiMessage, UiSession, UiTurnActivityEntry } from "tau";
+import type { UiMessage, UiSession, UiToolRun, UiTurnActivityEntry } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
@@ -103,6 +103,41 @@ function appWith(
 }
 
 describe("agents in the project card", () => {
+  it.each(["live", "history"])("keeps a %s native spawn at its call when a later prompt arrives and the child finishes", async (mode) => {
+    const native: UiToolRun = { id: "native-agent:claude-code:call", kind: "subagent", name: "tau_native_subagent",
+      args: { title: "Review parser", runtime: "claude-code", agentStatus: "running" }, status: "running", startedAt: 2 };
+    const client = appWith({ maxRunning: 8, links: [] }, [session("parent", "Parent thread", 3)], "parent", [
+      { id: "user", role: "user", text: "Review this", timestamp: 1 },
+      { id: "reply", role: "assistant", text: "The reviewer is working.", timestamp: 3 },
+      { id: "steer", role: "user", text: "Check the tests too", timestamp: 4 },
+    ], undefined, [{ id: "turn", anchorMessageId: "user", status: "completed", tools: [native] }]);
+    if (mode === "live") {
+      const bootstrap = client.bootstrap;
+      client.bootstrap = async () => {
+        const initial = await bootstrap();
+        return { ...initial, detail: { ...initial.detail, isStreaming: true, turnActivityHistory: [], turnActivity: { anchorMessageId: "user", tools: [native] } } };
+      };
+    }
+    const view = renderApp(client, { extensions: [workspaceExtension, agentsExtension] });
+    const row = (await screen.findAllByRole("button", { name: "Review parser, Running" })).find((button) => button.classList.contains("agent-transcript-row"))!;
+    const reply = await screen.findByText("The reviewer is working.");
+    expect(row.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => client.emit({ type: "tool-end", sessionId: "parent", tool: { ...native, status: "done", endedAt: 5,
+      args: { ...native.args, agentStatus: "completed", reports: [{ id: "1", timestamp: 5, status: "completed" }] }, output: "Parser checked" } }));
+    const done = (await screen.findAllByRole("button", { name: "Review parser, Completed" })).find((button) => button.classList.contains("agent-transcript-row"))!;
+    expect(done.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(view.container.querySelectorAll(".agent-transcript-row")).toHaveLength(1);
+    const returned = await screen.findByRole("button", { name: 'Subagent "Review parser" finished. Open subagent' });
+    const steer = screen.getByText("Check the tests too");
+    expect(steer.compareDocumentPosition(returned) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => client.emit({ type: "assistant-end", sessionId: "parent", message: { id: "follow-up", role: "assistant", text: "The tests are checked too.", timestamp: 6 } }));
+    const followUp = await screen.findByText("The tests are checked too.");
+    expect(returned.compareDocumentPosition(followUp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("Parser checked")).toBeNull();
+    fireEvent.click(returned);
+    const child = await screen.findByRole("region", { name: "Subagent Review parser" });
+    expect(within(child).getByText("Parser checked")).toBeTruthy();
+  });
   it("keeps running rows visible and completed rows collapsed, without an Agents stage entry", async () => {
     renderApp(appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent"), { extensions: [workspaceExtension, agentsExtension] });
     const row = await screen.findByRole("button", { name: "Alpha reply, Running" });

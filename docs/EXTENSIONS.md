@@ -496,6 +496,14 @@ so a card is what to reach for when the thing a tool started outlives the turn
 that started it; Agents Kit's spawn card is the caller that motivated it. A
 tool a card claims is not offered to `registerToolRenderer`.
 
+From API 1.61.0, a card may also define `transcriptRows({ tools, messages,
+actions })`. This pure function receives all of the card's tools in the loaded
+conversation, with each tool id present once, and returns additional
+`TranscriptRow`s. Core places their message anchors; unloaded anchors remain
+hidden. Agents Kit uses this for return notices while keeping its launch card
+at the original call. Keep the row ids and return data stable across updates
+and save the data with the tool so the notices survive reopening the thread.
+
 `UiToolRun.extras` (new in API 1.59.0) is JSON a kit attaches to a
 tool run, a plain object of 4 KB or less (a larger one is dropped when the
 turn is saved). A kit's backend sets it on `tool-start` or `tool-end`; the
