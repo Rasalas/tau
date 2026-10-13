@@ -327,9 +327,9 @@ describe("the Settings screen", () => {
   it("draws the rows kits add to New threads on Threads, and Tau's own beside them", async () => {
     const { page } = renderScreen({ page: "threads" });
     const cards = within(page).getAllByRole("region").map((card) => card.getAttribute("aria-label"));
-    expect(cards).toEqual(["New threads", "Existing threads"]);
+    expect(cards).toEqual(["New threads", "While a thread runs"]);
     expect(within(within(page).getByRole("region", { name: "New threads" })).getByRole("heading", { level: 3, name: "Thread rule" })).toBeTruthy();
-    expect(within(within(page).getByRole("region", { name: "Existing threads" })).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Continue threads after restarts", "Wakes during a turn"]);
+    expect(within(within(page).getByRole("region", { name: "While a thread runs" })).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Continue threads after restarts", "Wakes during a turn"]);
     expect(within(page).queryByRole("switch", { name: "Project rule" })).toBeNull();
     await act(async () => undefined);
   });

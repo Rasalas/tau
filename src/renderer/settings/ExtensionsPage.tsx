@@ -1,9 +1,9 @@
-import { useState, useSyncExternalStore, type ComponentType } from "react";
-import { ChevronRight, Plus, Search, X } from "lucide-react";
+import { useState, useSyncExternalStore } from "react";
+import { ChevronRight, Search, X } from "lucide-react";
 import type { HostExtensionSummary } from "../../shared/contracts";
-import type { ExtensionRegistry, SettingsSectionProps } from "../extension-system";
+import type { ExtensionRegistry } from "../extension-system";
 import { Button, SettingsState, Switch } from "./controls";
-import { SettingsPageAction } from "./page-action";
+import { SettingsPageSections } from "./page-sections";
 import {
   EXTENSION_FILTERS,
   extensionBlurb,
@@ -49,19 +49,16 @@ function ExtensionRow({ entry, mark, readOnly, onOpen, onToggle }: {
 
 /**
  * Settings → Extensions: every extension the host runs or could, as one
- * list to search and filter — kits Tau ships, packages installed for every
+ * list to search and filter — the ones Tau ships, packages installed for every
  * project or this one, and folders that did not load — with a switch each.
- * A row opens the extension's own page.
+ * A row opens the extension's own page. What packages add (installing one,
+ * developing one) is the sections other extensions attach to this page.
  */
-export function ExtensionsPage({ entries, registry, loading, error, sections = [], installPage, onOpen, onRetry, onNotify, onHostHalves, onChanged }: {
+export function ExtensionsPage({ entries, registry, loading, error, onOpen, onRetry, onNotify, onHostHalves, onChanged }: {
   entries: readonly ExtensionEntry[];
   registry: ExtensionRegistry;
   loading: boolean;
   error?: string | undefined;
-  /** What packages add above the list (`registerSettingsSection({ page: "extensions" })`). */
-  sections?: ReadonlyArray<{ id: string; Component: ComponentType<SettingsSectionProps> }>;
-  /** The page that installs a package, when an extension offers one. */
-  installPage?: string | undefined;
   onOpen(target: string): void;
   onRetry(): void;
   onNotify(message: string, level?: "info" | "warning" | "error"): void;
@@ -97,7 +94,6 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
             onKeyDown={(event) => { if (event.key === "Escape" && query) { event.preventDefault(); event.stopPropagation(); setQuery(""); } }} />
           {query ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setQuery("")}><X size={13} /></button> : null}
         </label>
-        {installPage ? <SettingsPageAction><Button icon={<Plus size={14} />} onClick={() => onOpen(installPage)}>Install…</Button></SettingsPageAction> : null}
       </div>
       <fieldset className="extensions-filters" aria-label="Show">
         {EXTENSION_FILTERS.map((option) => (
@@ -109,7 +105,7 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
         ))}
       </fieldset>
 
-      {sections.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={onChanged} />)}
+      <SettingsPageSections page="extensions" onNotify={onNotify} onChanged={onChanged} />
 
       {error ? <SettingsState kind="error" title="The package folders could not be read" description={`${error} The list shows what this window runs.`} onRetry={onRetry} /> : null}
       {entries.length === 0 && loading ? <SettingsState kind="loading" rows={6} title="Loading extensions" /> : null}
@@ -129,6 +125,7 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
           <ul className="extensions-list">{group.items.map(row)}</ul>
         </section>
       ) : null)}
+      <SettingsPageSections page="extensions" advanced onNotify={onNotify} onChanged={onChanged} />
     </div>
   );
 }

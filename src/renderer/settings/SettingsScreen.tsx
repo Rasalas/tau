@@ -16,6 +16,7 @@ import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from 
 import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, runtimeOfPage, runtimePage, settingsNavGroupOpen, settingsNavGroups, settingsTarget, type SettingsNavGroup, type SettingsNavGroupAlias } from "./settings-nav";
 import { SettingsLevelsProvider } from "./settings-layout";
 import { SettingsPageActionSlot } from "./page-action";
+import { SettingsRegistryContext } from "./page-sections";
 import { SettingsPageHead, type SettingsCrumb } from "./page-head";
 import { scopeMachines, scopeProjects } from "./settings-scope";
 import { extensionCatalog, needsAttention } from "./extension-catalog";
@@ -72,6 +73,11 @@ function NavValue({ use }: { use(): string | undefined }) {
 }
 
 const noSubscription = () => () => undefined;
+
+/** The pages of core that draw the sections other extensions attach to them. */
+const CORE_SECTION_PAGES: readonly string[] = ["connections", "extensions", "extension", "runtimes", "general", "threads", "inspector"];
+/** The row a package's trust answer sits on: the one an extension's own page sends the user to. */
+const TRUST_ROW = "setting-packages-trust";
 
 /** The groups the user opened, kept while the window lives; one they folded follows the page on screen again next time. */
 let navFolds: Partial<Record<SettingsNavGroup, true | undefined>> = {};
@@ -155,7 +161,8 @@ export function SettingsScreen({
   // A page about a runtime is that runtime's card on Runtimes, not a page of its own; its old id opens the runtime.
   const cards = inRuntimeOrder(contributions.filter((entry) => entry.runtime), (entry) => entry.runtime, snapshot?.runtimeBackends);
   const cardRuntime = cards.find((card) => card.id === parsedPage)?.runtime;
-  const requested = cardRuntime ? runtimePage(cardRuntime) : parsedPage;
+  // A page an extension gave up for a section of another page (`replaces`) opens that page.
+  const requested = cardRuntime ? runtimePage(cardRuntime) : registry.settingsPageReplacedBy(parsedPage) ?? parsedPage;
   const pages = contributions.filter((entry) => !entry.runtime && !entry.standalone);
   const contributed = contributions.find((entry) => !entry.runtime && entry.id === requested);
   const isCore = requested in CORE_PAGE_TITLES;
@@ -163,7 +170,10 @@ export function SettingsScreen({
   const extensionId = extensionOfPage(requested) ?? (!isCore && !contributed && catalog.some((entry) => entry.id === requested) ? requested : undefined);
   const page = extensionId ? extensionPage(extensionId) : requested;
   const extension = extensionId ? catalog.find((entry) => entry.id === extensionId) : undefined;
-  const installer = pages.find((entry) => entry.id === "packages");
+  // Sections of a page that is not there are drawn on their own extension's page.
+  const sectionHosts = new Set<string>([...CORE_SECTION_PAGES, ...pages.map((entry) => entry.id)]);
+  const orphanSections = registry.getSettingsSections().filter((section) => !sectionHosts.has(section.page));
+  const trustRow = registry.getSettingsSections("extensions").some((section) => section.rows?.some((row) => row.id === TRUST_ROW));
   const runtimeKind = runtimeOfPage(page);
   const runtimeName = runtimeKind ? snapshot?.runtimeBackends?.find((backend) => backend.kind === runtimeKind)?.label ?? runtimeKind : undefined;
   const pageLabel = runtimeName ?? (extensionId ? extension?.name ?? "Extension"
@@ -204,7 +214,7 @@ export function SettingsScreen({
   const found = search.trim() ? searchSettings(settingsSearchEntries({
     // A runtime's card is found like a page: its id opens that runtime on Runtimes.
     pages: [...pages, ...cards].map((entry) => ({ id: entry.id, label: entry.label, description: entry.description, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
-    sections: (["general", "connections", "extensions", "runtimes"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
+    sections: registry.getSettingsSections(),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
       commandId: binding.commandId,
@@ -227,7 +237,7 @@ export function SettingsScreen({
     onSetPage(page);
   }, [anchor, onSetPage, page]);
   // A page by an older name, or a runtime's card by its kit's id, is shown and kept under the page it became.
-  const renamed = cardRuntime !== undefined || parsedPage !== (target.split("#", 1)[0] || "general");
+  const renamed = requested !== (target.split("#", 1)[0] || "general");
   useEffect(() => {
     if (renamed && !anchor) onSetPage(page);
   }, [renamed, anchor, onSetPage, page]);
@@ -373,170 +383,170 @@ export function SettingsScreen({
   const extensionSections = registry.getSettingsSections("extension");
   return (
     <SettingsLevelsProvider store={levels}>
-      <div className={stacked ? "settings-screen stacked" : "settings-screen"} data-view={stacked ? (showingPage ? "page" : "sections") : undefined} role="dialog" aria-modal="true" aria-label="Settings" data-preview-overlay="">
-        <nav className="settings-nav" aria-label="Settings sections">
-          <div className="settings-nav-header">{stacked ? <>
-            <h1>Settings</h1>
-            {showingPage || nav ? null : <button type="button" className="settings-sections-back" aria-label="Close settings" onClick={onClose}><X size={18} /></button>}
-          </> : <WindowControlsInset />}</div>
-          {stacked ? null : <button type="button" className="settings-back settings-back-top" onClick={onBackToThread}><ChevronLeft size={15} /><span>Back to thread</span></button>}
-          <label className="settings-nav-search">
-            <Search size={14} />
-            <input
-              ref={searchRef}
-              type="search"
-              value={search}
-              placeholder="Search settings"
-              aria-label="Search settings"
-              aria-controls={found.length > 0 ? "settings-search-results" : undefined}
-              aria-activedescendant={found[activeResult] ? `settings-search-result-${activeResult}` : undefined}
-              onChange={(event) => { setSearch(event.target.value); setActiveResult(0); }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape" && search) { event.preventDefault(); event.stopPropagation(); clearSearch(); return; }
-                if (found.length === 0) return;
-                if (event.key === "ArrowDown") { event.preventDefault(); setActiveResult((index) => (index + 1) % found.length); }
-                if (event.key === "ArrowUp") { event.preventDefault(); setActiveResult((index) => (index - 1 + found.length) % found.length); }
-                if (event.key === "Enter") { event.preventDefault(); const entry = found[activeResult]; if (entry) openFound(entry); }
-              }}
-            />
-            {search ? (
-              <button type="button" className="settings-nav-search-clear" aria-label="Clear settings search" onClick={() => { clearSearch(); searchRef.current?.focus(); }}><X size={12} /></button>
-            ) : <kbd className="keyboard-hint">/</kbd>}
-          </label>
-          <div className="settings-nav-list">
-            {search.trim() ? <>
-              {found.length > 0 ? <div id="settings-search-results" role="listbox" aria-label="Settings search results">
-                {found.map((entry, index) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    id={`settings-search-result-${index}`}
-                    role="option"
-                    aria-selected={index === activeResult}
-                    className={`settings-search-result ${index === activeResult ? "active" : ""}`}
-                    onMouseMove={() => setActiveResult(index)}
-                    onClick={() => openFound(entry)}
-                  >
-                    <PanelIcon Icon={iconOf(entry.page)} size={14} />
-                    <span><span>{entry.label}</span><small>{entry.description ?? entry.section}</small></span>
-                  </button>
-                ))}
-              </div> : <p className="settings-search-empty" role="status">No setting matches “{search.trim()}”.</p>}
-            </> : navGroupList.filter((group) => group.id !== "diagnostics").map((group) => {
-              const open = settingsNavGroupOpen(group, activeNav, toggledGroups);
-              return (
-                <div key={group.id} className="settings-nav-group" role="group" aria-label={group.label} data-folds={group.folds ? "" : undefined}>
-                  {group.folds ? (
-                    <h2 className="settings-nav-heading">
-                      <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => { navFolds = { ...navFolds, [group.id]: !open || undefined }; setToggledGroups((current) => ({ ...current, [group.id]: !open })); }}>
-                        <ChevronRight size={12} aria-hidden /><span>{group.label}</span>
-                      </button>
-                    </h2>
-                  ) : <h2 className="settings-nav-heading">{group.label}</h2>}
-                  {open ? group.items.map(navButton) : null}
-                </div>
-              );
-            })}
-          </div>
-          <div className="settings-nav-footer">
-            {footerItems.map((item) => (
-              <button key={item.id} type="button" className={`settings-about-link ${activeNav === item.id ? "active" : ""}`} aria-current={activeNav === item.id ? "page" : undefined} onClick={() => openPage(item.id)}>
-                <PanelIcon Icon={item.Icon} size={15} /><span>{item.label}</span>{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
-              </button>
-            ))}
-            <button type="button" className={`settings-about-link ${page === "about" ? "active" : ""}`} aria-current={page === "about" ? "page" : undefined} onClick={() => openPage("about")}>
-              <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
-            </button>
-            {nav ? <p className="settings-nav-note">Keys and sign-ins live on your machines; the phone only connects to them.</p> : null}
-            <button type="button" className="settings-back" onClick={onBackToThread}>
-              <ChevronLeft size={15} /><span>Back to thread</span>
-            </button>
-          </div>
-          {stacked && !showingPage ? nav : null}
-        </nav>
-
-        <main className="settings-main">
-          <header className="settings-topbar">
-            {stacked ? <>
-              <button type="button" className="settings-sections-back" aria-label={parentLabel ? `Back to ${parentLabel}` : "All settings"} onClick={() => (parent ? onSetPage(parent) : setShowingPage(false))}><ChevronLeft size={18} /></button>
-              {ownTitle ? <span className="settings-topbar-title">{pageLabel}</span> : <h1 className="settings-topbar-title">{pageLabel}</h1>}
-            </> : null}
-            {stacked && showingPage && !nav ? <button type="button" className="settings-sections-back settings-close" aria-label="Close settings" onClick={onClose}><X size={18} /></button> : null}
-          </header>
-          <div className="settings-scroll" ref={scrollRef}>
-            <div className="settings-content" data-page={page}>
-              <SettingsPageHead
-                title={stacked || ownTitle ? undefined : page === "about" ? "Tau" : runtimeKind ? CORE_PAGE_TITLES.runtimes : pageLabel}
-                description={page === "about" || page === "general" ? undefined : pageDescription}
-                crumbs={stacked ? [] : crumbs}
-                scope={{ projects: scopeProjects(projects, threads, project), current: project, machines }}
-                actionSlot={setActionSlot}
+      <SettingsRegistryContext.Provider value={registry}>
+        <div className={stacked ? "settings-screen stacked" : "settings-screen"} data-view={stacked ? (showingPage ? "page" : "sections") : undefined} role="dialog" aria-modal="true" aria-label="Settings" data-preview-overlay="">
+          <nav className="settings-nav" aria-label="Settings sections">
+            <div className="settings-nav-header">{stacked ? <>
+              <h1>Settings</h1>
+              {showingPage || nav ? null : <button type="button" className="settings-sections-back" aria-label="Close settings" onClick={onClose}><X size={18} /></button>}
+            </> : <WindowControlsInset />}</div>
+            {stacked ? null : <button type="button" className="settings-back settings-back-top" onClick={onBackToThread}><ChevronLeft size={15} /><span>Back to thread</span></button>}
+            <label className="settings-nav-search">
+              <Search size={14} />
+              <input
+                ref={searchRef}
+                type="search"
+                value={search}
+                placeholder="Search settings"
+                aria-label="Search settings"
+                aria-controls={found.length > 0 ? "settings-search-results" : undefined}
+                aria-activedescendant={found[activeResult] ? `settings-search-result-${activeResult}` : undefined}
+                onChange={(event) => { setSearch(event.target.value); setActiveResult(0); }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && search) { event.preventDefault(); event.stopPropagation(); clearSearch(); return; }
+                  if (found.length === 0) return;
+                  if (event.key === "ArrowDown") { event.preventDefault(); setActiveResult((index) => (index + 1) % found.length); }
+                  if (event.key === "ArrowUp") { event.preventDefault(); setActiveResult((index) => (index - 1 + found.length) % found.length); }
+                  if (event.key === "Enter") { event.preventDefault(); const entry = found[activeResult]; if (entry) openFound(entry); }
+                }}
               />
-              {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the machine keeps its settings as they are. Theme and layout stay on this device.</p> : null}
-              <SettingsPageActionSlot.Provider value={actionSlot}>
-                {page === "general" ? (
-                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} detailShortcut={registry.keybindingLabel("runtime.transcript-detail")} />
-                ) : page === "threads" ? (
-                  <ThreadsPage sections={registry.getSettingsSections("general")} onNotify={onNotify} />
-                ) : page === "runtimes" || runtimeKind ? (
-                  <RuntimesPage
-                    snapshot={snapshot}
-                    cards={cards}
-                    sections={registry.getSettingsSections("runtimes")}
-                    selected={runtimeKind}
-                    stacked={stacked}
-                    onSelect={(kind) => openPage(kind ? runtimePage(kind) : "runtimes")}
-                    onOpen={openPage}
-                    onNotify={onNotify}
-                  />
-                ) : page === "keybindings" ? (
-                  <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} onOpen={openPage} />
-                ) : contributed ? (
-                  <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
-                ) : page === "extensions" ? (
-                  <ExtensionsPage
-                    entries={sources.loading && !sources.inspection && snapshot?.cwd ? [] : catalog}
-                    registry={registry}
-                    loading={sources.loading}
-                    error={sources.error}
-                    sections={registry.getSettingsSections("extensions")}
-                    installPage={installer?.id}
-                    onOpen={openPage}
-                    onRetry={sources.refresh}
-                    onNotify={onNotify}
-                    onHostHalves={sources.setHostHalves}
-                    onChanged={() => setAnswered((count) => count + 1)}
-                  />
-                ) : extensionId ? (
-                  extension ? (
-                    <ExtensionPage
-                      entry={extension}
-                      registry={registry}
-                      models={snapshot?.completionModels ?? snapshot?.models ?? []}
-                      cwd={snapshot?.cwd}
-                      distribution={sources.inspection?.distribution}
-                      sections={extensionSections}
-                      trustPage={installer?.id}
+              {search ? (
+                <button type="button" className="settings-nav-search-clear" aria-label="Clear settings search" onClick={() => { clearSearch(); searchRef.current?.focus(); }}><X size={12} /></button>
+              ) : <kbd className="keyboard-hint">/</kbd>}
+            </label>
+            <div className="settings-nav-list">
+              {search.trim() ? <>
+                {found.length > 0 ? <div id="settings-search-results" role="listbox" aria-label="Settings search results">
+                  {found.map((entry, index) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      id={`settings-search-result-${index}`}
+                      role="option"
+                      aria-selected={index === activeResult}
+                      className={`settings-search-result ${index === activeResult ? "active" : ""}`}
+                      onMouseMove={() => setActiveResult(index)}
+                      onClick={() => openFound(entry)}
+                    >
+                      <PanelIcon Icon={iconOf(entry.page)} size={14} />
+                      <span><span>{entry.label}</span><small>{entry.description ?? entry.section}</small></span>
+                    </button>
+                  ))}
+                </div> : <p className="settings-search-empty" role="status">No setting matches “{search.trim()}”.</p>}
+              </> : navGroupList.filter((group) => group.id !== "diagnostics").map((group) => {
+                const open = settingsNavGroupOpen(group, activeNav, toggledGroups);
+                return (
+                  <div key={group.id} className="settings-nav-group" role="group" aria-label={group.label} data-folds={group.folds ? "" : undefined}>
+                    {group.folds ? (
+                      <h2 className="settings-nav-heading">
+                        <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => { navFolds = { ...navFolds, [group.id]: !open || undefined }; setToggledGroups((current) => ({ ...current, [group.id]: !open })); }}>
+                          <ChevronRight size={12} aria-hidden /><span>{group.label}</span>
+                        </button>
+                      </h2>
+                    ) : <h2 className="settings-nav-heading">{group.label}</h2>}
+                    {open ? group.items.map(navButton) : null}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="settings-nav-footer">
+              {footerItems.map((item) => (
+                <button key={item.id} type="button" className={`settings-about-link ${activeNav === item.id ? "active" : ""}`} aria-current={activeNav === item.id ? "page" : undefined} onClick={() => openPage(item.id)}>
+                  <PanelIcon Icon={item.Icon} size={15} /><span>{item.label}</span>{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
+                </button>
+              ))}
+              <button type="button" className={`settings-about-link ${page === "about" ? "active" : ""}`} aria-current={page === "about" ? "page" : undefined} onClick={() => openPage("about")}>
+                <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
+              </button>
+              {nav ? <p className="settings-nav-note">Keys and sign-ins live on your machines; the phone only connects to them.</p> : null}
+              <button type="button" className="settings-back" onClick={onBackToThread}>
+                <ChevronLeft size={15} /><span>Back to thread</span>
+              </button>
+            </div>
+            {stacked && !showingPage ? nav : null}
+          </nav>
+
+          <main className="settings-main">
+            <header className="settings-topbar">
+              {stacked ? <>
+                <button type="button" className="settings-sections-back" aria-label={parentLabel ? `Back to ${parentLabel}` : "All settings"} onClick={() => (parent ? onSetPage(parent) : setShowingPage(false))}><ChevronLeft size={18} /></button>
+                {ownTitle ? <span className="settings-topbar-title">{pageLabel}</span> : <h1 className="settings-topbar-title">{pageLabel}</h1>}
+              </> : null}
+              {stacked && showingPage && !nav ? <button type="button" className="settings-sections-back settings-close" aria-label="Close settings" onClick={onClose}><X size={18} /></button> : null}
+            </header>
+            <div className="settings-scroll" ref={scrollRef}>
+              <div className="settings-content" data-page={page}>
+                <SettingsPageHead
+                  title={stacked || ownTitle ? undefined : page === "about" ? "Tau" : runtimeKind ? CORE_PAGE_TITLES.runtimes : pageLabel}
+                  description={page === "about" || page === "general" ? undefined : pageDescription}
+                  crumbs={stacked ? [] : crumbs}
+                  scope={{ projects: scopeProjects(projects, threads, project), current: project, machines }}
+                  actionSlot={setActionSlot}
+                />
+                {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the machine keeps its settings as they are. Theme and layout stay on this device.</p> : null}
+                <SettingsPageActionSlot.Provider value={actionSlot}>
+                  {page === "general" ? (
+                    <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} detailShortcut={registry.keybindingLabel("runtime.transcript-detail")} />
+                  ) : page === "threads" ? (
+                    <ThreadsPage sections={[...registry.getSettingsSections("general"), ...registry.getSettingsSections("threads")]} onNotify={onNotify} />
+                  ) : page === "runtimes" || runtimeKind ? (
+                    <RuntimesPage
+                      snapshot={snapshot}
+                      cards={cards}
+                      sections={registry.getSettingsSections("runtimes")}
+                      selected={runtimeKind}
+                      stacked={stacked}
+                      onSelect={(kind) => openPage(kind ? runtimePage(kind) : "runtimes")}
                       onOpen={openPage}
-                      onChanged={() => setAnswered((count) => count + 1)}
+                      onNotify={onNotify}
+                    />
+                  ) : page === "keybindings" ? (
+                    <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} onOpen={openPage} />
+                  ) : contributed ? (
+                    <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
+                  ) : page === "extensions" ? (
+                    <ExtensionsPage
+                      entries={sources.loading && !sources.inspection && snapshot?.cwd ? [] : catalog}
+                      registry={registry}
+                      loading={sources.loading}
+                      error={sources.error}
+                      onOpen={openPage}
+                      onRetry={sources.refresh}
                       onNotify={onNotify}
                       onHostHalves={sources.setHostHalves}
+                      onChanged={() => setAnswered((count) => count + 1)}
                     />
-                  ) : <ExtensionPageFallback loading={sources.loading} onBack={() => onSetPage("extensions")} />
-                ) : page === "inspector" ? (
-                  <InspectorPage registry={registry} cwd={snapshot?.cwd} />
-                ) : page === "connections" ? (
-                  <ConnectionsPage onNotify={onNotify} sections={registry.getSettingsSections("connections")} />
-                ) : page === "about" ? (
-                  <AboutPage />
-                ) : (
-                  <div className="settings-page"><p className="lede">This page is gone; its extension may have been turned off.</p></div>
-                )}
-              </SettingsPageActionSlot.Provider>
+                  ) : extensionId ? (
+                    extension ? (
+                      <ExtensionPage
+                        entry={extension}
+                        registry={registry}
+                        models={snapshot?.completionModels ?? snapshot?.models ?? []}
+                        cwd={snapshot?.cwd}
+                        distribution={sources.inspection?.distribution}
+                        sections={[...extensionSections, ...orphanSections.filter((section) => section.extensionId === extensionId)]}
+                        trustPage={trustRow ? settingsTarget("extensions", TRUST_ROW) : undefined}
+                        onOpen={openPage}
+                        onChanged={() => setAnswered((count) => count + 1)}
+                        onNotify={onNotify}
+                        onHostHalves={sources.setHostHalves}
+                      />
+                    ) : <ExtensionPageFallback loading={sources.loading} onBack={() => onSetPage("extensions")} />
+                  ) : page === "inspector" ? (
+                    <InspectorPage registry={registry} cwd={snapshot?.cwd} onNotify={onNotify} />
+                  ) : page === "connections" ? (
+                    <ConnectionsPage onNotify={onNotify} sections={registry.getSettingsSections("connections")} />
+                  ) : page === "about" ? (
+                    <AboutPage />
+                  ) : (
+                    <div className="settings-page"><p className="lede">This page is gone; its extension may have been turned off.</p></div>
+                  )}
+                </SettingsPageActionSlot.Provider>
+              </div>
             </div>
-          </div>
-        </main>
-      </div>
+          </main>
+        </div>
+      </SettingsRegistryContext.Provider>
     </SettingsLevelsProvider>
   );
 }
