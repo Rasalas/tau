@@ -296,14 +296,49 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       timeoutMs: DEFAULT_LEASE_TIMEOUT_MS,
     });
     try {
+      // The user may have edited files since the crash. Retain that tree in
+      // its own thread before replaying anything, including a partial apply.
+      const recoverySource = services.sessions.open(backup.path);
+      const leaf = recoverySource.leafId();
+      const recoveryBackup = leaf ? recoverySource.branch(leaf) : undefined;
+      if (!recoveryBackup) throw new Error("Failed to create the pre-recovery backup thread.");
+      const recoveryTurnId = `recovery-backup-${randomUUID()}`;
+      let durable = false;
+      try {
+        const before = await workspaceGit.createTurnWorkspaceSnapshot(transaction.cwd, recoveryBackup.sessionId, recoveryTurnId, "before");
+        const after = await workspaceGit.createTurnWorkspaceSnapshot(transaction.cwd, recoveryBackup.sessionId, recoveryTurnId, "after");
+        if (before.complete === false || after.complete === false) {
+          throw new Error("The current workspace is only partially captured, so restore recovery cannot proceed safely.");
+        }
+        await recoveryBackup.appendInfo("Backup before interrupted restore recovery");
+        recoveryBackup.appendEntry(TURN_RESTORE_BACKUP_CUSTOM_TYPE, {
+          version: 1,
+          backupId: randomUUID(),
+          sessionId: recoveryBackup.sessionId,
+          turnId: recoveryTurnId,
+          sourceSessionId: transaction.backupSessionId,
+          sourceCheckpointId: transaction.sourceCheckpointId,
+          cwd: transaction.cwd,
+          beforeSnapshotId: before.id,
+          afterSnapshotId: after.id,
+          createdAt: Date.now(),
+        });
+        durable = true;
+        // Keep the safety copy discoverable without selecting it on restart.
+        await utimes(recoveryBackup.path, new Date(0), new Date(0));
+      } finally {
+        if (!durable) {
+          await workspaceGit.cleanupTurnCheckpointSessionRefs(transaction.cwd, recoveryBackup.sessionId);
+          await rm(recoveryBackup.path, { force: true });
+        }
+      }
+      const rollback = { sessionId: recoveryBackup.sessionId, turnId: recoveryTurnId };
       if (transaction.kind === "backup-open") {
-        // Opening a backup uses the durable backup pair as the target and a
-        // temporary pair in the same backup session as the rollback. If the
-        // process died before activation committed, put the pre-open
-        // workspace back and leave the backup thread unopened.
+        // Put the pre-open workspace back after an interrupted activation.
+        // The safety copy preserves any work done since that interruption.
         await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, transaction.backupAfterSnapshotId, {
           target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
-          rollback: { sessionId: transaction.sourceSessionId, turnId: transaction.sourceTurnId },
+          rollback,
         });
         git.invalidate(transaction.cwd);
         backup.appendEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, { ...transaction, state: "recovered" });
@@ -323,13 +358,11 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         return;
       }
       const backupAfter = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "after");
-      // Replaying the backup pair is idempotent and also repairs a process
-      // death in the middle of Git's clean/read-tree sequence. Using the same
-      // pair as rollback means an apply failure is retried against the same
-      // known-good state rather than falling back to the selected checkpoint.
+      // Replay repairs a crash in clean/read-tree; a failed replay rolls back
+      // to the current tree, whose own backup remains available afterwards.
       await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, backupAfter, {
         target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
-        rollback: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
+        rollback,
       });
       git.invalidate(transaction.cwd);
       // Remove the uncommitted target before recording recovery. If the
