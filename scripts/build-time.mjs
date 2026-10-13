@@ -116,15 +116,17 @@ export function evaluateBuildTime({ buildTimeMs, referenceMs }, capMs, config, h
   }
   const recent = history
     .filter((entry) => entry.epoch === config.historyEpoch && entry.buildTimeMs > 0 && entry.referenceMs > 0)
-    .slice(-config.historyRuns)
-    .map((entry) => entry.buildTimeMs * (config.referenceMs / entry.referenceMs));
+    .slice(-config.historyRuns);
   let trend;
   if (recent.length >= config.historyMinRuns) {
-    const medianMs = Math.round(median(recent));
+    const medianMs = Math.round(median(recent.map((entry) => entry.buildTimeMs * (config.referenceMs / entry.referenceMs))));
     const limitMs = Math.round(medianMs * (1 + config.historyMargin));
-    trend = { runs: recent.length, medianMs, limitMs };
-    if (normalizedMs > limitMs) {
-      failures.push(`buildTimeMs at reference speed ${normalizedMs} > ${limitMs}, the median of the last ${recent.length} main runs (${medianMs}) + ${Math.round(config.historyMargin * 100)}%`);
+    const rawMedianMs = Math.round(median(recent.map((entry) => entry.buildTimeMs)));
+    const rawLimitMs = Math.round(rawMedianMs * (1 + config.historyMargin));
+    trend = { runs: recent.length, medianMs, limitMs, rawMedianMs, rawLimitMs };
+    // Reference speed alone can rise while the build's work and duration stay unchanged.
+    if (normalizedMs > limitMs && buildTimeMs > rawLimitMs) {
+      failures.push(`buildTimeMs at reference speed ${normalizedMs} > ${limitMs}, the median of the last ${recent.length} main runs (${medianMs}) + ${Math.round(config.historyMargin * 100)}%; raw ${buildTimeMs} > ${rawLimitMs} (median ${rawMedianMs})`);
     }
   }
   return {

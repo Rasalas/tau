@@ -145,7 +145,7 @@ export function describeBuildTime(report) {
   if (report.buildTimeMs == null) return "Build time: not measured";
   if (!time?.normalizedMs) return `Build time: ${report.buildTimeMs} ms (no reference measured, raw budget)`;
   const trend = time.history
-    ? `, median of the last ${time.history.runs} main runs ${time.history.medianMs} ms (limit ${time.history.limitMs} ms)`
+    ? `, median of the last ${time.history.runs} main runs ${time.history.medianMs} ms (limit ${time.history.limitMs} ms), raw median ${time.history.rawMedianMs} ms (limit ${time.history.rawLimitMs} ms)`
     : ", no history";
   return `Build time: ${report.buildTimeMs} ms raw, reference ${time.referenceMs} ms (speed ${time.speedFactor}), ${time.normalizedMs} ms at reference speed (cap ${time.capMs} ms)${trend}`;
 }
