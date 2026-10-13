@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, TauConfig, UiModel, UiRuntimeCatalog } from "../../shared/contracts";
-import { withSetting, withoutSetting } from "../../shared/config-layers";
+import { withoutSetting } from "../../shared/config-layers";
 import { ExtensionRegistry } from "../extension-system";
 import { HostClientProvider } from "../host-client-context";
 import { PreferencesStore } from "../preferences";
@@ -65,7 +65,8 @@ function setup(options: { page?: string; section?: boolean; stacked?: boolean; c
     getConfigLayers: async (workspaceId) => (workspaceId ? { host: files.host, project: files.project, projectPath: "/work/app" } : { host: files.host }),
     updateConfig: async (patch, scope) => {
       const level = scope === "project" ? "project" : "host";
-      for (const [key, value] of Object.entries(patch)) files[level] = withSetting(files[level], key, value);
+      // The host merges a record entry by entry.
+      for (const [key, value] of Object.entries(patch)) files[level] = { ...files[level], [key]: { ...(files[level] as Record<string, object>)[key], ...value as object } };
       return {};
     },
     clearConfig: async (keys, scope) => {

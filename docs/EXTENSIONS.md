@@ -1601,8 +1601,8 @@ page still draws itself take the same height and look inside Settings.
 | `DangerZone({ title?, children })`, `DangerAction({ id?, title, description?, actionLabel, confirmTitle, confirmMessage, confirmText?, disabled?, disabledReason?, busy?, onConfirm })` | The actions that cannot be taken back, apart and last on the page. Each names the object and the consequence and asks through `ConfirmDialog`; `confirmText` makes the user type it (a name) first, for a loss that is hard to repair. `ConfirmDialog` takes the same `confirmText`. |
 | `SettingsState({ kind, title?, description?, action?, rows?, onRetry? })` | What a page or a section shows instead of its rows: `loading` (skeleton rows), `empty` (what is missing and the next step in `action`) or `error` (what happened, and Try again with `onRetry`). |
 
-The types `ChoiceOption`, `SelectOption`, `ValueListItem`, `FieldWidth` and
-`SettingsNavGroup` come with them. Like `SettingRow`, the controls load with a
+The types `ChoiceOption`, `SelectOption`, `ValueListItem`, `FieldWidth`,
+`SettingsNavGroup` and, since API 1.61.0, `SettingsNavGroupAlias` come with them. Like `SettingRow`, the controls load with a
 chunk of their own.
 
 A setting has three levels: the built-in **default**, the **host** (this
@@ -4664,7 +4664,7 @@ desktop.tsx:12:7: Expected ";" but found "y"
 ```
 
 The toast (an error, 15 seconds) names the first error and copies all of them;
-**Details** opens Settings → Diagnostics → Inspector, which shows them all under
+**Details** opens Settings → Diagnostics, which shows them all under
 *Did not build*, and the host log has the same lines. A host half that did not
 compile is reported the same way. Settings → Packages → *Develop a package*
 keeps the last build of each half of every installed package, with the time,
@@ -4924,7 +4924,7 @@ These hold for `require`, `import()` and `process.getBuiltinModule` alike. Each
 throws `Extension <id> lacks permission <name>` (the nested worker says why it
 is refused instead) and logs `host-extension.denied` with what was asked for —
 `process.dlopen("/path/addon.node")`, `require("/path/addon.node")` — so the
-Inspector and Signals show a denied socket, spawn or addon exactly like a
+Diagnostics and Signals show a denied socket, spawn or addon exactly like a
 denied service member.
 
 `native` is the widest of the three. Compiled code is not held by anything

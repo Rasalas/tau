@@ -92,7 +92,7 @@ describe("Settings → Connections → Background", () => {
     expect(screen.queryByRole("button", { name: "Install…" })).toBeNull();
     cleanup();
     renderSection({});
-    expect(await screen.findByText("This host does not manage a service of its machine.")).toBeTruthy();
+    expect(await screen.findByText("This machine does not manage a service.")).toBeTruthy();
   });
 
   it("lists the service's files with a copy button each", async () => {

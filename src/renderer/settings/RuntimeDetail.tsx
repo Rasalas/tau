@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import { ChevronLeft, Plus, Star, Undo2 } from "lucide-react";
 import type { HostSnapshot, UiRuntimeBackend } from "../../shared/contracts";
 import type { SettingsPageContribution } from "../extension-system";
@@ -59,8 +59,14 @@ export function TalksTo({ providers }: { providers: readonly string[] }) {
 }
 
 /** What a runtime's line says: its release, or that it is built in, then its state. */
-export function stateParts(row: RuntimeRow): Array<{ text: string; tone?: RuntimeTone | undefined }> {
-  return [...(row.state === "built-in" ? [{ text: "Built in" }] : row.version.text ? [{ text: row.version.text }] : []), ...row.status];
+function stateParts(row: RuntimeRow): Array<{ text: string; tone?: RuntimeTone | undefined }> {
+  const release = row.state === "built-in" ? [{ text: "Built in" }] : row.version.text && row.state !== "missing" ? [{ text: row.version.text }] : [];
+  return [...release, ...row.status];
+}
+
+/** `stateParts` as one line, each part in the tone of its state. */
+export function StateLine({ row }: { row: RuntimeRow }) {
+  return <>{stateParts(row).map((part, index) => <Fragment key={part.text}>{index ? " · " : null}<span data-tone={part.tone}>{part.text}</span></Fragment>)}</>;
 }
 
 /** Pi's part of the detail: its default model and thinking, and its expert values folded below. */
@@ -121,7 +127,7 @@ export function RuntimeDetail({ backend, row, card, snapshot, onBack, onMakeDefa
         <div className="runtimes-detail-title">
           <h2>{backend.label}</h2>
           <small {...tooltipProps(row.note, { side: "top" })}>
-            {stateParts(row).map((part, index) => <span key={part.text} data-tone={part.tone}>{index ? " · " : ""}{part.text}</span>)}
+            <StateLine row={row} />
           </small>
         </div>
         <div className="runtimes-detail-tools">

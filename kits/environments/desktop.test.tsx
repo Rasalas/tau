@@ -111,7 +111,7 @@ describe("a kit on another machine", () => {
     await machineKitClient({ ...environments, invokeExtension }, "studio", "tau.onboarding", { timeoutMs: 120_000 }).invoke("import");
     expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.onboarding", "import", undefined, { timeoutMs: 120_000 });
     const unsupported = machineKitClient(environments, "studio", "tau.codex");
-    expect(() => unsupported.invoke("sign-in-state")).toThrow("This window cannot reach kits of other machines.");
+    expect(() => unsupported.invoke("sign-in-state")).toThrow("This window cannot reach extensions of other machines.");
     expect(() => unsupported.onEvent("sign-in", vi.fn())()).not.toThrow();
   });
 });

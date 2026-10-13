@@ -185,7 +185,9 @@ export function SettingsScreen({
     { label: parentLabel!, open: () => onSetPage(parent) },
   ] : [];
   // What a page is applied to is chosen per visit: leaving it puts the scope back on this machine.
-  useEffect(() => { levels.edit("host"); }, [levels, page]);
+  // Choosing another runtime in the list is not leaving Runtimes.
+  const scopePage = runtimeKind ? "runtimes" : page;
+  useEffect(() => { levels.edit("host"); }, [levels, scopePage]);
 
   const [ownShowingPage, setOwnShowingPage] = useState(!stacked);
   const showingPage = view && stacked ? view === "page" : ownShowingPage;

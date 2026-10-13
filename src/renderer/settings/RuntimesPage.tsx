@@ -10,7 +10,7 @@ import { Menu } from "../components/Menu";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { Button } from "./controls";
 import { SettingsPageAction } from "./page-action";
-import { RuntimeDetail, RuntimeEnabledSwitch, stateParts, useRuntimeEnabled } from "./RuntimeDetail";
+import { RuntimeDetail, RuntimeEnabledSwitch, StateLine, useRuntimeEnabled } from "./RuntimeDetail";
 import { runtimeRow, type RuntimeRow } from "./runtimes-table";
 import { RuntimeToolsSection } from "./RuntimeToolsSection";
 import { settingAnchor } from "./settings-search";
@@ -28,7 +28,7 @@ function RuntimeListItem({ row, selected, onOpen }: { row: RuntimeRow; selected:
         <span className="runtimes-item-text">
           <b>{row.label}</b>
           <small {...tooltipProps(row.note, { side: "top" })}>
-            {stateParts(row).map((part, index) => <span key={part.text} data-tone={part.tone}>{index ? " · " : ""}{part.text}</span>)}
+            <StateLine row={row} />
           </small>
         </span>
         <span className="runtimes-item-end">
