@@ -17,7 +17,7 @@ function Fragile({ label = "Fine" }: { label?: string }) {
   return <p>{label}</p>;
 }
 
-const recovery = (): ChunkRecovery & { reload: ReturnType<typeof vi.fn> } => ({ reloadOnce: () => false, reloading: () => false, reload: vi.fn() });
+const recovery = (): ChunkRecovery & { reload: ReturnType<typeof vi.fn<ChunkRecovery["reload"]>> } => ({ reloadOnce: () => false, reloading: () => false, reload: vi.fn() });
 
 describe("RenderErrorBoundary", () => {
   beforeEach(() => { fault.broken = true; });

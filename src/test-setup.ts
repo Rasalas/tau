@@ -29,7 +29,8 @@ process.env.GIT_CONFIG_VALUE_1 = "0";
 // Every process a test starts inherits this run's tag; the global teardown
 // (src/test-global-setup.ts) fails the run on any that outlive it.
 process.env[TEST_RUN_VARIABLE] = inject("tauTestRun");
-beforeAll((suite) => {
+// oxlint-disable-next-line no-empty-pattern -- Vitest requires a fixture pattern before the suite argument.
+beforeAll(({}, suite) => {
   if ("filepath" in suite) process.env[TEST_FILE_VARIABLE] = encodeURIComponent(relative(process.cwd(), suite.filepath));
 });
 

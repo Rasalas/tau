@@ -65,43 +65,50 @@ function PopoverHarness() {
 
 describe("Popover", () => {
   it("repositions growing content inside the viewport and disconnects its size observer", () => {
-    let notify: ResizeObserverCallback | undefined;
-    const observe = vi.fn();
-    const disconnect = vi.fn();
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(callback: ResizeObserverCallback) { notify = callback; }
-      observe = observe;
-      disconnect = disconnect;
-    });
-    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
-      return { x: 600, y: 270, left: 600, top: 270, right: 640, bottom: 298, width: 40, height: 28, toJSON() {} };
-    });
+    const observers: FakeResizeObserver[] = [];
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(readonly notify: ResizeObserverCallback) { observers.push(this); }
+      observe = vi.fn<ResizeObserver["observe"]>();
+      unobserve = vi.fn<ResizeObserver["unobserve"]>();
+      disconnect = vi.fn<ResizeObserver["disconnect"]>();
+    }
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+    const anchorRect = { x: 600, y: 270, left: 600, top: 270, right: 640, bottom: 298, width: 40, height: 28, toJSON() {} };
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(anchorRect);
     vi.stubGlobal("innerWidth", 850);
     vi.stubGlobal("innerHeight", 500);
     try {
       render(<PopoverHarness />);
       fireEvent.click(screen.getByRole("button", { name: "Details" }));
       const popup = screen.getByRole("dialog", { name: "Details" });
+      const anchor = screen.getByRole("button", { name: "Details" });
+      const observer = observers.filter((candidate) => candidate.observe.mock.calls.some(([target]) => target === popup)).at(-1)!;
+      expect(observer).toBeDefined();
       expect(popup.style.top).toBe("304px");
       let height = 322;
-      vi.spyOn(popup, "getBoundingClientRect").mockImplementation(() => ({ x: 0, y: 0, left: 0, top: 0, right: 320, bottom: height, width: 320, height, toJSON() {} }));
-      act(() => { notify?.([], {} as ResizeObserver); });
+      // An instance spy would reuse the inherited prototype mock in Vitest 4.
+      bounds.mockImplementation(function (this: HTMLElement) {
+        return this === popup ? { x: 0, y: 0, left: 0, top: 0, right: 320, bottom: height, width: 320, height, toJSON() {} } : anchorRect;
+      });
+      act(() => { observer.notify([], observer); });
+      expect(anchor.getBoundingClientRect()).toEqual(anchorRect);
       expect(popup.dataset.side).toBe("top");
       expect(Number.parseFloat(popup.style.top) + height).toBeLessThanOrEqual(492);
       expect(Number.parseFloat(popup.style.left) + 320).toBeLessThanOrEqual(842);
       const position = popup.style.cssText;
-      act(() => { notify?.([], {} as ResizeObserver); });
+      act(() => { observer.notify([], observer); });
       expect(popup.style.cssText).toBe(position);
       height = 50;
-      act(() => { notify?.([], {} as ResizeObserver); });
+      act(() => { observer.notify([], observer); });
       expect(popup.dataset.side).toBe("bottom");
-      expect(observe).toHaveBeenCalledWith(popup);
-      expect(observe).toHaveBeenCalledWith(screen.getByRole("button", { name: "Details" }));
+      expect(popup.style.top).toBe("304px");
+      expect(observer.observe).toHaveBeenCalledWith(popup);
+      expect(observer.observe).toHaveBeenCalledWith(anchor);
       cleanup();
-      expect(disconnect).toHaveBeenCalledOnce();
+      expect(observer.disconnect).toHaveBeenCalledOnce();
     } finally {
+      cleanup();
       bounds.mockRestore();
-      vi.restoreAllMocks();
       vi.unstubAllGlobals();
     }
   });
