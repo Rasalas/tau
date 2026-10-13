@@ -1,3 +1,4 @@
+import { RequestReceipts } from "./request-receipts.js";
 import { AgentSessionControl } from "./agent-session-control.js";
 import { compactThreadContext } from "./host-compaction.js";
 import { rm } from "node:fs/promises";
@@ -153,6 +154,8 @@ export class PiHost {
   /** Correlates raw Pi user-message events with renderer sends. */
   private readonly clientTurns: ClientTurnLedger;
   private readonly clientMessages: ClientMessageTracker;
+  private readonly promptReceipts = new RequestReceipts<void>();
+  private readonly newThreadReceipts = new RequestReceipts<HostActionResult>();
   private readonly projection: ThreadProjection;
   private readonly extensionUi: ExtensionUiCoordinator;
   /**
@@ -1192,6 +1195,10 @@ export class PiHost {
     prepared?: PreparedPrompt,
     configuration?: NewThreadConfiguration,
   ): Promise<HostActionResult> {
+    return this.newThreadReceipts.run("new-thread", clientIdentityForRequest(clientMessageIdOrRequestId)?.clientMessageId, () => this.createSession(initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration));
+  }
+
+  private async createSession(...[initialPrompt, attachments = [], cwd, clientMessageIdOrRequestId, prepared, configuration]: Parameters<PiHost["newSession"]>): Promise<HostActionResult> {
     this.workbenchReload.assertAvailable();
     const requestValue = typeof clientMessageIdOrRequestId === "string" ? clientMessageIdOrRequestId : undefined;
     const requestId = requestValue?.startsWith("new-thread-")
@@ -1335,9 +1342,7 @@ export class PiHost {
       if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd);
       if (visible) void this.publication.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
       if (initialPrompt || attachments.length > 0) {
-        // Delivery is intentionally detached from acceptance. AgentSession may
-        // keep its prompt pending while the renderer has already settled the
-        // submission, and a later correlated failure event reconciles it.
+        // Thread creation settles its receipt before detached prompt admission.
         void (async () => {
           try {
             const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
@@ -1345,9 +1350,7 @@ export class PiHost {
               ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared && skillDraftOf(prepared, prepared.visibleText))
               : prepared;
             await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
-            // Whether this prompt creates a user turn is decided inside
-            // prompt(), against the text it actually resolved, and reported by
-            // its own event. Do not re-derive it from the request here.
+            // prompt() reports whether its resolved text creates a user turn.
             if (clientMessageId) {
               this.emit({
                 type: "new-thread-delivery-settled",
@@ -1580,6 +1583,11 @@ export class PiHost {
     prepared?: PreparedPrompt,
     options: { hidden?: boolean } = {},
   ): Promise<void> {
+    const id = typeof clientMessageIdOrPreflight === "function" ? undefined : clientIdentityForRequest(clientMessageIdOrPreflight)?.clientMessageId;
+    return this.promptReceipts.run(sessionId ?? this.active?.threadId ?? "", id, () => this.deliverPrompt(text, attachments, sessionId, clientMessageIdOrPreflight, prepared, options));
+  }
+
+  private async deliverPrompt(...[text, attachments = [], sessionId, clientMessageIdOrPreflight, prepared, options = {}]: Parameters<PiHost["prompt"]>): Promise<void> {
     this.workbenchReload.assertAvailable();
     const onPreflightResult = typeof clientMessageIdOrPreflight === "function" ? clientMessageIdOrPreflight : undefined;
     const identity = typeof clientMessageIdOrPreflight === "function"
@@ -1587,9 +1595,9 @@ export class PiHost {
       : clientIdentityForRequest(clientMessageIdOrPreflight);
     const clientMessageId = identity?.clientMessageId;
     const thread = await this.awaitThread(sessionId);
+    if (clientMessageId && this.clientMessages.persistedIds(thread).has(clientMessageId)) return;
     const restartGeneration = thread.restartGeneration;
-    // Freeze the epoch after resolving the thread. A concurrent switch changes
-    // it, and the prompt must not land on a thread that was superseded.
+    // An unnamed prompt must still belong to the active thread after preparation.
     const promptEpoch = this.activationEpoch;
     await this.prompts.assertRuntimeOn(thread);
     // The switch that opened this thread may still be binding its extensions.
@@ -1605,10 +1613,7 @@ export class PiHost {
     // Whatever a restart left behind, this thread is moving again.
     this.settlement.started(thread.threadId);
     if (!thread.backend.capabilities.journal) {
-      // The composer waits for admission, not for the whole turn: a streamed
-      // runtime reports it as soon as the message is on its way, and this call
-      // returns then. What breaks after admission is reported as a failure of
-      // the thread, as on the journal path.
+      // Admission settles the receipt; later errors belong to the running turn.
       const preflight: { state: PromptPreflightState; rejection?: unknown } = { state: "pending" };
       let resolveAdmitted!: () => void;
       const admitted = new Promise<void>((resolve) => { resolveAdmitted = resolve; });
@@ -1630,10 +1635,7 @@ export class PiHost {
       return;
     }
     this.prompts.assertAttachmentInput(thread, attachments);
-    // Resolve the runtime spelling once at the backend boundary. The same
-    // prepared object is then used for marker correlation and delivery, so a
-    // resource-registry change cannot cause host and backend to normalize
-    // different dialects for one turn.
+    // Use the same prepared spelling for marker correlation and delivery.
     const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
     this.sessionControl.assertAvailable(thread.threadId);
     if (this.threadFor(thread.threadId) !== thread || thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the message was being prepared. Send it again.");
@@ -1711,10 +1713,7 @@ export class PiHost {
     // Reaching here means preflight accepted; a rejection throws out of the await.
     await preflight;
     this.log("prompt.accepted", `${prompt.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
-    // An extension command is answered without a user message or an agent run.
-    // Its marker would otherwise label the next turn and be reported as a lost
-    // message by agent_settled, and the client would wait for a turn that never
-    // persists.
+    // A command's unused marker must not label the next user turn.
     if (isExtensionCommand && markerActive) {
       if (clientMessageId && this.clientMessages.persistedIds(thread).has(clientMessageId)) {
         this.clientMessages.forget(thread, clientMessageId);

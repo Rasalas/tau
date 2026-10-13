@@ -90,6 +90,13 @@ in that method's argument order. The host implements them in one table
 (`src/main/host-methods.ts`) which decodes every argument through `ipc-input.ts`;
 a transport only moves frames in and out of it.
 
+`prompt` deduplicates `clientMessageId` per addressed thread; `new-session`
+deduplicates it before creating a thread. Concurrent and later repetitions
+receive the original admission result, including a rejection, for the host's
+lifetime. A prompt already persisted in a thread's journal is also accepted
+without redelivery. Receipts for new threads and runtimes without a journal
+do not survive a host restart. Calls without an id remain independent.
+
 The core methods below start and continue a thread off screen. Both require
 `write` access and keep the host's active thread unchanged.
 
