@@ -14,6 +14,20 @@ const openModelPicker = (app: WorkbenchActions) => {
   else app.openSettings("models#setting-default-model");
 };
 
+const EFFORT_CHIP = '[data-composer-shortcut~="composer.effort"]';
+
+/**
+ * The composer's thinking menu for the thread on screen, the way ⌘⇧E opens it.
+ * Without a composer (Settings open, no thread) the default Pi starts on is
+ * what there is to set.
+ */
+function openThinking(app: WorkbenchActions) {
+  const chip = document.querySelector<HTMLButtonElement>(EFFORT_CHIP);
+  if (!chip) app.openSettings("runtimes/pi#setting-default-thinking");
+  else if (chip.disabled) app.notify("This thread's runtime sets its reasoning itself.");
+  else chip.click();
+}
+
 async function copyChat(app: WorkbenchActions, done: string, missing: string): Promise<string | undefined> {
   if (!app.copyChat) return missing;
   await app.copyChat();
@@ -54,7 +68,7 @@ export const slashRuns: Record<string, SlashRun> = {
       app.notify(`Thinking level set to ${level}.`);
       return undefined;
     }
-    app.openSettings("models#setting-thinking-level");
+    openThinking(app);
     return undefined;
   },
   new: (_args, app) => { app.newSession(); },
@@ -89,8 +103,9 @@ export const commandRuns: Record<string, (app: WorkbenchActions) => void | Promi
     if (!app.compactContext) return;
     await app.compactContext();
   },
+  "runtime.thinking": openThinking,
   "composer.effort": (app) => {
-    const control = document.querySelector<HTMLButtonElement>('[data-composer-shortcut~="composer.effort"]');
+    const control = document.querySelector<HTMLButtonElement>(EFFORT_CHIP);
     if (control && !control.disabled) control.click();
     else app.notify("This thread's runtime sets its reasoning itself.");
   },
