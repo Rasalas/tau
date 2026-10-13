@@ -64,7 +64,7 @@ function tableMethods(): Set<string> {
 /** Every protocol method name the client sends. */
 function clientMethods(): Set<string> {
   const source = read("workbench/host-client.ts");
-  return new Set([...source.matchAll(/(?:call|runJob|isJobMethod)(?:<[^>]*>)?\("([a-z-]+)"/gu)].map((match) => match[1]!));
+  return new Set([...source.matchAll(/(?:call|callLong|runJob|isJobMethod)(?:<[^>]*>)?\("([a-z-]+)"/gu)].map((match) => match[1]!));
 }
 
 describe("host protocol contract", () => {

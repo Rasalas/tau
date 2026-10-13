@@ -332,6 +332,12 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     const target = route(method);
     return refused(target, method) ? Promise.reject(readOnlyRefusal()) : target.request<T>(method, params);
   };
+  // A job where the host asks for one: no request timeout, and a dropped link replays the result.
+  const callLong = <T>(method: string, params: readonly unknown[] = []) => {
+    const target = route(method);
+    if (refused(target, method)) return Promise.reject(readOnlyRefusal());
+    return target.isJobMethod(method) ? target.runJob<T>(method, params) : target.request<T>(method, params);
+  };
   const readCommands = new ReadCommands(() => call<HostExtensionSummary[]>("host-extensions"));
   connection.onEvent((event) => { if (event.type === "extension-packages-changed" || event.type === "extension-deactivated") readCommands.invalidate(); });
   const invokeHostExtension = (extensionId: string, command: string, input?: unknown) => connection.isJobMethod("host-extension", extensionId, command)
@@ -346,7 +352,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       return bootstrap;
     },
     newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration) =>
-      call<NewThreadResult>("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration]),
+      callLong<NewThreadResult>("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration]),
     getPreparedThreadCapability: (cwd) => call<PreparedThreadCapability>("prepared-thread-capability", [cwd]),
     forkThread: (entryId, expectedSessionId, workspace, background) => call<ForkThreadResult>("fork-thread", background !== undefined ? [entryId, expectedSessionId, workspace, background] : workspace ? [entryId, expectedSessionId, workspace] : [entryId, expectedSessionId]),
     threadTree: (sessionId) => call<UiThreadTree>("thread-tree", [sessionId]),
@@ -362,11 +368,11 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     preparePrompt: (text, sessionId, skill, backendKind, workspace) => call<PreparedPrompt | undefined>("prepare-prompt", [text, sessionId, skill, backendKind, workspace]),
     composerCommands: (backendKind, workspace) => call<UiComposerCommand[]>("composer-commands", [backendKind, workspace]),
     sendPrompt: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      call<void>("prompt", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
+      callLong<void>("prompt", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     steer: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      call<void>("steer", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
+      callLong<void>("steer", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     followUp: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      call<void>("follow-up", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
+      callLong<void>("follow-up", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     abort: (sessionId) => call<void>("abort", [sessionId]),
     queueMessage: (sessionId, text, attachments, skillDraft) => call<{ id: string }>("queue-message", [sessionId, text, attachments, skillDraft]),
     takeQueued: (sessionId, id) => call<UiQueuedPrompt[]>("take-queued", [sessionId, id]),
@@ -411,15 +417,8 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
 
     prepareWorkbenchReload: (mode) => call<WorkbenchReloadPreparation>("prepare-workbench-reload", [mode]),
     releaseWorkbenchReload: () => call<void>("release-workbench-reload"),
-    rebuildWorkbench: () => {
-      // A job when the connection that answers it offers jobs; a client-side
-      // rebuild is one plain request instead.
-      const target = route("rebuild-workbench");
-      if (refused(target, "rebuild-workbench")) return Promise.reject(readOnlyRefusal());
-      return target.isJobMethod("rebuild-workbench")
-        ? target.runJob<WorkbenchBuildResult>("rebuild-workbench")
-        : call<WorkbenchBuildResult>("rebuild-workbench");
-    },
+    // A job when the connection that answers it offers jobs; a client-side rebuild is one plain request instead.
+    rebuildWorkbench: () => callLong<WorkbenchBuildResult>("rebuild-workbench"),
     workbenchSource: () => call<{ path?: string }>("workbench-source"),
     relaunchWorkbench: () => call<void>("relaunch-workbench"),
     installUpdate: () => call<{ installing: boolean }>("install-update"),

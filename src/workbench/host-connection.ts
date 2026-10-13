@@ -2,6 +2,7 @@ import type { HostBootstrap, HostEvent } from "../shared/contracts";
 import { HOST_PROTOCOL_VERSION } from "../shared/host-protocol";
 import {
   HOST_CAPABILITY,
+  HOST_ERROR,
   HOST_TRANSPORT_VERSION,
   decodeHostHelloReply,
   hostTopicKey,
@@ -75,6 +76,8 @@ export class HostConnection {
   private readonly jobs = new Map<string, PendingJob>();
   /** A job that finished before its `start-job` response arrived. */
   private readonly earlyJobResults = new Map<string, HostJobEvent>();
+  /** `start-job` calls still unanswered; other clients' jobs are only kept while one is. */
+  private startingJobs = 0;
   private readonly toolOutputs = new ToolOutputStream();
   private readonly messageTexts = new MessageTextStream();
   /** `thread:`, `request:` or `topic:` keys, with how many watchers hold each. */
@@ -196,12 +199,18 @@ export class HostConnection {
    * a promise. A job failure is a rejected promise, never a lost connection.
    */
   async runJob<T>(method: string, params: readonly unknown[] = [], onProgress?: (message: string, fraction?: number) => void): Promise<T> {
-    const { jobId } = await this.request<{ jobId: string }>("start-job", [method, params]);
-    const early = this.earlyJobResults.get(jobId);
-    if (early) {
-      this.earlyJobResults.delete(jobId);
-      return this.settleJob<T>(early);
+    this.startingJobs += 1;
+    let jobId: string;
+    try {
+      ({ jobId } = await this.request<{ jobId: string }>("start-job", [method, params]));
+    } finally {
+      this.startingJobs -= 1;
     }
+    const early = this.earlyJobResults.get(jobId);
+    // Every client hears every job; ids restart with the host, so an old one must not be kept.
+    if (this.startingJobs === 0) this.earlyJobResults.clear();
+    else this.earlyJobResults.delete(jobId);
+    if (early) return this.settleJob<T>(early);
     return new Promise<T>((resolve, reject) => {
       this.jobs.set(jobId, { resolve: (value) => resolve(value as T), reject, ...(onProgress ? { onProgress } : {}) });
     });
@@ -337,7 +346,7 @@ export class HostConnection {
       return;
     }
     if (!job) {
-      this.earlyJobResults.set(event.jobId, event);
+      if (this.startingJobs > 0) this.earlyJobResults.set(event.jobId, event);
       return;
     }
     this.jobs.delete(event.jobId);
@@ -420,6 +429,9 @@ export class HostConnection {
   private async startOver(): Promise<void> {
     this.toolOutputs.clear();
     this.messageTexts.clear();
+    // Their `job-done` may be among the pushes skipped; waiting for it could last forever.
+    for (const job of this.jobs.values()) job.reject(new HostRequestError("The link to the host was reset before the job finished.", HOST_ERROR.failed));
+    this.jobs.clear();
     await this.resync();
   }
 
