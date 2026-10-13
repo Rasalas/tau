@@ -1,6 +1,6 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { Server as TlsServer, type TLSSocket } from "node:tls";
+import { Server as TlsServer, TLSSocket } from "node:tls";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   HOST_CAPABILITY,
@@ -119,7 +119,7 @@ export interface SocketHostTransportOptions {
   /** Relays machine kit topics to this connection alone. */
   onTopicsSubscribed?(connection: string, topics: readonly string[], emit: (event: HostPushEvent) => void): void;
   onClientDetached?(connection: string): void;
-  /** Page origins accepted besides the listener's own and Electron's local `file://` (`hostAllowedOrigins`); a function is asked per socket. */
+  /** Page origins accepted besides the listener's own (`hostAllowedOrigins`); a function is asked per socket. */
   allowedOrigins?: readonly string[] | (() => readonly string[]);
   /** Defaults to `SOCKET_HELLO_TIMEOUT_MS`. */
   helloTimeoutMs?: number;
@@ -330,8 +330,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     if (!originAllowed({
       origin,
       host: request.headers.host,
-      // `file://` is a window on this machine only where the listener can tell.
-      ...(trust === "loopback" && request.socket.remoteAddress ? { peerAddress: request.socket.remoteAddress } : {}),
+      listenerAddress: request.socket.localAddress,
+      listenerPort: request.socket.localPort,
+      encrypted: request.socket instanceof TLSSocket && request.socket.encrypted,
       // Behind a proxy the page's host is the one the proxy was reached at.
       ...(trust === "proxy" ? { forwardedHost: forwardedHost(request.headers["x-forwarded-host"]) } : {}),
     }, allowed)) {
@@ -372,6 +373,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         const userAgent = request.headers["user-agent"];
         handlePairing(socket, frame, {
           ...(address ? { address } : {}),
+          ...(origin ? { origin } : {}),
           ...(typeof userAgent === "string" ? { userAgent } : {}),
           trust,
         }, ownCertificate(request));

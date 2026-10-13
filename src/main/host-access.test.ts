@@ -532,6 +532,40 @@ const connectionsOf = (access: HostAccess) => createConnectionsMethods(() => ({
 })) as HostMethodTable;
 
 describe("pairing over the socket", () => {
+  it.each<Record<string, string>>([
+    { Host: "evil.example:7788", Origin: "http://evil.example:7788" },
+    { Origin: "file://" },
+  ])("refuses pairing before a prompt for unsafe upgrade headers %j", async (headers) => {
+    const { access } = await openAccess();
+    const port = await listen(access);
+    const device = await connect(port, headers);
+    device.send({ type: "pair", id: "p", pair: { name: "Tau" } });
+    const outcome = await Promise.race([device.closed, device.next("pair-reply")]);
+    expect(outcome).toMatchObject({ code: 4403 });
+    expect(access.overview().requests).toEqual([]);
+    expect(access.overview().clients).toEqual([]);
+  });
+
+  it("accepts a native pairing client using a hostname without an Origin", async () => {
+    const { access } = await openAccess();
+    const port = await listen(access);
+    const device = await connect(port, { Host: "rex.local:7788" });
+    device.send({ type: "pair", id: "p", pair: { name: "Desktop" } });
+    expect(await Promise.race([device.next("pair-reply"), device.closed])).toMatchObject({ reply: { state: "waiting" } });
+    expect(access.overview().requests).toMatchObject([{ name: "Desktop" }]);
+    expect(access.overview().requests[0]).not.toHaveProperty("origin");
+  });
+
+  it("shows the upgrade origin to the owner rather than a name from the pairing frame", async () => {
+    const { access } = await openAccess();
+    const port = await listen(access);
+    const origin = `http://127.0.0.1:${port}`;
+    const device = await connect(port, { Origin: origin });
+    device.send({ type: "pair", id: "p", pair: { name: "Tau", origin: "https://spoof.example" } });
+    expect(await device.next("pair-reply")).toMatchObject({ reply: { state: "waiting" } });
+    expect(access.overview().requests).toMatchObject([{ name: "Tau", origin }]);
+  });
+
   it("waits for the owner's answer and lets the device say hello on the same socket", async () => {
     const { access, tokenFile } = await openAccess();
     const port = await listen(access, { ...connectionsOf(access), "bootstrap": async () => "state" });

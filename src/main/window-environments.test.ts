@@ -2,6 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { OnBeforeSendHeadersListenerDetails, Session, WebContents, WebFrameMain } from "electron";
+import { installEnvironmentSession } from "./environment-session.js";
+import { hostAllowedOrigins, originAllowed } from "./host-origin.js";
 import type { PairingEndpoint } from "../shared/connections.js";
 import type { UiEnvironments } from "../shared/environments.js";
 import type { SavedEnvironment, SecretBox } from "./environment-catalog.js";
@@ -171,7 +174,33 @@ describe("the machines of a window", () => {
     expect(environments.certificateVerdict("example.com", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_DEFAULT);
     expect(environments.isSavedSocket("wss://100.64.0.9:7788/")).toBe(true);
     expect(environments.isSavedSocket("wss://100.64.0.9:7789/")).toBe(false);
-    expect(environments.isSavedSocket("ws://127.0.0.1:5000/")).toBe(false);
+    expect(environments.isSavedSocket("ws://127.0.0.1:5000/")).toBe(true);
+    expect(environments.isSavedSocket("ws://127.0.0.1:5001/")).toBe(false);
+    expect(environments.isSavedSocket("wss://127.0.0.1:5000/")).toBe(false);
+  });
+
+  it.each(["file://", ...hostAllowedOrigins({ TAU_DEV_SERVER_URL: "http://localhost:5173/" })])("reaches local and saved hosts without an Origin from the desktop page at %s", async (origin) => {
+    const { environments } = await setup({ state: "approved", environment: {
+      ...studio, endpoints: [{ url: "https://rex.local:7788/", kind: "mdns" }],
+    } });
+    await environments.pair({ text: "link" });
+    let beforeSend: ((details: Pick<OnBeforeSendHeadersListenerDetails, "url" | "webContentsId" | "webContents" | "frame" | "requestHeaders">, callback: (response: { requestHeaders?: Record<string, string> }) => void) => void) | undefined;
+    const session = {
+      setCertificateVerifyProc: vi.fn(),
+      webRequest: { onBeforeSendHeaders: vi.fn((_filter: unknown, listener: typeof beforeSend) => { beforeSend = listener; }) },
+    } as unknown as Session;
+    const mainFrame = {} as WebFrameMain;
+    const webContents = { mainFrame } as WebContents;
+    installEnvironmentSession(session, environments, () => 7);
+    for (const url of ["ws://127.0.0.1:5000/", "wss://rex.local:7788/"]) {
+      const host = new URL(url).host;
+      let headers: Record<string, string> | undefined;
+      beforeSend!({ url, webContentsId: 7, webContents, frame: mainFrame, requestHeaders: { Host: host, Origin: origin } }, (response) => {
+        headers = response.requestHeaders;
+      });
+      expect(headers).toEqual({ Host: host });
+      expect(originAllowed({ host, origin: headers?.Origin })).toBe(true);
+    }
   });
 
   it("moves a certificate pin to the key on the next hello that pin let in, and refuses a changed key from then on", async () => {

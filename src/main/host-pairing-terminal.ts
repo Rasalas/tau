@@ -8,8 +8,9 @@ import { deviceLabel } from "./client-device.js";
 function describe(request: UiPairingRequest): string {
   const who = request.name ?? request.link?.label ?? deviceLabel(request.device);
   const how = request.link ? "with a pairing link" : "without a pairing link";
+  const origin = request.origin ? `, website ${request.origin}` : "";
   const agents = request.companion ? `, and its agents as “${request.companion.name}”` : "";
-  return `${who} (${deviceLabel(request.device)}${request.address ? `, from ${request.address}` : ""}, ${how})${agents}`;
+  return `${who} (${deviceLabel(request.device)}${request.address ? `, from ${request.address}` : ""}, ${how}${origin})${agents}`;
 }
 
 /**

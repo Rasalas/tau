@@ -540,10 +540,11 @@ export class WindowEnvironments {
     return authority || !pinned ? CERTIFICATE_DEFAULT : CERTIFICATE_REJECT;
   }
 
-  /** Whether a socket URL is one of the saved machines' addresses: the page's `Origin` is dropped for exactly these. */
+  /** Drops the page's Origin only for its own host and saved machines. */
   isSavedSocket(url: string): boolean {
     let target: URL;
     try { target = new URL(url); } catch { return false; }
+    if (this.localConnection && new URL(this.localConnection.url).origin === target.origin) return true;
     const address = target.hostname.replace(/^\[|\]$/gu, "").toLowerCase();
     return (this.catalog?.list() ?? []).some((entry) => entry.endpoints.some((endpoint) => {
       const socket = new URL(socketUrl(endpoint.url));

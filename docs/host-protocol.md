@@ -191,17 +191,34 @@ calls `reconnectNow()`.
 
 ### Which pages may open a socket
 
-The host looks at the `Origin` header of the upgrade before anything else and
-closes a refused socket with 4403 (`src/main/host-origin.ts`). No `Origin` is a
-client that is not a browser page (the window's own process, the native app's
-pinned sockets, the smokes) and passes. A page passes when its origin is the listener's
-own (the `Host` it was reached by), when it is Electron's `file://` window on
-loopback, or when it is listed in `TAU_HOST_ALLOWED_ORIGINS` (comma-separated,
-for a native shell's scheme or a proxy that rewrites `Host`); a development
-window's `TAU_DEV_SERVER_URL` is added by itself. The token in the hello stays
-the real gate; the check keeps a page on another site, or an opaque `null`
-origin, from trying one. The socket client stops on 4403 as it does on 4401 and
-shows why.
+The host checks browser origins before a hello or a pairing request and closes
+a refused socket with 4403 (`src/main/host-origin.ts`). A client without an
+`Origin` is not a browser page and passes without a `Host` check: native
+clients, the desktop and smokes may reach the host by any name. The token in
+the hello still gates methods.
+
+On a TLS listener, browser certificate verification binds the name, so the
+page passes when its Origin host matches `Host` or its origin is explicitly
+allowed. On a plaintext listener, a rebound domain could reach the same port
+without that certificate check. `Host` must therefore name a loopback address
+or the actual listener address, on that listener's port, or an HTTP(S) endpoint
+explicitly allowed by the host. A foreign name is refused even if `Origin`
+matches it. Only a proxy listener also accepts `Host` matching the proxy's last
+`X-Forwarded-Host` hop; a browser cannot set that header on a WebSocket upgrade.
+This covers both proxies that rewrite `Host` and those that keep the public name.
+TLS is taken from the actual socket, never a forwarded protocol header.
+
+With a valid plaintext authority, the Origin must still match `Host`, the
+trusted forwarded host, or an allowed origin. Published endpoints and
+`TAU_HOST_ALLOWED_ORIGINS` supply allowed origins, including native shells;
+a development window's `TAU_DEV_SERVER_URL` is added automatically.
+`file://` and opaque `null` origins are refused on every listener.
+
+The desktop removes `Origin` only on its current workbench main frame's
+sockets to its exact local host address or saved machines. Subframes and
+requests without a current frame keep their origin. The token in the hello gates methods;
+pairing still requires the owner's approval. The socket client stops on 4403
+as it does on 4401 and shows why.
 
 ### Which pushes a client receives
 
@@ -438,7 +455,10 @@ A device without a token asks on the socket, before any hello:
 ```
 
 `code` comes from a pairing link and is spent by the attempt; without one the
-owner is asked all the same. `name` is how the device calls itself. Nobody gets
+owner is asked all the same. `name` is how the device calls itself. Browser
+requests carry the upgrade header as `UiPairingRequest.origin` in the owner
+overview, and the approval dialog and terminal show it as the website. A
+`pair` frame cannot supply or replace this origin. Native clients omit it. Nobody gets
 a token before the owner allows the request on the host
 (`connections-approve`), after comparing the six digits of `verification`
 with the device's. The request waits two minutes. A refusal before anyone is
@@ -727,8 +747,8 @@ the transport what it may conclude about a peer:
   client sent, is read here alone and listed as the client's `proxyUser` in
   Connections: shown, never a login.
 
-The origin check at the upgrade follows the same trust. `file://` counts as
-a window on this machine only on the loopback listener. A proxy listener also
+The origin check at the upgrade follows the same trust. `file://` is refused
+on every listener. A proxy listener also
 accepts a page whose origin is the host the proxy was reached at, the last
 `X-Forwarded-Host` hop, because `tailscale serve` may hand the request on
 with `Host: 127.0.0.1:<proxyPort>`. The origin of every published endpoint
@@ -934,8 +954,8 @@ The page reads the list with `environments-list` and hears every change as the
 `unsupported`. For the page's own sockets the window's session accepts a saved
 machine's pinned key for its host names only, leaves a name the machine flagged
 for a CA to Chromium's own verification, and drops `Origin` on
-sockets to saved machines, because a host lets a `file://` page in over loopback
-only.
+sockets to its exact local host address and saved machines, because the host
+refuses `file://`.
 
 A hello reply now names the machine: `host: { id, name, endpoints? }`, its
 `<userData>/host-id`, the machine's name (the Mac's Computer Name, elsewhere

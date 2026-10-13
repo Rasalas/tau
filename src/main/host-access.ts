@@ -34,6 +34,8 @@ export type HostCredential = { kind: "owner" } | { kind: "client"; clientId: str
 /** What a transport knows about the peer behind a connection. */
 export interface AccessPeer {
   address?: string;
+  /** The upgrade Origin, shown to the owner when this peer asks to pair. */
+  origin?: string;
   /** Who the proxy in front of the connection named; shown, never trusted. */
   proxyUser?: string;
   userAgent?: string;
@@ -99,6 +101,7 @@ interface PendingLink {
 
 interface PendingRequest {
   id: string;
+  origin?: string;
   name?: string;
   device: UiClientDevice;
   address?: string;
@@ -353,6 +356,7 @@ export class HostAccess {
       id: randomBytes(8).toString("hex"),
       ...(name ? { name } : {}),
       device: describeUserAgent(peer.userAgent),
+      ...(peer.origin ? { origin: peer.origin } : {}),
       ...(address ? { address } : {}),
       ...(link ? { link: { id: link.id, ...(link.label ? { label: link.label } : {}), access: link.access } } : {}),
       state: request.commitment ? "challenge" : "waiting",
@@ -714,6 +718,7 @@ function requestInfo(pending: PendingRequest): UiPairingRequest {
     id: pending.id,
     ...(pending.name ? { name: pending.name } : {}),
     device: pending.device,
+    ...(pending.origin ? { origin: pending.origin } : {}),
     ...(pending.address ? { address: pending.address } : {}),
     ...(pending.link ? { link: { id: pending.link.id, ...(pending.link.label ? { label: pending.link.label } : {}) } } : {}),
     verification: pending.verification!,
