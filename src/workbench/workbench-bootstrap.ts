@@ -1,5 +1,6 @@
 import { errorMessage } from "./error-message";
 import type { HostBootstrap } from "../shared/contracts";
+import { HOST_ERROR } from "../shared/host-transport";
 import type { HostClient } from "./host-client";
 import { followShownThread } from "./shown-thread";
 import type { WorkbenchSession } from "./workbench-session";
@@ -20,6 +21,7 @@ export function followWorkbenchBootstrap(
   let loaded = false;
   let loading = false;
   let connected = true;
+  let connectionGeneration = 0;
   let retryDelay = 1_000;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let stopFollowing = () => {};
@@ -28,6 +30,7 @@ export function followWorkbenchBootstrap(
     clearTimeout(retryTimer);
     retryTimer = undefined;
     loading = true;
+    const generation = connectionGeneration;
     const request = workbench.history.beginBootstrap();
     client.bootstrap().then((bootstrap) => {
       if (disposed) return;
@@ -37,7 +40,11 @@ export function followWorkbenchBootstrap(
       stopFollowing = followShownThread(client, workbench.threads);
       if (applied) onLoaded?.(bootstrap);
     }).catch((error) => {
-      if (!disposed && workbench.history.isCurrentBootstrap(request)) onError(errorMessage(error));
+      // This read retries by itself. Timeouts and an old connection's late
+      // failures belong to recovery, rather than the user's notification stack.
+      const timeout = error instanceof Error && "code" in error && error.code === HOST_ERROR.timeout;
+      if (!disposed && connected && generation === connectionGeneration && !timeout
+        && workbench.history.isCurrentBootstrap(request)) onError(errorMessage(error));
     }).finally(() => {
       loading = false;
       // A timeout does not close a healthy connection, and reconnect can
@@ -48,6 +55,7 @@ export function followWorkbenchBootstrap(
     });
   };
   const stopRecovery = client.onConnectionState((state) => {
+    connectionGeneration += 1;
     connected = state === "connected";
     clearTimeout(retryTimer);
     retryTimer = undefined;

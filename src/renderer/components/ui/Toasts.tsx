@@ -106,13 +106,14 @@ function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
 }
 
 /**
- * The toast stack at the top right, under the workspace card, an open stage's
- * tab strip or the conversation's header: the newest in front, up to
+ * The toast stack under the conversation's header, or the stage's tab strip
+ * or workspace card when the conversation is folded: the newest in front, up to
  * `maxVisible` peeking behind it, all of them laid out apart while the pointer
  * or focus is on the stack. F6 moves focus into it.
  *
- * On a touch layout the stack sits below the thread title, under every
- * sheet and dialog, so it never takes a tap meant for one; a toast a sheet
+ * On a touch layout the stack sits below the thread title, or beside the
+ * overview's floating button, under every sheet and dialog, so it never takes
+ * a tap meant for one; a toast a sheet
  * covers keeps its time, and a sideways swipe dismisses.
  */
 export function ToastViewport({ store, touch = false }: { store: ToastStore; touch?: boolean }) {
@@ -123,6 +124,7 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
   const expanded = hovered || focused;
   const stack = useRef<HTMLElement>(null);
   const heights = useRef(new Map<string, number>());
+  const [anchor, setAnchor] = useState<"top" | "bottom">("top");
   const [, remeasured] = useReducer((count: number) => count + 1, 0);
   const [observer] = useState(() => typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver((entries) => {
     let changed = false;
@@ -137,7 +139,7 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
     if (changed) remeasured();
   }));
   useEffect(() => () => observer?.disconnect(), [observer]);
-  useStackPlace(stack, touch, visible.length);
+  useStackPlace(stack, touch, visible.length, setAnchor);
   useEffect(() => touch ? store.deferExpiry((id) => isCovered(stack.current, id)) : undefined, [touch, store]);
   const swipe = useToastSwipe(store);
 
@@ -188,12 +190,13 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
       aria-label="Notifications"
       data-expanded={expanded || undefined}
       data-touch={touch || undefined}
+      data-anchor={anchor}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
     >
-      {layoutToasts(visible, heights.current, expanded, "top").map(({ toast, index, style }) => (
+      {layoutToasts(visible, heights.current, expanded, anchor).map(({ toast, index, style }) => (
         <div
           key={toast.id}
           className="toast-item"
@@ -224,15 +227,17 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
 }
 
 /**
- * Places the stack. Desktop: under the first anchor on screen. Touch: below
- * the title, limited to the space above the composer.
+ * Desktop: under the first anchor on screen. Touch: below the title and above
+ * the composer, or beside the overview's floating button, opening upward.
  */
-function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, count: number): void {
+function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, count: number, setAnchor: (anchor: "top" | "bottom") => void): void {
   useLayoutEffect(() => {
     const style = stack.current?.style;
     if (!style || !count) return undefined;
-    return touch ? placeUnderTitle(style) : placeUnderAnchor(style);
-  }, [stack, touch, count]);
+    if (touch) return placeOnTouch(style, setAnchor);
+    setAnchor("top");
+    return placeUnderAnchor(style);
+  }, [stack, touch, count, setAnchor]);
 }
 
 /**
@@ -240,9 +245,9 @@ function useStackPlace(stack: RefObject<HTMLElement | null>, touch: boolean, cou
  * the top right of its side, so toasts keep one place as the layout changes.
  */
 const ANCHORS = [
-  { selector: ".workbench-center > .workspace-area:not(.has-stage) > .region-workspace-summary", inset: 0 },
-  { selector: ".workbench-center > .workspace-area > .stage > .stage-strip", inset: 12 },
   { selector: ".workbench-center > .conversation-column > .thread-header", inset: 12 },
+  { selector: ".workbench-center > .workspace-area > .stage > .stage-strip", inset: 12 },
+  { selector: ".workbench-center > .workspace-area:not(.has-stage) > .region-workspace-summary", inset: 0 },
 ] as const;
 /** Room kept at the window's bottom for one toast, however tall the anchor grows. */
 const MIN_ROOM = 80;
@@ -255,9 +260,11 @@ function placeUnderAnchor(style: CSSStyleDeclaration): () => void {
     const inset = anchor?.inset ?? 12;
     Object.assign(style, {
       top: `${Math.max(12, Math.min(box.bottom + 12, innerHeight - MIN_ROOM))}px`,
+      bottom: "", left: "",
       right: `${innerWidth - box.right + inset}px`,
       width: `${Math.min(360, box.width - 2 * inset)}px`,
     });
+    style.removeProperty("--toast-available-height");
   };
   const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
   // The anchor changes as the stage and the workspace column open and close, both direct children here.
@@ -286,40 +293,78 @@ function placeUnderAnchor(style: CSSStyleDeclaration): () => void {
   };
 }
 
-function placeUnderTitle(style: CSSStyleDeclaration): () => void {
-  const composer = document.querySelector<HTMLElement>(".conversation-composer-host");
-  const surface = composer?.querySelector<HTMLElement>(".composer-surface") ?? composer;
-  const header = document.querySelector<HTMLElement>(".title-bar, .thread-header");
+const TOUCH_ANCHORS = ".touch-browser.screen.home, .touch-home-head, .touch-fab, .title-bar, .thread-header, .conversation-composer-host, .composer-surface";
+
+function placeOnTouch(style: CSSStyleDeclaration, setAnchor: (anchor: "top" | "bottom") => void): () => void {
+  let composer: HTMLElement | undefined;
+  let surface: HTMLElement | undefined;
+  let header: HTMLElement | undefined;
+  let fab: HTMLElement | undefined;
+  const visible = (selector: string, root: ParentNode = document) => [...root.querySelectorAll<HTMLElement>(selector)].find((element) => {
+    const box = element.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  });
   const measure = () => {
+    const viewport = window.visualViewport;
+    const floor = viewport ? viewport.offsetTop + viewport.height : innerHeight;
     const head = header?.getBoundingClientRect();
     const top = head?.height ? head.bottom + GAP : undefined;
-    Object.assign(style, { top: top === undefined ? "" : `${top}px`, bottom: "", right: "", width: "" });
+    const button = fab?.getBoundingClientRect();
+    if (button?.height) {
+      const bottom = Math.min(button.bottom, floor);
+      Object.assign(style, { top: "auto", bottom: `${innerHeight - bottom}px`, left: "", right: `${innerWidth - button.left + GAP}px`, width: "" });
+      style.setProperty("--toast-available-height", `${Math.max(0, bottom - (top ?? 0) - GAP)}px`);
+      setAnchor("bottom");
+      return;
+    }
+    setAnchor("top");
+    Object.assign(style, { top: top === undefined ? "" : `${top}px`, bottom: "", left: "", right: "", width: "" });
+    if (head?.width && visible(".touch-browser.sidebar")) {
+      // A tablet's list has its own column; notifications belong to the chat.
+      Object.assign(style, { left: `${head.left + 12}px`, right: `${innerWidth - head.right + 12}px` });
+    }
     if (top !== undefined) {
       const dock = surface?.getBoundingClientRect();
-      const viewport = window.visualViewport;
-      const floor = dock?.height ? dock.top : viewport ? viewport.offsetTop + viewport.height : innerHeight;
-      style.setProperty("--toast-available-height", `${Math.max(0, floor - top - GAP)}px`);
+      const limit = dock?.height ? Math.min(dock.top, floor) : floor;
+      style.setProperty("--toast-available-height", `${Math.max(0, limit - top - GAP)}px`);
     } else style.removeProperty("--toast-available-height");
   };
-  measure();
   const resized = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
   const moved = new MutationObserver(measure);
-  for (const element of [composer, surface, header]) if (element) resized?.observe(element);
-  if (composer) {
-    // `style`: the move between start and docked is a transform, measured again once it is cleared.
-    moved.observe(composer, { attributes: true, attributeFilter: ["class", "style"] });
-  }
+  const find = () => {
+    resized?.disconnect();
+    moved.disconnect();
+    const home = visible(".touch-browser.screen.home");
+    fab = home ? visible(".touch-fab", home) : undefined;
+    header = home ? visible(".touch-home-head", home) : visible(".title-bar, .thread-header");
+    composer = home ? undefined : visible(".conversation-composer-host");
+    surface = composer?.querySelector<HTMLElement>(".composer-surface") ?? composer;
+    for (const element of [composer, surface, header, fab]) if (element) resized?.observe(element);
+    // Docking changes the transform, without necessarily resizing the composer.
+    if (composer) moved.observe(composer, { attributes: true, attributeFilter: ["class", "style"] });
+    measure();
+  };
+  const rearranged = new MutationObserver((records) => {
+    // Transcript updates are frequent. Only rediscover anchors when the layout changes.
+    const relevant = (node: Node) => node instanceof Element && (node.matches(TOUCH_ANCHORS) || !!node.querySelector(TOUCH_ANCHORS));
+    if (records.some((record) => record.type === "attributes"
+      ? record.target instanceof Element && record.target.matches(`${TOUCH_ANCHORS}, .app-shell, .workbench-center`)
+      : [...record.addedNodes, ...record.removedNodes].some(relevant))) find();
+  });
+  rearranged.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  find();
   // The keyboard only moves the visual viewport.
   const viewport = window.visualViewport;
   viewport?.addEventListener("resize", measure);
   viewport?.addEventListener("scroll", measure);
-  window.addEventListener("resize", measure);
+  window.addEventListener("resize", find);
   return () => {
     resized?.disconnect();
     moved.disconnect();
+    rearranged.disconnect();
     viewport?.removeEventListener("resize", measure);
     viewport?.removeEventListener("scroll", measure);
-    window.removeEventListener("resize", measure);
+    window.removeEventListener("resize", find);
   };
 }
 

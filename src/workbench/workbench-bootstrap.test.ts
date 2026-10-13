@@ -5,13 +5,14 @@ import type { HostConnectionState } from "./host-connection";
 
 afterEach(() => vi.useRealTimers());
 
-it("retries a timed-out initial load even when the connection stays connected", async () => {
+it.each([3_000, 30_000])("retries an initial load timed out after %d ms without notifying the user", async (timeoutMs) => {
   vi.useFakeTimers();
   const bootstrap = vi.fn()
-    .mockRejectedValueOnce(new Error("Request timed out"))
+    .mockRejectedValueOnce(Object.assign(new Error(`timeout: request timed out after ${timeoutMs}ms`), { code: "timeout" }))
     .mockResolvedValue({} as HostBootstrap);
   const applyBootstrap = vi.fn(() => true);
   const onLoaded = vi.fn();
+  const onError = vi.fn();
   const stop = followWorkbenchBootstrap({
     bootstrap,
     onConnectionState: () => () => {},
@@ -21,10 +22,11 @@ it("retries a timed-out initial load even when the connection stays connected", 
     history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true } as never,
     threads: { getSnapshot: () => ({}), subscribe: () => () => {} } as never,
     applyBootstrap,
-  }, vi.fn(), onLoaded);
+  }, onError, onLoaded);
   await vi.advanceTimersByTimeAsync(2_000);
   expect(applyBootstrap).toHaveBeenCalledOnce();
   expect(onLoaded).toHaveBeenCalledOnce();
+  expect(onError).not.toHaveBeenCalled();
   stop();
 });
 
@@ -36,6 +38,7 @@ it("does not lose recovery when connected arrives before the failed request sett
     .mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }))
     .mockResolvedValue({} as HostBootstrap);
   const applyBootstrap = vi.fn(() => true);
+  const onError = vi.fn();
   const stop = followWorkbenchBootstrap({
     bootstrap,
     onConnectionState: (listener) => { connected = listener; return () => {}; },
@@ -45,11 +48,13 @@ it("does not lose recovery when connected arrives before the failed request sett
     history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true } as never,
     threads: { getSnapshot: () => ({}), subscribe: () => () => {} } as never,
     applyBootstrap,
-  }, vi.fn());
+  }, onError);
+  connected("reconnecting");
   connected("connected");
   reject(new Error("The connection dropped"));
   await vi.advanceTimersByTimeAsync(2_000);
   expect(applyBootstrap).toHaveBeenCalledOnce();
+  expect(onError).not.toHaveBeenCalled();
   stop();
 });
 
@@ -66,4 +71,24 @@ it("cancels retries when disposed", async () => {
   stop();
   await vi.advanceTimersByTimeAsync(10_000);
   expect(bootstrap).toHaveBeenCalledOnce();
+});
+
+it("still reports a real bootstrap failure while retrying the read", async () => {
+  vi.useFakeTimers();
+  const bootstrap = vi.fn()
+    .mockRejectedValueOnce(Object.assign(new Error("The thread index could not be read."), { code: "failed" }))
+    .mockResolvedValue({} as HostBootstrap);
+  const applyBootstrap = vi.fn(() => true);
+  const onError = vi.fn();
+  const stop = followWorkbenchBootstrap({
+    bootstrap, onConnectionState: () => () => {}, watchThread: () => () => {}, limitPushesToWatched: () => {},
+  }, {
+    history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true } as never,
+    threads: { getSnapshot: () => ({}), subscribe: () => () => {} } as never,
+    applyBootstrap,
+  }, onError);
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(onError).toHaveBeenCalledExactlyOnceWith("The thread index could not be read.");
+  expect(applyBootstrap).toHaveBeenCalledOnce();
+  stop();
 });
