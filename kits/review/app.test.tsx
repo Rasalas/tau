@@ -83,18 +83,23 @@ async function openChanges(): Promise<void> {
   fireEvent.click(await screen.findByRole("button", { name: "Diff" }));
 }
 
-async function openStageReview(): Promise<void> {
+/** The project card, opened from the stage bar's Project actions. */
+async function openProjectCard(): Promise<HTMLElement> {
   const trigger = await screen.findByRole("button", { name: "Project actions" });
-  let card: HTMLElement;
   if (trigger.getAttribute("aria-haspopup") === "dialog") {
     fireEvent.click(trigger);
     const menu = await screen.findByRole("dialog", { name: "Project actions" });
-    card = await within(menu).findByRole("region", { name: "Project workspace" });
-  } else {
-    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
-    card = await screen.findByRole("region", { name: "Project workspace" });
+    return within(menu).findByRole("region", { name: "Project workspace" });
   }
-  fireEvent.click(await within(card).findByRole("button", { name: /^Commit/u }));
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+  return screen.findByRole("region", { name: "Project workspace" });
+}
+
+/** The Git button leads to the commit card; the review stays a way in its menu. */
+async function openStageReview(): Promise<void> {
+  const card = await openProjectCard();
+  fireEvent.click(await within(card).findByRole("button", { name: "Choose Git action" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: /^Review changes/u }));
 }
 
 describe("Review Kit in the workbench", () => {
@@ -244,18 +249,20 @@ const OPEN_REQUEST = { provider: "github", number: 7, title: "Review everything"
  * the review's file list, which the Changes entry opens, and the mark on the thread's rail row.
  */
 describe("Review Kit request lifecycle in the workbench", () => {
-  it("commits, opens the one local PR form and creates a draft pull request from it", async () => {
+  it("opens the one card from the review's commit menu and commits, pushes and creates a draft from it", async () => {
     const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: false, detail: "Committed abc1234" }));
+    const push = vi.fn(async () => ({ detail: "Pushed abc1234" }));
     let status: Record<string, unknown> = NO_REQUEST;
     const review = vi.fn(async (command: string, input?: unknown) => {
       if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? { request: status.request } : status;
+      if (command === "local-pr-describe") return { title: "Review every changed file", body: "## Summary\nAll of it.", base: "main", generated: true };
       if (command === "pr-create") {
         status = { ...NO_REQUEST, request: OPEN_REQUEST };
         return { status, url: OPEN_REQUEST.url };
       }
       return LOCAL_PR[command as keyof typeof LOCAL_PR];
     });
-    renderApp(workbench({ commit }, review), { extensions: [workspaceExtension, reviewExtension] });
+    renderApp(workbench({ commit, push }, review), { extensions: [workspaceExtension, reviewExtension] });
 
     await openStageReview();
     expect(await screen.findByText("No PR for feat/review")).toBeTruthy();
@@ -267,35 +274,107 @@ describe("Review Kit request lifecycle in the workbench", () => {
     fireEvent.click(more);
     fireEvent.click(await screen.findByRole("menuitem", { name: /Commit & create PR…/u }));
 
-    await waitFor(() => expect(commit).toHaveBeenCalledWith("Update a", false));
-    // The form is the Local PR tab's, the one the workspace card and the Git button open too.
-    const title = await screen.findByRole("textbox", { name: "PR title" });
-    expect(review).not.toHaveBeenCalledWith("pr-create", expect.anything());
-    fireEvent.change(title, { target: { value: "Review every changed file" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Draft" }));
-    fireEvent.click(screen.getByRole("button", { name: "Create draft PR…" }));
+    // The card takes the review's message, shows the files, and has the description written for the commit that is not made yet.
+    const card = await screen.findByRole("dialog", { name: "Commit, push & PR" });
+    expect((within(card).getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).value).toBe("Update a");
+    expect(within(card).getByLabelText("1 changed file").textContent).toContain("a.ts");
+    await waitFor(() => expect((within(card).getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("Review every changed file"));
+    expect(review).toHaveBeenCalledWith("local-pr-describe", expect.objectContaining({ pending: { message: "Update a", files: [{ path: "src/a.ts", added: 1, removed: 0 }] } }));
+    expect(commit).not.toHaveBeenCalled();
+    fireEvent.click(within(card).getByRole("checkbox", { name: "Draft" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Commit, push & PR" }));
 
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Review every changed file", body: "", base: "", draft: true }));
-    expect(await screen.findByText("PR #7 created.")).toBeTruthy();
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Review every changed file", body: "## Summary\nAll of it.", base: "", draft: true }));
+    expect(commit).toHaveBeenCalledWith("Update a", false);
+    expect(push).toHaveBeenCalledOnce();
+    expect(await screen.findByText("PR #7 created as draft.")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Commit, push & PR" })).toBeNull();
   });
 
-  it("leads the Git button to the same form once the branch is committed", async () => {
+  it("takes a thread with changes and no upstream to an open pull request with one click and a confirmation", async () => {
+    const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: false, detail: "Committed abc1234" }));
+    const push = vi.fn(async () => ({ detail: "Pushed abc1234" }));
+    let status: Record<string, unknown> = NO_REQUEST;
+    const review = vi.fn(async (command: string, input?: unknown) => {
+      if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? { request: status.request } : status;
+      if (command === "suggest-commit-message") return { message: "feat(review): preview the request" };
+      if (command === "local-pr-describe") return { title: "Preview the request", body: "Shows the files first.", base: "main", generated: true };
+      if (command === "pr-create") {
+        status = { ...NO_REQUEST, request: OPEN_REQUEST };
+        return { status, url: OPEN_REQUEST.url };
+      }
+      return LOCAL_PR[command as keyof typeof LOCAL_PR];
+    });
+    renderApp(workbench({ commit, push, getWorkspaceInfo: async () => ({ ...WORKSPACE, upstream: undefined }) }, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    const card = await openProjectCard();
+    fireEvent.click(await within(card).findByRole("button", { name: "Commit, push & PR" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Commit, push & PR" });
+    await waitFor(() => expect((within(dialog).getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).value).toBe("feat(review): preview the request"));
+    await waitFor(() => expect((within(dialog).getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("Preview the request"));
+    expect(review).toHaveBeenCalledWith("local-pr-describe", expect.objectContaining({ pending: expect.objectContaining({ message: "feat(review): preview the request" }) }));
+    expect(commit).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Commit, push & PR" }));
+
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Preview the request", body: "Shows the files first.", base: "", draft: false }));
+    expect(commit).toHaveBeenCalledWith("feat(review): preview the request", false);
+    expect(push).toHaveBeenCalledOnce();
+    expect(await screen.findByText("PR #7 created.")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Commit, push & PR" })).toBeNull();
+  });
+
+  it("stays open at the step that failed, names it, keeps what worked, and continues there", async () => {
+    const commit = vi.fn(async () => ({ changes: { files: [], added: 0, removed: 0 }, pushed: false, detail: "Committed abc1234" }));
+    const push = vi.fn(async () => ({ detail: "Pushed abc1234" }));
+    push.mockRejectedValueOnce(new Error("remote: permission denied"));
+    const review = vi.fn(async (command: string, input?: unknown) => {
+      if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? {} : NO_REQUEST;
+      if (command === "local-pr-describe") return { title: "Preview the request", body: "Shows the files first.", base: "main", generated: true };
+      if (command === "pr-create") return { status: { ...NO_REQUEST, request: OPEN_REQUEST }, url: OPEN_REQUEST.url };
+      return LOCAL_PR[command as keyof typeof LOCAL_PR];
+    });
+    renderApp(workbench({ commit, push }, review), { extensions: [workspaceExtension, reviewExtension] });
+
+    const card = await openProjectCard();
+    fireEvent.click(await within(card).findByRole("button", { name: "Commit, push & PR" }));
+    const dialog = await screen.findByRole("dialog", { name: "Commit, push & PR" });
+    await waitFor(() => expect((within(dialog).getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("Preview the request"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Commit, push & PR" }));
+
+    // The error toast carries the reason; the card names the step and offers to go on.
+    expect(await screen.findByText("Pushing failed: remote: permission denied")).toBeTruthy();
+    const steps = within(dialog).getByRole("list", { name: "Progress" });
+    expect(within(steps).getByText("Committed")).toBeTruthy();
+    expect(within(steps).getByText("Pushing failed")).toBeTruthy();
+    expect(review).not.toHaveBeenCalledWith("pr-create", expect.anything());
+    expect((within(dialog).getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).disabled).toBe(true);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", expect.anything()));
+    expect(commit).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Commit, push & PR" })).toBeNull());
+  });
+
+  it("leads the Git button to the same form once the branch is committed, and the form writes itself", async () => {
     const clean = { branch: "feat/review", files: [], fileCount: 0, added: 0, removed: 0 };
     const review = vi.fn(async (command: string, input?: unknown) => {
       if (command === "pr-status") return (input as { workspace?: string } | undefined)?.workspace ? {} : NO_REQUEST;
+      if (command === "local-pr") return { ...LOCAL_PR["local-pr"], commits: [{ sha: "c1", subject: "feat: add the card", body: "", at: 1_000 }] };
+      if (command === "local-pr-describe") return { title: "Add the card", body: "It previews the request.", base: "main", generated: true };
       if (command === "pr-create") return { status: { ...NO_REQUEST, request: OPEN_REQUEST }, url: OPEN_REQUEST.url };
       return LOCAL_PR[command as keyof typeof LOCAL_PR];
     });
     renderApp(workbench({ getChanges: async () => clean, getWorkspaceInfo: async () => ({ ...WORKSPACE, isDirty: false, ahead: 1 }) }, review), { extensions: [workspaceExtension, reviewExtension] });
 
-    const trigger = await screen.findByRole("button", { name: "Project actions" });
-    if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
-    const card = await screen.findByRole("region", { name: "Project workspace" });
+    const card = await openProjectCard();
     fireEvent.click(await within(card).findByRole("button", { name: "Create PR" }));
 
-    fireEvent.change(await screen.findByRole("textbox", { name: "PR title" }), { target: { value: "Ship it" } });
+    // Opened empty, the form wrote the title and description from the commits.
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("Add the card"));
     fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
-    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Ship it", body: "", base: "", draft: false }));
+    await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { title: "Add the card", body: "It previews the request.", base: "main", draft: false }));
   });
 
   it("opens the request as a stage tab from the review, read through the kit's own host commands", async () => {

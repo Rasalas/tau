@@ -179,10 +179,10 @@ export function TitleActionsRow({ collapse, row, snapshot, hideChanges = false, 
   const branch = state.workspace?.branch;
   const ownBranch = Boolean(branch) && branch !== "detached" && (mainLine ? branch !== mainLine : Boolean(state.workspace?.worktrees.some((entry) => entry.isCurrent && !entry.isMain)));
   const committed = (state.workspace?.ahead ?? 0) > 0 || (threadChanges?.scope === "branch" && threadChanges.files > 0);
-  const requestNoun = requestStep && ownBranch && committed ? requestStep.noun : undefined;
+  const requestNoun = requestStep && ownBranch ? requestStep.noun : undefined;
   const gitAction = useMemo(
-    () => resolveGitQuickAction(state.changes, state.workspace, state.committing, requestNoun ? { noun: requestNoun } : undefined),
-    [requestNoun, state.changes, state.committing, state.workspace],
+    () => resolveGitQuickAction(state.changes, state.workspace, state.committing, requestNoun ? { noun: requestNoun, committed } : undefined),
+    [committed, requestNoun, state.changes, state.committing, state.workspace],
   );
   const runGitAction = (kind: GitQuickActionKind) => {
     if (kind === "commit") workspaceStore.openReview(undefined, false);
@@ -190,6 +190,7 @@ export function TitleActionsRow({ collapse, row, snapshot, hideChanges = false, 
     if (kind === "pull") void workspaceStore.pull();
     if (kind === "push") void workspaceStore.push();
     if (kind === "request") requestStep?.open();
+    if (kind === "commit-request") requestStep?.open({ commit: true });
   };
 
   // A Read-only device runs nothing and changes no branch (ADR 0024); both are left out.
@@ -230,7 +231,7 @@ export function TitleActionsRow({ collapse, row, snapshot, hideChanges = false, 
       icon: <GitPullRequest size={13} />,
     }] : []),
   ];
-  const pickGit = (id: string) => id === "review" ? workspaceStore.openReview(undefined, gitAction.kind === "commit-push") : runGitAction(id as GitQuickActionKind);
+  const pickGit = (id: string) => id === "review" ? workspaceStore.openReview(undefined, gitAction.kind === "commit-push" || (gitAction.kind === "commit-request" && Boolean(state.workspace?.upstream))) : runGitAction(id as GitQuickActionKind);
   const gitInMenu = !readOnly && collapse.gitMenu === "overflow";
   const moreSections: MenuSection[] = [
     ...(showActions && collapse.actions === "overflow" ? [{ heading: "Actions", items: projectActionItems(projectActions.actions) }] : []),

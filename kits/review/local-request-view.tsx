@@ -180,6 +180,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
             <section className="lpr-section" aria-label="Description">
               <LocalRequestWriter form={form} onForm={updateForm} status={data.status} branch={branchName} root={root} selected={chosen} frames={frames}
                 client={parts.client} requests={parts.requests} actions={actions} preferences={parts.preferences}
+                autoWrite={Boolean(data.status && data.branch && data.branch.commits.length > 0)}
                 onCreated={(status) => { setData((current) => ({ ...current, status })); parts.rows.set(root, status.request); parts.drafts.clear(root, branchName); }} />
             </section>
             <section className="lpr-section" aria-label="Checks">

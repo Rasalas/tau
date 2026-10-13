@@ -11,9 +11,10 @@ import type { ThreadLinkRows } from "./thread-links-store.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { WorkspaceRequestChecks } from "./workspace-request-checks.js";
 import { useRequestLifecycle } from "./request-lifecycle.js";
+import type { RequestPublishing } from "./publish-card.js";
 
 /** The checkout's request and its thread's links, owned by Review Kit inside the workspace card. */
-export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: RowRequests, links: ThreadLinkRows, client?: PullRequestClient) {
+export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: RowRequests, links: ThreadLinkRows, client?: PullRequestClient, publishing?: RequestPublishing) {
   return function WorkspaceRequestSummary({ actions }: RegionProps) {
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const { readOnly } = useHostCapabilities();
@@ -44,7 +45,14 @@ export function createWorkspaceRequestSummary(store: WorkspaceStoreApi, rows: Ro
     const noun = providerInfo(request?.provider ?? found?.primary.service ?? "github").short;
     const latest = useRef(actions);
     latest.current = actions;
-    useEffect(() => offered ? store.offerRequestStep?.({ noun, open: () => { openLocalPullRequest(latest.current); } }) : undefined, [offered, noun, store]);
+    // With changes still to commit, the card commits, pushes and opens the request; otherwise the one form does.
+    useEffect(() => offered ? store.offerRequestStep?.({
+      noun,
+      open: (options) => {
+        if (options?.commit && publishing && store.getSnapshot().changes.files.length > 0) publishing.show();
+        else openLocalPullRequest(latest.current);
+      },
+    }) : undefined, [offered, noun, store]);
     if (!workspace || !branch) return null;
     const open = (entry: StripRequest, focus?: "checks") => { openPullRequest(actions, { url: entry.url, number: entry.number, provider: entry.service }, workspace, focus); };
     return <div className="workspace-request-summary" aria-label="Pull request">

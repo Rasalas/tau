@@ -579,8 +579,8 @@ export type WorktreeNamer = (request: WorktreeNameRequest) => Promise<string>;
 export interface RequestStep {
   /** The request's short name in the Git button: "PR" or "MR". */
   noun: string;
-  /** Opens that kit's one form for the branch. */
-  open(): void;
+  /** Opens that kit's one form for the branch; `commit` says the working tree's changes go in first, behind a card to confirm. */
+  open(options?: { commit?: boolean }): void;
 }
 
 /** What the Changes panel hands a section another kit contributes. */

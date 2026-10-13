@@ -1,6 +1,6 @@
 import type { UiWorkspaceChanges, WorkspaceInfo } from "tau";
 
-export type GitQuickActionKind = "commit" | "commit-push" | "pull" | "push" | "request" | "none";
+export type GitQuickActionKind = "commit" | "commit-push" | "commit-request" | "pull" | "push" | "request" | "none";
 
 export interface GitQuickAction {
   label: string;
@@ -10,14 +10,14 @@ export interface GitQuickAction {
 }
 
 /**
- * `request` is set when the branch is committed, has no request yet and may get one:
- * with nothing left to commit, the request is the next step, not a push.
+ * `request` is set when the branch has no request yet and may get one, and says whether its work is
+ * committed: the request is then the next step after the changes, and with nothing left to commit, not a push.
  */
 export function resolveGitQuickAction(
   changes: UiWorkspaceChanges,
   workspace: WorkspaceInfo | undefined,
   busy: boolean,
-  request?: { noun: string },
+  request?: { noun: string; committed: boolean },
 ): GitQuickAction {
   if (busy) return { label: "Working…", kind: "none", disabled: true, hint: "Git action in progress" };
   if (!workspace?.isRepo) return { label: "Commit", kind: "none", disabled: true, hint: "This folder is not a Git repository" };
@@ -31,11 +31,15 @@ export function resolveGitQuickAction(
   if (behind > 0) return { label: "Pull", kind: "pull", disabled: false, hint: `Pull ${behind} upstream ${behind === 1 ? "commit" : "commits"}` };
 
   if (changes.files.length > 0) {
+    // Without a remote there is nothing to push or open a request on.
+    if (request && workspace.hasRemote !== false) {
+      return { label: `Commit, push & ${request.noun}`, kind: "commit-request", disabled: false, hint: `${changes.files.length} changed files; commit, push and open the ${request.noun} from one card` };
+    }
     return workspace.upstream
       ? { label: "Commit & push", kind: "commit-push", disabled: false, hint: `${changes.files.length} changed files` }
       : { label: "Commit", kind: "commit", disabled: false, hint: `${changes.files.length} changed files · no upstream` };
   }
-  if (request) {
+  if (request?.committed) {
     const pushed = Boolean(workspace.upstream) && ahead === 0;
     return { label: `Create ${request.noun}`, kind: "request", disabled: false, hint: `Write the ${request.noun} for ${workspace.branch}${pushed ? "" : "; the branch is pushed when it is created"}` };
   }

@@ -116,6 +116,17 @@ describe("the local pull request's host commands", () => {
     expect((complete.mock.calls[1] as unknown as [unknown, unknown])[1]).toEqual({ provider: "anthropic", id: "claude-haiku-4-5" });
   });
 
+  it("writes about the commit that is not made yet as the branch's newest one", async () => {
+    const { invoke, complete } = await harness();
+    await invoke("local-pr-describe", { pending: { message: "feat: add the card\n\nIt previews the request.", files: [{ path: "src/card.tsx", added: 40, removed: 2 }, { path: 7 }] } });
+    const [request] = complete.mock.calls[0] as unknown as [{ prompt: string }];
+    expect(request.prompt).toMatch(/Commits:\n- feat: add the card\n {2}It previews the request\.\n- feat: save\n- feat: start/u);
+    expect(request.prompt).toContain(" src/card.tsx | +40 -2");
+    expect(request.prompt).toContain(" a.ts | 2 +-");
+    await invoke("local-pr-describe", {});
+    expect((complete.mock.calls[1] as unknown as [{ prompt: string }])[0].prompt).toMatch(/Commits:\n- feat: save\n- feat: start/u);
+  });
+
   it("uploads a public GitHub repository's pictures to a ref of their own, then creates the request with the links", async () => {
     const { invoke, calls } = await harness();
     await expect(invoke("local-pr-upload-plan")).resolves.toEqual({ kind: "github-ref", destination: "refs/tau/evidence/feature/pr in github.com/acme/demo" });

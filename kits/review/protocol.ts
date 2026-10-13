@@ -71,7 +71,8 @@ export interface WorkspaceStoreApi {
 export interface RequestStep {
   /** "PR" or "MR". */
   noun: string;
-  open(): void;
+  /** `commit`: the working tree's changes go in first, behind a card to confirm. */
+  open(options?: { commit?: boolean }): void;
 }
 
 /** What Workspace Kit hands a hover card's section (`ThreadCardSectionProps` in `kits/workspace/protocol.ts`). */

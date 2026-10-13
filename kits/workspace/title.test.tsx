@@ -291,15 +291,27 @@ describe("Workspace Kit Git button leading to a request", () => {
     }
   });
 
-  it("commits first when files are changed, and lists Create PR in the menu", async () => {
+  it("leads changed files through Commit, push & PR, and keeps the review and Create PR in the menu", async () => {
     const { workspaceStore, openReview, open } = leading(feature());
     act(() => workspaceStore.update({ changes: dirty }));
-    fireEvent.click(await screen.findByRole("button", { name: "Commit & push" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Commit, push & PR" }));
+    expect(open).toHaveBeenCalledExactlyOnceWith({ commit: true });
+    expect(openReview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Choose Git action" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Review changes/u }));
     expect(openReview).toHaveBeenCalledWith(undefined, true);
     fireEvent.click(screen.getByRole("button", { name: "Choose Git action" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Create PR/u }));
-    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenLastCalledWith();
     await mainLineKnown(workspaceStore);
+  });
+
+  it("commits changed files on the main line the usual way, with no request in the way", async () => {
+    const { workspaceStore, openReview } = leading(feature({ branch: "main", upstream: "origin/main", ahead: 0 }));
+    await mainLineKnown(workspaceStore);
+    act(() => workspaceStore.update({ changes: dirty }));
+    fireEvent.click(screen.getByRole("button", { name: "Commit & push" }));
+    expect(openReview).toHaveBeenCalledWith(undefined, true);
   });
 
   it("disables the menu's Create PR on a branch without one of its own", async () => {

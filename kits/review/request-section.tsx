@@ -9,6 +9,7 @@ import { RequestStateIcon } from "./request-state-icon.js";
 import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
 import { openLocalPullRequest } from "./local-request-tab.js";
+import type { RequestPublishing } from "./publish-card.js";
 import { PublishForm } from "./publish-form.js";
 import { deleteBranchByDefault, outcomeText, preferredMethod, rememberMethod } from "./merge-controls.js";
 
@@ -35,7 +36,7 @@ const METHODS: Array<{ value: MergeMethod; label: string }> = [
  * is the Local PR tab's one form, opened after the commit; edit and merge show their form
  * or question first. Nothing reaches the hosting service before the user confirms it there.
  */
-export function createRequestSection(plugin: DesktopExtensionContext, store: WorkspaceStoreApi, client: RequestClient, rows: RowRequests, links: LinkedParts) {
+export function createRequestSection(plugin: DesktopExtensionContext, store: WorkspaceStoreApi, client: RequestClient, rows: RowRequests, links: LinkedParts, publishing?: RequestPublishing) {
   return function RequestSection({ actions, message, committed, composing, offer }: ChangesSectionProps) {
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const cwd = snapshot.cwd;
@@ -84,14 +85,13 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
     // Checks still running or failing: the host can merge it later, once they pass.
     const waiting = Boolean(open && !open.autoMerge && capabilities.autoMerge && open.checks && (open.checks.pending > 0 || open.checks.failed > 0));
 
-    const startCreate = () => run("Committing…", async () => {
-      if (hasChanges) {
-        if (!message.trim()) throw new Error("Write a commit message first.");
-        if (!await store.commit(message, false)) return;
-        committed();
-      }
-      openLocalPullRequest(actions);
-    });
+    // With changes, the card commits them with this message, pushes and opens the request; without, the one form does.
+    const startCreate = () => {
+      if (!hasChanges || !publishing) { openLocalPullRequest(actions); return; }
+      if (!message.trim()) { setError("Write a commit message first."); return; }
+      setError(undefined);
+      publishing.show({ message, onCommitted: committed });
+    };
 
     // With the review's commit bar on screen, "Commit & create" lives in its menu; elsewhere the commit
     // button sits beside this section, so only one of the two is the lead action.
@@ -106,7 +106,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       return offer({
         id: "create-request",
         label: `Commit & create ${short}…`,
-        description: "Then write its title and description",
+        description: "One card: both texts, then push and open it",
         disabled: working,
         run: () => startRef.current(),
       });

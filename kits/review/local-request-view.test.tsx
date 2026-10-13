@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, HostExtensionClient, PreferencesStore, StageTabHandle, UiSession, WorkbenchActions } from "tau";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
@@ -25,7 +25,7 @@ const frame = (id: string, caption: string, at: number): LocalEvidence => ({
 
 const OPEN: ReviewRequest = { provider: "github", number: 7, title: "Save", url: "https://github.com/acme/demo/pull/7", baseRef: "main", state: "open" };
 
-function setup({ plan = { kind: "github-ref", destination: "refs/tau/evidence/feature/pr in github.com/acme/demo" } as UploadPlan, request }: { plan?: UploadPlan; request?: ReviewRequest } = {}) {
+function setup({ plan = { kind: "github-ref", destination: "refs/tau/evidence/feature/pr in github.com/acme/demo" } as UploadPlan, request, draft }: { plan?: UploadPlan; request?: ReviewRequest; draft?: { title: string; body: string } } = {}) {
   const status: ReviewRequestStatus = { branch: "feature/pr", base: "main", service: "github", remote: "git@github.com:acme/demo.git", ...(request ? { request } : {}) };
   const client = {
     branch: vi.fn(async () => ({ root: "/work", branch: "feature/pr", base: "main", commits: [{ sha: "c2c2c2c2", subject: "feat: save the page", body: "", at: 20_000 }], forkedAt: 5_000 })),
@@ -52,6 +52,7 @@ function setup({ plan = { kind: "github-ref", destination: "refs/tau/evidence/fe
     fileDiff: vi.fn(async () => ({ path: "site/index.html", added: 2, removed: 1, hunks: [] })),
   };
   const storage = memoryStorage();
+  if (draft) new LocalDrafts(() => storage).set("/work", "feature/pr", { ...draft, base: "", draft: false, selected: [] });
   const parts: LocalRequestParts = {
     client, requests, rows: { set: vi.fn() } as unknown as RowRequests, changes, store: () => store, scripts, preferences,
     drafts: new LocalDrafts(() => storage), onEvidence: () => () => undefined,
@@ -66,6 +67,12 @@ function setup({ plan = { kind: "github-ref", destination: "refs/tau/evidence/fe
   return { client, requests, actions, storage, handle };
 }
 
+/** The view loaded and the empty form wrote itself, so what a test types lands after, not under, the model's text. */
+async function opened(): Promise<void> {
+  await screen.findByRole("region", { name: "Pictures of feat: save the page" });
+  await waitFor(() => expect((screen.getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("Save the page"));
+}
+
 describe("the local pull request view", () => {
   it("shows the branch's pictures under the commit that took in their turn, and the project's scripts as checks", async () => {
     const { handle } = setup();
@@ -77,12 +84,14 @@ describe("the local pull request view", () => {
     expect(handle.setTitle).toHaveBeenCalledWith("Local PR");
   });
 
-  it("writes the description only on a click, with the chosen pictures, and keeps it as the branch's draft", async () => {
+  it("writes the description with the chosen pictures on a click, and keeps it as the branch's draft", async () => {
     const { client, storage } = setup();
     await screen.findByRole("region", { name: "Pictures of feat: save the page" });
-    expect(client.describe).not.toHaveBeenCalled();
+    // Opened empty, it wrote itself once, without pictures; a click writes again with the chosen one.
+    await waitFor(() => expect(client.describe).toHaveBeenCalledTimes(1));
+    expect(client.describe).toHaveBeenLastCalledWith(expect.objectContaining({ evidence: [] }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Use in the description: Clicked “Save”" }));
-    fireEvent.click(screen.getByRole("button", { name: /Write description/u }));
+    fireEvent.click(screen.getByRole("button", { name: /Rewrite description/u }));
     await waitFor(() => expect(client.describe).toHaveBeenCalledWith(expect.objectContaining({ prefer: { provider: "openai", id: "gpt-5.6-sol" }, evidence: ["Clicked “Save”"] })));
     const body = await screen.findByRole("textbox", { name: "PR description" }) as HTMLTextAreaElement;
     await waitFor(() => expect(body.value).toContain("![Clicked “Save”](tau-evidence://t1/tau.evidence/f2)"));
@@ -90,9 +99,27 @@ describe("the local pull request view", () => {
     expect(new LocalDrafts(() => storage).get("/work", "feature/pr")).toMatchObject({ title: "Save the page", selected: ["t1\ntau.evidence\nf2"] });
   });
 
+  it("writes nothing over the branch's kept draft, and nothing over what was typed while the model wrote", async () => {
+    const kept = setup({ draft: { title: "My own title", body: "Mine." } });
+    await screen.findByRole("region", { name: "Pictures of feat: save the page" });
+    expect((screen.getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("My own title");
+    expect(kept.client.describe).not.toHaveBeenCalled();
+    cleanup();
+
+    let finish!: (draft: unknown) => void;
+    const slow = setup();
+    (slow.client.describe as ReturnType<typeof vi.fn>).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    await screen.findByRole("region", { name: "Pictures of feat: save the page" });
+    await waitFor(() => expect(slow.client.describe).toHaveBeenCalledOnce());
+    fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Typed first" } });
+    await act(async () => { finish({ title: "Written late", body: "Late body", base: "main", generated: true }); });
+    expect((screen.getByRole("textbox", { name: "PR title" }) as HTMLInputElement).value).toBe("Typed first");
+    expect((screen.getByRole("textbox", { name: "PR description" }) as HTMLTextAreaElement).value).toBe("");
+  });
+
   it("shows where the pictures go before anything is uploaded, then creates with them", async () => {
     const { requests, client } = setup();
-    await screen.findByRole("region", { name: "Pictures of feat: save the page" });
+    await opened();
     fireEvent.click(screen.getByRole("checkbox", { name: "Use in the description: When the turn started" }));
     fireEvent.click(screen.getByRole("button", { name: /Insert 1 picture/u }));
     fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Save the page" } });
@@ -106,7 +133,7 @@ describe("the local pull request view", () => {
 
   it("says the pictures stay on this machine where the host takes none", async () => {
     const { requests } = setup({ plan: { kind: "none", reason: "GitHub has no upload API for pull requests, and github.com/acme/demo is private." } });
-    await screen.findByRole("region", { name: "Pictures of feat: save the page" });
+    await opened();
     fireEvent.click(screen.getByRole("checkbox", { name: "Use in the description: When the turn started" }));
     fireEvent.click(screen.getByRole("button", { name: /Insert 1 picture/u }));
     fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Save" } });
@@ -118,7 +145,7 @@ describe("the local pull request view", () => {
 
   it("reports a failed creation as an error toast and keeps what was typed", async () => {
     const { requests, actions } = setup();
-    await screen.findByRole("region", { name: "Pictures of feat: save the page" });
+    await opened();
     vi.mocked(requests.create).mockRejectedValueOnce(new Error("GitHub CLI (gh) is not signed in."));
     fireEvent.change(screen.getByRole("textbox", { name: "PR title" }), { target: { value: "Save" } });
     fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
