@@ -182,7 +182,7 @@ it("ends after fifteen minutes unreadable", async () => {
   await h.call("watch-start", { threadId: "a", url: URL });
   h.unavailable();
   await vi.waitFor(async () => expect((await h.list()).watches[0]?.status).toBe("ended"));
-  expect(h.send).toHaveBeenCalledTimes(1);
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
   expect(h.send.mock.calls[0]?.[1]).toContain("unreadable for 15 minutes");
 });
 it("reads one compact GitHub query and refuses incomplete review-thread coverage", async () => {

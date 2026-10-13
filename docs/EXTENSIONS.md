@@ -2546,6 +2546,13 @@ API 1.15.0: the custom entry `sessions.import` writes after an imported
 session's header, read back as `UiSession.origin`), and, for the package manager, the row shape and the scope name as types: `InstalledPackage`,
 `PackageRemoval` and `PackageScope`.
 
+In API 1.61.0, persisted JSON reads treat only `ENOENT` as missing. Other read
+errors reject and block writes to that path until a successful read. A stored version above
+`expectedVersion` also blocks writes with an older version, even if the caller
+ignores `readOnly`. Writes sync the file before rename and its directory after
+rename where supported, remove temporary files on failure, and reject. They
+log a write failure once per path until a write succeeds.
+
 A package that owns whole threads — a runtime backend — gets four more values:
 `prepareSkillPrompt` and `skillInvocationCommand` (a composer draft turned into
 what a runtime is actually sent, in that runtime's own dialect),

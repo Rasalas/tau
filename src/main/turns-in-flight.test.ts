@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { TurnsInFlight, type InFlightTurn } from "./turns-in-flight.js";
 
@@ -83,7 +83,7 @@ describe("TurnsInFlight", () => {
     await turns.flush();
     await writeFile(filePath, JSON.stringify({ version: 1, turns: [{ sessionId: "broken" }, marker()] }), "utf8");
     expect(await new TurnsInFlight({ filePath }).load()).toEqual([marker()]);
-    expect(await new TurnsInFlight({ filePath: join(filePath, "missing.json") }).load()).toEqual([]);
+    expect(await new TurnsInFlight({ filePath: join(dirname(filePath), "missing.json") }).load()).toEqual([]);
   });
 
   it("leaves a marker whose writer still runs alone, in the file and out of the answer", async () => {
