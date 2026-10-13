@@ -91,6 +91,7 @@ const harnessFiles = [
   "src/renderer/RendererBenchmark.tsx",
   "src/renderer/RendererBenchmarkApp.tsx",
   "src/renderer/RendererBenchmarkActivityStream.tsx",
+  "src/renderer/RendererBenchmarkDiffStack.tsx",
 ];
 const harnessFileSha256 = Object.fromEntries(harnessFiles.map((file) => [file, createHash("sha256").update(readFileSync(join(ROOT, file))).digest("hex")]));
 const harnessSourceSha256 = createHash("sha256")
@@ -166,6 +167,9 @@ function sampleScenario(scenario) {
     if (scenario.id === "transcript-activity-stream-2000-turns" && result.payloadBytes !== scenario.bytes) {
       throw new Error(`renderer fixture did not stream the configured activity payload for ${scenario.id}: ${result.payloadBytes}`);
     }
+    if (scenario.kind === "diff-stack" && result.stackVisitedFiles !== scenario.files) {
+      throw new Error(`renderer fixture did not visit all files for ${scenario.id}: ${result.stackVisitedFiles}`);
+    }
     if (scenario.id === "long-user-message" && (!result.longMessageInteraction || !["expand", "prop-update"].includes(result.longMessageInteraction.mode) || !Number.isFinite(result.longMessageInteraction.contentBytes) || result.longMessageInteraction.contentBytes < scenario.bytes)) {
       throw new Error(`renderer fixture did not complete the real long-message interaction for ${scenario.id}`);
     }
@@ -226,6 +230,7 @@ function sampleScenario(scenario) {
     heapBytes: { median: percentile(heaps, 0.5), p95: percentile(heaps, 0.95), maximum: Math.max(0, ...heaps) },
     ...(scenario.streamEnd ? { streamEndCommitMs: streamEnd("commitMs"), streamEndPaintMs: streamEnd("paintMs"), streamEndSettleMs: streamEnd("settleMs") } : {}),
     ...(scenario.id === "diff-2mb" ? { payloadBytes: Math.min(...samples.map((sample) => sample.payloadBytes)) } : {}),
+    ...(scenario.kind === "diff-stack" ? { stackVisitedFiles: Math.min(...samples.map((sample) => sample.stackVisitedFiles)) } : {}),
     ...(scenario.id === "long-user-message" ? { longMessageInteraction: samples.map((sample) => sample.longMessageInteraction?.mode), interactionModes: [...new Set(samples.map((sample) => sample.longMessageInteraction?.mode))] } : {}),
     rawSamples: samples.map((sample) => ({
       frameIntervalsMs: sample.frameIntervalsMs,
@@ -237,6 +242,7 @@ function sampleScenario(scenario) {
       domNodes: sample.domNodes,
       heapBytes: sample.heapBytes,
       payloadBytes: sample.payloadBytes,
+      stackVisitedFiles: sample.stackVisitedFiles,
       longMessageInteraction: sample.longMessageInteraction,
       streamEnd: sample.streamEnd,
     })),
