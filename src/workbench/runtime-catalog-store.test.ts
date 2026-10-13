@@ -67,6 +67,19 @@ describe("RuntimeCatalogStore", () => {
     expect(list).toHaveBeenLastCalledWith(true, { codex: 7, pi: 5 });
   });
 
+  it("takes what the host holds without having it revalidate, and still revalidates when a picker opens", async () => {
+    const list = vi.fn(async (_revalidate: boolean, _known: Record<string, number>) => [CATALOG]);
+    const store = new RuntimeCatalogStore(port(vi.fn(), list));
+    const holding = store.refresh(false);
+    expect(store.refresh(false)).toBe(holding);
+    // A passive load in flight does not stand in for the picker's.
+    const revalidating = store.refresh();
+    expect(revalidating).not.toBe(holding);
+    await Promise.all([holding, revalidating]);
+    expect(list.mock.calls.map(([revalidate]) => revalidate)).toEqual([false, true]);
+    expect(store.get("codex")).toMatchObject({ status: "ready" });
+  });
+
   it("follows what the host publishes, and a missing CLI is a reason, not an empty list", () => {
     const store = new RuntimeCatalogStore(port(vi.fn()));
     store.apply({ kind: "codex", models: [], thinkingLevels: {}, status: "not-installed", note: "The Codex CLI is not installed." });

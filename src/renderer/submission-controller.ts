@@ -7,6 +7,7 @@ import type {
 } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
 import { chosenNewThreadRuntime, effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { runtimeCatalogStore } from "./use-runtime-catalog";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
   isCurrentTranscriptSubmission,
@@ -125,7 +126,7 @@ export class SubmissionController {
    */
   private newThreadStart(pending: NewThreadDraft) {
     const snapshot = this.ports.view.getSnapshot();
-    const runtime = effectiveNewThreadRuntime(pending.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
+    const runtime = effectiveNewThreadRuntime(pending.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot, runtimeCatalogStore(this.ports.client())?.all());
     const inherited = runtime === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
     // What the draft chose goes to the runtime it was chosen from and no other.
     const chosen = (pending.selectionRuntime ?? "pi") === runtime;
@@ -267,7 +268,7 @@ export class SubmissionController {
           text,
           pendingNewThread ? undefined : this.ports.hostSession.sessionIdFor(snapshot?.sessionId),
           skillDraft,
-          pendingNewThread ? chosenNewThreadRuntime(pendingNewThread.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot) : undefined,
+          pendingNewThread ? chosenNewThreadRuntime(pendingNewThread.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot, runtimeCatalogStore(client)?.all()) : undefined,
           pendingNewThread && !pendingNewThread.sessionId ? pendingNewThread.workspaceId ?? pendingNewThread.projectPath : undefined,
         );
       } catch (error) {

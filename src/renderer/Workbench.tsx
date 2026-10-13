@@ -66,7 +66,8 @@ import {
 import { useClientStorage } from "./client-storage-context";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
-import { effectiveNewThreadRuntime, offeredBackends } from "./new-thread-runtime";
+import { effectiveNewThreadRuntime, newThreadSetup, offeredBackends } from "./new-thread-runtime";
+import { useRuntimeCatalogs } from "./use-runtime-catalog";
 import { threadListOrder } from "../workbench/thread-supervision";
 import { useHostCapabilities, useHostName } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
@@ -97,6 +98,7 @@ import { THREAD_DROP_FEEDBACK } from "../shared/thread-drop";
 
 const LazyCommandPalette = retryableLazy(() => import("./components/CommandPalette").then(({ CommandPalette }) => ({ default: CommandPalette })));
 const LazyComposerNotice = lazy(() => import("./components/ComposerNotice").then(({ ComposerNotice }) => ({ default: ComposerNotice })));
+const LazySetupNotice = lazy(() => import("./components/ComposerNotice").then(({ SetupNotice }) => ({ default: SetupNotice })));
 const LazyStage = retryableLazy(() => import("./components/Stage").then(({ Stage }) => ({ default: Stage })));
 // Drawn only beside the stage, so they come with its chunk.
 const LazyStageTools = retryableLazy(() => import("./components/Stage").then(({ StageTools }) => ({ default: StageTools })));
@@ -574,6 +576,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     <LazyPhoneNav registry={registry} current={phoneTab(phoneNav.route)} onSelect={phoneNav.openTab} />
   </Suspense> : undefined;
 
+  // Settings → Providers, on the runtime's own card where this client has one.
+  const openProviders = (kind?: string) => {
+    const card = !phone && kind ? registry.getSettingsPages().find((page) => page.runtime === kind)?.id : undefined;
+    threadBrowserProps.onOpenSettings(card ?? "providers");
+  };
+
   const conversationComposer = <ConversationComposer
     view={view}
     composer={composer}
@@ -584,6 +592,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     activeDraftKey={activeDraftKey}
     onNotify={actions.notify}
     actions={actions}
+    openProviders={openProviders}
     threadStore={threadStore}
     floating={floating}
   />;
@@ -1181,7 +1190,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, lead, threadStore, floating }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating }: {
   view: ThreadViewStore;
   floating?: boolean;
   threadStore: ThreadStore;
@@ -1194,6 +1203,8 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   activeDraftKey?: string;
   onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   actions?: WorkbenchActions;
+  /** Opens Settings → Providers, on `kind`'s card when it has one. */
+  openProviders(kind?: string): void;
 }) {
   const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
   // Only at the meter's precision: tool output would otherwise re-render the composer every frame.
@@ -1202,9 +1213,13 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   const { newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   // The runtime is a property of the thread; it is chosen before the thread exists and never after.
   const runtimeBackends = offeredBackends(snapshot?.runtimeBackends);
-  const runtimeChoice = pendingNewThread && runtimeBackends.length > 1
-    ? { kind: effectiveNewThreadRuntime(draftRuntime ?? newThreadRuntime, snapshot), backends: runtimeBackends, onSelect: (kind: string) => (composer.selectRuntime ? composer.selectRuntime(kind) : preferences.setNewThreadRuntime(kind)) }
+  const catalogs = useRuntimeCatalogs(pendingNewThread, false);
+  const draftKind = pendingNewThread ? effectiveNewThreadRuntime(draftRuntime ?? newThreadRuntime, snapshot, catalogs) : undefined;
+  const runtimeChoice = draftKind && runtimeBackends.length > 1
+    ? { kind: draftKind, backends: runtimeBackends, onSelect: (kind: string) => (composer.selectRuntime ? composer.selectRuntime(kind) : preferences.setNewThreadRuntime(kind)) }
     : undefined;
+  // A signed-out runtime gets a bar; Send stays off only while no runtime can start a thread, so a stale catalog never locks it.
+  const setup = draftKind ? newThreadSetup(draftKind, snapshot, catalogs) : undefined;
   const {
     scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
     cancelQueued, steerQueued, setModel, setThinking, answerUiPrompt, compactContext,
@@ -1217,7 +1232,9 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   // Stop says what it ends besides the turn; the status line afterwards names the rest.
   const goal = shell?.goal;
   const stopHint = goal?.status === "active" ? goal.actions.pause ? "Stop the run and pause the goal" : "Stop the run; the goal stays set" : undefined;
-  const notice = conversationSnapshot && (limit || error) ? <Suspense fallback={null}><LazyComposerNotice
+  const notice = setup ? <Suspense fallback={null}>
+    <LazySetupNotice setup={setup} onOpen={() => openProviders(setup.state === "none" ? undefined : setup.backend.kind)} onSwitchRuntime={setup.state === "none" ? undefined : actions?.openModelPicker} />
+  </Suspense> : conversationSnapshot && (limit || error) ? <Suspense fallback={null}><LazyComposerNotice
     sessionId={conversationSnapshot.sessionId}
     limit={limit}
     error={error}
@@ -1278,7 +1295,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
       if (active) answerUiPrompt(active.id, { cancelled: true });
     }}
     onCompactContext={() => void compactContext()}
-    held={holds > 0}
+    held={holds > 0 || setup?.state === "none"}
     onNotify={onNotify}
     onOpenPromptEditor={() => void actions?.executeCommand?.("workspace.open-prompt-editor")}
     onRunShellAction={(cmd, includeInContext = true) => actions ? actions.runShellAction(cmd, includeInContext) : Promise.reject(new Error("Actions unavailable"))}

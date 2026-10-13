@@ -11,7 +11,7 @@ function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}):
     { provider: "google", id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
   ];
   return {
-    client: { abort: vi.fn() } as any,
+    client: { abort: vi.fn(), onHostEvent: vi.fn() } as any,
     platform: { clipboard: { writeText: vi.fn() }, openExternal: vi.fn() } as any,
     threadStore: { getSnapshot: () => ({ activeThreadId: "thread-1" }) } as any,
     viewStore: { getSnapshot: () => ({ models }) } as any,

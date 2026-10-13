@@ -36,6 +36,7 @@ export class RuntimeCatalogStore {
   private readonly listeners = new Set<() => void>();
   private view: ReadonlyMap<ThreadBackendKind, RuntimeCatalogEntry> = EMPTY;
   private listing: Promise<void> | undefined;
+  private holding: Promise<void> | undefined;
 
   constructor(private readonly port: RuntimeCatalogPort, private readonly now: () => number = Date.now) {}
 
@@ -63,19 +64,25 @@ export class RuntimeCatalogStore {
   /**
    * A picker opened: every catalog not held yet, and the host asks again the
    * ones some minutes old. Resolves once the host answered with what it holds.
+   * `revalidate: false` only takes what the host holds, so it starts no program.
    */
-  refresh(): Promise<void> {
-    if (this.listing) return this.listing;
+  refresh(revalidate = true): Promise<void> {
+    const running = revalidate ? this.listing : this.listing ?? this.holding;
+    if (running) return running;
     const known: Record<string, number> = {};
     for (const [kind, { entry }] of this.entries) {
       const checkedAt = entry.status === "loading" ? undefined : entry.catalog?.checkedAt;
       if (checkedAt !== undefined) known[kind] = checkedAt;
     }
-    const listing = this.port.runtimeCatalogs(true, known).then(
+    const listing = this.port.runtimeCatalogs(revalidate, known).then(
       (catalogs) => { for (const catalog of catalogs) this.apply(catalog); },
       () => undefined,
-    ).finally(() => { if (this.listing === listing) this.listing = undefined; });
-    this.listing = listing;
+    ).finally(() => {
+      if (this.listing === listing) this.listing = undefined;
+      if (this.holding === listing) this.holding = undefined;
+    });
+    if (revalidate) this.listing = listing;
+    else this.holding = listing;
     return listing;
   }
 

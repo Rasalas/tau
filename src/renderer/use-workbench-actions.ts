@@ -15,6 +15,7 @@ import { errorMessage } from "../workbench/error-message";
 import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { runtimeCatalogStore } from "./use-runtime-catalog";
 import { newThreadProject, workspaceOnScreen } from "../workbench/new-thread-project";
 import { namesWorkspace } from "../shared/workspace-identity";
 import { isFilesystemRoot } from "../shared/filesystem-root";
@@ -284,7 +285,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           };
         }
         // A draft starts on its own runtime and model, not on the last thread's.
-        const backendKind = effectiveNewThreadRuntime(pending.runtime ?? options.preferences?.getSnapshot().newThreadRuntime, snapshot);
+        const backendKind = effectiveNewThreadRuntime(pending.runtime ?? options.preferences?.getSnapshot().newThreadRuntime, snapshot, runtimeCatalogStore(client)?.all());
         const inherited = backendKind === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
         const model = pending.model ?? inherited;
         return {
