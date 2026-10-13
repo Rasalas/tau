@@ -141,7 +141,13 @@ export class ServerStatusService {
 
   private async refreshPending(workspace: string, project: Project, target: SftpJsonTarget): Promise<void> {
     const record = this.record(workspace, target.id);
-    const result = await this.options.compare({ cwd: workspace, targetId: target.id, drift: false });
+    const result = await this.options.compare({ cwd: workspace, targetId: target.id, drift: false }).catch((error: unknown) => {
+      record.pending = [];
+      record.pendingTotal = 0;
+      record.withheld = [];
+      delete record.pendingAt;
+      throw error;
+    });
     if (result.mirror) record.mirror = result.mirror; else delete record.mirror;
     const key: TargetKey = { workspaceId: project.workspaceId, targetId: target.id };
     const trust = await readTrust(this.options.store, key);
