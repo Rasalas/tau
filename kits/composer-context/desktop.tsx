@@ -12,7 +12,7 @@ import type {
   UiPromptFileAttachment,
 } from "tau";
 import { SentExcerptChip } from "./sent-excerpt.js";
-import { ChipStore, formatBytes, isVideo, selectFiles, serializeChips, shouldFoldPaste, type ChipEntry } from "./chips.js";
+import { ChipStore, formatBytes, isVideo, requestNumberOf, selectFiles, serializeChips, shouldFoldPaste, type ChipEntry } from "./chips.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   COMPOSER_CONTEXT_ID,
@@ -323,7 +323,7 @@ const composerContext: DesktopExtension = {
             const list = await host("list-pull-requests", { cwd });
             return list
               .filter((pr) => !needle || String(pr.number).startsWith(needle) || pr.title.toLowerCase().includes(needle))
-              .map((pr) => ({ id: JSON.stringify(pr), label: `#${pr.number} ${pr.title}`, ...(pr.branch ? { description: pr.branch } : {}), ...(pr.draft ? { hint: "draft" } : {}) }));
+              .map((pr) => ({ id: JSON.stringify(pr), label: `${requestNumberOf(pr.url, pr.number)} ${pr.title}`, ...(pr.branch ? { description: pr.branch } : {}), ...(pr.draft ? { hint: "draft" } : {}) }));
           },
           select: (item, _query, inline) => {
             const pr = JSON.parse(item.id) as PullRequestSummary;

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CircleCheck, CircleX, GitCommitHorizontal, GitMerge, GitPullRequest, GitPullRequestClosed, MessageSquare } from "lucide-react";
 import { type WorkbenchActions } from "tau";
 import { RequestMarkdown as Markdown } from "./request-markdown.js";
-import { providerInfo, type PullRequestDetail } from "./protocol.js";
+import { providerInfo, requestNumber, type PullRequestDetail } from "./protocol.js";
 import { buildTimeline, relativeTime, shortNoun, type TimelineItem } from "./pull-request-logic.js";
 import { verdictWord } from "./pull-request-parts.js";
 import { githubHtml } from "./github-html.js";
@@ -41,7 +41,7 @@ export function PullRequestTimeline({ detail, oldestFirst, actions }: { detail: 
   const noun = providerInfo(detail.ref.service).noun.replace(/^./u, (first) => first.toUpperCase());
   if (items.length === 0) return <p className="pr-empty pr-pad">No activity yet.</p>;
   return (
-    <ol className="pr-timeline" aria-label={`${shortNoun(detail.ref.service)} #${detail.ref.number} timeline`}>
+    <ol className="pr-timeline" aria-label={`${shortNoun(detail.ref.service)} ${requestNumber(detail.ref.service, detail.ref.number)} timeline`}>
       {items.map((item) => {
         switch (item.kind) {
           case "conversation":

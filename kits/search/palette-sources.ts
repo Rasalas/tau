@@ -59,11 +59,11 @@ export function threadTitleItems(query: string, context: PaletteSearchContext): 
   return matching.slice(0, rows).map((thread) => threadItem(thread, context));
 }
 
-/** "#95 · acme/tau · open" for a thread's first matching request, "+N" for more. */
+/** "#95 · acme/tau · open" ("!95" for a GitLab merge request) for a thread's first matching request, "+N" for more. */
 function requestDetail(match: ThreadRequestMatch): string {
   const [first] = match.requests;
   if (!first) return "";
-  return [`#${first.number}`, first.repository, first.state, first.headBranch, match.requests.length > 1 ? `+${match.requests.length - 1}` : undefined].filter(Boolean).join(" · ");
+  return [`${/\/-\/merge_requests\/|\/pullrequest\//u.test(first.url) ? "!" : "#"}${first.number}`, first.repository, first.state, first.headBranch, match.requests.length > 1 ? `+${match.requests.length - 1}` : undefined].filter(Boolean).join(" · ");
 }
 
 /** Threads whose pull or merge request the query names, unless the title already put them on the list. */

@@ -80,11 +80,11 @@ export function registerThreadLinks(
     return ref;
   };
 
-  /** Parses "https://…", "#12" or "12" as the dialog takes them. */
+  /** Parses "https://…", "#12", "!12" or "12" as the dialog takes them. */
   const parseTyped = (typed: string): { url?: string; number?: number } | undefined => {
     const value = typed.trim();
     if (/^https?:\/\//iu.test(value)) return { url: value };
-    const number = /^#?(\d+)$/u.exec(value)?.[1];
+    const number = /^[#!]?(\d+)$/u.exec(value)?.[1];
     return number ? { number: Number(number) } : undefined;
   };
 

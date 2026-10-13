@@ -69,7 +69,7 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
 
   const forget = (ref: PullRequestRef) => tools.forget(ref);
 
-  const noun = (ref: PullRequestRef, provider: SourceControlProvider) => `${provider.info.short} #${ref.number}`;
+  const noun = (ref: PullRequestRef, provider: SourceControlProvider) => `${provider.info.short} ${provider.info.sign}${ref.number}`;
   const lacks = (provider: SourceControlProvider, what: string) => new HostCommandError(`${provider.info.name} does not let Tau ${what}; do it on the website.`);
 
   const detail = (ref: PullRequestRef, fresh: boolean) => tools.cached("view", ref, fresh, async (): Promise<PullRequestDetail> => {

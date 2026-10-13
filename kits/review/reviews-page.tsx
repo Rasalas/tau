@@ -41,6 +41,7 @@ import { useLocalReviews, type LocalReviewsStore, type ReviewRun } from "./local
 import { runsPipeline } from "./pipeline.js";
 import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
 import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
+import { requestLabelOf } from "./pull-request-logic.js";
 import { baseName, lineTarget, lineText, noteMessage } from "./review-lines.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
 import type { ReviewsFilter } from "./reviews-filter.js";
@@ -422,7 +423,7 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
           <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error), "error")); }}>Withdraw</button>
         </div>
       ) : null}
-      {review.request && review.state === "merged" ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">PR #{review.request.number}</a>.</p>
+      {review.request && review.state === "merged" ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">{requestLabelOf(review.request.url, review.request.number)}</a>.</p>
         : review.mergedBy ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
       {review.state !== "merged" && review.mergeBlocked ? <p className="rv-already" role="status">{review.mergeBlocked}</p> : null}
       {review.conflicts.length > 0 ? (

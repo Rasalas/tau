@@ -184,6 +184,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   const linkedThreads = useLinkedThreads(client, params.url);
   const phone = useCompactProfile();
   const noun = shortNoun(params.service);
+  const sign = providerInfo(params.service).sign;
   const host = hostName(params.service);
   const { capabilities } = providerInfo(params.service);
   // The beta switch and a provider that can write a guide both have to say yes; the tab needs the diff for its excerpts.
@@ -195,7 +196,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
 
   useEffect(() => {
     if (!detail) return;
-    const title = `${noun} #${detail.ref.number} ${detail.title}`;
+    const title = `${noun} ${sign}${detail.ref.number} ${detail.title}`;
     handle.setTitle(title.length > 48 ? `${title.slice(0, 47)}…` : title);
     if (params.workspace) rows.set(params.workspace, asReviewRequest(detail, checks));
   }, [checks, detail, handle, noun, params.workspace, rows]);
@@ -243,7 +244,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
       if (linked) await client.unlink(threadId, params.url);
       else await client.link(threadId, params.url, thread?.cwd);
       await shared.links.load(threadId);
-      actions.notify(linked ? `Unlinked #${params.number} from this thread.` : `Linked #${params.number} to this thread.`);
+      actions.notify(linked ? `Unlinked ${sign}${params.number} from this thread.` : `Linked ${sign}${params.number} to this thread.`);
     } catch (error) {
       actions.notify(errorMessage(error), "error");
     }
@@ -257,7 +258,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
 
   if (!detail || !timelineView) {
     return (
-      <div className="pr-view" aria-label={`${noun} #${params.number}`}>
+      <div className="pr-view" aria-label={`${noun} ${sign}${params.number}`}>
         {data.detailError ? (
           <div className="pr-unavailable" role="alert">
             <strong>Could not load the {providerInfo(params.service).noun}</strong>
@@ -268,7 +269,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             </div>
           </div>
         ) : (
-          <div className="pr-ghost" role="status" aria-label={`Loading ${noun} #${params.number}`}>
+          <div className="pr-ghost" role="status" aria-label={`Loading ${noun} ${sign}${params.number}`}>
             <i /><i /><i /><i />
           </div>
         )}
@@ -293,11 +294,11 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
 
   return (
     <RequestMediaProvider client={client} request={detail.ref}>
-    <div className="pr-view" aria-label={`${noun} #${detail.ref.number}`}>
+    <div className="pr-view" aria-label={`${noun} ${sign}${detail.ref.number}`}>
       <header className={`pr-head ${condensed ? "condensed" : ""}`}>
         <div className="pr-head-row">
           <button className={`pr-number state-${state}`} title={`${state} · open on ${host}`} onClick={() => actions.openExternal(detail.ref.url)}>
-            #{detail.ref.number}<ExternalLink size={10} aria-hidden="true" />
+            {sign}{detail.ref.number}<ExternalLink size={10} aria-hidden="true" />
           </button>
           <RequestStateIcon state={state} />
           {/* In the bar, so it stays when the header folds away on scroll. */}
@@ -306,7 +307,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           <PullRequestStackControl detail={detail} client={client} actions={actions} writes={writes} {...(params.workspace ? { workspace: params.workspace } : {})} onChanged={(next) => setData({ detail: next })} />
           <LinkedThreadsControl threadIds={linkedThreads} actions={actions} />
           {phone ? null : <>
-            <button className="icon-button compact" aria-label={`Add ${noun} #${detail.ref.number} to the composer`} title="Add to the composer" onClick={addToComposer}>
+            <button className="icon-button compact" aria-label={`Add ${noun} ${sign}${detail.ref.number} to the composer`} title="Add to the composer" onClick={addToComposer}>
               <SquarePlus size={13} />
             </button>
             {threadId ? (
@@ -317,7 +318,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             <button className="icon-button compact" aria-label="Copy link" title="Copy link" onClick={() => copy("link", detail.ref.url)}>
               {copied === "link" ? <Check size={13} /> : <Copy size={13} />}
             </button>
-            <button className="icon-button compact" aria-label={`Refresh ${noun} #${detail.ref.number}`} title="Refresh" onClick={() => refresh(true)}>
+            <button className="icon-button compact" aria-label={`Refresh ${noun} ${sign}${detail.ref.number}`} title="Refresh" onClick={() => refresh(true)}>
               <RefreshCw size={13} />
             </button>
           </>}
@@ -483,8 +484,8 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           events={capabilities.reviewEvents}
           pending={pending}
           onRemovePending={(id) => shared.pending.remove(params.url, id)}
-          onComment={async (text) => { await comment({ body: text }); setComposing(false); actions.notify(`Commented on ${noun} #${detail.ref.number}.`); }}
-          onReview={async (event, text) => { await review(event, text); setComposing(false); actions.notify(`Review submitted on ${noun} #${detail.ref.number}.`); }}
+          onComment={async (text) => { await comment({ body: text }); setComposing(false); actions.notify(`Commented on ${noun} ${sign}${detail.ref.number}.`); }}
+          onReview={async (event, text) => { await review(event, text); setComposing(false); actions.notify(`Review submitted on ${noun} ${sign}${detail.ref.number}.`); }}
           onCancel={() => setComposing(false)}
         />
       ) : phone && tab === "guide" ? null : phone ? (
@@ -497,7 +498,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
           {!writes.comment && !writes.review ? <small className="pr-comment-bar-reason">{READ_ONLY_REASON}</small> : null}
         </footer>
       ) : (
-        <button className="pr-comment-fab" aria-label={`Comment on or review ${noun} #${detail.ref.number}`} disabled={!writes.comment && !writes.review} {...tooltipProps(!writes.comment && !writes.review ? READ_ONLY_REASON : pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review")} onClick={() => setComposing(true)}>
+        <button className="pr-comment-fab" aria-label={`Comment on or review ${noun} ${sign}${detail.ref.number}`} disabled={!writes.comment && !writes.review} {...tooltipProps(!writes.comment && !writes.review ? READ_ONLY_REASON : pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review")} onClick={() => setComposing(true)}>
           <MessageSquarePlus size={15} />
           {pending.length > 0 ? <span className="pr-fab-count">{pending.length}</span> : null}
         </button>

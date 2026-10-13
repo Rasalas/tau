@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { Spinner, type PageProps } from "tau";
-import type { ComposerContextChips } from "./protocol.js";
+import { requestNumber, type ComposerContextChips } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { pullRequestTabParams } from "./pull-request-logic.js";
 import { PullRequestView, type PullRequestViewShared } from "./pull-request-view.js";
@@ -56,7 +56,7 @@ export function PullRequestsPage({ params, navigate, actions, parts }: PageProps
               if (row instanceof HTMLElement && pane.current?.contains(row)) opened.current = row;
               navigate(
                 { url: entry.ref.url, number: entry.ref.number, service: entry.ref.service, ...(workspace ? { workspace } : {}), ...(focus ? { focus } : {}) },
-                { label: `#${entry.ref.number} ${entry.title}` },
+                { label: `${requestNumber(entry.ref.service, entry.ref.number)} ${entry.title}` },
               );
             }}
           />

@@ -1,6 +1,7 @@
 import type { UiDiffLine, UiFileDiff } from "tau";
 import {
   providerInfo,
+  requestNumber,
   REQUEST_SERVICES,
   type PullRequestCheck,
   type PullRequestComment,
@@ -12,6 +13,7 @@ import {
   type ReviewCommentChip,
   type ReviewRequest,
 } from "./protocol.js";
+import { parseRequestUrl } from "./pull-request-json.js";
 
 /** What a stage tab of the view holds: enough to name it before anything loaded. */
 export interface PullRequestTabParams extends Record<string, unknown> {
@@ -32,6 +34,10 @@ export function pullRequestTabParams(params: Record<string, unknown>): PullReque
 }
 
 export const shortNoun = (service: PullRequestRef["service"]): "PR" | "MR" => providerInfo(service).short;
+/** "PR #12" or "MR !12". */
+export const requestLabel = (service: PullRequestRef["service"], number: number): string => `${shortNoun(service)} ${requestNumber(service, number)}`;
+/** The same for a request known only by its URL. */
+export const requestLabelOf = (url: string, number = Number(url.split("/").at(-1))): string => requestLabel(parseRequestUrl(url)?.service ?? "github", number);
 export const hostName = (service: PullRequestRef["service"]): string => providerInfo(service).name;
 
 export type ChecksRollup = "failing" | "pending" | "passing";
@@ -203,7 +209,7 @@ export function relativeTime(iso: string | undefined, now: number = Date.now()):
 
 /** A comment of the request as composer context: who said it, where, and the text. */
 export function commentChip(detail: Pick<PullRequestDetail, "ref">, comment: PullRequestComment, thread?: Pick<PullRequestThread, "path" | "line">): ReviewCommentChip {
-  const noun = `${shortNoun(detail.ref.service)} #${detail.ref.number}`;
+  const noun = requestLabel(detail.ref.service, detail.ref.number);
   const place = thread ? `${thread.path}${thread.line !== undefined ? `:${thread.line}` : ""}` : undefined;
   return {
     kind: "text-excerpt",
@@ -215,7 +221,7 @@ export function commentChip(detail: Pick<PullRequestDetail, "ref">, comment: Pul
 /** A whole thread for the composer: each comment in order, one quote. */
 export function threadChip(detail: Pick<PullRequestDetail, "ref">, thread: PullRequestThread): ReviewCommentChip {
   const place = `${thread.path}${thread.line !== undefined ? `:${thread.line}` : ""}`;
-  const noun = `${shortNoun(detail.ref.service)} #${detail.ref.number}`;
+  const noun = requestLabel(detail.ref.service, detail.ref.number);
   return {
     kind: "text-excerpt",
     label: `Thread on ${place.split("/").at(-1)}`,

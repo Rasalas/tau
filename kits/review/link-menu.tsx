@@ -2,7 +2,7 @@ import { GitPullRequest, Link } from "lucide-react";
 import { errorMessage, type PaletteItem, type PaletteMenu, type WorkbenchActions } from "tau";
 import { readLinkInput } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
-import type { PullRequestList } from "./protocol.js";
+import { requestNumber, type PullRequestList } from "./protocol.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 
 /** How long one project's open requests answer the level before `gh` or `glab` is asked again. */
@@ -12,7 +12,7 @@ const LIST_LIMIT = 50;
 async function link(app: WorkbenchActions, client: PullRequestClient, rows: ThreadLinkRows, thread: { sessionId: string; cwd?: string }, reference: string): Promise<void> {
   const result = await client.link(thread.sessionId, reference, thread.cwd);
   void rows.load(thread.sessionId);
-  app.notify(result.alreadyLinked ? `#${result.link.number} is already linked to this thread.` : `Linked #${result.link.number} to this thread.`);
+  app.notify(result.alreadyLinked ? `${requestNumber(result.link.service, result.link.number)} is already linked to this thread.` : `Linked ${requestNumber(result.link.service, result.link.number)} to this thread.`);
 }
 
 /**
@@ -57,7 +57,7 @@ export function linkPullRequestMenu(client: PullRequestClient, rows: ThreadLinkR
       }
       return [...found, ...list.entries.map((entry): PaletteItem => ({
         id: entry.ref.url,
-        label: `#${entry.ref.number} ${entry.title}`,
+        label: `${requestNumber(entry.ref.service, entry.ref.number)} ${entry.title}`,
         detail: entry.author ? `${entry.headRef} · ${entry.author.login}` : entry.headRef,
         icon: <GitPullRequest size={14} aria-hidden />,
         keywords: [String(entry.ref.number), entry.ref.url, ...(entry.draft ? ["draft"] : [])],

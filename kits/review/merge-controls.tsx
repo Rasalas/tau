@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, MiddleTruncate, getClientStorage, tooltipProps, type PreferencesStore } from "tau";
-import { REVIEW_HOST_EXTENSION_ID, type MergeMethod, type MergeOutcome, type PullRequestStackLayer, type RequestService } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, requestNumber, type MergeMethod, type MergeOutcome, type PullRequestStackLayer, type RequestService } from "./protocol.js";
 
 /** Labels for the three methods. */
 export const METHOD_LABELS: Record<MergeMethod, string> = { merge: "Merge", squash: "Squash and merge", rebase: "Rebase and merge" };
@@ -58,13 +58,14 @@ export function MergeConfirm({ kind, service, short, number, base, branch, metho
   onConfirm(): void;
   onCancel(): void;
 }) {
-  const title = kind === "merge" ? `Merge ${short} #${number}?` : kind === "auto-merge" ? "Enable auto-merge?" : "Revert these changes?";
+  const ref = requestNumber(service, number);
+  const title = kind === "merge" ? `Merge ${short} ${ref}?` : kind === "auto-merge" ? "Enable auto-merge?" : "Revert these changes?";
   const how = method ? METHOD_WORDS[method] : "";
   const description = kind === "merge"
-    ? `This merges #${number}${base ? ` into ${base}` : ""} using ${how}.`
+    ? `This merges ${ref}${base ? ` into ${base}` : ""} using ${how}.`
     : kind === "auto-merge"
-      ? `This merges #${number} using ${how} as soon as the host considers it ready, which may be immediately.`
-      : `This opens a new ${short === "MR" ? "merge request" : "pull request"} that reverses the changes merged by #${number}.`;
+      ? `This merges ${ref} using ${how} as soon as the host considers it ready, which may be immediately.`
+      : `This opens a new ${short === "MR" ? "merge request" : "pull request"} that reverses the changes merged by ${ref}.`;
   const confirm = kind === "merge" ? (method ? METHOD_LABELS[method] : "Merge") : kind === "auto-merge" ? "Enable auto-merge" : `Create revert ${short}`;
   return createPortal(
     <Dialog className="confirm-dialog pr-link-dialog pr-merge-dialog" label={title} onClose={() => { if (!busy) onCancel(); }}>

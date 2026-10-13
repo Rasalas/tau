@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore, type ComponentType } from "react";
 import { GitMerge, GitPullRequestArrow, GitPullRequestClosed, GitPullRequestDraft, Layers } from "lucide-react";
 import { tooltipProps, useThreadStore, type UiSession } from "tau";
 import { checksLabel, requestShort, requestStateLabel, type RowRequests } from "./requests.js";
-import { providerInfo, type RequestService, type ThreadCardSectionProps } from "./protocol.js";
+import { providerInfo, requestNumber, type RequestService, type ThreadCardSectionProps } from "./protocol.js";
 import { openPullRequest } from "./pull-request-open.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 
@@ -74,12 +74,12 @@ function useThreadRequests(rows: RowRequests, links: ThreadLinkRows, session: Ui
   const entries: BadgeEntry[] = [];
   if (request) {
     const checks = checksLabel(request.checks);
-    entries.push({ label: `${requestShort(request)} #${request.number}`, url: request.url, service: request.provider, number: request.number, state: requestStateLabel(request) as BadgeState, title: request.title, ...(checks ? { checks } : {}) });
+    entries.push({ label: `${requestShort(request)} ${requestNumber(request.provider, request.number)}`, url: request.url, service: request.provider, number: request.number, state: requestStateLabel(request) as BadgeState, title: request.title, ...(checks ? { checks } : {}) });
   }
   for (const link of linked) {
     if (request && link.url === request.url) continue;
     const state: BadgeState = link.state === "open" || !link.state ? (link.draft ? "draft" : "open") : link.state;
-    entries.push({ label: `${providerInfo(link.service).short} #${link.number}`, url: link.url, service: link.service, number: link.number, state, ...(link.title ? { title: link.title } : {}), ...(link.stack ? { stack: link.stack } : {}) });
+    entries.push({ label: `${providerInfo(link.service).short} ${requestNumber(link.service, link.number)}`, url: link.url, service: link.service, number: link.number, state, ...(link.title ? { title: link.title } : {}), ...(link.stack ? { stack: link.stack } : {}) });
   }
   return { entries, branch: Boolean(request) };
 }
@@ -138,7 +138,7 @@ function RequestCardList({ session, actions, Row, rows, links }: Pick<ThreadCard
         return (
           <div key={entry.url} role="listitem" className={`request-card-line state-${entry.state}`}>
             <Row icon={<Icon size={12} />} label={`${entry.label}, ${entry.state}${entry.title ? `: ${entry.title}` : ""}`} onClick={(event) => { if (event?.metaKey || event?.ctrlKey) actions.openExternal(entry.url); else open(entry); }}>
-              <b>#{entry.number}</b> {entry.title ?? entry.url}
+              <b>{requestNumber(entry.service, entry.number)}</b> {entry.title ?? entry.url}
             </Row>
           </div>
         );

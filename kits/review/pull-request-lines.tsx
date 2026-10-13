@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import type { DiffLineSlot, UiDiffLine, UiFileDiff } from "tau";
-import { providerInfo, type PendingReviewComment, type PullRequestComment, type PullRequestDetail, type PullRequestThread, type ReviewCommentChip } from "./protocol.js";
+import { providerInfo, requestNumber, type PendingReviewComment, type PullRequestComment, type PullRequestDetail, type PullRequestThread, type ReviewCommentChip } from "./protocol.js";
 import type { PullRequestCommentInput } from "./pull-request-client.js";
 import { anchorThreads, lineKeys, shortNoun, threadChip, threadKey } from "./pull-request-logic.js";
 import { ReplyBox, ThreadCard } from "./pull-request-parts.js";
@@ -21,7 +21,7 @@ function draftChip(detail: PullRequestDetail, draft: Draft, body: string): Revie
   return {
     kind: "text-excerpt",
     label: `${baseName(draft.path)}:${draft.line}`,
-    payload: { source: `Comment on ${shortNoun(detail.ref.service)} #${detail.ref.number} at ${place}`, text: `${body}\n\n\`\`\`diff\n${draft.code}\n\`\`\`` },
+    payload: { source: `Comment on ${shortNoun(detail.ref.service)} ${requestNumber(detail.ref.service, detail.ref.number)} at ${place}`, text: `${body}\n\n\`\`\`diff\n${draft.code}\n\`\`\`` },
   };
 }
 
