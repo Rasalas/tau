@@ -36,6 +36,7 @@ import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type Searc
 import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WorkspaceStore } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
+import { RowMarks } from "./row-marks.js";
 import { publishProjectIcons } from "./project-icons.js";
 import { WorkspaceStageContext, WorkspaceTitleActions } from "./title.js";
 import { TraceTabs } from "./trace-tabs.js";
@@ -86,6 +87,8 @@ export const workspaceExtension: DesktopExtension = {
     const unpublishIcons = publishProjectIcons(context.preferences, (icons) => context.setProjectIcons?.(icons));
 
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
+    // The phone's thread list draws the rail's row marks; a core without that list lacks the method.
+    context.registerThreadListAccessory?.({ id: "workspace.row-marks", Component: bind(RowMarks) });
     // Other machines' threads the rail lists, found by the palette as this machine's are.
     context.registerPaletteSource({ id: "workspace.outside-threads", label: "Threads", order: 25, scope: "threads", search: (query) => outsideThreadItems(store.getSnapshot().railThreadSources, query) });
     context.registerProjectSource({

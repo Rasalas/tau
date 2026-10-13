@@ -14,7 +14,7 @@ import type { UiProject } from "../../shared/contracts";
 import { findProjectForSession } from "../../shared/session-project";
 import type { DraftThread } from "../../workbench/draft-threads";
 import { DraftRow, draftTitle } from "../components/DraftRow";
-import type { ExtensionRegistry, ThreadListEntry, ThreadListPlace, WorkbenchActions } from "../extension-system";
+import type { ExtensionRegistry, ThreadListAccessoryContribution, ThreadListEntry, ThreadListPlace, WorkbenchActions } from "../extension-system";
 import { ProviderIconStack } from "../components/ProviderIconStack";
 import { showsThreadStatus, ThreadStatus } from "../components/ThreadRow";
 import { ProjectIcon } from "../components/ProjectIcon";
@@ -96,6 +96,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, extra, marks, ...(project ? { project } : {}) }),
     [current, extra, marks, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
   );
+  const accessories = registry.getThreadListAccessories();
   const rowCommands = registry.getCommandsFor("thread-row");
   const runCommand = (id: string, threadId: string) => {
     const command = rowCommands.find((entry) => entry.id === id);
@@ -163,6 +164,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     outside: outside.byKey,
     here: outside.rows.length > 0 ? outside.here : undefined,
     actions,
+    accessories,
   };
   const more = (group: ThreadListGroup) => () => setShown((value) => group.id === "settled"
     ? { ...value, settled: value.settled + 25 }
@@ -196,7 +198,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     </div>
     {sheetFor ? <ActionSheet
       title={sheetFor.title}
-      head={<div className="touch-thread-row action-sheet-head"><div className="thread-row"><ThreadCard row={sheetFor} onOpen={() => { setSheetFor(undefined); onOpen(sheetFor); }} /></div></div>}
+      head={<div className="touch-thread-row action-sheet-head"><div className="thread-row"><ThreadCard row={sheetFor} accessories={accessories} onOpen={() => { setSheetFor(undefined); onOpen(sheetFor); }} /></div></div>}
       summary={sheetCost(sheetFor, showCosts)}
       actions={sheetActions(sheetFor)}
       onClose={() => setSheetFor(undefined)}
@@ -248,7 +250,7 @@ function shortLabel(label: string): string {
   return label.replace(/…$/u, "").replace(/\s+thread$/iu, "");
 }
 
-function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onSheet, onMore, outside, here, actions }: {
+function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen, onSheet, onMore, outside, here, actions, accessories }: {
   group: ThreadListGroup;
   activeId: string;
   openRow?: string | undefined;
@@ -260,6 +262,7 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
   outside: ReadonlyMap<string, ThreadListEntry>;
   here: ThreadListPlace | undefined;
   actions: WorkbenchActions;
+  accessories: readonly ThreadListAccessoryContribution[];
 }) {
   return <>
     {group.label ? <li role="none" className="touch-thread-group"><span>{group.label}</span></li> : null}
@@ -282,7 +285,7 @@ function GroupRows({ group, activeId, openRow, setOpenRow, swipeActions, onOpen,
           onLongPress={() => { setOpenRow(undefined); onSheet(row); }}
         >
           <div className={`thread-row${row.settled ? " compact activity-settled" : ""}${active ? " active" : ""}`}>
-            <ThreadCard row={row} machine={here} onOpen={() => onOpen(row)} />
+            <ThreadCard row={row} machine={here} accessories={accessories} onOpen={() => onOpen(row)} />
             <button type="button" className="touch-thread-more" aria-label={`Actions for ${row.title}`} onClick={() => onSheet(row)}>…</button>
           </div>
         </SwipeRow>
@@ -316,14 +319,27 @@ function sheetCost(row: ThreadSupervisionRow, showCosts: boolean): string | unde
   return cost ? `Cost ${cost}` : undefined;
 }
 
+/** The marks kits draw on a row, as on the desktop rail: the last turn's changes, a running terminal, a pull request. */
+function ThreadMarks({ id, settled, accessories }: { id: string; settled: boolean; accessories: readonly ThreadListAccessoryContribution[] }) {
+  const store = useThreadStore();
+  const session = useSyncExternalStore(
+    useCallback((listener: () => void) => store.subscribeToThread(id, listener), [id, store]),
+    useCallback(() => store.getThread(id), [id, store]),
+  );
+  if (!session) return null;
+  return <>{accessories.map(({ id: key, Component }) => <Component key={key} session={session} settled={settled} />)}</>;
+}
+
 /**
  * A thread as the desktop rail's card draws it: the project line with the
  * state or age, the title, and the branch and runtime; a settled one
  * as the rail's slim row.
  */
-function ThreadCard({ row, projectIcon, machine, unavailable, busy, onOpen }: {
+function ThreadCard({ row, projectIcon, machine, unavailable, busy, accessories = [], onOpen }: {
   row: ThreadSupervisionRow;
   projectIcon?: string | undefined;
+  /** Kits' marks, drawn for this host's own threads only. */
+  accessories?: readonly ThreadListAccessoryContribution[] | undefined;
   /** Where the thread runs, named while the list shows several machines. */
   machine?: ThreadListPlace | undefined;
   unavailable?: string | undefined;
@@ -342,10 +358,12 @@ function ThreadCard({ row, projectIcon, machine, unavailable, busy, onOpen }: {
     "aria-description": unavailable ?? THREAD_SUPERVISION_LABELS[row.status],
     ...(busy ? { "aria-busy": true } : {}),
   };
+  const kitMarks = accessories.length > 0 ? <ThreadMarks id={row.id} settled={row.settled} accessories={accessories} /> : null;
   if (row.settled) {
     return <button type="button" className="thread-main touch-thread-open" {...label} onClick={onOpen}>
       {mark}
       <span className="thread-title">{row.title}</span>
+      {kitMarks ? <span className="thread-meta-marks">{kitMarks}</span> : null}
       <RowTime row={row} />
     </button>;
   }
@@ -363,11 +381,14 @@ function ThreadCard({ row, projectIcon, machine, unavailable, busy, onOpen }: {
       {machine ? <span className="touch-thread-machine">{machine.icon}<span>{machine.name}</span></span> : null}
       <RowTime row={row} />
     </span>
-    {bare ? <span className="touch-title-line">{title}{marks}</span> : title}
+    {bare ? <span className="touch-title-line">{title}{kitMarks ? <span className="thread-meta-marks">{kitMarks}</span> : null}{marks}</span> : title}
     {/* Right to left, as the rail's card: the branch yields first, the runtime mark last. */}
     {bare ? null : <span className="thread-meta-line">
       {marks}
-      {row.pinned ? <span className="thread-meta-marks"><Pin size={12} className="touch-thread-pin" aria-label="Pinned" /></span> : null}
+      {row.pinned || kitMarks ? <span className="thread-meta-marks">
+        {row.pinned ? <Pin size={12} className="touch-thread-pin" aria-label="Pinned" /> : null}
+        {kitMarks}
+      </span> : null}
       {branch ? <span className="thread-branch"><GitBranch size={12} aria-hidden="true" /><MiddleTruncate value={branch} /></span> : null}
     </span>}
   </button>;

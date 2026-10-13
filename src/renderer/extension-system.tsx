@@ -410,6 +410,13 @@ export interface ThreadListSource {
   here?(): ThreadListPlace | undefined;
 }
 
+/** A kit's marks on a compact thread list's rows, drawn beside the branch as the desktop rail's accessories are (new after API 1.59.0). */
+export interface ThreadListAccessoryContribution {
+  id: string;
+  /** `settled`: the row is on the settled shelf. Draws nothing when it has nothing to say. */
+  Component: ComponentType<{ session: UiSession; settled: boolean }>;
+}
+
 /** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
 export interface LookInRegionContext {
   /** The machine's host id; `environments.readExtension` takes it. */
@@ -1713,6 +1720,8 @@ export interface DesktopExtensionContext {
   registerProjectSource(source: ProjectSourceContribution): () => void;
   /** Threads of elsewhere in a phone's or tablet's thread list, beside this host's (API 1.30.0). */
   registerThreadListSource(source: ThreadListSource): () => void;
+  /** Marks on the rows of a phone's or tablet's thread list: the rail's accessories (new after API 1.59.0). */
+  registerThreadListAccessory(accessory: ThreadListAccessoryContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
   /** Rows the command palette asks for as the user types, beside the commands. */
   registerPaletteSource(source: PaletteSourceContribution): () => void;
@@ -1890,6 +1899,7 @@ export class ExtensionRegistry {
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private threadListSources = new Map<string, Owned<ThreadListSource>>();
+  private threadListAccessories = new Map<string, Owned<ThreadListAccessoryContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
   private paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
   private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
@@ -2235,6 +2245,10 @@ export class ExtensionRegistry {
         note("thread list sources");
         return this.register(this.threadListSources, source.id, { ...source, ...owner }, disposers);
       },
+      registerThreadListAccessory: (accessory) => {
+        note("thread list accessories");
+        return this.register(this.threadListAccessories, accessory.id, { ...accessory, ...owner }, disposers);
+      },
       registerCommand: (command) =>
         this.register(this.commands, command.id, { ...command, ...owner }, disposers),
       registerPaletteSource: (source) => {
@@ -2575,6 +2589,10 @@ export class ExtensionRegistry {
 
   getThreadListSources(): Array<Owned<ThreadListSource>> {
     return this.sorted("thread-list-sources", this.threadListSources, false);
+  }
+
+  getThreadListAccessories(): Array<Owned<ThreadListAccessoryContribution>> {
+    return this.sorted("thread-list-accessories", this.threadListAccessories, false);
   }
 
   getCommands(): Array<Owned<CommandContribution>> {

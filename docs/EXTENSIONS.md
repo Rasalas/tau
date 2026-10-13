@@ -2003,7 +2003,9 @@ followed project it lends two places another kit may draw into:
 panel, clean worktree or not, with the panel's `actions`, the commit message as
 the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
-the row's `session` (Terminal Kit marks a thread whose shells run a program this way).
+the row's `session` (Terminal Kit marks a thread whose shells run a program this way);
+the phone's and the tablet's thread list draw the same marks through
+`registerThreadListAccessory`.
 `setThreadRowStatuses?(owner, { [threadId]: { label, hint?, icon } })` gives rows a
 state of the kit's own, drawn like a question in place of Working (Takeover Kit's
 "Your turn"); `{}` withdraws them.
@@ -3621,6 +3623,24 @@ everywhere. Takeover Kit marks "Your turn" this way, and Review Kit marks every
 thread with an active pull request watch "Waiting", naming the watched requests
 in the hint. Workspace Kit's older `setThreadRowStatuses(owner, statuses)` still
 works and draws the same, on the desktop rail only.
+
+### Marks on the compact list's rows (new after API 1.59.0)
+
+`registerThreadListAccessory({ id, Component })` puts a mark beside the branch on
+every row of a phone's or tablet's thread list, where Workspace Kit's
+`registerThreadRowAccessory` marks the desktop rail's. `Component` gets the
+row's `session` and `settled` (the row is on the settled shelf) and draws nothing
+when it has nothing to say. Core fills the row's meta line right to left, as the
+rail's card: the runtime mark, then these marks, then the branch (a row with no
+branch to show keeps them on the title's line), and a settled row draws them
+between its title and its age. Another machine's rows get none: their ids are
+not this host's. Workspace Kit registers one, which draws the last turn's
+`+N −N` (not for a settled thread) and then every accessory other kits gave
+its store, so Terminal Kit's running program, Review Kit's request badge,
+Thread Rail's snooze and sibling marks and Servers Kit's deployment mark appear
+on the phone with their own icons and tooltips. Call it as
+`registerThreadListAccessory?.(…)`: a phone whose bundle predates it ignores the call, and the
+kit's `engines.api` stays where it was, so that phone keeps the kit.
 
 ### Who is attached: `services.clients`
 
