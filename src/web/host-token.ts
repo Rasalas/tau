@@ -21,7 +21,7 @@ export function takePairingCode(page: PairingPage): string | undefined {
   return code;
 }
 
-/** The host that served this page is the host this page talks to. */
+/** The computer that served this page is the one this page talks to. */
 export function hostSocketUrl(location: { protocol: string; host: string }): string {
   return `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/`;
 }
@@ -29,13 +29,13 @@ export function hostSocketUrl(location: { protocol: string; host: string }): str
 /** What the page says when pairing did not let it in. */
 export function pairingNotice(result: Exclude<PairingResult, { state: "approved" }>): string {
   switch (result.state) {
-    case "denied": return "The host’s owner declined this device.";
-    case "expired": return "Nobody answered on the host in time. Try again, and allow the device there.";
+    case "denied": return "The request was declined on your computer.";
+    case "expired": return "Nobody answered on your computer in time. Try again, and allow the request in Tau there.";
     case "refused":
-      if (result.reason === "unknown-code") return "This pairing link was already used or has expired. Ask for a new one.";
-      if (result.reason === "busy") return "The host is not taking a request from this device right now. Try again in a few minutes.";
+      if (result.reason === "unknown-code") return "This pairing link was already used or has expired. Create a new one in Tau’s Settings → Connections.";
+      if (result.reason === "busy") return "Your computer is not taking a request from this device right now. Try again in a few minutes.";
       if (result.reason === "rate-limited") return "Too many attempts from this device. Wait a moment and try again.";
-      return "The host did not understand the request.";
+      return "Your computer did not understand the request.";
     case "failed": return result.message;
   }
 }

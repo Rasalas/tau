@@ -102,7 +102,8 @@ describe("Settings → Connections", () => {
 
   it("tells a paired client that the owner manages connections", async () => {
     renderPage({ listConnections: async () => { throw Object.assign(new Error("no"), { code: "forbidden" }); } });
-    expect(await screen.findByText("Connections are managed on the host’s machine")).toBeTruthy();
+    expect(await screen.findByText("Connections are managed on your computer")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\bhost\b|token/iu);
   });
 
   it("still offers a link where no web client is served: the app pairs over the socket", async () => {

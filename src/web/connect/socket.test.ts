@@ -41,7 +41,7 @@ describe("browser relay socket lifecycle", () => {
   it("reports a refused relay route without opening the pinned host socket", async () => {
     const { socket, tls, relay, failure } = fixture(); await Promise.resolve();
     relay.onclose!({ code: 4401, reason: "Relay authentication refused" } as CloseEvent);
-    expect(failure).toHaveBeenCalledWith(expect.stringContaining("Copy a new link"));
+    expect(failure).toHaveBeenCalledWith(expect.stringContaining("Copy a new one"));
     expect(socket.readyState).toBe(3); expect(tls.feed).not.toHaveBeenCalled(); expect(tls.free).toHaveBeenCalledOnce();
   });
 });

@@ -302,7 +302,8 @@ a host started by hand, on its terminal) with the same digits, and allows the de
 only if they match ([ADR 0024](adr/0024-pairing-allowed-on-the-host.md)). The browser then
 gets a token of its own, never the host token, and keeps it in `localStorage`. Without a
 link, "Ask to connect" sends the same request; the host's owner can also paste the host
-token, the line in `~/.tau/host-token` on the host machine. A token the host refuses,
+token, the line in `~/.tau/host-token` on the host machine. The page calls it the "access
+key" and names no file: a person who never opens a console asks to connect instead. A token the host refuses,
 one whose access was revoked, or one unused past its timeout, closes the socket and
 brings the page back with the reason.
 
@@ -393,8 +394,8 @@ renews the certificate, so a renewal needs no new pairing. The Tailscale Serve a
 has a certificate a public CA issued; the link marks it, and the app checks it the way a
 browser would instead of pinning. Tokens live in the Keychain or behind a Keystore key.
 
-Add a host by scanning the QR code in Settings → Connections (or pasting its link), or
-tap a host listed under "On this network". Either way the host's window asks
+Add a computer by scanning the QR code in Settings → Connections (or pasting its link), or
+tap a computer listed under "On this network". Either way the host's window asks
 "<phone> wants to connect" with six digits; allow it only if the phone shows the same
 ones. With a pinned key the digits depend on it, so something between the two that
 presents another key cannot make them agree ([ADR 0024](adr/0024-pairing-allowed-on-the-host.md), [ADR 0026](adr/0026-devices-pin-the-hosts-key.md)). The link names every
@@ -403,7 +404,7 @@ host added over Bonjour becomes reachable over Tailscale too; the app races
 them each time it connects (local network first,
 then `.local`, then Tailscale), so it follows a phone from home Wi-Fi to cellular on its
 own. Coming back to the foreground or to a network makes it check the link at once. More
-→ Hosts in the thread list goes back to the host list. `tau://thread?host=<id>&thread=<id>`
+→ Computers in the thread list goes back to the computer list. `tau://thread?host=<id>&thread=<id>`
 opens a thread of a paired host; a tapped push notification uses it ([push.md](push.md)).
 The same link without `host` is how a message mentions a thread: the transcript draws it as a
 chip with the thread's current title.

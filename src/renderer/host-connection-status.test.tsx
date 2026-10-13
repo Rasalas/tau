@@ -101,7 +101,7 @@ describe("host connection status", () => {
     render(<HostClientProvider client={link.client}><HostConnectionStatus /></HostClientProvider>);
     link.set("refused");
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Tau refused the connection to the host");
+    expect(alert.textContent).toContain("Tau refused the connection to the computer");
     expect(alert.textContent).toContain("Expected SHA-256: AA\nPresented SHA-256: BB");
     expect(screen.queryByRole("status")).toBeNull();
   });
@@ -201,9 +201,9 @@ describe("host connection status", () => {
 describe("host link indicator", () => {
   it("names the link's health for every state it can be in", () => {
     const open: HostLink = { phase: "open", attempts: 0 };
-    expect(describeHostLink("connected", open)).toEqual({ tone: "ok", label: "Connected to the host" });
-    expect(describeHostLink("connected", { ...open, roundTripMs: 42 })).toEqual({ tone: "ok", label: "Connected to the host, 42 ms round trip" });
-    expect(describeHostLink("connected", { ...open, roundTripMs: 1_340 })).toEqual({ tone: "slow", label: "Slow connection to the host, 1.3 s round trip" });
+    expect(describeHostLink("connected", open)).toEqual({ tone: "ok", label: "Connected to the computer" });
+    expect(describeHostLink("connected", { ...open, roundTripMs: 42 })).toEqual({ tone: "ok", label: "Connected to the computer, 42 ms round trip" });
+    expect(describeHostLink("connected", { ...open, roundTripMs: 1_340 })).toEqual({ tone: "slow", label: "Slow connection to the computer, 1.3 s round trip" });
     expect(describeHostLink("reconnecting", { phase: "waiting", attempts: 1 }).tone).toBe("pending");
     expect(describeHostLink("reconnecting", { phase: "connecting", attempts: 1 }).tone).toBe("pending");
     expect(describeHostLink("resyncing", open)).toEqual({ tone: "pending", label: "Updating your workspace…" });
@@ -214,14 +214,14 @@ describe("host link indicator", () => {
   it("shows a dot for a host on another machine, and a click checks the link", () => {
     const link = clientWithMovableState(undefined, { link: { phase: "open", attempts: 0, roundTripMs: 30 } });
     render(<HostClientProvider client={link.client}><HostLinkIndicator /></HostClientProvider>);
-    const dot = screen.getByRole("button", { name: "Connected to the host, 30 ms round trip" });
-    expect(dot.getAttribute("data-tooltip")).toBe("Connected to the host, 30 ms round trip");
+    const dot = screen.getByRole("button", { name: "Connected to the computer, 30 ms round trip" });
+    expect(dot.getAttribute("data-tooltip")).toBe("Connected to the computer, 30 ms round trip");
     act(() => dot.click());
     expect(link.reconnectNow).toHaveBeenCalledTimes(1);
 
     link.set("reconnecting");
     link.setLink({ phase: "waiting", attempts: 1, retryAt: 0 });
-    expect(screen.getByRole("button", { name: "Reconnecting to the host…" }).className).toContain("pending");
+    expect(screen.getByRole("button", { name: "Reconnecting to the computer…" }).className).toContain("pending");
   });
 
   it("stays away for the window's own host and for a client without a socket", () => {

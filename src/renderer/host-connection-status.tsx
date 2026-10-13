@@ -14,9 +14,9 @@ import { UpdateHostButton, UpdateWindowButton } from "./deferred-surfaces";
 
 const LABEL = {
   connected: "",
-  reconnecting: "Reconnecting to the host…",
+  reconnecting: "Reconnecting to the computer…",
   resyncing: "Updating your workspace…",
-  refused: "Tau refused the connection to the host",
+  refused: "Tau refused the connection to the computer",
 } as const;
 
 /** A round trip above this reads as a slow link. */
@@ -49,11 +49,11 @@ export function describeHostLink(state: HostConnectionState, link: HostLink): { 
   if (state === "resyncing") return { tone: "pending", label: LABEL.resyncing };
   if (state === "reconnecting" || link.phase !== "open") return { tone: "pending", label: LABEL.reconnecting };
   const roundTrip = link.roundTripMs;
-  if (roundTrip === undefined) return { tone: "ok", label: "Connected to the host" };
+  if (roundTrip === undefined) return { tone: "ok", label: "Connected to the computer" };
   const shown = roundTrip < 1_000 ? `${roundTrip} ms` : `${(roundTrip / 1_000).toFixed(1)} s`;
   return roundTrip > SLOW_ROUND_TRIP_MS
-    ? { tone: "slow", label: `Slow connection to the host, ${shown} round trip` }
-    : { tone: "ok", label: `Connected to the host, ${shown} round trip` };
+    ? { tone: "slow", label: `Slow connection to the computer, ${shown} round trip` }
+    : { tone: "ok", label: `Connected to the computer, ${shown} round trip` };
 }
 
 /**

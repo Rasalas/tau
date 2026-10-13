@@ -64,7 +64,7 @@ tokens are random and separate. The host keeps its registration in
 after a restart and reconnects after network changes or relay outages.
 
 Copy the Tau Connect pairing link and paste it into Settings → Machines on the
-other desktop, or Add host on a phone. The phone also scans a QR code containing
+other desktop, or Add computer on a phone. The phone also scans a QR code containing
 the link and opens `tau-connect:` links from another app. Allow the request on the host after comparing the six digits.
 The link expires in two minutes. It includes the relay transport credential and
 the host key; treat it as a secret. A transport credential alone cannot call
@@ -73,7 +73,7 @@ preset, and may be revoked in Connections. The desktop encrypts its saved
 transport credential in the system keychain together with its machine record.
 
 In a browser, open Tau's web client from an HTTPS origin, then paste the Connect
-link into the sign-in form's "Host token or Tau Connect link" field. The same
+link into the sign-in form's "Access key or Tau Connect link" field. The same
 form works in the compact browser client. Compare its six digits with the host
 before approving it. A browser requires an HTTPS page, WebAssembly, WebCrypto
 and IndexedDB. A storage or TLS initialization failure is shown before access
