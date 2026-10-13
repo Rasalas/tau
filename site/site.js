@@ -31,8 +31,8 @@
         if (note) note.textContent = `${primary.label} · ${primary.kind}`;
       } else if (system === "mobile") {
         button.href = "#download";
-        label.textContent = "Get Tau for your computer";
-        if (note) note.textContent = "Tau runs on your computer; your phone pairs with it.";
+        label.textContent = "Get Tau for your machine";
+        if (note) note.textContent = "Tau runs on your machine; your phone pairs with it.";
       }
     }
     for (const list of document.querySelectorAll("[data-download-list]")) {
