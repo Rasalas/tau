@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, DesktopExtension, HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { reviewExtension } from "./desktop.js";
-import type { PullRequestCheck, ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
+import { THREAD_PULL_REQUESTS_TAB, type PullRequestCheck, type ReviewRequest, type ThreadPullRequestLink } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import PullRequestStrip from "./pull-request-strip.js";
 import { STRIP_OPTION, StripDismissals, stripRequests } from "./pull-request-strip-logic.js";
@@ -151,7 +151,7 @@ describe("the pull-request strip", () => {
   });
 
   it("shows a linked request when the branch has none, with the others as +N", async () => {
-    setup({ links: [link(7, { linkedAt: 1, state: "merged" }), link(9, { linkedAt: 2, headRef: "feat/nine" })] });
+    const { actions } = setup({ links: [link(7, { linkedAt: 1, state: "merged" }), link(9, { linkedAt: 2, headRef: "feat/nine" })] });
     const more = await waitFor(() => {
       const found = document.querySelector(".review-pr-strip-more");
       if (!found) throw new Error("no +N yet");
@@ -161,6 +161,9 @@ describe("the pull-request strip", () => {
     expect(more.textContent).toBe("+1");
     expect(more.getAttribute("data-tooltip")).toBe("#7 Change 7 · merged");
     expect(screen.getByRole("button", { name: /^Open pull request #9 .*1 more linked/u })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View all 2 linked requests" }));
+    expect(actions.openStageTab).toHaveBeenCalledWith(THREAD_PULL_REQUESTS_TAB, { threadId: "t1", workspace: "/work" }, { key: "thread-pull-requests:t1" });
+    expect(more.closest("button")?.parentElement?.closest("button")).toBeNull();
   });
 
   it("follows a link's state change, and × hides it until the state changes again", async () => {

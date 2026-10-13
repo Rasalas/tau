@@ -40,6 +40,9 @@
 .request-badge > svg { flex: none; }
 a.request-badge { text-decoration: none; cursor: pointer; }
 a.request-badge:hover, a.request-badge:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
+.request-badge[role="button"] { cursor: pointer; }
+.request-badge[role="button"]:hover, .request-badge[role="button"]:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
+.request-badge[role="button"]:focus-visible { outline: 1px solid var(--focus); outline-offset: 3px; border-radius: var(--radius-xs); }
 .request-card-line button:hover b, .request-card-line button:focus-visible b { text-decoration: underline; text-underline-offset: 2px; }
 /* The mini diff is the fallback when the row has no PR or MR badge. */
 .thread-row:has(.request-badge) .thread-diff-stat { display: none; }
@@ -401,6 +404,23 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-list-count { color: var(--faint); font: 10.5px var(--mono); }
 .pr-list-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 8px 24px; display: flex; flex-direction: column; }
 .pr-list-group + .pr-list-group { margin-top: 12px; }
+/* Thread requests share the stage list's rows; branch dependencies form a quiet tree. */
+.thread-pr-caption { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--text-xs); }
+.thread-pr-note { margin: 0 10px 8px; color: var(--muted); font-size: var(--text-xs); }
+.thread-pr-tree { list-style: none; margin: 0; padding: 0; }
+.thread-pr-tree .thread-pr-tree { margin-left: 16px; }
+.thread-pr-row { display: grid; grid-template-columns: minmax(0, 1fr) 76px; align-items: start; min-width: 0; border-radius: var(--radius-sm); }
+.thread-pr-row:hover { background: var(--hover); }
+.thread-pr-row > .pr-row:hover { background: transparent; }
+.thread-pr-row > .pr-row { flex: 1; min-width: 0; min-height: 52px; content-visibility: visible; }
+.thread-pr-view .pr-row-title { font-size: var(--text-sm); }
+.thread-pr-view .pr-row-repo { flex: 0 1 auto; max-width: 9rem; }
+.thread-pr-view .pr-row-branch { flex: 1; max-width: none; font-size: var(--text-xs); }
+.thread-pr-end { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; padding: 8px 8px 8px 0; min-height: 52px; }
+.thread-pr-end .pr-row-time { line-height: 19.5px; }
+.thread-pr-checks { display: inline-flex; align-items: center; justify-content: flex-end; height: 17px; padding: 0 3px; border: 0; border-radius: var(--radius-sm); background: transparent; cursor: pointer; }
+.thread-pr-checks:hover { background: var(--hover); }
+.thread-pr-checks:focus-visible { outline: 1px solid var(--focus); }
 /* The app's Pull Requests page: the list, or a request's view in its place. */
 .pr-page, .pr-page-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pr-page-pane[hidden] { display: none; }
@@ -606,7 +626,9 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 .review-pr-strip-repo, .review-pr-strip-more { color: color-mix(in srgb, var(--strip-tone) 62%, transparent); }
 .review-pr-strip-branch { flex: 0 1 auto; min-width: 48px; }
 .review-pr-strip-fill { flex: 1; }
-.review-pr-strip-more { font-variant-numeric: tabular-nums; }
+.review-pr-strip-more { border: 0; border-radius: var(--radius-sm); padding: 4px 6px; background: none; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+.review-pr-strip-more:hover { text-decoration: underline; text-underline-offset: 2px; }
+.review-pr-strip-more:focus-visible { outline: 1px solid var(--focus); }
 .review-pr-strip-checks { flex: none; display: inline-flex; }
 .review-pr-strip-checks.passed { color: var(--ready); }
 .review-pr-strip-checks.failed { color: var(--fail); }
@@ -861,6 +883,22 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .request-card-line.state-draft .thread-card-icon { color: var(--muted); }
 .request-card-line.state-merged .thread-card-icon { color: var(--merged); }
 .request-card-line.state-closed .thread-card-icon { color: var(--danger); }
+.request-card-list .request-card-list { margin-left: 12px; }
+.request-popover { width: min(320px, calc(100vw - 16px)); padding: 6px; color: var(--ink-2); font: var(--text-sm)/1.4 var(--sans); }
+.request-popover > div { max-height: min(640px, calc(100vh - 32px)); overflow: auto; }
+.request-compact-tree { list-style: none; margin: 0; padding: 0; }
+.request-compact-tree .request-compact-tree { margin-left: 12px; }
+.request-compact-row { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 6px; border-radius: var(--radius-sm); color: var(--ink-2); text-decoration: none; }
+.request-compact-row:hover { background: var(--hover); }
+.request-compact-row:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; background: var(--hover); }
+.request-compact-row > svg, .request-compact-row > b { flex: none; }
+.request-compact-row > b { font: var(--text-xs) var(--mono); color: var(--muted); }
+.request-compact-row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.request-compact-row > small { flex: none; display: inline-flex; align-items: center; gap: 3px; color: var(--faint); font: var(--text-xs) var(--mono); }
+.request-compact-row.state-open > svg { color: var(--done); }
+.request-compact-row.state-merged > svg { color: var(--merged); }
+.request-compact-row.state-closed > svg { color: var(--danger); }
+.request-compact-row.state-draft > svg { color: var(--muted); }
 
 /* Reviews (1i, 1p, 1q): finished threads' branches as local merge requests. */
 /* One left and right edge for the list, the remote table and the detail (1i, 1e: 28 px). */

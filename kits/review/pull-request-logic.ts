@@ -1,4 +1,5 @@
 import type { UiDiffLine, UiFileDiff } from "tau";
+import { threadPullRequestsParams, type ThreadPullRequestsParams } from "./thread-request-tree.js";
 import {
   providerInfo,
   requestNumber,
@@ -25,12 +26,14 @@ export interface PullRequestTabParams extends Record<string, unknown> {
   /** Opened at its checks or its guide; `at` tells one such ask from the next. */
   focus?: "checks" | "guide";
   at?: number;
+  fromThread?: ThreadPullRequestsParams;
 }
 
 export function pullRequestTabParams(params: Record<string, unknown>): PullRequestTabParams | undefined {
   const { url, number, service, workspace, focus, at } = params;
+  const fromThread = params.fromThread && typeof params.fromThread === "object" ? threadPullRequestsParams(params.fromThread as Record<string, unknown>) : undefined;
   if (typeof url !== "string" || typeof number !== "number" || !REQUEST_SERVICES.includes(service as RequestService)) return undefined;
-  return { url, number, service: service as RequestService, ...(typeof workspace === "string" ? { workspace } : {}), ...(focus === "checks" || focus === "guide" ? { focus, ...(typeof at === "number" ? { at } : {}) } : {}) };
+  return { url, number, service: service as RequestService, ...(typeof workspace === "string" ? { workspace } : {}), ...(focus === "checks" || focus === "guide" ? { focus, ...(typeof at === "number" ? { at } : {}) } : {}), ...(fromThread ? { fromThread } : {}) };
 }
 
 export const shortNoun = (service: PullRequestRef["service"]): "PR" | "MR" => providerInfo(service).short;

@@ -13,7 +13,7 @@ import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { checksRollup, checksSummary, checksUnfinished } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
-import { openPullRequest } from "./pull-request-open.js";
+import { openPullRequest, openThreadPullRequests } from "./pull-request-open.js";
 import { STRIP_OPTION, StripDismissals, stripRequests, type StripRequest, type StripState } from "./pull-request-strip-logic.js";
 import { useRequestLifecycle } from "./request-lifecycle.js";
 import { checksLabel, checksTone, type RowRequests } from "./requests.js";
@@ -153,9 +153,9 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
         <span className="review-pr-strip-title">{primary.title ?? primary.repo}</span>
         <span className="review-pr-strip-state">{state}</span>
         <span className="review-pr-strip-fill" />
-        {others.length > 0 ? <span className="review-pr-strip-more" {...tooltipProps(others.map((other) => otherLine(other, watchState.watches.some((watch) => watch.threadId === threadId && watch.ref.url === other.url && watch.status !== "ended"))).join("\n"), { variant: "lines" })}>+{others.length}</span> : null}
         {primary.state === "open" ? <StripChecks request={primary} client={parts.client} open={() => open("checks")} /> : null}
       </button>
+      {others.length > 0 ? <button type="button" className="review-pr-strip-more" aria-label={`View all ${others.length + 1} linked requests`} {...tooltipProps(others.map((other) => otherLine(other, watchState.watches.some((watch) => watch.threadId === threadId && watch.ref.url === other.url && watch.status !== "ended"))).join("\n"), { variant: "lines" })} onClick={() => openThreadPullRequests(actions, threadId, cwd)}>+{others.length}</button> : null}
       {parts.watches ? <PullRequestWatchControl feed={parts.watches} threadId={threadId} request={primary} others={others} /> : null}
       <button type="button" className="review-pr-strip-hide" aria-label={`Hide ${info.short} ${info.sign}${primary.number} for this thread`} {...tooltipProps("Hide for this thread")}
         onClick={() => dismissals.hide(threadId, primary)}>

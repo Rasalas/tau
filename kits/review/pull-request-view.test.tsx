@@ -13,7 +13,7 @@ import { PullRequestView } from "./pull-request-view.js";
 import { GUIDE_ENABLED_OPTION } from "./guide-protocol.js";
 import { fakeGuideClient, sampleGuide } from "./guide-test-support.js";
 import { guideProgress } from "./guide-tour.js";
-import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, THREAD_PULL_REQUESTS_TAB } from "./protocol.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
@@ -119,6 +119,21 @@ function renderView(client = fakeClient(), chips?: ComposerContextChips, readOnl
 }
 
 describe("the pull-request view", () => {
+  it("returns to the originating thread overview, including while the provider is still loading", async () => {
+    let finish!: (detail: PullRequestDetail) => void;
+    const waiting = new Promise<PullRequestDetail>((resolve) => { finish = resolve; });
+    const fromThread = { threadId: "origin-thread", workspace: "/source", branchUrl: REF.url, scrollTop: 160 };
+    const { workbench } = renderView(fakeClient({ view: vi.fn(() => waiting) }), undefined, false, { ...PARAMS, fromThread });
+    fireEvent.click(screen.getByRole("button", { name: "Back to thread pull requests" }));
+    expect(workbench.openStageTab).toHaveBeenCalledWith(THREAD_PULL_REQUESTS_TAB, fromThread, { key: "thread-pull-requests:origin-thread" });
+    await act(async () => finish(parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json"))));
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    const back = screen.getByRole("button", { name: "Back to thread pull requests" });
+    expect(back.closest(".pr-head-row")!.firstElementChild).toBe(back);
+    fireEvent.click(back);
+    expect(workbench.openStageTab).toHaveBeenCalledTimes(2);
+  });
+
   it("shows the summary: title, branches, reviewers, labels, checks and comments, and names the tab", async () => {
     const { tab, rows } = renderView();
     expect(await screen.findByRole("heading", { name: "Add the output helper" })).toBeTruthy();

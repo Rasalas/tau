@@ -180,6 +180,8 @@ export function ThreadCardLayer({ root, render, timers }: {
     };
     const onOver = (event: PointerEvent) => {
       if (event.pointerType === "touch") return;
+      // An accessory with its own card owns the hover instead of the row's details.
+      if (event.target instanceof Element && event.target.closest('[aria-haspopup="dialog"]')) { controller.close(); return; }
       const row = rowOf(event.target);
       if (row) controller.enterRow(keyOf(row));
     };
@@ -191,6 +193,7 @@ export function ThreadCardLayer({ root, render, timers }: {
       controller.leaveRow(keyOf(row));
     };
     const onFocusIn = (event: FocusEvent) => {
+      if (event.target instanceof Element && event.target.closest('[aria-haspopup="dialog"]')) { controller.close(); return; }
       const row = rowOf(event.target);
       if (row && keyboard) controller.focusRow(keyOf(row));
     };

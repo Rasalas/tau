@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Check, Copy, ExternalLink, GitBranch, Link2, Link2Off, MessageSquare, MessageSquarePlus, Pencil, RefreshCw, SquarePlus } from "lucide-react";
+import { ArrowLeft, Check, Copy, ExternalLink, GitBranch, Link2, Link2Off, MessageSquare, MessageSquarePlus, Pencil, RefreshCw, SquarePlus } from "lucide-react";
+import { openThreadPullRequests } from "./pull-request-open.js";
 import { errorMessage, READ_ONLY_REASON, tooltipProps, type PreferencesStore, type StageTabHandle, type WorkbenchActions } from "tau";
 import type { PendingReviewStore } from "./pending-review.js";
 import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestCheck, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestFiles, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
@@ -255,10 +256,13 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   };
 
   const timelineView = useMemo(() => detail ? filterTimelineComments(detail, { bots: filter.bots, resolved: filter.resolved }) : undefined, [detail, filter.bots, filter.resolved]);
+  const origin = params.fromThread;
+  const back = origin ? <button type="button" className="icon-button compact pr-overview-back" aria-label="Back to thread pull requests" {...tooltipProps("Back to thread pull requests")} onClick={() => openThreadPullRequests(actions, origin.threadId, origin.workspace, origin.branchUrl, origin.scrollTop)}><ArrowLeft size={15} aria-hidden="true" /></button> : null;
 
   if (!detail || !timelineView) {
     return (
       <div className="pr-view" aria-label={`${noun} ${sign}${params.number}`}>
+        {back ? <header className="pr-head"><div className="pr-head-row">{back}</div></header> : null}
         {data.detailError ? (
           <div className="pr-unavailable" role="alert">
             <strong>Could not load the {providerInfo(params.service).noun}</strong>
@@ -297,6 +301,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
     <div className="pr-view" aria-label={`${noun} ${sign}${detail.ref.number}`}>
       <header className={`pr-head ${condensed ? "condensed" : ""}`}>
         <div className="pr-head-row">
+          {back}
           <button className={`pr-number state-${state}`} title={`${state} · open on ${host}`} onClick={() => actions.openExternal(detail.ref.url)}>
             {sign}{detail.ref.number}<ExternalLink size={10} aria-hidden="true" />
           </button>
