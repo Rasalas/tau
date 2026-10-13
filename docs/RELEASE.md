@@ -86,6 +86,12 @@ Europe/Berlin, including summer/winter time. GitHub may start scheduled runs
 later when its runners are busy. It opens nothing when only documentation,
 tests, workflow files or version numbers changed since the latest stable.
 
+A new candidate requires successful `ci.yml` and `performance.yml` runs on
+the exact source commit, from `push` or `workflow_dispatch`. Otherwise it
+skips preparation and names the missing successful workflows and commit in
+the Actions summary. The PR body records the source commit's green CI status;
+the candidate branch still runs its own checks before approval.
+
 The PR contains the next patch version in `package.json` and
 `package-lock.json`, a kits patch when shipped kits changed, and proposed
 release notes in its body. A deliberate version bump already on `main` is

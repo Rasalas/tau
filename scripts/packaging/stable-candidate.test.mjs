@@ -5,6 +5,9 @@ import { candidatePlan, prepareCandidate, publishCandidate } from "./stable-cand
 const repo = { owner: "Rasalas", repo: "tau" };
 const sha = "a".repeat(40);
 const merge = "b".repeat(40);
+const greenRuns = ["ci.yml", "performance.yml"].map((workflow) => ({
+  path: `.github/workflows/${workflow}`, head_sha: sha, event: "push", status: "completed", conclusion: "success",
+}));
 const old = {
   "package.json": JSON.stringify({ name: "tau", version: "0.7.40", dependencies: { pi: "1" } }),
   "package-lock.json": JSON.stringify({ version: "0.7.40", packages: { "": { version: "0.7.40" } } }),
@@ -28,7 +31,11 @@ function fixture() {
       createCommit: vi.fn(async () => ({ data: { sha: "candidate" } })),
       createRef: vi.fn(), getRef: vi.fn(async () => { throw { status: 404 }; }),
     },
-    actions: { createWorkflowDispatch: vi.fn(), listWorkflowRuns: vi.fn(async () => ({ data: { workflow_runs: [] } })) },
+    actions: {
+      createWorkflowDispatch: vi.fn(),
+      listWorkflowRuns: vi.fn(async () => ({ data: { workflow_runs: [] } })),
+      listWorkflowRunsForRepo: vi.fn(async () => ({ data: { workflow_runs: greenRuns } })),
+    },
   } };
   github.paginate = async (method, args) => { const result = await method(args); return result.data.workflow_runs ?? result.data; };
   const checkout = {
@@ -73,12 +80,41 @@ describe("stable candidate versions", () => {
 });
 
 describe("weekly notifications and preparation", () => {
+  it.each([
+    ["red CI", [{ ...greenRuns[0], conclusion: "failure" }, greenRuns[1]]],
+    ["red performance gates", [greenRuns[0], { ...greenRuns[1], conclusion: "failure" }]],
+    ["running checks", greenRuns.map((run) => ({ ...run, status: "in_progress", conclusion: null }))],
+    ["missing checks", []],
+    ["only CI passed", [greenRuns[0]]],
+    ["another commit's checks", greenRuns.map((run) => ({ ...run, head_sha: merge }))],
+    ["pull request merge checks", greenRuns.map((run) => ({ ...run, event: "pull_request" }))],
+  ])("skips HEAD with %s before creating a candidate", async (_name, runs) => {
+    const f = fixture();
+    f.github.rest.actions.listWorkflowRunsForRepo.mockResolvedValue({ data: { workflow_runs: runs } });
+    await expect(prepareCandidate(f)).resolves.toMatchObject({ skipped: true, reason: expect.stringContaining(sha) });
+    expect(f.github.rest.git.createTree).not.toHaveBeenCalled();
+    expect(f.github.rest.git.createCommit).not.toHaveBeenCalled();
+    expect(f.github.rest.git.createRef).not.toHaveBeenCalled();
+    expect(f.github.rest.pulls.create).not.toHaveBeenCalled();
+    expect(f.github.rest.issues.addAssignees).not.toHaveBeenCalled();
+    expect(f.github.rest.actions.createWorkflowDispatch).not.toHaveBeenCalled();
+  });
+  it("creates no candidate when the checks cannot be read", async () => {
+    const f = fixture();
+    f.github.rest.actions.listWorkflowRunsForRepo.mockRejectedValue(new Error("API unavailable"));
+    await expect(prepareCandidate(f)).rejects.toThrow("API unavailable");
+    expect(f.github.rest.git.createTree).not.toHaveBeenCalled();
+    expect(f.github.rest.git.createRef).not.toHaveBeenCalled();
+    expect(f.github.rest.pulls.create).not.toHaveBeenCalled();
+  });
   it("creates a version-only PR, assigns and requests the reviewer, and explicitly starts both checks", async () => {
     const f = fixture();
     await expect(prepareCandidate(f)).resolves.toMatchObject({ version: "0.7.41", existing: false });
     expect(f.github.rest.git.createCommit).toHaveBeenCalledWith(expect.objectContaining({ parents: [sha] }));
+    expect(f.github.rest.actions.listWorkflowRunsForRepo).toHaveBeenCalledWith({ ...repo, head_sha: sha, per_page: 100 });
     expect(f.github.rest.git.createTree.mock.calls[0][0].tree.map((entry) => entry.path)).toEqual(["package.json", "package-lock.json"]);
     expect(f.github.rest.pulls.create).toHaveBeenCalledWith(expect.objectContaining({ head: "release/stable-0.7.41-123", base: "main", body: expect.stringContaining("@Rasalas") }));
+    expect(f.github.rest.pulls.create.mock.calls[0][0].body).toContain("Source CI: `ci.yml` and `performance.yml` passed on this exact commit.");
     expect(f.github.rest.issues.addAssignees).toHaveBeenCalledWith(expect.objectContaining({ assignees: ["Rasalas"] }));
     expect(f.github.rest.pulls.requestReviewers).toHaveBeenCalledWith(expect.objectContaining({ reviewers: ["Rasalas"] }));
     expect(f.github.rest.actions.createWorkflowDispatch.mock.calls.map(([args]) => args.workflow_id)).toEqual(["ci.yml", "performance.yml"]);

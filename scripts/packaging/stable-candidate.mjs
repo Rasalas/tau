@@ -2,6 +2,7 @@
 // release approval; preparing or reminding about one never publishes an app.
 import { execFileSync } from "node:child_process";
 import { appChanged, shipless, VERSION_FILES } from "../../.github/scripts/nightly-changes.mjs";
+import { verification } from "./verified-commit.mjs";
 
 export const CANDIDATE_PREFIX = "release/stable-";
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim();
@@ -49,6 +50,7 @@ export function candidatePlan({ files, readFile, previous, head, requestedVersio
 export function candidateBody({ version, previous, head, subjects, reviewer, nightly }) {
   return `## Stable ${version}\n\n@${reviewer}, this is the stable release candidate for this week. Merge this PR to approve publishing; leaving it open or closing it publishes nothing.\n\n` +
     `Prepared from [${head.slice(0, 8)}](https://github.com/Rasalas/tau/commit/${head}), since ${previous}.\n\n` +
+    `Source CI: \`ci.yml\` and \`performance.yml\` passed on this exact commit.\n\n` +
     (nightly ? `Latest nightly: [${nightly.tag_name}](https://github.com/Rasalas/tau/releases/tag/nightly), source ${nightly.target_commitish}. Confirm it covers the changes below before using it as release evidence.\n\n` : "No nightly is published yet.\n\n") +
     `## Changes\n\n${subjects.map((subject) => `- ${subject}`).join("\n")}\n\n` +
     `## Before merging\n\n- [ ] CI and performance checks are green.\n- [ ] Start a thread, choose a runtime/model, send a message and reopen the thread.\n- [ ] Check affected project/device flows in an isolated instance.\n- [ ] Larger changes have had at least a day of nightly use, or this is a targeted urgent fix.\n\n` +
@@ -84,6 +86,9 @@ export async function prepareCandidate({ github, repo, reviewer, runId, requeste
   const files = checkout.git("diff", "--name-only", previous, head).split("\n").filter(Boolean);
   const plan = candidatePlan({ files, readFile: checkout.read, previous, head, requestedVersion });
   if (!plan) return { skipped: true };
+  const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, { ...repo, head_sha: head, per_page: 100 });
+  const { verified, missing } = verification(runs, head);
+  if (!verified) return { skipped: true, reason: `Stable candidate skipped: no successful run of ${missing.join(" and ")} on ${head} yet.` };
   const subjects = [];
   for (const commit of checkout.git("rev-list", "--reverse", `${previous}..${head}`).split("\n").filter(Boolean)) {
     const changed = checkout.git("diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit).split("\n").filter(Boolean);
