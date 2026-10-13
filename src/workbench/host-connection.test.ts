@@ -21,6 +21,7 @@ interface Harness {
   calls: Array<{ method: string; params: readonly unknown[] }>;
   buffered: HostPush[];
   nextSeq: number;
+  bootId?: string;
 }
 
 function harness(): Harness {
@@ -41,7 +42,7 @@ function harness(): Harness {
           const lastSeq = (params[0] as { lastSeq?: number }).lastSeq;
           const missed = lastSeq === undefined ? [] : state.buffered.filter((push) => push.seq > lastSeq);
           const resync = lastSeq !== undefined && state.buffered.length > 0 && lastSeq < state.buffered[0]!.seq - 1;
-          return { id: "1", result: { protocol: 1, hostVersion: "0", capabilities: state.capabilities, resync, missed: resync ? [] : missed, nextSeq: state.nextSeq } };
+          return { id: "1", result: { protocol: 1, hostVersion: "0", capabilities: state.capabilities, resync, missed: resync ? [] : missed, nextSeq: state.nextSeq, ...(state.bootId ? { bootId: state.bootId } : {}) } };
         }
         if (method === "subscribe") return state.subscribe ? state.subscribe() : { id: "1", result: true };
         if (method === "bootstrap") return { id: "1", result: bootstrap };
@@ -60,6 +61,33 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 const agentStatus = (running: boolean): HostPushEvent => ({ type: "agent-status", sessionId: "s1", running });
 
 describe("host connection", () => {
+  it.each([false, true])("resyncs on a boot change before applying replay, with subscriptions %s", async (limited) => {
+    const link = harness();
+    link.bootId = "old-boot";
+    link.nextSeq = 2;
+    if (limited) link.capabilities.push("subscriptions");
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    if (limited) {
+      connection.watchThread("s1");
+      connection.limitToWatched();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    const seen: HostEvent[] = [];
+    connection.onEvent((event) => seen.push(event));
+    link.bootId = "new-boot";
+    link.buffered = [{ seq: 2, event: agentStatus(true) }];
+    link.nextSeq = 3;
+    link.reopen();
+    await vi.waitFor(() => expect(link.calls.some((call) => call.method === "bootstrap")).toBe(true));
+    expect(link.calls.filter((call) => call.method === "hello")[1]!.params[0]).toMatchObject({ lastSeq: 1, bootId: "old-boot" });
+    expect(seen.map((event) => event.type)).toEqual(["thread-index", "host-update", "host-update", "host-update"]);
+    expect(connection.getState()).toBe("connected");
+    link.push(3, agentStatus(false));
+    expect(seen.at(-1)).toEqual(agentStatus(false));
+  });
+
   it("starts at the host's current sequence and delivers pushes in order", async () => {
     const link = harness();
     link.nextSeq = 5;

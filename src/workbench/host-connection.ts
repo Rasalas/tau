@@ -54,6 +54,7 @@ export class HostRequestError extends Error {
  */
 export class HostConnection {
   private lastSeq = 0;
+  private bootId?: string;
   /** Which client this is, repeated in every hello so the host can count profiles. */
   private profile?: string;
   /** The window this renderer sits in, so the host sends the calls it causes to that window. */
@@ -404,12 +405,15 @@ export class HostConnection {
     const hello: HostHello = {
       protocol: HOST_TRANSPORT_VERSION,
       ...(lastSeq === undefined ? {} : { lastSeq }),
+      ...(lastSeq !== undefined && this.bootId ? { bootId: this.bootId } : {}),
       ...(this.profile ? { profile: this.profile } : {}),
       ...(this.windowId ? { windowId: this.windowId } : {}),
       ...(subscription ? { subscription } : {}),
     };
     const reply = decodeHostHelloReply(await this.request<unknown>("hello", [hello]));
     if (!reply) throw new HostRequestError("The host answered hello with a frame this client cannot read.", "invalid-hello");
+    const resync = reply.resync || (this.bootId !== undefined && reply.bootId !== this.bootId);
+    this.bootId = reply.bootId;
     this.capabilities = new Set(reply.capabilities);
     this.readOnly = reply.access === "read-only";
     this.owner = reply.owner;
@@ -417,22 +421,22 @@ export class HostConnection {
     this.confirmed = reply.capabilities.includes(HOST_CAPABILITY.subscriptions) ? subscription : undefined;
     this.requested = this.confirmed && JSON.stringify(this.confirmed);
     // A snapshot of a thread this client did not follow would miss what streams until it subscribes.
-    if (reply.resync && this.confirmed) return this.hello(undefined, true);
+    if (resync && this.confirmed) return this.hello(undefined, true);
     if (reply.hostVersion !== this.hostVersion) {
       this.hostVersion = reply.hostVersion;
       for (const listener of this.helloListeners) listener();
     }
     if (lastSeq === undefined) {
       // A first connection starts from the bootstrap it is about to fetch.
-      if (restart) await this.startOver();
+      if (restart || resync) await this.startOver();
       this.lastSeq = reply.nextSeq - 1;
       this.setState("connected");
       return reply;
     }
-    for (const push of reply.missed) if (push.seq > this.lastSeq) this.apply(push);
+    if (!resync) for (const push of reply.missed) if (push.seq > this.lastSeq) this.apply(push);
     // A filtered replay may end before the host's newest push; nothing after it was for this client.
-    if (this.confirmed && !reply.resync) this.lastSeq = Math.max(this.lastSeq, reply.nextSeq - 1);
-    if (reply.resync) {
+    if (this.confirmed && !resync) this.lastSeq = Math.max(this.lastSeq, reply.nextSeq - 1);
+    if (resync) {
       await this.startOver();
       this.lastSeq = reply.nextSeq - 1;
     }

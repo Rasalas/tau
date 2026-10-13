@@ -21,12 +21,14 @@ const methods: HostMethodTable = {
 
 let transport: SocketHostTransport | undefined;
 const sockets: WebSocket[] = [];
+const bootIds = new Map<number, string>();
 
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.close();
   await transport?.close();
   transport = undefined;
   vi.unstubAllEnvs();
+  bootIds.clear();
 });
 
 async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allowNonLoopback = false, clients?: HostClientRegistry) {
@@ -40,6 +42,7 @@ async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allo
     token: TOKEN,
     ...(clients ? { clients } : {}),
   });
+  bootIds.set(transport.port, pushLog.bootId);
   return { transport, pushLog };
 }
 
@@ -80,10 +83,13 @@ async function hello(port: number, token: string, lastSeq?: number, profile?: st
   socket.send(JSON.stringify({ type: "hello", id: "h", hello: {
     protocol: HOST_TRANSPORT_VERSION,
     token,
-    ...(lastSeq === undefined ? {} : { lastSeq }),
+    ...(lastSeq === undefined ? {} : { lastSeq, bootId: bootIds.get(port) }),
     ...(profile === undefined ? {} : { profile }),
   } }));
-  return { socket, frame: nextFrame(socket) };
+  return { socket, frame: nextFrame(socket).then((frame) => {
+    if (frame.type === "hello-reply" && frame.reply.bootId) bootIds.set(port, frame.reply.bootId);
+    return frame;
+  }) };
 }
 
 describe("socket host transport", () => {
@@ -616,7 +622,7 @@ describe("socket host transport and the coalescer", () => {
       socket.send(JSON.stringify({ type: "hello", id: "h", hello: {
         protocol: HOST_TRANSPORT_VERSION, token: TOKEN,
         ...(subscription ? { subscription } : {}),
-        ...(lastSeq === undefined ? {} : { lastSeq }),
+        ...(lastSeq === undefined ? {} : { lastSeq, bootId: bootIds.get(port) }),
       } }));
       await vi.waitFor(() => expect(frames[0]?.type).toBe("hello-reply"));
       const pushes = () => frames.flatMap((frame) => frame.type === "push" ? [frame.push] : []);

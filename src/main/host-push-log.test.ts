@@ -8,6 +8,27 @@ const options = { hostVersion: "1.2.3", capabilities: ["jobs"] };
 const delta = (sessionId: string, text: string) => ({ type: "assistant-delta" as const, sessionId, id: "a", delta: text });
 
 describe("host push log", () => {
+  it.each([0, 1, 2, 3])("resyncs a previous boot's cursor when the new host has %i pushes", (count) => {
+    const previous = new HostPushLog();
+    previous.record(event("old"));
+    const oldReply = helloReply(previous, { protocol: HOST_TRANSPORT_VERSION }, options);
+    const current = new HostPushLog();
+    for (let index = 0; index < count; index += 1) current.record(event("new"));
+    const cursor = { protocol: HOST_TRANSPORT_VERSION, lastSeq: 1, bootId: oldReply.bootId };
+    expect(helloReply(current, cursor, options)).toMatchObject({ resync: true, missed: [], nextSeq: count + 1 });
+  });
+
+  it("resyncs a cursor without a boot identity, including sequence zero", () => {
+    const log = new HostPushLog();
+    for (const lastSeq of [0, 1]) {
+      expect(helloReply(log, { protocol: HOST_TRANSPORT_VERSION, lastSeq }, options)).toMatchObject({ resync: true, missed: [] });
+    }
+    const fresh = helloReply(log, { protocol: HOST_TRANSPORT_VERSION }, options);
+    expect(fresh).toMatchObject({ resync: false, missed: [], bootId: log.bootId });
+    expect(log.bootId).not.toBe(new HostPushLog().bootId);
+    expect(helloReply(log, { protocol: HOST_TRANSPORT_VERSION, lastSeq: 0, bootId: fresh.bootId }, options).resync).toBe(false);
+  });
+
   it("sequences client-only relays without replaying them or marking their eviction as a gap", () => {
     const log = new HostPushLog(1);
     log.record(event("private first"), { replay: false });
@@ -64,7 +85,7 @@ describe("host push log", () => {
     const log = new HostPushLog();
     log.record(event("a"));
     log.record(event("b"));
-    const reply = helloReply(log, { protocol: HOST_TRANSPORT_VERSION, lastSeq: 1 }, options);
+    const reply = helloReply(log, { protocol: HOST_TRANSPORT_VERSION, lastSeq: 1, bootId: log.bootId }, options);
     expect(reply).toMatchObject({ protocol: 1, hostVersion: "1.2.3", capabilities: ["jobs"], resync: false, nextSeq: 3 });
     expect(reply.missed.map((push) => push.seq)).toEqual([2]);
   });
@@ -77,7 +98,7 @@ describe("host push log", () => {
     log.record(delta("other", "c"));
     const filter = new HostPushFilter({ threads: ["shown"], topics: [] });
     expect(log.since(0, filter).missed.map((push) => push.seq)).toEqual([1, 3]);
-    const reply = helloReply(log, { protocol: HOST_TRANSPORT_VERSION, lastSeq: 1 }, options, filter);
+    const reply = helloReply(log, { protocol: HOST_TRANSPORT_VERSION, lastSeq: 1, bootId: log.bootId }, options, filter);
     expect(reply.missed.map((push) => push.seq)).toEqual([3]);
     expect(reply.nextSeq).toBe(5);
   });

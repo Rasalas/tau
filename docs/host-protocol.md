@@ -109,7 +109,7 @@ Neither method accepts attachments. `prompt` starts a turn or follows a running
 one; `steer` joins a running turn now; `queue` waits in the thread's visible
 queue until its turn ends.
 
-A connection opens with `hello { protocol, token?, lastSeq?, subscription? }`. The reply names
+A connection opens with `hello { protocol, token?, lastSeq?, bootId?, subscription? }`. The reply names
 the host version, its capabilities (`jobs`, `replay`, `local-files`, `heartbeat`, `subscriptions`), the pushes
 the client missed, and `resync: true` when it cannot be repaired from the
 buffer. The host numbers every push and keeps the latest 8 MB of them
@@ -117,6 +117,14 @@ buffer. The host numbers every push and keeps the latest 8 MB of them
 gap in `seq` re-hellos with its `lastSeq`, applies what comes back, and on a
 resync refetches the bootstrap. `HostConnection` in the renderer owns that and
 reports `connected`, `reconnecting` or `resyncing`.
+
+The reply also carries `bootId`, a random identity for the host's push log.
+A reconnect returns it alongside `lastSeq`. A cursor with a missing or different
+boot identity gets `resync: true` and no replay, even when the new host's sequence
+has already passed the old cursor. Clients resync on a changed boot identity
+before applying missed pushes. The phone keeps both fields with each cached
+machine index. Older hosts may omit `bootId`; their restart detection remains
+limited to sequence gaps.
 
 ### A link that dies without a close
 

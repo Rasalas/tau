@@ -178,6 +178,8 @@ export interface HostHello {
   token?: string;
   /** Highest sequence the client has seen; absent for a first connection. */
   lastSeq?: number;
+  /** The boot that numbered `lastSeq`, returned by the previous hello. */
+  bootId?: string;
   /** Which client this is (`desktop`, `web`, `compact`), for a host extension that counts them. */
   profile?: string;
   /**
@@ -212,7 +214,9 @@ export interface HostHelloReply {
   protocol: number;
   hostVersion: string;
   capabilities: string[];
-  /** True when the client's `lastSeq` fell out of the buffer: refetch everything. */
+  /** Random identity of this host's push log; changes when the host restarts. */
+  bootId?: string;
+  /** True when the cursor belongs to another boot or fell out of the buffer: refetch everything. */
   resync: boolean;
   missed: HostPush[];
   /** Sequence the next push will use, so a resyncing client can skip ahead. */
@@ -380,6 +384,7 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
   if (!item || item.protocol !== HOST_TRANSPORT_VERSION) return undefined;
   if (item.token !== undefined && typeof item.token !== "string") return undefined;
   if (item.lastSeq !== undefined && !Number.isSafeInteger(item.lastSeq)) return undefined;
+  if (item.bootId !== undefined && !nonEmptyString(item.bootId)) return undefined;
   if (item.profile !== undefined && typeof item.profile !== "string") return undefined;
   if (item.auxiliary !== undefined && typeof item.auxiliary !== "boolean") return undefined;
   if (item.windowId !== undefined && !(nonEmptyString(item.windowId) && item.windowId.length <= MAX_WINDOW_ID)) return undefined;
@@ -390,6 +395,7 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
     protocol: HOST_TRANSPORT_VERSION,
     ...(typeof item.token === "string" ? { token: item.token } : {}),
     ...(typeof item.lastSeq === "number" ? { lastSeq: item.lastSeq } : {}),
+    ...(typeof item.bootId === "string" ? { bootId: item.bootId } : {}),
     ...(typeof item.profile === "string" ? { profile: item.profile } : {}),
     ...(item.auxiliary === true ? { auxiliary: true } : {}),
     ...(typeof item.windowId === "string" ? { windowId: item.windowId } : {}),
@@ -478,6 +484,7 @@ export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined
   if (!item || item.protocol !== HOST_TRANSPORT_VERSION) return undefined;
   if (typeof item.hostVersion !== "string" || typeof item.resync !== "boolean") return undefined;
   if (!Number.isSafeInteger(item.nextSeq)) return undefined;
+  if (item.bootId !== undefined && !nonEmptyString(item.bootId)) return undefined;
   if (!Array.isArray(item.capabilities) || !item.capabilities.every((entry) => typeof entry === "string")) return undefined;
   const missedFrames = Array.isArray(item.missed) ? item.missed.map(decodeHostPush) : [];
   if (missedFrames.some((push) => push === undefined)) return undefined;
@@ -488,6 +495,7 @@ export function decodeHostHelloReply(value: unknown): HostHelloReply | undefined
     resync: item.resync,
     missed: missedFrames as HostPush[],
     nextSeq: item.nextSeq as number,
+    ...(typeof item.bootId === "string" ? { bootId: item.bootId } : {}),
     ...(item.access === "read-only" ? { access: "read-only" as const } : {}),
     ...(typeof item.owner === "boolean" ? { owner: item.owner } : {}),
     ...(decodeHostIdentity(item.host) ?? {}),
