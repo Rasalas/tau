@@ -496,6 +496,92 @@ describe("SubmissionController", () => {
     expect(untouched.client.calls.find((call) => call.method === "newSession")?.args[2]).toBe("/project");
   });
 
+  describe("a first prompt whose gate prepares a worktree", () => {
+    const WORKTREE = { workspaceId: "ws1_worktree", displayPath: "/project-worktrees/fix-queue" };
+    const draftRows = (view: ThreadViewStore) => view.getOptimisticMessages().filter((entry) => entry.message.role === "user");
+
+    function gated(client: Partial<HostClient> = {}, image?: UiPromptAttachment) {
+      let finish!: (gate: { workspace: typeof WORKTREE } | undefined) => void;
+      const gate = new Promise<{ workspace: typeof WORKTREE } | undefined>((resolve) => { finish = resolve; });
+      const prepareNewThread = vi.fn(async (event: { preparing(message: string): void }) => {
+        event.preparing("Setting up worktree…");
+        return gate;
+      }) as unknown as ExtensionRegistry["prepareNewThread"];
+      const made = harness({ pending: DRAFT, prepareNewThread, client });
+      const submit = (text = "fix the queue") => made.submission.submit({ text, ...(image ? { attachments: [image] } : {}) });
+      return { ...made, prepareNewThread, finish, submit };
+    }
+
+    it("shows the prompt, with its images, while the worktree is made, and keeps one row once the thread starts", async () => {
+      const image: UiPromptAttachment = { kind: "image", name: "shot.png", mimeType: "image/png", data: "AAAA", size: 3 };
+      const { view, state, finish, submit, prepareNewThread } = gated({
+        newSession: async () => ({
+          version: 1,
+          submission: { accepted: true },
+          sessionId: "created",
+          updates: [{ version: 1, type: "thread-detail", detail: { sessionId: "created", messages: [], isStreaming: true, activeTools: [] } }],
+        }),
+      }, image);
+      const sending = submit();
+      await vi.waitFor(() => expect(prepareNewThread).toHaveBeenCalledOnce());
+
+      expect(draftRows(view)).toEqual([expect.objectContaining({
+        scope: draftKey(undefined, DRAFT),
+        message: expect.objectContaining({ text: "fix the queue", images: [{ mimeType: "image/png", data: "AAAA" }] }),
+      })]);
+      const [{ message: shown }] = draftRows(view);
+
+      finish({ workspace: WORKTREE });
+      await sending;
+
+      expect(state.pending?.projectPath).toBe(WORKTREE.displayPath);
+      const rows = draftRows(view);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.message.id).toBe(shown.id);
+      expect(rows[0]!.scope).toBe("session:created");
+    });
+
+    it("takes the prompt back and restores it to the composer when the gate breaks", async () => {
+      const { submission, view, scopes } = harness({
+        pending: DRAFT,
+        prepareNewThread: (async () => { throw new Error("gate broke"); }) as unknown as ExtensionRegistry["prepareNewThread"],
+      });
+      const scope = createDraftKey(draftKey(undefined, DRAFT));
+      scopes.setDraft(scope, "fix the queue");
+      const handle = scopes.beginSubmission(scope);
+      if (!("text" in handle)) throw new Error("expected a submission handle");
+      expect(scopes.getSnapshot(scope).draft).toBe("");
+
+      await expect(submission.submit({ text: handle.text })).rejects.toThrow("gate broke");
+      handle.settle({ accepted: false, message: "gate broke" });
+
+      expect(draftRows(view)).toEqual([]);
+      expect(scopes.getSnapshot(scope).draft).toBe("fix the queue");
+    });
+
+    it("takes the prompt back and restores it, in the moved draft, when the thread cannot start", async () => {
+      const { view, scopes, finish, submit, prepareNewThread } = gated({
+        newSession: async () => { throw new Error("no runtime"); },
+      });
+      const scope = createDraftKey(draftKey(undefined, DRAFT));
+      scopes.setDraft(scope, "fix the queue");
+      const handle = scopes.beginSubmission(scope);
+      if (!("text" in handle)) throw new Error("expected a submission handle");
+      const sending = submit(handle.text);
+      await vi.waitFor(() => expect(prepareNewThread).toHaveBeenCalledOnce());
+      expect(draftRows(view)).toHaveLength(1);
+
+      finish({ workspace: WORKTREE });
+      const result = await sending;
+      handle.settle(result);
+
+      expect(result.accepted).toBe(false);
+      expect(draftRows(view)).toEqual([]);
+      const moved = createDraftKey(draftKey(undefined, { ...DRAFT, workspaceId: WORKTREE.workspaceId, projectPath: WORKTREE.displayPath }));
+      expect(scopes.getSnapshot(moved).draft).toBe("fix the queue");
+    });
+  });
+
   it("lets an extension take a new thread's first prompt, and keeps the draft for the next one", async () => {
     const claimNewThread = vi.fn(async (event: { alternate: boolean; runtime: string; model?: unknown; attachments: number }) => event.alternate) as unknown as ExtensionRegistry["claimNewThread"];
     const snapshot = { ...SESSION_SNAPSHOT, model: { provider: "openai", id: "gpt-5.6-luna", name: "Luna" } } as HostSnapshot;
