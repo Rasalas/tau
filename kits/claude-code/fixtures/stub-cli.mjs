@@ -17,6 +17,8 @@
 // with `mcp <tool> [{json arguments}]` calls that tool on the HTTP server the SDK registered over
 // the control channel (`mcp_set_servers`; none on the command line) and says
 // what came back. STUB_CLI_LOG gets the registered server names.
+// `[scenario:background]` starts a required build, `[scenario:service]` starts
+// a checked devserver, and `[scenario:reported]` reports the build's result.
 // STUB_CLI_AI_TITLE (or the file stub-ai-title.txt in its home, for a host
 // that passes the CLI a filtered environment) is the name the CLI gives the
 // session: written a second into the first turn, as the real CLI's `aiTitle`.
@@ -45,7 +47,8 @@ function streamTurns() {
   const model = models[0].value;
   const send = (frame) => process.stdout.write(`${JSON.stringify({ uuid: randomUUID(), session_id: sessionId, ...frame })}\n`);
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const assistant = (content) => send({ type: "assistant", parent_tool_use_id: null, message: { id: `msg_${randomUUID()}`, type: "message", role: "assistant", model, content, stop_reason: null, usage: { input_tokens: 1, output_tokens: 1 } } });
+  let callContext = 0;
+  const assistant = (content) => send({ type: "assistant", parent_tool_use_id: null, message: { id: `msg_${randomUUID()}`, type: "message", role: "assistant", model, content, stop_reason: null, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: callContext } } });
   const result = (id, content, isError = false) => send({ type: "user", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] } });
   const account = { ...status(), tokenSource: "apiKey" };
   let turn = Promise.resolve();
@@ -111,12 +114,45 @@ function streamTurns() {
   }
 
   async function compact() {
-    await sleep(300);
+    send({ type: "system", subtype: "status", status: "compacting" });
+    const delayFile = join(home, "stub-compact-delay.txt");
+    await sleep(existsSync(delayFile) ? Math.min(Number(readFileSync(delayFile, "utf8")) || 300, 60_000) : 300);
+    send({ type: "system", subtype: "status", status: null });
     send({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 150_000, post_tokens: 4_000 } });
-    send({ type: "result", subtype: "success", is_error: false, num_turns: 0, result: "", duration_ms: 300, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: { [model]: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, contextWindow: 200_000 } }, permission_denials: [] });
+    send({ type: "result", subtype: "success", is_error: false, num_turns: 0, local_command: "compact", result: "", duration_ms: 300, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: { [model]: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, contextWindow: 200_000 } }, permission_denials: [] });
   }
 
   async function play(prompt) {
+    callContext = /\blong\b/iu.test(prompt) ? 150_000 : 0;
+    if (/\[scenario:(?:auth-(parent|child)|agents)\]/u.test(prompt)) {
+      const agents = prompt.includes("[scenario:agents]");
+      const child = agents || prompt.includes("[scenario:auth-child]");
+      for (let index = 1; index <= 3; index += 1) {
+        assistant([{ type: "tool_use", id: `auth-call-${index}`, name: "Agent", input: { description: `Review ${index}`, run_in_background: true } }]);
+        send({ type: "system", subtype: "task_started", task_id: `auth-task-${index}`, tool_use_id: `auth-call-${index}`, task_type: "local_agent", is_backgrounded: true, description: `Review ${index}` });
+      }
+      if (child) {
+        assistant([{ type: "text", text: "Delegated." }]);
+        send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: "Delegated.", total_cost_usd: 0, usage: {}, modelUsage: {} });
+      }
+      if (agents) return;
+      await sleep(100);
+      send({ type: "assistant", error: "authentication_failed", parent_tool_use_id: child ? "auth-call-1" : null, message: { id: randomUUID(), type: "message", role: "assistant", model, content: [{ type: "text", text: "Failed to authenticate: OAuth session expired and could not be refreshed" }], usage: {} } });
+      // No result or task notifications follow: Tau must stop the session.
+      return;
+    }
+    if (/\[scenario:(background|service|reported)\]/u.test(prompt)) {
+      const service = prompt.includes("[scenario:service]");
+      if (prompt.includes("[scenario:reported]")) {
+        send({ type: "system", subtype: "task_notification", task_id: "stub-build", status: "completed", output_file: "", summary: "Build passed" });
+      } else {
+        send({ type: "system", subtype: "task_started", task_id: service ? "stub-service" : "stub-build", tool_use_id: "stub-background-call", task_type: "local_bash", is_backgrounded: true, description: service ? "Checked devserver" : "Run the full test suite" });
+      }
+      const text = service ? "The devserver is ready." : "The build belongs to the request.";
+      assistant([{ type: "text", text }]);
+      send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: text, duration_ms: 1, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: {}, permission_denials: [] });
+      return;
+    }
     if (prompt.trim() === "/compact") return compact();
     if (/\bask\b/iu.test(prompt)) return askColor();
     if (/\bmcp\b/iu.test(prompt)) return callMcp(prompt);

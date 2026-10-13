@@ -126,7 +126,7 @@ describe("Project Scripts desktop", () => {
     kit.push(RUN_EVENT, run({ scriptId: "test", name: "Test", command: "npm test", status: "failed", exitCode: 2, endedAt: 2_001, output: "1 failing\n", outputLength: 10 }));
     expect(await screen.findByText(/exit 2/u)).toBeTruthy();
     expect(screen.getByLabelText("Test output").textContent).toContain("1 failing");
-    expect(kit.notify).toHaveBeenCalledWith("Test exited with 2.");
+    expect(kit.notify).toHaveBeenCalledWith("Test exited with 2.", "error");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss Test" }));
     expect(kit.invoke).toHaveBeenCalledWith(PROJECT_SCRIPTS_HOST_EXTENSION_ID, "dismiss", { runId: "run-1" });
     expect(screen.queryByRole("button", { name: "Dismiss Test" })).toBeNull();

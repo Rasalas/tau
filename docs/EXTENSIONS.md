@@ -38,8 +38,10 @@ you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
    [types](#types-for-a-package-of-your-own) in.
 
 **Project trust.** Packages in `<project>/.tau/packages.json` or
-`<project>/.tau/extensions` load only where Pi trusts the project. In a project
-Pi does not trust they are listed in Settings → Extensions as *Skipped:
+`<project>/.tau/extensions` load only in a trusted project. Automatic
+setup commands in `.tau/project.json` require a separate approval of the current
+definitions, owned by Workspace Kit. See [the project file](project-file.md#the-worktree-setup).
+In an untrusted project, packages are listed in Settings → Extensions as *Skipped:
 project not trusted*, the install toast says so, and **Trust this project**
 (in that toast, or in Settings → Packages) records the trust in Pi's
 `trust.json` through Pi's own store, the way Pi's `/trust` does; the packages
@@ -284,7 +286,11 @@ over a default on the same chord instead of colliding with it. Keybindings Kit
 uses it for the actions the user rebound in `~/.pi/agent/keybindings.json`:
 someone who wrote `app.session.new` there meant that key, not that key and
 Tau's default too. Without `replaces`, a binding is additive, which is what a
-package adding a chord of its own wants.
+package adding a chord of its own wants. When `replaces` names a command other
+than the binding's own (Thread Rail's "Settle or un-settle thread" replaces
+Workspace Kit's "Settle thread"), the named command is a stand-in: the palette
+and the keymap list only the replacement while it is registered, and the stand-in
+still runs by its id (API 1.61.0).
 
 `registerUserKeymap({ id, label, setChords, resetAll })` (new in API 1.12.0)
 offers the file Settings → Keybindings writes the chords the user records.
@@ -316,14 +322,24 @@ keyboard, so a chord native editing shares yields to it — Thread Rail's
 holds while an overlay is drawn: anything with `aria-modal="true"`, a
 `role="dialog"`, `"alertdialog"` or `"menu"`, an app page (`registerPage`),
 or an element marked `data-overlay`. A non-modal tool window that stays open beside the work (the
-theme editor) opts out with `data-overlay="false"`. A clause Tau cannot read
+theme editor) opts out with `data-overlay="false"`. `isDesktop` (new in API 1.61.0)
+is the one context the client answers, not the page: true in the Electron window,
+false in a browser tab and on a phone or tablet. A browser keeps some chords for
+its own tabs and windows (⌘W, ⌘N, ⇧⌘N, ⇧⌘T, Ctrl+Tab) and never hands them to the
+page, and ⌘1–⌘9 switch its tabs, so bind those `&& isDesktop` and give a tab another
+chord with `!isDesktop`. A binding whose clause cannot hold on this client is not bound at
+all: the keymap, the hints (`keybindingLabel`) and the conflict check list only
+the chords that work here, and a chord you rebind without `when` takes the
+clause of the default that is live on this client. A clause Tau cannot read
 throws at registration.
 
 Escape belongs to the topmost overlay. `Dialog`, `Popover` and `Menu` close
 the newest open one on Escape and consume the key; an overlay of your own
 joins them with `useEscapeLayer`, or closes itself in its own key handler. Either way no chord without a modifier
 runs while an overlay was open when the key went down, so core's Escape
-(`runtime.abort`, under `chatFocus`) never stops a turn behind a picker.
+(`runtime.abort`, under `chatFocus`) never stops a turn behind a picker. Over
+an open tool approval in the chat (the card core draws for a `confirm` or an
+Allow / Deny `select`) Escape presses its Deny first and the run goes on.
 
 A clause that needs a context — false when nothing is focused or open, like
 `terminalFocus` but unlike `!terminalFocus` — makes the binding *specific*. On
@@ -495,6 +511,14 @@ order, and the workbench's actions. Core never folds, groups or hides a card,
 so a card is what to reach for when the thing a tool started outlives the turn
 that started it; Agents Kit's spawn card is the caller that motivated it. A
 tool a card claims is not offered to `registerToolRenderer`.
+
+From API 1.61.0, a card may also define `transcriptRows({ tools, messages,
+actions })`. This pure function receives all of the card's tools in the loaded
+conversation, with each tool id present once, and returns additional
+`TranscriptRow`s. Core places their message anchors; unloaded anchors remain
+hidden. Agents Kit uses this for return notices while keeping its launch card
+at the original call. Keep the row ids and return data stable across updates
+and save the data with the tool so the notices survive reopening the thread.
 
 `UiToolRun.extras` (new in API 1.59.0) is JSON a kit attaches to a
 tool run, a plain object of 4 KB or less (a larger one is dropped when the
@@ -881,6 +905,13 @@ flashes) and false when the thread has no such message. Prompt Tools' "Cite"
 records the cited reply's id in the excerpt chip (`messageId`), and the sent
 excerpt's "Go to source" calls it.
 
+`actions.findInThread?.()` (API 1.61.0) opens the find bar over the transcript of
+the thread on screen, or moves the keyboard back into it when it is open. Core's
+command `thread.find` ("Find in thread", `mod+f` outside a terminal, the preview,
+the Files editor and an open overlay) calls it, so a package can run it by
+`executeCommand` or rebind the chord. Nothing happens without a transcript on
+screen.
+
 #### The thread's interaction mode (new in API 1.11.0)
 
 A thread's turns run in a mode: `default`, or one its runtime adds — `plan`
@@ -1230,7 +1261,9 @@ panel over the machine's own files or a native view over the window is
 desktop-only, and saying so is the correct answer, not a gap.
 
 Commands, palette sources, keybindings, slash commands, prompt hooks and services carry no
-profile: they are not surfaces, and they work wherever the workbench does. See
+profile: they are not surfaces, and they work wherever the workbench does. (A keybinding
+can still say which kind of client its chord is for: `isDesktop` in its `when`, see
+"Keybindings".) See
 [ADR 0016](adr/0016-client-profiles.md).
 
 `styles` is not compiled: the loader reads the file, the host publishes it
@@ -1679,15 +1712,15 @@ are Tau's own, not a component library; the reasons and the numbers are in
 
 | Export | What it does |
 |---|---|
-| `Menu` | `items` or `sections` (`MenuSection`: an optional `heading` and `MenuItem`s). Arrows, Home and End move between the enabled items, typing jumps to an item by its label, Enter or a click picks one, Escape and Tab close it, and focus goes back to whatever had it when it opened — the trigger, usually. Opened from the keyboard it focuses its first item (or the `selected` one), opened by a click it takes focus itself. A `MenuItem` with `submenu: MenuSection[]` opens beside it on ArrowRight, Enter or hover, and ArrowLeft comes back. It flips above its anchor or slides sideways to stay inside the window. With `at: { x, y }` it opens at that point over the whole window instead of inside the trigger's `.menu-anchor`; `label` names it for a screen reader when no heading does. |
+| `Menu` | `items` or `sections` (`MenuSection`: an optional `heading` and `MenuItem`s). Arrows, Home and End move between the enabled items, typing jumps to an item by its label, Enter or a click picks one, Escape and Tab close it, and focus goes back to whatever had it when it opened — the trigger, usually. Opened from the keyboard it focuses its first item (or the `selected` one), opened by a click it takes focus itself. A `MenuItem` with `submenu: MenuSection[]` opens beside it on ArrowRight, Enter or hover, and ArrowLeft comes back. A `MenuItem` whose `selected` is set, true or false, is a radio item for a screen reader (`menuitemradio`, `aria-checked`); one with a `submenu` stays a plain item. It flips above its anchor or slides sideways to stay inside the window. With `at: { x, y }` it opens at that point over the whole window instead of inside the trigger's `.menu-anchor`; `label` names it for a screen reader when no heading does. |
 | `useContextMenu()` | `(event, sections) => Promise<string \| undefined>` for an `onContextMenu` handler: the OS draws the menu where the client's platform offers one (Electron's `Menu.popup`, through the client-side `context-menu` method), the page draws a `Menu` at the pointer everywhere else — the browser client, a test — and when the OS refuses. It answers the chosen item's id, or `undefined`. Headings become macOS menu headers, `selected` a check mark, a `badge` part of the label; a lucide `icon` becomes a template image in the OS menu and a `hint` that names a shortcut its accelerator label (API 1.36.0; Windows and Linux show no icons yet); descriptions stay in the page's version. Opened from the keyboard (Shift-F10, the menu key) it opens under the element instead of at 0,0. Workspace Kit's rail rows are the shipped caller. |
 | `tooltipProps(text, options?)`, `Tooltip` | A tooltip on any element: spread `tooltipProps("Settle thread", { shortcut: "⌘S", side: "bottom" })` on it, or wrap it in `<Tooltip content="…">`. Both only set `data-tooltip` (and `data-tooltip-side`, `-shortcut`, `-when`, `-variant`), which core's one `TooltipLayer` reads from the document, so a list of a thousand rows costs attributes, not components. It opens after the pointer rests for 600 ms, at once while another tooltip was open in the last 400 ms, at once on keyboard focus, and closes on Escape, a press, a scroll that moves its element or leaving. `when: "truncated"` shows it only while the element's own text is cut off (a thread title); `variant: "code"` sets it in the monospace face (a path); `variant: "lines"` keeps the text's line breaks, for a few lines of details (a rail row's hover card). A trigger whose `aria-label` differs from the text gets `aria-describedby` while it shows. Use it instead of `title=`, whose OS tooltip waits a second and cannot show a shortcut. The compact profile leaves the shortcut out, as it does any element of class `keyboard-hint`: put that class on a chord or key help a package draws itself (`esc`, `↑↓ navigate`). |
-| `actions.toast(options)` | A toast on the window's stack, bottom right beside the composer, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`, `question` (API 1.37.0) for something that waits for the user's answer; the icon, and an `error` is an ARIA alert), `title` and `description` (one line, joined by a dot), `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message)` is still the one-line way: every notice is a toast. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
+| `actions.toast(options)` | A toast on the window's stack, bottom right beside the composer, and a handle with `update(patch)` and `dismiss()`. `ToastOptions`: `type` (`info`, `success`, `warning`, `error`, `loading`, `question` (API 1.37.0) for something that waits for the user's answer; the icon, and an `error` is an ARIA alert), `title` and `description` (one line, joined by a dot), `actions` (`{ label, run, keepOpen? }` buttons; a click runs and closes unless `keepOpen`), `copyText` (a copy button), `timeoutMs` (5,000 by default; 0 keeps it until dismissed; an `error` without one stays until dismissed and offers Copy of its text, new in API 1.60.0; a `loading` toast waits until it is updated to another type), `id` (showing it again replaces the toast and starts its time again) and `onClose`. Three are visible, newest in front, the rest waiting with their clocks stopped; the time runs only while nobody hovers or focuses the stack and the window is visible, and F6 moves focus into it. `actions.notify(message, level?)` is still the one-line way: every notice is a toast. `level` is `info` (the default), `warning` or `error` (the optional second argument is new in API 1.60.0; a call with one argument works as before): report a failure as `error`, so it stays until dismissed and can be copied, and keep command ids, hook ids and a leading `Error: ` out of the text. The `onNotify` of a settings page and section takes the same `level`. Thread Rail's undo is a toast whose `timeoutMs` is 0 and whose own undo window dismisses it. |
 | `MiddleTruncate`, `splitMiddle` | `<MiddleTruncate value={branch} />` cuts in the middle, as Finder does, for values that mean something at both ends — branches, paths, shas: a head that ellipsizes and a tail that stays (a short last path segment, else `tail` characters, 10 by default). No measuring and inline styles only, so it costs what an end cut costs in a long list; both halves are real text, so copy and screen readers get the whole value. Other props go to the outer `span`. `splitMiddle(value, tail?)` answers the cut, or `undefined` when the value is too short to be worth one. The rail's branch line uses it. |
 | `PrivateAccountText` | `<PrivateAccountText text={accountLabel} />` preserves surrounding text and replaces each email address with a blurred random placeholder. Clicking or keyboard activation reveals the real address; activating again hides it. Hidden addresses never enter DOM text or attributes. A changed address starts hidden. Available in API 1.40.0. |
 | `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. With `className` `confirm-dialog` it is the workbench's card: a `h2`, the text, and a `footer` (direct or in a `form`) drawn as a bar with plain buttons and `primary`/`danger` ones as pills. |
 | `ConfirmDialog` | A yes-or-no question on `Dialog`: `title`, `message`, `confirmLabel` (`destructive` draws it red; `icon` goes before its label, API 1.38.0), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
-| `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. |
+| `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. Opened from the keyboard it takes focus on its first control, opened by a press on itself (unless a control inside already has it), so Tab and a screen reader continue inside; `takeFocus={false}` (API 1.61.0) leaves focus where it is, for a card that opens on hover and only previews. |
 | `Sheet` | A modal sheet from the bottom edge for a compact client (phone, tablet), where a desktop would use a `Dialog` or a `Popover`: `title`, `className`, `onClose` and the content as children. It has a grip, the title and a 44 px close button on top; the content scrolls under them. The X, Escape, the scrim and a pull down close it; the pull starts anywhere but on a control, and inside the content only once it is scrolled to the top. Review Kit's filters for the Pull Requests page on a phone use it. |
 | `SandboxFrame`, `useColorScheme()` | New in API 1.59.0. A document a host serves, drawn in an opaque-origin frame (ADR 0032). `src` is the capability URL (`host.resourceUrl(path)`); the frame keeps the first non-empty one for its whole life, because a changed `src` would reload the app, and renders nothing while it is `undefined`. `title`, `permissions` (`SandboxFramePermissions`, becomes the `allow` attribute and nothing else is delegated), `height` (what the document asked for, clamped to 80..2000 px, 320 by default, `clampFrameHeight` is exported), `bordered`, `label`, `stoppedLabel`, `onWidth(width)` (the box's width in CSS px as it changes). The frame is `sandbox="allow-scripts allow-forms"`: never `allow-same-origin`, popups or top navigation, no `srcdoc`, `referrerPolicy="no-referrer"`. `onMessage(data)` hears only messages whose `event.source` is this frame's own window; answer with `handleRef`'s `post(message)`, which targets `"*"` (an opaque origin has no other target) and does nothing before the document loaded or spoke, after it stopped or after unmount. The frame is locked to the document that was served: a second `load` means it navigated itself away, so `onStopped()` runs, a notice replaces the frame and nothing more is delivered; mount it again with a different `key` to open the document anew. The handle also has `hasUserActivation()` (true only while the frame has focus and `navigator.userActivation.isActive`: the one moment to open a link the app asked for, through your own code), `width()` and `size()`. `fullscreen` is controlled: the same box moves to the top layer with the Popover API, so the iframe is not reloaded and the app keeps its state; Escape pressed outside the document, focus moving outside the box and the exit button call `onFullscreenChange(false)`, and where the browser has no Popover API the frame ignores `fullscreen` and stays inline. `useColorScheme()` answers `"light"` or `"dark"` for the workbench, live (theme, a custom theme's `color-scheme`, the OS preference); the frame sets its `color-scheme` from it and tells the document on every change after it loaded (the bootstrap the host serves with it listens for that message, from its parent only). |
 | `FileSource` | A text file as a file tab shows it (API 1.20.0): `content` (a `UiFileContent` of kind `text`, as a document source's `loadFile` answers), line numbers, highlighting while the file is under 200 KB and its language known, the note for a truncated file, and `line` marked and scrolled to (`reveal` counts requests for the same line). The Files panel reads a file with it in a phone's sheet. |
@@ -1710,9 +1743,10 @@ Since API 1.27.0 the frame draws the workbench design's card (1n). Its head
 says what it is — `kind` `"question"` (the default) or `"approval"` — then
 `from`, who asks, and `pick` (`"one"` or `"any"`) at the right; `title` is the
 question under it, and an approval's `message` is its subject in mono (a path,
-a command). `hint` opens the foot ("Or type an answer below"), `footer` sits
-before the primary action, and `submit` (`{ label, disabled?, enter?,
-onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
+a command; core's card puts one of 48 characters or fewer in the head and
+a longer or multi-line one in a scrolling body). `hint` opens the foot ("Or
+type an answer below"), `footer` sits before the primary action, and
+`submit` (`{ label, disabled?, enter?, onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
 composer's Enter does the same (register it with `usePromptSubmit` too);
 `enter: "mod"` draws ⌘⏎ for an action only ⌘Enter may run, registered with
 `usePromptSubmit(label, disabled, submit, true)`: plain Enter and the
@@ -1901,7 +1935,7 @@ It also exports the renderer's shared state and presentation:
 | `formatCost` | core's money formatting. `ThreadRow` draws no cost since API 1.26.0; the rail's hover card does. `threadCostLabel(usage)` and `threadCostOrigin(usage)` (API 1.23.0) are the row's own figure ("$0.42", a plan's API value, or tokens) and the sentence that says where it comes from, for a card that repeats it. `threadUsageLines(usage)` (new after API 1.59.0) is the split as lines (spent and its tokens, then what a subscription covered and its API value), for a tooltip where a popover would be clipped: Workspace Kit's project card shows the thread's cost that way. |
 | `StageTabContribution`, `StageTabHandle`, `StageTab` and its three kinds, `StageState` | the stage-tab seam above, and the shape `actions.stageTabs()` answers with. |
 | `Markdown`, `highlightSource`, `loadHighlightLanguage`, `canonicalHighlightLanguage` | core's Markdown renderer, the one the transcript draws with, and the highlight.js core behind its code blocks (new in API 1.10.0). highlight.js and each language load on first use; `highlightSource(code, language)` answers HTML once `loadHighlightLanguage(language)` resolved, and nothing for a language core does not ship. `html` (new in API 1.33.0, type `MarkdownHtml`) receives the hast tree with the text's raw HTML as `raw` nodes and returns the tree to draw; Review Kit passes its allowlist of GitHub's HTML. Without it HTML stays text. `components` (API 1.51.0, type `MarkdownComponents`) overrides selected tag renderers while retaining core's defaults for other tags, including streamed and inline text. A feature can own its media renderer without replacing Markdown parsing. |
-| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) and the runtime's side by side, the runtime's a shade quieter ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row); Workspace Kit's rail passes neither since API 1.27.0, so its rows keep their state on hover, and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, since the default branch says nothing on a card. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it: Pi's session files, and since API 1.54.0 a backend's `listThreads` record (`createdAt`), which every runtime kit Tau ships fills, from its first message for a thread stored before. For a thread without one the host keeps the time it first listed it. The rail orders active threads by it, newest first, so a turn or a status change never moves a row (as T3 Code does). Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
+| `VirtualList`, `Menu`, `MenuItem`, `FileKindIcon`, `ChangesTree`, `ThreadRow`, `ThreadActivity`, `ThreadRowMachine`, `usePagedWorkspaceFiles`, `ProviderIconStack` | presentation core owns; `ProviderIconStack` (API 1.15.0) draws a runtime's or model provider's mark (`runtimeProvider`, `modelProvider`) with its name as tooltip and accessible name (`name` replaces it), for the same reason as `ThreadRow`. Given both, it follows core's one rule and never draws more than two marks: a runtime with a provider it owns (its declared `homeProviders`, API 1.24.0) shows its own mark alone ("Codex (OpenAI)"); any other pair shows the access mark (provider or plan) and the runtime's side by side, the runtime's a shade quieter ("Pi via OpenAI", "Antigravity via Anthropic"); a subscription plan wears its product's mark ("Pi via ChatGPT plan" for `openai-codex`). The model's maker is never a mark. API 1.22.0 adds `plan` (a provider whose id does not tell, such as Pi's `anthropic` behind a plan login, is reached through a plan), `modelName` (leads the name: "DeepSeek V4 Flash · Pi via OpenCode Go"), `runtimeName` (an instance's name for the runtime) and `runtimeMark: false` (the runtime stays in the name but not on screen, where the UI around already names it). Given only `modelProvider` it draws the provider alone, for a list that is one runtime's; the UI primitives have their own table above. `ThreadRow` draws provider icons from core's asset pipeline, which an esbuild-bundled package has no loader for, so it is API rather than something a navigator kit re-implements. Its optional `accessory` node is drawn beside the branch label (and before the age on a compact row): a navigator passes other kits' marks through it. Since API 1.11.0 `actions` are buttons drawn before Settle while the row is hovered or focused (not on a settled row); Workspace Kit's rail passes neither since API 1.27.0, so its rows keep their state on hover, and `showLabel: false` leaves out a label that says nothing — Workspace Kit's rail passes it for `main` and `master`, since the default branch says nothing on a card. `details` (API 1.11.0) is a few lines shown beside the row on hover in place of the title's own tooltip, and the branch is cut in the middle (`MiddleTruncate`). `hoverCard` (API 1.23.0) says a navigator draws its own card for the row, so the row shows neither `details` nor the title's tooltip; `details` stays the plain-text fallback. `providerStackLabel(modelProvider, runtimeProvider, { plan })` (API 1.23.0) is the name `ProviderIconStack` gives its marks ("Pi via OpenAI"), for text beside them, and `useModelName(runtime, modelId, provider?)` answers that model's name from the runtime's catalog, asking for the catalog once, or nothing until it is in. `useReadyRuntimes(snapshot, open = true)` (API 1.61.0) answers the runtimes a new thread can start on (`UiRuntimeBackend[]`, the ones the project turned off left out), from the catalogs the host already holds: no program is started, and `open: false` asks for nothing. It answers `undefined` until one is ready or every offered runtime has answered, so "none is ready" is never said over a half-filled list; Workspace Kit's first screen names the connected runtimes with it. A `UiSession` carries `model` since API 1.23.0: the id of the thread's model, from a Pi session file's last model on its branch or from a live runtime; since API 1.24.0 also from a backend's `listThreads` record (`model: { provider, id }`), so a thread that is not open names the model and provider it last ran on (Antigravity and Cursor do) instead of the backend's `modelProvider`. A `UiSession` carries `createdAt` since API 1.11.0 where the runtime's store knows it: Pi's session files, and since API 1.54.0 a backend's `listThreads` record (`createdAt`), which every runtime kit Tau ships fills, from its first message for a thread stored before. For a thread without one the host keeps the time it first listed it. The rail orders active threads by it, newest first, so a turn or a status change never moves a row (as T3 Code does). Since API 1.17.0 `machine` (`ThreadRowMachine`: `{ name, icon }`) marks another machine's thread with that machine's icon just before the provider marks, the name as its tooltip; without `onToggleSettled` the row has no Settle button. Since API 1.26.0 the row draws no cost: the rail's hover card carries it (`threadCostLabel`, `threadCostOrigin`), and `showCost` is ignored. The meta line never runs out of the card: the branch shrinks first, then the agent count and the `accessory` marks drop, while the machine and the provider marks stay. |
 | `threadRowStatus`, `ThreadRowStatus`, `THREAD_QUESTION_LABEL`, `threadLimitHint` | new in API 1.27.0: the one derivation of a thread row's state that the desktop rail and the tablet and phone lists share. `threadRowStatus(id, activity, thread?)` takes the thread store's activity (`useThreadStore().getActivity()`) and the thread's shell and answers `{ activity, label, hint?, startedAt? }` for `ThreadRow`: a question is "Question", a run "Working" with the host's start of the run, then Limited, Failed, Interrupted, Ready and Idle. A navigator that draws its own rows calls it rather than naming the states itself. |
 | `DraftRow`, `draftTitle`, `DraftThread` | new in API 1.21.0: a new thread's draft in the card `ThreadRow` draws: the project line with a quiet grey "draft" where a thread shows its state and the title `draftTitle` gives (the first line typed, chips as their labels, else "N attachments", else "New thread") in muted type, two lines without a branch (the design's, since API 1.27.0; before, a pen, "Draft" and a tint). `onOpen(draftId)` opens it, `onDiscard` adds the hover Discard button, `actions` replaces that button (a touch list's More). A `DraftThread` is `{ draftId, projectName, projectPath, workspaceId?, preview, attachments, createdAt, active, sessionId? }`; `sessionId` is set once the host made the thread, whose row then replaces the draft's. |
 | `ProjectIcon`, `useProjectIcon`, `ProjectIconSubject`, `projectHue` | new in API 1.28.0 (`projectHue` 1.27.0): a project's mark as every core list draws it — a published picture (`context.setProjectIcons`), else the host's, else the initial on the project's hue. See "Project icons" above. |
@@ -1995,10 +2029,22 @@ followed project it lends two places another kit may draw into:
 panel, clean worktree or not, with the panel's `actions`, the commit message as
 the user left it and `committed()` to hand the box back to the proposal; and
 `registerThreadRowAccessory(Component)` draws a mark on every rail row, given
-the row's `session` (Terminal Kit marks a thread whose shells run a program this way).
+the row's `session` (Terminal Kit marks a thread whose shells run a program this way);
+the phone's and the tablet's thread list draw the same marks through
+`registerThreadListAccessory`.
 `setThreadRowStatuses?(owner, { [threadId]: { label, hint?, icon } })` gives rows a
 state of the kit's own, drawn like a question in place of Working (Takeover Kit's
 "Your turn"); `{}` withdraws them.
+`offerRequestStep?({ noun, open })` (new in API 1.61.0) offers the pull or merge request a
+kit can open for the checkout (`noun` is "PR" or "MR"). On a branch of its own, the header's
+Git button leads with it: "Commit, push & PR" while files are changed, which calls
+`open({ commit: true })`, and "Create PR" once they are committed, which calls `open()`; the
+button's menu lists "Create PR" too. Call the returned function when none can be made (a
+request is open, the device is Read only). An older Workspace Kit lacks it, so call it as
+`offerRequestStep?.(…)`. Review Kit offers it once it knows the branch has no open request:
+`open({ commit: true })` shows a card with the changed files, a commit message and a title and
+description written by its existing writers, and commits, pushes and opens the request behind one
+button; `open()` opens the Local PR tab.
 `registerThreadCardSection?({ place, order?, Component })` (new in API 1.23.0) adds to
 the card a rail row opens: a pointer resting 180 ms on a row
 (a sweep over the rail opens nothing) or keyboard focus on it shows the whole title and a
@@ -2117,8 +2163,14 @@ reader has moved elsewhere.
 worktree a new thread of the followed project runs in, the way the new-thread
 gate does and named by the same naming kit; `force` makes one although the
 draft runs in the current checkout, and `branchSuffix` keeps several worktrees
-for one prompt apart. It answers `{}` (with a notice) for a project that is no
-repository or a worktree that could not be made. A new thread's own choice in
+for one prompt apart. It answers `{}` for a project that is no repository or a
+draft that runs in the checkout. When the worktree could not be made it stops
+and asks (API 1.61.0): an error toast that stays offers "Use the checkout" and
+"Don't send", and the call rejects unless the checkout was chosen, so the
+agent never edits a checkout the user meant to keep clear; the new-thread gate
+turns that into `{ stop }`, the background start (⌘↵) lets the rejection keep
+the draft. A call with `force` (several models) answers `{}` with an error
+toast and leaves the failure to its caller. A new thread's own choice in
 its Branch section, `draftBranch` and `draftBase` in the store's state (set with
 `setDraftBranch({ name?, base? })`), wins over the naming kit and the default
 base; both are forgotten with the draft.
@@ -2289,10 +2341,18 @@ pending draft's first prompt is sent, while the thread still does not exist. It
 receives the draft's project (`projectPath`, `workspaceId`), the prompt, and
 `preparing(message)` — a line the transcript shows while the hook works — and
 may answer with `{ workspace: { workspaceId, displayPath, name? } }` to move the
-thread to another project. The first hook that names one wins; a hook that
-throws is reported and the draft stays where it was, so a prompt is never lost
-to a workspace that could not be prepared. Workspace Kit uses it to create the
+thread to another project, or with `{ stop }` (API 1.61.0), a line saying why,
+to send nothing: the prompt returns to the composer and the line shows under it.
+The first hook that names a workspace or stops wins; a hook that throws is
+reported and the draft stays where it was, so a prompt is never lost to a
+workspace that could not be prepared. A hook that must not let the prompt run
+in the wrong place answers `stop` instead of throwing. Workspace Kit uses it to create the
 worktree a new thread runs in ([ADR 0017](adr/0017-worktrees-for-threads-and-agents.md)).
+Meanwhile the prompt already shows in the draft's transcript as the user's
+message, above the `preparing` line, and stays the thread's first message when
+it starts; if sending fails before the runtime has it, the row goes and the
+composer gets the prompt back. A `claimNewThread` hook takes the prompt before
+any of this and shows no row.
 
 The draft moves to the named workspace before its thread exists, and its panels
 ask about it right away. A host half that made the folder itself (a worktree)
@@ -2518,6 +2578,11 @@ cancelled. The Claude Code kit is the reference: `kits/claude-code/` (ADR 0005);
 Protocol, whose client, thread backend (`AcpThreadBackend`: turn queue, steer,
 replay filtering, transcript) and session store they share as `kits/_acp/` (a
 folder of shared code, not a kit).
+
+`cancelPrompts()` (optional, API 1.61.0) withdraws every pending question of
+this thread and answers it as cancelled. Call it when the live runtime
+process exits, before settling its turns, including a clean exit. A backend
+that loses its event stream calls it too.
 
 The context also carries `executionPolicy()` (new in API 1.14.0): what the
 thread's project lets its commands reach, merged from every provider of
@@ -3007,7 +3072,9 @@ thread's turn ends. `from` names the thread that sent it, so the queue can say
 where a message came from. A thread whose runtime the host released is
 reopened off screen first. `services.sessions.abort(sessionId)` stops a
 thread's running turn, as the stop button does; what the thread had queued
-then waits for the user.
+then waits for the user. Abort has a five-second deadline. An unresponsive
+runtime is disconnected and its saved session reopened after at most one
+second of cleanup. Late events from the discarded runtime are ignored.
 
 `wake: { source, label }` in `send`'s options (new in API 1.52.0) marks a
 message that something other than the user sent: a pull request event, a
@@ -3025,6 +3092,10 @@ refused is not queued again: the kit wakes the thread again if it still
 should. Agents Kit's `tau_send_to_thread` and
 `tau_cancel_thread` are built on these two, and so is the message that wakes a
 parent when a child it was not waiting for finished.
+Child results use `delivery: "queue"` with a `background` wake. Stopping the
+parent cancels pending and running descendants, consumes results still waiting
+in Agents Kit, and prevents late child completions from waking it. A new
+accepted parent turn permits new delegation.
 
 `attachments` in `send`'s options and `services.sessions.setModel(sessionId,
 provider, id)` (new in API 1.46.0, `sessions`, in-process only; absent on an
@@ -3458,7 +3529,7 @@ thread's goal paused, while the observers answer (two seconds at most each).
 End what would wake the thread again — a watch, a pending request — and
 answer short phrases of what you ended (`["stopped watching PR #42"]`), or
 `{ stopped, continues }` where work of yours goes on and may still wake it
-(`continues: ["2 sub-agents keep running and report back when they finish"]`).
+(`continues: ["A background command keeps running"]`).
 The host joins every answer into one status line under the stopped turn:
 "Stopped · goal paused · stopped watching PR #42. Nothing wakes this thread
 until you start it again." — that last sentence only when nothing continues.
@@ -3489,18 +3560,60 @@ clear`, follows the SDK's `active_goal` frames, and has no pause.
 
 A runtime backend whose work outlives its turn — a background shell, a
 monitor, a sub-agent — offers `ThreadBackgroundCapability`: `current()` lists
-`UiBackgroundTask`s (`{ id, kind, label, startedAt? }`, `kind` one of
+`UiBackgroundTask`s (`{ id, kind, label, startedAt?, blocksCompletion?, state? }`, `kind` one of
 `command`, `monitor`, `agent`, `task`) and `stop(taskId?)` ends one, or all
 without an id. Report every change as a `{ type: "background" }` runtime event;
 the host publishes `current()` as `UiSession.background`. The thread's row then
-says Monitoring (a monitor), Waiting (sub-agents and tasks) or Running
-(commands alone) in place of Idle or Ready, the composer row shows a pill that
+says Monitoring (a required monitor), Waiting (required work or unhandled results) or Running
+(explicitly released services) in place of Idle or Ready, the composer row shows a pill that
 lists and stops the tasks (host method `thread-background-stop`, write access),
 Stop says which tasks keep running, and the host keeps such a runtime live.
-Everything but a command holds the run open: `runEnded` waits for the work
-and for the turn it wakes, so the user hears once, at the end. A command does
-not, since a dev server may run for good. Mark a turn your runtime began on its
-own, such as the one after background work reported, as
+Every task holds the run open unless `blocksCompletion` is explicitly false.
+Missing means required, including commands. A finished task stays in `current()`
+with `state: "reported"` until a successful turn handles its result;
+`runEnded` waits for both, so the user hears once, at the end.
+A runtime may offer `background.list()` including commands started in the
+current turn, and `background.release(taskId)` for checked services.
+The host MCP tool `tau_background_tasks` lists task IDs with `action: "list"`
+and releases a running command with `action: "release", taskId`.
+Backends that provide native background reporting advertise `"background-work"`
+in `RuntimeSessionInfo.nativeCapabilities` when connecting to MCP. Claude Code,
+Codex, OpenCode, Cursor, Grok and Antigravity do so. ACP and OpenCode retain
+unfinished tools after a successful parent turn and accept their later updates;
+OpenCode also tracks child sessions which outlive their parent.
+
+Kit-owned work joins native work through `services.background.provide(provider)`.
+The provider returns a `ThreadBackgroundCapability` for a thread ID;
+`services.background.changed(threadId)` republishes it. IDs must be unique
+across sources. `forThread(threadId)` combines all sources and routes stop,
+release and bounded output reads to the task's owner. An active task or
+unhandled result prevents runtime eviction.
+
+Terminal Kit offers `tau_background_command` to every runtime, including Pi,
+through Pi's inline tools and MCP. It starts a process group in the thread's
+workspace and returns its task ID. `command` and `label` are required;
+`kind: "monitor"` is an optional requested watch, otherwise it is a command.
+The command starts required, its exit queues a background wake, and its result
+remains visible until a successful later turn handles it. An earlier turn
+cannot acknowledge a result which arrived after it began. Failed turns do not
+acknowledge results. Stop terminates the process group without producing a
+wake; closing or deleting the thread cleans up its commands. The process guardian
+also cleans up inherited descendants when the host dies, even after SIGKILL.
+Output is bounded
+to the last 128 KiB. Arbitrary commands require write access, and a limited
+network policy is refused before spawning, since this runner has no network
+sandbox. Background result wakes always queue, even when other wakes steer.
+A checked service is released through `tau_background_tasks` and stays stoppable;
+`action: "read"` reads its output and `action: "stop"` stops one task or all.
+
+The control tool is available when a runtime or kit supplies background work;
+Pi gets the same tool through its inline runtime extension. A missing live
+owner is an error, never evidence that no work remains. A native runtime which
+provides no task-specific stop handle says so instead of claiming it killed
+its work. Use the tracked command tool for work which needs a portable handle.
+Only services whose future output is no longer required may be released;
+monitors, sub-agents and unhandled results cannot be released.
+Mark a turn your runtime began on its own, such as the one after background work reported, as
 `{ type: "turn-started", unprompted: true }`; its end then counts as the run's
 end for `runEnded`. Claude Code Kit reads the SDK's `background_tasks_changed`
 level (its bookends where a CLI sends none), types a Monitor by its tool call
@@ -3566,6 +3679,24 @@ everywhere. Takeover Kit marks "Your turn" this way, and Review Kit marks every
 thread with an active pull request watch "Waiting", naming the watched requests
 in the hint. Workspace Kit's older `setThreadRowStatuses(owner, statuses)` still
 works and draws the same, on the desktop rail only.
+
+### Marks on the compact list's rows (new after API 1.59.0)
+
+`registerThreadListAccessory({ id, Component })` puts a mark beside the branch on
+every row of a phone's or tablet's thread list, where Workspace Kit's
+`registerThreadRowAccessory` marks the desktop rail's. `Component` gets the
+row's `session` and `settled` (the row is on the settled shelf) and draws nothing
+when it has nothing to say. Core fills the row's meta line right to left, as the
+rail's card: the runtime mark, then these marks, then the branch (a row with no
+branch to show keeps them on the title's line), and a settled row draws them
+between its title and its age. Another machine's rows get none: their ids are
+not this host's. Workspace Kit registers one, which draws the last turn's
+`+N −N` (not for a settled thread) and then every accessory other kits gave
+its store, so Terminal Kit's running program, Review Kit's request badge,
+Thread Rail's snooze and sibling marks and Servers Kit's deployment mark appear
+on the phone with their own icons and tooltips. Call it as
+`registerThreadListAccessory?.(…)`: a phone whose bundle predates it ignores the call, and the
+kit's `engines.api` stays where it was, so that phone keeps the kit.
 
 ### Who is attached: `services.clients`
 
@@ -4939,9 +5070,9 @@ The design's divider is the ink at a low alpha, so one hairline reads on either 
 | `--ink-3` | secondary text | `#504a43` | `#b3b8c1` |
 | `--ink-code` | code and diff bodies | `#433e38` | `#c2c6ce` |
 | `--muted` | labels | `#6d665d` | `#9197a1` |
-| `--muted-2` | small print | `#8f887e` | `#71767f` |
-| `--faint` | glyphs and disabled text | `#8f887e` | `#71767f` |
-| `--fainter` | a mark that is only a hint of one | `#b7b1a8` | `#45484d` |
+| `--muted-2` | small print; 4.5:1 on every text surface | `#726b62` | `#7f848e` |
+| `--faint` | faint print and glyphs; the same floor | `#726b62` | `#7f848e` |
+| `--fainter` | a mark that is only a hint of one; never text | `#b7b1a8` | `#45484d` |
 | `--scrollbar` | the scrollbar thumb | `#d8d4cd` | `#2e3136` |
 | `--scrollbar-hover` | the same, hovered | `#b7b1a8` | `#45484d` |
 
@@ -5050,7 +5181,9 @@ A provider's own colour, for its share in a chart or a limit bar; never a state.
 
 Text uses the platform face (SF Pro on Apple systems, Segoe UI on Windows), drawn with grayscale `antialiased` smoothing; Tau bundles no font and fetches none. Code and the terminal keep `--mono`.
 
-The type scale is one size per text role and device class ([ADR 0029](adr/0029-type-scale-per-device-class.md)): the values below are a desktop's, the design's; `data-device="tablet"` and `"phone"` on `<html>` set the `--type-*` bases larger (the ADR has the table). Each `--text-*` is its base times `--text-scale`, the system's text size on a touch device, plus `--text-step`, Tau's own Text size; a kit reads the `--text-*` tokens and never a pixel size, and sizes a row that holds text with `min-height` or `em` so a larger text size never cuts it.
+The type scale is one size per text role and device class ([ADR 0029](adr/0029-type-scale-per-device-class.md)): the values below are a desktop's, the design's; `data-device="tablet"` and `"phone"` on `<html>` set the `--type-*` bases larger (the ADR has the table). Each `--text-*` is its base times `--text-scale`, the system's text size on a touch device, plus `--text-step`, Tau's own Text size; a kit reads the `--text-*` tokens and never a pixel size (`--text-2xs` is the smallest, `11px`, and the least text may be set in), and sizes a row that holds text with `min-height` or `em` so a larger text size never cuts it.
+
+Small print is text: `--muted-2` and `--faint` reach 4.5:1 (WCAG AA) on every surface text sits on, as `--muted` does, and `--fainter` is a mark for glyphs and rules, never words. `--info`, `--done` and `--fail` are 3:1 marks; text in those hues takes `--info-ink`, `--ready` or `--fail-ink`. A theme that sets the small inks should keep that floor.
 
 | Token | Role | Value |
 |---|---|---|
@@ -5064,6 +5197,7 @@ The type scale is one size per text role and device class ([ADR 0029](adr/0029-t
 | `--label-case` | its text-transform | `none` |
 | `--label-tracking` | its letter-spacing | `normal` |
 | `--label-size` | its size | `var(--text-xs)` |
+| `--text-2xs` | the floor: a hint, a timestamp, a shortcut, a tag; never under `11px`, whatever the Text size | `11px` (tablet 12, phone 12) |
 | `--text-xs` | meta: a branch, an age, a status | `12px` (tablet 12, phone 13) |
 | `--text-sm` | secondary text and descriptions | `13px` (tablet 13, phone 14) |
 | `--text-control` | a button, choice or menu label; aliases the body role | `var(--text-md)` |
@@ -5095,6 +5229,8 @@ The type scale is one size per text role and device class ([ADR 0029](adr/0029-t
 | `--motion` | a row or a card arriving | `180ms` |
 | `--motion-slow` | a curtain | `320ms` |
 | `--ease` | the curve all three use | `cubic-bezier(.4, 0, .2, 1)` |
+
+When the system asks for reduced motion, one rule in `styles.css` cuts every animation and transition to `.01ms` (the events still fire) and turns off CSS smooth scrolling, so a kit's keyframes need no media query of their own. A scripted scroll asks for `scrollBehavior()` instead of `"smooth"`.
 
 **Spacing**
 
@@ -5176,3 +5312,13 @@ legacy project discovery rather than treating an unknown project as private.
 A document source may implement `loadMedia(path, { workspace })`, returning `{ url, mimeType, release? }`. File links in a transcript use its workspace identity, including when the selected project differs. The stage and compact file reader call `release` when the preview closes or changes. Workspace Kit serves audio, video and PDFs over connection-scoped browser resources, including byte ranges for seeking.
 
 Host extensions can reuse `shareableType(path)` and `respondSharedFile(path, mimeType, rangeHeader)` from `tau/host-extension`. The latter streams an **already authorized** file: callers must resolve and authorize the originating workspace and path before publishing a resource. It performs no authorization itself.
+
+### Runtime choices for extensions (API 1.61.0)
+
+`HostExtensionServices.runtimeChoices(cwd, kind?)` is an optional in-process
+service under `runtime:extend`. It returns `HostRuntimeChoice[]`: `backend`
+with the composer's kind and label, `enabled` from the effective project gate,
+`catalog` from the same runtime catalog the composer reads, and `readiness`
+from the existing catalog and sign-in checks. Passing `kind` reads only that
+runtime instance; omitting it lists registered, visible backends. A missing or
+unavailable catalog never implies a valid model.

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StageFileTab } from "../../workbench/stage";
 import type { CommandContribution, WorkbenchActions } from "../extension-system";
@@ -80,5 +80,38 @@ describe("FileViewer loading", () => {
     viewer(async () => { throw new Error("Not a file."); });
     await screen.findByText("Could not open this file");
     expect(screen.getByText(/Not a file\./u)).toBeTruthy();
+  });
+});
+
+describe("FileViewer view switches", () => {
+  const changedViewer = (view: "diff" | "source", onChangeView = vi.fn()) => render(
+    <HostClientProvider client={createFakeHostClient()}>
+      <FileViewer
+        tab={{ id: "file:/repo/a.ts", kind: "file", path: "/repo/a.ts", view, preview: false }}
+        relativePath="a.ts"
+        changed
+        loadFile={() => new Promise(() => undefined)}
+        loadDiff={() => new Promise(() => undefined)}
+        onChangeView={onChangeView}
+        onOpenInEditor={() => undefined}
+      />
+    </HostClientProvider>,
+  );
+
+  it("offers Diff and Source as pressed toggles in a group, not as tabs without panels", () => {
+    const onChangeView = vi.fn();
+    changedViewer("diff", onChangeView);
+    expect(screen.queryByRole("tablist")).toBeNull();
+    const group = screen.getByRole("group", { name: "View" });
+    expect(within(group).getByRole("button", { name: "Diff", pressed: true })).toBeTruthy();
+    fireEvent.click(within(group).getByRole("button", { name: "Source", pressed: false }));
+    expect(onChangeView).toHaveBeenCalledWith("source");
+  });
+
+  it("names the diff layout group and presses the layout in use", () => {
+    changedViewer("diff");
+    const layout = screen.getByRole("group", { name: "Diff layout" });
+    expect(within(layout).getAllByRole("button").map((button) => [button.textContent, button.getAttribute("aria-pressed")]))
+      .toEqual([["Unified", "true"], ["Split", "false"]]);
   });
 });

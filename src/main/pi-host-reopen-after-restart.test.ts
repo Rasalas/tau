@@ -111,12 +111,13 @@ afterEach(() => { vi.restoreAllMocks(); });
 describe("PiHost after a restart", () => {
   it("delivers a send to a saved thread that arrives before the session files are indexed", async () => {
     const bench = restartedHost();
-    await bench.host.start();
+    const started = bench.host.start();
 
     const sent = bench.internals.sendToThread("saved", "say one word", "prompt") as Promise<void>;
     const outcome = sent.then(() => "sent", (error: Error) => error.message);
     await Promise.resolve();
     bench.finishListing();
+    await started;
 
     await expect(outcome).resolves.toBe("sent");
     expect(bench.opened).toEqual(["/sessions/saved.jsonl"]);
@@ -127,11 +128,12 @@ describe("PiHost after a restart", () => {
     const bench = restartedHost();
     const trashed: Array<{ sessionId: string; path: string }> = [];
     bench.internals.trash.trash = async (entry: { sessionId: string; path: string }) => { trashed.push(entry); };
-    await bench.host.start();
+    const started = bench.host.start();
 
     const removed = bench.host.removeThread("saved").then(() => "removed", (error: Error) => error.message);
     await Promise.resolve();
     bench.finishListing();
+    await started;
 
     await expect(removed).resolves.toBe("removed");
     expect(trashed).toEqual([expect.objectContaining({ sessionId: "saved", path: "/sessions/saved.jsonl" })]);
@@ -139,8 +141,9 @@ describe("PiHost after a restart", () => {
 
   it("still refuses a thread the indexed session files do not hold", async () => {
     const bench = restartedHost();
-    await bench.host.start();
+    const started = bench.host.start();
     bench.finishListing();
+    await started;
 
     await expect(bench.internals.sendToThread("gone", "hello", "prompt")).rejects.toThrow("That thread no longer exists.");
     await expect(bench.host.removeThread("gone")).rejects.toThrow("No thread gone in this host's index.");

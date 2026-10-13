@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { UiRuntimeBackend, UiRuntimeCatalog } from "../shared/contracts.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import { SIGN_IN_COMMANDS, type SignInReport } from "../shared/sign-in.js";
+import type { HostRuntimeChoice } from "./host-extensions.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import {
   gitHasMergeTree,
@@ -305,6 +306,18 @@ async function signInReport(source: ReadinessRuntimes, kind: string, waitMs: num
   const at = kind.indexOf("@");
   // A kit without sign-in refuses the command; its catalog alone then speaks.
   return within(source.invokeHostExtension(owner, SIGN_IN_COMMANDS.state, at < 0 ? undefined : { target: kind.slice(at + 1) }) as Promise<SignInReport>, waitMs);
+}
+
+/** The same catalog and sign-in checks used by readiness, plus the project gate. */
+export async function runtimeChoices(source: ReadinessRuntimes, enabled: (kind: string) => Promise<boolean>, kind?: string): Promise<HostRuntimeChoice[]> {
+  return Promise.all(source.runtimeBackends().filter((backend) => !kind || backend.kind === kind).map(async (backend) => {
+    const [catalog, signIn, on] = await Promise.all([
+      within(source.runtimeCatalog(backend.kind), CATALOG_WAIT_MS),
+      signInReport(source, backend.kind, CATALOG_WAIT_MS),
+      enabled(backend.kind),
+    ]);
+    return { backend, enabled: on, ...(catalog ? { catalog } : {}), readiness: runtimeReadiness(backend, catalog, signIn) };
+  }));
 }
 
 async function runtimesReadiness(source: ReadinessRuntimes, waitMs: number): Promise<RuntimeReadiness[]> {

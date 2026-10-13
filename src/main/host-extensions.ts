@@ -32,10 +32,11 @@ import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
 import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
-import type { CompletionRequest, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
+import type { CompletionRequest, ThreadBackgroundCapability, ThreadRuntimeBackend, ThreadRuntimeEvent } from "./runtime-types.js";
 import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
+import type { RuntimeReadiness } from "../shared/host-resources.js";
 import { HostAuthorizationError, HostCommandError, hostErrorDiagnostic, isExpectedCommandError } from "./host-extension-errors.js";
 import { HOST_CORE_PRINCIPAL, currentInvocationPrincipal, currentReadCwd, isHostOwner, runAsCaller, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
 import { authorizeReadPaths } from "./host-read-paths.js";
@@ -117,6 +118,8 @@ export interface HostBackendOpenContext {
    * the thread waits for it. Aborting the thread answers it as cancelled.
    */
   ask(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
+  /** Withdraws this thread's pending questions when its runtime exits. API 1.61.0. */
+  cancelPrompts?(): void;
   /**
    * The thread's total from its tallies, priced as core prices every thread,
    * for `catalogView().usage`. Prices can change under a thread, so ask on
@@ -808,7 +811,7 @@ export interface HostExtensionSettings {
 export interface RuntimeSessionInfo {
   sessionId: string;
   cwd: string;
-  /** Capabilities supplied by the runtime backend, used by tool providers to avoid duplicates. */
+  /** Capabilities supplied by the runtime backend. Providers avoid duplicates or offer tools for them; `background-work` enables task listing and service release. */
   nativeCapabilities?: readonly string[];
   /** The thread that spawned this one (`sessions.start({ parent })`); set for a Pi runtime only. */
   parentThreadId?: string;
@@ -1033,7 +1036,23 @@ export interface HostProjectTrust {
   trust(cwd?: string): string;
 }
 
+/** A start choice from the composer catalog and the project gate. API 1.61.0. */
+export interface HostRuntimeChoice {
+  backend: UiRuntimeBackend;
+  enabled: boolean;
+  catalog?: UiRuntimeCatalog;
+  readiness: RuntimeReadiness;
+}
+
 export interface HostExtensionServices {
+  /** Composer catalogs, readiness and project enablement; optionally one kind. API 1.61.0; in-process only. */
+  runtimeChoices?(cwd: string, kind?: string): Promise<HostRuntimeChoice[]>;
+  /** Kit-owned background work, combined with the runtime's work on every client. New after API 1.59.0. */
+  readonly background?: {
+    provide(provider: (threadId: string) => ThreadBackgroundCapability | undefined): () => void;
+    forThread(threadId: string): ThreadBackgroundCapability | undefined;
+    changed(threadId: string): void;
+  };
   /** Short-lived streaming resources scoped to this extension and the asking connection. API 1.51.0; in-process only. */
   readonly browserResources?: HostBrowserResources;
   /** This host's installed agent tools. Updates keep their package manager and wait for busy turns. API 1.48.0. */
@@ -1540,12 +1559,16 @@ export interface HostExtensionRegistryOptions {
 /** A crashed extension starts again on its next call; again after a crash soon after, only once this has passed, doubling. */
 const RESTART_BACKOFF_MS = 10_000;
 const RESTART_BACKOFF_MAX_MS = 5 * 60_000;
+/** Stopped kit instances whose context is remembered for the denial log. */
+const RETIRED_CONTEXTS_KEPT = 64;
 
 export class HostExtensionRegistry {
   private readonly active = new Map<string, ActiveHostExtension>();
   private readonly known = new Map<string, HostExtension>();
   /** Host-issued contexts are valid only while their activation is alive. */
   private readonly invocationContexts = new Map<string, { extensionId: string; record?: ActiveHostExtension }>();
+  /** Contexts of stopped kit instances, newest last: a leftover call they make is still refused, but names its kit. */
+  private readonly retiredContexts = new Map<string, string>();
   private readonly failures = new Map<string, string>();
   private readonly consecutiveFailures = new Map<string, number>();
   /** Halves the list of turned-off extensions kept from running; `followChoices` starts them when it lets go. */
@@ -1664,7 +1687,7 @@ export class HostExtensionRegistry {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.failures.set(extension.id, message);
-      this.invocationContexts.delete(invocationContextId);
+      this.retireContext(invocationContextId);
       activating = false;
       await this.disposeAll(record.disposers).catch(() => undefined);
       await this.disposeAll(registrations).catch(() => undefined);
@@ -1743,12 +1766,20 @@ export class HostExtensionRegistry {
     }
   }
 
+  private retireContext(contextId: string): void {
+    const context = this.invocationContexts.get(contextId);
+    this.invocationContexts.delete(contextId);
+    if (!context) return;
+    this.retiredContexts.set(contextId, context.extensionId);
+    if (this.retiredContexts.size > RETIRED_CONTEXTS_KEPT) this.retiredContexts.delete(this.retiredContexts.keys().next().value!);
+  }
+
   async deactivate(id: string): Promise<void> {
     const record = this.active.get(id);
     if (!record) return;
     this.active.delete(id);
     (this.services.browserResources as (HostBrowserResources & { [REMOVE_BROWSER_RESOURCES]?: (id: string) => void }) | undefined)?.[REMOVE_BROWSER_RESOURCES]?.(id);
-    this.invocationContexts.delete(record.invocationContextId);
+    this.retireContext(record.invocationContextId);
     await this.disposeAll(record.disposers);
   }
 
@@ -1919,11 +1950,13 @@ export class HostExtensionRegistry {
     const caller = context?.extensionId;
     const allowed = caller === extensionId || Boolean(caller && record.commandCallers.get(command)?.has(caller));
     if (allowed) return;
+    // Work a stopped instance left running (a restart after a timeout) still calls with its old context.
+    const stopped = !context && principal.kind === "host-extension" ? this.retiredContexts.get(principal.contextId) : undefined;
     const reason = context
       ? "the host-issued context has no grant for this target command"
-      : "the host-issued context is unknown or expired";
+      : stopped ? "the calling kit instance was stopped" : "the host-issued context is unknown or expired";
     const details = {
-      caller: caller ?? "unknown",
+      caller: caller ?? stopped ?? "unknown",
       target: extensionId,
       command,
       capability: `${extensionId}/${command}`,

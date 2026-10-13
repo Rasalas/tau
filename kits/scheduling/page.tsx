@@ -1,22 +1,12 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { CalendarClock, MoreHorizontal } from "lucide-react";
 import { Dialog, errorMessage, tooltipProps, useThreadStore, type PageProps, type WorkbenchActions } from "tau";
 import { AutomationEditor } from "./editor.js";
 import { needsDecision, type SchedulingFeed } from "./feed.js";
 import type { Job, ManagementState } from "./protocol.js";
-
-const busyJob = (job: Job) => job.status === "running" || job.status === "starting";
-const utc = (at?: string) => at ? new Date(at).toLocaleString([], { timeZone: "UTC", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " UTC" : "";
-export function statusText(job: Job): string {
-  if (job.status === "held") return job.detail ?? `Missed ${utc(job.nextAt)}. This host did not run it.`;
-  if (job.status === "failed") return `Couldn't start or finish: ${job.lastRun?.detail ?? job.detail ?? "inspect the thread"}`;
-  if (job.status === "uncertain") return `Tau restarted while starting the ${utc(job.lastRun?.at)} run. Unclear whether a thread started.`;
-  if (busyJob(job)) return `${job.status === "starting" ? "Starting" : "Running"} since ${utc(job.lastRun?.at)}`;
-  if (!job.enabled) return "Off";
-  const next = job.config.schedule.kind === "webhook" ? "Waiting for signed delivery" : `Next: ${utc(job.nextAt) || "no future run"}`;
-  return `${next}${job.lastRun ? ` · Last run ${utc(job.lastRun.at)} · ${job.lastRun.outcome === "completed" ? "finished" : job.lastRun.outcome}` : ""}`;
-}
+import { busyJob, statusText, utc } from "./job-summary.js";
+export { statusText } from "./job-summary.js";
 
 function ResolveDialog({ job, feed, onClose, openThread }: { job: Job; feed: SchedulingFeed; onClose(): void; openThread(): void }) {
   const [decision, setDecision] = useState<"skip" | "run">("skip");
@@ -73,7 +63,7 @@ async function openAutomationThread(job: Job, feed: SchedulingFeed, actions: Wor
     const path = knownPath ?? await feed.host.invoke("thread-path", { id: job.id }) as string | undefined;
     if (path) await actions.switchSession(path);
     else actions.notify('No thread was recorded. Inspect recent "Scheduled:" threads before retrying.');
-  } catch (failure) { actions.notify(errorMessage(failure)); }
+  } catch (failure) { actions.notify(errorMessage(failure), "error"); }
 }
 
 export default function AutomationsPage({ actions, params, feed }: PageProps & { feed: SchedulingFeed }) {
@@ -84,8 +74,15 @@ export default function AutomationsPage({ actions, params, feed }: PageProps & {
   const [resolving, setResolving] = useState<Job>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const handledEdit = useRef<PageProps["params"]>(undefined);
   useEffect(() => { if (params.create && view.state?.canManage) setEditor("new"); }, [params.create, view.state?.canManage]);
   const state = view.state;
+  const requestedJob = state?.jobs.find((job) => job.id === params.edit);
+  useEffect(() => {
+    if (handledEdit.current === params || !requestedJob || !state?.canManage || needsDecision(requestedJob) || busyJob(requestedJob)) return;
+    handledEdit.current = params;
+    setEditor(requestedJob);
+  }, [params, requestedJob, state?.canManage]);
   const toggle = async () => {
     if (!state) return;
     setBusy(true); setError(undefined);

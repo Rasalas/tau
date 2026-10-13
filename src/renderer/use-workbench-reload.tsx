@@ -23,7 +23,7 @@ export function useWorkbenchReload(options: {
   client: HostClient | undefined;
   requireHost(what: string): boolean;
   addEvent(label: string, detail?: string): void;
-  setNotice(message?: string): void;
+  setNotice(message?: string, level?: "info" | "warning" | "error"): void;
 }) {
   const { client, requireHost, addEvent, setNotice } = options;
   const [phase, setPhase] = useState<ReloadPhase>();
@@ -46,7 +46,7 @@ export function useWorkbenchReload(options: {
     } catch (error) {
       setPhase(undefined);
       await client!.releaseWorkbenchReload().catch(() => undefined);
-      setNotice(errorMessage(error));
+      setNotice(errorMessage(error), "error");
       return false;
     }
   }, [client, setNotice]);
@@ -60,7 +60,7 @@ export function useWorkbenchReload(options: {
       return true;
     } catch (error) {
       setPhase(undefined);
-      setNotice(errorMessage(error));
+      setNotice(errorMessage(error), "error");
       return false;
     }
   }, [client, setNotice]);
@@ -84,14 +84,14 @@ export function useWorkbenchReload(options: {
       if (!result.ok) {
         setPhase(undefined);
         addEvent("workbench.build.failed", result.output);
-        setNotice(`Build failed: ${result.output.split("\n").filter(Boolean).at(-1) ?? "see Signals"}`);
+        setNotice(`Build failed: ${result.output.split("\n").filter(Boolean).at(-1) ?? "see Signals"}`, "error");
         return false;
       }
       const route = reloadRouteFor(result);
       return route === "extensions" ? applyExtensionReload() : startHeldRoute(route);
     } catch (error) {
       setPhase(undefined);
-      setNotice(errorMessage(error));
+      setNotice(errorMessage(error), "error");
       return false;
     }
   }, [addEvent, applyExtensionReload, client, requireHost, setNotice, startHeldRoute]);
@@ -107,7 +107,7 @@ export function useWorkbenchReload(options: {
       await applyHeldRoute(route);
     } catch (error) {
       await client!.releaseWorkbenchReload().catch(() => undefined);
-      setNotice(errorMessage(error));
+      setNotice(errorMessage(error), "error");
     }
   }, [applyHeldRoute, client, pendingRoute, setNotice]);
 

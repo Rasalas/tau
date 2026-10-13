@@ -1,4 +1,5 @@
 import { render, renderHook } from "@testing-library/react";
+import { useState, type ReactNode } from "react";
 import { vi, type Mock } from "vitest";
 import { ExtensionRegistry, type DesktopExtension, type HostExtensionBridge, type RegionPlacement, type WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
@@ -75,7 +76,7 @@ export async function expectKitActivatesCleanly(
     ...registry.getPanels(), ...registry.getSidebarContributions(), ...registry.getProjectSources(), ...registry.getCommands(),
     ...registry.getSlashCommands(), ...registry.getKeybindings(), ...registry.getComposerControls(), ...registry.getStatusItems(),
     ...registry.getSettingsPages(), ...registry.getPages(), ...registry.getStageTabKinds(), ...registry.getMessageActions(), ...registry.getMessageBlocks(), ...registry.getComposerInlines(), ...registry.getComposerGates(), ...registry.getModelBadges(),
-    ...registry.getPaletteSources(),
+    ...registry.getPaletteSources(), ...registry.getThreadListAccessories(),
     ...KIT_REGION_PLACEMENTS.flatMap((placement) => registry.getRegions(placement)),
   ];
   if (leftovers.length > 0) throw new Error(`${extension.id} left ${leftovers.length} contributions behind`);
@@ -129,4 +130,14 @@ export function runningTurn(): { abort: Mock; registry: ExtensionRegistry } {
   } });
   renderHook(() => useWindowKeybindings(registry, { notify: vi.fn(), openSettings: vi.fn() } as unknown as WorkbenchActions, vi.fn()));
   return { abort, registry };
+}
+
+/**
+ * The window's registry around a component that reads it for a shortcut hint,
+ * as inside the workbench: `render(ui, { wrapper: KitShell })`, or with the
+ * registry whose bindings the hint should show.
+ */
+export function KitShell({ children, registry }: { children: ReactNode; registry?: ExtensionRegistry }) {
+  const [own] = useState(() => ({ registry: registry ?? createKitHarness().registry }));
+  return <WorkbenchShellContext.Provider value={own}>{children}</WorkbenchShellContext.Provider>;
 }

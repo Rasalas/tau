@@ -116,6 +116,7 @@ export type RuntimeEventListener = (event: unknown, threadId: string) => void;
  * Every event belongs to the thread the backend was opened for.
  */
 export type ThreadRuntimeEvent =
+  | { type: "context-compaction"; running: boolean }
   /** `unprompted`: the runtime began the turn itself, e.g. after background work reported (API 1.58.0). */
   | { type: "turn-started"; unprompted?: boolean }
   /**
@@ -325,11 +326,17 @@ export interface ThreadGoalCapability {
 /**
  * Work a runtime keeps running after its turn ended: background shells,
  * monitors, sub-agents. The runtime wakes the thread itself when one reports;
- * the host shows the work and holds the run's end while any but a command runs.
+ * the host holds the run's end until required work and its result are handled.
  * Report changes with a `background` event.
  */
 export interface ThreadBackgroundCapability {
   current(): readonly UiBackgroundTask[];
+  /** Includes commands started during the current turn, so the agent can release a checked service before replying. */
+  list?(): readonly UiBackgroundTask[];
+  /** Releases a running command as a checked service; never releases a monitor, sub-agent or unhandled result. */
+  release?(taskId: string): void;
+  /** Bounded output and the exit status of a tracked command. */
+  read?(taskId: string): { output: string; exitCode?: number; error?: string };
   /** Stops one task, or all of them without an id. */
   stop(taskId?: string): Promise<void>;
 }

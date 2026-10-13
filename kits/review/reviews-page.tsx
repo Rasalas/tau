@@ -41,6 +41,7 @@ import { useLocalReviews, type LocalReviewsStore, type ReviewRun } from "./local
 import { runsPipeline } from "./pipeline.js";
 import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
 import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
+import { requestLabelOf } from "./pull-request-logic.js";
 import { baseName, lineTarget, lineText, noteMessage } from "./review-lines.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
 import type { ReviewsFilter } from "./reviews-filter.js";
@@ -419,10 +420,10 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
         <div className="rv-ask-open" role="status">
           {review.ask.kind === "note" ? <MessageSquare size={13} aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}
           <span>{review.ask.kind === "note" ? <>Your note: {review.ask.text}</> : "You asked the thread to rebase."} It shows here until the thread commits again.</span>
-          <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error))); }}>Withdraw</button>
+          <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error), "error")); }}>Withdraw</button>
         </div>
       ) : null}
-      {review.request && review.state === "merged" ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">PR #{review.request.number}</a>.</p>
+      {review.request && review.state === "merged" ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">{requestLabelOf(review.request.url, review.request.number)}</a>.</p>
         : review.mergedBy ? <p className="rv-already" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
       {review.state !== "merged" && review.mergeBlocked ? <p className="rv-already" role="status">{review.mergeBlocked}</p> : null}
       {review.conflicts.length > 0 ? (
@@ -600,7 +601,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   if (tab === "remote") {
     body = (
       <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
-        <PullRequestsPage params={params} navigate={(next, options) => navigate({ ...next, tab: "remote" }, options)} actions={actions} close={close} parts={parts.remote} />
+        <PullRequestsPage key={typeof params.threadId === "string" ? params.threadId : "remote"} params={params} navigate={(next, options) => navigate({ ...next, tab: "remote" }, options)} actions={actions} close={close} parts={parts.remote} />
       </Suspense>
     );
   } else if (detailKey) {

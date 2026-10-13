@@ -208,7 +208,7 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHol
     setStage({ kind: "uploading", preview: shown });
     parts.host.invoke("deploy", { cwd, targetId, files, force: [...force].filter((path) => files.some((file) => file.path === path)), ...(thread ? { threadId: thread } : {}) }).then(
       (value) => { setStage({ kind: "result", result: value as DeployResult }); setChoices({}); setForce(new Set()); },
-      (failure: unknown) => { actions.notify(errorMessage(failure)); setStage({ kind: "preview", files, preview: shown }); },
+      (failure: unknown) => { actions.notify(errorMessage(failure), "error"); setStage({ kind: "preview", files, preview: shown }); },
     ).finally(() => { void parts.store.load(cwd, true); });
   };
 
@@ -223,7 +223,7 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHol
         setStage({ kind: "choose" });
         onOpen(path);
       },
-      (failure: unknown) => actions.notify(errorMessage(failure)),
+      (failure: unknown) => actions.notify(errorMessage(failure), "error"),
     ).finally(() => { setResolving(false); void parts.store.load(cwd, true); });
   };
 

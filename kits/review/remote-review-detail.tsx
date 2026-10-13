@@ -55,9 +55,10 @@ export function RemoteReviewDetail(props: RemoteProps) {
   const pr = usePullRequest(client, params.url);
   const { data, refresh } = pr;
   const noun = shortNoun(params.service);
+  const sign = providerInfo(params.service).sign;
   if (data.detail) return <RequestMediaProvider client={client} request={data.detail.ref}><RemoteBody {...props} pr={pr} detail={data.detail} /></RequestMediaProvider>;
   return (
-    <div className="rvd rvd-loading-page" aria-label={`${noun} #${params.number}`}>
+    <div className="rvd rvd-loading-page" aria-label={`${noun} ${sign}${params.number}`}>
       {data.detailError ? (
         <div className="pr-unavailable" role="alert">
           <strong>Could not load the {providerInfo(params.service).noun}</strong>
@@ -67,7 +68,7 @@ export function RemoteReviewDetail(props: RemoteProps) {
             <button className="text-button" onClick={() => actions.openExternal(params.url)}>Open on {providerInfo(params.service).name}</button>
           </div>
         </div>
-      ) : <div className="pr-ghost" role="status" aria-label={`Loading ${noun} #${params.number}`}><i /><i /><i /><i /></div>}
+      ) : <div className="pr-ghost" role="status" aria-label={`Loading ${noun} ${sign}${params.number}`}><i /><i /><i /><i /></div>}
     </div>
   );
 }
@@ -94,6 +95,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   const linkedThreads = useLinkedThreads(client, params.url);
   const { capabilities } = providerInfo(params.service);
   const noun = shortNoun(params.service);
+  const sign = providerInfo(params.service).sign;
   const checks = data.checks ?? detail?.checks ?? [];
   const threads = data.threads ?? [];
   useBackKeys(back);
@@ -179,14 +181,14 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   useEffect(() => () => side.retire(params.url), [params.url, side]);
 
   const toggleViewed = async (file: PullRequestFile) => {
-    try { markViewed(file.path, await client.viewed(params.url, file.path, file.viewed !== "viewed")); } catch (error) { actions.notify(`Could not update viewed files: ${errorMessage(error)}`); }
+    try { markViewed(file.path, await client.viewed(params.url, file.path, file.viewed !== "viewed")); } catch (error) { actions.notify(`Could not update viewed files: ${errorMessage(error)}`, "error"); }
   };
 
   const shownState = detail.state === "open" && detail.draft ? "draft" : detail.state;
   const rollup = checksRollup(checks);
   const checkout = providerInfo(params.service).checkout?.(detail.ref.number);
   const copy = (value: string, done: string) => {
-    void actions.copyText(value).then(() => actions.notify(done), (error: unknown) => actions.notify(errorMessage(error)));
+    void actions.copyText(value).then(() => actions.notify(done), (error: unknown) => actions.notify(errorMessage(error), "error"));
   };
   const menuSteps: HeaderMenuStep[] = [
     { id: "view:refresh", label: "Refresh", icon: <RefreshCw size={13} />, run: () => refresh(true) },
@@ -208,7 +210,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
 
   const meta = (
     <>
-      <button type="button" className="rvd-link" {...tooltipProps(`Open on ${providerInfo(params.service).name}`)} onClick={() => actions.openExternal(detail.ref.url)}>#{detail.ref.number}<ExternalLink size={10} aria-hidden="true" /></button>
+      <button type="button" className="rvd-link" {...tooltipProps(`Open on ${providerInfo(params.service).name}`)} onClick={() => actions.openExternal(detail.ref.url)}>{sign}{detail.ref.number}<ExternalLink size={10} aria-hidden="true" /></button>
       <RequestStateIcon state={shownState} />
       {detail.headRef ? <><span className="rvd-mono">{detail.headRef}</span><span aria-hidden="true">→</span></> : null}
       <span className="rvd-mono">{detail.baseRef}</span>
@@ -248,7 +250,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   return (
     <>
       <ReviewDetailFrame<Tab>
-        label={`${noun} #${detail.ref.number}`}
+        label={`${noun} ${sign}${detail.ref.number}`}
         title={detail.title}
         beside={capabilities.checks ? <ChecksMini client={client} url={params.url} checks={checks} onOpen={() => setTab("checks")} /> : null}
         meta={meta}
@@ -314,15 +316,15 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
           <div className="rvd-pad"><ChecksPipeline client={client} url={params.url} checks={checks} actions={actions} /></div>
         )}
       </ReviewDetailFrame>
-      {picking ? <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={(message) => actions.notify(message)} /> : null}
+      {picking ? <ThreadPicker url={detail.ref.url} linkedThreads={linkedThreads ?? []} client={client} rows={shared.links} onClose={() => setPicking(false)} notify={actions.notify} /> : null}
       {composing && (writes.comment || writes.review) ? (
         <ReviewComposer
           service={params.service}
           events={capabilities.reviewEvents}
           pending={pending}
           onRemovePending={(id) => shared.pending.remove(params.url, id)}
-          onComment={async (text) => { await comment({ body: text }); setComposing(false); actions.notify(`Commented on ${noun} #${detail.ref.number}.`); }}
-          onReview={async (event, text) => { await review(event, text); setComposing(false); actions.notify(`Review submitted on ${noun} #${detail.ref.number}.`); }}
+          onComment={async (text) => { await comment({ body: text }); setComposing(false); actions.notify(`Commented on ${noun} ${sign}${detail.ref.number}.`); }}
+          onReview={async (event, text) => { await review(event, text); setComposing(false); actions.notify(`Review submitted on ${noun} ${sign}${detail.ref.number}.`); }}
           onCancel={() => setComposing(false)}
         />
       ) : null}

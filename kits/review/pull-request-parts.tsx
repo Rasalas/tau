@@ -2,8 +2,9 @@ import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, LoaderCircle, MessageSquare, Pencil, Send } from "lucide-react";
 import { errorMessage, type WorkbenchActions } from "tau";
 import { RequestMarkdown as Markdown } from "./request-markdown.js";
-import type { ComposerContextChips, PullRequestCheckStatus, PullRequestChip, PullRequestComment, PullRequestThread, ReviewCommentChip } from "./protocol.js";
+import { providerInfo, requestNumber, type ComposerContextChips, type PullRequestCheckStatus, type PullRequestChip, type PullRequestComment, type PullRequestThread, type ReviewCommentChip } from "./protocol.js";
 import { relativeTime, ROLLUP_TITLES, type ChecksRollup } from "./pull-request-logic.js";
+import { parseRequestUrl } from "./pull-request-json.js";
 import { githubHtml } from "./github-html.js";
 
 export function CheckIcon({ status, size = 13 }: { status: PullRequestCheckStatus; size?: number }) {
@@ -23,6 +24,13 @@ export function RollupIcon({ rollup }: { rollup: ChecksRollup }) {
   return <span className="pr-rollup" title={ROLLUP_TITLES[rollup]}><CheckIcon status={status} /></span>;
 }
 
+/** "Pull request [#12](url): title", or "Merge request [!12](url): …" for GitLab. */
+function chipLine({ number, url, title }: PullRequestChip["payload"]): string {
+  const service = parseRequestUrl(url)?.service ?? "github";
+  const { noun } = providerInfo(service);
+  return `${noun[0]!.toUpperCase()}${noun.slice(1)} [${requestNumber(service, number)}](${url}): ${title}`;
+}
+
 /** Puts a chip into the composer on screen, or its words when Composer Context is off. */
 export function handOver(chip: ReviewCommentChip | PullRequestChip, chips: ComposerContextChips | undefined, actions: WorkbenchActions): void {
   if (chips) {
@@ -31,12 +39,12 @@ export function handOver(chip: ReviewCommentChip | PullRequestChip, chips: Compo
       actions.focusComposer();
       return;
     } catch (error) {
-      actions.notify(`The composer did not take it: ${errorMessage(error)}`);
+      actions.notify(`The composer did not take it: ${errorMessage(error)}`, "error");
       return;
     }
   }
   const text = chip.kind === "pull-request"
-    ? `Pull request [#${chip.payload.number}](${chip.payload.url}): ${chip.payload.title}`
+    ? chipLine(chip.payload)
     : `From ${chip.payload.source}:\n${chip.payload.text.split("\n").map((line) => line ? `> ${line}` : ">").join("\n")}`;
   const draft = actions.composerDraft();
   actions.focusComposer(draft.trim() ? `${draft}\n\n${text}` : text);

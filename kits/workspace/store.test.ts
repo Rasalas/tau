@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WorkbenchActions } from "tau";
+import type { ToastOptions, WorkbenchActions } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { workspaceHostStub, type WorkspaceHostStubOverrides } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { PreferencesStore, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
-import { WorkspaceStore } from "./store.js";
+import { clientDrawsReview, WorkspaceStore, WorktreeDeclined } from "./store.js";
 
 /** A store over the kit's own command names, answered by the stub. */
 function storeOver(overrides: WorkspaceHostStubOverrides, preferences = new PreferencesStore()): WorkspaceStore {
@@ -75,7 +75,7 @@ describe("Workspace Kit worktree creation", () => {
     workspaceStore.update({ cwd: "/project", draftPending: false });
 
     await expect(workspaceStore.createWorktree("fix/queue")).resolves.toBe(false);
-    expect(actions.notify).toHaveBeenCalledWith("fix/queue is already checked out in a worktree.");
+    expect(actions.notify).toHaveBeenCalledWith("fix/queue is already checked out in a worktree.", "error");
     expect(actions.openWorkspace).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(1);
   });
@@ -168,22 +168,93 @@ describe("Workspace Kit thread worktrees", () => {
     expect(createWorktree).toHaveBeenLastCalledWith("fix/task-2", { baseRef: "abc123", startFromOrigin: false, uniqueBranch: true }, "ws1_project");
   });
 
-  it("stays in the checkout when the mode is current, and when creation fails", async () => {
-    const createWorktree = vi.fn(async (branch: string) => { throw new Error(`origin is unreachable for ${branch}`); });
-    const notify = vi.fn();
+  it("stays in the checkout when the mode is current", async () => {
+    const createWorktree = vi.fn();
     const workspaceStore = storeOver({ createWorktree });
-    workspaceStore.bind(actionsWith({ notify }));
+    workspaceStore.bind(actionsWith());
     workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: true, workspace: REPO });
-
-    const event = { prompt: "do the thing", preparing: () => undefined };
-    await expect(workspaceStore.prepareThreadWorktree(event)).resolves.toEqual({});
+    await expect(workspaceStore.prepareThreadWorktree({ prompt: "do the thing", preparing: () => undefined })).resolves.toEqual({});
     expect(createWorktree).not.toHaveBeenCalled();
+  });
 
-    workspaceStore.setWorkspaceMode("worktree");
-    await expect(workspaceStore.prepareThreadWorktree(event)).resolves.toEqual({});
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining("this thread runs in the checkout"));
-    // The name is the fallback one; no naming extension is registered here.
-    expect(createWorktree.mock.calls[0]?.[0]).toMatch(/^tau\/[0-9a-f]{8}$/u);
+  describe("when the worktree cannot be made", () => {
+    /** A store whose worktree fails, and the toast it asks its question in. */
+    function failing() {
+      const createWorktree = vi.fn(async (branch: string) => { throw new Error(`origin is unreachable for ${branch}.`); });
+      const toasts: ToastOptions[] = [];
+      const notify = vi.fn();
+      const workspaceStore = storeOver({ createWorktree });
+      workspaceStore.bind(actionsWith({ notify, toast: (options: ToastOptions) => { toasts.push(options); return { id: "t", update: () => undefined, dismiss: () => undefined }; } }));
+      workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: true, workspace: REPO });
+      workspaceStore.setWorkspaceMode("worktree");
+      const preparing: string[] = [];
+      const prepare = (extra = {}) => workspaceStore.prepareThreadWorktree({ prompt: "do the thing", preparing: (message) => preparing.push(message), ...extra });
+      const answer = async (label: string) => {
+        await vi.waitFor(() => expect(toasts).toHaveLength(1));
+        toasts[0]!.actions!.find((action) => action.label === label)!.run();
+      };
+      return { createWorktree, toasts, notify, workspaceStore, prepare, answer, preparing };
+    }
+
+    it("holds the prompt and asks, as an error that stays, instead of running it in the checkout", async () => {
+      const { toasts, notify, prepare, preparing, workspaceStore } = failing();
+      const prepared = prepare();
+      let settled = false;
+      void prepared.then(() => { settled = true; }, () => { settled = true; });
+      await vi.waitFor(() => expect(toasts).toHaveLength(1));
+
+      expect(toasts[0]).toMatchObject({
+        type: "error",
+        title: "The worktree could not be created",
+        description: expect.stringMatching(/origin is unreachable for tau\/[0-9a-f]{8}\. Run this thread in the current checkout instead\?$/u),
+        timeoutMs: 0,
+      });
+      expect(toasts[0]!.actions!.map((action) => action.label)).toEqual(["Use the checkout", "Don't send"]);
+      expect(preparing).toEqual(["Setting up worktree…", "Waiting for your answer…"]);
+      expect(settled).toBe(false);
+      expect(notify).not.toHaveBeenCalled();
+      // The pickers stay locked while the prompt waits.
+      expect(workspaceStore.getSnapshot().preparingWorktree).toBe(true);
+
+      toasts[0]!.actions![0]!.run();
+      await expect(prepared).resolves.toEqual({});
+      expect(workspaceStore.getSnapshot().preparingWorktree).toBe(false);
+    });
+
+    it("sends nothing when the user declines, and when the question is closed unanswered", async () => {
+      const declined = failing();
+      const first = declined.prepare();
+      void first.catch(() => undefined);
+      await declined.answer("Don't send");
+      await expect(first).rejects.toBeInstanceOf(WorktreeDeclined);
+      await expect(first).rejects.toThrow("Not sent: the worktree could not be created.");
+      expect(declined.workspaceStore.getSnapshot().preparingWorktree).toBe(false);
+
+      const closed = failing();
+      const second = closed.prepare();
+      void second.catch(() => undefined);
+      await vi.waitFor(() => expect(closed.toasts).toHaveLength(1));
+      closed.toasts[0]!.onClose!();
+      await expect(second).rejects.toBeInstanceOf(WorktreeDeclined);
+    });
+
+    it("declines at once where there is no toast to ask in, and says why", async () => {
+      const createWorktree = vi.fn(async () => { throw new Error("disk full"); });
+      const notify = vi.fn();
+      const workspaceStore = storeOver({ createWorktree });
+      workspaceStore.bind(actionsWith({ notify }));
+      workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project", draftPending: true, workspace: REPO });
+      workspaceStore.setWorkspaceMode("worktree");
+      await expect(workspaceStore.prepareThreadWorktree({ prompt: "x", preparing: () => undefined })).rejects.toBeInstanceOf(WorktreeDeclined);
+      expect(notify).toHaveBeenCalledWith("The worktree could not be created. disk full.", "error");
+    });
+
+    it("leaves a forced worktree to its caller, without a question", async () => {
+      const { toasts, notify, prepare } = failing();
+      await expect(prepare({ force: true })).resolves.toEqual({});
+      expect(toasts).toEqual([]);
+      expect(notify).toHaveBeenCalledWith(expect.stringContaining("The worktree could not be created. origin is unreachable"), "error");
+    });
   });
 
   it("makes a worktree on request in the current mode, with a suffix so one prompt can have several", async () => {
@@ -204,10 +275,10 @@ describe("Workspace Kit thread worktrees", () => {
 
   it("makes the draft's worktree on the name and base chosen in its Branch section, and forgets them with the draft", async () => {
     const createWorktree = vi.fn(async (branch: string) => ({ workspaceId: `ws1_${branch}`, displayPath: `/project-worktrees/${branch}` }));
-    const workspaceStore = storeOver({ createWorktree });
+    const workspaceStore = storeOver({ createWorktree, getWorkspaceInfo: async () => REPO });
     workspaceStore.bind(actionsWith());
     workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
-    workspaceStore.update({ workspace: REPO });
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.isRepo).toBe(true));
     workspaceStore.setWorkspaceMode("worktree");
     workspaceStore.setDraftBranch({ name: "  feat/pages  ", base: "origin/release" });
     expect(workspaceStore.getSnapshot()).toMatchObject({ draftBranch: "feat/pages", draftBase: "origin/release" });
@@ -234,6 +305,20 @@ describe("Workspace Kit thread worktrees", () => {
     expect(workspaceStore.workspaceMode()).toBe("current");
     // A thread that exists has no choice left to make.
     workspaceStore.update({ draftPending: false });
+    expect(workspaceStore.workspaceMode()).toBe("current");
+  });
+
+  it("drops a cached project default before sending when its approval is no longer valid", async () => {
+    let approved = true;
+    const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_child", displayPath: "/worktrees/child" }));
+    const workspaceStore = storeOver({ getProjectDefaults: async () => approved ? { workspaceMode: "worktree" } : {}, createWorktree });
+    workspaceStore.bind(actionsWith());
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+    await vi.waitFor(() => expect(workspaceStore.workspaceMode()).toBe("worktree"));
+    workspaceStore.update({ workspace: REPO });
+    approved = false;
+    await expect(workspaceStore.prepareThreadWorktree({ prompt: "do the work", preparing: () => undefined })).resolves.toEqual({});
+    expect(createWorktree).not.toHaveBeenCalled();
     expect(workspaceStore.workspaceMode()).toBe("current");
   });
 });
@@ -322,7 +407,13 @@ describe("Workspace Kit's default base", () => {
 });
 
 describe("Workspace Kit's worktree suggestion (K125)", () => {
-  const actions = () => ({ holdComposer: () => () => undefined, openWorkspace: vi.fn(async () => true), notify: vi.fn() } as unknown as WorkbenchActions);
+  // The question a failed worktree asks is answered "Use the checkout" at once.
+  const actions = () => ({
+    holdComposer: () => () => undefined,
+    openWorkspace: vi.fn(async () => true),
+    notify: vi.fn(),
+    toast: (options: ToastOptions) => { options.actions?.[0]?.run(); return { id: "t", update: () => undefined, dismiss: () => undefined }; },
+  } as unknown as WorkbenchActions);
   const draftIn = async (overrides: WorkspaceHostStubOverrides = {}, preferences = new PreferencesStore()) => {
     const workspaceStore = storeOver({ getWorkspaceInfo: async () => REPO, ...overrides }, preferences);
     workspaceStore.bind(actions());
@@ -485,5 +576,50 @@ describe("Workspace Kit's Changes entry", () => {
     release();
     release();
     expect(workspaceStore.openChangesView()).toBe(false);
+  });
+});
+
+// A browser tab has no `review.diff`: an entry that opened it would stage a tab with nothing in it.
+describe("Workspace Kit's review entries on a client that draws no review", () => {
+  it("send Commit and Inspect changes to the Changes panel and Files, and leave the panel to open", () => {
+    const workspaceStore = storeOver({});
+    const actions = { openPanel: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
+    workspaceStore.bind(actions);
+    workspaceStore.registerReviewView();
+
+    workspaceStore.drawsReview(false);
+    expect(workspaceStore.openChangesView()).toBe(false);
+    workspaceStore.openReview();
+    expect(actions.openPanel).toHaveBeenLastCalledWith("changes");
+    workspaceStore.showChangedFiles();
+    expect(actions.openPanel).toHaveBeenLastCalledWith("files");
+
+    workspaceStore.drawsReview(true);
+    expect(workspaceStore.openChangesView()).toBe(true);
+    workspaceStore.openReview();
+    expect(actions.openPanel).toHaveBeenLastCalledWith("review.diff");
+    workspaceStore.showChangedFiles();
+    expect(actions.openPanel).toHaveBeenLastCalledWith("review.diff");
+  });
+
+  it("is the desktop's alone to draw", () => {
+    expect([clientDrawsReview("desktop"), clientDrawsReview("web"), clientDrawsReview("compact")]).toEqual([true, false, false]);
+  });
+});
+
+describe("Workspace Kit's request step", () => {
+  it("holds the step another kit offers until it takes it back, and the newest offer wins", () => {
+    const workspaceStore = storeOver({});
+    const first = { noun: "PR", open: vi.fn() };
+    const second = { noun: "MR", open: vi.fn() };
+
+    const releaseFirst = workspaceStore.offerRequestStep(first);
+    expect(workspaceStore.getSnapshot().requestStep).toBe(first);
+    const releaseSecond = workspaceStore.offerRequestStep(second);
+    // A late take-back of the replaced offer leaves the current one alone.
+    releaseFirst();
+    expect(workspaceStore.getSnapshot().requestStep).toBe(second);
+    releaseSecond();
+    expect(workspaceStore.getSnapshot().requestStep).toBeUndefined();
   });
 });

@@ -23,6 +23,17 @@ function methodsFor(host: PiHost) {
   });
 }
 
+it("requires a dedicated compact-and-send request so an older host cannot silently discard the prompt", async () => {
+  const compactContext = vi.fn(async () => ({ version: 1, updates: [] }));
+  const methods = methodsFor({ compactContext } as unknown as PiHost);
+  const prompt = { text: "after compaction", attachments: [] };
+  await invokeHostMethod(methods, "compact-and-send", ["thread-1", prompt]);
+  expect(compactContext).toHaveBeenCalledWith("thread-1", expect.objectContaining(prompt));
+  await expect(invokeHostMethod(methods, "compact-and-send", ["thread-1"])).rejects.toThrow("prompt is required");
+  await invokeHostMethod(methods, "compact-context", ["thread-1"]);
+  expect(compactContext).toHaveBeenLastCalledWith("thread-1");
+});
+
 function fakeThread(threadId: string, cwd: string, delivered: string[]): ThreadRuntime {
   let hasMessages = threadId === "saved";
   const backend = {
@@ -184,4 +195,10 @@ it("reads visualization artifacts on their home host and publishes/releases on t
   await invokeHostMethod(methods, "host-extension", ["tau.workspace", "release-visualization", { path: "/resources/capability" }]);
   expect(routes.routeOf).toHaveBeenCalledTimes(1);
   expect(invoke.mock.calls.map((call) => call[1])).toEqual(["publish-visualization", "release-visualization"]);
+});
+
+it("asks clients to start and send to a thread as jobs, since a runtime start can outlast a request", async () => {
+  const methods = methodsFor(undefined as unknown as PiHost);
+  const jobs = await invokeHostMethod(methods, "job-methods", []);
+  expect(jobs).toEqual(expect.arrayContaining(["new-session", "prompt", "steer", "follow-up"]));
 });

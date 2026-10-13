@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DesktopExtension, UiSession } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -32,12 +32,12 @@ const organizer: ThreadRailOrganizer = {
   drop: () => undefined,
 };
 
-async function renderRail() {
+async function renderRail(ownCard = false) {
   const contributing: DesktopExtension = {
     id: "test.card",
     name: "Card",
     activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
-      const stops = [store.registerThreadRailOrganizer(organizer), store.registerThreadCardSection?.({ place: "section", Component: PullRequests })];
+      const stops = [store.registerThreadRailOrganizer(organizer), store.registerThreadCardSection?.({ place: "section", Component: PullRequests }), ...(ownCard ? [store.registerThreadRowAccessory(() => <span tabIndex={0} aria-haspopup="dialog">Own card</span>)] : [])];
       return () => stops.forEach((stop) => stop?.());
     }),
   };
@@ -87,6 +87,18 @@ describe("a rail row's hover card", () => {
       fireEvent.pointerDown(button);
       button.focus();
     });
+    expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
+  });
+
+  it("leaves an accessory's own popover room instead of also showing thread details", async () => {
+    await renderRail(true);
+    const button = rowButton("Second thread");
+    act(() => { fireEvent.keyDown(document.body, { key: "Tab" }); button.focus(); });
+    await screen.findByRole("dialog", { name: "Thread details" });
+    const accessory = within(button).getByText("Own card");
+    fireEvent.pointerOver(accessory, { pointerType: "mouse" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
+    act(() => { fireEvent.keyDown(document.body, { key: "Tab" }); accessory.focus(); });
     expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
   });
 });

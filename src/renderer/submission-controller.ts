@@ -7,6 +7,7 @@ import type {
 } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
 import { chosenNewThreadRuntime, effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { runtimeCatalogStore } from "./use-runtime-catalog";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
   isCurrentTranscriptSubmission,
@@ -75,7 +76,7 @@ export interface SubmissionControllerPorts {
   registry: ExtensionRegistry;
   storage: ClientStorage;
   preferences: PreferencesStore;
-  notify(message?: string): void;
+  notify(message?: string, level?: "info" | "warning" | "error"): void;
   actions(): WorkbenchActions | undefined;
   hostSession: HostSessionState;
   delivery: NewThreadDeliveryPort;
@@ -101,7 +102,8 @@ export class SubmissionController {
   /**
    * Runs the extensions' new-thread gates and moves the draft to the workspace
    * one of them names. A gate that fails or that the user left behind changes
-   * nothing: the prompt goes to the project the draft already had.
+   * nothing: the prompt goes to the project the draft already had. A gate that
+   * stops the send rejects it.
    */
   /** The line a draft's transcript shows while an extension works on its first prompt. */
   private preparingNotice(pending: NewThreadDraft, scope: DraftKey): { preparing(message: string): void; clear(): void } {
@@ -125,7 +127,7 @@ export class SubmissionController {
    */
   private newThreadStart(pending: NewThreadDraft) {
     const snapshot = this.ports.view.getSnapshot();
-    const runtime = effectiveNewThreadRuntime(pending.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot);
+    const runtime = effectiveNewThreadRuntime(pending.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot, runtimeCatalogStore(this.ports.client())?.all());
     const inherited = runtime === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
     // What the draft chose goes to the runtime it was chosen from and no other.
     const chosen = (pending.selectionRuntime ?? "pi") === runtime;
@@ -164,7 +166,7 @@ export class SubmissionController {
     }
   };
 
-  private prepareNewThreadWorkspace = async (pending: NewThreadDraft, prompt: string): Promise<NewThreadDraft> => {
+  private prepareNewThreadWorkspace = async (pending: NewThreadDraft, prompt: string, optimisticId: string): Promise<NewThreadDraft> => {
     const { registry, newThread } = this.ports;
     const actions = this.ports.actions();
     const scope = draftKey(undefined, pending);
@@ -175,6 +177,8 @@ export class SubmissionController {
         { prompt, projectPath: pending.projectPath, ...(pending.workspaceId ? { workspaceId: pending.workspaceId } : {}), preparing },
         actions,
       );
+      // A stopped send is a rejected one: the caller takes the prompt back into the composer.
+      if (gate?.stop) throw new Error(gate.stop);
       const moved = gate?.workspace;
       // The user may have left this draft while the gate worked.
       if (!moved) return pending;
@@ -184,8 +188,10 @@ export class SubmissionController {
         projectPath: moved.displayPath,
         ...(moved.name ? { projectName: moved.name } : {}),
       };
-      this.ports.scopes.moveScope(createDraftKey(scope), createDraftKey(draftKey(undefined, next)));
+      const nextScope = draftKey(undefined, next);
+      this.ports.scopes.moveScope(createDraftKey(scope), createDraftKey(nextScope));
       if (newThread.current()?.draftId === pending.draftId) newThread.set(next);
+      if (nextScope) retargetOptimisticMessage(this.ports.view, optimisticId, nextScope);
       return next;
     } finally {
       clear();
@@ -246,7 +252,7 @@ export class SubmissionController {
       return { accepted: false, message: errorMessage(error) };
     }
     const snapshot = view.getSnapshot();
-    const visibleStreaming = threads.getActivity().isStreaming;
+    const visibleStreaming = threads.getActivity().isStreaming || snapshot?.isCompacting === true;
     // Enter during a run parks the message above the composer. It is prepared
     // and sent as a plain prompt once the thread settles, or steered on demand.
     if (shouldQueueSubmission({ isPendingNewThread: Boolean(pendingNewThread), hasSnapshot: Boolean(snapshot), visibleStreaming, delivery })) {
@@ -265,21 +271,16 @@ export class SubmissionController {
           text,
           pendingNewThread ? undefined : this.ports.hostSession.sessionIdFor(snapshot?.sessionId),
           skillDraft,
-          pendingNewThread ? chosenNewThreadRuntime(pendingNewThread.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot) : undefined,
+          pendingNewThread ? chosenNewThreadRuntime(pendingNewThread.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot, runtimeCatalogStore(client)?.all()) : undefined,
           pendingNewThread && !pendingNewThread.sessionId ? pendingNewThread.workspaceId ?? pendingNewThread.projectPath : undefined,
         );
       } catch (error) {
         // ComposerScopeStore keeps the captured draft when a submission is
         // rejected, including edits made while preflight was in flight.
         // Re-seeding here would overwrite those newer edits.
-        this.ports.notify(errorMessage(error));
+        this.ports.notify(errorMessage(error), "error");
         return { accepted: false, message: errorMessage(error) };
       }
-    }
-    // A draft may move to another project before its thread exists: this is
-    // where Workspace Kit creates the worktree a new thread runs in (ADR 0017).
-    if (pendingNewThread && !pendingNewThread.sessionId) {
-      pendingNewThread = await this.prepareNewThreadWorkspace(pendingNewThread, text);
     }
     const {
       optimistic,
@@ -295,6 +296,21 @@ export class SubmissionController {
       sequence: this.turnSequence++,
       newThreadRequestId,
     });
+    // A draft may move to another project before its thread exists: this is
+    // where Workspace Kit creates the worktree a new thread runs in (ADR 0017).
+    // The prompt shows while the gate works and follows the draft if it moves.
+    let shownBeforeGate = false;
+    if (pendingNewThread && !pendingNewThread.sessionId) {
+      const gateScope = draftKey(undefined, pendingNewThread);
+      if (gateScope) addOptimisticMessage(view, gateScope, optimistic);
+      shownBeforeGate = gateScope !== undefined;
+      try {
+        pendingNewThread = await this.prepareNewThreadWorkspace(pendingNewThread, text, optimistic.id);
+      } catch (error) {
+        removeOptimisticMessage(view, optimistic.id);
+        throw error;
+      }
+    }
     const submissionScopeKey = transcriptNavigationScopeKey(snapshot, pendingNewThread);
     const submissionScope = transcriptNavigationScope(snapshot, pendingNewThread);
     const submissionIdentity: TranscriptSubmissionIdentity = {
@@ -333,7 +349,7 @@ export class SubmissionController {
       const currentSubmission = isCurrentSubmission();
       cancelTranscriptTurn();
       removeOptimisticMessage(view, optimistic.id);
-      if (currentSubmission) this.ports.notify(errorMessage(error));
+      if (currentSubmission) this.ports.notify(errorMessage(error), "error");
       return { accepted: false, message: errorMessage(error) };
     };
     const submittedDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
@@ -383,7 +399,7 @@ export class SubmissionController {
         this.ports.delivery.register(clientMessageId, recovery);
       }
       startTranscriptTurn(pending.sessionId, false, true);
-      addOptimisticMessage(view, optimisticScope, optimistic);
+      if (!shownBeforeGate) addOptimisticMessage(view, optimisticScope, optimistic);
       try {
         if (!client) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {
@@ -548,7 +564,7 @@ export class SubmissionController {
       const actions = this.ports.actions();
       if (actions) {
         void registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions)
-          .catch((error) => this.ports.notify(errorMessage(error)));
+          .catch((error) => this.ports.notify(errorMessage(error), "error"));
       }
       return { accepted: true };
     } catch (error) {

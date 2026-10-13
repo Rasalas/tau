@@ -21,6 +21,7 @@ import { ghosttyFontDefaults } from "./ghostty-config.js";
 import { Scrollback } from "./retention.js";
 import { CwdTracker } from "./cwd.js";
 import { piShellEnvironment, writePiShellIntegration } from "./pi-session-lock.js";
+import { registerBackgroundCommands } from "./background-commands.js";
 
 /**
  * The pty the host half drives, as a shape. `node-pty` arrives through the
@@ -397,8 +398,9 @@ export function createTerminalHostExtension(
   return {
     id: TERMINAL_HOST_EXTENSION_ID,
     name: "Terminal",
-    permissions: ["workspace:read", "process", "sessions"],
+    permissions: ["workspace:read", "process", "sessions", "runtime:extend"],
     activate(context: HostExtensionContext) {
+      const closeBackground = registerBackgroundCommands(context.services);
       // The native module is resolved on the first open, not at activation:
       // a host without it still activates the kit and answers with the reason.
       let factory: Promise<PtyFactory> | undefined = spawn ? Promise.resolve(spawn) : undefined;
@@ -496,7 +498,8 @@ export function createTerminalHostExtension(
           if (closed > 0) context.services.log("terminal.thread-closed", `${closed} terminal(s) closed with thread ${sessionId.slice(0, 8)}`);
         },
       });
-      return () => {
+      return async () => {
+        await closeBackground();
         unhook();
         sessions.dispose();
       };

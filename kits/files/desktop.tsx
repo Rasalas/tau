@@ -65,8 +65,8 @@ export const filesExtension: DesktopExtension = {
 
     context.registerStageTab<FileEditorParams>({
       kind: FILE_EDITOR_TAB,
-      // A tablet edits beside the chat as the desktop does; a phone draws no stage and reads in the Files sheet.
-      profiles: ["desktop", "compact"],
+      // A browser tab and a tablet edit beside the chat as the desktop does; a phone draws no stage and reads in the Files sheet.
+      profiles: ["desktop", "web", "compact"],
       title: (params) => fileName(fileEditorParams(params).path),
       Icon: FilePen,
       restore: (params) => Boolean(fileEditorParams(params).path),
@@ -119,7 +119,7 @@ export const filesExtension: DesktopExtension = {
         const path = shown?.kind === "extension" && shown.tabKind === FILE_EDITOR_TAB ? fileEditorParams(shown.params).path : undefined;
         if (!path) { actions.notify("Open a file in the editor first."); return; }
         const workspace = shownProject(actions);
-        if (!workspace) { actions.notify(`Not saved: ${UNKNOWN_PROJECT}`); return; }
+        if (!workspace) { actions.notify(`Not saved: ${UNKNOWN_PROJECT}`, "error"); return; }
         const document = documents.get(workspace, path);
         if (!document) { actions.notify("Open a file in the editor first."); return; }
         await saveDocument(document, fileName(path), actions);
@@ -137,15 +137,15 @@ export const filesExtension: DesktopExtension = {
         const open = actions.stageTabs().filter((tab) => tab.kind === "extension" && tab.tabKind === FILE_EDITOR_TAB && tab.dirty);
         if (open.length === 0) return;
         const workspace = shownProject(actions);
-        if (!workspace) { actions.notify(`Not saved: ${UNKNOWN_PROJECT}`); return; }
+        if (!workspace) { actions.notify(`Not saved: ${UNKNOWN_PROJECT}`, "error"); return; }
         for (const tab of open) {
           if (tab.kind !== "extension") continue;
           const document = documents.get(workspace, fileEditorParams(tab.params).path);
           if (!document) continue;
           try {
-            if (!await document.save()) actions.notify(`${tab.title} was not saved.`);
+            if (!await document.save()) actions.notify(`${tab.title} was not saved.`, "error");
           } catch (error) {
-            actions.notify(errorMessage(error));
+            actions.notify(errorMessage(error), "error");
           }
         }
         void kit.current?.workspace?.refresh();

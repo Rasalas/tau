@@ -19,7 +19,6 @@ import {
   REVIEW_OVERLAY,
   REVIEW_DIFF_PANEL,
   WORKSPACE_HOST_EXTENSION_ID,
-  WORKSPACE_CHANGES_PANEL,
   WORKSPACE_STORE_SERVICE,
   type ComposerContextChips,
   type WorkspaceStoreApi,
@@ -30,6 +29,7 @@ import { RequestLinks } from "./request-links.js";
 import { createGuideRunWatcher } from "./guide-notify.js";
 import { createRequestSection } from "./request-section.js";
 import { LinkDialogs } from "./link-dialog.js";
+import { createPublishCardLayer, RequestPublishing } from "./publish-card.js";
 import { PendingReviewStore } from "./pending-review.js";
 import { createProactivePanels } from "./proactive-panels.js";
 import { pullRequestClient } from "./pull-request-client.js";
@@ -112,7 +112,6 @@ export const reviewExtension: DesktopExtension = {
       chips = service;
       return () => { if (chips === service) chips = undefined; };
     });
-    plugin.registerCommand({ id: "review.changes", label: "Inspect Git changes", group: "Project", access: "read", run: (app) => workspaceStore ? workspaceStore.openReview() : app.openPanel(WORKSPACE_CHANGES_PANEL) });
     // A phone or a tablet reads diffs in a sheet from the title bar; the desktop's overlay and Changes panel are not drawn there.
     const compactStore = new CompactReviewStore();
     const workspaceHost = plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID);
@@ -158,8 +157,9 @@ export const reviewExtension: DesktopExtension = {
       },
     };
     const releaseAttach = plugin.provideService(REVIEW_ATTACH_SERVICE, attachService);
+    const localClient = localRequestClient(plugin.host, () => evidence);
     const releaseLocal = registerLocalRequestTab(plugin, {
-      client: localRequestClient(plugin.host, () => evidence),
+      client: localClient,
       requests,
       rows,
       changes: workspace,
@@ -168,6 +168,14 @@ export const reviewExtension: DesktopExtension = {
       preferences: plugin.preferences,
       drafts,
       onEvidence: (listener) => { evidenceListeners.add(listener); return () => { evidenceListeners.delete(listener); }; },
+    });
+    // "Commit, push & PR": one card over the window; the Git button in the workspace card and the review's commit menu open it.
+    const publishing = new RequestPublishing();
+    const releasePublish = plugin.registerRegion({
+      id: "review.publish-card",
+      placement: "title-bar",
+      profiles: ["desktop"],
+      Component: createPublishCardLayer(publishing, { store: () => workspaceStore, workspace: workspaceHost, requests, client: localClient, changes: workspace, rows, preferences: plugin.preferences }),
     });
     const releaseLinks = plugin.registerRegion({ id: "review.request-links", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: RequestLinks });
     const releaseGuideRuns = plugin.registerRegion({ id: "review.guide-runs", placement: "title-bar", profiles: ["desktop", "web", "compact"], Component: createGuideRunWatcher(plugin.host) });
@@ -194,14 +202,14 @@ export const reviewExtension: DesktopExtension = {
         plugin.registerCommand({ id: "review.toggle", label: "Toggle the review", group: "Project", access: "read", run: (app) => { const tab = app.activeStageTab?.(); if (tab?.kind === "panel" && tab.panelId === REVIEW_DIFF_PANEL) store.closeReview(); else store.openReview(); } }),
         plugin.registerKeybinding({ keys: "mod+d", commandId: "review.toggle", when: "!terminalFocus" }),
         registerCommitMessages(plugin, store),
-        store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs })),
-        store.registerWorkspaceSummarySection?.(createWorkspaceRequestSummary(store, rows, links, client)) ?? (() => undefined),
+        store.registerChangesSection(createRequestSection(plugin, store, requests, rows, { rows: links, client, dialogs: shared.dialogs }, publishing)),
+        store.registerWorkspaceSummarySection?.(createWorkspaceRequestSummary(store, rows, links, client, publishing)) ?? (() => undefined),
         store.registerThreadRowAccessory(createRequestBadge(rows, links)),
         store.registerThreadCardSection?.({ place: "section", order: 10, Component: createRequestCardSection(rows, links) }) ?? (() => undefined),
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 

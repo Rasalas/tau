@@ -7,15 +7,15 @@ export function pairingTextProblem(text: string): string | undefined {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
   const payload = parseMobilePairingPayload(trimmed);
-  if (!payload) return "This is not a pairing link: it carries no code. Copy the whole link from Settings → Connections.";
-  if (payload.endpoints.length === 0) return "This link names no address of the host. Create a new one on a host with Local network or Tailscale on.";
+  if (!payload) return "This is not a pairing link. Copy the whole link from Settings → Connections on your machine.";
+  if (payload.endpoints.length === 0) return "This link has no address this phone can reach. Turn on Local network or Tailscale in Settings → Connections on your machine, then create a new link.";
   return undefined;
 }
 
 /**
- * Adding a host: scan the QR code Settings → Connections shows, or paste its
- * link. Either way the host's owner then allows the phone after comparing
- * the digits.
+ * Adding a machine: scan the QR code Settings → Connections shows, or paste
+ * its link. Either way the owner then allows the phone on that machine after
+ * comparing the digits.
  */
 export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmit }: {
   error?: string;
@@ -36,11 +36,11 @@ export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmi
   const payload = text.trim() && !problem ? parseMobilePairingPayload(text) : undefined;
   return <main className="shell-screen" aria-labelledby="add-title">
     <header className="shell-header">
-      <button type="button" className="shell-icon-button" aria-label="Back to hosts" onClick={onBack}><ChevronLeft size={24} /></button>
-      <h1 id="add-title">Add host</h1>
+      <button type="button" className="shell-icon-button" aria-label="Back to machines" onClick={onBack}><ChevronLeft size={24} /></button>
+      <h1 id="add-title">Add machine</h1>
     </header>
     <div className="shell-scroll shell-form">
-      <p>On the computer running Tau, open Settings → Connections and create a pairing link. Scan its code, or paste the link here.</p>
+      <p>On the machine running Tau, open Settings → Connections, choose Pair a device and create a link. Scan its QR code, or paste the link here.</p>
       {error ? <p className="shell-notice" role="alert">{error}</p> : null}
       <button type="button" className="shell-primary" onClick={onScan}><QrCode size={20} />Scan QR code</button>
       <form onSubmit={(event) => { event.preventDefault(); if (payload) onSubmit(payload, text); }}>
@@ -53,7 +53,7 @@ export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmi
             autoCorrect="off"
             spellCheck={false}
             inputMode="url"
-            placeholder="https://…#pair=…"
+            placeholder="Paste the link here"
             aria-invalid={problem ? true : undefined}
             aria-describedby={problem ? "pairing-text-problem" : undefined}
             onChange={(event) => setText(event.target.value)}

@@ -45,6 +45,24 @@ export function buildDraftPrompt(context: ReviewRequestContext): string {
   ].filter(Boolean).join("\n\n").slice(0, 60_000);
 }
 
+/** The commit about to be made, as one more commit of the branch, so a description can be written before it exists. */
+export function withPendingCommit(context: ReviewRequestContext, pending: unknown): ReviewRequestContext {
+  const fields = record(pending);
+  const written = text(fields.message)?.trim();
+  if (!written) return context;
+  const [subject = "", ...rest] = written.split(/\r?\n/u);
+  const stat = (Array.isArray(fields.files) ? fields.files : []).slice(0, 200).flatMap((file) => {
+    const entry = record(file);
+    const path = text(entry.path);
+    return path ? [` ${path} | +${Number(entry.added) || 0} -${Number(entry.removed) || 0}`] : [];
+  }).join("\n");
+  return {
+    ...context,
+    commits: [{ subject: subject.trim(), body: rest.join("\n").trim() }, ...(context.commits ?? [])],
+    ...(stat ? { diffStat: [context.diffStat, stat].filter(Boolean).join("\n") } : {}),
+  };
+}
+
 /** First line is the title, the rest the body; fences and a "Title:" label are dropped. */
 export function parseDraft(answer: string): { title: string; body: string } {
   const cleaned = answer.trim().replace(/^```(?:markdown|md|text)?\s*/u, "").replace(/\s*```$/u, "").trim();
@@ -182,7 +200,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const { info } = provider;
     const request = current.request;
     if (!request) throw new HostCommandError(`This branch has no ${info.noun} yet.`);
-    if (request.state && request.state !== "open") throw new HostCommandError(`${info.short} #${request.number} is ${request.state}.`);
+    if (request.state && request.state !== "open") throw new HostCommandError(`${info.short} ${info.sign}${request.number} is ${request.state}.`);
     return request;
   };
 
@@ -240,7 +258,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const { current, git, provider, target } = inspected;
     const { info } = provider;
     if (!info.capabilities.create) throw new HostCommandError(`${info.name} does not let Tau open a ${info.noun}; open it on the website.`);
-    if (current.request?.state === "open") throw new HostCommandError(`${info.short} #${current.request.number} is already open for this branch.`);
+    if (current.request?.state === "open") throw new HostCommandError(`${info.short} ${info.sign}${current.request.number} is already open for this branch.`);
     const base = text(fields.base)?.trim() || git.base;
     if (base === git.branch) throw new HostCommandError(`The ${info.noun} would merge ${base} into itself; choose another base branch.`);
     const draft = fields.draft === true && info.capabilities.draft;

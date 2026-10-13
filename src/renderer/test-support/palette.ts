@@ -5,7 +5,7 @@ export async function openCommandPalette(): Promise<HTMLInputElement> {
   const mac = /mac|iphone|ipad/iu.test(navigator.platform);
   fireEvent.keyDown(window, { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
   const palette = await screen.findByRole("dialog", { name: "Command palette" });
-  const input = within(palette).getByRole("textbox", { name: "Command" }) as HTMLInputElement;
+  const input = within(palette).getByRole("combobox", { name: "Command" }) as HTMLInputElement;
   // The palette clears its field in the effect that focuses it. On the first opening its chunk
   // loads, the dialog can be found before that effect runs, and it would erase what was typed.
   await waitFor(() => {

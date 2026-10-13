@@ -32,6 +32,7 @@ import { authorizeMethod, ownerRefusal } from "./host-method-access.js";
 import { createEnvironmentMethods, type EnvironmentsService } from "./environment-methods.js";
 import {
   decodeBoolean,
+  decodeCompactionPrompt,
   decodeCommandName,
   decodeConfigPatch,
   decodeCustomProviderInput,
@@ -189,6 +190,8 @@ export interface HostMethodDeps {
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
+/** Calls that can wait on a runtime starting or reopening, which outlasts a remote request's timeout on a busy host. */
+const RUNTIME_START_METHODS = ["new-session", "prompt", "steer", "follow-up"];
 
 function decodePromptArgs(method: string, params: readonly unknown[]) {
   return {
@@ -381,6 +384,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeOptionalString("set-mode", "expectedSessionId", params[1]),
     ),
     "compact-context": async (params) => (await host()).compactContext(decodeOptionalString("compact-context", "expectedSessionId", params[0])),
+    "compact-and-send": async (params) => {
+      const sessionId = decodeString("compact-and-send", "sessionId", params[0]);
+      const prompt = decodeCompactionPrompt(params[1]);
+      if (!prompt) throw new Error("compact-and-send: prompt is required");
+      return (await host()).compactContext(sessionId, prompt);
+    },
     "restart-session": async (params) => (await host()).restartSession(decodeString("restart-session", "threadId", params[0])),
     "reload-runtime": async () => (await host()).reloadRuntime(),
     "reload-extensions": async () => (await host()).reloadExtensions(),
@@ -548,6 +557,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const long = deps.host()?.longHostExtensionCommands() ?? [];
       return [
         "rebuild-workbench",
+        ...RUNTIME_START_METHODS,
         ...long.map((entry) => {
           const [extensionId = "", command = ""] = entry.split("/");
           return jobMethodKey("host-extension", extensionId, command);

@@ -28,6 +28,7 @@ import {
 import { AcpTurnTranslator, type AcpCommand, type AcpPromptResponse, type AcpSessionUpdate, type AcpTurnOutcome } from "./events.js";
 import type { AcpContentBlock, AcpInitializeResult } from "./session.js";
 import { activityHistory, derivedTitle, imagesOf, promptBlocks } from "./thread.js";
+import { BackgroundTasks } from "../_shared/background-tasks.js";
 
 /** What a thread backend needs of a live ACP session; `AcpAgentSession` is the real one. */
 export interface AcpLiveSession {
@@ -56,12 +57,14 @@ export interface AcpStoredMessage {
 }
 
 export interface AcpThreadBackendOptions {
+  onBackgroundEnded?(text: string): void;
   adapter: AgentRuntimeAdapter;
   /** Where the thread's tool cards are kept across restarts. */
   activity?: TurnActivityStore;
   onMessage?(message: UiMessage): void;
   onEvent?(event: ThreadRuntimeEvent): void;
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
+  cancelPrompts?(): void;
   permissionLevel?: () => RuntimePermissionLevel;
   /**
    * What the thread's project lets its commands reach (API 1.14.0). An ACP
@@ -72,6 +75,7 @@ export interface AcpThreadBackendOptions {
 }
 
 export interface AcpTurn {
+  backgroundResults?: Map<string, number>;
   translator: AcpTurnTranslator;
   text: string;
   blocks: AcpContentBlock[];
@@ -119,6 +123,9 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
   protected persisting: Promise<void> = Promise.resolve();
   /** A failed start is also a notice on the transcript; a kit whose sign-in reports its own failure turns it off. */
   protected readonly noticeOnStartFailure: boolean = true;
+  private readonly background = new BackgroundTasks();
+  private readonly backgroundTranslators = new Map<string, AcpTurnTranslator>();
+  private readonly commandTools = new Set<string>();
 
   /**
    * @param agent How messages name the agent: `Cursor`.
@@ -136,6 +143,7 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
     this.kind = base.adapter.id;
     this.now = base.now ?? Date.now;
     this.capabilities = {
+      background: this.background.capability(() => this.report({ type: "background" })),
       titles: { title: async () => this.nativeTitle },
       // The agent loads the stored session itself, so a continuation is an
       // ordinary turn; the protocol has no message kind the transcript hides.
@@ -274,6 +282,7 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
 
   private async runTurn(turn: AcpTurn): Promise<ThreadBackendPromptResult> {
     if (turn.status) return {};
+    turn.backgroundResults = this.background.snapshot();
     const index = this.turns.indexOf(turn);
     if (index > 0) {
       this.turns.splice(index, 1);
@@ -296,7 +305,16 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
         this.settle(turn, "error", turn.translator.abandon(), message);
         throw error;
       }
-      const events = turn.translator.finish(response);
+      const pending = response.stopReason === "cancelled" || response.stopReason === "refusal" ? [] : [...turn.translator.running.values()];
+      this.background.fromTools(pending, this.commandTools);
+      for (const tool of pending) this.backgroundTranslators.set(tool.id, turn.translator);
+      if (pending.length) this.report({ type: "background" });
+      const pendingIds = new Set(pending.map((tool) => tool.id));
+      const events = turn.translator.finish(response).filter((event) => event.type !== "tool-end" || !pendingIds.has(event.tool.id));
+      for (const tool of pending) {
+        turn.translator.running.set(tool.id, tool);
+        events.push({ type: "tool-end", tool: { ...tool, status: "done", output: `${tool.output ?? ""}\nKeeps running in the background.`.trim(), endedAt: this.now() } });
+      }
       const outcome = turn.translator.outcome!;
       const verdict = await this.afterTurn(live, turn, outcome);
       if (outcome.stopReason === "refusal") this.report({ type: "notice", message: `${this.agent} declined to continue this turn.`, level: "warning" });
@@ -323,6 +341,7 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
     if (turn.status) return;
     for (const event of events) this.handleEvent(event);
     turn.status = status;
+    if (status === "completed" && turn.translator.outcome?.stopReason !== "refusal" && this.background.handled(turn.backgroundResults ?? new Map())) this.report({ type: "background" });
     const index = this.turns.indexOf(turn);
     if (index >= 0) this.turns.splice(index, 1);
     this.noteFacts(turn.translator);
@@ -348,6 +367,21 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
 
   /** Updates outside a posted prompt are a loaded session's replay or session facts; only the facts count. */
   protected onUpdate(update: AcpSessionUpdate): void {
+    if (update["_meta"]?.isReplay === true) return;
+    if (update.toolCallId && update.kind === "execute") this.commandTools.add(update.toolCallId);
+    const backgroundTranslator = update.toolCallId ? this.backgroundTranslators.get(update.toolCallId) : undefined;
+    if (backgroundTranslator && (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update")) {
+      for (const event of backgroundTranslator.push(update)) {
+        this.handleEvent(event);
+        if (event.type === "tool-end") {
+          this.backgroundTranslators.delete(event.tool.id);
+          this.commandTools.delete(event.tool.id);
+          if (this.background.report(event.tool.id)) this.report({ type: "background" });
+          this.base.onBackgroundEnded?.(`The native background task ${JSON.stringify(event.tool.name)} ${event.tool.status === "error" ? "failed" : "finished"}.\n${event.tool.output ?? ""}`);
+        }
+      }
+      return;
+    }
     if (update.sessionUpdate === "session_info_update") {
       const title = typeof update.title === "string" ? derivedTitle(update.title) : undefined;
       if (title && this.titleSource !== "renamed") {
@@ -382,9 +416,20 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
     for (const event of events) this.handleEvent(event);
   }
 
+  /** A form may advance past a skipped optional field after its process exits. */
+  protected sessionAsk(session: S | undefined): AcpThreadBackendOptions["ask"] {
+    const ask = this.base.ask;
+    if (!ask) return undefined;
+    return (prompt) => session && !session.closed && this.live === session
+      ? ask(prompt)
+      : Promise.resolve({ cancelled: true });
+  }
+
   protected onExit(session: S | undefined, error: Error | undefined): void {
     if (!session || this.live !== session) return;
+    this.base.cancelPrompts?.();
     this.live = undefined;
+    this.clearBackground();
     if (error) this.report({ type: "notice", message: error.message, level: "error" });
     for (const turn of [...this.turns]) {
       if (turn.posted) this.settle(turn, error ? "error" : "interrupted", turn.translator.abandon(), error?.message);
@@ -405,6 +450,7 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
   }
 
   protected handleEvent(event: ThreadRuntimeEvent): void {
+    if (event.type === "tool-end" && !this.backgroundTranslators.has(event.tool.id)) this.commandTools.delete(event.tool.id);
     if (event.type === "assistant-end") {
       this.messages.push(event.message);
       const message = event.message;
@@ -451,6 +497,15 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
     const live = this.live;
     this.live = undefined;
     if (live && !live.closed) await live.close();
+    this.clearBackground();
     await this.persisting;
+  }
+
+  private clearBackground(): void {
+    const had = this.background.current().length > 0;
+    this.background.clear();
+    this.backgroundTranslators.clear();
+    this.commandTools.clear();
+    if (had) this.report({ type: "background" });
   }
 }

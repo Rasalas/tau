@@ -239,3 +239,28 @@ field — turned the tablet into a phone, bottom navigation included.
   `maximizable`, as on the desktop; the claim is unchanged, so nothing
   registers or unregisters when an iPad enters Split View.
 
+
+## Amendment, 2026-10-13: a browser tab is not a smaller phone
+
+A browser tab wider than 720 px drew less than a phone: Files was claimed for
+`desktop` and `compact`, Changes for `desktop`, and the default chords included
+the ones a browser keeps for itself.
+
+- **The web profile draws Files and Changes.** Workspace Kit's Files panel, its
+  document source and Files Kit's editor tab claim `web` beside `compact`; the
+  Changes panel claims `desktop` and `web`. They read Git and files through the
+  host, as the phone's Files sheet already did. `review.diff` stays the
+  desktop's, so on any other client Workspace Kit's entries that opened it
+  ("Commit…", the title's Commit button, "Review changes") open the Changes
+  panel, "N files changed" opens Files on its Changed view, and Changes does not
+  redirect. Review Kit's pull-request step in the Changes panel stays the
+  desktop's: the publish card, the Local PR tab and the link dialog it opens are.
+- **`isDesktop` is a keybinding context the client answers.** A browser never
+  hands ⌘W, ⌘N, ⇧⌘N, ⇧⌘T or Ctrl+Tab to the page, and ⌘1–⌘9 switch its tabs, so
+  a binding for them would show in a tooltip and close or leave the tab Tau runs
+  in. Those defaults carry `&& isDesktop`; a tab binds ⌥ variants with `!isDesktop`.
+  The registry does not bind a chord whose clause cannot hold on its profile,
+  so hints, the keymap and the conflict check show only what works there. This
+  is T3 Code's `isDesktop`; its thread-jump chords carry it for the same reason.
+  A page cannot stop a browser from closing its tab on ⌘W: the answer is to
+  bind no such chord and to say which one closes a stage tab there.

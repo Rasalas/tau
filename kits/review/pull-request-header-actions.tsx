@@ -73,13 +73,13 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
     const kind = confirmation.kind;
     if (kind === "merge") {
       const result = await act("merge", confirmation.method, confirmation.deleteBranch);
-      after(result, `${info.short} #${number} merged.${outcomeText(result.merge)}`);
+      after(result, `${info.short} ${info.sign}${number} merged.${outcomeText(result.merge)}`);
     } else if (kind === "auto-merge") {
-      after(await act("auto-merge", confirmation.method, confirmation.deleteBranch), `Auto-merge turned on for ${info.short} #${number}: it merges as soon as the host allows, sooner if it already does.`);
+      after(await act("auto-merge", confirmation.method, confirmation.deleteBranch), `Auto-merge turned on for ${info.short} ${info.sign}${number}: it merges as soon as the host allows, sooner if it already does.`);
     } else if (kind === "revert") {
       const result = await act("revert");
       onDetail(result.detail);
-      actions.notify(result.created ? `Opened a ${info.short} that reverts #${number}.` : `Asked ${info.name} to revert #${number}.`);
+      actions.notify(result.created ? `Opened a ${info.short} that reverts ${info.sign}${number}.` : `Asked ${info.name} to revert ${info.sign}${number}.`);
       const created = result.created ? parseRequestUrl(result.created) : undefined;
       if (created) openPullRequest(actions, { url: created.url, number: created.number, provider: created.service });
     }
@@ -87,7 +87,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
 
   const disarm = async () => {
     setNotice(undefined);
-    try { after(await act("cancel-auto-merge"), `Auto-merge turned off for ${info.short} #${number}.`); } catch (error) { setNotice(errorMessage(error)); }
+    try { after(await act("cancel-auto-merge"), `Auto-merge turned off for ${info.short} ${info.sign}${number}.`); } catch (error) { setNotice(errorMessage(error)); }
   };
 
   const open = detail.state === "open";

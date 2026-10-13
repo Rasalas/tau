@@ -7,13 +7,13 @@ import type { WatchState } from "./pr-watch-protocol.js";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
 import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps } from "tau";
-import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, providerInfo, requestNumber, type PullRequestCheck } from "./protocol.js";
 import { checksPipelines } from "./pipeline.js";
 import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { checksRollup, checksSummary, checksUnfinished } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
-import { openPullRequest } from "./pull-request-open.js";
+import { openPullRequest, openThreadPullRequests } from "./pull-request-open.js";
 import { STRIP_OPTION, StripDismissals, stripRequests, type StripRequest, type StripState } from "./pull-request-strip-logic.js";
 import { useRequestLifecycle } from "./request-lifecycle.js";
 import { checksLabel, checksTone, type RowRequests } from "./requests.js";
@@ -96,7 +96,7 @@ function StripChecks({ request, client, open }: { request: StripRequest; client:
   return <span className={`review-pr-strip-checks ${tone}`} {...tooltipProps(`Checks: ${live ? checksSummary(live) : checksLabel(request.checks)}`)}><ChecksIcon tone={tone} /></span>;
 }
 
-const otherLine = (request: StripRequest, watched: boolean) => [`#${request.number}`, request.title ?? request.repo, "·", STATE_WORDS[request.state].toLowerCase(), watched ? "· watching" : ""].filter(Boolean).join(" ");
+const otherLine = (request: StripRequest, watched: boolean) => [requestNumber(request.service, request.number), request.title ?? request.repo, "·", STATE_WORDS[request.state].toLowerCase(), watched ? "· watching" : ""].filter(Boolean).join(" ");
 const NO_WATCHES: WatchState = { watches: [] };
 const noWatches = () => () => undefined;
 
@@ -138,7 +138,7 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
   const checks = tone ? checksLabel(primary.checks) : undefined;
   const where = primary.repo ? `${primary.host ? `${primary.host}/` : ""}${primary.repo}` : undefined;
   const label = [
-    `Open ${info.noun} #${primary.number}${primary.repo ? ` in ${primary.repo}` : ""} on ${info.name}, ${state.toLowerCase()}`,
+    `Open ${info.noun} ${info.sign}${primary.number}${primary.repo ? ` in ${primary.repo}` : ""} on ${info.name}, ${state.toLowerCase()}`,
     checks ? `checks ${checks}` : "",
     others.length > 0 ? `${others.length} more linked` : "",
     primary.title ?? "",
@@ -148,16 +148,16 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
     <div className="review-thread-outcome"><div className={`review-pr-strip state-${primary.state}`}>
       <button type="button" className="review-pr-strip-open" aria-label={label} onClick={() => open()}>
         <RequestStateIcon state={primary.state} size={14} className="review-pr-strip-glyph" />
-        <span className="review-pr-strip-number" {...tooltipProps(primary.title)}>#{primary.number}</span>
+        <span className="review-pr-strip-number" {...tooltipProps(primary.title)}>{info.sign}{primary.number}</span>
         <span className="review-pr-strip-service" {...tooltipProps(where ? `${info.name} · ${where}` : info.name)}><ServiceIcon service={primary.service} /></span>
         <span className="review-pr-strip-title">{primary.title ?? primary.repo}</span>
         <span className="review-pr-strip-state">{state}</span>
         <span className="review-pr-strip-fill" />
-        {others.length > 0 ? <span className="review-pr-strip-more" {...tooltipProps(others.map((other) => otherLine(other, watchState.watches.some((watch) => watch.threadId === threadId && watch.ref.url === other.url && watch.status !== "ended"))).join("\n"), { variant: "lines" })}>+{others.length}</span> : null}
         {primary.state === "open" ? <StripChecks request={primary} client={parts.client} open={() => open("checks")} /> : null}
       </button>
+      {others.length > 0 ? <button type="button" className="review-pr-strip-more" aria-label={`View all ${others.length + 1} linked requests`} {...tooltipProps(others.map((other) => otherLine(other, watchState.watches.some((watch) => watch.threadId === threadId && watch.ref.url === other.url && watch.status !== "ended"))).join("\n"), { variant: "lines" })} onClick={() => openThreadPullRequests(actions, threadId, cwd)}>+{others.length}</button> : null}
       {parts.watches ? <PullRequestWatchControl feed={parts.watches} threadId={threadId} request={primary} others={others} /> : null}
-      <button type="button" className="review-pr-strip-hide" aria-label={`Hide ${info.short} #${primary.number} for this thread`} {...tooltipProps("Hide for this thread")}
+      <button type="button" className="review-pr-strip-hide" aria-label={`Hide ${info.short} ${info.sign}${primary.number} for this thread`} {...tooltipProps("Hide for this thread")}
         onClick={() => dismissals.hide(threadId, primary)}>
         <X size={14} aria-hidden="true" />
       </button>

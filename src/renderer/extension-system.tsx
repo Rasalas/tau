@@ -2,7 +2,7 @@ import type { SettingsNavGroup } from "./settings/settings-nav";
 import type { ToastHandle, ToastOptions } from "../workbench/toast-store";
 import type { ThreadRowMark } from "../workbench/thread-row-status";
 import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
-import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
+import { clientClause, DESKTOP_CONTEXT, evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
 import { domKeybindingContext } from "./keybinding-context";
 import type { ComponentType, ReactNode } from "react";
 import type { PanelIconComponent } from "./components/PanelIcon";
@@ -25,6 +25,7 @@ import type {
   UiSession,
   UiPromptAttachment,
   UiSkillDraft,
+  SubmissionResult,
   UiPromptImageAttachment,
   UiSharedFile,
   UiToolOutputPreview,
@@ -105,17 +106,27 @@ export interface WorkbenchActions {
    * older turns first when it is not among them. False when the thread has no such message.
    */
   revealMessage?(messageId: string): Promise<boolean>;
+  /**
+   * Opens the find bar over the transcript of the thread on screen, or takes the keyboard back
+   * into it when it is open; nothing happens without a transcript (API 1.61.0).
+   */
+  findInThread?(): void;
   focusStage(): void;
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
   toggleSidebar?(): void;
   /** Collapses the conversation to its spine beside the stage, or opens it again (design 1b). */
   toggleSpine?(): void;
-  notify(message: string): void;
+  /**
+   * A one-line toast. `level` is `info` by default; a failure reports as `error`,
+   * which stays until dismissed and offers Copy (API 1.60.0).
+   */
+  notify(message: string, level?: "info" | "warning" | "error"): void;
   /**
    * A toast on the window's stack: a type icon, a title and a line, actions,
    * a copy button. It leaves after five seconds of being seen (`timeoutMs`,
-   * 0 for never); an `id` already shown is replaced. New in API 1.11.0.
+   * 0 for never; an `error` stays by default, API 1.60.0); an `id` already
+   * shown is replaced. New in API 1.11.0.
    */
   toast?(options: ToastOptions): ToastHandle;
   /** Opens the list of project sources extensions registered; with `source`, that source's own view (API 1.12.0). */
@@ -224,6 +235,8 @@ export interface WorkbenchActions {
   closePage?(): void;
   /** Manually compact the active thread's context window. Resolves `false` when it did not (API 1.53.0); the user was told why. */
   compactContext?(): Promise<boolean | void>;
+  /** Queues a captured prompt on this thread, compacts, then sends it automatically. */
+  compactAndSend?(sessionId: string, prompt: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<boolean>;
   /** Opens the model picker modal for selecting a model. */
   openModelPicker?(): void;
   /** Sets the model for the active thread or pending new thread. Accepts (provider, id) or query string. */
@@ -400,6 +413,13 @@ export interface ThreadListSource {
   threads(): readonly ThreadListEntry[];
   /** Where this host's own threads run, named on their rows while entries of elsewhere show. */
   here?(): ThreadListPlace | undefined;
+}
+
+/** A kit's marks on a compact thread list's rows, drawn beside the branch as the desktop rail's accessories are (new after API 1.59.0). */
+export interface ThreadListAccessoryContribution {
+  id: string;
+  /** `settled`: the row is on the settled shelf. Draws nothing when it has nothing to say. */
+  Component: ComponentType<{ session: UiSession; settled: boolean }>;
 }
 
 /** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
@@ -743,6 +763,8 @@ export interface ComposerSendMode {
   Icon?: PanelIconComponent;
   /** Runs once the prompt has passed every gate; the prompt goes when it resolves. A rejection keeps the draft. */
   beforeSend(actions: WorkbenchActions | undefined): Promise<void>;
+  /** Owns submission of the captured prompt, including any prerequisite work. */
+  submit?(actions: WorkbenchActions | undefined, prompt: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<SubmissionResult>;
   /** The menu beside the button. */
   options?: readonly ComposerSendOption[];
 }
@@ -894,7 +916,8 @@ export interface StageTabContribution<Params extends Record<string, unknown> = R
 export interface SettingsPageProps {
   /** The open project, for a page that reports what this workspace sees. */
   cwd?: string;
-  onNotify(message: string): void;
+  /** `level` as in `WorkbenchActions.notify` (API 1.60.0). */
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** Opens another place in Settings (`"appearance#setting-…"`, `"extensions/<id>"`) without leaving it (API 1.18.0). */
   onOpenSettings?(target: string): void;
 }
@@ -1053,7 +1076,8 @@ export type SettingsSectionPage = "connections" | "extensions" | "extension" | "
 export type SettingsCardId = "appearance" | "notify" | "new-threads" | "threads" | "this-machine";
 
 export interface SettingsSectionProps {
-  onNotify(message: string): void;
+  /** `level` as in `WorkbenchActions.notify` (API 1.60.0). */
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** Reads the page's own data again, after the section changed something it shows. */
   onChanged(): void;
   /** On an extension's page: whose page it is (API 1.18.0). */
@@ -1223,7 +1247,10 @@ export interface KeybindingContribution {
    * joining. The user who rebound an action in `keybindings.json` means *that*
    * key, not that one and Tau's default too; a kit passes the command id here
    * and core hides the default while the binding lives (Keybindings Kit is the
-   * caller). Usually the same id as `commandId`.
+   * caller). Usually the same id as `commandId`. Naming another registered
+   * command makes that one a stand-in the palette and the keymap no longer
+   * list (it still runs by id): Workspace Kit's "Settle thread" gives way to
+   * Thread Rail's (API 1.61.0).
    */
   replaces?: string;
 }
@@ -1358,6 +1385,8 @@ export interface NewThreadPromptEvent {
  */
 export interface NewThreadPromptGate {
   workspace?: { workspaceId: string; displayPath: string; name?: string };
+  /** Sends nothing: the prompt returns to the composer and this line says why (API 1.61.0). */
+  stop?: string;
 }
 
 /** A new thread's first prompt, offered to an extension that may start the thread itself. */
@@ -1387,8 +1416,8 @@ export interface PromptHookContribution {
   claimNewThread?(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean | void>;
   /**
    * Runs before a pending draft's first prompt leaves the composer. It may move
-   * the thread to another project; a failure is reported and the draft stays
-   * where it was, so the prompt is never lost to it.
+   * the thread to another project or `stop` the send; a failure is reported and
+   * the draft stays where it was, so the prompt is never lost to it.
    */
   beforeNewThread?(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | void>;
   afterPrompt?(event: PromptSubmittedEvent, actions: WorkbenchActions): void | Promise<void>;
@@ -1555,6 +1584,8 @@ export interface ToolCardContribution extends ProfileScoped {
   id: string;
   match(tool: UiToolRun): boolean;
   Component: ComponentType<ToolCardProps>;
+  /** Additional rows from durable tool state, e.g. background returns. Pure; anchors outside the loaded window stay hidden (API 1.61.0). */
+  transcriptRows?(props: ToolCardProps & { messages: readonly UiMessage[] }): readonly TranscriptRow[];
 }
 
 /** Options an extension declares at activation; Tau renders the settings page from these. */
@@ -1699,6 +1730,8 @@ export interface DesktopExtensionContext {
   registerProjectSource(source: ProjectSourceContribution): () => void;
   /** Threads of elsewhere in a phone's or tablet's thread list, beside this host's (API 1.30.0). */
   registerThreadListSource(source: ThreadListSource): () => void;
+  /** Marks on the rows of a phone's or tablet's thread list: the rail's accessories (new after API 1.59.0). */
+  registerThreadListAccessory(accessory: ThreadListAccessoryContribution): () => void;
   registerCommand(command: CommandContribution): () => void;
   /** Rows the command palette asks for as the user types, beside the commands. */
   registerPaletteSource(source: PaletteSourceContribution): () => void;
@@ -1824,6 +1857,8 @@ export class ExtensionRegistry {
 
   /** Which client is drawing. Every renderable contribution is filtered against it. */
   private readonly profile: ClientProfile;
+  /** What a binding's `when` must be able to hold beside; see `registerKeybinding`. */
+  private readonly clientWhen: WhenNode;
 
   // `services` defaults to a private store so the many tests that build a
   // registry without a workbench keep working; real activation passes the
@@ -1836,6 +1871,7 @@ export class ExtensionRegistry {
   ) {
     this.services = services ?? { preferences: new PreferencesStore() };
     this.profile = services?.profile ?? "desktop";
+    this.clientWhen = clientClause(this.profile === "desktop");
     this.services.preferences.subscribe(() => {
       this.applyKeybindingOverrides(this.services.preferences.getSnapshot().keybindings);
     });
@@ -1876,6 +1912,7 @@ export class ExtensionRegistry {
   private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private threadListSources = new Map<string, Owned<ThreadListSource>>();
+  private threadListAccessories = new Map<string, Owned<ThreadListAccessoryContribution>>();
   private commands = new Map<string, Owned<CommandContribution>>();
   private paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
   private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
@@ -2221,6 +2258,10 @@ export class ExtensionRegistry {
         note("thread list sources");
         return this.register(this.threadListSources, source.id, { ...source, ...owner }, disposers);
       },
+      registerThreadListAccessory: (accessory) => {
+        note("thread list accessories");
+        return this.register(this.threadListAccessories, accessory.id, { ...accessory, ...owner }, disposers);
+      },
       registerCommand: (command) =>
         this.register(this.commands, command.id, { ...command, ...owner }, disposers),
       registerPaletteSource: (source) => {
@@ -2234,6 +2275,8 @@ export class ExtensionRegistry {
         const when = binding.when?.trim() || undefined;
         const ast = when ? parseWhen(when) : undefined;
         if (when && !ast) throw new Error(`Keybinding "${binding.keys}" from ${extension.id} has a when clause Tau cannot read: ${when}`);
+        // A chord for the other kind of client (`isDesktop` here, `!isDesktop` in a browser) is not bound, so hints and the keymap list only what works.
+        if (ast && !whenOverlaps(ast, this.clientWhen)) return noContribution;
         note("keybindings");
         const { when: _when, ...rest } = binding;
         const resolved: ResolvedKeybinding = { ...rest, ...(when ? { when } : {}), keys: id, chord, label: formatKeyChord(chord), ...owner };
@@ -2563,8 +2606,21 @@ export class ExtensionRegistry {
     return this.sorted("thread-list-sources", this.threadListSources, false);
   }
 
+  getThreadListAccessories(): Array<Owned<ThreadListAccessoryContribution>> {
+    return this.sorted("thread-list-accessories", this.threadListAccessories, false);
+  }
+
   getCommands(): Array<Owned<CommandContribution>> {
-    return this.sorted("commands", this.commands, false);
+    const cached = this.sortedCache.get("commands:listed");
+    if (cached?.version === this.version) return cached.value as Array<Owned<CommandContribution>>;
+    // A command that a registered command's binding `replaces` is its stand-in; listing both would show one action twice.
+    const standIns = new Set<string>();
+    for (const { binding } of this.keybindingEntries) {
+      if (binding.replaces && binding.replaces !== binding.commandId && this.commands.has(binding.commandId)) standIns.add(binding.replaces);
+    }
+    const value = this.sorted("commands", this.commands, false).filter((command) => !standIns.has(command.id));
+    this.sortedCache.set("commands:listed", { version: this.version, value });
+    return value;
   }
 
   /** The palette's sources, in `order`. */
@@ -2660,7 +2716,7 @@ export class ExtensionRegistry {
       const inherited = !entry.binding.when && entry.binding.replaces ? defaults.get(entry.binding.replaces) : undefined;
       const whenAst = entry.ast ?? inherited?.ast;
       const effective = inherited?.binding.when ? { ...entry.binding, when: inherited.binding.when } : entry.binding;
-      const candidate: LiveKeybinding = { ...entry, effective, whenAst, specific: isSpecificWhen(whenAst) };
+      const candidate: LiveKeybinding = { ...entry, effective, whenAst, specific: isSpecificWhen(whenAst, this.profile === "desktop") };
       const chord = platformChordId(entry.binding.chord, mac);
       const holder = live.find((other) => platformChordId(other.binding.chord, mac) === chord
         && other.tier === entry.tier
@@ -2713,7 +2769,7 @@ export class ExtensionRegistry {
     const when = candidate.when?.trim() || undefined;
     const ast = when ? parseWhen(when) : this.keybindingEntries.find((entry) => entry.tier === 0 && entry.binding.commandId === candidate.commandId)?.ast;
     if (!chord || (when && !ast)) return [];
-    const specific = isSpecificWhen(ast);
+    const specific = isSpecificWhen(ast, this.profile === "desktop");
     const keys = platformChordId(chord, mac);
     return this.resolveKeybindings(mac).live
       .filter((other) => other.binding.commandId !== candidate.commandId && platformChordId(other.binding.chord, mac) === keys && whenOverlaps(other.whenAst, ast))
@@ -2738,7 +2794,9 @@ export class ExtensionRegistry {
    * `specific` says the winner's clause needs a context, so it runs before
    * the focused element sees the key.
    */
-  matchKeybinding(event: KeyboardEvent, context: (name: string) => boolean = domKeybindingContext()): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean; specific: boolean } | undefined {
+  matchKeybinding(event: KeyboardEvent, page: (name: string) => boolean = domKeybindingContext()): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean; specific: boolean } | undefined {
+    const desktop = this.profile === "desktop";
+    const context = (name: string) => name === DESKTOP_CONTEXT ? desktop : page(name);
     let best: LiveKeybinding | undefined;
     for (const entry of this.resolveKeybindings().live) {
       if (!chordMatchesEvent(entry.binding.chord, event)) continue;
@@ -2818,17 +2876,18 @@ export class ExtensionRegistry {
 
   /**
    * Asks every gate about a thread that is about to be created, in registration
-   * order; the first workspace named wins. A gate that throws is reported and
-   * skipped: the prompt still goes to the project the draft already has.
+   * order; the first workspace named, or the first `stop`, wins. A gate that
+   * throws is reported and skipped: the prompt still goes to the project the
+   * draft already has.
    */
   async prepareNewThread(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | undefined> {
     for (const hook of this.promptHooks.values()) {
       if (!hook.beforeNewThread) continue;
       try {
         const result = await hook.beforeNewThread(event, actions);
-        if (result?.workspace) return result;
+        if (result?.workspace || result?.stop) return result;
       } catch (error) {
-        actions.notify(`${hook.id}: ${errorMessage(error)}`);
+        actions.notify(`${hook.extensionName}: ${errorMessage(error)}`, "error");
       }
     }
     return undefined;
@@ -2887,7 +2946,7 @@ export class ExtensionRegistry {
       try {
         await hook.afterPrompt?.(event, actions);
       } catch (error) {
-        actions.notify(`${hook.id}: ${errorMessage(error)}`);
+        actions.notify(`${hook.extensionName}: ${errorMessage(error)}`, "error");
       }
     }
   }

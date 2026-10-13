@@ -49,7 +49,7 @@ describe("a palette from three colours", () => {
       { appearance: "dark" as const, background: "#282a36", foreground: "#6272a4", accent: "#bd93f9" },
     ]) {
       const tokens = derivePalette(seed);
-      for (const ink of ["--ink", "--ink-2", "--ink-3", "--muted", "--acid-text"]) {
+      for (const ink of ["--ink", "--ink-2", "--ink-3", "--muted", "--muted-2", "--faint", "--acid-text"]) {
         expect(contrast(tokens[ink]!, tokens["--shell"]!), `${ink} on ${seed.background}`).toBeGreaterThanOrEqual(4.5);
         expect(contrast(tokens[ink]!, tokens["--stage"]!), `${ink} on the stage`).toBeGreaterThanOrEqual(4.5);
       }

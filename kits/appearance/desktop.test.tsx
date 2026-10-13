@@ -164,7 +164,7 @@ describe("Settings → Appearance", () => {
     render(<TestProviders><page.Component onNotify={onNotify} /></TestProviders>);
     const file = new File(["{ \"colors\": {} }"], "broken.json");
     fireEvent.change(screen.getByLabelText("VS Code theme file"), { target: { files: [file] } });
-    await waitFor(() => expect(onNotify).toHaveBeenCalledWith(expect.stringMatching(/broken.json: .*editor.background/u)));
+    await waitFor(() => expect(onNotify).toHaveBeenCalledWith(expect.stringMatching(/broken.json: .*editor.background/u), "error"));
   });
 });
 

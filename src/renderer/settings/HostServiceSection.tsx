@@ -41,7 +41,7 @@ const SERVICE_TITLE = "Run as a system service";
  * runs on, and whether that machine stays awake while turns run. The host
  * answers for its own machine, whichever device asks.
  */
-export function HostServiceSection({ onNotify }: { onNotify(message: string): void }) {
+export function HostServiceSection({ onNotify }: { onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
   const [state, setState] = useState<ServiceState>({ status: "loading" });
   const [confirm, setConfirm] = useState<Pending>();
@@ -91,7 +91,10 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
       const service = await load();
       if (!mounted.current) return;
       setBusy(undefined);
-      onNotify(failure ?? (service?.problems.some((problem) => problem.code === SANDBOX_PROBLEM) ? "The profile did not take effect; see the service log" : "The window on the invisible display can start now"));
+      const stillBlocked = service?.problems.some((problem) => problem.code === SANDBOX_PROBLEM);
+      if (failure) onNotify(failure, "error");
+      else if (stillBlocked) onNotify("The profile did not take effect; see the service log", "error");
+      else onNotify("The window on the invisible display can start now");
       return;
     }
     const settled = (service: UiHostService) => {
@@ -109,12 +112,14 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string): vo
     setBusy(undefined);
     if (display !== undefined) {
       if (service && settled(service)) onNotify(display ? `The invisible display ${service.display?.display ?? ""} is on`.trimEnd() : "The invisible display is removed");
-      else onNotify(failure ?? "The display did not change; see the service log");
+      else onNotify(failure ?? "The display did not change; see the service log", "error");
       return;
     }
-    if (action === "uninstall") onNotify(service && !service.installed ? "The service is removed" : failure ?? "The service is still installed");
-    else if (service?.installed && service.running) onNotify("Tau’s host runs as a service");
-    else onNotify(failure ?? "The service is installed but its host did not answer yet; see its log");
+    if (action === "uninstall") {
+      if (service && !service.installed) onNotify("The service is removed");
+      else onNotify(failure ?? "The service is still installed", "error");
+    } else if (service?.installed && service.running) onNotify("Tau’s host runs as a service");
+    else onNotify(failure ?? "The service is installed but its host did not answer yet; see its log", "error");
   };
 
   const serviceRow = (() => {

@@ -52,7 +52,7 @@ export function RuntimesPage({ snapshot, cards, sections, onOpen, onNotify }: {
   /** Sections kits add below the table. */
   sections: ReadonlyArray<{ id: string; rows?: ReadonlyArray<{ id: string }> | undefined; Component: ComponentType<SettingsSectionProps> }>;
   onOpen(target: string): void;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const preferences = usePreferences();
   const { newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -60,7 +60,7 @@ export function RuntimesPage({ snapshot, cards, sections, onOpen, onNotify }: {
   const catalogs = useRuntimeCatalogs(true);
   const [adding, setAdding] = useState(false);
   const backends = snapshot?.runtimeBackends?.length ? snapshot.runtimeBackends : [PI];
-  const defaultKind = effectiveNewThreadRuntime(newThreadRuntime, snapshot);
+  const defaultKind = effectiveNewThreadRuntime(newThreadRuntime, snapshot, catalogs);
   const permissions = sections.some((section) => section.rows?.some((row) => row.id === RUNTIME_PERMISSIONS_ROW));
   const cardOf = (kind: string) => cards.find((card) => card.runtime === kind);
   const rows = backends.map((backend) => runtimeRow(backend, catalogs.get(backend.kind), {

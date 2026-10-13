@@ -21,6 +21,7 @@ const session = (id: string, modifiedAt: number, patch: Partial<UiSession> = {})
 /** A host at the other end of a link: answers hello, bootstrap and the few calls a visit makes. */
 class FakeHost {
   seq = 10;
+  bootId = "old-boot";
   index: ThreadIndexSnapshot = { projects: [{ path: "/p/api", name: "api", lastOpenedAt: 1, workspaceId: "ws-api" } as never], sessions: [session("a", 100), session("b", 50)], runs: { a: 90 } };
   hellos: Array<Record<string, unknown>> = [];
   calls: string[] = [];
@@ -65,7 +66,7 @@ class FakeSocket implements LinkSocket {
       this.host.hellos.push(frame.hello!);
       if (this.host.refuse) { queueMicrotask(() => this.fire(HOST_CLOSE_CODE.unauthorized, "revoked")); return; }
       const missed = frame.hello!.lastSeq === undefined ? [] : this.host.missed;
-      this.deliver({ type: "hello-reply", id: "hello", reply: { protocol: 1, hostVersion: "0.7.14", capabilities: ["replay"], resync: this.host.resync, missed, nextSeq: this.host.seq + 1 } });
+      this.deliver({ type: "hello-reply", id: "hello", reply: { protocol: 1, hostVersion: "0.7.14", capabilities: ["replay"], bootId: this.host.bootId, resync: this.host.resync, missed, nextSeq: this.host.seq + 1 } });
       return;
     }
     const { id, method, params } = frame.request!;
@@ -196,7 +197,7 @@ describe("PhoneMachines", () => {
     fake.missed = [{ seq: 12, event: { type: "host-update", update: { version: HOST_PROTOCOL_VERSION, type: "thread-shell", update: { sessionId: "c", shell: session("c", 200) } } } }, { seq: 13, event: { type: "agent-status", sessionId: "a", running: false } }];
     fake.seq = 13;
     await vi.advanceTimersByTimeAsync(MACHINES_REFRESH_MS);
-    expect(fake.hellos[1]).toMatchObject({ lastSeq: 10 });
+    expect(fake.hellos[1]).toMatchObject({ lastSeq: 10, bootId: "old-boot" });
     expect(fake.calls.filter((call) => call === "bootstrap")).toHaveLength(1);
     expect(rexOf(machines)!.threads.map((thread) => [thread.id, thread.running ?? false])).toEqual([["c", false], ["a", false], ["b", false]]);
     setVisible(false);
@@ -206,12 +207,47 @@ describe("PhoneMachines", () => {
     setVisible(true);
     await vi.advanceTimersByTimeAsync(0);
     expect(fake.hellos).toHaveLength(3);
-    expect(fake.hellos[2]).toMatchObject({ lastSeq: 13 });
+    expect(fake.hellos[2]).toMatchObject({ lastSeq: 13, bootId: "old-boot" });
     // Again in front soon after: no second read.
     setVisible(false);
     setVisible(true);
     await vi.advanceTimersByTimeAsync(MACHINES_FOCUS_MIN_MS - 1_000);
     expect(fake.hellos).toHaveLength(3);
+  });
+
+  it("replaces stale threads after a boot change even when the new sequence is higher", async () => {
+    vi.useFakeTimers();
+    const { machines, fake } = setup();
+    machines.getSnapshot();
+    await vi.advanceTimersByTimeAsync(MACHINES_START_MS + 1_000);
+    fake.bootId = "new-boot";
+    fake.seq = 20;
+    fake.missed = [{ seq: 20, event: { type: "agent-status", sessionId: "a", running: true } }];
+    fake.index = { ...fake.index, sessions: [session("z", 500)], runs: {} };
+    await vi.advanceTimersByTimeAsync(MACHINES_REFRESH_MS);
+    expect(fake.hellos[1]).toMatchObject({ lastSeq: 10, bootId: "old-boot" });
+    expect(fake.calls.filter((call) => call === "bootstrap")).toHaveLength(2);
+    expect(rexOf(machines)!.threads.map((thread) => [thread.id, thread.running ?? false])).toEqual([["z", false]]);
+    await vi.advanceTimersByTimeAsync(MACHINES_REFRESH_MS);
+    expect(fake.hellos[2]).toMatchObject({ lastSeq: 20, bootId: "new-boot" });
+  });
+
+  it("returns the cached boot identity after the page reloads", async () => {
+    vi.useFakeTimers();
+    const first = setup();
+    first.machines.getSnapshot();
+    await vi.advanceTimersByTimeAsync(MACHINES_START_MS + 1_000);
+    first.machines.dispose();
+    first.fake.bootId = "new-boot";
+    first.fake.seq = 20;
+    first.fake.index = { ...first.fake.index, sessions: [session("z", 500)], runs: {} };
+    const again = new PhoneMachines(optionsOf(first));
+    again.getSnapshot();
+    await vi.advanceTimersByTimeAsync(MACHINES_START_MS + 1_000);
+    expect(first.fake.hellos[1]).toMatchObject({ lastSeq: 10, bootId: "old-boot" });
+    expect(first.fake.calls.filter((call) => call === "bootstrap")).toHaveLength(2);
+    expect(rexOf(again)!.threads.map((thread) => thread.id)).toEqual(["z"]);
+    again.dispose();
   });
 
   it("takes a snapshot again when the host cannot replay the gap", async () => {

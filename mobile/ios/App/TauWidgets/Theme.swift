@@ -65,6 +65,21 @@ struct ProviderMark: View {
     }
 }
 
+/// A thread's marks as the desktop's `ProviderIconStack` stacks them: the runtime's a shade quieter, then the model provider's.
+struct ThreadMarks: View {
+    var marks: [WidgetMark]
+    var size: CGFloat = 12
+    var body: some View {
+        let shown = Array(marks.prefix(2))
+        HStack(spacing: size * 0.5) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { index, mark in
+                ProviderMark(mark: mark.mark, initials: mark.initials, size: size).opacity(shown.count > 1 && index == 0 ? 0.7 : 1)
+            }
+        }
+        .fixedSize()
+    }
+}
+
 /// One of the web's lucide glyphs (`ic-*` template images, 24 × 24 with the stroke inside), `size` points wide.
 struct Lucide: View {
     var name: String

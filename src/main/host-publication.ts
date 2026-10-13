@@ -77,11 +77,14 @@ export interface HostPublicationDeps {
 export class HostPublication {
   readonly detailStore = new ThreadDetailStore(5);
   private readonly modelCatalogCache = new RuntimeResourceCache<UiModel[]>({ maxEntries: 8, ttlMs: 5 * 60_000 });
+  /** Models another backend already answered with; first content never waits for a refresh. */
+  private readonly backendModels = new WeakMap<ThreadRuntime, UiModel[]>();
   private completionModels?: UiModel[];
   private completionModelsPending = false;
   private readonly runtimeVersions: RuntimeVersions;
   /** The open workspace's label, as its kit last described it. */
   private projectLabel?: string;
+  private bootstrapCatalogPending = false;
 
   constructor(private readonly deps: HostPublicationDeps) {
     this.runtimeVersions = new RuntimeVersions({
@@ -112,10 +115,13 @@ export class HostPublication {
   }
 
   async bootstrap(): Promise<HostBootstrap> {
-    // The project list is withheld while a checkout is unclassified. Bootstrap
-    // is the one publication the client cannot miss, so settle it here.
-    await this.deps.projects.settleClassifications();
-    const host = { ...this.snapshotSync(await this.ensureModels()), projectLabel: this.projectLabel };
+    // Classifications publish their own index updates. Neither they nor model
+    // discovery may hold the saved transcript behind a slow background read.
+    const active = this.deps.view.active();
+    const cachedModels = active && isLocalPiRuntime(active)
+      ? this.modelCatalogCache.get(this.deps.modelsKey(this.deps.view.cwd())) ?? []
+      : active ? this.backendModels.get(active) ?? [] : [];
+    const host = { ...this.snapshotSync(cachedModels), projectLabel: this.projectLabel };
     const detail = this.detailForSnapshot(host);
     const result: HostBootstrap = {
       // A client that connects mid-run learns the run and its start only here.
@@ -126,7 +132,23 @@ export class HostPublication {
       project: this.projectMetadata(host.cwd, host.projectLabel),
     };
     this.deps.metrics.recordIpc(result);
+    this.refreshBootstrapCatalog();
     return result;
+  }
+
+  private refreshBootstrapCatalog(): void {
+    if (this.bootstrapCatalogPending) return;
+    this.bootstrapCatalogPending = true;
+    const thread = this.deps.view.active();
+    // Let the transport send the bootstrap response before a fast catalog
+    // can publish an update that the initial snapshot would overwrite.
+    setTimeout(() => {
+      void this.activeCatalog(thread).then((catalog) => {
+        if (thread === this.deps.view.active()) this.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog });
+      }).catch((error) => {
+        this.deps.log("bootstrap.catalog.failed", this.deps.errorMessage(error));
+      }).finally(() => { this.bootstrapCatalogPending = false; });
+    }, 0);
   }
 
   /** Focused active detail endpoint; it never includes catalogs or project metadata. */
@@ -323,7 +345,11 @@ export class HostPublication {
     if (!active) return [];
     // Only a runtime the host builds itself pays for a catalog scan; every
     // other one answers from what it already holds.
-    if (!isLocalPiRuntime(active)) return active.backend.models();
+    if (!isLocalPiRuntime(active)) {
+      const models = await active.backend.models();
+      this.backendModels.set(active, models);
+      return models;
+    }
     const key = this.deps.modelsKey(active === this.deps.view.active() ? this.deps.view.cwd() : active.cwd);
     const cached = this.modelCatalogCache.get(key);
     if (cached) return cached;

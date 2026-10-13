@@ -102,7 +102,8 @@ describe("Settings → Connections", () => {
 
   it("tells a paired client that the owner manages connections", async () => {
     renderPage({ listConnections: async () => { throw Object.assign(new Error("no"), { code: "forbidden" }); } });
-    expect(await screen.findByText("Connections are managed on the host’s machine")).toBeTruthy();
+    expect(await screen.findByText("Connections are managed on your machine")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\bhost\b|token/iu);
   });
 
   it("still offers a link where no web client is served: the app pairs over the socket", async () => {
@@ -278,7 +279,7 @@ describe("Settings → Connections → Network access", () => {
     // Enter in a field commits it and submits the dialog.
     fireEvent.keyDown(key, { key: "Enter" });
     await waitFor(() => expect(setNetworkAccess).toHaveBeenCalledWith({ certificate: { certPath: "/c.pem", keyPath: "/k.pem" } }));
-    expect(notify).toHaveBeenCalledWith("/c.pem holds no PEM certificate");
+    expect(notify).toHaveBeenCalledWith("/c.pem holds no PEM certificate", "error");
     expect(screen.getByText("Use your own certificate")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 

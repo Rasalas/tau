@@ -26,20 +26,32 @@ describe("BackgroundPill", () => {
     expect(pill.textContent).toBe("Monitoring2");
     expect(dialog().textContent).toContain("Nightly run 37995249714");
     expect(dialog().textContent).toContain("Monitor · since");
-    expect(dialog().textContent).toContain("Claude Code continues on its own when this work reports.");
+    expect(dialog().textContent).toContain("Claude Code continues when this work reports.");
     fireEvent.click(screen.getByRole("button", { name: "Stop npm run dev" }));
     await waitFor(() => expect(onStop).toHaveBeenCalledWith("b2"));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Stop all" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Stop all" }));
     await waitFor(() => expect(onStop).toHaveBeenLastCalledWith(undefined));
   });
 
-  it("says Running, quietly, for commands alone and offers no Stop all for one", () => {
+  it("says Waiting for required commands and offers no Stop all for one", () => {
     const { dialog } = open([server]);
     const pill = screen.getByRole("button", { name: /^1 command in the background/u });
-    expect(pill.className).not.toContain("holds");
-    expect(pill.textContent).toBe("Running");
-    expect(dialog().textContent).toContain("The thread counts as done meanwhile.");
+    expect(pill.className).toContain("holds");
+    expect(pill.textContent).toBe("Waiting");
+    expect(dialog().textContent).toContain("The request remains open until the results are handled.");
     expect(screen.queryByRole("button", { name: "Stop all" })).toBeNull();
+  });
+
+  it("keeps a released service quiet, but keeps an unhandled result open", () => {
+    let opened = open([{ ...server, blocksCompletion: false }]);
+    expect(screen.getByRole("button", { name: /in the background/u }).className).not.toContain("holds");
+    expect(opened.dialog().textContent).toContain("These checked services keep running independently.");
+    cleanup();
+    opened = open([{ ...server, state: "reported" }]);
+    expect(screen.getByRole("button", { name: /in the background/u }).textContent).toBe("Waiting");
+    expect(opened.dialog().textContent).toContain("Result ready");
+    expect(opened.dialog().textContent).toContain("Claude Code still needs to handle the result.");
   });
 
   it("shows why a stop failed and stops nothing from a read-only device", async () => {

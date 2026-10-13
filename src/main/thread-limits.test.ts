@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +24,25 @@ function bench(filePath?: string) {
 }
 
 describe("ThreadLimits", () => {
+  it("loads due resumes without running them during recovery or reviving a cleared limit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-limits-"));
+    dirs.push(dir);
+    const filePath = join(dir, "thread-limits.json");
+    const due = { message: "usage limit", resetsAt: Date.now() - RESUME_MARGIN_MS, resumeAt: Date.now() };
+    await writeFile(filePath, JSON.stringify({ version: 1, threads: { resumed: due, waiting: due } }));
+    const { limits, resumed } = bench(filePath);
+    await limits.load();
+    expect(limits.get("resumed")).toEqual(due);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resumed).toEqual([]);
+    limits.clear("resumed");
+    await limits.restore();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resumed).toEqual(["waiting"]);
+    expect(limits.get("resumed")).toBeUndefined();
+    await limits.flush();
+  });
+
   it("marks a limited thread until it runs again", () => {
     const { limits, published } = bench();
     limits.limited("t", "usage limit", Date.now() + 60 * 60_000);

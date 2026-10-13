@@ -205,7 +205,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
 
     const run = (step: Promise<unknown>, done?: (value: unknown) => void) => {
       setBusy(true);
-      step.then((value) => done?.(value), (failure: unknown) => onNotify(errorMessage(failure))).finally(() => { setBusy(false); loadCredentials(); });
+      step.then((value) => done?.(value), (failure: unknown) => onNotify(errorMessage(failure), "error")).finally(() => { setBusy(false); loadCredentials(); });
     };
     const check = (target: ServerTargetRow, kind: SecretKind) => run(context.host.invoke("check-credential", { cwd, targetId: target.id, kind }), (value) => {
       const result = value as CredentialCheck;
@@ -229,7 +229,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
     const chooseProfile = (target: ServerTargetRow, profile: string | undefined) => {
       setBusy(true);
       context.host.invoke("set-profile", { cwd, configKey: target.configKey, profile: profile ?? null })
-        .then((next) => setState(decodeServerTargetsState(next)), (failure: unknown) => onNotify(errorMessage(failure)))
+        .then((next) => setState(decodeServerTargetsState(next)), (failure: unknown) => onNotify(errorMessage(failure), "error"))
         .finally(() => setBusy(false));
     };
 

@@ -169,7 +169,7 @@ describe("Settings → Keybindings as an editor", () => {
     fireEvent.click(chordButton(/Change the chord for Command palette/u));
     fireEvent.keyDown(recorder(), ctrl("j"));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
-    expect(notify).toHaveBeenCalledWith("Could not write ~/.pi/agent/keybindings.json: disk full");
+    expect(notify).toHaveBeenCalledWith("Could not write ~/.pi/agent/keybindings.json: disk full", "error");
     expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 

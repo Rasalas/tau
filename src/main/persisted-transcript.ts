@@ -6,6 +6,7 @@ import { knownSkillNames } from "../shared/skill-envelope.js";
 import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { HostBackendThreadRecord, HostThread } from "./host-extensions.js";
+import { inStartOrder } from "./kit-message-order.js";
 import {
   EMPTY_PINS,
   isVisibleMessage,
@@ -32,7 +33,8 @@ export function shellTranscriptPage(
   record: Pick<HostBackendThreadRecord, "messages" | "updatedAt">,
   cursor?: HostTranscriptCursor,
 ): TranscriptPage {
-  const messages: UiMessage[] = record.messages.map((message, index) => ({
+  // A store's messages may carry their times, beyond what the record's type promises.
+  const messages: UiMessage[] = inStartOrder(record.messages as ReadonlyArray<Pick<UiMessage, "role" | "text"> & { timestamp?: number }>).map((message, index) => ({
     id: `${sessionId}:${index}`,
     role: message.role,
     text: message.text,

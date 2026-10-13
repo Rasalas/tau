@@ -1,11 +1,11 @@
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight, Search, SquareChevronRight } from "lucide-react";
 import type { ExtensionRegistry, PaletteItem, PaletteMenu, PaletteSearchContext, WorkbenchActions } from "../extension-system";
 import { menuRows, PALETTE_SCOPES, PALETTE_SOURCE_LIMIT, paletteRows, paletteScope, readOnlyCommands, readOnlySources, rowEntry, stepRow, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
 import { searchSettings, settingsSearchEntries } from "../settings/settings-search";
 import { settingsTarget } from "../settings/settings-nav";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
-import { isMacPlatform } from "../keybindings";
+import { isImeComposing, isMacPlatform } from "../keybindings";
 import { ThreadStoreContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
 import { VirtualList } from "./VirtualList";
@@ -73,6 +73,7 @@ export function CommandPalette({
   const levelKey = useRef(0);
   const input = useRef<HTMLInputElement>(null);
   const surface = useRef<HTMLElement>(null);
+  const listId = useId();
   const threads = useContext(ThreadStoreContext);
   const { readOnly } = useHostCapabilities();
   // The workbench hands a new actions object on some renders; that is no reason to search again.
@@ -170,6 +171,16 @@ export function CommandPalette({
     const settings = registry && needle && wide ? settingsItems(registry, needle) : [];
     return paletteRows(shown, needle, readOnly ? readOnlySources(results) : results, scope === "all" ? PALETTE_SOURCE_LIMIT : SCOPED_LIMIT, settings);
   }, [commands, level, levelAnswer, needle, readOnly, registry, results, scope]);
+  // Rows are windowed, so each option says where it stands; a heading names the group its options follow.
+  const layout = useMemo(() => {
+    let count = 0;
+    let group: string | undefined;
+    const slots = rows.map((row, index) => {
+      if (row.kind === "head") { group = `${listId}-head-${index}`; return { group: undefined, place: 0 }; }
+      return { group, place: ++count };
+    });
+    return { slots, count };
+  }, [listId, rows]);
   const refusal = (row: PaletteRow | undefined) => {
     const entry = row && rowEntry(row);
     return entry ? commandRefusal(entry, readOnly) : undefined;
@@ -215,11 +226,12 @@ export function CommandPalette({
     if (submenu) { enter(submenu); return; }
     const item = row.kind === "item" ? row.item : undefined;
     const done = row.kind === "command" ? row.command.run(actions) : inStage && item?.stage ? item.stage(actions) : item?.run?.(actions);
-    void Promise.resolve(done).catch((error: unknown) => actions.notify(errorMessage(error)));
+    void Promise.resolve(done).catch((error: unknown) => actions.notify(errorMessage(error), "error"));
     onClose();
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
+    if (isImeComposing(event.nativeEvent)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (current >= 0) setCursor(stepRow(rows.length, current, event.key === "ArrowDown" ? 1 : -1, usable));
@@ -252,6 +264,18 @@ export function CommandPalette({
       {shortcut ? <kbd className="keyboard-hint">{shortcut}</kbd> : null}
       {submenu ? <ChevronRight className="palette-chevron" size={14} aria-hidden /> : null}
     </>;
+  };
+
+  /** What a screen reader says for a row: its label and detail, then what the eye reads in the margin. */
+  const spokenName = (row: PaletteRow & { kind: "command" | "item" }) => {
+    const item = row.kind === "item" ? row.item : undefined;
+    return [
+      item?.label ?? (row.kind === "command" ? row.command.label : undefined),
+      item?.detail,
+      item?.current ? "Current" : undefined,
+      refusal(row) ? (readOnly ? "Read only" : "Unavailable") : undefined,
+      row.kind === "command" ? shortcutFor?.(row.command.id) : undefined,
+    ].filter(Boolean).join(", ");
   };
 
   // A tap on a row it may not run shows why, as on any disabled control.
@@ -297,6 +321,11 @@ export function CommandPalette({
             onKeyDown={onKeyDown}
             placeholder={level ? level.menu.placeholder ?? "Search…" : "Search threads, files and commands…"}
             aria-label={level ? level.menu.title : "Command"}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={layout.count > 0}
+            aria-controls={listId}
+            aria-activedescendant={current >= 0 ? `${listId}-option-${current}` : undefined}
           />
           {levelAnswer?.loading && levelAnswer.items.length > 0 ? <Spinner size="xs" label="Loading" /> : null}
           {level || !registry ? null : <span className="palette-scopes">
@@ -312,15 +341,27 @@ export function CommandPalette({
           items={rows}
           itemHeight={(row) => (row.kind === "head" ? 24 : 33)}
           className="palette-results"
+          id={listId}
+          {...(layout.count > 0 ? { role: "listbox" as const, ariaLabel: level ? level.menu.title : "Results" } : {})}
           scrollToIndex={Math.max(current, 0)}
           empty={emptyLine}
           renderItem={(row, index) => {
-            if (row.kind === "head") return <h3 key={row.key} className="palette-head">{row.label}</h3>;
+            if (row.kind === "head") return <div key={row.key} id={`${listId}-head-${index}`} role="presentation" className="palette-head">{row.label}</div>;
             const item = row.kind === "item" ? row.item : undefined;
             const command = row.kind === "command" ? row.command : undefined;
             const Icon = command && (command.Icon ?? SquareChevronRight);
+            const slot = layout.slots[index];
+            // Focus stays in the field; the cursor is the field's active descendant.
             return <button
               key={row.key}
+              id={`${listId}-option-${index}`}
+              role="option"
+              tabIndex={-1}
+              aria-selected={index === current}
+              aria-label={spokenName(row)}
+              aria-posinset={slot?.place}
+              aria-setsize={layout.count}
+              {...(slot?.group ? { "aria-describedby": slot.group } : {})}
               className={index === current ? "selected" : ""}
               {...lockProps(row, index)}
               onClick={(event) => run(row, event.metaKey || event.ctrlKey)}

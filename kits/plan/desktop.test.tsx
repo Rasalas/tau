@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, WorkbenchActions } from "tau";
-import { createKitHarness, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, KitShell, ThreadStore, ThreadStoreContext, useAppKeybindings, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { implementPlan, planKitExtension } from "./desktop.js";
 
 afterEach(cleanup);
+
+/** The window's registry around a chip that reads it for its shortcut hint. */
+const shell = (registry: ReturnType<typeof createKitHarness>["registry"]) => function Shell({ children }: { children: ReactNode }) {
+  return <KitShell registry={registry}>{children}</KitShell>;
+};
 
 const plan = "# Add a login form\n\n1. Form\n2. Tests";
 const snapshot = (fields: Partial<HostSnapshot>) => ({
@@ -47,11 +53,74 @@ describe("Plan Kit desktop extension", () => {
     const chip = registry.getComposerControls().find((entry) => entry.id === "plan.planning")!;
     expect(chip.placement).toBeUndefined();
     const actions = actionsFor();
-    const { rerender, container } = render(<chip.Component snapshot={snapshot({ modes: ["plan"] })} actions={actions} />);
+    const { rerender, container } = render(<chip.Component snapshot={snapshot({ modes: ["plan"] })} actions={actions} />, { wrapper: shell(registry) });
     expect(container.textContent).toBe("");
     rerender(<chip.Component snapshot={snapshot({ modes: ["plan"], mode: "plan" })} actions={actions} />);
+    // The tooltip names the chord, so the chip teaches the way to toggle without it.
+    expect(screen.getByRole("button", { name: /Plan mode/u }).getAttribute("data-tooltip-shortcut")).toBe(registry.keybindingLabel("plan.toggle"));
+    expect(registry.keybindingLabel("plan.toggle")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Plan mode/u }));
     expect(actions.setMode).toHaveBeenLastCalledWith("default");
+  });
+
+  it("toggles plan mode with Shift+Tab in the composer's text field and nowhere else", async () => {
+    const { registry } = createKitHarness();
+    registry.activate(planKitExtension);
+    const press = (contexts: string[]) => registry.matchKeybinding(
+      new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true }),
+      (name) => contexts.includes(name),
+    )?.command.id;
+    expect(press(["chatFocus", "composerFocus", "editableFocus"])).toBe("plan.toggle");
+    // Shift+Tab goes back through the page: from a footer chip, the transcript, a form, a terminal or the Files editor.
+    expect(press([])).toBeUndefined();
+    expect(press(["chatFocus", "composerFocus"])).toBeUndefined();
+    expect(press(["chatFocus"])).toBeUndefined();
+    expect(press(["editableFocus"])).toBeUndefined();
+    expect(press(["terminalFocus", "editableFocus"])).toBeUndefined();
+    expect(press(["editorFocus", "editableFocus"])).toBeUndefined();
+    // A dialog or menu over the composer takes it.
+    expect(press(["composerFocus", "editableFocus", "overlayOpen"])).toBeUndefined();
+    const toggle = registry.getCommands().find((command) => command.id === "plan.toggle")!;
+    const planning = actionsFor();
+    await toggle.run(planning);
+    expect(planning.setMode).toHaveBeenLastCalledWith("default");
+    const building = actionsFor({ activeThread: () => ({ sessionId: "s1", cwd: "/repo", draftPending: false, mode: "default", modes: ["plan"] }) as never });
+    await toggle.run(building);
+    expect(building.setMode).toHaveBeenLastCalledWith("plan");
+    const noPlan = actionsFor({ activeThread: () => ({ sessionId: "s1", cwd: "/repo", draftPending: false }) as never });
+    await toggle.run(noPlan);
+    expect(noPlan.setMode).not.toHaveBeenCalled();
+    expect(noPlan.notify).toHaveBeenCalledWith("This thread's runtime has no plan mode.");
+  });
+
+  it("takes the Shift+Tab key only from the composer's text field, leaving every other field and dialog to move focus back", async () => {
+    const { registry } = createKitHarness();
+    registry.activate(planKitExtension);
+    const actions = actionsFor();
+    renderHook(() => useAppKeybindings(registry, actions, vi.fn()));
+    const page = (dialog: boolean) => (
+      <>
+        <footer data-keybinding-context="composer"><textarea aria-label="Prompt" /><button type="button">Model</button></footer>
+        <input aria-label="Name" />
+        {dialog ? <div role="dialog" aria-label="Rename"><input aria-label="Title" /></div> : null}
+      </>
+    );
+    const view = render(page(false));
+    // Returns whether the key was left to the browser.
+    const shiftTab = (name: string, role: "textbox" | "button") => {
+      const target = screen.getByRole(role, { name });
+      target.focus();
+      return fireEvent.keyDown(target, { key: "Tab", code: "Tab", shiftKey: true });
+    };
+    expect(shiftTab("Prompt", "textbox")).toBe(false);
+    await vi.waitFor(() => expect(actions.setMode).toHaveBeenCalledTimes(1));
+    expect(actions.setMode).toHaveBeenLastCalledWith("default");
+    expect(shiftTab("Model", "button")).toBe(true);
+    expect(shiftTab("Name", "textbox")).toBe(true);
+    view.rerender(page(true));
+    expect(shiftTab("Title", "textbox")).toBe(true);
+    expect(shiftTab("Prompt", "textbox")).toBe(true);
+    expect(actions.setMode).toHaveBeenCalledTimes(1);
   });
 
   it("draws a proposed plan as a card with its title", () => {

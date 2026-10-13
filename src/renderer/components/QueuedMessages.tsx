@@ -9,8 +9,8 @@ function QueuedWake({ entry, held, streaming, onSend, onDrop }: { entry: UiQueue
   return <li className="queued-message queued-wake" aria-label={`Wake waiting: ${entry.wake.label}`}>
     <WakeIcon source={entry.wake.source} size={13} />
     <span className="queued-wake-label">{entry.wake.label}</span>
-    <span className="queued-message-status" {...tooltipProps(held ? "Held with the queue until you send" : "Waits for the current turn; the arrow sends it now")}>
-      <Clock size={12} />{held ? "Held" : "Waits for the turn"}
+    <span className="queued-message-status" {...tooltipProps(held ? "Held with the queue until you send" : streaming ? "Waits for the current turn; the arrow sends it now" : "Sends next; the arrow sends it now")}>
+      <Clock size={12} />{held ? "Held" : streaming ? "Waits for the turn" : "Sends next"}
     </span>
     <button type="button" aria-label="Send this wake now" {...tooltipProps(streaming ? "Send now, into the running turn" : "Send now")} onClick={onSend}><ArrowUp size={14} /></button>
     <button type="button" aria-label="Drop this wake" {...tooltipProps("Drop this wake")} onClick={onDrop}><X size={14} /></button>

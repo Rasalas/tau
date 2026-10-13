@@ -78,7 +78,10 @@ export interface RunningHost {
 /** How often a host may crash and be restarted before the supervisor gives up. */
 const MAX_RESTARTS = 3;
 const RESTART_WINDOW_MS = 60_000;
-const DEFAULT_START_TIMEOUT_MS = 30_000;
+// A cold host imports the runtime and kits before it can announce its socket.
+// Under heavy CPU or disk contention that can exceed 30 s without a hang.
+// Keep a finite deadline, but give that initialization two minutes to finish.
+const DEFAULT_START_TIMEOUT_MS = 120_000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 /** How long a host gets to stop for an update before the next, harder step. */
 const PROMPT_STOP_MS = 3_000;
@@ -171,11 +174,12 @@ export async function endHost(
   if (!await waitUntil(() => !processAlive(pid), options.askedMs ?? 0)) {
     for (const signal of ["SIGTERM", "SIGKILL"] as const) {
       options.logger?.warn(`host-process.${signal.toLowerCase()}`, { pid });
-      try { process.kill(pid, signal); } catch { /* already gone */ }
+      killProcessTree(pid, signal);
       if (await waitUntil(() => !processAlive(pid), grace)) break;
     }
     if (processAlive(pid)) throw new Error(`Tau's host (pid ${pid}) is still running after SIGKILL.`);
   }
+  killHostGroup(pid);
   // A dead process holds no lock; one still held is another host's, which the caller meets next.
   if (userData && !await waitUntil(async () => !await dataFolderBusy(userData), 1_000)) {
     options.logger?.warn("host-process.folder-still-held", { pid, owner: await describeDataFolderOwner(userData) });
@@ -394,7 +398,7 @@ export class HostProcessSupervisor {
       this.adoptedCheck = setInterval(() => {
         if (this.stopping || this.detached || this.running !== running || processAlive(running.pid)) return;
         this.stopAdoptedCheck();
-        this.onExit(null, null);
+        this.onExit(running.pid, null, null);
       }, this.options.adoptedCheckMs ?? SERVICE_CHECK_MS);
       this.adoptedCheck.unref?.();
     }
@@ -605,7 +609,7 @@ export class HostProcessSupervisor {
     child.on("exit", (code, signal) => {
       // The log stream holds a file handle; a host that is gone needs none.
       logStream.end();
-      this.onExit(code, signal);
+      this.onExit(running.pid, code, signal);
     });
     return running;
   }
@@ -624,7 +628,9 @@ export class HostProcessSupervisor {
     });
   }
 
-  private onExit(code: number | null, signal: string | null): void {
+  private onExit(pid: number, code: number | null, signal: string | null): void {
+    // The leader is gone; its surviving children still share the old group.
+    killHostGroup(pid);
     if (this.stopping || this.detached) return;
     if (this.options.service && !this.serviceRefused) {
       void this.followService(code, signal);
@@ -702,14 +708,22 @@ function defaultSpawn(command: string, args: string[], env: NodeJS.ProcessEnv): 
   return spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], detached: true, windowsHide: true });
 }
 
+/** A dead leader needs no PID fallback: only its surviving group belongs to it. */
+function killHostGroup(pid: number): void {
+  if (pid <= 0 || process.platform === "win32") return;
+  try { process.kill(-pid, "SIGKILL"); } catch { /* no surviving group */ }
+}
+
 /** Signals a child's process group and waits until the child is gone. */
 async function endChild(child: ChildProcess): Promise<void> {
-  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  if (child.pid === undefined) return;
+  if (child.exitCode !== null || child.signalCode !== null) { killHostGroup(child.pid); return; }
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   killProcessTree(child.pid, "SIGTERM");
   const timer = setTimeout(() => { if (child.pid !== undefined) killProcessTree(child.pid, "SIGKILL"); }, SHUTDOWN_TIMEOUT_MS);
   await exited;
   clearTimeout(timer);
+  killHostGroup(child.pid);
 }
 
 function portOf(url: string): number {

@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { HostEvent } from "../shared/contracts.js";
+import type { UiBackgroundTask } from "../shared/contracts.js";
 import type { HostExtension, HostExtensionContext, HostMcpConnection } from "./host-extensions.js";
 import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
@@ -74,6 +75,53 @@ function status(connection: HostMcpConnection): Promise<number> {
 }
 
 describe("the MCP seam of the host", () => {
+  it("offers no background tool or instructions to a runtime without background reporting", async () => {
+    const { internals } = await host([]);
+    try {
+      const unsupported = { sessionId: "codex-thread", cwd: "/repo" };
+      expect(await internals.seam.mcp.tools(unsupported)).toEqual([]);
+      expect(internals.seam.mcp.instructions(unsupported)).toBeUndefined();
+      const supported = { ...unsupported, nativeCapabilities: ["background-work"] };
+      expect((await internals.seam.mcp.tools(supported)).map((tool: { name: string }) => tool.name)).toEqual(["tau_background_tasks"]);
+      expect(internals.seam.mcp.instructions(supported)).toContain("Background work belongs to the current request");
+      // An advertised capability with no live owner is unavailable, not an empty task list.
+      expect(await internals.seam.mcp.call(supported, "tau_background_tasks", { action: "list" })).toMatchObject({ isError: true });
+    } finally {
+      await internals.seam.mcp.close();
+    }
+  });
+
+  it("lists and releases background work only on the credential's thread", async () => {
+    const { internals } = await host([]);
+    const tasks: UiBackgroundTask[] = [{ id: "server", kind: "command", label: "npm run dev" }];
+    const runtime = internals.threads.get("codex-thread").runtime as ThreadRuntime;
+    runtime.backend.capabilities.background = {
+      current: () => tasks,
+      stop: async () => undefined,
+      release: (id) => {
+        const task = tasks.find((candidate) => candidate.id === id);
+        if (!task) throw new Error("No such task");
+        task.blocksCompletion = false;
+      },
+    };
+    const client = new Client({ name: "test", version: "1.0.0" });
+    try {
+      const connection = await internals.seam.mcp.connect({ sessionId: "codex-thread", cwd: "/repo", nativeCapabilities: ["background-work"] });
+      await client.connect(new StreamableHTTPClientTransport(new URL(connection.url), { requestInit: { headers: { ...connection.headers } } }));
+      const list = await client.callTool({ name: "tau_background_tasks", arguments: { action: "list" } });
+      expect(JSON.parse((list.content as Array<{ text: string }>)[0]!.text)).toEqual([{ ...tasks[0], blocksCompletion: true }]);
+      expect(await client.callTool({ name: "tau_background_tasks", arguments: { action: "release" } })).toMatchObject({ isError: true });
+      expect(tasks[0]?.blocksCompletion).toBeUndefined();
+      await client.callTool({ name: "tau_background_tasks", arguments: { action: "release", taskId: "server" } });
+      expect(tasks[0]?.blocksCompletion).toBe(false);
+      const other = await internals.seam.mcp.call({ sessionId: "other", cwd: "/repo", nativeCapabilities: ["background-work"] }, "tau_background_tasks", { action: "release", taskId: "server" });
+      expect(other).toMatchObject({ isError: true });
+    } finally {
+      await client.close();
+      await internals.seam.mcp.close();
+    }
+  });
+
   it("serves a kit's tools to the thread a credential names, asks in that thread, and revokes it with the runtime", async () => {
     let runtimeKit: HostExtensionContext | undefined;
     const { pi, internals, events } = await host([toolKit, { id: "test.runtime", name: "Runtime", permissions: ["runtime:extend"], activate: (context) => { runtimeKit = context; } }]);
@@ -111,7 +159,7 @@ describe("the MCP seam of the host", () => {
       const connection = (await services.mcp.connect({ sessionId: "codex-thread", cwd: "/repo" }))!;
       expect((await internals.seam.mcp.tools({ sessionId: "codex-thread", cwd: "/repo" })).map((tool: { name: string }) => tool.name)).toEqual(["where"]);
       await internals.hostExtensions.deactivate("test.tools");
-      expect(await internals.seam.mcp.tools({ sessionId: "codex-thread", cwd: "/repo" })).toEqual([]);
+      expect((await internals.seam.mcp.tools({ sessionId: "codex-thread", cwd: "/repo" })).map((tool: { name: string }) => tool.name)).toEqual([]);
       await expect(status(connection)).resolves.toBe(200);
 
       let denied: unknown;

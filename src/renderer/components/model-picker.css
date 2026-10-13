@@ -112,7 +112,7 @@
 .model-pill.on { color: var(--acid-text); border-color: var(--acid-line); background: var(--acid-bg); }
 .model-pill .pill-icon { margin-left: 0; width: 13px; height: 13px; }
 .model-pill .pill-icon :is(.provider-icon, .provider-mark) { width: 13px; height: 13px; color: currentColor; filter: none; }
-.model-pills > .model-keys { margin-left: auto; flex: none; font: var(--text-xs) var(--mono); color: var(--fainter); }
+.model-pills > .model-keys { margin-left: auto; flex: none; font: var(--text-xs) var(--mono); color: var(--faint); }
 
 /* The list: one compact row per model, its name over how it runs. */
 .model-list { flex: 1; min-width: 0; overflow: auto; padding: 6px 8px 8px 10px; }

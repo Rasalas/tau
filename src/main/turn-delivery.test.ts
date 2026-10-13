@@ -55,6 +55,33 @@ function makeDelivery(thread: ThreadRuntime, overrides: Partial<TurnDeliveryPort
 }
 
 describe("TurnDelivery", () => {
+  it.each(["streamed", "awaited"] as const)("ignores a retired %s runtime's late result and failure", async (turnReporting) => {
+    for (const failed of [false, true]) {
+      let entered!: () => void;
+      let finish!: () => void;
+      const started = new Promise<void>((resolve) => { entered = resolve; });
+      const pending = new Promise<void>((resolve) => { finish = resolve; });
+      const { thread } = makeThread({ kind: "external", journal: false, turnReporting, prompt: (async () => {
+        entered();
+        await pending;
+        if (failed) throw new Error("too late");
+        return {};
+      }) as never });
+      const { delivery, port, events, failures } = makeDelivery(thread);
+      const run = delivery.toRuntime(thread, "work", [], "prompt");
+      await started;
+      thread.restartGeneration += 1;
+      events.length = 0;
+      finish();
+      await run;
+      expect(port.index.refreshShell).not.toHaveBeenCalled();
+      expect(port.turnObservers.ended).not.toHaveBeenCalled();
+      expect(port.turnObservers.cancelled).not.toHaveBeenCalled();
+      expect(failures).toEqual([]);
+      expect(events).toEqual([]);
+    }
+  });
+
   it("cleans an accepted failure once without clearing a newer turn or waiting for observers", async () => {
     const { thread } = makeThread();
     const turnsInFlight = new TurnsInFlight();

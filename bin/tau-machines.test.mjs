@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -157,9 +157,12 @@ for await (const line of createInterface({ input: process.stdin })) process.stdo
     const dir = await temp();
     const bin = join(dir, "bin");
     await mkdir(bin);
+    // The remote fixture must not discover the developer's installed Tau.
+    await symlink("/bin/sh", join(bin, "sh"));
+    await symlink("/usr/bin/grep", join(bin, "grep"));
     const run = () => {
       const command = remoteCommand([]);
-      const result = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8", env: { HOME: dir, PATH: `${bin}:/usr/bin:/bin` } });
+      const result = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8", env: { HOME: dir, PATH: bin } });
       return result.stdout.trim().split("\n").at(-1);
     };
     expect(JSON.parse(run())).toEqual({ type: "error", code: "no-tau" });

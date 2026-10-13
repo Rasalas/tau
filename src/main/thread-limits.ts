@@ -53,6 +53,7 @@ export class ThreadLimits {
   private readonly limits = new Map<string, UiThreadLimit>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private pending: Promise<void> = Promise.resolve();
+  private loading?: Promise<void>;
   private frozen = false;
 
   constructor(private readonly port: ThreadLimitsPort, private readonly options: ThreadLimitsOptions = {}) {}
@@ -67,6 +68,18 @@ export class ThreadLimits {
 
   /** Reads the resumes the previous run scheduled and arms them again; one that is due runs now. */
   async restore(): Promise<void> {
+    await this.load();
+    for (const [sessionId, limit] of this.limits) {
+      if (limit.resumeAt !== undefined) this.arm(sessionId, limit.resumeAt);
+    }
+  }
+
+  /** Loads saved limits before recovery; timers wait until restore. */
+  load(): Promise<void> {
+    return this.loading ??= this.read();
+  }
+
+  private async read(): Promise<void> {
     if (!this.options.filePath) return;
     const read = await readPersistedJson(this.options.filePath, {
       expectedVersion: VERSION,
@@ -77,7 +90,6 @@ export class ThreadLimits {
       if (this.limits.has(sessionId)) continue;
       this.limits.set(sessionId, limit);
       this.port.publish(sessionId, limit);
-      if (limit.resumeAt !== undefined) this.arm(sessionId, limit.resumeAt);
     }
   }
 

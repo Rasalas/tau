@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { errorMessage } from "../workbench/error-message";
 import { domKeybindingContext, KEYBINDING_CAPTURE_ATTRIBUTE } from "./keybinding-context";
+import { isImeComposing } from "./keybindings";
 import { commandRefusal, hostIsReadOnly } from "./use-host-capabilities";
 
 type Match = NonNullable<ReturnType<ExtensionRegistry["matchKeybinding"]>>;
@@ -19,17 +20,17 @@ type Match = NonNullable<ReturnType<ExtensionRegistry["matchKeybinding"]>>;
 export function useAppKeybindings(
   registry: ExtensionRegistry,
   actions: WorkbenchActions,
-  onNotice: (message: string) => void,
+  onNotice: (message: string, level?: "info" | "warning" | "error") => void,
 ): void {
   useEffect(() => {
     const chosen = new WeakMap<KeyboardEvent, Match>();
     const run = (match: Match) => {
       const refused = commandRefusal(match.command, hostIsReadOnly());
       if (refused) { onNotice(refused); return; }
-      Promise.resolve(match.command.run(actions)).catch((error) => onNotice(`${match.command.id}: ${errorMessage(error)}`));
+      Promise.resolve(match.command.run(actions)).catch((error) => onNotice(`${match.command.label}: ${errorMessage(error)}`, "error"));
     };
     const early = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || isImeComposing(event)) return;
       // A field that records chords gets every key, the workbench's own included.
       if (event.target instanceof Element && event.target.closest(`[${KEYBINDING_CAPTURE_ATTRIBUTE}]`)) return;
       const context = domKeybindingContext();

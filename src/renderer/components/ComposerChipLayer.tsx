@@ -26,7 +26,7 @@ export interface ComposerChipLayerProps extends UseComposerChipsOptions {
   apiRef: RefObject<ChipLayerApi | undefined>;
   /** Each is drawn as a chip while the text still names it. */
   selectedSkills?: readonly SelectedSkill[];
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   onPreview(imageId: number): void;
 }
 

@@ -21,6 +21,7 @@ interface Harness {
   calls: Array<{ method: string; params: readonly unknown[] }>;
   buffered: HostPush[];
   nextSeq: number;
+  bootId?: string;
 }
 
 function harness(): Harness {
@@ -41,7 +42,7 @@ function harness(): Harness {
           const lastSeq = (params[0] as { lastSeq?: number }).lastSeq;
           const missed = lastSeq === undefined ? [] : state.buffered.filter((push) => push.seq > lastSeq);
           const resync = lastSeq !== undefined && state.buffered.length > 0 && lastSeq < state.buffered[0]!.seq - 1;
-          return { id: "1", result: { protocol: 1, hostVersion: "0", capabilities: state.capabilities, resync, missed: resync ? [] : missed, nextSeq: state.nextSeq } };
+          return { id: "1", result: { protocol: 1, hostVersion: "0", capabilities: state.capabilities, resync, missed: resync ? [] : missed, nextSeq: state.nextSeq, ...(state.bootId ? { bootId: state.bootId } : {}) } };
         }
         if (method === "subscribe") return state.subscribe ? state.subscribe() : { id: "1", result: true };
         if (method === "bootstrap") return { id: "1", result: bootstrap };
@@ -60,6 +61,33 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 const agentStatus = (running: boolean): HostPushEvent => ({ type: "agent-status", sessionId: "s1", running });
 
 describe("host connection", () => {
+  it.each([false, true])("resyncs on a boot change before applying replay, with subscriptions %s", async (limited) => {
+    const link = harness();
+    link.bootId = "old-boot";
+    link.nextSeq = 2;
+    if (limited) link.capabilities.push("subscriptions");
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    if (limited) {
+      connection.watchThread("s1");
+      connection.limitToWatched();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    const seen: HostEvent[] = [];
+    connection.onEvent((event) => seen.push(event));
+    link.bootId = "new-boot";
+    link.buffered = [{ seq: 2, event: agentStatus(true) }];
+    link.nextSeq = 3;
+    link.reopen();
+    await vi.waitFor(() => expect(link.calls.some((call) => call.method === "bootstrap")).toBe(true));
+    expect(link.calls.filter((call) => call.method === "hello")[1]!.params[0]).toMatchObject({ lastSeq: 1, bootId: "old-boot" });
+    expect(seen.map((event) => event.type)).toEqual(["thread-index", "host-update", "host-update", "host-update"]);
+    expect(connection.getState()).toBe("connected");
+    link.push(3, agentStatus(false));
+    expect(seen.at(-1)).toEqual(agentStatus(false));
+  });
+
   it("starts at the host's current sequence and delivers pushes in order", async () => {
     const link = harness();
     link.nextSeq = 5;
@@ -138,6 +166,90 @@ describe("host connection", () => {
     expect(connection.getState()).toBe("connected");
   });
 
+  it.each([
+    { subscribed: false, retry: "timer" },
+    { subscribed: true, retry: "timer" },
+    { subscribed: false, retry: "reopen" },
+    { subscribed: true, retry: "reopen" },
+  ])("retries a failed resync via $retry (subscriptions: $subscribed)", async ({ subscribed, retry }) => {
+    vi.useFakeTimers();
+    const link = harness();
+    if (subscribed) link.capabilities.push("subscriptions");
+    let attempts = 0;
+    const request = link.transport.request;
+    link.transport.request = async (method, params) => {
+      const response = await request(method, params);
+      if (method === "bootstrap" && ++attempts === 1) throw new Error("bootstrap timed out");
+      return response;
+    };
+    const connection = new HostConnection(link.transport);
+    try {
+      await connection.start();
+      if (subscribed) {
+        connection.watchThread("s1");
+        connection.limitToWatched();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      const seen: HostEvent[] = [];
+      connection.onEvent((event) => seen.push(event));
+      link.buffered = [{ seq: 40, event: agentStatus(true) }];
+      link.nextSeq = 41;
+      link.push(40, agentStatus(true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toBe(1);
+      expect(connection.getState()).toBe("reconnecting");
+      link.push(41, agentStatus(false), 40);
+      expect(seen).toEqual([]);
+      if (retry === "reopen") link.reopen();
+      await vi.advanceTimersByTimeAsync(retry === "timer" ? 1_000 : 0);
+      expect(attempts).toBe(2);
+      expect(seen).toEqual([
+        { type: "thread-index", threadIndex: bootstrap.threadIndex },
+        { type: "host-update", update: { version: 1, type: "catalog", catalog: bootstrap.catalog } },
+        { type: "host-update", update: { version: 1, type: "project", project: bootstrap.project } },
+        { type: "host-update", update: { version: 1, type: "thread-detail", detail: bootstrap.detail } },
+        agentStatus(false),
+      ]);
+      expect(connection.getState()).toBe("connected");
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(attempts).toBe(2);
+    } finally {
+      connection.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["close", "refuse"] as const)("cancels a pending recovery retry on %s", async (stop) => {
+    vi.useFakeTimers();
+    const link = harness();
+    const request = link.transport.request;
+    link.transport.request = async (method, params) => {
+      const response = await request(method, params);
+      if (method === "bootstrap") throw new Error("bootstrap timed out");
+      return response;
+    };
+    const connection = new HostConnection(link.transport);
+    try {
+      await connection.start();
+      link.buffered = [{ seq: 40, event: agentStatus(true) }];
+      link.nextSeq = 41;
+      link.push(40, agentStatus(true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(connection.getState()).toBe("reconnecting");
+      if (stop === "close") connection.close();
+      else connection.refuse("certificate changed");
+      const calls = link.calls.length;
+      await vi.advanceTimersByTimeAsync(5_000);
+      link.reopen();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(link.calls).toHaveLength(calls);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      connection.close();
+      vi.useRealTimers();
+    }
+  });
+
   it("stays refused once refused: no request, no reconnect, the reason kept", async () => {
     const link = harness();
     const closed = vi.fn();
@@ -195,6 +307,31 @@ describe("host connection", () => {
     const early = new HostConnection(slow);
     await early.start();
     await expect(early.runJob<string>("rebuild-workbench")).resolves.toBe("early");
+  });
+
+  it("does not keep another client's job result for a job of its own that later gets the same id", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    // Every client hears every job; this one was never started here.
+    link.push(1, { type: "job-done", jobId: "job-1", result: "someone else's" });
+    const own = connection.runJob<string>("new-session", []);
+    await settle();
+    link.push(2, { type: "job-done", jobId: "job-1", result: "mine" });
+    await expect(own).resolves.toBe("mine");
+  });
+
+  it("fails a waiting job when the gap that may hold its result fell out of the host's buffer", async () => {
+    const link = harness();
+    const connection = new HostConnection(link.transport);
+    await connection.start();
+    const job = connection.runJob("new-session", []);
+    await settle();
+    link.buffered = [{ seq: 40, event: agentStatus(true) }];
+    link.nextSeq = 41;
+    link.push(40, agentStatus(true));
+    await expect(job).rejects.toThrow("reset before the job finished");
+    expect(connection.getState()).toBe("connected");
   });
 
   it("rebuilds a tool's output from deltas and drops one against a push it never saw", async () => {

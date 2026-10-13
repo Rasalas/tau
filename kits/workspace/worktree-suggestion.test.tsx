@@ -14,8 +14,8 @@ afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefine
 const REPO = { root: "/project", isRepo: true, isDirty: false, branch: "main", worktrees: [], refs: [{ name: "main", isCurrent: true }], worktreeParent: "/project-worktrees" };
 
 /** A project whose thread "busy" has a turn running in `busyIn`; the window shows another, idle thread. */
-function start(busyIn: string) {
-  const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_worktree", displayPath: "/project-worktrees/fix-header" }));
+function start(busyIn: string, worktree: () => Promise<{ workspaceId: string; displayPath: string }> = async () => ({ workspaceId: "ws1_worktree", displayPath: "/project-worktrees/fix-header" })) {
+  const createWorktree = vi.fn(worktree);
   const newSession = vi.fn(async (): Promise<NewThreadResult> => ({ version: 1, updates: [], submission: { accepted: true } }));
   const thread = (id: string, projectPath: string) => ({ id, path: `/${id}.jsonl`, title: id, modifiedAt: 1, projectPath, projectName: projectPath.slice(1), messageCount: 2 });
   const client = createFakeHostClient({
@@ -97,5 +97,36 @@ describe("a new thread's worktree suggestion (K125)", () => {
     // The branch control's name comes from the same Git read the suggestion waits for.
     expect(await screen.findByRole("button", { name: "Branch main" })).toBeTruthy();
     expect(within(pills).queryByRole("switch", { name: "Start in its own worktree" })).toBeNull();
+  });
+});
+
+describe("a worktree that cannot be made", () => {
+  it("sends nothing and asks; the checkout gets the prompt only on the user's word", async () => {
+    const { createWorktree, newSession } = start("/project", async () => { throw new Error("origin is unreachable"); });
+    const pills = await openDraft();
+    const suggestion = await within(pills).findByRole("switch", { name: "Start in its own worktree" });
+    await waitFor(() => expect(suggestion.getAttribute("aria-checked")).toBe("true"));
+
+    const composer = await screen.findByPlaceholderText<HTMLTextAreaElement>(/Ask anything/u);
+    fireEvent.change(composer, { target: { value: "Fix the header" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(createWorktree).toHaveBeenCalledTimes(1));
+
+    // The question stays up, and the runtime has heard nothing.
+    const notifications = await screen.findByRole("region", { name: "Notifications" });
+    expect(await within(notifications).findByText(/The worktree could not be created · origin is unreachable\. Run this thread in the current checkout instead\?/u)).toBeTruthy();
+    expect(newSession).not.toHaveBeenCalled();
+
+    fireEvent.click(within(notifications).getByRole("button", { name: "Don't send" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Not sent: the worktree could not be created.");
+    await waitFor(() => expect(composer.value).toBe("Fix the header"));
+    expect(newSession).not.toHaveBeenCalled();
+
+    // Asked again, it goes to the checkout when the user says so.
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(createWorktree).toHaveBeenCalledTimes(2));
+    fireEvent.click(await within(notifications).findByRole("button", { name: "Use the checkout" }));
+    await waitFor(() => expect(newSession).toHaveBeenCalledTimes(1));
+    expect(newSession.mock.calls[0]).toEqual(expect.arrayContaining(["/project"]));
   });
 });

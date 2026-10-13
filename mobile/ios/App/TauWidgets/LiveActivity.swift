@@ -338,7 +338,8 @@ struct ExpandedBottom: View {
                 ForEach(display.rows.prefix(3)) { row in
                     Link(destination: threadURL(host: display.host, thread: row.id) ?? URL(string: "tau://hosts")!) {
                         HStack(spacing: 8) {
-                            islandIcon(row.state)
+                            // The glyphs differ in size; one column keeps the titles in line.
+                            islandIcon(row.state).frame(width: 18)
                             Text(row.title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                             Spacer(minLength: 4)
                             islandStatus(row)

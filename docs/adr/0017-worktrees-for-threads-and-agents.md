@@ -173,3 +173,14 @@ New commits or uncommitted files reopen the review.
 Completion does not remove a worktree. The separate confirmed cleanup action
 checks the current tip and working copy again, removes the worktree and branch,
 and retains the thread and completed review.
+
+## Amendment, 2026-10-13: a worktree that cannot be made stops the send
+
+When the worktree failed, the first prompt used to run in the checkout after an
+error toast. That is the one place the user chose a worktree to keep an agent out
+of. The prompt now waits: an error toast that stays offers "Use the checkout"
+and "Don't send". Only the first sends it, for that prompt; the second, or closing
+the toast, returns the prompt to the composer. The gate says so with `stop` on
+`NewThreadPromptGate` (API 1.61.0), because a gate that throws is still skipped
+and the prompt still goes to the draft's project. Several models at once
+(`force`) never fall back: each failed model is reported and kept for retry.

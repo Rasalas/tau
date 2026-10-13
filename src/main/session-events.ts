@@ -51,6 +51,11 @@ export function handleRuntimeSessionEvent(
         message: typeof event.message === "string" ? event.message : "Pi rejected the message.",
       });
       break;
+    case "compaction_start":
+    case "compaction_end":
+      thread.isCompacting = event.type === "compaction_start";
+      emit({ type: "context-compaction", sessionId, running: thread.isCompacting });
+      break;
     case "agent_start":
       thread.turnError = undefined;
       emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
@@ -118,6 +123,10 @@ function settleRun(thread: LiveTurnState, sessionId: string, services: SessionEv
     thread.inFlightClientMessageIds.clear();
   }
   if (!isThreadRuntime(thread) || thread.state.idle) services.clientTurns.settle(sessionId);
+  if (thread.isCompacting) {
+    thread.isCompacting = false;
+    services.emit({ type: "context-compaction", sessionId, running: false });
+  }
   services.turnSettled(sessionId, thread.turnError);
   services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
   services.emit({ type: "agent-status", sessionId, running: false });

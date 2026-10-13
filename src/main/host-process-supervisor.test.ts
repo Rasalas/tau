@@ -1,8 +1,9 @@
-import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { ChildProcess, spawn } from "node:child_process";
+import { PassThrough } from "node:stream";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   HostProcessSupervisor,
   type HostServiceControl,
@@ -11,6 +12,7 @@ import {
   pruneHostLogs,
   readHostDescriptor,
 } from "./host-process-supervisor.js";
+import { processRunning } from "./test-support/process-running.js";
 import { HOST_SERVICE_ENV, serviceEnvironment } from "./host-service-units.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, dataFolderBusy } from "./data-folder-lock.js";
 
@@ -115,6 +117,35 @@ describe("the host's announcement", () => {
 });
 
 describe("the host process supervisor", () => {
+  it("allows a slow cold host to announce after the old 30-second deadline", async () => {
+    const userData = workingDirectory();
+    const tokenPath = join(userData, "token");
+    writeFileSync(tokenPath, "stub-token");
+    const child = new ChildProcess();
+    const stdout = new PassThrough();
+    Object.assign(child, { stdout, stderr: new PassThrough() });
+    let spawnStarted = false;
+    const instance = new HostProcessSupervisor({
+      entry: STUB, execPath: process.execPath, userData, version: "1.0.0",
+      spawnProcess: () => { spawnStarted = true; return child; },
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let failed: unknown;
+      const starting = instance.start();
+      void starting.catch((error) => { failed = error; });
+      await vi.waitFor(() => expect(spawnStarted).toBe(true));
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(failed).toBeUndefined();
+      stdout.write(`tau-host listening on ws://127.0.0.1:7788\ntoken: ${tokenPath}\n`);
+      expect((await starting).adopted).toBe(false);
+    } finally {
+      instance.detach();
+      child.emit("exit", 0, null);
+      vi.useRealTimers();
+    }
+  });
+
   it("starts a host and records how to reach it", async () => {
     const userData = workingDirectory();
     const running = await supervisor(userData).start();
@@ -206,6 +237,38 @@ describe("the host process supervisor", () => {
     expect(descriptor?.url).toBe(first.url);
   }, 30_000);
 
+  it.skipIf(process.platform === "win32").each([false, true])("ends the old host group after SIGKILL, adopted=%s", async (adopted) => {
+    const userData = workingDirectory();
+    const prefix = join(userData, "child");
+    const original = supervisor(userData, { extraEnv: { STUB_CHILD_PREFIX: prefix } });
+    const first = await original.start();
+    const childPid = Number(readFileSync(`${prefix}-${first.pid}`, "utf8"));
+    const instance = adopted ? supervisor(userData) : original;
+    if (adopted) { original.detach(); await instance.start(); }
+    try {
+      expect(processRunning(childPid)).toBe(true);
+      process.kill(first.pid, "SIGKILL");
+      await waitFor(() => instance.descriptor?.pid !== first.pid, "a restarted host");
+      await expect.poll(() => processRunning(childPid)).toBe(false);
+    } finally {
+      try { process.kill(-first.pid, "SIGKILL"); } catch { /* gone */ }
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("ends surviving children when stopping a stubborn host", async () => {
+    const userData = workingDirectory();
+    const prefix = join(userData, "child");
+    const instance = supervisor(userData, { extraEnv: { STUB_CHILD_PREFIX: prefix, STUB_STUBBORN: "1" }, signalGraceMs: 0 });
+    const first = await instance.start();
+    const childPid = Number(readFileSync(`${prefix}-${first.pid}`, "utf8"));
+    try {
+      await instance.stop();
+      await expect.poll(() => processRunning(childPid)).toBe(false);
+    } finally {
+      try { process.kill(-first.pid, "SIGKILL"); } catch { /* gone */ }
+    }
+  });
+
   it("stops the host and forgets the descriptor", async () => {
     const userData = workingDirectory();
     const instance = supervisor(userData);
@@ -260,6 +323,27 @@ describe("the host process supervisor", () => {
     expect(spawned).toHaveLength(1);
     expect(exited(spawned[0]!)).toBe(true);
   }, 30_000);
+
+  it.skipIf(process.platform === "win32")("ends children of a host killed before its announcement", async () => {
+    const userData = workingDirectory();
+    const prefix = join(userData, "child");
+    const instance = supervisor(userData, { silent: true, extraEnv: { STUB_CHILD_PREFIX: prefix } });
+    const starting = instance.start();
+    let childPid = 0;
+    let hostPid = 0;
+    try {
+      await expect.poll(() => {
+        hostPid = spawned.at(-1)?.pid ?? 0;
+        try { childPid = Number(readFileSync(`${prefix}-${hostPid}`, "utf8")); } catch { return false; }
+        return childPid > 0;
+      }).toBe(true);
+      process.kill(hostPid, "SIGKILL");
+      await expect(starting).rejects.toThrow(/exited/u);
+      await expect.poll(() => processRunning(childPid)).toBe(false);
+    } finally {
+      if (hostPid > 0) { try { process.kill(-hostPid, "SIGKILL"); } catch { /* gone */ } }
+    }
+  });
 
   it("ends a host that is still starting when it is stopped", async () => {
     const userData = workingDirectory();

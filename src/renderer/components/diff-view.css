@@ -35,7 +35,7 @@
 }
 .diff-context-step:hover:not(:disabled) { background: var(--raised-hover); color: var(--ink-2); }
 .diff-context-step:disabled, .diff-context-bar .diff-context-gap:disabled { cursor: progress; }
-.diff-context-error { flex: none; max-width: 50%; padding: 0 8px; overflow: hidden; color: var(--removed); font: 10.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.diff-context-error { flex: none; max-width: 50%; padding: 0 8px; overflow: hidden; color: var(--removed); font: var(--text-2xs) var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 @media (pointer: coarse) {
   .diff-context-bar .diff-context-gap, .diff-context-step { height: 44px; }
 }

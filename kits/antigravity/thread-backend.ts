@@ -205,7 +205,7 @@ export class AntigravityThreadRuntimeBackend extends AcpThreadBackend<Antigravit
       cwd: this.cwd,
       onUpdate: (update) => this.onUpdate(update),
       onPermission: (request) => this.onPermission(request),
-      onElicitation: (request) => answerElicitation(request, this.options.ask),
+      onElicitation: (request) => answerElicitation(request, this.sessionAsk(session)),
       onSignIn: (link) => {
         this.report({ type: "notice", message: "Antigravity needs a Google sign-in. Tau opened the link in your browser; finish it there and the turn continues.", level: "info" });
         this.options.onSignIn?.(link, this.threadId);

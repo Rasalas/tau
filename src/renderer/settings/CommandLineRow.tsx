@@ -25,7 +25,7 @@ function describe(state: CommandLineState): ReactNode {
  * folder on PATH after asking, shows where it stands and removes it again
  * (T3 #16683). Only this machine's window can do it, and only an installed app.
  */
-export function CommandLineRow({ onNotify }: { onNotify(message: string): void }) {
+export function CommandLineRow({ onNotify }: { onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
   const [state, setState] = useState<CommandLineState>();
   const [asking, setAsking] = useState(false);
@@ -47,7 +47,7 @@ export function CommandLineRow({ onNotify }: { onNotify(message: string): void }
     setBusy(true);
     run(op, folder).then(
       (next) => { if (next) setState(next); },
-      (error: unknown) => onNotify(`Could not ${op === "install" ? "install" : "remove"} ${state.name}: ${errorMessage(error)}`),
+      (error: unknown) => onNotify(`Could not ${op === "install" ? "install" : "remove"} ${state.name}: ${errorMessage(error)}`, "error"),
     ).finally(() => setBusy(false));
   };
   const installed = Boolean(state.installedPath);

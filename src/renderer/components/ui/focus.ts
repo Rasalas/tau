@@ -13,7 +13,8 @@ export const openedByKeyboard = (): boolean => lastInput === "keyboard";
 const FOCUSABLE = "button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
 
 export function focusableElements(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((element) => !element.closest("[inert]"));
+  // A tabindex of -1 takes focus from a script only (an option the field points at), never from Tab.
+  return [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((element) => element.tabIndex >= 0 && !element.closest("[inert]"));
 }
 
 function focusIsLost(container: HTMLElement | null): boolean {

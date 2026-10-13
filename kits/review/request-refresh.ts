@@ -1,4 +1,13 @@
 const REFRESH_MS = 60_000;
+/** A read gets this long; one whose answer was lost (a dropped link, a restarted kit) must not hold back the next. */
+export const READ_LIMIT_MS = 120_000;
+
+/** `read`, failed once `ms` passed without an answer; a late answer is dropped. */
+export function settleWithin<T>(read: Promise<T>, ms = READ_LIMIT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The host did not answer in time.")), ms); });
+  return Promise.race([read, late]).finally(() => clearTimeout(timer));
+}
 
 /** One bounded refresh loop for the requests visible on active surfaces, not every rail row. */
 export class RequestRefresh {

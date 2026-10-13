@@ -6,7 +6,7 @@ import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import onboarding from "./desktop.js";
 import { agentRows, age, toolRows } from "./wizard.js";
-import { FLOW_STORAGE_KEY, WelcomeFlow, defaultProjects, defaultSessions, groupProjects, importSummary } from "./flow.js";
+import { FLOW_STORAGE_KEY, WelcomeFlow, defaultProjects, defaultSessions, emptySteps, groupProjects, importSummary, stepAfter } from "./flow.js";
 import type { Discovery, ToolsReport } from "./protocol.js";
 
 afterEach(cleanup);
@@ -149,10 +149,92 @@ describe("Onboarding in the workbench", () => {
     expect(screen.getByText("1 conversation is in Tau already.")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: /Old work/ }) as HTMLInputElement).checked).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Import 2 conversations" }));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Import conversations" })).toBeNull());
+    // The last screen names what is ready and leads to the first thread; setup is done once it is left.
+    await screen.findByRole("heading", { name: / is ready$/ });
     const imports = calls.filter(([, command]) => command === "import-sessions").map(([, , input]) => input);
     expect(imports).toEqual([{ source: "claude-code", paths: ["/h/c1.jsonl"] }, { source: "codex", paths: ["/h/x1.jsonl"] }]);
+    expect(calls.some(([, command]) => command === "complete")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Start a thread" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: / is ready$/ })).toBeNull());
     expect(calls.some(([, command]) => command === "complete")).toBe(true);
+  });
+
+  describe("on a machine with no history to bring in", () => {
+    const nothing: Discovery = { projects: [], sessions: [], truncated: false, unavailable: [] };
+    const NOT_INSTALLED = { installed: false };
+    const SIGNED_IN = { path: "/bin/acme", version: "1.0.0", signedIn: true, account: "Acme Team" };
+    const backends = [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme" }];
+
+    /** A first start whose scan finds nothing and whose one agent, Acme, answers `acme` (signed in by default); `gate` holds the scan back. */
+    function firstStart({ acme = SIGNED_IN, gate }: { acme?: unknown; gate?: Promise<void> } = {}) {
+      const { calls, invokeHostExtension } = host();
+      const base = createFakeHostClient();
+      const bootstrap = async () => {
+        const snapshot = await base.bootstrap();
+        return { ...snapshot, catalog: { ...snapshot.catalog, runtimeBackends: backends } };
+      };
+      const answer = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
+        if (command === "discover") { await gate; return nothing; }
+        if (extensionId === "tau.acme" && command === "status") return acme;
+        return invokeHostExtension(extensionId, command, input);
+      });
+      const view = renderApp(createFakeHostClient({ invokeHostExtension: answer, bootstrap }), { extensions: [onboarding] });
+      return { calls, answer, ...view };
+    }
+
+    it("goes past the projects and the conversations to the last screen, in one click", async () => {
+      const { calls, answer } = firstStart();
+      await screen.findByText("1.0.0 · Acme Team");
+      await waitFor(() => expect(answer).toHaveBeenCalledWith("tau.onboarding", "discover", undefined));
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByRole("heading", { name: "Acme is ready" });
+      expect(screen.queryByRole("heading", { name: "Choose your projects" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Import conversations" })).toBeNull();
+      // The steps it went past cannot be gone back to; the agents can.
+      expect((screen.getByRole("button", { name: "Choose your projects, step 2" }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name: "Your agents, step 1" }) as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "Start a thread" }));
+      await waitFor(() => expect(calls.some(([, command]) => command === "complete")).toBe(true));
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Acme is ready" })).toBeNull());
+    });
+
+    it("goes on by itself when the scan that a step waited for finds nothing", async () => {
+      let release!: () => void;
+      firstStart({ gate: new Promise<void>((resolve) => { release = resolve; }) });
+      await screen.findByText("1.0.0 · Acme Team");
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByText(/Looking for projects/);
+      await act(async () => { release(); });
+      await screen.findByRole("heading", { name: "Acme is ready" });
+    });
+
+    it("says no agent is ready, and leaves a way back to the agents", async () => {
+      const { answer } = firstStart({ acme: NOT_INSTALLED });
+      await screen.findAllByText("Not installed");
+      await waitFor(() => expect(answer).toHaveBeenCalledWith("tau.onboarding", "discover", undefined));
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByRole("heading", { name: "No agent is ready yet" });
+      fireEvent.click(screen.getByRole("button", { name: "Back to your agents" }));
+      await screen.findByRole("heading", { name: "Your agents" });
+    });
+
+    it("keeps Esc from ending setup while no agent is ready: it opens again on the next start", async () => {
+      const { calls, storage } = firstStart({ acme: NOT_INSTALLED });
+      await screen.findAllByText("Not installed");
+      expect(storage.get(FLOW_STORAGE_KEY)).not.toBeNull();
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull());
+      expect(calls.some(([, command]) => command === "complete")).toBe(false);
+      expect(storage.get(FLOW_STORAGE_KEY)).toBeNull();
+    });
+
+    it("lets Esc end setup once an agent is ready", async () => {
+      const { calls } = firstStart();
+      await screen.findByText("1.0.0 · Acme Team");
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(calls.some(([, command]) => command === "complete")).toBe(true));
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull());
+    });
   });
 
   it("runs a review CLI's install in a terminal it steps aside for, and asks again when the shell ends", async () => {
@@ -314,6 +396,25 @@ describe("Onboarding's choices", () => {
       "later:checking:settings=",
     ]);
     expect(toolRows(state).map(line)).toEqual(["gh:ready:settings=", "glab:install:brew install glab"]);
+    // A failed check says so in a few words; what the kit answered stays in the tooltip.
+    expect(agentRows(state, 0, backends)[2]).toMatchObject({ summary: "Could not check", detail: expect.stringContaining("did not answer") });
+  });
+
+  it("goes past the steps that have nothing to choose, once the scan is in", () => {
+    const known = new Set(["/work/alpha", "/work/old"]);
+    const none = emptySteps({}, known);
+    expect(none).toEqual({ projects: false, sessions: false });
+    expect(emptySteps({ discovery }, new Set())).toEqual({ projects: false, sessions: false });
+    // Every folder is a project in Tau already; every conversation was imported.
+    expect(emptySteps({ discovery: { ...discovery, sessions: discovery.sessions.map((session) => ({ ...session, imported: true })) } }, known)).toEqual({ projects: true, sessions: true });
+    expect(emptySteps({ discovery: { ...discovery, projects: [], sessions: [] } }, new Set())).toEqual({ projects: true, sessions: true });
+    // A scan that failed is not "nothing": the step says why.
+    expect(emptySteps({ discoverError: "Scan failed." }, new Set())).toEqual({ projects: false, sessions: false });
+    expect(stepAfter(0, { projects: true, sessions: true })).toBe(3);
+    expect(stepAfter(0, { projects: true, sessions: false })).toBe(2);
+    expect(stepAfter(0, { projects: false, sessions: true })).toBe(1);
+    expect(stepAfter(1, { projects: false, sessions: true })).toBe(3);
+    expect(stepAfter(1, { projects: true, sessions: false })).toBe(2);
   });
 
   it("picks up after a project switch reloaded the page under it", async () => {
@@ -336,5 +437,19 @@ describe("Onboarding's choices", () => {
     await reloaded.finish();
     expect(values.has(FLOW_STORAGE_KEY)).toBe(false);
     expect(new WelcomeFlow(client, () => client, () => storage).interrupted()).toBe(false);
+  });
+
+  it("leaves without saying setup ran when asked to dismiss", async () => {
+    const values = new Map<string, string>();
+    const storage = { get: (key: string) => values.get(key) ?? null, set: (key: string, value: string) => { values.set(key, value); }, remove: (key: string) => { values.delete(key); }, keys: () => [...values.keys()] };
+    const invoke = vi.fn(async () => undefined);
+    const flow = new WelcomeFlow({ invoke, onEvent: () => () => undefined }, () => ({ invoke, onEvent: () => () => undefined }), () => storage);
+    flow.start();
+    flow.goTo(1);
+    expect(values.has(FLOW_STORAGE_KEY)).toBe(true);
+    flow.dismiss();
+    expect(values.has(FLOW_STORAGE_KEY)).toBe(false);
+    expect(flow.get().step).toBe(0);
+    expect(invoke).not.toHaveBeenCalledWith("complete");
   });
 });

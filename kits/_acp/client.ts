@@ -1,6 +1,5 @@
-import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import { AGENT_OOM_MESSAGE, commandInvocation, killProcessTree, wrapAgentCommand } from "tau/host-extension";
+import { AGENT_OOM_MESSAGE, commandInvocation, spawnOwnedProcess, wrapAgentCommand } from "tau/host-extension";
 
 /**
  * The Agent Client Protocol wire: newline-delimited JSON-RPC 2.0 on the
@@ -33,11 +32,11 @@ export function spawnAcpProcess(input: AcpSpawnInput, scopeName = "acp"): AcpPro
   const invocation = commandInvocation(input.command, input.args, { env: input.env });
   // On Linux the agent runs in its own systemd scope, so a memory kill takes it and not the host.
   const launch = wrapAgentCommand({ command: invocation.command, args: invocation.args, name: scopeName, env: input.env });
-  const child = spawn(launch.command, launch.args, {
+  const child = spawnOwnedProcess({
+    command: launch.command,
+    args: launch.args,
     cwd: input.cwd,
     env: input.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   });
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
@@ -49,12 +48,7 @@ export function spawnAcpProcess(input: AcpSpawnInput, scopeName = "acp"): AcpPro
     stdin: child.stdin!,
     stdout: child.stdout!,
     stderr: child.stderr!,
-    // An npm shim runs under cmd.exe on Windows; ending only cmd.exe would orphan the CLI.
-    kill: (signal) => {
-      if (process.platform !== "win32" || child.pid === undefined || child.exitCode !== null) return child.kill(signal);
-      killProcessTree(child.pid);
-      return true;
-    },
+    kill: (signal) => child.kill(signal),
     exited,
     ...(launch.scope ? { oomKilled: () => launch.scope!.oomKilled() } : {}),
   };

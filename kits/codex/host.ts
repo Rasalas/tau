@@ -384,7 +384,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         const nativeCapabilities = input.tools || settings.args(id).length ? [] : await codexNativeCapabilities(codexHomeLayout(cliEnv).effective);
         // A thread's session reaches Tau's tools; without the endpoint it still runs, only without them.
         const mcp = input.threadId
-          ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd, ...(nativeCapabilities.length ? { nativeCapabilities } : {}) }, input.tools ? { tools: input.tools } : undefined).catch(() => undefined)
+          ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd, nativeCapabilities: [...nativeCapabilities, "background-work"] }, input.tools ? { tools: input.tools } : undefined).catch(() => undefined)
           : undefined;
         const tau = mcp ? codexMcpLaunch(mcp) : { args: [], env: {} };
         if (input.threadId) {
@@ -669,6 +669,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
                 onMessage: thread.onMessage,
                 onEvent: thread.onEvent,
                 ask: thread.ask,
+                cancelPrompts: thread.cancelPrompts,
                 ...mcpApps.forThread(threadId),
                 // Codex starts no turn when a background command ends; the wake tells the agent.
                 onBackgroundEnded: (command) => {

@@ -98,10 +98,10 @@ function nextFrame(socket: WebSocket): Promise<HostServerFrame> {
   });
 }
 
-async function hello(url: string, token: string, lastSeq?: number) {
+async function hello(url: string, token: string, lastSeq?: number, bootId?: string) {
   const socket = pinned(url, FINGERPRINT);
   await opened(socket);
-  socket.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token, ...(lastSeq === undefined ? {} : { lastSeq }) } }));
+  socket.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token, ...(lastSeq === undefined ? {} : { lastSeq, bootId }) } }));
   return { socket, frame: nextFrame(socket) };
 }
 
@@ -149,14 +149,16 @@ describe("the socket transport over TLS", () => {
   it("replays what a reconnect missed, as it does in plaintext", async () => {
     const { url, transport: started, pushLog } = await listenTls();
     const first = await hello(url, TOKEN);
-    await first.frame;
+    const initial = await first.frame;
+    expect(initial.type).toBe("hello-reply");
+    if (initial.type !== "hello-reply") return;
     const push = nextFrame(first.socket);
     started.deliver(pushLog.record({ type: "event-log", label: "live", timestamp: 0 }));
     expect(await push).toMatchObject({ type: "push", push: { seq: 1 } });
     first.socket.close();
     started.deliver(pushLog.record({ type: "event-log", label: "missed-1", timestamp: 0 }));
     started.deliver(pushLog.record({ type: "event-log", label: "missed-2", timestamp: 0 }));
-    const again = await hello(url, TOKEN, 1);
+    const again = await hello(url, TOKEN, 1, initial.reply.bootId);
     const reply = await again.frame;
     expect(reply.type === "hello-reply" && reply.reply.missed.map((entry) => entry.seq)).toEqual([2, 3]);
     expect(reply.type === "hello-reply" && reply.reply.resync).toBe(false);

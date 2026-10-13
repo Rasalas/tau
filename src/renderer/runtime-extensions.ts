@@ -88,7 +88,7 @@ export interface RuntimeExtensionHost {
   /** Evaluates a bundle as an ES module; defaults to the host's `tau-ext:` URL. */
   importModule?(bundle: DesktopExtensionBundle): Promise<unknown>;
   isEnabled(id: string): boolean;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
   /** A toast with a type, lines and actions. */
   toast(options: ToastOptions): void;
   /** Opens a place in Settings, for a toast's action. */
@@ -294,7 +294,7 @@ export class RuntimeExtensions {
     const message = errorMessage(error);
     this.registry.noteLoadFailure(bundle.path, message);
     this.host.log("desktop-extension.failed", `${bundle.path}: ${message}`);
-    this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`);
+    this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`, "error");
   }
 
   /**

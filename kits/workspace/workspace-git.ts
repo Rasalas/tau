@@ -44,6 +44,7 @@ import {
   resolveWorktreeParent,
 } from "./agent-worktrees.js";
 import { listLiveWorkspaceLeaseSessions } from "./workspace-checkpoint-lease.js";
+import { readRepositoryIdentity } from "./repository-identity.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -829,13 +830,19 @@ export type SnapshotGitRunner = (
   env?: NodeJS.ProcessEnv,
 ) => Promise<string>;
 
+function gitCommandTimeout(args: readonly string[]): number {
+  if (["commit", "pull", "push", "clean", "read-tree"].includes(args[0] ?? "")) return 0;
+  if (args[0] === "worktree" && (args[1] === "add" || args[1] === "remove")) return 5 * 60 * 1000;
+  return 10_000;
+}
+
 export async function runGitCommand(
   cwd: string,
   args: string[],
   maxBuffer = 4 * 1024 * 1024,
   signal?: AbortSignal,
   env?: NodeJS.ProcessEnv,
-  timeout = 10_000,
+  timeout = gitCommandTimeout(args),
 ): Promise<string> {
   const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
     cwd,
@@ -2751,6 +2758,8 @@ export {
  * that is not a repository at all is not a worktree.
  */
 export async function isLinkedWorktree(cwd: string, runGit: GitRunner = git): Promise<boolean> {
+  const identity = runGit === git ? await readRepositoryIdentity(cwd) : undefined;
+  if (identity) return identity.gitDir !== identity.commonDir;
   const [gitDir, commonDir] = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]))
     .split("\n")
     .map((line) => line.trim());
@@ -2780,6 +2789,8 @@ export async function isNestedProject(
 /** The main checkout a linked worktree was made from; undefined for any other folder. */
 export async function mainCheckoutOf(cwd: string, runGit: GitRunner = git): Promise<string | undefined> {
   try {
+    const identity = runGit === git ? await readRepositoryIdentity(cwd) : undefined;
+    if (identity) return identity.gitDir !== identity.commonDir ? dirname(identity.commonDir) : undefined;
     if (!await isLinkedWorktree(cwd, runGit)) return undefined;
     const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
     return commonDir ? dirname(resolve(cwd, commonDir)) : undefined;
@@ -2791,6 +2802,8 @@ export async function mainCheckoutOf(cwd: string, runGit: GitRunner = git): Prom
 /** Returns one stable project name for a repository and all of its linked worktrees. */
 export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git): Promise<string> {
   try {
+    const identity = runGit === git ? await readRepositoryIdentity(cwd) : undefined;
+    if (identity) return basename(dirname(identity.commonDir)) || basename(cwd) || cwd;
     const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
     const absoluteCommonDir = resolve(cwd, commonDir);
     return basename(dirname(absoluteCommonDir)) || basename(cwd) || cwd;
@@ -2886,46 +2899,21 @@ export async function createWorktree(
   return destination;
 }
 
-/** Uncommitted work in a worktree, as the removal confirm names it. */
-export interface WorktreeRemovalPreview {
-  path: string;
-  branch?: string;
-  dirtyFiles: number;
-  /** Commits the branch carries beyond the base it started from. */
-  ahead: number;
-}
-
-export async function previewWorktreeRemoval(
-  cwd: string,
-  worktreePath: string,
-  branch: string | undefined,
-  runGit: GitRunner = git,
-): Promise<WorktreeRemovalPreview> {
-  const status = await runGit(worktreePath, ["status", "--porcelain", "-z"]).catch(() => "");
-  const dirtyFiles = status.split("\0").filter((line) => line.trim().length > 0).length;
-  const base = branch ? await readBranchBase(worktreePath, branch, runGit) : undefined;
-  const revList = base ? await runGit(worktreePath, ["rev-list", "--count", `${base}..HEAD`]).catch(() => "") : "";
-  return { path: worktreePath, ...(branch ? { branch } : {}), dirtyFiles, ahead: Number(revList.trim()) || 0 };
-}
-
-/**
- * Removes a linked worktree and, when asked, the branch it held. `--force`
- * because the caller already showed what would be lost; git's own refusal to
- * remove a dirty worktree would only turn that decision into an error.
- */
+/** Removes a linked worktree; destructive flags require the caller's confirmation. */
 export async function removeWorktree(
   cwd: string,
   worktreePath: string,
-  options: { branch?: string } = {},
+  options: { branch?: string; force?: boolean; forceBranch?: boolean } = {},
   runGit: GitRunner = git,
 ): Promise<void> {
-  await runGit(cwd, ["worktree", "remove", "--force", worktreePath]).catch(async (error: unknown) => {
+  await runGit(cwd, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]).catch(async (error: unknown) => {
     // A worktree whose directory is already gone is removed by pruning it.
     await runGit(cwd, ["worktree", "prune"]);
-    const still = await runGit(cwd, ["worktree", "list", "--porcelain"]).catch(() => "");
+    const still = await runGit(cwd, ["worktree", "list", "--porcelain"]);
     if (still.includes(`worktree ${worktreePath}\n`)) throw error;
   });
-  if (options.branch) await runGit(cwd, ["branch", "-D", options.branch]).catch(() => "");
+  // Git keeps an unmerged branch when deletion was not explicitly forced.
+  if (options.branch) await runGit(cwd, ["branch", options.forceBranch ? "-D" : "-d", "--", options.branch]).catch(() => "");
 }
 
 /**

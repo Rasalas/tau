@@ -43,6 +43,13 @@ export function isCurrentTranscriptSubmission(
 }
 
 export function optimisticThreadSnapshot(snapshot: HostSnapshot, target: UiSession, detail: ThreadDetail): HostSnapshot {
+  // A transcript has no model selection. Use the selected thread's index
+  // entry until its own catalog arrives, never the previous thread's model.
+  const knownModel = [snapshot.model, ...snapshot.models].find((model) => model
+    && model.provider === target.modelProvider && model.id === target.model);
+  const model = target.modelProvider && target.model
+    ? { provider: target.modelProvider, id: target.model, name: knownModel?.name ?? target.model }
+    : undefined;
   return hostSnapshotFromThreadDetail({
     ...snapshot,
     sessionName: undefined,
@@ -55,6 +62,20 @@ export function optimisticThreadSnapshot(snapshot: HostSnapshot, target: UiSessi
     backendKind: detail.backendKind ?? target.backendKind ?? "pi",
     threadId: detail.threadId ?? target.id,
     providerSessionId: detail.providerSessionId,
+    // Reopening the thread already on screen keeps its own catalog.
+    ...(snapshot.sessionId === target.id ? {} : {
+      model,
+      models: [],
+      thinkingLevel: "off",
+      thinkingLevels: [],
+      runtimeCapabilities: undefined,
+      mode: undefined,
+      modes: undefined,
+      goals: undefined,
+      allTools: [],
+      composerCommands: [],
+      extensionCount: 0,
+    }),
   }, { ...detail, isStreaming: false });
 }
 
@@ -175,20 +196,12 @@ export function isSameUserMessage(left: UiMessage, right: UiMessage): boolean {
     && JSON.stringify(left.images ?? []) === JSON.stringify(right.images ?? []);
 }
 
-export function mergeTranscriptMessages(authoritative: readonly UiMessage[], optimistic: readonly UiMessage[]): UiMessage[] {
-  if (optimistic.length === 0) return authoritative as UiMessage[];
-  const merged = [...authoritative];
-  for (const message of optimistic) {
-    let low = 0;
-    let high = merged.length;
-    while (low < high) {
-      const middle = low + Math.floor((high - low) / 2);
-      if (merged[middle].timestamp <= message.timestamp) low = middle + 1;
-      else high = middle;
-    }
-    merged.splice(low, 0, message);
-  }
-  return merged;
+/**
+ * Prompts not yet confirmed go after everything confirmed: they are the newest
+ * rows, and the phone's clock, which stamped them, need not agree with the host's.
+ */
+function withUnconfirmed(confirmed: readonly UiMessage[], unconfirmed: readonly UiMessage[]): UiMessage[] {
+  return unconfirmed.length === 0 ? confirmed as UiMessage[] : [...confirmed, ...unconfirmed];
 }
 
 export function backgroundNewThreadDetail(
@@ -202,7 +215,7 @@ export function backgroundNewThreadDetail(
     sessionId,
     messages: messages.some((entry) => isSameUserMessage(entry, message))
       ? messages
-      : mergeTranscriptMessages(messages, [message]),
+      : withUnconfirmed(messages, [message]),
     isStreaming: true,
     activeTools: cached?.activeTools ?? [],
   };
@@ -266,7 +279,7 @@ export function conversationMessagesFor(
 ): UiMessage[] {
   const scoped = optimistic.filter((entry) => entry.scope === activeDraftKey);
   const unconfirmed = reconcileOptimisticMessages(scoped, messages).map((entry) => entry.message);
-  return pendingNewThread ? unconfirmed : mergeTranscriptMessages(messages, unconfirmed);
+  return pendingNewThread ? unconfirmed : withUnconfirmed(messages, unconfirmed);
 }
 
 /** Splits the host's reported context usage over transcript and tool output. */

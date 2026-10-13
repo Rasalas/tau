@@ -39,6 +39,20 @@ describe("Dialog", () => {
   });
 });
 
+describe("Dialog Tab order", () => {
+  it("wraps Tab at the last control Tab can reach, not at one only a script focuses", () => {
+    render(<Dialog label="Pick" onClose={() => undefined}>
+      <input aria-label="Filter" />
+      <button type="button">Last stop</button>
+      <button type="button" tabIndex={-1}>Script only</button>
+    </Dialog>);
+    const last = screen.getByRole("button", { name: "Last stop" });
+    act(() => { last.focus(); });
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Filter" }));
+  });
+});
+
 function PopoverHarness() {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -107,6 +121,62 @@ describe("Popover", () => {
   });
 });
 
+describe("Popover focus", () => {
+  it("takes focus on its first control when a key opened it, and hands it back on Escape", () => {
+    render(<PopoverHarness />);
+    const trigger = screen.getByRole("button", { name: "Details" });
+    act(() => { trigger.focus(); });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Inside" }));
+    act(() => { fireEvent.keyDown(window, { key: "Escape" }); });
+    expect(screen.queryByRole("dialog", { name: "Details" })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("takes focus on itself when a press opened it, so a screen reader and Tab continue inside", () => {
+    render(<PopoverHarness />);
+    const trigger = screen.getByRole("button", { name: "Details" });
+    fireEvent.pointerDown(trigger);
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("dialog", { name: "Details" }));
+  });
+
+  it("leaves focus alone for a hover card that asks not to take it", () => {
+    function Card() {
+      const anchor = useRef<HTMLButtonElement>(null);
+      const [open, setOpen] = useState(false);
+      return <>
+        <button type="button" ref={anchor} onClick={() => setOpen(true)}>Badge</button>
+        {open ? <Popover anchor={anchor} label="Preview" takeFocus={false} onClose={() => setOpen(false)}><a href="#next">Next</a></Popover> : null}
+      </>;
+    }
+    render(<Card />);
+    const trigger = screen.getByRole("button", { name: "Badge" });
+    act(() => { trigger.focus(); });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Preview" })).toBeTruthy();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("leaves focus where a control inside already took it", () => {
+    function Field() {
+      const anchor = useRef<HTMLButtonElement>(null);
+      const [open, setOpen] = useState(false);
+      return <>
+        <button type="button" ref={anchor} onClick={() => setOpen(true)}>Rename</button>
+        {open ? <Popover anchor={anchor} label="Rename" onClose={() => setOpen(false)}><input aria-label="Name" autoFocus /><button type="button">Save</button></Popover> : null}
+      </>;
+    }
+    render(<Field />);
+    const trigger = screen.getByRole("button", { name: "Rename" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Name" }));
+  });
+});
+
 function NestedPopoverHarness() {
   const parent = useRef<HTMLButtonElement>(null);
   const child = useRef<HTMLButtonElement>(null);
@@ -144,6 +214,18 @@ it("keeps a parent popover open while a nested portal is selected and dismisses 
 });
 
 describe("ConfirmDialog (1v)", () => {
+  it.each([{ isComposing: true }, { keyCode: 229 }])("does not confirm typed text on IME Enter (%j)", (composition) => {
+    const onConfirm = vi.fn();
+    render(<ConfirmDialog title="Delete it?" confirmText="日本語" confirmLabel="Delete" onConfirm={onConfirm} onCancel={() => undefined} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "日本語" } });
+    const allowed = fireEvent.keyDown(input, { key: "Enter", ...composition });
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(allowed).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onConfirm).toHaveBeenCalledWith(false);
+  });
+
   it("draws the action's icon before its label, as the design's Delete", () => {
     render(<ConfirmDialog title="Delete it?" confirmLabel="Delete" destructive icon={<svg data-testid="trash" />} onConfirm={() => undefined} onCancel={() => undefined} />);
     const action = screen.getByRole("button", { name: "Delete" });

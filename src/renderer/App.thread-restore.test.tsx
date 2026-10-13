@@ -7,6 +7,7 @@ import { setHostClient } from "./host-client-context";
 import { setClientStorage } from "../workbench/client-storage";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { renderApp } from "./test-support/render-app";
+import { readBootstrapCache } from "../workbench/bootstrap-cache";
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
@@ -22,29 +23,70 @@ const detail = (sessionId: string, text: string): ThreadDetail => ({
 const result = (sessionId: string, text: string): HostActionResult => ({
   version: 1, updates: [{ version: 1, type: "thread-detail", detail: detail(sessionId, text) }],
 });
+const sol = { provider: "openai", id: "gpt-6.1-sol", name: "GPT-6.1 Sol" };
+const opus = { provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" };
 
-async function start() {
+async function start(waitForTranscript = true) {
   const responses = new Map<string, ReturnType<typeof deferred<HostActionResult>>>();
   const pages = new Map<string, ReturnType<typeof deferred<TranscriptPage>>>();
   const client = createFakeHostClient({
     bootstrap: async () => ({
       version: 1,
-      threadIndex: { projects: [], sessions: ["a", "b", "c"].map((id) => ({ id, path: id, title: `Thread ${id}`, modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1 })) },
+      threadIndex: { projects: [], sessions: ["a", "b", "c"].map((id) => ({ id, path: id, title: `Thread ${id}`, modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 1,
+        backendKind: id === "b" ? "claude-code" : "pi", modelProvider: id === "b" ? opus.provider : undefined, model: id === "b" ? opus.id : undefined,
+      })) },
       detail: detail("a", "Original A"),
-      catalog: { models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
+      catalog: { models: [sol, opus], model: sol, thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0,
+        runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "claude-code", label: "Claude Code", homeProviders: ["anthropic"] }, { kind: "codex", label: "Codex", homeProviders: ["openai"] }],
+      },
       project: { cwd: "/project" },
     }),
     switchSession: (path) => { const next = deferred<HostActionResult>(); responses.set(path, next); return next.promise; },
     loadTranscript: (id) => { const next = deferred<TranscriptPage>(); pages.set(id, next); return next.promise; },
   });
   let actions: WorkbenchActions | undefined;
-  renderApp(client, { extensions: [{ id: "test.navigation", name: "Navigation", activate(context) {
+  const rendered = renderApp(client, { extensions: [{ id: "test.navigation", name: "Navigation", activate(context) {
     context.registerRegion({ id: "capture", placement: "composer-above", Component: (props) => { actions = props.actions; return null; } });
   } }] });
-  await screen.findByText("Original A");
+  if (waitForTranscript) await screen.findByText("Original A");
   await waitFor(() => expect(actions?.activeThread()?.sessionId).toBe("a"));
-  return { client, responses, pages, actions: () => actions! };
+  return { client, responses, pages, storage: rendered.storage, actions: () => actions! };
 }
+
+it("shows the selected thread's saved model while its runtime and transcript are stalled", async () => {
+  const test = await start(false);
+  await waitFor(() => expect(document.querySelector(".composer-model-chip")?.textContent).toContain(sol.name));
+  act(() => { void test.actions().switchSession("b"); });
+  await waitFor(() => expect(test.actions().activeThread()?.sessionId).toBe("b"));
+  expect(document.querySelector(".composer-model-chip")?.textContent).toContain(opus.name);
+  expect(document.querySelector(".composer-model-chip")?.textContent).not.toContain(sol.name);
+  expect(document.querySelector(".composer-model-chip .provider-family-claude-code")).not.toBeNull();
+  expect(document.querySelector(".composer-model-chip .provider-family-codex, .composer-model-chip .provider-family-openai")).toBeNull();
+  await act(async () => {
+    test.pages.get("b")!.resolve({ sessionId: "b", messages: detail("b", "Saved B").messages, hasMore: false });
+  });
+  await screen.findByText("Saved B");
+  expect(document.querySelector(".composer-model-chip")?.textContent).toContain(opus.name);
+  act(() => { test.client.emit({ type: "host-update", update: { version: 1, type: "catalog", catalog: {
+    sessionId: "a", model: sol, models: [sol], thinkingLevel: "high", thinkingLevels: ["high"], allTools: [], extensionCount: 0,
+  } } }); });
+  expect(document.querySelector(".composer-model-chip")?.textContent).toContain(opus.name);
+  await act(async () => {
+    test.responses.get("b")!.resolve({ version: 1, updates: [
+      { version: 1, type: "catalog", catalog: { sessionId: "b", backendKind: "claude-code", model: opus, models: [opus], thinkingLevel: "high", thinkingLevels: ["high"], allTools: [], extensionCount: 0 } },
+      ...result("b", "Restored B").updates,
+    ] });
+  });
+  await screen.findByText("Restored B");
+  expect(document.querySelector(".composer-model-chip")?.textContent).toContain(opus.name);
+  expect(readBootstrapCache(test.storage)?.snapshot.model).toEqual(opus);
+  // Restart under load: the cached thread paints before bootstrap answers.
+  cleanup();
+  renderApp(createFakeHostClient({ bootstrap: () => deferred<never>().promise }), { storage: test.storage });
+  await waitFor(() => expect(document.querySelector(".composer-model-chip")?.textContent).toContain(opus.name));
+  expect(document.querySelector(".composer-model-chip")?.textContent).not.toContain(sol.name);
+  expect(document.querySelectorAll(".composer-model-chip .provider-icon")).toHaveLength(1);
+});
 
 it("selects an uncached thread while its host and transcript requests are stalled", async () => {
   const test = await start();

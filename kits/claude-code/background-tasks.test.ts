@@ -7,6 +7,32 @@ const started = (task_id: string, tool_use_id: string, extra: Record<string, unk
 const notification = (task_id: string) => ({ type: "system", subtype: "task_notification", task_id, status: "completed", output_file: "", summary: "" });
 
 describe("ClaudeBackgroundTasks", () => {
+  it("releases only a running command, keeps that choice across levels, and never releases a result", () => {
+    const tasks = new ClaudeBackgroundTasks(() => 7);
+    tasks.push(started("server", "tool-server"));
+    tasks.release("server");
+    tasks.push(level({ task_id: "server", task_type: "local_bash", description: "Nightly run" }));
+    expect(tasks.current()[0]?.blocksCompletion).toBe(false);
+    tasks.push(notification("server"));
+    expect(tasks.current()).toEqual([]);
+    tasks.push(started("build", "tool-build"));
+    tasks.push(notification("build"));
+    expect(() => tasks.release("build")).toThrow("no longer running");
+    tasks.push(started("review", "tool-review", { task_type: "local_agent" }));
+    tasks.push(level({ task_id: "review", task_type: "local_agent", description: "Review" }));
+    expect(() => tasks.release("review")).toThrow("Only a checked command");
+    expect(() => tasks.release("gone")).toThrow("no longer running");
+  });
+
+  it("holds reported results through empty levels and removes a task the user stopped", () => {
+    const tasks = new ClaudeBackgroundTasks(() => 1);
+    tasks.push(started("test", "tool-test"));
+    tasks.push(notification("test"));
+    tasks.push(level());
+    expect(tasks.reported()).toEqual(["test"]);
+    tasks.push({ ...notification("test"), status: "stopped" });
+    expect(tasks.current()).toEqual([]);
+  });
   it("types a Monitor from its tool call although the level, sent first, says local_bash", () => {
     const tasks = new ClaudeBackgroundTasks(() => 5);
     expect(tasks.push(monitorCall)).toBe(false);
@@ -14,8 +40,10 @@ describe("ClaudeBackgroundTasks", () => {
     expect(tasks.current()).toEqual([{ id: "b1", kind: "command", label: "Nightly run", startedAt: 5 }]);
     expect(tasks.push(started("b1", "toolu_m"))).toBe(true);
     expect(tasks.current()).toEqual([{ id: "b1", kind: "monitor", label: "Nightly run", startedAt: 5 }]);
-    expect(tasks.push(level())).toBe(true);
-    expect(tasks.push(notification("b1"))).toBe(false);
+    expect(tasks.push(level())).toBe(false);
+    expect(tasks.push(notification("b1"))).toBe(true);
+    expect(tasks.current()).toEqual([{ id: "b1", kind: "monitor", label: "Nightly run", startedAt: 5, state: "reported" }]);
+    expect(tasks.handled(tasks.reported())).toBe(true);
     expect(tasks.current()).toEqual([]);
   });
 
@@ -28,6 +56,9 @@ describe("ClaudeBackgroundTasks", () => {
     // A foreground command moved to the background.
     expect(tasks.push({ type: "system", subtype: "task_updated", task_id: "f1", patch: { is_backgrounded: true } })).toBe(true);
     expect(tasks.push(notification("b2"))).toBe(true);
+    expect(tasks.current().map((task) => task.id)).toEqual(["b2", "a1", "f1"]);
+    expect(tasks.current()[0]?.state).toBe("reported");
+    tasks.handled(tasks.reported());
     expect(tasks.current().map((task) => task.id)).toEqual(["a1", "f1"]);
   });
 

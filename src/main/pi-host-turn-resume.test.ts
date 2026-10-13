@@ -174,6 +174,17 @@ describe("targeted session restart", () => {
     expect(bench.restart).not.toHaveBeenCalled();
   });
 
+  it("allows session restart once the backend withdraws its dead process's approval", async () => {
+    const bench = restartable();
+    const ui = bench.internals.extensionUi;
+    const answer = ui.ask({ id: "approval", sessionId: "thread-1", kind: "confirm", title: "Approve command?" });
+    await expect(bench.host.restartSession("thread-1")).rejects.toThrow("questions to finish");
+    ui.cancelFor("thread-1");
+    await expect(answer).resolves.toEqual({ cancelled: true });
+    await bench.host.restartSession("thread-1");
+    expect(bench.restart).toHaveBeenCalledOnce();
+  });
+
   it("refuses pending messages before stopping the runtime", async () => {
     const bench = restartable();
     bench.thread.runtime.pendingClientMessageIds.push("queued-message");

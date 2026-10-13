@@ -120,6 +120,7 @@ export interface CodexThreadBackendOptions {
   onMessage?(message: UiMessage): void;
   onEvent?(event: ThreadRuntimeEvent): void;
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
+  cancelPrompts?(): void;
   permissionLevel?: () => RuntimePermissionLevel;
   /** What the thread's project lets its commands reach (API 1.14.0); asked before every turn. */
   executionPolicy?(): Promise<HostExecutionPolicy>;
@@ -156,6 +157,7 @@ export function usageSince(before: UiThreadUsage | undefined, after: UiThreadUsa
 }
 
 interface Turn {
+  reportedTasks?: string[];
   translator: CodexTurnTranslator;
   text: string;
   input: CodexUserInput[];
@@ -350,6 +352,8 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       },
       background: {
         current: () => this.background.current(),
+        list: () => this.background.list(),
+        release: (taskId) => { this.background.release(taskId); this.report({ type: "background" }); },
         stop: (taskId) => this.stopBackground(taskId),
       },
       ...activityHistory(threadId, options.activity),
@@ -644,6 +648,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async runTurn(turn: Turn): Promise<ThreadBackendPromptResult> {
     if (turn.status) return {};
+    turn.reportedTasks = this.background.reported();
     this.report({ type: "turn-started" });
     this.reportQueue();
     try {
@@ -707,6 +712,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private settle(turn: Turn, status: NonNullable<Turn["status"]>, error?: string, limit?: { resetsAt?: number }): void {
     if (turn.status) return;
     turn.status = status;
+    if (status === "completed" && this.background.handled(turn.reportedTasks ?? [])) this.report({ type: "background" });
     turn.complete();
     const index = this.turns.indexOf(turn);
     if (index >= 0) this.turns.splice(index, 1);
@@ -894,7 +900,13 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     const form = method === "mcpServer/elicitation/request" ? elicitationForm(params) : undefined;
     if (form && form.fields.length > 0) {
       if (!this.options.ask) return elicitationResult({ action: "decline" });
-      return elicitationResult(await askElicitation({ ...form, ask: this.options.ask, decorate: pageElicitation(form.source) }));
+      const live = this.live;
+      const ask = this.options.ask;
+      return elicitationResult(await askElicitation({
+        ...form,
+        ask: (prompt) => live && !live.closed && this.live === live ? ask(prompt) : Promise.resolve({ cancelled: true }),
+        decorate: pageElicitation(form.source),
+      }));
     }
     const turn = this.turns[0];
     const dialog = approvalDialog(method, params, (itemId) => turn?.translator.changes.get(itemId) ?? []);
@@ -920,6 +932,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** Only the live session's exit settles a turn; one that dies while opening fails the open instead. */
   private onExit(session: CodexSessionLike | undefined, error: Error | undefined): void {
     if (!session || this.live !== session) return;
+    this.options.cancelPrompts?.();
     this.live = undefined;
     for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
     if (this.background.clear()) this.report({ type: "background" });
@@ -942,8 +955,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       if (this.background.clear()) this.report({ type: "background" });
       return;
     }
-    if (!live.terminateBackgroundTerminal) throw new Error("This Codex version cannot stop a background command; update Codex in Settings → Runtimes.");
     for (const id of ids) {
+      if (this.background.reported().includes(id)) { this.background.forget(id); continue; }
+      if (!live.terminateBackgroundTerminal) throw new Error("This Codex version cannot stop a background command; update Codex in Settings → Runtimes.");
       const processId = this.background.processOf(id);
       if (!processId) throw new Error("Codex named no process for this command, so Tau cannot stop it.");
       this.background.stopping(id, true);

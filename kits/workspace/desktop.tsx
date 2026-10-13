@@ -33,9 +33,10 @@ import { DraftCheckout, DraftMachinePill, createHeadingBranch } from "./run-on.j
 import { FreshStart } from "./fresh-start.js";
 import { CloneProjectSource, LocalFolderSource, NewProjectSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
-import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WorkspaceStore } from "./store.js";
+import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WorkspaceStore, WorktreeDeclined } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
+import { RowMarks } from "./row-marks.js";
 import { publishProjectIcons } from "./project-icons.js";
 import { WorkspaceStageContext, WorkspaceTitleActions } from "./title.js";
 import { TraceTabs } from "./trace-tabs.js";
@@ -44,6 +45,7 @@ import { OPEN_REQUEST_EVENT, OPEN_REQUEST_WAITING_COMMAND, STORAGE_CHANGED_EVENT
 import { OpenRequests } from "./open-requests.js";
 import { NewThreadRows, SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage, ThisMachineRows, TraceTabsRow } from "./source-control-page.js";
 import { presentRead, presentWrite, READ_TOOLS, WRITE_TOOLS } from "./tool-cards.js";
+import { createProjectApprovalDialog } from "./project-approval-dialog.js";
 
 /** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
@@ -80,12 +82,18 @@ export const workspaceExtension: DesktopExtension = {
     const stopTopics = [WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC].map((topic) => context.host.watch?.(topic));
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
+    context.registerRegion({
+      id: "workspace.project-approval", placement: "composer-above", profiles: ["desktop", "web", "compact"],
+      Component: createProjectApprovalDialog(context.host),
+    });
     // The branch on screen, for any package: a public contract, unlike the store.
     context.provideService(THREAD_BRANCH_SERVICE, threadBranchService(store));
     // Pill, picker, phone list and Reviews draw the icon chosen in Project settings too.
     const unpublishIcons = publishProjectIcons(context.preferences, (icons) => context.setProjectIcons?.(icons));
 
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
+    // The phone's thread list draws the rail's row marks; a core without that list lacks the method.
+    context.registerThreadListAccessory?.({ id: "workspace.row-marks", Component: bind(RowMarks) });
     // Other machines' threads the rail lists, found by the palette as this machine's are.
     context.registerPaletteSource({ id: "workspace.outside-threads", label: "Threads", order: 25, scope: "threads", search: (query) => outsideThreadItems(store.getSnapshot().railThreadSources, query) });
     context.registerProjectSource({
@@ -126,13 +134,13 @@ export const workspaceExtension: DesktopExtension = {
     });
     const FilesPanelWithSearch = (props: PanelProps) => <FilesPanel {...props} search={search} />;
     context.registerPanel({
-      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, threadActions: true, profiles: ["desktop", "compact"],
+      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, threadActions: true, profiles: ["desktop", "web", "compact"],
       Component: bind(FilesPanelWithSearch),
     });
     // The Changes panel reads the same Git state as the rest of the kit, so it
-    // travels with it. Where a kit draws the review, the entry opens that instead.
+    // travels with it. Where a kit draws the review (the desktop), the entry opens that instead.
     context.registerPanel({
-      id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, maximizable: true, profiles: ["desktop"],
+      id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, maximizable: true, profiles: ["desktop", "web"],
       redirect: () => store.openChangesView(), Component: bind(ChangesPanel),
     });
     // The kit owns its workspace state; these keep it following the workbench
@@ -163,7 +171,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerRegion({ id: "workspace.worktree-suggestion", placement: "draft-actions", order: 11, profiles: ["desktop", "compact"], Component: bind(WorktreeSuggestionPill) });
     const documents = documentStates(store);
     context.registerDocumentSource({
-      profiles: ["desktop", "compact"],
+      profiles: ["desktop", "web", "compact"],
       id: "workspace.documents",
       // The stage names the project its tabs belong to; a caller that does not means the followed one.
       loadFile: (relPath, from) => host.readFile(relPath, from?.workspace ?? store.workspace()),
@@ -288,10 +296,13 @@ export const workspaceExtension: DesktopExtension = {
         return null;
       },
     });
-    // A new thread's worktree is created while its first prompt waits (ADR 0017).
+    // A new thread's worktree is created while its first prompt waits (ADR 0017); a worktree the user will not trade for the checkout stops the send.
     context.registerPromptHook({
       id: "workspace.new-thread-worktree",
-      beforeNewThread: (event) => store.prepareThreadWorktree(event),
+      beforeNewThread: (event) => store.prepareThreadWorktree(event).catch((error: unknown) => {
+        if (error instanceof WorktreeDeclined) return { stop: error.message };
+        throw error;
+      }),
     });
     context.registerOptions([
       { id: START_FROM_ORIGIN_OPTION, kind: "toggle", label: "New worktrees start from origin", defaultValue: true },
@@ -314,7 +325,7 @@ export const workspaceExtension: DesktopExtension = {
         const picked = await host.pickFolder();
         if (picked) await app.openWorkspace(picked.workspaceId);
       } catch (error) {
-        app.notify(errorMessage(error));
+        app.notify(errorMessage(error), "error");
       }
     } });
     context.registerCommand({
@@ -367,7 +378,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerCommand({ id: "workspace.copy-branch", label: "Copy branch", group: "Thread", surfaces: ["thread-title"], access: "read", run: async (app) => {
       const branch = store.getSnapshot().workspace?.branch;
       if (!branch) { app.notify("Branch is unavailable."); return; }
-      try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error)); }
+      try { await app.copyText(branch); app.notify("Branch copied."); } catch (error) { app.notify(errorMessage(error), "error"); }
     } });
     // Composer chords: each opens the composer control that carries its id.
     for (const [id, label, keys] of [["composer.workspace", "Choose where the thread runs", "mod+shift+x"], ["composer.branch", "Choose the branch", "mod+shift+g"]] as const) {
@@ -418,7 +429,7 @@ export const workspaceExtension: DesktopExtension = {
           }
         }, 1000);
       } catch (error) {
-        actions.notify(errorMessage(error));
+        actions.notify(errorMessage(error), "error");
       }
     };
 

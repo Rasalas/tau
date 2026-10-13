@@ -229,14 +229,19 @@ describe("pull request commands", () => {
     const graph = await fixture("gh-pr-threads-discussed.json");
     let finish!: (value: string) => void;
     const waiting = new Promise<string>((resolve) => { finish = resolve; });
-    const { invoke, calls } = await harness({ answer: (call) =>
-      call.args.includes("graphql") ? waiting : defaultAnswer(call) });
+    let diffAnswered = false;
+    const { invoke, calls } = await harness({ answer: async (call) => {
+      if (call.args.includes("graphql")) return waiting;
+      const answer = await defaultAnswer(call);
+      if (call.args[1] === "diff") diffAnswered = true;
+      return answer;
+    } });
     const reads = [
       invoke("pr-view", { url: GITHUB.url, fresh: true }),
       invoke("pr-comments", { url: GITHUB.url, fresh: true }),
       invoke("pr-files", { url: GITHUB.url, fresh: true }),
     ];
-    await vi.waitFor(() => expect(calls.some((call) => call.args[1] === "diff")).toBe(true));
+    await vi.waitFor(() => expect(diffAnswered).toBe(true));
     await new Promise<void>((resolve) => setImmediate(resolve));
     finish(graph);
     await Promise.all(reads);
@@ -463,7 +468,7 @@ describe("pull request commands", () => {
 
     diffs = diffs.replace("export function unseenOutput", "export function unseenChunk");
     expect((await invoke<PullRequestFiles>("pr-files", { url: GITLAB.url, fresh: true })).files[0]!.viewed).toBe("dismissed");
-    await expect(invoke("pr-viewed", { url: GITLAB.url, path: "nope.ts", viewed: true })).rejects.toThrow(/not part of MR #12/u);
+    await expect(invoke("pr-viewed", { url: GITLAB.url, path: "nope.ts", viewed: true })).rejects.toThrow(/not part of MR !12/u);
   });
 
   it("writes to GitLab through its API with JSON on stdin", async () => {

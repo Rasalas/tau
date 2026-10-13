@@ -21,12 +21,14 @@ const methods: HostMethodTable = {
 
 let transport: SocketHostTransport | undefined;
 const sockets: WebSocket[] = [];
+const bootIds = new Map<number, string>();
 
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.close();
   await transport?.close();
   transport = undefined;
   vi.unstubAllEnvs();
+  bootIds.clear();
 });
 
 async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allowNonLoopback = false, clients?: HostClientRegistry) {
@@ -40,6 +42,7 @@ async function listen(pushLog = new HostPushLog(), address = "127.0.0.1:0", allo
     token: TOKEN,
     ...(clients ? { clients } : {}),
   });
+  bootIds.set(transport.port, pushLog.bootId);
   return { transport, pushLog };
 }
 
@@ -80,13 +83,45 @@ async function hello(port: number, token: string, lastSeq?: number, profile?: st
   socket.send(JSON.stringify({ type: "hello", id: "h", hello: {
     protocol: HOST_TRANSPORT_VERSION,
     token,
-    ...(lastSeq === undefined ? {} : { lastSeq }),
+    ...(lastSeq === undefined ? {} : { lastSeq, bootId: bootIds.get(port) }),
     ...(profile === undefined ? {} : { profile }),
   } }));
-  return { socket, frame: nextFrame(socket) };
+  return { socket, frame: nextFrame(socket).then((frame) => {
+    if (frame.type === "hello-reply" && frame.reply.bootId) bootIds.set(port, frame.reply.bootId);
+    return frame;
+  }) };
 }
 
 describe("socket host transport", () => {
+  it.each(["primary", "attached"] as const)("terminates a half-open authenticated client on the %s listener", async (listener) => {
+    const clients = new HostClientRegistry();
+    const { transport: started } = await listen(new HostPushLog(), "127.0.0.1:0", false, clients);
+    const extra = listener === "attached" ? createProtocolServer() : undefined;
+    const detach = extra ? started.attach(extra, "network") : undefined;
+    if (extra) await new Promise<void>((resolve) => extra.listen(0, "127.0.0.1", resolve));
+    const server = extra ?? started.server;
+    const port = extra ? (extra.address() as { port: number }).port : started.port;
+    let peer: Socket | undefined;
+    server.once("upgrade", (_request, stream: Socket) => { peer = stream; });
+    const client = await hello(port, TOKEN);
+    await client.frame;
+    expect(clients.count()).toBe(1);
+    client.socket.pause();
+
+    detach?.();
+    const closing = extra ? new Promise<void>((resolve) => extra.close(() => resolve())) : started.close();
+    try {
+      // No close frame can arrive from the paused peer.
+      expect(peer!.destroyed).toBe(true);
+      await closing;
+      expect(clients.count()).toBe(0);
+    } finally {
+      peer!.destroy();
+      client.socket.resume();
+      await closing;
+    }
+  });
+
   it("sends remote topic relays to their subscribed client only and never replays them to another connection", async () => {
     const pushLog = new HostPushLog();
     const relays = new Map<string, (event: HostPushEvent) => void>();
@@ -587,7 +622,7 @@ describe("socket host transport and the coalescer", () => {
       socket.send(JSON.stringify({ type: "hello", id: "h", hello: {
         protocol: HOST_TRANSPORT_VERSION, token: TOKEN,
         ...(subscription ? { subscription } : {}),
-        ...(lastSeq === undefined ? {} : { lastSeq }),
+        ...(lastSeq === undefined ? {} : { lastSeq, bootId: bootIds.get(port) }),
       } }));
       await vi.waitFor(() => expect(frames[0]?.type).toBe("hello-reply"));
       const pushes = () => frames.flatMap((frame) => frame.type === "push" ? [frame.push] : []);

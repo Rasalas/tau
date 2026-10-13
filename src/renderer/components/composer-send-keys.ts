@@ -53,3 +53,26 @@ export function sendHint(shortcut: SendShortcut, streaming: boolean, base: Strea
       : `Queue after this turn ${send} — ${other} steers now, ⌥↑ dequeues`,
   };
 }
+
+/**
+ * Why sending does nothing right now, in the words of the button's tooltip and
+ * of the notice a pressed key gets; undefined when it can go. An empty draft is
+ * no reason: the button rests.
+ */
+export function sendBlockReason(state: {
+  held: boolean;
+  dictating: boolean;
+  /** A question is about to open and takes the field once the typing stops. */
+  asking: boolean;
+  /** A kit's send mode is working; its own label ("Compacting…"). */
+  busyLabel?: string | undefined;
+  /** The previous message has not been handed over yet. */
+  sending: boolean;
+}): string | undefined {
+  if (state.held) return "A workspace change is under way. Sending waits until it is done.";
+  if (state.dictating) return "Dictation is on. Stop it to send.";
+  if (state.asking) return "The agent is asking something. It opens once you stop typing.";
+  if (state.busyLabel) return state.busyLabel;
+  if (state.sending) return "Still sending the previous message.";
+  return undefined;
+}

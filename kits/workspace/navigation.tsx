@@ -42,6 +42,7 @@ import { groupThreads, railAnchor, readRailOrder, sortThreads, type RailOrder } 
 import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSelection } from "./rail-selection.js";
 import { readProjectIcon, writeProjectIcon } from "./project-icons.js";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
+import { accessoryMarks, diffStat } from "./row-marks.js";
 import { useWorkspaceStore } from "./store-context.js";
 import { SidebarFooter } from "./sidebar-footer.js";
 import { readShelvesOpen, SHELF_PAGE, shelfFirstPage, shelfHeading, shelfIsOpen, shelfRows as rowsOfShelf, writeShelvesOpen, type ShelvesOpen } from "./rail-shelves.js";
@@ -201,7 +202,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       const target = directory ? await host.listDirectories(directory.path) : current;
       if (await actions.openWorkspace(target.workspace.workspaceId)) onDone();
     } catch (error) {
-      actions.notify(errorMessage(error));
+      actions.notify(errorMessage(error), "error");
     } finally {
       setBusy(false);
     }
@@ -211,7 +212,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       const picked = await host.pickFolder();
       if (picked && await actions.openWorkspace(picked.workspaceId)) onDone();
     } catch (error) {
-      actions.notify(errorMessage(error));
+      actions.notify(errorMessage(error), "error");
     }
   };
   const addLabel = highlighted ? `${MOD_LABEL} ↵` : "↵";
@@ -281,7 +282,7 @@ export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps
         actions.newSession({ workspace: created.workspace.workspaceId });
         onDone();
       }
-    } catch (error) { actions.notify(errorMessage(error)); }
+    } catch (error) { actions.notify(errorMessage(error), "error"); }
     finally { setBusy(false); }
   };
   return <form className="clone-project-form" onSubmit={(event) => { event.preventDefault(); void submit(Boolean(base)); }}>
@@ -315,7 +316,7 @@ export function CloneProjectSource({ actions, onBack, onDone }: ProjectSourcePro
       store.clones.receive(started);
       onDone();
     } catch (error) {
-      actions.notify(error instanceof Error ? error.message : String(error));
+      actions.notify(error instanceof Error ? error.message : String(error), "error");
     } finally {
       setBusy(false);
     }
@@ -693,10 +694,8 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   const icon = useProjectIcon(owner);
   if (!session) return null;
   const age = sessionAge(session.modifiedAt);
-  const diff = stat && !compact && activity !== "settled"
-    ? <span key="diff" className="thread-diff-stat" aria-label={`Last turn: ${stat.added} lines added, ${stat.removed} removed`}><b>+{stat.added}</b> <i>−{stat.removed}</i></span>
-    : null;
-  const marks = accessories.map((Accessory, index) => <Accessory key={index} session={session} />);
+  const diff = diffStat(stat, compact || activity === "settled");
+  const marks = accessoryMarks(accessories, session);
   return (
     <ThreadRow
       session={session}
@@ -1452,7 +1451,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           {...(projectSettings.icon ? { automatic: projectSettings.icon } : {})}
           onSave={(choice) => { writeProjectIcon(preferences, projectSettings, choice); workspace.closeProjectSettings(); }}
           onClose={() => workspace.closeProjectSettings()}
-          onError={(message) => actions.notify(message)}
+          onError={(message) => actions.notify(message, "error")}
         />
       ) : null}
 

@@ -18,6 +18,7 @@ const LAZY_STYLES = [
   "./components/attachment-lightbox.css",
 ].map((path) => new URL(path, import.meta.url));
 const KITS = fileURLToPath(new URL("../../kits", import.meta.url));
+const SRC = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/u, "");
 
 /** A colour written out rather than named: what only `tokens.css` may contain. */
 const RAW_COLOUR = /#[0-9a-fA-F]{3,8}\b|(?<!\/\* )\brgba?\(|\bhsla?\((?!var\()/gu;
@@ -58,16 +59,16 @@ const RUNTIME_PROPERTIES = [
 
 /** The surfaces text is read on. `--raised` and `--sunken` carry chips and code, not prose. */
 const TEXT_SURFACES = ["shell", "stage", "chrome", "field", "overlay", "rail", "float", "inset"];
-/** Tokens that carry running text: WCAG AA, 4.5:1. */
-const AA_TEXT = ["ink", "ink-prose", "ink-2", "ink-3", "ink-code", "muted"];
+/** Tokens that carry running text, small print included: WCAG AA, 4.5:1. */
+const AA_TEXT = ["ink", "ink-prose", "ink-2", "ink-3", "ink-code", "muted", "muted-2", "faint"];
 /** Accent and status tokens used as text or as an icon beside it. */
 const AA_ACCENT = [
   "brand-ink",
   "acid-text", "working", "ready", "removed", "cyan", "info-ink", "merged", "danger", "warn", "fail-ink",
-  "syntax-fn", "diff-add-ink", "diff-del-ink", "diff-add-edge", "diff-del-edge",
+  "syntax-fn", "diff-add-ink", "diff-del-ink", "diff-add-edge", "diff-del-edge", "stale", "folder",
 ];
-/** Marks, fills and small print: AA for large text and non-text contrast, 3:1. */
-const AA_LARGE = ["muted-2", "faint", "stop", "info", "done", "fail", "focus", "acid", "stale", "folder", "provider-openai", "provider-anthropic", "provider-google", "provider-pi", "provider-other"];
+/** Marks and fills, never small print: non-text contrast, 3:1. Text takes `fail-ink`, `info-ink` or `ready` instead. */
+const AA_LARGE = ["stop", "info", "done", "fail", "focus", "acid", "provider-openai", "provider-anthropic", "provider-google", "provider-pi", "provider-other"];
 /** Ink that sits on a fill rather than on a surface. */
 const ON_FILL: ReadonlyArray<[string, string]> = [
   ["acid-ink", "acid"], ["acid-ink", "acid-strong"],
@@ -78,6 +79,35 @@ const ON_FILL: ReadonlyArray<[string, string]> = [
 
 /** A shape rather than a glyph: non-text contrast, 3:1. */
 const MARK_ON_FILL: ReadonlyArray<[string, string]> = [["stop-ink", "stop"], ["qr-ink", "qr-paper"]];
+
+/**
+ * A letter or a count inside a tile with a fixed pixel box (a project's mark, a provider's, a checkbox,
+ * a badge on an icon). Anything else under 11px is text and takes `--text-2xs`, the floor.
+ */
+const FIXED_TILE_TEXT = new Set([
+  ".thread-project-icon", ".provider-icon", ".provider-icon-stack.stacked > .provider-icon-fallback",
+  ".thread-row.compact .thread-project-icon", ".checkbox", ".sidebar-footer .page-badge", ".stage-tab-dirty",
+  ".rail-instance", ".project-filter-tile.thread-project-icon", ".project-switcher-pick > i",
+  ".thread-card-icon > .thread-project-icon", ".agent-row-model .provider-icon-fallback", ".rv-tile",
+  ".token-gate-help > summary::before",
+]);
+
+async function cssUnder(root: string): Promise<string[]> {
+  const found: string[] = [];
+  for await (const path of glob(`${root}/**/*.css`)) found.push(path);
+  return found;
+}
+
+/** Every stylesheet in core and in the kits except the token contract itself. */
+async function allStylesheets(): Promise<Array<{ name: string; css: string }>> {
+  const files = (await Promise.all([cssUnder(SRC), cssUnder(KITS)])).flat().filter((path) => !path.includes("node_modules") && !path.endsWith("/tokens.css"));
+  return Promise.all(files.map(async (path) => ({ name: path.replace(`${SRC}/`, "").replace(`${KITS}/`, "kits/"), css: await readFile(path, "utf8") })));
+}
+
+/** Style rules, comments removed; an at-rule's inner rules count, the at-rule's own head does not. */
+function rules(css: string): Array<{ selector: string; body: string }> {
+  return [...css.replace(/\/\*[\s\S]*?\*\//gu, "").matchAll(/([^{}]+)\{([^{}]*)\}/gu)].map(([, head, body]) => ({ selector: head!.trim(), body: body! }));
+}
 
 /** `--name: value;` for every token, with `light-dark()` left whole. */
 async function readTokens(): Promise<Map<string, string>> {
@@ -146,6 +176,43 @@ describe("the token contract", () => {
     }
   });
 
+  it("holds small print to 4.5:1 on the darkest surface text sits on, in both schemes", async () => {
+    const tokens = await readTokens();
+    for (const scheme of ["light", "dark"] as const) {
+      const lowest = Math.min(...TEXT_SURFACES.map((surface) => ratio(colour(tokens, "muted-2", scheme), colour(tokens, surface, scheme))));
+      expect(lowest, `${scheme}: --muted-2 on its worst surface`).toBeGreaterThanOrEqual(4.5);
+      expect(colour(tokens, "faint", scheme), `${scheme}: --faint is --muted-2`).toBe(colour(tokens, "muted-2", scheme));
+      // The hint tier stays a hint: it is for marks, never for words.
+      expect(ratio(colour(tokens, "fainter", scheme), colour(tokens, "shell", scheme))).toBeLessThan(3);
+    }
+  });
+
+  it("sets no text under 11px except a letter in a fixed tile", async () => {
+    const small: string[] = [];
+    const sheets = await allStylesheets();
+    expect(sheets.map(({ name }) => name)).toEqual(expect.arrayContaining(["renderer/styles.css", "kits/review/styles.css", "web/web.css"]));
+    for (const { name, css } of sheets) {
+      for (const { selector, body } of rules(css)) {
+        const size = /(?:^|[;\s])font(?:-size)?:\s*(?:[a-z0-9-]+\s+)*?(\d*\.?\d+)px/u.exec(body)?.[1];
+        if (size !== undefined && Number(size) < 11 && !selector.split(",").every((part) => FIXED_TILE_TEXT.has(part.trim()))) small.push(`${name}: ${selector} ${size}px`);
+      }
+    }
+    expect(small, "use var(--text-2xs), which scales with the system's text size").toEqual([]);
+  });
+
+  it("never colours running text with the hint tier or a mark-only colour", async () => {
+    const weak: string[] = [];
+    for (const { name, css } of await allStylesheets()) {
+      for (const { selector, body } of rules(css)) {
+        const words = /(?:^|[;\s])font(?:-size)?:/u.test(body) || selector.includes("::placeholder");
+        const colourName = /(?:^|[;\s])color:\s*var\(--(fainter|info|done|fail)\)/u.exec(body)?.[1];
+        if (words && colourName) weak.push(`${name}: ${selector} uses --${colourName}`);
+      }
+    }
+    // Text takes --faint, --info-ink, --ready or --fail-ink; the others are 3:1 marks.
+    expect(weak).toEqual([]);
+  });
+
   it("gives every colour token a value in both schemes", async () => {
     const tokens = await readTokens();
     const single = [...tokens].filter(([, value]) => /^#|^hsl\(/u.test(value) && !value.startsWith("light-dark("));
@@ -202,19 +269,21 @@ describe("the token contract", () => {
 
   it("sets each role per device class: readable desktop defaults and touch sizes (ADR 0029)", async () => {
     const tokens = await readFile(TOKENS, "utf8");
-    const roles = (css: string) => Object.fromEntries([...css.matchAll(/--type-(xs|sm|md|lg|title|display|code|input):\s*(\d+)px/gu)].map((m) => [m[1]!, Number(m[2])]));
+    const roles = (css: string) => Object.fromEntries([...css.matchAll(/--type-(2xs|xs|sm|md|lg|title|display|code|input):\s*(\d+)px/gu)].map((m) => [m[1]!, Number(m[2])]));
     const root = /^:root\s*\{([\s\S]*?)^\}/mu.exec(tokens)?.[1] ?? "";
     const desktop = roles(root);
     const device = (name: string) => ({ ...desktop, ...roles(new RegExp(`:root\\[data-device="${name}"\\]\\s*\\{([^}]*)\\}`, "u").exec(tokens)?.[1] ?? "") });
     // Desktop readability revision: body 14, with secondary roles one pixel larger.
-    expect(desktop).toEqual({ xs: 12, sm: 13, md: 14, lg: 15, title: 17, display: 24, code: 13, input: 14 });
-    expect(device("tablet")).toEqual({ xs: 12, sm: 13, md: 15, lg: 16, title: 17, display: 24, code: 13, input: 16 });
-    expect(device("phone")).toEqual({ xs: 13, sm: 14, md: 16, lg: 17, title: 17, display: 27, code: 14, input: 16 });
+    expect(desktop).toEqual({ "2xs": 11, xs: 12, sm: 13, md: 14, lg: 15, title: 17, display: 24, code: 13, input: 14 });
+    expect(device("tablet")).toEqual({ "2xs": 12, xs: 12, sm: 13, md: 15, lg: 16, title: 17, display: 24, code: 13, input: 16 });
+    expect(device("phone")).toEqual({ "2xs": 12, xs: 13, sm: 14, md: 16, lg: 17, title: 17, display: 27, code: 14, input: 16 });
     // Every size is the role times the system's text size, then Tau's own step; a page head takes no step.
     for (const role of ["xs", "sm", "md", "lg", "title", "code"]) {
       expect(root).toContain(`--text-${role}: calc(var(--type-${role}) * var(--text-scale) + var(--text-step));`);
     }
     expect(root).toContain("--text-display: calc(var(--type-display) * var(--text-scale));");
+    // The floor does not follow the Small step under 11px.
+    expect(root).toMatch(/--text-2xs: max\(11px, calc\(var\(--type-2xs\) \* var\(--text-scale\) \+ var\(--text-step\)\)\);/u);
     expect(root).toMatch(/--text-input: max\(var\(--type-input-min\), calc\(var\(--type-input\) \* var\(--text-scale\) \+ var\(--text-step\)\)\);/u);
     expect(tokens).toMatch(/:root\[data-device="phone"\][^}]*--type-input-min: 16px/u);
     const appearance = await readFile(new URL("../../kits/appearance/styles.css", import.meta.url), "utf8");

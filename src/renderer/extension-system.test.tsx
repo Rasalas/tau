@@ -2,7 +2,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PanelIcon } from "./components/PanelIcon";
-import { ExtensionRegistry, type DesktopExtensionContext } from "./extension-system";
+import { ExtensionRegistry, type DesktopExtension, type DesktopExtensionContext, type WorkbenchActions } from "./extension-system";
 import type { Platform } from "../workbench/platform";
 import { PreferencesStore } from "./preferences";
 
@@ -387,6 +387,41 @@ describe("ExtensionRegistry keybindings", () => {
   });
 });
 
+describe("a command another command's binding replaces", () => {
+  const registryWith = (...extensions: DesktopExtension[]) => {
+    const registry = new ExtensionRegistry();
+    for (const extension of extensions) registry.activate(extension);
+    return registry;
+  };
+  const fallback = { id: "fallback", name: "Fallback", activate(context: DesktopExtensionContext) {
+    context.registerCommand({ id: "settle", label: "Settle thread", group: "Thread", run() {} });
+    context.registerKeybinding({ keys: "mod+shift+s", commandId: "settle" });
+  } };
+  const better = { id: "better", name: "Better", activate(context: DesktopExtensionContext) {
+    context.registerCommand({ id: "settle-or-reopen", label: "Settle or un-settle thread", group: "Thread", run() {} });
+    context.registerKeybinding({ keys: "mod+shift+s", commandId: "settle-or-reopen", replaces: "settle" });
+  } };
+
+  it("is left out of the list while the replacement is registered, and runs by its id all the same", async () => {
+    const registry = registryWith(fallback, better);
+    expect(registry.getCommands().map((command) => command.id)).toEqual(["settle-or-reopen"]);
+    expect(registry.getCommandsFor("thread-title")).toEqual([]);
+    await expect(registry.executeCommand("settle", {} as WorkbenchActions)).resolves.toBeUndefined();
+    registry.deactivate("better");
+    expect(registry.getCommands().map((command) => command.id)).toEqual(["settle"]);
+  });
+
+  it("does not hide a command whose own chord a user rebound, or one the binding names but nobody registered", () => {
+    const registry = registryWith(fallback);
+    registry.applyKeybindingOverrides({ settle: "mod+alt+s" });
+    expect(registry.getCommands().map((command) => command.id)).toEqual(["settle"]);
+    const ghost = registryWith(fallback, { id: "ghost", name: "Ghost", activate(context) {
+      context.registerKeybinding({ keys: "mod+alt+g", commandId: "missing", replaces: "settle" });
+    } });
+    expect(ghost.getCommands().map((command) => command.id)).toEqual(["settle"]);
+  });
+});
+
 describe("ExtensionRegistry keybinding contexts", () => {
   const mac = /mac/iu.test(navigator.platform);
   const press = (key: string, init: Partial<KeyboardEventInit> = {}) => ({ key, code: "", metaKey: mac, ctrlKey: !mac, altKey: false, shiftKey: false, ...init }) as unknown as KeyboardEvent;
@@ -468,6 +503,51 @@ describe("ExtensionRegistry keybinding contexts", () => {
       context.registerKeybinding({ keys: "mod+k", commandId: "split", replaces: "split", when: "true" });
     } });
     expect(registry.matchKeybinding(press("k"), within())?.command.id).toBe("split");
+  });
+
+  // ⌘W and ⌘N never reach a page, so a browser tab binds other chords and a window keeps the usual ones.
+  describe.each([["desktop", true], ["web", false], ["compact", false]] as const)("on the %s profile", (profile, desktop) => {
+    const registryFor = () => {
+      const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile });
+      registry.activate({ id: "core", name: "Core", activate(context) {
+        commands(context, "close-tab", "close-shell");
+        context.registerKeybinding({ keys: "mod+w", commandId: "close-tab", when: "isDesktop" });
+        context.registerKeybinding({ keys: "mod+alt+w", commandId: "close-tab", when: "!isDesktop" });
+        context.registerKeybinding({ keys: "mod+w", commandId: "close-shell", when: "terminalFocus && !stageFocus && isDesktop" });
+        context.registerKeybinding({ keys: "mod+alt+w", commandId: "close-shell", when: "terminalFocus && !stageFocus && !isDesktop" });
+      } });
+      return registry;
+    };
+
+    it("binds only the chords that can hold on this client", () => {
+      const registry = registryFor();
+      const keys = desktop ? ["mod+w", "mod+w"] : ["mod+alt+w", "mod+alt+w"];
+      expect(registry.getKeybindings().map((binding) => binding.keys)).toEqual(keys);
+      expect(registry.getKeybindingConflicts()).toEqual([]);
+      expect(registry.getDefaultKeybindings("close-tab").map((binding) => binding.keys)).toEqual([keys[0]]);
+      // The hint names the chord that works here.
+      expect(/Alt|⌥/u.test(registry.keybindingLabel("close-tab") ?? "")).toBe(!desktop);
+    });
+
+    it("runs the command of this client's chord, and the terminal's first in a terminal", () => {
+      const registry = registryFor();
+      const mine = desktop ? press("w") : press("w", { altKey: true, code: "KeyW" });
+      const other = desktop ? press("w", { altKey: true, code: "KeyW" }) : press("w");
+      expect(registry.matchKeybinding(mine, within())?.command.id).toBe("close-tab");
+      expect(registry.matchKeybinding(mine, within("terminalFocus"))).toMatchObject({ command: { id: "close-shell" }, specific: true });
+      expect(registry.matchKeybinding(other, within())).toBeUndefined();
+    });
+  });
+
+  it("does not take isDesktop for a focus a key needs", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "core", name: "Core", activate(context) {
+      commands(context, "close-tab", "close-shell");
+      context.registerKeybinding({ keys: "mod+w", commandId: "close-tab", when: "isDesktop" });
+      context.registerKeybinding({ keys: "mod+w", commandId: "close-shell", when: "terminalFocus" });
+    } });
+    expect(registry.matchKeybinding(press("w"), within())).toMatchObject({ command: { id: "close-tab" }, specific: false });
+    expect(registry.matchKeybinding(press("w"), within("terminalFocus"))?.command.id).toBe("close-shell");
   });
 });
 
@@ -671,6 +751,33 @@ describe("new-thread claims and model selections", () => {
 
     registry.deactivate("takes");
     await expect(registry.claimNewThread(event, actions)).rejects.toThrow("no");
+  });
+
+  it("reports a hook that throws as an error under its extension's name, never its id", async () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "gate.pkg", name: "Project Gate", activate(context) {
+      context.registerPromptHook({ id: "gate.hook.before", beforeNewThread: async () => { throw new Error("no project"); }, afterPrompt: async () => { throw new Error("no record"); } });
+    } });
+    const notify = vi.fn();
+    const actions = { notify } as unknown as import("./extension-system").WorkbenchActions;
+
+    await registry.prepareNewThread({ prompt: "go", projectPath: "/project" } as never, actions);
+    await registry.notifyPromptSubmitted({ prompt: "go" } as never, actions);
+
+    expect(notify.mock.calls).toEqual([["Project Gate: no project", "error"], ["Project Gate: no record", "error"]]);
+  });
+
+  it("lets the first gate that stops the send end the round, ahead of the gates behind it", async () => {
+    const registry = new ExtensionRegistry();
+    const later = vi.fn(async () => ({ workspace: { workspaceId: "ws1_later", displayPath: "/later" } }));
+    registry.activate({ id: "gates", name: "Gates", activate(context) {
+      context.registerPromptHook({ id: "gates.stop", beforeNewThread: async () => ({ stop: "Not sent." }) });
+      context.registerPromptHook({ id: "gates.later", beforeNewThread: later });
+    } });
+    const actions = { notify: vi.fn() } as unknown as import("./extension-system").WorkbenchActions;
+
+    await expect(registry.prepareNewThread({ prompt: "go", projectPath: "/project" } as never, actions)).resolves.toEqual({ stop: "Not sent." });
+    expect(later).not.toHaveBeenCalled();
   });
 
   it("offers the model selection the last extension registered, and forgets it on deactivation", () => {

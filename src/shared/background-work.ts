@@ -2,10 +2,10 @@ import type { UiBackgroundTask } from "./contracts.js";
 
 /**
  * Whether the work holds the thread's run open, so it is not announced as done.
- * A command does not: a dev server would hold it for good.
+ * Unknown work holds it open. A checked service may explicitly be released.
  */
 export function backgroundHoldsRun(tasks: readonly UiBackgroundTask[] | undefined): boolean {
-  return Boolean(tasks?.some((task) => task.kind !== "command"));
+  return Boolean(tasks?.some((task) => task.blocksCompletion !== false));
 }
 
 const NOUNS: Record<UiBackgroundTask["kind"], [string, string]> = {
@@ -24,10 +24,10 @@ export function backgroundCount(tasks: readonly UiBackgroundTask[]): string {
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "nothing";
 }
 
-/** What a thread's row and pill say: Monitoring for a monitor, Waiting for agents and tasks, Running for commands alone. */
+/** Monitoring for an open watch, Waiting for required work or results, Running for released services. */
 export function backgroundSummary(tasks: readonly UiBackgroundTask[]): { label: string; hint: string } {
-  const label = tasks.some((task) => task.kind === "monitor") ? "Monitoring" : backgroundHoldsRun(tasks) ? "Waiting" : "Running";
+  const label = tasks.some((task) => task.kind === "monitor" && task.blocksCompletion !== false && !task.state) ? "Monitoring" : backgroundHoldsRun(tasks) ? "Waiting" : "Running";
   const names = tasks.map((task) => task.label).join(", ");
-  const after = backgroundHoldsRun(tasks) ? "The agent continues when it reports." : "The agent hears when it ends.";
+  const after = tasks.some((task) => task.state === "reported") ? "The agent still needs to handle the result." : backgroundHoldsRun(tasks) ? "The agent continues when it reports." : "These services do not hold the request open.";
   return { label, hint: `${backgroundCount(tasks)} in the background: ${names}. ${after}` };
 }

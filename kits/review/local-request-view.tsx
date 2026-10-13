@@ -6,7 +6,7 @@ import type { LocalRequestClient } from "./local-request-client.js";
 import { EvidenceGroups, EvidenceViewer } from "./local-request-evidence.js";
 import { LocalRequestWriter, type LocalForm } from "./local-request-writer.js";
 import { assignEvidence, evidenceKey, type LocalBranch, type LocalDrafts, type LocalEvidence } from "./local-request.js";
-import { providerInfo, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
+import { providerInfo, requestNumber, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
 import { relativeTime } from "./pull-request-logic.js";
 import type { RequestClient, RowRequests } from "./requests.js";
 import { ServiceIcon } from "./service-icon.js";
@@ -143,7 +143,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
       <header className="pr-head">
         <div className="pr-head-row">
           <span className="lpr-service"><ServiceIcon service={service} width={14} height={14} />{providerInfo(service).name}</span>
-          <span className="lpr-note">{data.status?.request ? `#${data.status.request.number}` : "Not published"}</span>
+          <span className="lpr-note">{data.status?.request ? requestNumber(data.status.request.provider, data.status.request.number) : "Not published"}</span>
           <span className="spacer" />
           <button className="icon-button compact" aria-label="Refresh the local pull request" title="Refresh" disabled={loading} onClick={() => { void store.refresh(); void load(true); }}>
             <RefreshCw size={13} />
@@ -180,6 +180,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
             <section className="lpr-section" aria-label="Description">
               <LocalRequestWriter form={form} onForm={updateForm} status={data.status} branch={branchName} root={root} selected={chosen} frames={frames}
                 client={parts.client} requests={parts.requests} actions={actions} preferences={parts.preferences}
+                autoWrite={Boolean(data.status && data.branch && data.branch.commits.length > 0)}
                 onCreated={(status) => { setData((current) => ({ ...current, status })); parts.rows.set(root, status.request); parts.drafts.clear(root, branchName); }} />
             </section>
             <section className="lpr-section" aria-label="Checks">

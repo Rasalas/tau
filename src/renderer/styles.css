@@ -36,6 +36,14 @@ button > svg { pointer-events: none; }
   to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
+/* Reduced motion, once for every rule and kit: a run of .01ms still fires animationend and transitionend. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important;
+  }
+}
+
 .spinner {
   width: 10px; height: 10px; flex: none;
   border: 1.5px solid var(--info); border-top-color: transparent;
@@ -325,7 +333,7 @@ button > svg { pointer-events: none; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .menu-label > em > b {
-  flex: none; font: 500 9.5px var(--mono); letter-spacing: .04em;
+  flex: none; font: 500 var(--text-2xs) var(--mono); letter-spacing: .04em;
   color: var(--faint); background: var(--line-control);
   border-radius: 4px; padding: 2px 5px;
 }
@@ -334,7 +342,7 @@ button > svg { pointer-events: none; }
   line-height: 1.35; white-space: normal;
 }
 .menu button.selected .menu-label > small { color: var(--muted); }
-.menu .menu-hint { font: 10px var(--mono); color: var(--faint); flex: none; }
+.menu .menu-hint { font: var(--text-2xs) var(--mono); color: var(--faint); flex: none; }
 
 /* -------------------------------------------------------------- sidebar */
 
@@ -763,7 +771,7 @@ body:not([data-profile="compact"]) .conversation-start .composer-frame textarea 
   animation: transcript-turn-preview-in 130ms cubic-bezier(.2, .8, .2, 1) both;
 }
 .transcript-turn-navigation-preview-number {
-  color: var(--acid-text); font: 600 10px/1.2 var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
+  color: var(--acid-text); font: 600 var(--text-2xs)/1.2 var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
 }
 .transcript-turn-navigation-preview-text {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -867,7 +875,7 @@ body:not([data-profile="compact"]) .conversation-start .composer-frame textarea 
 .message-actions button {
   display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px;
   border: 0; border-radius: 5px; background: transparent; color: var(--faint);
-  font: 500 10px var(--sans); white-space: nowrap; cursor: pointer;
+  font: 500 var(--text-2xs) var(--sans); white-space: nowrap; cursor: pointer;
 }
 .message-actions button:hover { background: var(--raised); color: var(--ink-2); }
 .message-actions button:focus-visible { opacity: 1; outline: 1px solid var(--focus); outline-offset: 0; }
@@ -905,7 +913,7 @@ body:not([data-profile="compact"]) .conversation-start .composer-frame textarea 
 .markdown-inline > .md-inline-paragraph { display: inline; margin: 0; }
 .skill-chip > svg { color: var(--acid-text); }
 .skill-chip > strong { overflow: hidden; text-overflow: ellipsis; font: 600 var(--text-sm) var(--mono); }
-.skill-chip > span { color: var(--muted); font: 600 10px var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); }
+.skill-chip > span { color: var(--muted); font: 600 var(--text-2xs) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case); }
 .file-context-chip {
   display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
   margin: 0 4px 0 0; padding: 2px 7px; border: 1px solid var(--line-control);
@@ -920,7 +928,7 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
   opacity: 0; transition: opacity 100ms ease;
 }
 .message-shell.user:hover .message-user-meta, .message-shell.user:focus-within .message-user-meta { opacity: 1; }
-.message.user time { font: 10px var(--mono); color: var(--faint); white-space: nowrap; }
+.message.user time { font: var(--text-2xs) var(--mono); color: var(--faint); white-space: nowrap; }
 .message-user-meta .message-actions {
   position: static; padding: 0; opacity: 1; pointer-events: auto;
 }
@@ -1183,8 +1191,8 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
   flex: 1; min-width: 0; font: var(--text-sm) var(--mono); color: var(--muted-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tool-run-stamp { font: 10px var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
-.tool-run-size { font: 10px var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
+.tool-run-stamp { font: var(--text-2xs) var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
+.tool-run-size { font: var(--text-2xs) var(--mono); color: var(--faint); flex: none; font-variant-numeric: tabular-nums; }
 .tool-run-state { font: var(--text-xs) var(--mono); color: var(--muted-2); flex: none; }
 .tool-run-state.error { color: var(--fail-ink); font-weight: 600; }
 /* Why a call failed, under its line until the output itself is open. */
@@ -1345,7 +1353,7 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 }
 .composer-frame.stacked { z-index: 2; margin-top: -9px; }
 .composer-frame:focus-within { border-color: transparent; }
-.composer-attachment-error { padding: 7px 16px 0; color: var(--danger); font: 11px/1.4 var(--sans); }
+.composer-attachment-error { padding: 7px 16px 0; color: var(--danger); font: var(--text-2xs)/1.4 var(--sans); }
 .composer-command-menu {
   position: absolute; z-index: 30; left: 0; right: 0; bottom: calc(100% + 9px); max-height: 288px; overflow: auto;
   padding: 4px; border: 1px solid var(--line-float); border-radius: 12px; background: var(--overlay); box-shadow: var(--elevation-2);
@@ -1357,9 +1365,9 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .composer-command-menu > button.selected { background: var(--raised); color: var(--ink); }
 .composer-command-menu > button > svg { flex: none; color: var(--muted); }
 .composer-command-menu strong { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink); }
-.composer-command-menu strong > i { margin-left: 6px; color: var(--faint); font: 400 11px var(--mono); font-style: normal; }
+.composer-command-menu strong > i { margin-left: 6px; color: var(--faint); font: 400 var(--text-2xs) var(--mono); font-style: normal; }
 .composer-command-menu small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
-.composer-command-source { flex: none; margin-left: auto; color: var(--faint); font: 11px var(--sans); font-style: normal; }
+.composer-command-source { flex: none; margin-left: auto; color: var(--faint); font: var(--text-2xs) var(--sans); font-style: normal; }
 .composer-command-empty { padding: 12px 10px; color: var(--faint); font: 12px var(--sans); }
 .composer-history-search {
   display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 4px 8px; border-bottom: 1px solid var(--line-inset);
@@ -1368,8 +1376,8 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .composer-history-search > span { color: var(--muted); }
 .composer-history-search > b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
 .composer-history-search i, .composer-history-search > small { color: var(--faint); font-style: normal; }
-.composer-history-search > small { font-size: 10px; }
-.vim-badge { padding: 2px 6px; border-radius: var(--radius-xs); background: var(--raised); color: var(--ink); font: 600 10px var(--mono); letter-spacing: .5px; }
+.composer-history-search > small { font-size: var(--text-2xs); }
+.vim-badge { padding: 2px 6px; border-radius: var(--radius-xs); background: var(--raised); color: var(--ink); font: 600 var(--text-2xs) var(--mono); letter-spacing: .5px; }
 .vim-badge.normal { background: var(--acid); color: var(--acid-ink); }
 .composer-frame textarea {
   display: block; width: 100%; resize: none; border: 0; background: transparent;
@@ -1395,7 +1403,7 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .composer-chip-slot { position: relative; }
 .composer-chip-icon, .composer-chip-thumb { position: absolute; left: 1px; top: 50%; width: 11px; height: 11px; transform: translateY(-50%); color: var(--muted); }
 .composer-chip-thumb { border-radius: 2px; object-fit: cover; }
-.composer-mirror-mention { color: var(--info); }
+.composer-mirror-mention { color: var(--info-ink); }
 .composer-mirror-skill { border-radius: 4px; background: var(--chip); box-shadow: 0 0 0 2px var(--chip); }
 .composer-zone.collapsed .composer-toolbar, .composer-zone.collapsed .composer-attachment-error { display: none; }
 .composer-zone.collapsed .composer-frame textarea { max-height: 46px; overflow-y: hidden !important; }
@@ -1408,7 +1416,7 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
   border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--muted); cursor: pointer;
 }
 .composer-chip-popover > header > button:hover { background: var(--raised-hover); color: var(--danger); }
-.composer-chip-title { margin: 0; color: var(--muted); font: 11px/1.45 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 96px; overflow: auto; }
+.composer-chip-title { margin: 0; color: var(--muted); font: var(--text-2xs)/1.45 var(--mono); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 96px; overflow: auto; }
 .composer-chip-preview { padding: 0; border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--sunken); cursor: zoom-in; overflow: hidden; }
 .composer-chip-preview img { display: block; width: 100%; max-height: 160px; object-fit: contain; }
 .composer-toolbar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-2) var(--space-3) var(--space-3); }
@@ -1488,7 +1496,7 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 /* Nothing to send: the accent at rest, still the send button. */
 .send-button:disabled { background: color-mix(in srgb, var(--acid) 42%, var(--field)); cursor: default; }
 /* Stop is a quiet word beside send, red only under the pointer; send is the row's one round button (design 1a). */
-.send-button.stop { width: auto; margin-right: 2px; padding: 0 8px; border-radius: 6px; background: transparent; color: var(--muted); font: 11px var(--sans); }
+.send-button.stop { width: auto; margin-right: 2px; padding: 0 8px; border-radius: 6px; background: transparent; color: var(--muted); font: var(--text-2xs) var(--sans); }
 .send-button.stop:hover { background: var(--hover); color: var(--stop); }
 .send-button.stop > i { display: none; }
 /* A kit's send mode: its words in the accent pill, the plain send in a menu behind the chevron. */
@@ -1509,7 +1517,9 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
   background: conic-gradient(var(--muted) 0 var(--used), var(--line-control) var(--used) 100%);
 }
 .context-dial > i { width: 10px; height: 10px; border-radius: 50%; background: var(--field); }
-.composer-queued { padding-right: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.composer-queued { padding-right: 6px; color: var(--muted); font-size: var(--text-2xs); white-space: nowrap; }
+button.composer-queued { border: 0; background: none; font-family: inherit; cursor: pointer; }
+button.composer-queued:hover { color: var(--ink); text-decoration: underline; }
 .context-popover {
   position: absolute; bottom: 28px; right: -52px; width: 252px; z-index: 30;
   display: flex; flex-direction: column; gap: 10px;
@@ -1519,19 +1529,19 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 }
 .context-popover > header { display: flex; align-items: baseline; gap: 8px; }
 .context-popover > header > strong { font-size: 12.5px; font-weight: 700; }
-.context-popover > header > span { font: 11px var(--mono); color: var(--muted); }
-.context-popover > header > b { margin-left: auto; font: 11px var(--mono); color: var(--ink-2); font-weight: 400; }
+.context-popover > header > span { font: var(--text-2xs) var(--mono); color: var(--muted); }
+.context-popover > header > b { margin-left: auto; font: var(--text-2xs) var(--mono); color: var(--ink-2); font-weight: 400; }
 .context-bar { display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line-control); }
-.context-legend { display: flex; flex-direction: column; gap: 6px; font: 11px var(--mono); color: var(--ink-3); }
+.context-legend { display: flex; flex-direction: column; gap: 6px; font: var(--text-2xs) var(--mono); color: var(--ink-3); }
 .context-legend > span { display: flex; align-items: center; gap: 8px; }
 .context-legend i { width: 6px; height: 6px; border-radius: 2px; flex: none; }
 .context-legend em { flex: 1; font-style: normal; }
 .context-popover > button {
   border: 1px solid var(--line-control); border-radius: 7px; background: transparent;
-  color: var(--ink-2); font: 600 11.5px var(--sans); padding: 6px 0; cursor: pointer;
+  color: var(--ink-2); font: 600 var(--text-xs) var(--sans); padding: 6px 0; cursor: pointer;
 }
 .context-popover > button:hover { background: var(--raised); }
-.context-popover > small { font: 10px var(--mono); color: var(--faint); text-align: center; }
+.context-popover > small { font: var(--text-2xs) var(--mono); color: var(--faint); text-align: center; }
 
 /* ---------------------------------------------------------- dividers */
 
@@ -1560,7 +1570,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
   height: 52px; padding: 0 var(--space-6); border-bottom: 1px solid var(--line);
 }
 .panel-header > h2 { margin: 0; font-size: var(--text-md); font-weight: 700; }
-.panel-header > small { font: 10px var(--mono); color: var(--faint); }
+.panel-header > small { font: var(--text-2xs) var(--mono); color: var(--faint); }
 .panel-header .spacer { flex: 1; }
 .text-button { border: 0; background: transparent; color: var(--muted); font: var(--text-control) var(--sans); cursor: pointer; }
 .text-button:hover { color: var(--ink); }
@@ -1635,7 +1645,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 }
 .palette-input-wrap input::placeholder { color: var(--faint); }
 .palette-input-wrap kbd {
-  font: 10px var(--mono); color: var(--faint);
+  font: var(--text-2xs) var(--mono); color: var(--faint);
   border: 1px solid var(--line-control); border-radius: 4px; padding: 2px 6px;
 }
 .palette-empty { padding: 18px 12px; color: var(--faint); font-size: var(--text-sm); }
@@ -1665,14 +1675,14 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt-kind { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-weight: 600; }
 .is-approval .extension-prompt-kind { color: var(--ink-3); }
 .extension-prompt-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-.extension-prompt > header > small { flex: none; font: 10px var(--mono); color: var(--faint); }
+.extension-prompt > header > small { flex: none; font: var(--text-2xs) var(--mono); color: var(--faint); }
 .extension-prompt > header .spacer { flex: 1; }
 .extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .extension-prompt-title, .extension-prompt-message { margin: 0; padding: 0 2px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .extension-prompt-message { color: var(--ink-3); max-height: min(240px, 40dvh); overflow-y: auto; overscroll-behavior: contain; }
 .extension-prompt-subject {
   display: block; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
-  font: calc(var(--text-xs) - .5px)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto;
+  font: calc(var(--text-xs) - .5px)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; overscroll-behavior: contain;
 }
 .extension-prompt > header > .extension-prompt-subject { flex: 1; min-width: 0; padding: 0; background: none; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -1719,8 +1729,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 }
 .extension-prompt > footer > button.extension-prompt-send:hover:not(:disabled) { background: var(--acid-strong); color: var(--acid-ink); }
 .extension-prompt > footer > button.extension-prompt-send:disabled { background: var(--raised); color: var(--faint); cursor: default; }
-.extension-prompt-send > kbd { font-family: var(--mono); font-weight: 400; opacity: .8; }
-@media (pointer: coarse) { .is-approval .extension-prompt-send > kbd { display: none; } }
+.extension-prompt > footer > button > kbd { font-family: var(--mono); font-weight: 400; opacity: .8; }
+@media (pointer: coarse) { .is-approval > footer > button > kbd { display: none; } }
 
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-top-color: var(--line); }
@@ -1787,7 +1797,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 }
 .checkbox.on { border-color: var(--acid-track); background: var(--acid-chip); color: var(--acid-text); }
 .chip {
-  font: 10px var(--mono); color: var(--muted);
+  font: var(--text-2xs) var(--mono); color: var(--muted);
   border: 1px solid var(--line-control); border-radius: 5px; padding: 2px 7px;
 }
 /* A chip that is a control rather than a label; pressed means the option is on. */
@@ -1833,7 +1843,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
   flex: 1 1 auto; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font: 12.5px var(--mono); font-weight: 400; color: var(--ink);
 }
-.stage-pane-header > small { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 11px var(--mono); color: var(--faint); white-space: nowrap; }
+.stage-pane-header > small { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--text-2xs) var(--mono); color: var(--faint); white-space: nowrap; }
 .stage-pane-header .spacer { flex: 1; }
 .stage-pane-header .text-button { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 /* Narrow panes keep the editor link as its glyph; the title still names the editor. */
@@ -1849,7 +1859,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 /* Another machine's thread: which machine, and why what shows may be stale. */
 .remote-thread-machine {
   display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px;
-  border-radius: var(--radius-xs); background: var(--chip); color: var(--muted); font: 11px var(--sans);
+  border-radius: var(--radius-xs); background: var(--chip); color: var(--muted); font: var(--text-2xs) var(--sans);
 }
 .remote-thread-band {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 16px;
@@ -1857,7 +1867,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 }
 .remote-thread-band > svg, .remote-thread-band > small { flex: none; }
 .remote-thread-band > .remote-thread-question { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.remote-thread-band > small { color: var(--muted); font-size: 11px; }
+.remote-thread-band > small { color: var(--muted); font-size: var(--text-2xs); }
 .remote-thread-band[data-level="question"] { background: var(--warn-chip); color: var(--ink); }
 .remote-thread-band[data-level="error"] { background: var(--danger-bg); color: var(--danger); }
 .source-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; font: calc(var(--text-code) * var(--code-font-scale, 1))/1.75 var(--code-font-family, var(--mono)); }
@@ -1872,7 +1882,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
   background: var(--stage); border-right: 1px solid var(--line-soft);
 }
 .source-code { margin: 0; padding: 12px 24px 12px 16px; color: var(--ink-2); white-space: pre; tab-size: 4; }
-.source-note { flex: none; padding: 7px 16px; background: var(--field); color: var(--muted); font: 11px var(--mono); border-top: 1px solid var(--line-soft); }
+.source-note { flex: none; padding: 7px 16px; background: var(--field); color: var(--muted); font: var(--text-2xs) var(--mono); border-top: 1px solid var(--line-soft); }
 
 /* -------------------------------------------------------- changes panel */
 
@@ -1886,7 +1896,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .changes-tree-directory:hover { background: var(--raised); color: var(--ink-2); }
 .changes-tree-directory > svg { flex: none; }
 .changes-tree-directory > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.changes-tree-directory > small { margin-left: auto; padding-right: 8px; color: var(--fainter); font: 10px var(--mono); }
+.changes-tree-directory > small { margin-left: auto; padding-right: 8px; color: var(--faint); font: var(--text-2xs) var(--mono); }
 .changes-tree-file {
   min-width: 0; height: 28px; display: flex; align-items: center; border-radius: 6px;
   color: var(--ink-3);
@@ -1900,8 +1910,8 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 /* The tree already names the folder; a row shows only the file. */
 .changes-tree-name { min-width: 0; flex: 1; display: flex; }
 .changes-tree-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--text-xs) var(--mono); font-weight: 400; color: var(--ink-2); }
-.changes-tree-open > i { width: 14px; color: var(--working); font: 10px var(--mono); font-style: normal; text-align: center; }
-.changes-tree-open .stat-add, .changes-tree-open .stat-del { font-size: 9.5px; }
+.changes-tree-open > i { width: 14px; color: var(--working); font: var(--text-2xs) var(--mono); font-style: normal; text-align: center; }
+.changes-tree-open .stat-add, .changes-tree-open .stat-del { font-size: var(--text-2xs); }
 .changes-tree-actions { position: relative; flex: none; display: flex; gap: 2px; padding: 0 5px; opacity: 0; }
 .changes-tree-file:hover .changes-tree-actions, .changes-tree-file:focus-within .changes-tree-actions { opacity: 1; }
 .changes-tree-actions button {
@@ -1917,19 +1927,19 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
   border: 1px solid var(--line-float); border-radius: 8px; background: var(--overlay); box-shadow: var(--elevation-2);
 }
 .changes-action-popover strong { color: var(--ink); font: 600 var(--text-xs) var(--sans); }
-.changes-action-popover small { color: var(--faint); font: 9.5px var(--mono); }
+.changes-action-popover small { color: var(--faint); font: var(--text-2xs) var(--mono); }
 .changes-action-popover > span { display: flex; justify-content: flex-end; gap: 5px; margin-top: 5px; }
 .changes-action-popover > span button { width: auto; padding: 0 8px; border-color: var(--line-control); }
 .diff-context-gap {
   width: calc(100% - 8px); height: 24px; display: flex; align-items: center; gap: 12px; margin: 1px 4px; padding: 0 17px;
-  border: 0; border-radius: 6px; background: var(--raised-strong); color: var(--muted); font: 10.5px var(--mono); text-align: left;
+  border: 0; border-radius: 6px; background: var(--raised-strong); color: var(--muted); font: var(--text-2xs) var(--mono); text-align: left;
 }
 .diff-context-gap:not(:disabled) { cursor: pointer; }
 .diff-context-gap:not(:disabled):hover { background: var(--raised-hover); color: var(--ink-2); }
 .diff-context-gap:disabled { opacity: 1; }
 .diff-context-gap > svg { color: var(--faint); }
 .diff-load-more { display: block; margin: 10px auto 18px; padding: 7px 12px; border: 1px solid var(--line-control); border-radius: 6px; background: var(--raised); color: var(--ink-2); cursor: pointer; }
-.file-tree-error { display: block; padding: 3px 10px 5px 28px; color: var(--removed); font: 10px var(--mono); }
+.file-tree-error { display: block; padding: 3px 10px 5px 28px; color: var(--removed); font: var(--text-2xs) var(--mono); }
 
 .commit-actions { margin-top: 8px; display: flex; gap: 6px; }
 .commit-actions button {
@@ -1970,7 +1980,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
   padding: 10px 16px 4px; font-weight: 500;
   color: var(--faint);
 }
-.project-picker-heading small { color: var(--fainter); }
+.project-picker-heading small { color: var(--faint); }
 .project-modal-title {
   display: flex; align-items: center; gap: 10px; height: 52px;
   border-bottom: 1px solid var(--line); padding: 0 14px;
@@ -1981,7 +1991,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
   color: var(--ink); font-size: var(--text-lg);
 }
 .project-modal-title > input::placeholder { color: var(--faint); }
-.project-modal-title small { font: 10px var(--mono); color: var(--faint); }
+.project-modal-title small { font: var(--text-2xs) var(--mono); color: var(--faint); }
 .project-modal-title strong { font-size: var(--text-md); font-weight: 700; }
 .modal-back, .modal-close {
   border: 1px solid var(--line-control); border-radius: 7px; background: transparent;
@@ -1989,7 +1999,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 }
 .modal-back:disabled { opacity: .35; cursor: default; }
 .modal-back:hover:not(:disabled), .modal-close:hover { background: var(--raised); color: var(--ink); }
-.modal-close { font: 10px var(--mono); }
+.modal-close { font: var(--text-2xs) var(--mono); }
 /* The add-project views share the project picker's bar, rows and footer. */
 .project-modal-bar {
   display: flex; align-items: center; gap: 11px; height: 52px;
@@ -2001,7 +2011,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 }
 .project-modal-bar > input::placeholder { color: var(--faint); }
 .project-modal-bar > strong { flex: 1; min-width: 0; font-size: var(--text-md); font-weight: 600; }
-.project-modal-bar > kbd { font: 10px var(--mono); color: var(--faint); padding-right: 4px; }
+.project-modal-bar > kbd { font: var(--text-2xs) var(--mono); color: var(--faint); padding-right: 4px; }
 .project-modal-bar-glyph {
   display: grid; place-items: center; width: 24px; height: 24px; flex: none;
   border: 0; border-radius: 6px; background: transparent; color: var(--acid-text); padding: 0;
@@ -2017,7 +2027,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 .project-modal-bar-action:disabled { opacity: .45; cursor: default; }
 .project-modal-bar-action > kbd {
   border-radius: 4px; background: var(--raised); padding: 2px 5px;
-  color: var(--ink-3); font: 10px var(--mono);
+  color: var(--ink-3); font: var(--text-2xs) var(--mono);
 }
 .project-modal-footer {
   display: flex; align-items: center; gap: 12px; min-height: 44px;
@@ -2030,7 +2040,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 .project-modal-footer > button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
 .project-modal-footer > button:disabled { opacity: .45; cursor: default; }
-.project-modal-footer > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
+.project-modal-footer > small { margin-left: auto; font: var(--text-2xs) var(--mono); color: var(--faint); }
 .project-source-list { padding: 4px 8px 8px; display: flex; flex-direction: column; }
 .project-source-list > button {
   display: flex; align-items: center; gap: 10px; border: 0; border-radius: 8px;

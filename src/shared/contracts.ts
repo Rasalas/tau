@@ -438,7 +438,7 @@ export interface UiThreadGoal {
 
 /**
  * Work a thread's runtime keeps running after its turn ended (API 1.58.0).
- * `command` is a shell that may run for good, such as a dev server; `monitor`
+ * `command` is a shell; `monitor`
  * watches until something happens; `agent` is a sub-agent; `task` any other.
  */
 export interface UiBackgroundTask {
@@ -446,6 +446,10 @@ export interface UiBackgroundTask {
   kind: "command" | "monitor" | "agent" | "task";
   label: string;
   startedAt?: number;
+  /** Defaults to true. Only a checked service explicitly released from the request may set false. */
+  blocksCompletion?: boolean;
+  /** A finished task whose result still belongs to the request. Missing means running. */
+  state?: "reported";
 }
 
 /** A queued message in full, as `take-queued` hands it back to a composer. */
@@ -681,6 +685,8 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   goals?: boolean;
   /** Cursor for the next page when this snapshot already contains a bounded window. */
   isStreaming: boolean;
+  /** The runtime is summarizing context, independently of assistant output. */
+  isCompacting?: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
   taskProgress?: UiTaskProgress;
@@ -853,6 +859,7 @@ export type GlobalHostEvent =
 export type ThreadHostEvent =
   /** `startedAt`: when the host saw this run start (epoch ms), on every `running: true` (API 1.27.0). */
   | { type: "agent-status"; sessionId: string; running: boolean; startedAt?: number }
+  | { type: "context-compaction"; sessionId: string; running: boolean }
   /** Adds the persisted session-entry id to a row emitted optimistically at message_end. */
   | {
       type: "assistant-anchor";

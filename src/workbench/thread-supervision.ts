@@ -121,6 +121,8 @@ export interface ThreadListOptions extends ThreadOrganization {
   extra?: readonly ThreadSupervisionRow[];
   /** Kits' row states by thread id (`setThreadRowStatuses`); one that asks sorts as a question. */
   marks?: Readonly<Record<string, ThreadRowMark>>;
+  /** Row ids top to bottom as the list last drew them: those rows keep that order in their group, new ones follow. */
+  held?: readonly string[];
 }
 
 /** Another machine's thread as a list row: asking, running or idle, as far as that machine's list says. */
@@ -165,9 +167,10 @@ export function threadListGroups(
     })
     .concat(options.extra ?? [])
     .filter((row) => !query || [row.title, row.projectName, row.projectLabel ?? ""].some((text) => text.toLowerCase().includes(query)));
-  const pinned = rows.filter((row) => row.pinned && !row.settled).sort(worstFirst);
-  const active = rows.filter((row) => !row.pinned && !row.settled).sort(worstFirst);
-  const settled = rows.filter((row) => row.settled).sort((left, right) => right.modifiedAt - left.modifiedAt);
+  const keep = keepHeld(options.held);
+  const pinned = keep(rows.filter((row) => row.pinned && !row.settled).sort(worstFirst));
+  const active = keep(rows.filter((row) => !row.pinned && !row.settled).sort(worstFirst));
+  const settled = keep(rows.filter((row) => row.settled).sort((left, right) => right.modifiedAt - left.modifiedAt));
   const page = (id: "active" | "settled", list: ThreadSupervisionRow[]) => {
     const shown = options.shown?.[id] ?? THREAD_LIST_PAGE[id];
     return { rows: list.slice(0, shown), hidden: Math.max(0, list.length - shown) };
@@ -177,6 +180,16 @@ export function threadListGroups(
   if (active.length > 0) groups.push({ id: "active", label: "", ...page("active", active) });
   if (settled.length > 0) groups.push({ id: "settled", label: "Settled", ...page("settled", settled) });
   return groups;
+}
+
+/** Drawn rows keep their drawn order; rows the list did not draw go below them. */
+function keepHeld(held: readonly string[] | undefined): (rows: ThreadSupervisionRow[]) => ThreadSupervisionRow[] {
+  if (!held) return (rows) => rows;
+  const place = new Map(held.map((id, index) => [id, index]));
+  return (rows) => [
+    ...rows.filter((row) => place.has(row.id)).sort((left, right) => place.get(left.id)! - place.get(right.id)!),
+    ...rows.filter((row) => !place.has(row.id)),
+  ];
 }
 
 /** A session the list shows: someone wrote in it, or it is at work or asking. */

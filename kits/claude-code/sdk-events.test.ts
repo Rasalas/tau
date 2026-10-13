@@ -24,6 +24,16 @@ function run(frames: SDKMessage[], translator = new SdkTurnTranslator(() => 42, 
 }
 
 describe("SdkTurnTranslator", () => {
+  it("reports compaction while the CLI summarizes context, and clears it when the status ends", () => {
+    const translator = new SdkTurnTranslator(() => 42);
+    expect(translator.push(frame({ type: "system", subtype: "status", status: "compacting" }))).toEqual([
+      { type: "context-compaction", running: true },
+    ]);
+    expect(translator.push(frame({ type: "system", subtype: "status", status: null }))).toEqual([
+      { type: "context-compaction", running: false },
+    ]);
+  });
+
   it("closes a failed call as an error with the reason the CLI gave, unwrapped", () => {
     const { events } = run([
       assistant([{ type: "tool_use", id: "tool-1", name: "Read", input: { file_path: "/repo/missing.ts" } }]),
@@ -34,6 +44,18 @@ describe("SdkTurnTranslator", () => {
     expect(events.filter((event) => event.type === "tool-end").map((event) => event.type === "tool-end" && [event.tool.status, event.tool.output])).toEqual([
       ["error", "File does not exist."],
       ["error", "Exit code 1\nls: missing: No such file or directory"],
+    ]);
+  });
+
+  it("stamps a streamed message with the time it began, so a steer sent while it streams stays below it", () => {
+    let now = 100;
+    const translator = new SdkTurnTranslator(() => now, () => "a1");
+    const events = [messageStart(), textDelta("Look")].flatMap((message) => translator.push(message));
+    now = 900;
+    events.push(...translator.push(assistant([{ type: "text", text: "Looking." }])));
+    expect(events.filter((event) => event.type === "assistant-start" || event.type === "assistant-end")).toEqual([
+      { type: "assistant-start", id: "a1", timestamp: 100 },
+      { type: "assistant-end", message: { id: "a1", role: "assistant", text: "Looking.", timestamp: 100 } },
     ]);
   });
 

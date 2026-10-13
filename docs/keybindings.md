@@ -50,7 +50,9 @@ Contexts: `chatFocus` (the transcript and the composer), `terminalFocus`,
 `modelPickerFocus`, and the matching `…Open` (`modelPickerOpen`,
 `terminalOpen`, …). `editableFocus` holds while any text field, select or
 `contenteditable` element has the keyboard; `overlayOpen` while a menu,
-popover, picker, dialog, sheet or app page (Usage, Pull requests) is open. Any extension can add its own with
+popover, picker, dialog, sheet or app page (Usage, Pull requests) is open.
+`isDesktop` holds in the Electron window and not in a browser tab, on a phone
+or on a tablet (see "In a browser tab" below). Any extension can add its own with
 `data-keybinding-context`.
 
 Escape closes the topmost overlay and does nothing else: no chord without a
@@ -74,19 +76,21 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+alt+b` | | `workbench.toggle-dock` | Hide or show the dock | core |
 | `mod+alt+shift+b` | | `rightPanel.toggleMaximized` | Maximize the panel in front onto the stage, or move it back | core |
 | `mod+k` | | `runtime.command-palette` | Command palette | core |
-| `mod+n` | `!terminalFocus` | `runtime.new-session` | New thread in the project on screen | core |
-| `mod+shift+n` | `!terminalFocus` | `runtime.new-session` | New thread in the project on screen | core |
+| `mod+n` | `!terminalFocus && isDesktop` | `runtime.new-session` | New thread in the project on screen | core |
+| `mod+shift+n` | `!terminalFocus && isDesktop` | `runtime.new-session` | New thread in the project on screen | core |
 | `mod+shift+o` | `!terminalFocus` | `runtime.new-session-in` | New thread in a project chosen in the picker | core |
 | `mod+shift+m` | | `runtime.model` | Model picker | core |
 | `mod+alt+shift+a` | | `runtime.theme` | Cycle light, dark, system | core |
-| `mod+w` | | `workbench.close-stage-tab` | Close the stage tab | core |
-| `mod+shift+t` | `!terminalFocus` | `workbench.reopen-stage-tab` | Reopen the tab closed last on this thread's stage | core |
+| `mod+w` | `isDesktop` | `workbench.close-stage-tab` | Close the stage tab | core |
+| `mod+shift+t` | `!terminalFocus && isDesktop` | `workbench.reopen-stage-tab` | Reopen the tab closed last on this thread's stage | core |
 | `mod+,` | | `runtime.settings` | Settings | core |
 | `mod+i` | | `runtime.instructions` | System prompt and instructions | core |
+| `mod+f` | `!terminalFocus && !previewFocus && !editorFocus && !overlayOpen` | `thread.find` | Find in the thread, from the composer too | core |
 | `escape` | `chatFocus` | `runtime.abort` | Stop the run | core |
 | `mod+shift+enter` | `!terminalFocus` | `thread.steerQueuedMessage` | Send the oldest queued message now | core |
 | `mod+shift+e` | `!terminalFocus` | `composer.effort` | Reasoning menu | core |
 | `mod+shift+a` | `!terminalFocus` | `composer.mode` | Access menu | Access |
+| `shift+tab` | `composerFocus && editableFocus && !overlayOpen` | `plan.toggle` | Switch between plan and build mode, with the caret in the prompt | Plan |
 | `mod+shift+x` | `!terminalFocus` | `composer.workspace` | Where the thread runs | Workspace |
 | `mod+shift+g` | `!terminalFocus` | `composer.branch` | Branch picker | Workspace |
 | `mod+alt+t` | | `runtime.transcript-detail` | Cycle transcript detail | core |
@@ -95,18 +99,17 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+\` | | `workbench.split-stage` | Split or join the stage | core |
 | `mod+shift+\` | | `workbench.toggle-spine` | Collapse the conversation to its spine, or open it | core |
 | `ctrl+p` | `composerFocus` | `runtime.cycle-model` | Next model (Pi's chord) | core |
-| `shift+tab` | | `runtime.cycle-thinking` | Next thinking level | core |
 | `ctrl+g` | | `runtime.open-prompt-editor` | Prompt in `$EDITOR` | core |
 | `mod+alt+1` | | `workbench.focus-composer` | Focus the composer | core |
 | `mod+alt+2` | | `workbench.focus-transcript` | Focus the transcript | core |
 | `mod+alt+3` | | `workbench.focus-stage` | Focus the stage | core |
-| `ctrl+tab` / `ctrl+shift+tab` | | `workbench.next-stage-tab` / `prev-stage-tab` | Move between stage tabs | core |
+| `ctrl+tab` / `ctrl+shift+tab` | `isDesktop` | `workbench.next-stage-tab` / `prev-stage-tab` | Move between stage tabs | core |
 | `mod+[` / `mod+]` | `!terminalFocus` | `navigation.back` / `navigation.forward` | Back or forward over the threads and subagents shown, as in a browser (T3 Code's ids) | core |
 | `mod+j` | | `terminal.toggle` | Terminal panel | Terminal |
 | `mod+d` | `terminalFocus && !stageFocus` | `terminal.split` | Split along the longer side: top and bottom in a pane taller than wide, else side by side | Terminal |
 | `mod+shift+d` | `terminalFocus && !stageFocus` | `terminal.splitDown` | Split down | Terminal |
-| `mod+n` | `terminalFocus` | `terminal.new` | New terminal | Terminal |
-| `mod+w` | `terminalFocus && !stageFocus` | `terminal.close` | Close the terminal | Terminal |
+| `mod+n` | `terminalFocus && isDesktop` | `terminal.new` | New terminal | Terminal |
+| `mod+w` | `terminalFocus && !stageFocus && isDesktop` | `terminal.close` | Close the terminal | Terminal |
 | `mod+]` / `mod+[` | `terminalFocus && !stageFocus` | `terminal.focusNext` / `focusPrevious` | Next or previous pane | Terminal |
 | `mod+d` | `!terminalFocus` | `review.toggle` | Open or close the review | Review |
 | `mod+shift+d` | | `review.open` | Open the review | Review |
@@ -120,7 +123,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+s` | `!terminalFocus` | `prompt-tools.stash` | Stash the draft | Prompt Tools |
 | `mod+shift+[` / `mod+shift+]` | | `thread.prev` / `thread.next` | Previous or next thread | Thread Rail |
 | `mod+alt+arrowup` / `mod+alt+arrowdown` | | `thread.prev` / `thread.next` | Previous or next thread | Thread Rail |
-| `mod+1` … `mod+9` | `!modelPickerOpen` | `thread.jump-1` … `thread.jump-9` | Thread 1–9 of the rail | Thread Rail |
+| `mod+1` … `mod+9` | `!modelPickerOpen && isDesktop` | `thread.jump-1` … `thread.jump-9` | Thread 1–9 of the rail | Thread Rail |
 | `mod+shift+p` | | `thread.pin` | Pin or unpin | Thread Rail |
 | `mod+shift+s` | | `thread.settle` | Settle or un-settle | Thread Rail |
 | `mod+z` | `!terminalFocus && !editableFocus` | `thread.undo` | Undo the last unpin, settle, snooze, archive or delete | Thread Rail |
@@ -132,6 +135,33 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+alt+a` | | `appearance.open` | Appearance settings | Appearance |
 | `mod+alt+shift+t` | | `appearance.toggle-theme-editor` | Theme editor | Appearance |
 | `mod+alt+o` | | `observatory.open` | Signals (Settings) | Signals |
+
+## In a browser tab
+
+A browser keeps some chords for its own tabs and windows and never hands them to
+the page: ⌘W, ⌘N, ⇧⌘N, ⇧⌘T and Ctrl+Tab; ⌘1–⌘9 switch its tabs, and Tau leaves
+them to it. A binding that pressed one of them would show in a tooltip and close
+the tab Tau runs in, so the defaults above carry `isDesktop` and a tab (the web
+client, a tablet or a phone with a keyboard) binds these instead, with `!isDesktop`
+(VS Code's web build uses ⌥⌘W to close an editor for the same reason):
+
+| Desktop | Browser tab | Command |
+| --- | --- | --- |
+| `mod+w` | `mod+alt+w` | `workbench.close-stage-tab` |
+| `mod+shift+t` | `mod+alt+shift+w` | `workbench.reopen-stage-tab` |
+| `mod+n`, `mod+shift+n` | `mod+alt+n` | `runtime.new-session` |
+| `mod+n` in a terminal | `mod+alt+n` in a terminal | `terminal.new` |
+| `mod+w` in a terminal | `mod+alt+w` in a terminal | `terminal.close` |
+| `ctrl+tab` / `ctrl+shift+tab` | `mod+alt+]` / `mod+alt+[` | `workbench.next-stage-tab` / `prev-stage-tab` |
+| `mod+1` … `mod+9` | none (the browser's tab switching stays) | `thread.jump-1` … `thread.jump-9` |
+
+A chord that cannot hold on the client is not bound there: Settings →
+Keybindings, the tooltips and the conflict check list the chords that work on
+this client, and the commands stay in the palette. `mod+shift+[` and `mod+shift+]`
+(`thread.prev` / `thread.next`) are tab switching on a Mac's browsers too; Thread
+Rail's `mod+alt+arrowup` / `arrowdown` do the same there. Every other default
+(`mod+f`, `mod+k`, `mod+d`, `mod+p`, `mod+s`, …) is a chord a page may take
+before the browser, and keeps its place.
 
 Inside the model picker, `mod+1` … `mod+9` choose a numbered model and
 `mod+shift+arrowup` / `arrowdown` move between providers; the
@@ -147,6 +177,12 @@ enclosing syntax node, `mod+[` / `mod+]` indent, and the fold chords are
 still saves, Escape closes the search or drops extra cursors and never stops
 the run, and chords the editor does not use (`mod+k`, `mod+w`, `mod+p`, …)
 reach the workbench as usual.
+
+`mod+f` opens the find bar over the transcript wherever the keyboard is except
+in a terminal, the preview, Files Kit's editor (CodeMirror's search) and under
+an open overlay, which have a find or a keyboard of their own; a second press
+moves the keyboard back into the bar. `/` does the same with the keyboard in
+the transcript itself. It is `thread.find`, so the page can rebind it.
 
 Inside Settings, `mod+f` and `/` focus the settings search (`mod+f` also from
 another field, never from a chord recorder), and Escape clears it first.
@@ -190,8 +226,14 @@ latest", beside Copy and Paste.
   Shift. It opens the panel in front as a stage tab beside the chat, or moves
   it back.
 - `composer.mode` opens Access Kit's menu, since a runtime's mode is Tau's
-  access level. Plan mode is Plan Kit's `plan.toggle`, without a chord: ⇧Tab
-  in the composer is Pi's thinking-level cycle.
+  access level; the access chip before the model, shown at every level, opens
+  the same menu. Plan mode is Plan Kit's `plan.toggle` on ⇧Tab, as in T3 Code,
+  but only with the caret in the prompt: in a form, a dialog, a menu, a
+  terminal, the Files editor or on a footer button ⇧Tab still moves focus
+  back. The thinking level has no default chord (`runtime.cycle-thinking` is
+  in the palette); ⌘⇧E opens its menu. A `keybindings.json` that binds Pi's
+  `app.thinking.cycle` to `shift+tab` gives ⇧Tab back to the thinking level,
+  everywhere: the file wins over the default.
 - `composer.*` commands click the composer control that carries their id in
   `data-composer-shortcut`; a control another kit draws can answer the same way.
   The attribute is a space-separated list, matched with `~=`: when a narrow

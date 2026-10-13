@@ -155,7 +155,7 @@ export const previewExtension: DesktopExtension = {
     plugin.registerCommand({ id: "preview.focus-url", label: "Focus the preview address", group: "Extensions", access: "write", run: (app) => focusAddress(app) });
     plugin.registerKeybinding({ keys: "mod+l", commandId: "preview.focus-url", when: "previewFocus" });
     // Reload and zoom for the page. Their chords are the app menu's; the page takes them while it has the keyboard.
-    const report = (app: Pick<WorkbenchActions, "notify">) => (error: unknown) => app.notify(errorMessage(error));
+    const report = (app: Pick<WorkbenchActions, "notify">) => (error: unknown) => app.notify(errorMessage(error), "error");
     plugin.registerCommand({ id: "preview.refresh", label: "Reload the preview", group: "Extensions", access: "write", run: (app) => { void previewKit.navigate({ action: "reload" }).catch(report(app)); } });
     plugin.registerCommand({ id: "preview.zoom-in", label: "Zoom the preview in", group: "Extensions", access: "write", run: (app) => { void previewKit.zoom({ step: "in" }).catch(report(app)); } });
     plugin.registerCommand({ id: "preview.zoom-out", label: "Zoom the preview out", group: "Extensions", access: "write", run: (app) => { void previewKit.zoom({ step: "out" }).catch(report(app)); } });

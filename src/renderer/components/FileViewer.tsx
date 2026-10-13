@@ -66,17 +66,17 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
       {meta ? <small>{meta}</small> : null}
       <span className="spacer" />
       {changed ? (
-        <div className="toggle-group" role="tablist" aria-label="View">
-          <button className={view === "diff" ? "active" : ""} onClick={() => onChangeView("diff")}>Diff</button>
-          <button className={view === "source" ? "active" : ""} onClick={() => onChangeView("source")}>Source</button>
+        <div className="toggle-group" role="group" aria-label="View">
+          <button className={view === "diff" ? "active" : ""} aria-pressed={view === "diff"} onClick={() => onChangeView("diff")}>Diff</button>
+          <button className={view === "source" ? "active" : ""} aria-pressed={view === "source"} onClick={() => onChangeView("source")}>Source</button>
         </div>
       ) : null}
       {changed && stat && Number.isFinite(stat.added) && Number.isFinite(stat.removed) ? <small className="stage-pane-stat"><span className="stat-add">+{stat.added}</span> <span className="stat-del">−{stat.removed}</span></small> : null}
       {view === "diff" ? <button className={`icon-button ${wrap ? "active" : ""}`} aria-pressed={wrap} aria-label={wrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setWrap(!wrap)}><WrapText size={14} /></button> : null}
       {view === "diff" ? (
-        <div className="toggle-group" aria-label="Diff layout">
-          <button className={mode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>
-          <button className={mode === "split" ? "active" : ""} onClick={() => setMode("split")}>Split</button>
+        <div className="toggle-group" role="group" aria-label="Diff layout">
+          <button className={mode === "unified" ? "active" : ""} aria-pressed={mode === "unified"} onClick={() => setMode("unified")}>Unified</button>
+          <button className={mode === "split" ? "active" : ""} aria-pressed={mode === "split"} onClick={() => setMode("split")}>Split</button>
         </div>
       ) : null}
       {actions ? commands.map((command) => {
@@ -86,7 +86,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
           className="text-button"
           disabled={Boolean(refused)}
           {...tooltipProps(refused)}
-          onClick={() => { Promise.resolve(command.run(actions)).catch((reason: unknown) => actions.notify(errorMessage(reason))); }}
+          onClick={() => { Promise.resolve(command.run(actions)).catch((reason: unknown) => actions.notify(errorMessage(reason), "error")); }}
         >{command.label}</button>;
       }) : null}
       {editor ? (

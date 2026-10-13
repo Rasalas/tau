@@ -1,8 +1,9 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TurnActivityStore, type ThreadRuntimeEvent, type UiMessage, type UiToolRun } from "tau/host-extension";
+import { TurnActivityStore, type BackendPrompt, type ExtensionUiAnswer, type ThreadRuntimeEvent, type UiMessage, type UiToolRun } from "tau/host-extension";
 import type { AcpContentBlock, AcpPermissionRequest, AcpPermissionResponse, AcpSelectOption, AcpSessionSetup } from "./acp-session.js";
 import type { AcpPromptResponse, AcpSessionUpdate } from "../_acp/events.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
@@ -55,7 +56,7 @@ class FakeSession implements AntigravitySessionLike {
   async close(): Promise<void> { this.closed = true; this.input.onExit(undefined); }
 }
 
-function harness(store: AntigravitySessionStore, script: Script, options: { activity?: TurnActivityStore; ask?: AntigravityThreadRuntimeBackend extends never ? never : (prompt: unknown) => Promise<{ value?: string; confirmed?: boolean; cancelled?: true }>; level?: "read-only" | "ask" | "full"; resumeFails?: boolean; cachedModels?: AcpSelectOption[]; billing?: "subscription" | "api-key" } = {}) {
+function harness(store: AntigravitySessionStore, script: Script, options: { activity?: TurnActivityStore; ask?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer>; level?: "read-only" | "ask" | "full"; resumeFails?: boolean; cachedModels?: AcpSelectOption[]; billing?: "subscription" | "api-key"; cancelPrompts?: () => void } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const sessions: FakeSession[] = [];
   const reportedModels: AcpSelectOption[][] = [];
@@ -64,10 +65,11 @@ function harness(store: AntigravitySessionStore, script: Script, options: { acti
     store,
     openSession: async (input) => { const session = new FakeSession(input, script, options.resumeFails); sessions.push(session); return session; },
     onEvent: (event) => events.push(event),
+    cancelPrompts: options.cancelPrompts,
     ...(options.cachedModels ? { cachedModels: async () => options.cachedModels! } : {}),
     ...(options.billing ? { billing: () => options.billing } : {}),
     onModels: (models) => reportedModels.push([...models]),
-    ask: options.ask as never,
+    ask: options.ask,
     ...(options.activity ? { activity: options.activity } : {}),
     projectName: "repo",
     permissionLevel: () => options.level ?? "full",
@@ -82,6 +84,23 @@ const reply = (text: string): Script => async (_blocks, session) => {
 };
 
 describe("AntigravityThreadRuntimeBackend", () => {
+  it("retains an ACP tool after its parent turn and consumes a late result in the following turn", async () => {
+    let turns = 0;
+    const { backend, sessions } = harness(await scratchStore(), (_blocks, session) => {
+      if (turns++ === 0) session.update({ sessionUpdate: "tool_call", toolCallId: "background", kind: "execute", status: "in_progress", rawInput: { command: "npm test" } });
+      return { stopReason: "end_turn" };
+    });
+    await backend.start("create");
+    try {
+      await backend.prompt({ text: "Start tests", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()).toHaveLength(1);
+      sessions[0]!.update({ sessionUpdate: "tool_call_update", toolCallId: "background", status: "failed", rawOutput: "Tests failed" });
+      expect(backend.capabilities.background!.current()[0]?.state).toBe("reported");
+      await backend.prompt({ text: "Handle the failed tests", delivery: "prompt" });
+      expect(backend.capabilities.background!.current()).toEqual([]);
+    } finally { await backend.dispose(); }
+  });
+
   it("creates a session on the first turn, streams the answer as events, keeps usage, and resumes the session next time", async () => {
     const store = await scratchStore();
     const { backend, events, sessions } = harness(store, reply("hello there"));
@@ -250,4 +269,34 @@ describe("AntigravityThreadRuntimeBackend", () => {
     expect(shown.map((message) => message.id)).toContain(entry!.anchorMessageId);
     expect((await second.backend.transcript()).map((message) => message.id)).toEqual(shown.map((message) => message.id));
   });
+});
+
+it.each(["approval", "form"])("withdraws an open %s request after process exit and reconnects", async (kind) => {
+  const dialogs = backendPrompts("thread");
+  let turns = 0;
+  const { backend, sessions } = harness(await scratchStore(), async (_blocks, session) => {
+    if (turns++ === 0) {
+      if (kind === "form") await session.input.onElicitation!({ sessionId: "acp-1", ...{ message: "Details", requestedSchema: { type: "object", properties: { first: { type: "string" }, second: { type: "string" } } } } });
+      else await session.input.onPermission({ sessionId: "acp-1", toolCall: { toolCallId: "edit", kind: "edit", title: "Edit file", locations: [{ path: "/repo/a.ts" }] }, options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }] });
+    }
+    return { stopReason: "end_turn" };
+  }, { level: "ask", ask: dialogs.ask, cancelPrompts: dialogs.cancelPrompts });
+  await backend.start("create");
+  try {
+    const running = backend.prompt({ text: "Edit file", delivery: "prompt" });
+    await dialogs.opened;
+    expect(dialogs.ui.hasOpen("thread")).toBe(true);
+    sessions[0]!.closed = true;
+    sessions[0]!.input.onExit(new Error("process exited"));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(dialogs.ui.hasOpen("thread")).toBe(false);
+    await running;
+    expect(dialogs.ui.replay()).toEqual([]);
+    expect(dialogs.answers).toEqual([{ cancelled: true }]);
+    expect(backend.state().idle).toBe(true);
+    await backend.dispose();
+    await backend.start("resume");
+    await backend.prompt({ text: "Continue", delivery: "prompt" });
+    expect(sessions).toHaveLength(2);
+  } finally { await backend.dispose(); }
 });

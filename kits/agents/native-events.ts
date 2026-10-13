@@ -3,6 +3,13 @@ import type { ThreadRuntimeEvent, UiToolRun } from "tau/host-extension";
 export const NATIVE_AGENT_TOOL = "tau_native_subagent";
 export type NativeAgentStatus = "running" | "waiting" | "idle" | "completed" | "failed" | "cancelled";
 
+/** A return is a separate point in the parent's chat; resuming keeps earlier returns. */
+export interface NativeAgentReport {
+  id: string;
+  timestamp: number;
+  status: "completed" | "failed" | "cancelled";
+}
+
 /** One step of a native child's run as its view lists it: a reply, a tool it called, or an error. */
 export interface NativeAgentEntry {
   id: string;
@@ -31,6 +38,7 @@ export function toolDetail(input: Record<string, unknown>): string | undefined {
 export class NativeAgentTracker {
   private readonly agents = new Map<string, UiToolRun>();
   private readonly entries = new Map<string, Map<string, NativeAgentEntry>>();
+  private reportSequence = 0;
   constructor(private readonly runtime: string, private readonly now = Date.now) {}
 
   has(id: string): boolean { return this.agents.has(id); }
@@ -42,13 +50,21 @@ export class NativeAgentTracker {
     const terminal = previousStatus === "failed" || previousStatus === "cancelled" || previousStatus === "completed";
     const status = change.status === "idle" && terminal ? previousStatus : change.status ?? previousStatus ?? "running";
     const running = status === "running" || status === "waiting";
+    const reports = (previous?.args.reports ?? []) as NativeAgentReport[];
+    const returned = previous?.status === "running" && !running;
+    const timestamp = this.now();
+    const report: NativeAgentReport | undefined = returned ? {
+      id: String(++this.reportSequence), timestamp,
+      status: status === "failed" || status === "cancelled" ? status : "completed",
+    } : undefined;
     const tool: UiToolRun = {
       id: `native-agent:${this.runtime}:${id}`, name: NATIVE_AGENT_TOOL, kind: "subagent",
-      args: { agentId: id, runtime: this.runtime, title: id, ...previous?.args, ...change, agentStatus: status },
+      args: { agentId: id, runtime: this.runtime, title: id, ...previous?.args, ...change, agentStatus: status,
+        ...(report ? { reports: [...reports, report].slice(-32) } : {}) },
       status: running ? "running" : status === "failed" ? "error" : "done",
-      startedAt: previous?.startedAt ?? this.now(),
+      startedAt: previous?.startedAt ?? timestamp,
       ...(previous?.output ? { output: previous.output } : {}),
-      ...(!running ? { endedAt: previous?.status !== "running" ? previous?.endedAt ?? this.now() : this.now() } : {}),
+      ...(!running ? { endedAt: previous?.status !== "running" ? previous?.endedAt ?? timestamp : timestamp } : {}),
     };
     this.agents.set(id, tool);
     // Upserts retain one card across child turns and background completions.
@@ -69,6 +85,19 @@ export class NativeAgentTracker {
 
   interrupt(): ThreadRuntimeEvent[] {
     return [...this.agents].flatMap(([id, agent]) => agent.status === "running" ? this.update(id, { status: "cancelled" }) : []);
+  }
+
+  fail(error: string): ThreadRuntimeEvent[] {
+    return [...this.agents].flatMap(([id, agent]) => agent.status === "running"
+      ? [...this.text(id, "error", error), ...this.update(id, { status: "failed" })]
+      : []);
+  }
+
+  /** Includes foreground children so the host can route their stop buttons. */
+  tasks(): Array<{ id: string; kind: "agent"; label: string; startedAt: number }> {
+    return [...this.agents.values()].flatMap((agent) => agent.status === "running" && typeof agent.args.taskId === "string"
+      ? [{ id: agent.args.taskId, kind: "agent" as const, label: String(agent.args.title), startedAt: agent.startedAt }]
+      : []);
   }
 
   private record(id: string, entry: NativeAgentEntry): ThreadRuntimeEvent[] {

@@ -9,7 +9,7 @@ The first builds of Tau set out to prove that Pi can stay the agent runtime whil
 - optional Working section on desktop and web: enable **Separate working threads** in Settings → Thread rail to collect running active threads until they finish, fail or need an answer or approval. It starts off; pinned, snoozed, settled and archived threads keep their sections, and manual order and sibling groups stay saved. Connected machines use their reported activity. The compact phone list keeps its current layout
 - searchable recent-project modal (`Cmd/Ctrl+P`) and extension-provided add-project sources
 - working local-folder and Git-clone project flows, plus thread search (`/`)
-- find in the thread (`Cmd/Ctrl+F` or `/` in the transcript) searches the whole history, also turns not loaded yet and a reply's plan: it starts at the newest match (Enter goes to the next older one, Shift+Enter back), loads older turns on the way, marks the words in the text and the row it stands on
+- find in the thread (`Cmd/Ctrl+F`, also from the composer, or `/` in the transcript) searches the whole history, also turns not loaded yet and a reply's plan: it starts at the newest match (Enter goes to the next older one, Shift+Enter back), loads older turns on the way, marks the words in the text and the row it stands on
 - a quote sent from a reply or a terminal reads as a chip above the message (what you wrote about it, else the start of the quote); a click opens the source, the quote and your comment, and "Go to source" jumps to the cited reply
 - file index marked with the working tree's changes, and a Signals event stream
 - full-window diff review (`Cmd/Ctrl+Shift+D`) with unified and split views, driven by a real `git diff`
@@ -85,7 +85,8 @@ confirmed when the run ended without a verdict. Click the pill for the
 objective, tokens and turns, and to pause, resume or end it; `/goal pause`,
 `/goal resume` and `/goal end` do the same from the keyboard.
 
-**Stop** (or Escape) stops the turn and pauses a Codex goal before its next
+**Stop** (or Escape, except over an open tool approval, where Escape denies it
+and the run goes on) stops the turn and pauses a Codex goal before its next
 turn starts. Claude Code cannot pause a goal: Stop ends the turn and the goal
 stays set until you end it. A line under the stopped turn says what Stop
 ended, and whether anything may still wake the thread. After a restart a Codex
@@ -222,3 +223,14 @@ secret store and kept out of agent messages. A tool's pending request appears
 above the composer without taking an unsent draft. Stop or Decline ends it.
 Automation management and private-key entry use the host's own window; paired
 devices can inspect jobs and open their threads. See [Scheduling](scheduling.md).
+
+## Delegate on another runtime or model
+
+Every thread can start a child with `tau_spawn_thread`, choosing `runtime`
+and `model` from the composer catalog or an agent definition. A runtime with
+native subagents uses them for its own runtime and model; the server asks for
+native delegation when those settings match. A different runtime or model
+starts a Tau child, shown in the Agents panel with its runtime icon. Git
+projects use an isolated worktree by default. Results wake the parent; changes
+are applied separately. An independent conversation requires an explicit user
+request through `tau_create_thread`.

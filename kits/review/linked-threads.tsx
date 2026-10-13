@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore, type KeyboardEvent 
 import { createPortal } from "react-dom";
 import { Check, MessageSquare } from "lucide-react";
 import { Dialog, Menu, errorMessage, useThreadStore, type ThreadStore, type UiSession, type WorkbenchActions } from "tau";
+import { requestNumber } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 
@@ -80,7 +81,7 @@ export function ThreadPicker({ url, linkedThreads, client, rows, onClose, notify
   client: PullRequestClient;
   rows: ThreadLinkRows;
   onClose(): void;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const store = useThreads();
   const threads = useThreadList(store);
@@ -101,7 +102,7 @@ export function ThreadPicker({ url, linkedThreads, client, rows, onClose, notify
     try {
       const result = await client.link(thread.id, url, thread.projectPath);
       void rows.load(thread.id);
-      notify(result.alreadyLinked ? `#${result.link.number} is already linked to “${thread.title}”.` : `Linked #${result.link.number} to “${thread.title}”.`);
+      notify(result.alreadyLinked ? `${requestNumber(result.link.service, result.link.number)} is already linked to “${thread.title}”.` : `Linked ${requestNumber(result.link.service, result.link.number)} to “${thread.title}”.`);
       onClose();
     } catch (error) {
       setFailure(errorMessage(error));

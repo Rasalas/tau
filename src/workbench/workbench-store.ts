@@ -59,7 +59,7 @@ export interface WorkbenchStorePorts {
   hostSession: HostSessionState;
   newThread: WorkbenchNewThreadPort;
   turn: TranscriptTurnPort;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }
 
 /**
@@ -200,7 +200,7 @@ export class WorkbenchStore {
       return undefined;
     }
     if (update.type === "catalog") {
-      if (update.catalog.model?.provider) threads.setThreadModelProvider(threads.getSnapshot().activeThreadId, update.catalog.model.provider, update.catalog.model.id);
+      if (update.catalog.model?.provider) threads.setThreadModelProvider(update.catalog.sessionId ?? threads.getSnapshot().activeThreadId, update.catalog.model.provider, update.catalog.model.id);
       // The history cache is the base a later thread detail merges onto, so it
       // has to take the catalog too; otherwise the next detail restores the
       // model the thread had before this change.
@@ -235,7 +235,7 @@ export class WorkbenchStore {
       return undefined;
     }
     if (update.type === "run") threads.setThreadRunning(update.sessionId, update.event === "started");
-    if (update.type === "error") this.ports.notify(update.message);
+    if (update.type === "error") this.ports.notify(update.message, "error");
     return undefined;
   };
 

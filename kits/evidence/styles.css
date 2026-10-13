@@ -17,7 +17,7 @@
 .evidence-card-meta.compact { display: none; }
 .evidence-card-paused {
   flex: none; border-radius: var(--radius-pill); padding: 2px 8px;
-  background: var(--warn-chip); color: var(--warn); font: 600 10.5px var(--sans);
+  background: var(--warn-chip); color: var(--warn); font: 600 var(--text-2xs) var(--sans);
 }
 .evidence-card-actions { margin-left: auto; display: flex; gap: 2px; flex: none; }
 /* A narrow chat keeps the count readable: Save video keeps only its icon. */
@@ -50,7 +50,7 @@
 .evidence-thumb:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .evidence-mark {
   position: absolute; left: 4px; bottom: 4px; padding: 1px 6px; border-radius: 4px;
-  background: var(--stage); color: var(--muted); font: 10.5px var(--mono);
+  background: var(--stage); color: var(--muted); font: var(--text-2xs) var(--mono);
 }
 
 /* The viewer: the whole window, dark in either theme, so pictures read true. */
@@ -85,7 +85,7 @@
 .evidence-nav.next { left: auto; right: 12px; }
 .evidence-nav:disabled { opacity: .35; cursor: default; }
 .evidence-viewer-side { min-height: 0; display: flex; flex-direction: column; gap: 10px; color: var(--media-muted); font-size: 12.5px; }
-.evidence-viewer-at { font-size: 11px; color: var(--media-muted); }
+.evidence-viewer-at { font-size: var(--text-2xs); color: var(--media-muted); }
 .evidence-actions { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .evidence-actions button {
   display: flex; gap: 8px; width: 100%; padding: 0; border: 0; background: transparent;
@@ -93,9 +93,9 @@
 }
 .evidence-actions button:hover { color: var(--media-ink); }
 .evidence-actions li[aria-current] button { color: var(--media-ink); font-weight: 600; }
-.evidence-time { flex: none; width: 34px; color: var(--media-faint); font: 400 11px/1.6 var(--mono); }
-.evidence-viewer-where { margin: 0; color: var(--media-faint); font-size: 11px; overflow-wrap: anywhere; }
-.evidence-viewer-note { margin: auto 0 0; color: var(--media-muted); font-size: 11px; line-height: 1.5; }
+.evidence-time { flex: none; width: 34px; color: var(--media-faint); font: 400 var(--text-2xs)/1.6 var(--mono); }
+.evidence-viewer-where { margin: 0; color: var(--media-faint); font-size: var(--text-2xs); overflow-wrap: anywhere; }
+.evidence-viewer-note { margin: auto 0 0; color: var(--media-muted); font-size: var(--text-2xs); line-height: 1.5; }
 .evidence-viewer-foot { display: flex; align-items: center; gap: 12px; padding: 14px 18px 16px; }
 .evidence-play {
   flex: none; width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 50%;
@@ -106,9 +106,9 @@
 .evidence-tick { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .evidence-tick .evidence-thumb { width: 84px; height: 52px; background: var(--media-well); }
 .evidence-tick .evidence-thumb.active { box-shadow: 0 0 0 2px var(--acid); }
-.evidence-tick .evidence-time { width: auto; font-size: 10px; line-height: 1.2; color: var(--media-muted); }
+.evidence-tick .evidence-time { width: auto; font-size: var(--text-2xs); line-height: 1.2; color: var(--media-muted); }
 .evidence-tick .evidence-thumb.active + .evidence-time { color: var(--media-ink); }
-.evidence-viewer-hint { flex: none; color: var(--media-muted); font-size: 11px; }
+.evidence-viewer-hint { flex: none; color: var(--media-muted); font-size: var(--text-2xs); }
 
 /* A phone: the card as in the design, Play as the one action; the viewer full screen with touch-sized controls. */
 body[data-profile="compact"] .evidence-card { gap: 8px; }

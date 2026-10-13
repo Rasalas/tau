@@ -152,6 +152,18 @@ describe.skipIf(!posix).each([
     expect(thorough.every((row) => row.certain)).toBe(true);
   });
 
+  it.each(["", "local edit\n", "local!\n"])("keeps differing local content %j on the first download", async (content) => {
+    put(w.local, "css/site.css", content);
+    expect(await loadMirrorState(w.store, key, w.mirror)).toBeUndefined();
+
+    const { outcome, state } = await pull(w, fs);
+
+    expect(readFileSync(join(w.local, "css/site.css"), "utf8")).toBe(content);
+    expect(outcome.kept).toEqual(["css/site.css"]);
+    expect(outcome.failed).toEqual([]);
+    expect((await w.mirror.readBlob(state.entries.get("css/site.css")!.oid)).toString("utf8")).toBe("body{}\n");
+  });
+
   it("downloads again without losing local work, and overwrites only when asked", async () => {
     await pull(w, fs);
     writeFileSync(join(w.local, "css/site.css"), "local edit\n");

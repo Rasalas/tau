@@ -30,13 +30,20 @@ export function paletteScope(query: string): { scope: PaletteScope; text: string
 /** Rows a source may put in one list; the rest is the source's own view's business. */
 export const PALETTE_SOURCE_LIMIT = 8;
 
-/** 3: the label starts with the query, 2: contains it, 1: only group or extension does, 0: no match. */
+/**
+ * 4: the label starts with the query, 3: contains it, 2: holds every word of it
+ * in any order, 1: only with the group or extension name, 0: no match.
+ */
 export function scoreCommand(command: PaletteCommand, needle: string): number {
-  if (!needle) return 1;
-  const index = command.label.toLowerCase().indexOf(needle);
-  if (index === 0) return 3;
-  if (index > 0) return 2;
-  return `${command.group} ${command.extensionName}`.toLowerCase().includes(needle) ? 1 : 0;
+  const words = needle.split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return 1;
+  const label = command.label.toLowerCase();
+  const index = label.indexOf(needle);
+  if (index === 0) return 4;
+  if (index > 0) return 3;
+  if (words.every((word) => label.includes(word))) return 2;
+  const haystack = `${label} ${command.group} ${command.extensionName}`.toLowerCase();
+  return words.every((word) => haystack.includes(word)) ? 1 : 0;
 }
 
 /** Ranked, then grouped in first-appearance order, so the ranking still drives the layout. */

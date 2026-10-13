@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { UiRuntimeCatalog } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { renderApp } from "../../src/renderer/test-support/render-app.js";
 import { workspaceHostStub } from "../../src/renderer/test-support/workspace-host-stub.js";
@@ -9,27 +10,50 @@ import { workspaceExtension } from "./desktop.js";
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
+interface Start {
+  isRepo: boolean;
+  messageCount: number;
+  /** More the window's workspace info says, as a private "No project" folder does. */
+  info?: Record<string, unknown>;
+  /** Whether the start folder is already a listed project; a ready runtime then opens a draft over the start screen. */
+  listed?: boolean;
+  /** The runtimes the host offers and what each one's catalog says; absent: Pi alone, with the model above. */
+  runtimes?: Array<{ backend: { kind: string; label: string }; catalog?: Omit<UiRuntimeCatalog, "kind" | "thinkingLevels"> }>;
+}
+
 /** A window on the host's empty start session in `/home/me`, with `messageCount` messages in its only thread. */
-function start({ isRepo, messageCount }: { isRepo: boolean; messageCount: number }) {
+function start({ isRepo, messageCount, info, listed = true, runtimes }: Start) {
+  const openProject = vi.fn(async () => ({ version: 1 as const, updates: [] }));
+  const createScratch = vi.fn(async () => ({ workspaceId: "ws:scratch", displayPath: "/state/scratch/1" }));
+  const getWorkspaceInfo = vi.fn(async () => ({ root: "/home/me", isRepo, isDirty: false, worktrees: [], refs: [], ...info }));
+  const runtimeCatalogs = vi.fn(async () => (runtimes ?? []).flatMap(({ backend, catalog }) => catalog ? [{ kind: backend.kind, thinkingLevels: {}, ...catalog }] : []));
+  const model = { provider: "anthropic", id: "haiku", name: "Haiku" };
   const client = createFakeHostClient({
     bootstrap: async () => ({
       version: 1,
       threadIndex: {
-        projects: [{ path: "/home/me", name: "me", lastOpenedAt: 1 }],
+        projects: listed ? [{ path: "/home/me", name: "me", lastOpenedAt: 1 }] : [],
         sessions: [{ id: "start", path: "/start.jsonl", title: "New thread", modifiedAt: 1, projectPath: "/home/me", projectName: "me", messageCount }],
       },
       detail: { sessionId: "start", messages: [], isStreaming: false, activeTools: [] },
-      catalog: { sessionId: "start", models: [{ provider: "anthropic", id: "haiku", name: "Haiku" }], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+      catalog: {
+        sessionId: "start", models: runtimes ? [] : [model], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true,
+        ...(runtimes ? { backendKind: "pi", runtimeBackends: runtimes.map((runtime) => runtime.backend) } : {}),
+      },
       project: { cwd: "/home/me" },
     }),
+    runtimeCatalogs,
+    openProject,
     invokeHostExtension: workspaceHostStub({
       listEditors: async () => [],
       getChanges: async () => ({ files: [], added: 0, removed: 0 }),
-      getWorkspaceInfo: async () => ({ root: "/home/me", isRepo, isDirty: false, worktrees: [], refs: [] }),
+      getWorkspaceInfo,
       getFileTree: async () => [],
+      createScratch,
     }),
   });
   renderApp(client, { storage: createMemoryStorage(), extensions: [workspaceExtension] });
+  return { openProject, createScratch, getWorkspaceInfo, runtimeCatalogs };
 }
 
 describe("a fresh install (2a)", () => {
@@ -49,6 +73,69 @@ describe("a fresh install (2a)", () => {
     await screen.findByRole("heading", { name: "Open a project to start" });
     fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Open a project to start" })).toBeNull());
+  });
+
+  it("starts a thread in a private folder without a project, in one click", async () => {
+    const { createScratch, openProject } = start({ isRepo: false, messageCount: 0 });
+    fireEvent.click(await screen.findByRole("button", { name: "Start without a project" }));
+    await waitFor(() => expect(openProject).toHaveBeenCalledWith("ws:scratch"));
+    expect(createScratch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask for a project in the private folder it started in", async () => {
+    const { getWorkspaceInfo } = start({ isRepo: false, messageCount: 0, info: { projectless: true } });
+    await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalled());
+    await act(async () => undefined);
+    expect(document.querySelector(".fresh-start")).toBeNull();
+  });
+
+  it("calls any folder a project, as the folder picker does", async () => {
+    start({ isRepo: false, messageCount: 0 });
+    await screen.findByRole("heading", { name: "Open a project to start" });
+    expect(document.querySelector(".fresh-start-lede")?.textContent).toBe("A project is any folder on this computer. A git repo adds worktrees and reviews.");
+  });
+
+  it("names the runtimes that are ready, not the models Pi lists", async () => {
+    start({
+      isRepo: false,
+      messageCount: 0,
+      listed: false,
+      runtimes: [
+        { backend: { kind: "pi", label: "Pi" }, catalog: { models: [] } },
+        { backend: { kind: "acme", label: "Acme" }, catalog: { models: [{ provider: "acme", id: "one", name: "One" }] } },
+      ],
+    });
+    await screen.findByRole("heading", { name: "Open a project to start" });
+    await waitFor(() => expect(document.querySelector(".fresh-start-providers > span:last-child")?.textContent).toBe("Acme connected · add more"));
+  });
+
+  it("says no agent is set up once every runtime has answered, and not before", async () => {
+    const { runtimeCatalogs } = start({
+      isRepo: false,
+      messageCount: 0,
+      listed: false,
+      runtimes: [
+        { backend: { kind: "pi", label: "Pi" }, catalog: { models: [] } },
+        { backend: { kind: "acme", label: "Acme" }, catalog: { models: [], status: "sign-in-required", note: "Sign in first." } },
+        { backend: { kind: "other", label: "Other" } },
+      ],
+    });
+    await screen.findByRole("heading", { name: "Open a project to start" });
+    // Another runtime has not answered: the row does not claim there is nothing.
+    await waitFor(() => expect(runtimeCatalogs).toHaveBeenCalled());
+    await act(async () => undefined);
+    expect(document.querySelector(".fresh-start-providers")).toBeNull();
+    cleanup();
+    start({
+      isRepo: false,
+      messageCount: 0,
+      listed: false,
+      runtimes: [
+        { backend: { kind: "pi", label: "Pi" }, catalog: { models: [] } },
+        { backend: { kind: "acme", label: "Acme" }, catalog: { models: [], status: "sign-in-required", note: "Sign in first." } },
+      ],
+    });
+    await waitFor(() => expect(document.querySelector(".fresh-start-providers > span:last-child")?.textContent).toBe("No agent is set up yet · set one up"));
   });
 
   it("stays out of a repository and of a window that already has a thread", async () => {

@@ -251,7 +251,7 @@ async function exercise(url, token, fingerprint, label) {
 
   const resumed = createClient(url, token, fingerprint);
   await resumed.opened;
-  const replay = await resumed.hello(lastSeq);
+  const replay = await resumed.hello(lastSeq, { bootId: hello.bootId });
   if (replay.resync) fail("the host asked for a resync although the buffer still reached back");
   if (replay.missed.length === 0) fail("no missed pushes were replayed");
   const sequences = replay.missed.map((push) => push.seq);
@@ -426,7 +426,7 @@ const WRITES = [
   ["steer", ["x"]], ["follow-up", ["x"]], ["queue-message", ["s", "x"]], ["new-session", []], ["abort", [undefined]],
   ["rename-thread", ["Renamed by a Read-only device"]], ["set-model", ["p", "m"]], ["set-thinking", ["high"]], ["set-mode", ["plan"]],
   ["run-shell-action", ["echo hi"]], ["update-config", [{}]], ["clear-config", [[]]], ["open-project", ["/"]], ["remove-project", ["/"]],
-  ["add-model-provider", [{}]], ["reload-runtime", []], ["compact-context", []], ["answer-extension-ui", ["id", {}]],
+  ["add-model-provider", [{}]], ["reload-runtime", []], ["compact-context", []], ["compact-and-send", ["id", { text: "next", attachments: [] }]], ["answer-extension-ui", ["id", {}]],
   ["host-extension-active", ["tau.terminal", false]], ["extension-grant", ["tau.terminal", true]], ["copy-text", ["x"]],
   ["start-job", ["prompt", ["x"]]],
 ];

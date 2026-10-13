@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { authenticationFailure } from "./auth-failure.js";
 import type { ThreadRuntimeEvent, UiContextUsage, UiMessage, UiThreadUsage, UiToolRun, UsageTally } from "tau/host-extension";
 
 /** Matches the host's own bound for a tool card; the durable result stays with Claude's session. */
@@ -199,7 +200,8 @@ export class SdkTurnTranslator {
   readonly running = new Map<string, UiToolRun>();
   outcome?: TurnOutcome;
   private assistantId?: string;
-  private assistantStarted = false;
+  /** When the streaming message began; its row keeps that place and time, as Pi's does. */
+  private assistantStartedAt: number | undefined;
   private texts: string[] = [];
   private sawAssistant = false;
   private readonly noticed = new Set<string>();
@@ -244,15 +246,15 @@ export class SdkTurnTranslator {
     const event = message.event as { type: string; delta?: { type?: string; text?: string; thinking?: string } };
     if (event.type === "message_start") {
       this.assistantId = this.nextId();
-      this.assistantStarted = false;
+      this.assistantStartedAt = undefined;
       return [];
     }
     if (event.type !== "content_block_delta" || !event.delta) return [];
     const id = this.assistantId ??= this.nextId();
     const events: ThreadRuntimeEvent[] = [];
-    if (!this.assistantStarted && (event.delta.type === "text_delta" || event.delta.type === "thinking_delta")) {
-      this.assistantStarted = true;
-      events.push({ type: "assistant-start", id, timestamp: this.now() });
+    if (this.assistantStartedAt === undefined && (event.delta.type === "text_delta" || event.delta.type === "thinking_delta")) {
+      this.assistantStartedAt = this.now();
+      events.push({ type: "assistant-start", id, timestamp: this.assistantStartedAt });
     }
     if (event.delta.type === "text_delta" && event.delta.text) events.push({ type: "assistant-delta", id, delta: event.delta.text });
     else if (event.delta.type === "thinking_delta" && event.delta.thinking) events.push({ type: "assistant-thinking", id, delta: event.delta.thinking });
@@ -277,11 +279,12 @@ export class SdkTurnTranslator {
     const text = content.filter((block) => block.type === "text").map((block) => (block as { text: string }).text).join("\n\n").trim();
     const thinking = content.filter((block) => block.type === "thinking").map((block) => (block as { thinking: string }).thinking).join("\n\n").trim();
     const id = this.assistantId ?? this.nextId();
+    const startedAt = this.assistantStartedAt;
     this.assistantId = undefined;
-    this.assistantStarted = false;
+    this.assistantStartedAt = undefined;
     if (text || thinking) {
       this.texts.push(text);
-      const ui: UiMessage = { id, role: "assistant", text, timestamp: this.now(), ...(thinking ? { thinking } : {}) };
+      const ui: UiMessage = { id, role: "assistant", text, timestamp: startedAt ?? this.now(), ...(thinking ? { thinking } : {}) };
       // Tool cards belong after the text that announced them; the host appends in order.
       events.unshift({ type: "assistant-end", message: ui });
     }
@@ -320,7 +323,7 @@ export class SdkTurnTranslator {
       const tallies = resultTallies(message, this.facts.model);
       this.outcome = interruptedResult(message)
         ? { texts: this.texts, usage: resultUsage(message), tallies, interrupted: true }
-        : { texts: this.texts, usage: resultUsage(message), tallies, error: this.compactionError ?? resultErrorText(message), ...(limit ? { limit } : {}) };
+        : { texts: this.texts, usage: resultUsage(message), tallies, error: authenticationFailure(message)?.message ?? this.compactionError ?? resultErrorText(message), ...(limit ? { limit } : {}) };
       return [];
     }
     // A resumed session answers with an empty result before the turn. A compaction's result has no reply
@@ -372,9 +375,10 @@ export class SdkTurnTranslator {
       }];
     }
     if (subtype === "status") {
-      const status = message as { compact_result?: string; compact_error?: string };
+      const status = message as { status?: string | null; compact_result?: string; compact_error?: string };
       if (status.compact_result === "failed") this.compactionError = `Compaction failed${status.compact_error ? `: ${status.compact_error}` : "."}`;
-      return [];
+      return status.status === "compacting" || status.status === null
+        ? [{ type: "context-compaction", running: status.status === "compacting" }] : [];
     }
     if (subtype === "permission_denied") {
       const denied = message as { tool_name?: string; reason?: string };

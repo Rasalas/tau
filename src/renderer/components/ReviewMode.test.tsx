@@ -100,6 +100,25 @@ describe("ReviewMode", () => {
     expect(screen.getByRole("link", { name: "PR #42" }).getAttribute("href")).toBe("https://github.com/acme/tau/pull/42");
   });
 
+  it("groups its switches and presses the one in use, so none reads as a tab or an unnamed row of buttons", () => {
+    render(withStorage(<ReviewMode
+      changes={worktree}
+      busy={false}
+      primaryPush={false}
+      onSelect={() => undefined}
+      onBack={() => undefined}
+      onCommit={() => undefined}
+      onOpenInEditor={() => undefined}
+      loadChanges={async () => branch}
+      loadDiff={async (path) => ({ path, added: 1, removed: 0, hunks: [] })}
+    />));
+    expect(screen.queryByRole("tablist")).toBeNull();
+    const scope = screen.getByRole("group", { name: "Review scope" });
+    expect(within(scope).getByRole("button", { name: "Working tree", pressed: true })).toBeTruthy();
+    expect(within(scope).getByRole("button", { name: "Branch vs target", pressed: false })).toBeTruthy();
+    for (const name of ["Diff context", "Diff layout"]) expect(within(screen.getByRole("group", { name })).getAllByRole("button", { pressed: true })).toHaveLength(1);
+  });
+
   it("carries the Changes panel's staging, sections and rescan in the file list", async () => {
     const stage = vi.fn();
     const stageAll = vi.fn();
@@ -191,10 +210,18 @@ describe("ReviewMode", () => {
     expect(screen.queryByRole("button", { name: "More ways to commit" })).toBeNull();
     const field = screen.getByRole("textbox", { name: "Commit message" });
     fireEvent.change(field, { target: { value: "" } });
-    expect((screen.getByRole("button", { name: "Commit" }) as HTMLButtonElement).disabled).toBe(true);
+    const commit = screen.getByRole("button", { name: "Commit" }) as HTMLButtonElement;
+    expect(commit.disabled).toBe(true);
+    // The button says why it waits; the chord, which has no button to hover, says it in the bar.
+    expect(commit.dataset.tooltip).toBe("Write a commit message first.");
+    const bar = screen.getByRole("region", { name: "Commit" });
+    expect(bar.querySelector(".review-commit-note")).toBeNull();
     fireEvent.keyDown(field, { key: "Enter", metaKey: true });
     expect(onCommit).not.toHaveBeenCalled();
+    expect(bar.querySelector(".review-commit-note")?.textContent).toContain("Write a commit message first.");
     fireEvent.change(field, { target: { value: "Fix a" } });
+    expect(bar.querySelector(".review-commit-note")).toBeNull();
+    expect(commit.dataset.tooltip).toBeUndefined();
     fireEvent.keyDown(field, { key: "Enter", ctrlKey: true });
     expect(onCommit).toHaveBeenCalledWith("Fix a", false);
   });

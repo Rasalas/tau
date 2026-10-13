@@ -167,7 +167,7 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle, onSto
       </span>
       <RowStatus row={row} {...(canStopRow(row) && !readOnly ? { onStop } : {})} />
       <span className="agent-row-model">
-        {provider ? <ProviderIconStack modelProvider={provider} runtimeMark={false} name={shortModel(row.model)} hint={{}} /> : null}
+        {provider || row.runtime || row.native?.runtime ? <ProviderIconStack modelProvider={provider} runtimeProvider={row.runtime ?? row.native?.runtime} modelName={shortModel(row.model)} hint={{}} /> : null}
       </span>
       <span className="agent-row-cost">{formatCost(row.costUsd)}</span>
     </button>
@@ -278,7 +278,7 @@ export function AgentsPanel({ actions, canLookIn, placement }: PanelProps & {
     if (!handle) return;
     void agentsHost.invoke?.(outcome === "apply" ? "apply-changes" : "discard-changes", { threadId: handle })
       .then((result) => actions.notify((result as { detail?: string } | undefined)?.detail ?? "Done."))
-      .catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error), "error"));
   }, [actions]);
 
   const stop = useCallback((row: AgentRow) => { void stopAgent(row, actions); }, [actions]);

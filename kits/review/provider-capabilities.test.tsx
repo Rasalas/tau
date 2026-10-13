@@ -77,7 +77,7 @@ describe("what a provider cannot do is hidden", () => {
     expect(screen.queryByRole("button", { name: "Add a label" })).toBeNull();
     expect(screen.getByRole("button", { name: "Request a review" })).toBeTruthy();
     expect(screen.getByText("az repos pr checkout --id 46")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Comment on or review PR #46" }));
+    fireEvent.click(screen.getByRole("button", { name: "Comment on or review PR !46" }));
     fireEvent.click(screen.getByRole("tab", { name: "Review" }));
     expect(screen.getAllByRole("radio").map((radio) => radio.parentElement?.textContent?.trim())).toEqual(["Approve", "Request changes"]);
   });

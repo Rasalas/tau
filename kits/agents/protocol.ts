@@ -159,6 +159,7 @@ export interface AgentMachineRef {
 
 /** One agent a thread spawned, as the tools and the Agents panel see it. */
 export interface AgentThreadLink {
+  runtime?: string;
   /** Stable handle the tools use, valid from the moment the agent is queued. */
   id: string;
   /** The Tau thread behind it, once a slot freed and it started. */

@@ -1,4 +1,6 @@
+import { RequestReceipts } from "./request-receipts.js";
 import { AgentSessionControl } from "./agent-session-control.js";
+import { compactThreadContext } from "./host-compaction.js";
 import { rm } from "node:fs/promises";
 import { promptFiles } from "./prompt-attachments.js";
 import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
@@ -152,6 +154,8 @@ export class PiHost {
   /** Correlates raw Pi user-message events with renderer sends. */
   private readonly clientTurns: ClientTurnLedger;
   private readonly clientMessages: ClientMessageTracker;
+  private readonly promptReceipts = new RequestReceipts<void>();
+  private readonly newThreadReceipts = new RequestReceipts<HostActionResult>();
   private readonly projection: ThreadProjection;
   private readonly extensionUi: ExtensionUiCoordinator;
   /**
@@ -656,6 +660,7 @@ export class PiHost {
   }
 
   private readonly sessionControl = new AgentSessionControl({
+    stopped: (thread) => { this.handleBackendEvent(thread.threadId, { type: "turn-settled", status: "interrupted" }); this.turnsInFlight.clear(thread.threadId); },
     thread: (id) => id ? this.requireThread(id) : this.requireActive(), active: () => this.active,
     isAttached: (thread) => this.ownedByPi(thread), pending: (id) => this.turnObservers.pending(id),
     hasQuestion: (id) => this.extensionUi.hasOpen(id), path: (id) => this.index.byId(id)?.path,
@@ -782,9 +787,8 @@ export class PiHost {
       const activationEpoch = activation.epoch;
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
-        // Recovery belongs to the previous run. Capture its markers before
-        // startup returns and clients can record newly accepted turns.
-        const interruptedTurns = await this.turnsInFlight.load();
+        // Load durable state before extensions or recovery can start a turn.
+        const [interruptedTurns] = await Promise.all([this.turnsInFlight.load(), this.queue.restore(), this.limits.load()]);
         await this.activateHostExtensions();
         // A default backend nobody registered is a configuration error; say so now, not at the first thread.
         if (this.defaultBackendKind !== "pi") this.requireBackend(this.defaultBackendKind);
@@ -810,20 +814,20 @@ export class PiHost {
         this.projects.label(this.cwd);
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
-        // The global index is independent of the active detail. Publish it when
-        // ready rather than making first content wait for every session file.
-        void this.index.refresh("index").then(async () => {
+        // First content does not wait for every session file, unless the previous run left
+        // turns to recover: then no client command may race their reconciliation.
+        const ready = this.index.refresh("index").then(async () => {
           this.recordBackgroundLifecycle("session-index", indexStartedAt);
           this.log("bootstrap.full-ready");
           this.index.startRecovery();
           this.trash.start();
-          // Before anything else is opened for this run: the index is the only
-          // way back to a marked thread's session file.
+          // The index is the only way back to a marked thread's session file.
           await this.reconcileInterruptedTurns(interruptedTurns);
           this.prewarm.scheduleThreads();
           this.catalogs.start();
           this.toolUpdates.start();
         }).catch((error) => this.fail(error));
+        if (interruptedTurns.length) await ready;
         const result = await this.bootstrap();
         this.lifecycleMetrics.end();
         return result;
@@ -1118,9 +1122,9 @@ export class PiHost {
    */
   private async reconcileInterruptedTurns(previousTurns?: readonly InFlightTurn[]): Promise<void> {
     const markers = previousTurns ?? await this.turnsInFlight.load();
-    const { continued } = markers.length === 0 ? { continued: [] } : await reconcileInFlightTurns({
+    const { continued } = await reconcileInFlightTurns({
       markers: () => markers,
-      forget: (sessionId) => this.turnsInFlight.clear(sessionId),
+      forget: (sessionId, turnId) => this.turnsInFlight.clear(sessionId, turnId),
       continueAfterRestart: this.continueThreadsAfterRestart,
       markInterrupted: (sessionId) => this.index.setInterrupted(sessionId, true),
       log: (label, detail) => this.log(label, detail),
@@ -1144,8 +1148,8 @@ export class PiHost {
         } satisfies ReconcilableThread;
       },
     });
-    // A restored queue follows a continuation and waits for the user otherwise.
-    await this.queue.restore(continued);
+    // Accepted continuations release their queue through settlement.started.
+    for (const marker of markers) if (!continued.includes(marker.sessionId)) this.queue.hold(marker.sessionId);
     await this.limits.restore();
   }
 
@@ -1191,6 +1195,10 @@ export class PiHost {
     prepared?: PreparedPrompt,
     configuration?: NewThreadConfiguration,
   ): Promise<HostActionResult> {
+    return this.newThreadReceipts.run("new-thread", clientIdentityForRequest(clientMessageIdOrRequestId)?.clientMessageId, () => this.createSession(initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration));
+  }
+
+  private async createSession(...[initialPrompt, attachments = [], cwd, clientMessageIdOrRequestId, prepared, configuration]: Parameters<PiHost["newSession"]>): Promise<HostActionResult> {
     this.workbenchReload.assertAvailable();
     const requestValue = typeof clientMessageIdOrRequestId === "string" ? clientMessageIdOrRequestId : undefined;
     const requestId = requestValue?.startsWith("new-thread-")
@@ -1334,9 +1342,7 @@ export class PiHost {
       if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd);
       if (visible) void this.publication.publishNewSessionUpdates(activationEpoch, requestId, thread.sessionId);
       if (initialPrompt || attachments.length > 0) {
-        // Delivery is intentionally detached from acceptance. AgentSession may
-        // keep its prompt pending while the renderer has already settled the
-        // submission, and a later correlated failure event reconciles it.
+        // Thread creation settles its receipt before detached prompt admission.
         void (async () => {
           try {
             const preparedThreadId = prepared?.tauThreadId ?? prepared?.sessionId;
@@ -1344,9 +1350,7 @@ export class PiHost {
               ? await thread.backend.preparePrompt(initialPrompt ?? "", prepared && skillDraftOf(prepared, prepared.visibleText))
               : prepared;
             await this.prompt(initialPrompt ?? "", attachments, thread.threadId, identity, deliveryPrepared);
-            // Whether this prompt creates a user turn is decided inside
-            // prompt(), against the text it actually resolved, and reported by
-            // its own event. Do not re-derive it from the request here.
+            // prompt() reports whether its resolved text creates a user turn.
             if (clientMessageId) {
               this.emit({
                 type: "new-thread-delivery-settled",
@@ -1579,6 +1583,11 @@ export class PiHost {
     prepared?: PreparedPrompt,
     options: { hidden?: boolean } = {},
   ): Promise<void> {
+    const id = typeof clientMessageIdOrPreflight === "function" ? undefined : clientIdentityForRequest(clientMessageIdOrPreflight)?.clientMessageId;
+    return this.promptReceipts.run(sessionId ?? this.active?.threadId ?? "", id, () => this.deliverPrompt(text, attachments, sessionId, clientMessageIdOrPreflight, prepared, options));
+  }
+
+  private async deliverPrompt(...[text, attachments = [], sessionId, clientMessageIdOrPreflight, prepared, options = {}]: Parameters<PiHost["prompt"]>): Promise<void> {
     this.workbenchReload.assertAvailable();
     const onPreflightResult = typeof clientMessageIdOrPreflight === "function" ? clientMessageIdOrPreflight : undefined;
     const identity = typeof clientMessageIdOrPreflight === "function"
@@ -1586,9 +1595,9 @@ export class PiHost {
       : clientIdentityForRequest(clientMessageIdOrPreflight);
     const clientMessageId = identity?.clientMessageId;
     const thread = await this.awaitThread(sessionId);
+    if (clientMessageId && this.clientMessages.persistedIds(thread).has(clientMessageId)) return;
     const restartGeneration = thread.restartGeneration;
-    // Freeze the epoch after resolving the thread. A concurrent switch changes
-    // it, and the prompt must not land on a thread that was superseded.
+    // An unnamed prompt must still belong to the active thread after preparation.
     const promptEpoch = this.activationEpoch;
     await this.prompts.assertRuntimeOn(thread);
     // The switch that opened this thread may still be binding its extensions.
@@ -1604,10 +1613,7 @@ export class PiHost {
     // Whatever a restart left behind, this thread is moving again.
     this.settlement.started(thread.threadId);
     if (!thread.backend.capabilities.journal) {
-      // The composer waits for admission, not for the whole turn: a streamed
-      // runtime reports it as soon as the message is on its way, and this call
-      // returns then. What breaks after admission is reported as a failure of
-      // the thread, as on the journal path.
+      // Admission settles the receipt; later errors belong to the running turn.
       const preflight: { state: PromptPreflightState; rejection?: unknown } = { state: "pending" };
       let resolveAdmitted!: () => void;
       const admitted = new Promise<void>((resolve) => { resolveAdmitted = resolve; });
@@ -1621,7 +1627,7 @@ export class PiHost {
       const run = this.turns.toRuntime(thread, text, attachments, "prompt", identity, prepared, (accepted, error) => report({ accepted, ...(error !== undefined ? { error } : {}) }), options.hidden)
         .then(() => report({ accepted: true }), (error) => {
           if (preflight.state === "pending") report({ accepted: false, error });
-          else if (preflight.state === "accepted") this.fail(error, thread.threadId);
+          else if (preflight.state === "accepted" && this.threadFor(thread.threadId) === thread) this.fail(error, thread.threadId);
         });
       await Promise.race([admitted, run]);
       if (preflight.state === "rejected") throw preflight.rejection;
@@ -1629,10 +1635,7 @@ export class PiHost {
       return;
     }
     this.prompts.assertAttachmentInput(thread, attachments);
-    // Resolve the runtime spelling once at the backend boundary. The same
-    // prepared object is then used for marker correlation and delivery, so a
-    // resource-registry change cannot cause host and backend to normalize
-    // different dialects for one turn.
+    // Use the same prepared spelling for marker correlation and delivery.
     const resolvedPrepared = prepared ?? await thread.backend.preparePrompt(text);
     this.sessionControl.assertAvailable(thread.threadId);
     if (this.threadFor(thread.threadId) !== thread || thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the message was being prepared. Send it again.");
@@ -1691,12 +1694,14 @@ export class PiHost {
         onAdmitted: (accepted, error) => reportPreflight({ accepted, ...(error !== undefined ? { error } : {}) }),
       });
       void run.then(async () => {
+        if (this.threads.get(thread.threadId)?.runtime !== thread) return;
         if (preflightState === "pending") reportPreflight({ accepted: true });
         if ((preflightState as PromptPreflightState) === "rejected") return;
         if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
         if (preparedTurnId) await this.turnObservers.ended(thread.threadId, preparedTurnId, "completed");
         if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
       }).catch((error) => {
+        if (this.threads.get(thread.threadId)?.runtime !== thread) return;
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
         else if (preflightState === "accepted") this.turns.failAcceptedTurn(thread, preparedTurnId, error);
       });
@@ -1708,10 +1713,7 @@ export class PiHost {
     // Reaching here means preflight accepted; a rejection throws out of the await.
     await preflight;
     this.log("prompt.accepted", `${prompt.slice(0, 80)}${attachments.length ? ` · ${attachments.length} image(s)` : ""}`);
-    // An extension command is answered without a user message or an agent run.
-    // Its marker would otherwise label the next turn and be reported as a lost
-    // message by agent_settled, and the client would wait for a turn that never
-    // persists.
+    // A command's unused marker must not label the next user turn.
     if (isExtensionCommand && markerActive) {
       if (clientMessageId && this.clientMessages.persistedIds(thread).has(clientMessageId)) {
         this.clientMessages.forget(thread, clientMessageId);
@@ -1784,17 +1786,13 @@ export class PiHost {
 
   threadGoal(sessionId: string, action: GoalAction, objective?: string): Promise<void> { return this.controls.goal(sessionId, action, objective); }
 
-  /**
-   * Stops one thread's run. Its open questions and approvals are settled first:
-   * Pi's abort waits for the run to go idle, and a tool blocked on an unanswered
-   * question would otherwise hold that wait open indefinitely.
-   */
+  /** Settles questions before stopping a run whose abort may wait for idle. */
   private async abortThread(thread: ThreadRuntime): Promise<void> {
     this.extensionUi.cancelFor(thread.threadId);
     thread.adapterAbortGeneration += 1;
     for (const controller of thread.adapterAbortControllers) controller.abort();
     this.queue.hold(thread.threadId);
-    await thread.backend.abort();
+    await this.sessionControl.abort(thread, this.activationEpoch);
   }
 
   async setModel(provider: string, id: string, expectedSessionId?: string): Promise<HostActionResult> {
@@ -1847,9 +1845,9 @@ export class PiHost {
 
   reloadRuntime(): Promise<void> { return this.lifecycle.run("reload-runtime", () => this.sessionControl.reload()); }
 
-  async compactContext(expectedSessionId?: string): Promise<HostActionResult> {
+  async compactContext(expectedSessionId?: string, prompt?: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<HostActionResult> {
     const thread = this.requireThread(expectedSessionId);
-    await requireCapability(thread.backend, "compaction").compact(); this.log("context.compacted");
+    await compactThreadContext(thread, prompt, { queue: this.queue, prompts: this.prompts, emit: this.emit, report: this.report });
     return this.publication.actionResult(thread === this.active ? [await this.publication.publishDetail()] : []);
   }
 

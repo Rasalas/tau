@@ -46,6 +46,7 @@ import { createCheckoutTurns } from "./checkout-turns.js";
 import { countThreadChanges } from "./thread-changes.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 import { HeadWatch } from "./head-watch.js";
+import { readSetupFile, registerProjectApprovals } from "./project-approval-host.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -91,9 +92,9 @@ export { repositoryFolderName } from "./clone-jobs.js";
  * What a repository checks in about new threads. Nothing here is required, and
  * a malformed file is no error: the client's own defaults answer instead.
  */
-export async function readProjectDefaults(project: string): Promise<ProjectDefaults> {
+export async function readProjectDefaults(project: string, text?: string): Promise<ProjectDefaults> {
   try {
-    const raw = JSON.parse(await readFile(join(project, ".tau", "project.json"), "utf8")) as Record<string, unknown>;
+    const raw = JSON.parse(text ?? await readFile(join(project, ".tau", "project.json"), "utf8")) as Record<string, unknown>;
     const mode = raw.workspaceMode;
     const setup = raw.runOnWorktreeCreate;
     const worktreeDirectory = raw.worktreeDirectory;
@@ -189,6 +190,7 @@ export function createWorkspaceHostExtension(): HostExtension {
     ],
     async activate(context: HostExtensionContext) {
       const { services } = context;
+      const approvals = registerProjectApprovals(context);
       // The kit owns the Git cache; core only learns project facts from it.
       const git = new GitCoordinator({ onSubprocess: () => services.noteSubprocess() });
       const labels = new Map<string, string | undefined>();
@@ -258,8 +260,14 @@ export function createWorkspaceHostExtension(): HostExtension {
         } catch (error) {
           services.log("git.worktree.setup-fallback", error instanceof Error ? error.message : String(error));
         }
-        const { runOnWorktreeCreate } = await readProjectDefaults(project);
+        const file = await readSetupFile(project).catch(() => undefined);
+        if (!file) return;
+        const { runOnWorktreeCreate } = await readProjectDefaults(project, file.text);
         if (!runOnWorktreeCreate) return;
+        if (!await approvals.approve(project, file.fingerprint)) {
+          services.log("git.worktree.setup-skipped", "Project setup was not approved.");
+          return;
+        }
         services.noteSubprocess();
         try {
           const setup = worktreeSetupCommand(runOnWorktreeCreate);
@@ -584,7 +592,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("workspace-info", async (input) => {
         const canonical = await services.knownWorkspacePath(workspaceOf(input));
-        if (isScratchWorkspace(services.stateDir, canonical)) return { root: canonical, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: canonical };
+        if (isScratchWorkspace(services.stateDir, canonical)) return { root: canonical, isRepo: false, isDirty: false, worktrees: [], refs: [], worktreeParent: canonical, projectless: true };
         const info = await git.getWorkspaceInfo(canonical);
         // What a client shows is what it asks about, so that is what gets watched.
         if (info.isRepo && process.env.TAU_NO_WATCH !== "1") {
@@ -679,7 +687,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const info = await git.getWorkspaceInfo(project);
         const tree = info.worktrees.find((candidate) => candidate.path === path);
         if (!tree) throw new Error(`${path} is not a worktree of this project.`);
-        return workspaceGit.previewWorktreeRemoval(project, path, tree.branch);
+        return worktrees.storage.previewRemoval(project, path);
       }, { access: "read" });
       context.registerCommand("remove-worktree", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
@@ -690,8 +698,15 @@ export function createWorkspaceHostExtension(): HostExtension {
         const sessions = await services.sessions.list();
         const used = sessions.filter((session) => resolve(session.cwd) === resolve(path)).length;
         if (used > 0) throw new Error(`${used} thread${used === 1 ? "" : "s"} still run in this worktree.`);
-        const branch = optionalString(input, "branch") ?? tree.branch;
-        await workspaceGit.removeWorktree(project, path, branch ? { branch } : {});
+        const preview = await worktrees.storage.previewRemoval(project, path);
+        if (preview.openThreads > 0) throw new Error("A thread is still open in this worktree.");
+        const force = record(input).force === true;
+        const forceBranch = record(input).forceBranch === true;
+        if ((preview.dirtyFiles > 0 || preview.ignoredFiles > 0) && !force) throw new Error("Confirm discarding uncommitted and ignored files before removing this worktree.");
+        if (!preview.branch && preview.unpushedCommits > 0 && !forceBranch) throw new Error("Confirm discarding the detached worktree's unpushed commits before removing it.");
+        const requestedBranch = optionalString(input, "branch");
+        if (requestedBranch && requestedBranch !== preview.branch) throw new Error("The worktree's branch changed; read its removal preview again.");
+        await workspaceGit.removeWorktree(project, path, { ...(preview.branch ? { branch: preview.branch } : {}), force, forceBranch });
         await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
         git.invalidate(project, ["branch", "status", "workspace"]);
         services.log("git.worktree.removed", path);
@@ -744,7 +759,11 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { long: true });
       context.registerCommand("project-defaults", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
-        return readProjectDefaults(project);
+        const file = await readSetupFile(project).catch(() => undefined);
+        if (!file) return {};
+        const defaults = await readProjectDefaults(project, file.text);
+        if (!await approvals.trusted(project, file.fingerprint)) delete defaults.workspaceMode;
+        return defaults;
       }, { access: "read" });
       context.registerCommand("create-branch", async (input) => {
         const project = await shownRoot(input);
@@ -871,7 +890,8 @@ export function createWorkspaceHostExtension(): HostExtension {
               await workspaceGit.runGitCommand(destination, ["read-tree", "--reset", "-u", from.tree]);
               await workspaceGit.runGitCommand(destination, ["reset", "-q"]);
             } catch (error) {
-              await workspaceGit.removeWorktree(project, destination, { branch }).catch(() => undefined);
+              // Made just now for this fork; nothing in it is the user's yet.
+              await workspaceGit.removeWorktree(project, destination, { branch, force: true, forceBranch: true }).catch(() => undefined);
               throw error;
             }
           },
@@ -961,7 +981,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           return { text: undefined };
         }
       });
-      disposers.push(() => worktrees.dispose(), () => clones.dispose());
+      disposers.push(() => worktrees.dispose(), () => clones.dispose(), approvals.dispose);
       return () => { for (const dispose of disposers.reverse()) dispose(); };
     },
   };

@@ -91,12 +91,12 @@ describe("the Pull Requests page", () => {
     const authored = await screen.findByRole("region", { name: "Authored" });
     expect(client.listMany).toHaveBeenCalledWith({ workspaces: ["/cli", "/tools", "/scratch"], state: "open", limit: 100 });
     // mona is the viewer on GitLab, so her request counts as her own.
-    expect(within(authored).getAllByRole("button").map((row) => row.getAttribute("aria-label"))).toContain("#3 " + gitlab.title);
+    expect(within(authored).getAllByRole("button").map((row) => row.getAttribute("aria-label"))).toContain("!3 " + gitlab.title);
     expect(screen.getByRole("button", { name: "Projects: All projects" }).textContent).toContain("All projects · 2 repositories");
     expect(screen.getByText("acme/tools")).toBeTruthy();
     expect(screen.getByLabelText("Stack layer 2 of 3")).toBeTruthy();
     expect(screen.getByText("Not listed: scratch.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /^#3 /u }));
+    fireEvent.click(screen.getByRole("button", { name: /^!3 /u }));
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ ref: expect.objectContaining({ number: 3 }) }), "/tools");
 
     // Grouped by project in the order of their first row, each named as the project list names it.
@@ -105,9 +105,9 @@ describe("the Pull Requests page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Filter pull requests" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Host/u }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "gitlab.com" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "gitlab.com" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /^#14485 /u })).toBeNull());
-    expect(screen.getByRole("button", { name: /^#3 /u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^!3 /u })).toBeTruthy();
   });
 
 
@@ -123,7 +123,7 @@ describe("the Pull Requests page", () => {
     await waitFor(() => expect(tab.setTitle).toHaveBeenCalledWith("PRs · cli"));
 
     fireEvent.click(screen.getByRole("button", { name: "Sort pull requests" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Blocked on me/u }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Blocked on me/u }));
     expect(screen.getByRole("button", { name: "Sort pull requests" }).textContent).toContain("Blocked on me");
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search pull requests" }), { target: { value: "label:blocked" } });
@@ -157,7 +157,8 @@ describe("linking", () => {
   it("reads what the dialog's input names", () => {
     expect(readLinkInput("")).toBeUndefined();
     expect(readLinkInput("#12")).toEqual({ kind: "number", label: "#12 in this thread's repository" });
-    expect(readLinkInput("https://gitlab.com/g/p/-/merge_requests/3")).toEqual({ kind: "url", label: "gitlab.com/g/p #3" });
+    expect(readLinkInput("!12")).toEqual({ kind: "number", label: "!12 in this thread's repository" });
+    expect(readLinkInput("https://gitlab.com/g/p/-/merge_requests/3")).toEqual({ kind: "url", label: "gitlab.com/g/p !3" });
     expect(readLinkInput("https://github.com/o/r/issues/3")).toEqual({ kind: "invalid" });
     expect(readLinkInput("#0")).toEqual({ kind: "invalid" });
   });

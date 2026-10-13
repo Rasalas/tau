@@ -40,18 +40,22 @@ export type GeneralSection = { id: string; card?: SettingsCardId | undefined; or
  * `registerSettingsSection({ page: "general", card })`; Tau's own composer and
  * window settings follow in cards of the same kind.
  */
-export function GeneralPage({ themeHere, sections = [], onNotify = () => undefined }: {
+export function GeneralPage({ themeHere, sections = [], onNotify = () => undefined, detailShortcut }: {
   /** No Appearance page to choose the theme on (safe mode): every theme is offered here. */
   themeHere: boolean;
   sections?: readonly GeneralSection[];
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
+  /** The chord that cycles the transcript detail, as it is bound now; none when it is not. */
+  detailShortcut?: string | undefined;
 }) {
   const preferences = usePreferences();
   const dictation = useClientEnvironment().dictation;
   const DictationSettings = dictation?.Settings;
   const { sendShortcut } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const composerFolds = useSyncExternalStore(composerFold.subscribe, composerFold.get);
-  const mod = isMacPlatform() ? "⌘" : "Ctrl+";
+  const mac = isMacPlatform();
+  const mod = mac ? "⌘" : "Ctrl+";
+  const shift = mac ? "⇧" : "Shift+";
 
   const detail = useSetting<TranscriptDetail>("transcriptDetail", {
     defaultValue: CONFIG_DEFAULTS.transcriptDetail as TranscriptDetail, read: (raw) => (isTranscriptDetail(raw) ? raw : undefined),
@@ -125,7 +129,7 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
           id={settingAnchor("Transcript detail")}
           title="Transcript detail"
           description="of a finished turn"
-          help={`Focused reads a settled turn as one line; Detailed opens every group and shows thinking; Everything adds full tool output and timestamps. ⇧${mod}T cycles them for the thread on screen.`}
+          help={`Focused reads a settled turn as one line; Detailed opens every group and shows thinking; Everything adds full tool output and timestamps.${detailShortcut ? ` ${detailShortcut} cycles them for the thread on screen.` : ""}`}
           setting={detail}
           control={<SegmentedControl label="Transcript detail" value={detail.value} options={TRANSCRIPT_DETAIL_LEVELS.map((level) => ({ value: level, label: DETAIL_LABELS[level] }))} onChange={detail.set} />}
         />
@@ -140,7 +144,7 @@ export function GeneralPage({ themeHere, sections = [], onNotify = () => undefin
           id={settingAnchor("Send with")}
           title="Send with"
           wholeMachine
-          help={`While a turn runs, the send key queues a follow-up and ${mod}Return steers the turn (${mod}⇧Return when ${mod}Return sends).`}
+          help={`While a turn runs, the send key queues a follow-up and ${mod}Return steers the turn (${mod}${shift}Return when ${mod}Return sends).`}
           control={<Select label="Send with" width="md" value={sendShortcut} options={SEND_SHORTCUTS.map((entry) => ({ value: entry.value, label: entry.label.replace("⌘", mod) }))} onChange={(value) => preferences.setSendShortcut(value)} />}
         />
         <SettingRow

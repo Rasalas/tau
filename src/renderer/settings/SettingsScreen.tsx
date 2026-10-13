@@ -32,6 +32,7 @@ import { ProvidersPage, providerCardId } from "./ProvidersPage";
 import { RuntimesPage } from "./RuntimesPage";
 import { inRuntimeOrder } from "../runtime-order";
 import { effectiveNewThreadRuntime } from "../new-thread-runtime";
+import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import "./settings.css";
 
 function projectName(path?: string): string {
@@ -113,7 +114,7 @@ export function SettingsScreen({
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
   onClose(): void;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** One column, as on a phone: the section list first, a page after a tap, and back. */
   stacked?: boolean;
   /** Stacked, which of the two shows, when the caller keeps it (a phone's history does). */
@@ -124,6 +125,7 @@ export function SettingsScreen({
 }) {
   const preferences = usePreferences();
   const client = useHostClient();
+  const catalogs = useRuntimeCatalogs(true, false);
   const { readOnly } = useHostCapabilities();
   const appPages = useAppPageStore();
   // Past an app page Settings was opened over, too.
@@ -136,7 +138,7 @@ export function SettingsScreen({
   // Another machine's refusal or silence is said once: its values would otherwise just snap back.
   const levelsError = useSyncExternalStore(levels.subscribe, () => (levels.getSnapshot().machine ? levels.getSnapshot().error : undefined));
   // oxlint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (levelsError) onNotify(levelsError); }, [levelsError]);
+  useEffect(() => { if (levelsError) onNotify(levelsError, "error"); }, [levelsError]);
   // A push that changed a file, or the palette's theme, moves the levels too.
   useEffect(() => {
     void levels.refresh();
@@ -316,7 +318,7 @@ export function SettingsScreen({
     };
   }, [onClose]);
 
-  const runtimeLabel = snapshot?.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, snapshot))?.label;
+  const runtimeLabel = snapshot?.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(preferences.getSnapshot().newThreadRuntime, snapshot, catalogs))?.label;
   const navItems: NavItem[] = [
     ...CORE_SETTINGS_PAGES
       // A phone has no keys to bind (design 1s).
@@ -386,7 +388,6 @@ export function SettingsScreen({
               value={search}
               placeholder="Search settings"
               aria-label="Search settings"
-              role="searchbox"
               aria-controls={found.length > 0 ? "settings-search-results" : undefined}
               aria-activedescendant={found[activeResult] ? `settings-search-result-${activeResult}` : undefined}
               onChange={(event) => { setSearch(event.target.value); setActiveResult(0); }}
@@ -471,7 +472,7 @@ export function SettingsScreen({
               {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the host keeps its settings as they are. Theme and layout stay on this device.</p> : null}
               <SettingsPageActionSlot.Provider value={actionSlot}>
                 {page === "general" ? (
-                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} />
+                  <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} detailShortcut={registry.keybindingLabel("runtime.transcript-detail")} />
                 ) : page === "models" ? (
                   <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
                 ) : page === "runtimes" ? (

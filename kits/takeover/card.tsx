@@ -152,7 +152,7 @@ function useFinish(takeover: Takeover, actions: WorkbenchActions, hosts: Takeove
     after?.();
     hosts.own.invoke(command, { id: takeover.id }).catch((error: unknown) => {
       setBusy(false);
-      actions.notify(errorMessage(error));
+      actions.notify(errorMessage(error), "error");
     });
   };
   const buttons = <>
@@ -185,7 +185,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
   const [pageUrl, setPageUrl] = useState(target.kind === "preview" ? target.url : undefined);
   const [status, setStatus] = useState<string>();
   const [importing, setImporting] = useState(false);
-  const jump = () => { jumpTo(takeover, actions, hosts).catch((error: unknown) => actions.notify(errorMessage(error))); };
+  const jump = () => { jumpTo(takeover, actions, hosts).catch((error: unknown) => actions.notify(errorMessage(error), "error")); };
   useEffect(() => {
     if (target.kind !== "window" || !screen) return;
     let live = true;
@@ -228,7 +228,7 @@ function TakeoverCard({ takeover, actions, hosts }: { takeover: Takeover; action
     }, (error: unknown) => setStatus(errorMessage(error))).finally(() => setImporting(false));
   };
   return (
-    <section className="takeover-card" role="region" aria-label="Your turn">
+    <section className="takeover-card" aria-label="Your turn">
       <header><Hand size={12} aria-hidden="true" />Your turn<span>{`waits up to ${String(TAKEOVER_TIMEOUT_MS / 60_000)} min`}</span></header>
       <p><Reason text={takeover.reason} host={hostOf(target.kind === "preview" || target.kind === "browser" ? pageUrl ?? target.url : undefined)} /> The agent's preview and computer-use calls are held until you press Done.</p>
       {showsFrame ? <TakeoverFrame takeover={takeover} onOpen={jump} watchOnly={!mayType} /> : null}

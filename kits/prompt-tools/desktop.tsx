@@ -58,7 +58,7 @@ export function createStashControl(controller: StashController) {
       if (project) controller.refresh(project).catch(() => undefined);
     }, [project]);
     if (!actions || !project) return null;
-    const attempt = (work: () => Promise<unknown>) => { work().catch((error) => actions.notify(errorMessage(error))); };
+    const attempt = (work: () => Promise<unknown>) => { work().catch((error) => actions.notify(errorMessage(error), "error")); };
     return (
       <ComposerMenuSection heading={entries.length > 0 ? `Stashed prompts · ${entries.length}` : "Stash"}>
         <ComposerMenuItem

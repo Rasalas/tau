@@ -5,6 +5,7 @@
  * inside it and `terminalOpen` true while it is drawn at all. Two contexts no
  * element marks: `editableFocus` (a text field, a select or anything
  * `contenteditable` has the keyboard) and `overlayOpen` (see `OVERLAY_SELECTOR`).
+ * `isDesktop` is not read here: the registry answers it from the client's profile.
  */
 export const KEYBINDING_CONTEXT_ATTRIBUTE = "data-keybinding-context";
 /** Marks an element that records chords: while it has the keyboard, no chord runs. */

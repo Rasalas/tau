@@ -119,14 +119,21 @@ private fun Status(thread: Thread, size: Float, prefix: Boolean = false) {
     }
 }
 
+/** The project and machine, and at the end the thread's marks as the desktop's row has them. */
 @Composable
 private fun Where(item: ThreadItem, size: Float) {
     val style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = size.sp)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        item.thread.project?.let { Text("$it · ", maxLines = 1, style = style) }
-        if (item.machine.isNotEmpty()) {
-            Image(ImageProvider(R.drawable.tau_ic_server), contentDescription = null, modifier = GlanceModifier.size((size - 1).dp), colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant))
-            Text(" ${item.machine}", maxLines = 1, style = style)
+    Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(GlanceModifier.defaultWeight(), verticalAlignment = Alignment.CenterVertically) {
+            item.thread.project?.let { Text("$it · ", maxLines = 1, style = style) }
+            if (item.machine.isNotEmpty()) {
+                Image(ImageProvider(R.drawable.tau_ic_server), contentDescription = null, modifier = GlanceModifier.size((size - 1).dp), colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant))
+                Text(" ${item.machine}", maxLines = 1, style = style)
+            }
+        }
+        if (item.thread.marks.isNotEmpty()) {
+            Spacer(GlanceModifier.width(6.dp))
+            Ui.ThreadMarks(item.thread.marks)
         }
     }
 }

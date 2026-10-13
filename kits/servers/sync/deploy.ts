@@ -108,7 +108,8 @@ function conflictReason(intent: DeployIntent, theirs: string | null): string {
 /** Whether an outcome writes to the server. */
 export const writes = (plan: DeployFilePlan) => plan.outcome === "upload" || plan.outcome === "delete" || (plan.outcome === "conflict" && plan.forced === true);
 
-const lostConnection = (error: unknown) => (error instanceof SftpError && (error.code === SFTP_STATUS.CONNECTION_LOST || error.code === SFTP_STATUS.NO_CONNECTION))
+const lostConnection = (error: unknown): boolean => (error instanceof AggregateError && error.errors.some(lostConnection))
+  || (error instanceof SftpError && (error.code === SFTP_STATUS.CONNECTION_LOST || error.code === SFTP_STATUS.NO_CONNECTION))
   || (error instanceof Error && (error.name === "SshConnectError" || error.name === "AbortError"));
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -224,30 +225,66 @@ export interface WriteServerFileOptions {
 export async function writeServerFile(fs: ServerFs, path: string, data: Buffer, options: WriteServerFileOptions): Promise<{ via: "rename" | "in-place"; stat: ServerStat }> {
   const call = { area: "project" as const, ...(options.signal ? { signal: options.signal } : {}) };
   await ensureServerFolders(fs, path, options.dirMode, options.folders ?? new Set(), options.signal);
-  let via: "rename" | "in-place" = "rename";
   if (options.existing && !fs.caps.atomicRename) {
-    via = "in-place";
-  } else {
-    const dir = posix.dirname(path);
-    const temp = `${dir === "." ? "" : `${dir}/`}.${posix.basename(path)}.tau-${randomBytes(4).toString("hex")}`;
-    let created = false;
+    return writeInPlace(fs, path, data, options);
+  }
+  const dir = posix.dirname(path);
+  const temp = `${dir === "." ? "" : `${dir}/`}.${posix.basename(path)}.tau-${randomBytes(4).toString("hex")}`;
+  let absent = false;
+  try {
     try {
       await fs.write(temp, data, { ...call, mode: options.mode, exclusive: true });
-      created = true;
-      // The server's umask may have narrowed the mode.
-      if (fs.caps.chmod) await fs.chmod(temp, options.mode, call);
-      await fs.rename(temp, path, call);
     } catch (error) {
-      if (created) await fs.remove(temp, call).catch(() => undefined);
-      if (lostConnection(error)) throw error;
-      via = "in-place";
+      if (error instanceof SftpError && error.code === SFTP_STATUS.PERMISSION_DENIED) {
+        await fs.stat(temp, { area: "project" }).catch((statError: unknown) => { absent = isNoSuchFile(statError); });
+        if (absent) return await writeInPlace(fs, path, data, options);
+      }
+      throw error;
     }
+    // The server's umask may have narrowed the mode.
+    if (fs.caps.chmod) await fs.chmod(temp, options.mode, call);
+    const stat = await checkedStat(fs, temp, data.length, options.signal);
+    await fs.rename(temp, path, call);
+    return { via: "rename", stat };
+  } catch (error) {
+    if (!absent) {
+      // Cleanup must still run after the upload's signal was cancelled.
+      await fs.remove(temp, { area: "project" }).catch((cleanupError: unknown) => {
+        if (!isNoSuchFile(cleanupError)) throw new AggregateError([error, cleanupError], `${message(error)} Could not remove temporary file ${temp}: ${message(cleanupError)}`, { cause: error });
+      });
+    }
+    throw error;
   }
-  if (via === "in-place") {
+}
+
+async function writeInPlace(fs: ServerFs, path: string, data: Buffer, options: WriteServerFileOptions): Promise<{ via: "in-place"; stat: ServerStat }> {
+  const call = { area: "project" as const, ...(options.signal ? { signal: options.signal } : {}) };
+  const before = options.existing ? await fs.read(path, call) : undefined;
+  try {
     await fs.write(path, data, { ...call, mode: options.mode });
     if (!options.existing && fs.caps.chmod) await fs.chmod(path, options.mode, call).catch(() => undefined);
+    return { via: "in-place", stat: await checkedStat(fs, path, data.length, options.signal) };
+  } catch (error) {
+    try {
+      if (before) {
+        await fs.write(path, before, { area: "project", mode: options.mode });
+        await checkedStat(fs, path, before.length);
+      } else {
+        const exists = await fs.stat(path, { area: "project" }).then(() => true, (statError: unknown) => {
+          if (!isNoSuchFile(statError)) throw statError;
+          return false;
+        });
+        if (exists) await fs.remove(path, { area: "project" });
+      }
+    } catch (recoveryError) {
+      throw new AggregateError([error, recoveryError], `${message(error)} Could not restore ${path}: ${message(recoveryError)}`, { cause: recoveryError });
+    }
+    throw error;
   }
-  const stat = await fs.stat(path, call);
-  if (stat.type !== "file" || stat.size !== data.length) throw new Error(`After the upload the server holds ${stat.size} bytes, not ${data.length}.`);
-  return { via, stat };
+}
+
+async function checkedStat(fs: ServerFs, path: string, size: number, signal?: AbortSignal): Promise<ServerStat> {
+  const stat = await fs.stat(path, { area: "project", ...(signal ? { signal } : {}) });
+  if (stat.type !== "file" || stat.size !== size) throw new Error(`After the upload the server holds ${stat.size} bytes, not ${size}.`);
+  return stat;
 }

@@ -31,9 +31,9 @@ import { primaryPointerIsTouch } from "./touch-input";
 import { HOST_CAPABILITY } from "../shared/host-transport";
 import { usePreferences, useRendererServices } from "./renderer-services-context";
 import { AppUpdateStore } from "./app-update";
-import { effectiveNewThreadRuntime, recentRuntimeModels, rememberedNewThreadSelection } from "./new-thread-runtime";
+import { effectiveNewThreadRuntime, newThreadSetup, recentRuntimeModels, rememberedNewThreadSelection } from "./new-thread-runtime";
 import { selectionOnScreen } from "../workbench/new-thread-project";
-import { useDraftCommands, useOfferedRuntimes, useRuntimeCatalog } from "./use-runtime-catalog";
+import { runtimeCatalogStore, useDraftCommands, useOfferedRuntimes, useRuntimeCatalog, useRuntimeCatalogs } from "./use-runtime-catalog";
 import { useDraftRuntimeSelection } from "./use-draft-runtime-selection";
 import { draftImageInput, draftRuntimeSnapshot } from "../workbench/runtime-catalog-store";
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
@@ -128,7 +128,7 @@ export default function App() {
         ? client.loadDesktopExtensions(cwd, sharedExports, only)
         : Promise.resolve({ bundles: [], errors: [], skipped: [] }),
       isEnabled: (id) => preferences.isExtensionEnabled(id),
-      notify: (message) => viewStore.setNotice(message),
+      notify: viewStore.setNotice,
       toast: (options) => workbenchSession.toasts.show(options),
       openSettings: (target) => actionsRef.current?.openSettings(target),
       log: (label, detail) => viewStore.addEvent(label, detail),
@@ -233,14 +233,17 @@ export default function App() {
   const inheritSelection = useCallback(() => {
     const draft = newThreadController.current();
     const latestPreferences = preferences.getSnapshot();
-    const runtime = effectiveNewThreadRuntime(draft?.runtime ?? latestPreferences.newThreadRuntime, viewStore.getSnapshot());
+    const catalogs = runtimeCatalogStore(client)?.all();
+    const runtime = effectiveNewThreadRuntime(draft?.runtime ?? latestPreferences.newThreadRuntime, viewStore.getSnapshot(), catalogs);
     const selection = selectionOnScreen({ covered: threadView()?.covered, draft, draftRuntime: runtime, thread: viewStore.getSnapshot() });
     // An older thread on screen must not replace the last picker choice.
     const chosenRuntime = selection?.runtime ?? runtime;
+    // A runtime that cannot start a thread is not carried to the next draft.
+    if (newThreadSetup(chosenRuntime, viewStore.getSnapshot(), catalogs)) return;
     newThreadController.inherit(recentRuntimeModels(chosenRuntime, latestPreferences.recentModels).length
       ? { runtime: chosenRuntime, ...(selection?.mode ? { mode: selection.mode } : {}) }
       : selection);
-  }, [newThreadController, preferences, threadView, viewStore]);
+  }, [client, newThreadController, preferences, threadView, viewStore]);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const attachFiles = usePendingAttachments(composerAttachmentRef, snapshot?.sessionId);
   const activeDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
@@ -280,7 +283,7 @@ export default function App() {
       preferences,
       hostSession,
       delivery: newThreadDelivery,
-      notify: (message) => viewStore.setNotice(message),
+      notify: viewStore.setNotice,
       actions: () => actionsRef.current,
       newThread: {
         current: currentPendingNewThread,
@@ -369,19 +372,19 @@ export default function App() {
     applyActionResult,
     seedComposer: (text) => { if (actionsRef.current?.setComposerDraft) actionsRef.current.setComposerDraft(text); else setComposerSeed(text); },
     composerDraft: () => actionsRef.current?.composerDraft() ?? "",
-    notify: (message) => setNotice(message),
+    notify: setNotice,
     composerRef,
     requestFork: threadCommands.requestFork,
   });
 
   useEffect(() => {
     if (!client) return;
-    if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error)));
+    if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error), "error"));
     // A project's own settings apply from the start screen on, before its thread has a workspace id.
     preferences.setWorkspace(activeWorkspaceId ?? workspaceCwd);
   }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
   const syncDesktopExtensions = useCallback((only?: readonly string[], report?: PackagesChangeReport) => {
-    void runtimeExtensions.resync(only, report).catch((error) => setNotice(errorMessage(error)));
+    void runtimeExtensions.resync(only, report).catch((error) => setNotice(errorMessage(error), "error"));
   }, [runtimeExtensions, setNotice]);
 
   const windowShell = useWindowShell({
@@ -478,7 +481,7 @@ export default function App() {
     const machine = lookInMachine(options?.machine, platform.environments);
     const lookIn = () => { setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) })); revealDocuments.current(); };
     if (!machine) { lookIn(); return; }
-    void machineThreadPath(machine, sessionId, client, threadStore).then(async (path) => { if (path) await switchSession(path); else lookIn(); }).catch((error: unknown) => setNotice(errorMessage(error)));
+    void machineThreadPath(machine, sessionId, client, threadStore).then(async (path) => { if (path) await switchSession(path); else lookIn(); }).catch((error: unknown) => setNotice(errorMessage(error), "error"));
   }, [client, platform, threadStore, switchSession, setNotice]);
   // A sub-agent's question waits on every thread above it: it is answered from any of them (design 1c).
   useEffect(() => {
@@ -568,7 +571,8 @@ export default function App() {
     () => viewStore.selectConversation(activeDraftKey, Boolean(pendingNewThread)),
   );
   // A draft chooses from the catalog of the runtime it is bound for; the thread on screen's levels are its model's.
-  const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot) : undefined;
+  const draftRuntimes = useRuntimeCatalogs(Boolean(pendingNewThread), false);
+  const boundRuntime = pendingNewThread && !pendingNewThread.sessionId ? effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot, draftRuntimes) : undefined;
   const draftCatalog = useRuntimeCatalog(boundRuntime);
   useEffect(() => {
     const draft = newThreadController.current();
@@ -598,12 +602,12 @@ export default function App() {
       ...(model ? { model } : {}),
       ...(draftChoice && pendingNewThread.thinkingLevel ? { thinkingLevel: pendingNewThread.thinkingLevel } : {}),
       mode: pendingNewThread.mode,
-      modes: snapshot.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot))?.modes,
+      modes: snapshot.runtimeBackends?.find((backend) => backend.kind === effectiveNewThreadRuntime(pendingNewThread.runtime ?? settings.newThreadRuntime, snapshot, draftRuntimes))?.modes,
       supportsImageInput: pendingNewThread.sessionId ? snapshot.sessionId === pendingNewThread.sessionId && snapshot.supportsImageInput === true : draftImageInput(boundRuntime ?? snapshot.backendKind ?? "pi", model, preparedThreadCapability?.cwd === pendingNewThread.projectPath ? preparedThreadCapability.supportsImageInput : undefined),
       taskProgress: undefined,
       taskHistory: [],
     };
-  }, [boundRuntime, draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
+  }, [boundRuntime, draftRuntimes, draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
   const conversationSnapshot = useDraftCommands(draftConversation, pendingNewThread, boundRuntime);
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => { void composerAttachmentRef.current?.addFiles(files); }, []);
   const composerScopeSubscribe = useCallback((onChange: () => void) => activeDraftKey

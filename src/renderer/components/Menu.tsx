@@ -16,6 +16,7 @@ export interface MenuItem {
   badge?: string;
   /** Secondary line explaining the cost or effect of the choice. */
   description?: string;
+  /** Set (true or false) the entry is a choice, read as a radio item that is checked or not; an entry with a `submenu` stays an item. */
   selected?: boolean;
   disabled?: boolean;
   /** Deletes or discards something; drawn in the danger colour. */
@@ -106,12 +107,14 @@ function useMenuLevel({ groups, onPick, onCloseAll, onBack, focusFirst, mount }:
           {group.items.map((item) => {
             const index = flat++;
             const expanded = open?.index === index;
+            const choice = item.selected !== undefined && !item.submenu;
             const button = (
               <button
                 key={item.id}
                 ref={(element) => { buttons.current[index] = element; }}
                 type="button"
-                role="menuitem"
+                role={choice ? "menuitemradio" : "menuitem"}
+                {...(choice ? { "aria-checked": item.selected } : {})}
                 tabIndex={-1}
                 className={[item.selected ? "selected" : "", item.destructive ? "destructive" : "", expanded ? "expanded" : ""].filter(Boolean).join(" ")}
                 disabled={item.disabled}
@@ -175,7 +178,7 @@ function Submenu(props: LevelProps) {
   }, []);
   const level = useMenuLevel(props);
   return (
-    <div ref={ref} className={`menu submenu${flip ? " flip" : ""}`} role="menu" aria-orientation="vertical" onKeyDown={level.onKeyDown}>
+    <div ref={ref} className={`menu submenu${flip ? " flip" : ""}`} role="menu" aria-orientation="vertical" tabIndex={-1} onKeyDown={level.onKeyDown}>
       {level.entries}
     </div>
   );

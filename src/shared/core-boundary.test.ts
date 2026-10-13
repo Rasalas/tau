@@ -74,6 +74,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",
   // The last build of each package half, with esbuild's errors (K112).
   "./package-builds.js",
+  // Runtime context compaction and delivery of the prompts waiting for it.
+  "./host-compaction.js",
   "./external-editor.js",   "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
   "./host-clients.js",   "./host-access.js",   "./host-connections.js",   "./client-device.js",   "./host-endpoints.js",   "./host-network.js",
   // Bonjour through the system's responder while Local network is on (API 1.13.0).
@@ -86,7 +88,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-browser-resources.js", "./host-read-paths.js", "./host-system-certificates.js",
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",   "./host-origin.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
-  "./host-process-errors.js",   "./host-process-supervisor.js",   "./host-start.js",
+  "./host-process-errors.js",   "./host-process-supervisor.js",   "./host-start.js",   "./host-shutdown.js",
   // The host as a system service of its machine, and keeping that machine awake (API 1.13.0).
   "./host-service.js",   "./host-service-units.js",   "./display-window.js",   "./display-number.js",   "./keep-awake.js",
   // Other machines this host's agents reach, with keys the owner's window handed over (ADR 0027).
@@ -104,6 +106,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-resources.js",
   "./agent-scope.js", // Linux scopes for agent CLIs, terminals and Pi's bash (docs/CORE.md, memory pressure).
   "./owned-process.js", // Runtime-neutral cleanup of CLI subprocesses when the CLI or its owner exits.
+  "./owned-shell.js", // Local shell execution belongs to the host, including background children.
   // Files those machines' agents send in pieces, taken once by a kit (plan-H).
   "./host-blobs.js",
   "./machine-prompt-attachments.js", // Generic prompt-content transport over core's authenticated blobs.
@@ -112,6 +115,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-power-state.js", // Native sleep/wake lifecycle of core's host connections.
   "./host-web-server.js",   "./image-clipboard.js",   "./image-preview.js",
   "./ipc-input.js",   "./lifecycle-queue.js",   "./linux-sandbox.js",   "./live-turn-state.js",
+  "./kit-message-order.js", // A runtime kit's messages in the order they began, as the live view shows them.
   "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-completion.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",
   "./opencode-catalog.js",
   "./editable-json.js", "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
@@ -120,6 +124,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",   "./platform-process.js",   "./process-lock.js",
   "./project-facts-cache.js",   "./project-history.js",   "./project-icon.js",   "./icns.js",   "./remote-host-trust.js",
   "./prompt-attachments.js",   "./prompt-cache.js",   "./prompt-preparation.js",   "./resource-discovery-cache.js",
+  "./request-receipts.js", // Runtime-neutral admission results for repeated client submissions.
   "./runtime-adapters.js",   "./runtime-catalogs.js",   "./runtime-tool-updates.js",   "./cli-install.js",   "./model-catalog.js",   "./runtime-prewarm.js",   "./runtime-resource-cache.js",
   "./runtime-instance-settings.js",   "./runtime-types.js",
   // Which runtimes may start work in a folder: the host's one gate (ADR 0033).
@@ -158,9 +163,12 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./worker-memory-cap.js",
   // The host's start of each run, which every client times a thread's work from (API 1.27.0).
   "./thread-run-clock.js",
+  "./thread-background-work.js", // Combines runtime and kit work in the thread's lifecycle.
+  "./background-work-tools.js", // Runtime-neutral control of the thread's background capability.
 ]);
 
 const CORE_ALLOWED_PACKAGES = new Set([
+  "typebox", // Schemas for the runtime-neutral background control tool.
   "@earendil-works/pi-ai",
   "@earendil-works/pi-ai/providers/opencode",
   "@earendil-works/pi-ai/providers/opencode-go",

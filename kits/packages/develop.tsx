@@ -37,7 +37,7 @@ export function DevelopSection({ host, nameOf, onNotify }: {
   host: HostExtensionClient;
   /** The package's name, where the page knows it. */
   nameOf(id: string | undefined): string | undefined;
-  onNotify(message: string): void;
+  onNotify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const [builds, setBuilds] = useState<PackageBuild[]>();
   const [error, setError] = useState<string>();
@@ -62,7 +62,7 @@ export function DevelopSection({ host, nameOf, onNotify }: {
       onNotify((await host.invoke("rebuild") as { message?: string }).message ?? "Rebuilt.");
       await load();
     } catch (reason) {
-      onNotify(errorMessage(reason));
+      onNotify(errorMessage(reason), "error");
     } finally {
       setBusy(false);
     }

@@ -487,9 +487,9 @@ export function ReviewMode({
     void generateCommitMessage();
   }, [embedded, autoSuggestCommitMessage, diffErrors.size, diffs.size, paged.files.length, noCommit, suggestionFingerprint, suggestCommitMessage]);
 
-  const scopeControls = !readOnly && loadChanges ? <div className="review-scope toggle-group" aria-label="Review scope">
-        <button className={scope === "worktree" ? "active" : ""} disabled={loadingScope} onClick={() => void switchScope("worktree")}>Working tree</button>
-        <button className={scope === "branch" ? "active" : ""} disabled={loadingScope} onClick={() => void switchScope("branch")}>Branch vs target</button>
+  const scopeControls = !readOnly && loadChanges ? <div className="review-scope toggle-group" role="group" aria-label="Review scope">
+        <button className={scope === "worktree" ? "active" : ""} aria-pressed={scope === "worktree"} disabled={loadingScope} onClick={() => void switchScope("worktree")}>Working tree</button>
+        <button className={scope === "branch" ? "active" : ""} aria-pressed={scope === "branch"} disabled={loadingScope} onClick={() => void switchScope("branch")}>Branch vs target</button>
         {scopeError ? <div className="review-scope-popover" role="alert">
           <span>{scopeError}</span>
           <button className="icon-button compact" aria-label="Dismiss comparison error" onClick={() => setScopeError(undefined)}><X size={12} /></button>
@@ -509,7 +509,7 @@ export function ReviewMode({
                 rel="noreferrer"
                 title={`${visibleChanges.request.title} · opens in the browser`}
               >
-                {visibleChanges.request.provider === "github" ? "PR" : "MR"} #{visibleChanges.request.number}
+                {visibleChanges.request.provider === "gitlab" ? "MR !" : "PR #"}{visibleChanges.request.number}
               </a>
             ) : null}
             <span className="stat-add">+{visibleChanges.added}</span>
@@ -543,13 +543,13 @@ export function ReviewMode({
             disabled={paged.files.length === 0}
             onClick={() => onIgnoreWhitespaceChange(!ignoreWhitespace)}
           >Ignore whitespace</button> : null}
-          {!embedded ? <div className="toggle-group" aria-label="Diff context">
-            <button disabled={paged.files.length === 0} className={contextMode === "collapse" ? "active" : ""} onClick={() => setContextMode("collapse")}>Diff only</button>
-            <button disabled={paged.files.length === 0} className={contextMode === "expand" ? "active" : ""} onClick={() => setContextMode("expand")}>All lines</button>
+          {!embedded ? <div className="toggle-group" role="group" aria-label="Diff context">
+            <button disabled={paged.files.length === 0} className={contextMode === "collapse" ? "active" : ""} aria-pressed={contextMode === "collapse"} onClick={() => setContextMode("collapse")}>Diff only</button>
+            <button disabled={paged.files.length === 0} className={contextMode === "expand" ? "active" : ""} aria-pressed={contextMode === "expand"} onClick={() => setContextMode("expand")}>All lines</button>
           </div> : null}
-          <div className="toggle-group" aria-label="Diff layout">
-            <button disabled={paged.files.length === 0} className={effectiveMode === "unified" ? "active" : ""} onClick={() => setMode("unified")}>Unified</button>
-            <button className={effectiveMode === "split" ? "active" : ""} disabled={paged.files.length === 0 || !splitAvailable} title={!splitAvailable ? "Split view needs more width" : undefined} onClick={() => setMode("split")}>Split</button>
+          <div className="toggle-group" role="group" aria-label="Diff layout">
+            <button disabled={paged.files.length === 0} className={effectiveMode === "unified" ? "active" : ""} aria-pressed={effectiveMode === "unified"} onClick={() => setMode("unified")}>Unified</button>
+            <button className={effectiveMode === "split" ? "active" : ""} aria-pressed={effectiveMode === "split"} disabled={paged.files.length === 0 || !splitAvailable} title={!splitAvailable ? "Split view needs more width" : undefined} onClick={() => setMode("split")}>Split</button>
           </div>
           {!embedded && editor && selectedPath ? <button className="text-button review-editor-action" onClick={() => onOpenInEditor(selectedPath)}>
             Open in {editor.name} <ExternalLink size={11} />

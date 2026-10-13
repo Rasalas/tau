@@ -116,6 +116,7 @@ export function publishedGoal(goals: ThreadGoalCapability | undefined): UiThread
 }
 
 export interface ThreadControlsPort {
+  background?(threadId: string): ThreadBackgroundCapability | undefined;
   queue: Pick<QueuedMessages, "dropWakes" | "hold">;
   turnObservers: Pick<HostTurnObserverSet, "stopped">;
   abortThread(thread: ThreadRuntime): Promise<void>;
@@ -147,12 +148,13 @@ export class ThreadControls {
       holdQueue: () => port.queue.hold(thread.threadId),
       observers: () => port.turnObservers.stopped(thread.threadId),
       abort: () => port.abortThread(thread),
-      background: () => thread.backend.capabilities.background?.current() ?? [],
+      background: () => this.background(thread)?.current() ?? [],
       notice: async (text) => {
-        const notice = thread.backend.capabilities.resume?.notice;
+        const stopped = await port.reopenThread(thread.threadId);
+        const notice = stopped.backend.capabilities.resume?.notice;
         if (!notice) throw new Error("no transcript row");
         await notice(text);
-        await port.publishDetail(thread);
+        await port.publishDetail(stopped);
       },
       toast: (text) => port.emitForThread(thread, { type: "notice", sessionId: thread.threadId, message: text, level: "info" }),
       log: (label, detail) => port.log(label, `${thread.threadId.slice(0, 8)} · ${detail}`),
@@ -175,12 +177,18 @@ export class ThreadControls {
   /** Stops one background task of the thread, or all of them without an id. */
   stopBackground = async (sessionId: string, taskId?: string): Promise<void> => {
     const thread = await this.port.reopenThread(sessionId);
-    await requireCapability(thread.backend, "background").stop(taskId);
+    const background = this.background(thread);
+    if (!background) throw new Error("This runtime does not report background work.");
+    await background.stop(taskId);
     this.publishBackground(thread);
     this.port.log("background.stopped", `${thread.threadId.slice(0, 8)} · ${taskId ?? "all"}`);
   };
 
   publishBackground = (thread: ThreadRuntime): void => {
-    this.port.setBackground(thread.threadId, publishedBackground(thread.backend.capabilities.background));
+    this.port.setBackground(thread.threadId, publishedBackground(this.background(thread)));
   };
+
+  private background(thread: ThreadRuntime): ThreadBackgroundCapability | undefined {
+    return this.port.background?.(thread.threadId) ?? thread.backend.capabilities.background;
+  }
 }

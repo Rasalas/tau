@@ -54,6 +54,8 @@ export interface WorkspaceStoreApi {
   refresh(): Promise<void>;
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
   registerWorkspaceSummarySection?(section: ComponentType<import("tau").RegionProps>): () => void;
+  /** The request Review can open for the checkout, until the returned function takes it back; absent from an older Workspace Kit (API 1.61.0). */
+  offerRequestStep?(step: RequestStep): () => void;
   /** Absent on a Workspace Kit that keeps its Changes panel whatever draws the review. */
   registerReviewView?(): () => void;
   stageFile?(path: string): Promise<void>;
@@ -63,6 +65,14 @@ export interface WorkspaceStoreApi {
   registerThreadRowAccessory(accessory: ComponentType<{ session: UiSession }>): () => void;
   /** A section on a rail row's hover card (API 1.23.0); absent from an older Workspace Kit. */
   registerThreadCardSection?(section: { place: "section"; order?: number; Component: ComponentType<ThreadCardSectionProps> }): () => void;
+}
+
+/** A request Review can open for the checkout, as Workspace Kit's Git button leads with it (`RequestStep` in `kits/workspace/protocol.ts`). */
+export interface RequestStep {
+  /** "PR" or "MR". */
+  noun: string;
+  /** `commit`: the working tree's changes go in first, behind a card to confirm. */
+  open(options?: { commit?: boolean }): void;
 }
 
 /** What Workspace Kit hands a hover card's section (`ThreadCardSectionProps` in `kits/workspace/protocol.ts`). */
@@ -166,6 +176,8 @@ export interface ProviderInfo {
   /** "pull request" or "merge request". */
   noun: string;
   short: "PR" | "MR";
+  /** What a request's number is written after: GitLab and Azure DevOps keep `#` for issues and work items. */
+  sign: "#" | "!";
   /** The command that checks a request out, when the provider's CLI has one. */
   checkout?(number: number): string;
   /** The repository's web page. */
@@ -184,25 +196,25 @@ const EVERYTHING: ProviderCapabilities = {
 const plainUrl = (host: string, repo: string) => `https://${host}/${repo}`;
 
 export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
-  github: { kind: "github", name: "GitHub", noun: "pull request", short: "PR", checkout: (number) => `gh pr checkout ${number}`, repositoryUrl: plainUrl, capabilities: EVERYTHING },
+  github: { kind: "github", name: "GitHub", noun: "pull request", short: "PR", sign: "#", checkout: (number) => `gh pr checkout ${number}`, repositoryUrl: plainUrl, capabilities: EVERYTHING },
   gitlab: {
-    kind: "gitlab", name: "GitLab", noun: "merge request", short: "MR", checkout: (number) => `glab mr checkout ${number}`, repositoryUrl: plainUrl,
+    kind: "gitlab", name: "GitLab", noun: "merge request", short: "MR", sign: "!", checkout: (number) => `glab mr checkout ${number}`, repositoryUrl: plainUrl,
     // GitLab's API has no "request changes"; viewed marks are kept by the kit.
     capabilities: { ...EVERYTHING, reviewEvents: ["comment", "approve"], viewed: "local", revert: false, stacks: false, guides: false },
   },
   forgejo: {
-    kind: "forgejo", name: "Forgejo", noun: "pull request", short: "PR", checkout: (number) => `tea pr checkout ${number}`, repositoryUrl: plainUrl,
+    kind: "forgejo", name: "Forgejo", noun: "pull request", short: "PR", sign: "#", checkout: (number) => `tea pr checkout ${number}`, repositoryUrl: plainUrl,
     capabilities: { ...EVERYTHING, replies: false, resolve: false, editComments: ["comment"], viewed: "local", publish: false, autoMerge: false, revert: false, stacks: false, guides: false },
   },
   bitbucket: {
-    kind: "bitbucket", name: "Bitbucket", noun: "pull request", short: "PR", repositoryUrl: plainUrl,
+    kind: "bitbucket", name: "Bitbucket", noun: "pull request", short: "PR", sign: "#", repositoryUrl: plainUrl,
     capabilities: {
       ...EVERYTHING, merge: ["merge", "squash"], resolve: false, editComments: ["comment", "review-comment"], reviewers: false, labels: false, viewed: "local", publish: false,
       autoMerge: false, revert: false, stacks: false, guides: false,
     },
   },
   "azure-devops": {
-    kind: "azure-devops", name: "Azure DevOps", noun: "pull request", short: "PR", checkout: (number) => `az repos pr checkout --id ${number}`,
+    kind: "azure-devops", name: "Azure DevOps", noun: "pull request", short: "PR", sign: "!", checkout: (number) => `az repos pr checkout --id ${number}`,
     repositoryUrl: (host, repo) => {
       const [organization, project, name] = repo.split("/");
       return `https://${host}/${organization}/${project}/_git/${name}`;
@@ -216,6 +228,9 @@ export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
 };
 
 export const providerInfo = (service: RequestService): ProviderInfo => PROVIDERS[service] ?? PROVIDERS.github;
+
+/** A request's number as its provider writes it: `#12` on GitHub, `!12` on GitLab. */
+export const requestNumber = (service: RequestService | undefined, number: number | string): string => `${providerInfo(service ?? "github").sign}${number}`;
 
 /** Whether a provider can be used on this machine, for Settings → Review. */
 export interface SourceProviderStatus {
@@ -498,6 +513,7 @@ export const PULL_REQUEST_TAB = "review.pull-request";
 
 /** A thread's tab of its project's requests. */
 export const PULL_REQUESTS_TAB = "review.pull-requests";
+export const THREAD_PULL_REQUESTS_TAB = "review.thread-pull-requests";
 
 export type PullRequestListState = "open" | "closed" | "merged" | "all";
 /** GitHub's summary of the reviews; absent where the host keeps none. */

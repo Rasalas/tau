@@ -66,7 +66,7 @@ const READY: HostReadiness = { checkedAt: 0, runtimes: [], git: { version: "2.45
  * `services.machines` reaches rex's registry as a paired device would, and
  * rex's `services.blobs` hands out what A uploaded.
  */
-async function twoHosts(options: { projectFile?: Record<string, unknown>; projectScripts?: boolean; readiness?: HostReadiness | "none"; hooks?: boolean } = {}) {
+async function twoHosts(options: { projectFile?: Record<string, unknown>; projectScripts?: boolean; approveSetup?: boolean; readiness?: HostReadiness | "none"; hooks?: boolean } = {}) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), "tau-remote-work-")));
   made.push(dir);
   const repo = await fixture(dir, options.projectFile);
@@ -114,6 +114,10 @@ async function twoHosts(options: { projectFile?: Record<string, unknown>; projec
     for (const watcher of watchers) if (watcher.topic === event.topic) watcher.listener({ name: event.name, payload: event.payload });
   });
   if (options.projectScripts) await rex.activate(createProjectScriptsHostExtension({ watch: false }));
+  if (options.approveSetup !== undefined) await rex.activate({
+    id: "tau.workspace", name: "Setup approval", permissions: [],
+    activate: (context) => { context.registerCommand("approve-project-setup", () => options.approveSetup, { callers: ["tau.project-scripts", "tau.remote-work"] }); },
+  });
   const paired = { kind: "workbench-client" as const, connection: "c1", pairedClient: device };
   // What crosses the socket is JSON.
   const wire = <T>(value: T): T => (value === undefined ? value : JSON.parse(JSON.stringify(value)) as T);
@@ -421,6 +425,7 @@ describe("Remote Work Kit: a project's state to another machine and back", () =>
   it("runs the project's setup scripts in the new worktree through Project Scripts", async () => {
     const hosts = await twoHosts({
       projectScripts: true,
+      approveSetup: true,
       projectFile: { scripts: [{ name: "Install", command: "printf ok > installed.txt", runOnWorktreeCreate: true, async: false }] },
     });
     const transfer = await hosts.call<RepoTransfer>("send", { machine: "rex", cwd: hosts.repo.work });
@@ -429,15 +434,27 @@ describe("Remote Work Kit: a project's state to another machine and back", () =>
   });
 
   it("runs the old runOnWorktreeCreate line itself without Project Scripts, and a failing one is reported, not undone", async () => {
-    const good = await twoHosts({ projectFile: { runOnWorktreeCreate: "printf ok > set-up.txt" } });
+    const good = await twoHosts({ approveSetup: true, projectFile: { runOnWorktreeCreate: "printf ok > set-up.txt" } });
     const transfer = await good.call<RepoTransfer>("send", { machine: "rex", cwd: good.repo.work });
     expect(transfer.steps.find((step) => step.id === "setup")).toMatchObject({ state: "done" });
     expect(await readFile(join(transfer.remote!.path, "set-up.txt"), "utf8")).toBe("ok");
 
-    const bad = await twoHosts({ projectFile: { runOnWorktreeCreate: "exit 3" } });
+    const bad = await twoHosts({ approveSetup: true, projectFile: { runOnWorktreeCreate: "exit 3" } });
     const failed = await bad.call<RepoTransfer>("send", { machine: "rex", cwd: bad.repo.work });
     expect(failed.state).toBe("ready");
     expect(failed.steps.find((step) => step.id === "setup")).toMatchObject({ state: "failed", detail: "exit 3: exit 3" });
+  });
+
+  it.each([true, false])("skips remote worktree setup without approval, with Project Scripts %s", async (projectScripts) => {
+    const hosts = await twoHosts({
+      projectScripts, approveSetup: false,
+      projectFile: { runOnWorktreeCreate: "printf unsafe > set-up.txt", scripts: [{ name: "Install", command: "printf unsafe > installed.txt", runOnWorktreeCreate: true, async: false }] },
+    });
+    const transfer = await hosts.call<RepoTransfer>("send", { machine: "rex", cwd: hosts.repo.work });
+    expect(transfer.state).toBe("ready");
+    expect(transfer.steps.find((step) => step.id === "setup")).toMatchObject({ state: "skipped", detail: "Project setup was not approved" });
+    expect(existsSync(join(transfer.remote!.path, "set-up.txt"))).toBe(false);
+    expect(existsSync(join(transfer.remote!.path, "installed.txt"))).toBe(false);
   });
 
   it("lets a transfer go: the worktree and branch there, the transfer ref here", async () => {

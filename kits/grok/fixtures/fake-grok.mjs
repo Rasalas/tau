@@ -6,6 +6,7 @@
 // exit_plan_mode requests, turn_completed usage). Words in the prompt pick the
 // scenario; sessions persist under GROK_HOME so a second process can load one.
 // FAKE_GROK_LOG names a file that receives every message Tau sent.
+import { fakeMcpCall } from "../../_acp/fake-mcp.mjs";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -97,7 +98,12 @@ async function prompt(params) {
     update({ sessionUpdate: "tool_call", toolCallId: "read-1", title: "read_file", kind: "read", status: "in_progress", rawInput: { path: "package.json" } });
     update({ sessionUpdate: "tool_call_update", toolCallId: "read-1", status: "completed", content: [{ type: "content", content: { type: "text", text: "{ \"name\": \"demo\" }" } }] });
   }
-  if (/\bmcp\b/u.test(text)) reply = `mcp ${state.mcpServers.map((server) => `${server.name}:${server.type ?? "stdio"}`).join(",") || "none"}`;
+  if (/\bmcp\b/u.test(text)) reply = await fakeMcpCall(state.mcpServers, text) ?? `mcp ${state.mcpServers.map((server) => `${server.name}:${server.type ?? "stdio"}`).join(",") || "none"}`;
+  if (text.includes("[scenario:background]")) {
+    update({ sessionUpdate: "tool_call", toolCallId: "stub-background", kind: "execute", title: "Run tests", status: "in_progress", rawInput: { command: "npm test" } });
+    setTimeout(() => update({ sessionUpdate: "tool_call_update", toolCallId: "stub-background", status: "completed", rawOutput: "Tests passed" }), 15000);
+    reply = "Tests are still running.";
+  }
   if (/\bhistory\b/u.test(text)) reply = `history ${state.history.length}`;
   if (/\bargs\b/u.test(text)) reply = `args ${args.join(" ")}`;
   if (/\bsleep\b/u.test(text)) {

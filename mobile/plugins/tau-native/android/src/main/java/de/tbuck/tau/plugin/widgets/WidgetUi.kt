@@ -69,11 +69,19 @@ internal object Ui {
         Tone.OTHER -> R.color.tau_widget_other
     })
 
-    /** The account's mark as the desktop draws it: coloured marks keep their colours, the rest take the text colour, and a provider without one its initials in a bordered box. */
+    /** The account's mark as the desktop draws it. */
     @Composable
-    fun Mark(account: LimitAccount, size: Dp) {
+    fun Mark(account: LimitAccount, size: Dp) = Mark(account.mark, account.initials, account.label, size)
+
+    /**
+     * A provider's mark as the desktop draws it: coloured marks keep their colours, the rest take the text colour, and a provider
+     * without one its initials in a bordered box. `quiet` is the runtime's mark in a thread's stack, a shade fainter.
+     */
+    @Composable
+    fun Mark(mark: String?, initials: String, name: String?, size: Dp, quiet: Boolean = false) {
         val ink = GlanceTheme.colors.onSurface
-        val (drawable, tint) = when (account.mark) {
+        val alpha = if (quiet) 0.7f else 1f
+        val (drawable, tint) = when (mark) {
             "claude-code" -> R.drawable.tau_mark_claude to null
             "gemini" -> R.drawable.tau_mark_gemini to null
             "antigravity" -> R.drawable.tau_mark_antigravity to null
@@ -86,14 +94,26 @@ internal object Ui {
             else -> null to null
         }
         if (drawable != null) {
-            Image(ImageProvider(drawable), contentDescription = account.label, modifier = GlanceModifier.size(size), colorFilter = tint?.let { ColorFilter.tint(it) })
+            Image(ImageProvider(drawable), contentDescription = name, alpha = alpha, modifier = GlanceModifier.size(size), colorFilter = tint?.let { ColorFilter.tint(it) })
             return
         }
         // The desktop's `.provider-icon-fallback`: a faint edge (the text colour at 14 %) and mono initials, half the box tall.
-        val edge = ColorProvider(ink.getColor(LocalContext.current).copy(alpha = 0.14f))
+        val inkColor = ink.getColor(LocalContext.current)
+        val edge = ColorProvider(inkColor.copy(alpha = 0.14f * alpha))
         Box(GlanceModifier.size(size), contentAlignment = Alignment.Center) {
-            Image(ImageProvider(R.drawable.tau_mark_initials), contentDescription = account.label, modifier = GlanceModifier.size(size), colorFilter = ColorFilter.tint(edge))
-            Text(account.initials, maxLines = 1, style = TextStyle(color = ink, fontSize = (size.value * 0.5f).sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace))
+            Image(ImageProvider(R.drawable.tau_mark_initials), contentDescription = name, modifier = GlanceModifier.size(size), colorFilter = ColorFilter.tint(edge))
+            Text(initials, maxLines = 1, style = TextStyle(color = ColorProvider(inkColor.copy(alpha = alpha)), fontSize = (size.value * 0.5f).sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace))
+        }
+    }
+
+    /** A thread's marks as the desktop's stack: the runtime's a shade fainter, then the model provider's. */
+    @Composable
+    fun ThreadMarks(marks: List<ThreadMark>, size: Dp = 12.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            marks.forEachIndexed { index, mark ->
+                if (index > 0) Spacer(GlanceModifier.width(size / 2))
+                Mark(mark.mark, mark.initials, null, size, quiet = marks.size > 1 && index == 0)
+            }
         }
     }
 

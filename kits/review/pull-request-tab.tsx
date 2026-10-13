@@ -3,7 +3,8 @@ import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
 import { Spinner, type DesktopExtensionContext, type HostExtensionClient } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
 import { linkPullRequestMenu } from "./link-menu.js";
-import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, WORKSPACE_HOST_EXTENSION_ID, type ComposerContextChips } from "./protocol.js";
+import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, THREAD_PULL_REQUESTS_TAB, WORKSPACE_HOST_EXTENSION_ID, type ComposerContextChips } from "./protocol.js";
+import { threadPullRequestsParams, type ThreadPullRequestsParams } from "./thread-request-tree.js";
 import { ReviewDetailStore } from "./review-detail-store.js";
 import { needsYou, REVIEWS_PAGE } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
@@ -11,12 +12,13 @@ import { ReviewsFilter } from "./reviews-filter.js";
 import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
-import { pullRequestTabParams, shortNoun, type PullRequestTabParams } from "./pull-request-logic.js";
+import { pullRequestTabParams, requestLabel, type PullRequestTabParams } from "./pull-request-logic.js";
 import { PullRequestView, type PullRequestViewShared } from "./pull-request-view.js";
 import type { RequestClient, RowRequests } from "./requests.js";
 
 // The list and the page are opened on demand; their code stays out of the kit's first evaluation.
 const PullRequestListView = lazy(() => import("./pull-request-list-view.js"));
+const ThreadPullRequests = lazy(() => import("./thread-pull-requests.js"));
 const ReviewsPage = lazy(() => import("./reviews-page.js"));
 const ReviewsSidebar = lazy(() => import("./reviews-page.js").then((module) => ({ default: module.ReviewsSidebar })));
 
@@ -42,11 +44,24 @@ export function registerPullRequestTab(
     detail: { store: sidebar, notes: shared.pending, workspace: plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID) },
   };
   const disposers = [
+    plugin.registerStageTab<ThreadPullRequestsParams>({
+      kind: THREAD_PULL_REQUESTS_TAB,
+      profiles: ["desktop"],
+      title: () => "Pull requests",
+      Icon: GitPullRequestArrow,
+      render: (params, handle, actions) => {
+        const parsed = threadPullRequestsParams(params);
+        if (!parsed) return <div className="stage-empty" role="status">This tab names no thread.</div>;
+        return <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading thread pull requests" /></div>}><ThreadPullRequests params={parsed} handle={handle} actions={actions} client={client} links={shared.links} /></Suspense>;
+      },
+      restore: (params) => threadPullRequestsParams(params) !== undefined,
+      reopenParams: (params) => threadPullRequestsParams(params),
+    }),
     plugin.registerStageTab<PullRequestTabParams>({
       kind: PULL_REQUEST_TAB,
       // Claimed for the one client it was tried on.
       profiles: ["desktop"],
-      title: (params) => `${shortNoun(params.service)} #${params.number}`,
+      title: (params) => requestLabel(params.service, params.number),
       Icon: GitPullRequest,
       render: (params, handle, actions) => {
         const parsed = pullRequestTabParams(params);
@@ -57,7 +72,7 @@ export function registerPullRequestTab(
       // The request's address is all a reopened tab needs; its view reads the rest again.
       reopenParams: (params) => {
         const parsed = pullRequestTabParams(params);
-        return parsed ? { url: parsed.url, number: parsed.number, service: parsed.service, ...(parsed.workspace ? { workspace: parsed.workspace } : {}) } : undefined;
+        return parsed ? { url: parsed.url, number: parsed.number, service: parsed.service, ...(parsed.workspace ? { workspace: parsed.workspace } : {}), ...(parsed.fromThread ? { fromThread: parsed.fromThread } : {}) } : undefined;
       },
     }),
     plugin.registerStageTab<PullRequestsTabParams>({

@@ -144,7 +144,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
       const open = async (id: string, input: GrokSessionInput) => {
         const found = await cli(id);
         refuseBroken(found);
-        const tau = await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }).catch(() => undefined);
+        const tau = await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd, nativeCapabilities: ["background-work"] }).catch(() => undefined);
         if (!options.spawn) services.noteSubprocess();
         const session = await openGrokSession({
           command: found.path,
@@ -258,7 +258,9 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
               ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,
+              onBackgroundEnded: (text) => { void services.sessions.send?.(threadId, text, { delivery: "queue", wake: { source: "background", label: "Native background task ended" } }).catch((error: unknown) => services.log("background.wake-failed", error instanceof Error ? error.message : String(error))); },
               ask: thread.ask,
+              cancelPrompts: thread.cancelPrompts,
               ...(thread.priceUsage ? { priceUsage: thread.priceUsage } : {}),
             });
             await backend.start(resume ? "resume" : "create");

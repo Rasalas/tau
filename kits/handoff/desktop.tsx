@@ -179,7 +179,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           // A thread past the list's newest is found by its id there (API 1.15.0).
           await environments.open(remote.machine, listed ? { thread: { path: listed.path } } : thread ? { threadId: thread } : undefined);
         } catch (error) {
-          actions.notify(errorMessage(error));
+          actions.notify(errorMessage(error), "error");
         }
       };
 
@@ -196,7 +196,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           toast?.update({ type: "success", title: `Moved to ${result.machineName}`, description: "The saved source copy is in Archived.", timeoutMs: 6_000, actions: [{ label: `Open on ${result.machineName}`, run: () => void openThere(result, actions) }] });
         } catch (error) {
           toast?.dismiss();
-          actions.notify(errorMessage(error));
+          actions.notify(errorMessage(error), "error");
         }
       });
       context.useService<Pick<WorkspaceStoreApi, "registerWorkspaceMachine">>(WORKSPACE_STORE_SERVICE, (workspace) => workspace.registerWorkspaceMachine?.(WorkspaceMachine));
@@ -225,7 +225,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           else actions.notify(`Continues on ${result.machineName}.`);
         } catch (error) {
           toast?.dismiss();
-          actions.notify(errorMessage(error));
+          actions.notify(errorMessage(error), "error");
         }
       };
 
@@ -237,7 +237,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           store.setMergeDraft({ parentThreadId: remote.threadId, text: prepared.context });
         } catch (error) {
           toast?.dismiss();
-          actions.notify(errorMessage(error));
+          actions.notify(errorMessage(error), "error");
         }
       };
 
@@ -258,7 +258,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
             timeoutMs: 0,
           });
         } catch (error) {
-          actions.notify(errorMessage(error));
+          actions.notify(errorMessage(error), "error");
         }
       };
 
@@ -280,7 +280,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           store.arm({ transferId: created.transferId, sourceTitle: created.sourceTitle });
           actions.newSession(thread.workspace ? { workspace: thread.workspace } : undefined);
         } catch (error) {
-          actions.notify(errorMessage(error));
+          actions.notify(errorMessage(error), "error");
         }
       };
 
@@ -300,7 +300,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           await actions.switchSession(parent.path);
         } catch (error) {
           toast?.dismiss();
-          actions.notify(errorMessage(error));
+          actions.notify(errorMessage(error), "error");
         }
       };
 

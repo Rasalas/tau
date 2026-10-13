@@ -65,6 +65,8 @@ async function host(dir?: string) {
   const thread = streamedThread("thread-1", delivered);
   internals.threads.adopt({ threadId: "thread-1", cwd: "/repo", runtime: thread.runtime, isolation: "in-process" });
   internals.threads.setActive("thread-1");
+  await piHost.queue.restore();
+  await piHost.queue.flush();
   /** The runtime reports the end of its turn the way a streamed backend does. */
   const settle = (error?: string, limit?: { resetsAt?: number }) => {
     thread.stop();
@@ -74,6 +76,42 @@ async function host(dir?: string) {
 }
 
 describe("PiHost queue and limits", () => {
+  it("queues the captured prompt before compaction and sends it once afterwards", async () => {
+    const bench = await host();
+    let finish!: () => void;
+    const compact = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    bench.internals.threads.get("thread-1").runtime.backend.capabilities.compaction = { compact };
+    const attachment = { kind: "image" as const, name: "note.png", mimeType: "image/png", data: "aGVsbG8=", size: 5 };
+    const pending = bench.host.compactContext("thread-1", { text: "and how far are we?", attachments: [attachment] });
+    await vi.waitFor(() => expect(compact).toHaveBeenCalledOnce());
+    expect(bench.host.queue.list("thread-1")).toMatchObject([{ text: "and how far are we?", attachments: [attachment] }]);
+    await pending; // Admission returns while compaction still runs.
+    expect(bench.delivered).toEqual([]);
+    await bench.host.queue.pump("thread-1");
+    expect(bench.delivered).toEqual([]);
+    const otherDelivered: DeliveredPrompt[] = [];
+    const other = streamedThread("thread-2", otherDelivered);
+    bench.internals.threads.adopt({ threadId: "thread-2", cwd: "/repo", runtime: other.runtime, isolation: "in-process" });
+    bench.internals.threads.setActive("thread-2");
+    finish();
+    await pending;
+    await vi.waitFor(() => expect(bench.delivered.map((entry) => entry.text)).toEqual(["and how far are we?"]));
+    expect(bench.host.queue.list("thread-1")).toEqual([]);
+    expect(otherDelivered).toEqual([]);
+    await bench.host.queue.flush();
+  });
+
+  it("holds the queued prompt when compaction fails instead of losing it or sending it unconditionally", async () => {
+    const bench = await host();
+    bench.internals.threads.get("thread-1").runtime.backend.capabilities.compaction = { compact: async () => { throw new Error("OAuth session expired"); } };
+    await bench.host.compactContext("thread-1", { text: "next", attachments: [] });
+    expect(bench.delivered).toEqual([]);
+    expect(bench.host.queue.list("thread-1")).toMatchObject([{ text: "next" }]);
+    await vi.waitFor(() => expect(bench.host.queue.isHeld("thread-1")).toBe(true));
+    expect(bench.internals.threads.get("thread-1").runtime.compactionPending).toBe(false);
+    await bench.host.queue.flush();
+  });
+
   it("sends a queued message when the running turn ends", async () => {
     const bench = await host();
     await bench.host.prompt("long job", [], "thread-1");
@@ -100,6 +138,35 @@ describe("PiHost queue and limits", () => {
     await bench.host.queue.flush();
   });
 
+  it("queues background results without interrupting the running turn", async () => {
+    const bench = await host();
+    const wake = { source: "background", label: "Tests ended" };
+    await bench.host.prompt("foreground job", [], "thread-1");
+    await bench.internals.hostExtensions.services.sessions.send("thread-1", "Tests passed.", { delivery: "queue", wake });
+    expect(bench.delivered).toEqual([{ text: "foreground job" }]);
+    expect(bench.host.queue.list("thread-1").map((entry) => entry.wake)).toEqual([wake]);
+    bench.settle();
+    await vi.waitFor(() => expect(bench.delivered.at(-1)).toEqual({ text: "[Tau wake: background] Tests ended\n\nTests passed." }));
+    await bench.host.queue.flush();
+  });
+
+  it("delivers background results after the parent turn ends while native children still run", async () => {
+    const bench = await host();
+    const thread = bench.internals.threadFor("thread-1") as ThreadRuntime;
+    const state = thread.backend.state.bind(thread.backend);
+    // Claude's idle flag also includes its native children, even with no parent turn.
+    vi.spyOn(thread.backend, "state").mockImplementation(() => ({ ...state(), idle: false }));
+    await bench.host.prompt("delegate work", [], "thread-1");
+    await bench.internals.hostExtensions.services.sessions.send("thread-1", "Tests passed.", {
+      delivery: "queue", wake: { source: "background", label: "Background command ended" },
+    });
+    expect(bench.delivered).toEqual([{ text: "delegate work" }]);
+    bench.settle();
+    await vi.waitFor(() => expect(bench.delivered.at(-1)?.text).toContain("Tests passed."));
+    expect(bench.host.queue.list("thread-1")).toEqual([]);
+    await bench.host.queue.flush();
+  });
+
   it("keeps a queued message across a host restart and holds it for the user", async () => {
     const first = await host();
     await first.host.prompt("long job", [], "thread-1");
@@ -107,9 +174,8 @@ describe("PiHost queue and limits", () => {
     await first.host.queue.flush();
 
     const second = await host(first.userData);
-    const setQueue = vi.spyOn(second.internals.index, "setQueue");
     await second.internals.reconcileInterruptedTurns();
-    expect(setQueue).toHaveBeenCalledWith("thread-1", { held: true, messages: [{ id: expect.any(String), text: "after the restart", attachments: 0 }] });
+    expect(second.host.queue.view("thread-1")).toEqual({ held: true, messages: [{ id: expect.any(String), text: "after the restart", attachments: 0 }] });
     second.settle();
     await new Promise((resolve) => setImmediate(resolve));
     expect(second.delivered).toEqual([]);

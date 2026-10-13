@@ -14,7 +14,7 @@ export function ComposerChipPopover({ label, point, entry, scope, registry, onPr
   onPreview(imageId: number): void;
   onRemove(): void;
   onClose(): void;
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const Detail = entry?.Detail;
   return (

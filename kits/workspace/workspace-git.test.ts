@@ -58,6 +58,25 @@ const LIVE_LINKED_SESSION = `live-linked-${process.pid}`;
 const RACE_WRITER_SESSION = `race-writer-${process.pid}`;
 
 describe("selective workspace changes", () => {
+  it("commits successfully with a fifteen-second pre-commit hook", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-slow-commit-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd });
+      execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
+      execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
+      const hook = join(cwd, ".git", "hooks", "pre-commit");
+      await writeFile(hook, "#!/bin/sh\nsleep 15\n");
+      await chmod(hook, 0o755);
+      await writeFile(join(cwd, "tracked.txt"), "change\n");
+
+      const result = await commitWorkspace(cwd, "slow hook", false);
+
+      expect(result).toMatchObject({ pushed: false, changes: { files: [] } });
+      expect(execFileSync("git", ["log", "-1", "--format=%s"], { cwd, encoding: "utf8" }).trim()).toBe("slow hook");
+      expect(execFileSync("git", ["show", "HEAD:tracked.txt"], { cwd, encoding: "utf8" })).toBe("change\n");
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  }, 90_000);
+
   it("stages, unstages, and reverts one exact path", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-selective-changes-"));
     try {
@@ -1178,6 +1197,15 @@ describe("a worktree whose folder vanished", () => {
 });
 
 describe("worktree removal", () => {
+  it("passes destructive flags only when each is explicitly confirmed", async () => {
+    const calls: string[][] = [];
+    await removeWorktree("/repo", "/trees/feat", { branch: "feat", force: true, forceBranch: true }, async (_cwd, args) => {
+      calls.push(args);
+      return "";
+    });
+    expect(calls).toEqual([["worktree", "remove", "--force", "/trees/feat"], ["branch", "-D", "--", "feat"]]);
+  });
+
   it("removes the worktree and its branch, and prunes when the folder is already gone", async () => {
     const calls: string[][] = [];
     await removeWorktree("/repo", "/repo-worktrees/feat", { branch: "feat" }, async (_cwd, args) => {
@@ -1185,8 +1213,8 @@ describe("worktree removal", () => {
       return "";
     });
     expect(calls).toEqual([
-      ["worktree", "remove", "--force", "/repo-worktrees/feat"],
-      ["branch", "-D", "feat"],
+      ["worktree", "remove", "/repo-worktrees/feat"],
+      ["branch", "-d", "--", "feat"],
     ]);
 
     const pruned: string[][] = [];

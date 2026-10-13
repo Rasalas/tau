@@ -1,13 +1,14 @@
 import { formatVerification } from "../../../src/shared/pairing";
 
 /**
- * While the host's owner decides: the digits to compare, like pairing a
- * Bluetooth device. Before the host has the request, which address is tried.
+ * While the owner decides on the machine: the digits to compare, like
+ * pairing a Bluetooth device. Before the machine has the request, which
+ * address is tried.
  */
 export function PairingScreen({ hostName, verification, address, onCancel }: {
   hostName: string;
   verification?: string;
-  /** "Local network", "Tailscale": how the phone reached the host. */
+  /** "Local network", "Tailscale": how the phone reached the machine. */
   address?: string;
   onCancel(): void;
 }) {
@@ -15,9 +16,9 @@ export function PairingScreen({ hostName, verification, address, onCancel }: {
     <div className="shell-pairing-body" role="status" aria-live="polite">
       <h1 id="pairing-title">{verification ? `Waiting for ${hostName}` : `Reaching ${hostName}…`}</h1>
       {verification ? <>
-        <p>Allow this phone on {hostName}. Its window shows a request with a code; allow it only if it is this one:</p>
-        <output className="shell-code" aria-label="Pairing code">{formatVerification(verification)}</output>
-      </> : <p>Trying every address the host gave, best first.</p>}
+        <p>Allow this phone in Tau on {hostName}. It shows a request with a code. Allow it only if the code is this one:</p>
+        <output className="shell-code" aria-label="Code to compare">{formatVerification(verification)}</output>
+      </> : <p>Trying every way to reach it, best first.</p>}
       {address ? <small>Over {address}</small> : null}
     </div>
     <div className="shell-actions">

@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, errorMessage, type RegionProps } from "tau";
+import { requestNumber } from "./protocol.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
@@ -36,10 +37,10 @@ export function readLinkInput(value: string): { kind: "url"; label: string } | {
   if (!typed) return undefined;
   if (/^https?:\/\//iu.test(typed)) {
     const ref = parseRequestUrl(typed);
-    return ref ? { kind: "url", label: `${ref.host}/${ref.repo} #${ref.number}` } : { kind: "invalid" };
+    return ref ? { kind: "url", label: `${ref.host}/${ref.repo} ${requestNumber(ref.service, ref.number)}` } : { kind: "invalid" };
   }
-  const number = /^#?(\d+)$/u.exec(typed)?.[1];
-  return number && Number(number) > 0 ? { kind: "number", label: `#${number} in this thread's repository` } : { kind: "invalid" };
+  const [, sign = "#", number] = /^([#!])?(\d+)$/u.exec(typed) ?? [];
+  return number && Number(number) > 0 ? { kind: "number", label: `${sign}${number} in this thread's repository` } : { kind: "invalid" };
 }
 
 /**
@@ -51,7 +52,7 @@ function LinkPullRequestDialog({ target, client, rows, onClose, notify }: {
   client: PullRequestClient;
   rows: ThreadLinkRows;
   onClose(): void;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const [reference, setReference] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -70,7 +71,7 @@ function LinkPullRequestDialog({ target, client, rows, onClose, notify }: {
     try {
       const result = await client.link(target.threadId, reference.trim(), target.cwd);
       void rows.load(target.threadId);
-      notify(result.alreadyLinked ? `#${result.link.number} is already linked to this thread.` : `Linked #${result.link.number} to this thread.`);
+      notify(result.alreadyLinked ? `${requestNumber(result.link.service, result.link.number)} is already linked to this thread.` : `Linked ${requestNumber(result.link.service, result.link.number)} to this thread.`);
       onClose();
     } catch (error) {
       setFailure(errorMessage(error));
@@ -110,7 +111,7 @@ export function createLinkDialogLayer(dialogs: LinkDialogs, client: PullRequestC
     const target = useSyncExternalStore(dialogs.subscribe, dialogs.getSnapshot, dialogs.getSnapshot);
     if (!target) return null;
     return createPortal(
-      <LinkPullRequestDialog key={target.threadId} target={target} client={client} rows={rows} onClose={() => dialogs.close()} notify={(message) => actions.notify(message)} />,
+      <LinkPullRequestDialog key={target.threadId} target={target} client={client} rows={rows} onClose={() => dialogs.close()} notify={actions.notify} />,
       document.body,
     );
   };

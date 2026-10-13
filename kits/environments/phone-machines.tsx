@@ -11,7 +11,7 @@ import { runOnDetail } from "./run-on.js";
 export function createPhoneMachinesPage(environments: PlatformEnvironments) {
   return function PhoneMachines({ onNotify }: SettingsPageProps) {
     const list = useEnvironments(environments);
-    const fail = (error: unknown) => onNotify(error instanceof Error ? error.message : String(error));
+    const fail = (error: unknown) => onNotify(error instanceof Error ? error.message : String(error), "error");
     if (!list) return null;
     return <div className="settings-page machines-phone">
       <div className="run-on-rows" role="group" aria-label="Machines">

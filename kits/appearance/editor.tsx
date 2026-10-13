@@ -108,7 +108,7 @@ export function ThemeEditorPanel({ store, host, preferences, notify }: {
   store: ThemeEditorStore;
   host: HostExtensionClient;
   preferences: PreferencesStore;
-  notify(message: string): void;
+  notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   const { draft, saving, error } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [allTokens, setAllTokens] = useState(false);

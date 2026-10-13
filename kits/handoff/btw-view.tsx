@@ -68,7 +68,7 @@ export function registerSideQuestions(context: DesktopExtensionContext, { host, 
     try {
       store.apply(await host.invoke("btw-ask", { threadId: chat.threadId, question: chat.question, chatId: chat.id }));
     } catch (error) {
-      actions.notify(errorMessage(error));
+      actions.notify(errorMessage(error), "error");
     }
   };
 
@@ -184,7 +184,7 @@ export function registerSideQuestions(context: DesktopExtensionContext, { host, 
           return;
         }
         const problem = await ask(draft.replace(/^\/btw\s+/u, ""), actions);
-        if (problem) actions.notify(problem);
+        if (problem) actions.notify(problem, "error");
         else actions.setComposerDraft?.("");
       },
     }),

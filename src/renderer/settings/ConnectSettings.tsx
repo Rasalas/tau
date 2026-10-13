@@ -5,7 +5,7 @@ import { useHostClient } from "../host-client-context";
 import { Button } from "./controls";
 import { SettingsSection } from "./settings-layout";
 
-export function ConnectSettings({ onNotify }: { onNotify(message: string): void }) {
+export function ConnectSettings({ onNotify }: { onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
   const [status, setStatus] = useState<ConnectStatus>();
   const [relay, setRelay] = useState("");

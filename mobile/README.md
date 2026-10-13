@@ -6,7 +6,7 @@ package adds the shell around it and the native plugin.
 
 | Where | What |
 |---|---|
-| `src/Shell.tsx` | host list, adding a host, pairing, a host's workbench |
+| `src/Shell.tsx` | the machine list (a host in code), adding a machine, pairing, a machine's workbench |
 | `src/endpoints.ts` | which addresses to try and the race between them (`RacingSocket`) |
 | `src/pairing.ts` | pairing over the best address, digits bound to the pinned key |
 | `src/native-socket.ts` | a `WebSocket`-shaped socket over the plugin |
@@ -53,7 +53,7 @@ xcrun simctl boot <udid>                             # headless; no Simulator wi
 xcrun simctl install <udid> .build/ios/Build/Products/Debug-iphonesimulator/App.app
 xcrun simctl launch --console-pty <udid> de.tbuck.tau   # the console shows every bridge call
 node scripts/sim.mjs eval "text()"
-node scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add host\"]'))"
+node scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add machine\"]'))"
 node scripts/sim.mjs eval "type(document.querySelector('textarea'), '<pairing link>')"
 xcrun simctl io <udid> screenshot shot.png
 xcrun simctl shutdown <udid>
@@ -125,7 +125,9 @@ app follows the host): the host's name, its accounts and its threads. The
 accounts come with the sidebar's juicebar level and pace, and with the provider's
 mark or, without one, its initials (marks and glyphs are the desktop's: Lucide for
 states and machines, `@lobehub/icons` for providers); the threads with
-sub-agents left out. On iOS it lands in the App Group (`widget.<host>`) and
+sub-agents left out, each with the marks its row has on the desktop (`marks`: the
+runtime's, then the model provider's where it is another, the Pi default included;
+optional, so a snapshot without them stays version 4 and simply draws none). On iOS it lands in the App Group (`widget.<host>`) and
 drives the host's Live Activity; on Android it lands in the widget store.
 `WidgetModel.swift` and `WidgetModel.kt` read the same fields.
 
@@ -134,8 +136,8 @@ lock screen rectangular and circular; Android 2 × 2, 4 × 2, 4 × 3) draws each
 plan's windows as the sidebar's juicebars, in the sidebar's order, with the lowest
 rest, resets and pace ("runs out Thu" in the large sizes). **Threads** (iPhone small,
 medium and lock screen inline, rectangular and circular; Android 2 × 2, 4 × 2,
-4 × 3) lists a question first, then running and finished threads with project and
-machine. A plan read on two hosts shows once, from the freshest reading. A
+4 × 3) lists a question first, then running and finished threads with project,
+machine and those marks at the end of the line (the Live Activity draws none). A plan read on two hosts shows once, from the freshest reading. A
 reading older than fifteen minutes stays, faded, with its age. Widgets receive
 labels, percentages, reset times, thread titles and hashed grouping keys; no host
 tokens or provider credentials. A tap opens Usage (`tau://usage?host=`) or the

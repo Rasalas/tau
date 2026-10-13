@@ -2,6 +2,7 @@ import type { HostBootstrap, HostEvent } from "../shared/contracts";
 import { HOST_PROTOCOL_VERSION } from "../shared/host-protocol";
 import {
   HOST_CAPABILITY,
+  HOST_ERROR,
   HOST_TRANSPORT_VERSION,
   decodeHostHelloReply,
   hostTopicKey,
@@ -53,6 +54,7 @@ export class HostRequestError extends Error {
  */
 export class HostConnection {
   private lastSeq = 0;
+  private bootId?: string;
   /** Which client this is, repeated in every hello so the host can count profiles. */
   private profile?: string;
   /** The window this renderer sits in, so the host sends the calls it causes to that window. */
@@ -61,6 +63,10 @@ export class HostConnection {
   private refusal: string | undefined;
   private recovering = false;
   private recoveryRequested = false;
+  private recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Failed recoveries in a row; the next try waits longer, up to 15 s. */
+  private recoveryFailures = 0;
+  private resyncPending = false;
   private closed = false;
   private queued: HostPush[] = [];
   private capabilities = new Set<string>();
@@ -75,6 +81,8 @@ export class HostConnection {
   private readonly jobs = new Map<string, PendingJob>();
   /** A job that finished before its `start-job` response arrived. */
   private readonly earlyJobResults = new Map<string, HostJobEvent>();
+  /** `start-job` calls still unanswered; other clients' jobs are only kept while one is. */
+  private startingJobs = 0;
   private readonly toolOutputs = new ToolOutputStream();
   private readonly messageTexts = new MessageTextStream();
   /** `thread:`, `request:` or `topic:` keys, with how many watchers hold each. */
@@ -123,6 +131,7 @@ export class HostConnection {
   refuse(reason: string): void {
     if (this.refusal !== undefined) return;
     this.refusal = reason;
+    clearTimeout(this.recoveryTimer);
     this.setState("refused");
     this.transport.close?.();
   }
@@ -168,7 +177,7 @@ export class HostConnection {
   }
 
   async request<T>(method: string, params: readonly unknown[] = []): Promise<T> {
-    if (this.refusal !== undefined) throw new HostRequestError("Tau refused the connection to this host.", "refused");
+    if (this.refusal !== undefined) throw new HostRequestError("Tau refused the connection to this machine.", "refused");
     if (this.subscriptionQueued) this.sendSubscription();
     const response = await this.transport.request(method, params);
     if (response.error) throw new HostRequestError(response.error.message, response.error.code);
@@ -196,12 +205,18 @@ export class HostConnection {
    * a promise. A job failure is a rejected promise, never a lost connection.
    */
   async runJob<T>(method: string, params: readonly unknown[] = [], onProgress?: (message: string, fraction?: number) => void): Promise<T> {
-    const { jobId } = await this.request<{ jobId: string }>("start-job", [method, params]);
-    const early = this.earlyJobResults.get(jobId);
-    if (early) {
-      this.earlyJobResults.delete(jobId);
-      return this.settleJob<T>(early);
+    this.startingJobs += 1;
+    let jobId: string;
+    try {
+      ({ jobId } = await this.request<{ jobId: string }>("start-job", [method, params]));
+    } finally {
+      this.startingJobs -= 1;
     }
+    const early = this.earlyJobResults.get(jobId);
+    // Every client hears every job; ids restart with the host, so an old one must not be kept.
+    if (this.startingJobs === 0) this.earlyJobResults.clear();
+    else this.earlyJobResults.delete(jobId);
+    if (early) return this.settleJob<T>(early);
     return new Promise<T>((resolve, reject) => {
       this.jobs.set(jobId, { resolve: (value) => resolve(value as T), reject, ...(onProgress ? { onProgress } : {}) });
     });
@@ -214,6 +229,7 @@ export class HostConnection {
 
   close(): void {
     this.closed = true;
+    clearTimeout(this.recoveryTimer);
     this.transport.close?.();
   }
 
@@ -309,7 +325,7 @@ export class HostConnection {
 
   private receive(push: HostPush): void {
     if (push.seq <= this.lastSeq) return;
-    if (this.recovering) {
+    if (this.recovering || this.resyncPending) {
       this.queued.push(push);
       return;
     }
@@ -337,7 +353,7 @@ export class HostConnection {
       return;
     }
     if (!job) {
-      this.earlyJobResults.set(event.jobId, event);
+      if (this.startingJobs > 0) this.earlyJobResults.set(event.jobId, event);
       return;
     }
     this.jobs.delete(event.jobId);
@@ -350,16 +366,24 @@ export class HostConnection {
    * client lacks starts it over as a new client, so the host sends whole texts again.
    */
   private async recover(): Promise<void> {
-    if (this.recovering || this.closed) return;
+    if (this.recovering || this.closed || this.refusal !== undefined) return;
+    clearTimeout(this.recoveryTimer);
     this.recovering = true;
     this.setState("reconnecting");
-    const restart = this.messageTexts.lost;
+    const textLost = this.messageTexts.lost;
+    const restart = textLost || this.resyncPending;
     this.messageTexts.lost = false;
     try {
       await this.hello(restart ? undefined : this.lastSeq, restart);
+      this.recoveryFailures = 0;
     } catch {
-      if (restart) this.messageTexts.lost = true;
+      if (textLost) this.messageTexts.lost = true;
       this.setState("reconnecting");
+      if (!this.closed && this.refusal === undefined) {
+        const wait = Math.min(15_000, 1_000 * 2 ** this.recoveryFailures);
+        this.recoveryFailures += 1;
+        this.recoveryTimer = setTimeout(() => { void this.recover(); }, wait);
+      }
     } finally {
       this.recovering = false;
       this.drain();
@@ -381,12 +405,15 @@ export class HostConnection {
     const hello: HostHello = {
       protocol: HOST_TRANSPORT_VERSION,
       ...(lastSeq === undefined ? {} : { lastSeq }),
+      ...(lastSeq !== undefined && this.bootId ? { bootId: this.bootId } : {}),
       ...(this.profile ? { profile: this.profile } : {}),
       ...(this.windowId ? { windowId: this.windowId } : {}),
       ...(subscription ? { subscription } : {}),
     };
     const reply = decodeHostHelloReply(await this.request<unknown>("hello", [hello]));
-    if (!reply) throw new HostRequestError("The host answered hello with a frame this client cannot read.", "invalid-hello");
+    if (!reply) throw new HostRequestError("The machine answered with something this client cannot read.", "invalid-hello");
+    const resync = reply.resync || (this.bootId !== undefined && reply.bootId !== this.bootId);
+    this.bootId = reply.bootId;
     this.capabilities = new Set(reply.capabilities);
     this.readOnly = reply.access === "read-only";
     this.owner = reply.owner;
@@ -394,33 +421,38 @@ export class HostConnection {
     this.confirmed = reply.capabilities.includes(HOST_CAPABILITY.subscriptions) ? subscription : undefined;
     this.requested = this.confirmed && JSON.stringify(this.confirmed);
     // A snapshot of a thread this client did not follow would miss what streams until it subscribes.
-    if (reply.resync && this.confirmed) return this.hello(undefined, true);
+    if (resync && this.confirmed) return this.hello(undefined, true);
     if (reply.hostVersion !== this.hostVersion) {
       this.hostVersion = reply.hostVersion;
       for (const listener of this.helloListeners) listener();
     }
     if (lastSeq === undefined) {
       // A first connection starts from the bootstrap it is about to fetch.
+      if (restart || resync) await this.startOver();
       this.lastSeq = reply.nextSeq - 1;
-      if (restart) await this.startOver();
       this.setState("connected");
       return reply;
     }
-    for (const push of reply.missed) if (push.seq > this.lastSeq) this.apply(push);
+    if (!resync) for (const push of reply.missed) if (push.seq > this.lastSeq) this.apply(push);
     // A filtered replay may end before the host's newest push; nothing after it was for this client.
-    if (this.confirmed && !reply.resync) this.lastSeq = Math.max(this.lastSeq, reply.nextSeq - 1);
-    if (reply.resync) {
-      this.lastSeq = reply.nextSeq - 1;
+    if (this.confirmed && !resync) this.lastSeq = Math.max(this.lastSeq, reply.nextSeq - 1);
+    if (resync) {
       await this.startOver();
+      this.lastSeq = reply.nextSeq - 1;
     }
     this.setState("connected");
     return reply;
   }
 
   private async startOver(): Promise<void> {
+    this.resyncPending = true;
     this.toolOutputs.clear();
     this.messageTexts.clear();
+    // Their `job-done` may be among the pushes skipped; waiting for it could last forever.
+    for (const job of this.jobs.values()) job.reject(new HostRequestError("The link to the machine was reset before the job finished.", HOST_ERROR.failed));
+    this.jobs.clear();
     await this.resync();
+    this.resyncPending = false;
   }
 
   /** Refetches the bootstrap and republishes it as the updates a client already applies. */
@@ -435,6 +467,7 @@ export class HostConnection {
   }
 
   private drain(): void {
+    if (this.resyncPending) return;
     const queued = this.queued.sort((left, right) => left.seq - right.seq);
     this.queued = [];
     for (const push of queued) if (push.seq > this.lastSeq && this.follows(push)) this.apply(push);

@@ -18,10 +18,10 @@
 .ansi-underline { text-decoration: underline; }
 
 .ansi-black { color: var(--ink-3); }
-.ansi-red { color: var(--fail); }
+.ansi-red { color: var(--fail-ink); }
 .ansi-green { color: var(--ready); }
 .ansi-yellow { color: var(--warn); }
-.ansi-blue { color: var(--info); }
+.ansi-blue { color: var(--info-ink); }
 .ansi-magenta { color: var(--syntax-fn); }
 .ansi-cyan { color: var(--cyan); }
 .ansi-white { color: var(--ink); }

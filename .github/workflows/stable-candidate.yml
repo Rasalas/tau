@@ -46,7 +46,7 @@ jobs:
           script: |
             const { prepareCandidate } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/stable-candidate.mjs`);
             const result = await prepareCandidate({ github, repo: context.repo, reviewer: process.env.RELEASE_REVIEWER, requestedVersion: process.env.REQUESTED_VERSION, runId: context.runId, scheduled: context.eventName === 'schedule' });
-            await core.summary.addHeading('Stable candidate').addRaw(result.skipped ? 'No shipped changes since the latest stable release.' : result.url).write();
+            await core.summary.addHeading('Stable candidate').addRaw(result.skipped ? (result.reason || 'No shipped changes since the latest stable release.') : result.url).write();
 
   publish:
     if: github.repository == 'Rasalas/tau' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.user.login == 'github-actions[bot]' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'release/stable-')

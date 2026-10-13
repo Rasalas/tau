@@ -53,7 +53,7 @@ export function createListHead(environments: PlatformEnvironments, Arrival: Comp
     };
     // Shows that machine; one that refused this device asks to pair again there.
     const show = (machine: UiEnvironment) => {
-      void environments.open(machine.id).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error)));
+      void environments.open(machine.id).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error), "error"));
     };
     return <>
       <Arrival actions={actions} />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, GitBranch, Folder, FolderGit2, Laptop, SquareMenu, SquarePen, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Ellipsis, GitCommitHorizontal, GitCompare, GitBranch, GitPullRequest, Folder, FolderGit2, Laptop, SquareMenu, SquarePen, Upload } from "lucide-react";
 import { hostAvailable, Menu, Popover, tooltipProps, useHostCapabilities, useHostName, usePreferences, type MenuSection, type RegionProps } from "tau";
 import { DraftMachinePill } from "./run-on.js";
 import { ThreadBranch } from "./branch-menu.js";
@@ -171,15 +171,26 @@ export function TitleActionsRow({ collapse, row, snapshot, hideChanges = false, 
   const [gitMenu, setGitMenu] = useState(false);
   const [moreMenu, setMoreMenu] = useState(false);
   const projectActions = useProjectActions(state.workspaceId ?? state.cwd, (command, includeInContext, name) => void workspaceStore.runShellAction(command, includeInContext, name));
+  const { requestStep } = state;
+  const workspaceKey = state.workspaceId ?? state.cwd ?? "";
+  const mainLine = state.defaultBranches[workspaceKey];
+  useEffect(() => { if (requestStep && workspaceKey) workspaceStore.loadDefaultBranch(workspaceKey); }, [requestStep, workspaceKey, workspaceStore]);
+  // A request needs a branch of its own: a linked worktree's, or any but the project's main line.
+  const branch = state.workspace?.branch;
+  const ownBranch = Boolean(branch) && branch !== "detached" && (mainLine ? branch !== mainLine : Boolean(state.workspace?.worktrees.some((entry) => entry.isCurrent && !entry.isMain)));
+  const committed = (state.workspace?.ahead ?? 0) > 0 || (threadChanges?.scope === "branch" && threadChanges.files > 0);
+  const requestNoun = requestStep && ownBranch ? requestStep.noun : undefined;
   const gitAction = useMemo(
-    () => resolveGitQuickAction(state.changes, state.workspace, state.committing),
-    [state.changes, state.committing, state.workspace],
+    () => resolveGitQuickAction(state.changes, state.workspace, state.committing, requestNoun ? { noun: requestNoun, committed } : undefined),
+    [committed, requestNoun, state.changes, state.committing, state.workspace],
   );
   const runGitAction = (kind: GitQuickActionKind) => {
     if (kind === "commit") workspaceStore.openReview(undefined, false);
     if (kind === "commit-push") workspaceStore.openReview(undefined, true);
     if (kind === "pull") void workspaceStore.pull();
     if (kind === "push") void workspaceStore.push();
+    if (kind === "request") requestStep?.open();
+    if (kind === "commit-request") requestStep?.open({ commit: true });
   };
 
   // A Read-only device runs nothing and changes no branch (ADR 0024); both are left out.
@@ -212,8 +223,15 @@ export function TitleActionsRow({ collapse, row, snapshot, hideChanges = false, 
       disabled: !state.workspace?.upstream || !state.workspace.ahead || Boolean(state.workspace.behind),
       icon: <Upload size={13} />,
     },
+    ...(requestStep ? [{
+      id: "request",
+      label: `Create ${requestStep.noun}`,
+      description: ownBranch ? "Write the description, then push and open it" : "Needs a branch of its own",
+      disabled: !ownBranch || Boolean(state.workspace?.behind),
+      icon: <GitPullRequest size={13} />,
+    }] : []),
   ];
-  const pickGit = (id: string) => id === "review" ? workspaceStore.openReview(undefined, gitAction.kind === "commit-push") : runGitAction(id as GitQuickActionKind);
+  const pickGit = (id: string) => id === "review" ? workspaceStore.openReview(undefined, gitAction.kind === "commit-push" || (gitAction.kind === "commit-request" && Boolean(state.workspace?.upstream))) : runGitAction(id as GitQuickActionKind);
   const gitInMenu = !readOnly && collapse.gitMenu === "overflow";
   const moreSections: MenuSection[] = [
     ...(showActions && collapse.actions === "overflow" ? [{ heading: "Actions", items: projectActionItems(projectActions.actions) }] : []),
@@ -232,7 +250,7 @@ export function TitleActionsRow({ collapse, row, snapshot, hideChanges = false, 
     /> : null}
     {projectActions.editing && collapse.actions === "overflow" ? <ProjectActionEditor state={projectActions} /> : null}
   </div> : null;
-  const gitIcon = gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : <GitCommitHorizontal size={13} />;
+  const gitIcon = gitAction.kind === "pull" ? <Download size={13} /> : gitAction.kind === "push" ? <Upload size={13} /> : gitAction.kind === "request" ? <GitPullRequest size={13} /> : <GitCommitHorizontal size={13} />;
   const changed = threadChanges?.files ?? state.changes.files.length;
   const others = threadChanges?.scope === "thread" ? threadChanges.uncommitted - threadChanges.files : 0;
 

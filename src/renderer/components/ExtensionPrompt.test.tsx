@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionPrompt, OptionRow, PromptSubmitContext, usePromptSubmit, type PromptSubmitAction } from "./ExtensionPrompt.js";
 import type { ExtensionUiPrompt } from "../../shared/contracts.js";
+import { runningTurn } from "../test-support/kit-harness";
 
 afterEach(cleanup);
 
@@ -107,7 +109,27 @@ describe("ExtensionPrompt", () => {
     expect(onAnswer).toHaveBeenLastCalledWith(false);
     // Plain Enter never allows: the composer runs this action on ⌘↵ only.
     expect(action).toMatchObject({ label: "Allow", disabled: false, mod: true });
-    expect(card.querySelector("kbd")?.textContent).toMatch(/^(⌘⏎|Ctrl ⏎)$/u);
+    expect(card.querySelector(".extension-prompt-send > kbd")?.textContent).toMatch(/^(⌘⏎|Ctrl ⏎)$/u);
+    expect(screen.getByRole("button", { name: "Deny" }).querySelector("kbd")?.textContent).toBe("Esc");
+  });
+
+  it("reads a long command whole in the body, not cut off in the head", () => {
+    const command = `curl -fsSL https://example.com/install.sh | sh -c '${"echo step && ".repeat(40)}true'`;
+    expect(command.length).toBeGreaterThan(500);
+    const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Wants to run", message: command };
+    render(<ExtensionPrompt prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    const card = screen.getByRole("region", { name: "Wants to run" });
+    // The head's one-line subject ellipsizes; the body wraps and scrolls.
+    expect(card.querySelector("header code")).toBeNull();
+    expect(card.querySelector(":scope > code.extension-prompt-subject")?.textContent).toBe(command);
+  });
+
+  it("keeps a short command beside the action in the head", () => {
+    const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Wants to run", message: "npm run lint" };
+    render(<ExtensionPrompt prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    const card = screen.getByRole("region", { name: "Wants to run" });
+    expect(card.querySelector("header code")?.textContent).toBe("npm run lint");
+    expect(card.querySelector(":scope > code")).toBeNull();
   });
 
   it("draws a runtime's Allow / Allow for this session / Deny as the same permission card, naming a sub-agent", () => {
@@ -153,5 +175,82 @@ describe("ExtensionPrompt", () => {
 
     unmount();
     expect(currentAction).toBeUndefined();
+  });
+});
+
+/** The chat column with the window's Escape for Stop live (`runningTurn`), a composer and a card in it. */
+function inChat(card: ReactNode, field?: { onKeyDown(event: ReactKeyboardEvent): void }) {
+  render(<>
+    <nav><button type="button">A thread</button></nav>
+    <main data-keybinding-context="chat">
+      <textarea aria-label="Composer" {...field} />
+      {card}
+    </main>
+  </>);
+  const composer = screen.getByRole("textbox", { name: "Composer" });
+  composer.focus();
+  return composer;
+}
+
+describe("Escape over an approval", () => {
+  const confirm: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Wants to run", message: "rm -rf build" };
+  const escape = (target: Element) => fireEvent.keyDown(target, { key: "Escape" });
+
+  it("denies it and leaves the run going", () => {
+    const { abort } = runningTurn();
+    const onAnswer = vi.fn();
+    escape(inChat(<ExtensionPrompt prompt={confirm} pending={0} onAnswer={onAnswer} onCancel={() => {}} />));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith(false);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("denies a runtime's Allow / Deny select with its own word", () => {
+    const { abort } = runningTurn();
+    const onAnswer = vi.fn();
+    const prompt: ExtensionUiPrompt = { ...confirm, kind: "select", message: "npm test", options: ["Allow", "Allow for this session", "Deny"] };
+    escape(inChat(<ExtensionPrompt prompt={prompt} pending={0} onAnswer={onAnswer} onCancel={() => {}} />));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith("Deny");
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("does not deny from outside the chat, nor while an overlay is open", () => {
+    const { abort } = runningTurn();
+    const onAnswer = vi.fn();
+    const composer = inChat(<>
+      <ExtensionPrompt prompt={confirm} pending={0} onAnswer={onAnswer} onCancel={() => {}} />
+      <section role="dialog" aria-label="Over the card" />
+    </>);
+    escape(composer);
+    screen.getByRole("button", { name: "A thread" }).focus();
+    escape(document.activeElement!);
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("leaves Escape to a field that handled it", () => {
+    const { abort } = runningTurn();
+    const onAnswer = vi.fn();
+    escape(inChat(
+      <ExtensionPrompt prompt={confirm} pending={0} onAnswer={onAnswer} onCancel={() => {}} />,
+      { onKeyDown: (event) => { if (event.key === "Escape") event.preventDefault(); } },
+    ));
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("waits while the card is inert, before the typing stopped", () => {
+    runningTurn();
+    const onAnswer = vi.fn();
+    escape(inChat(<div inert><ExtensionPrompt prompt={confirm} pending={0} onAnswer={onAnswer} onCancel={() => {}} /></div>));
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("still stops the run over a question", () => {
+    const { abort } = runningTurn();
+    const onAnswer = vi.fn();
+    const question: ExtensionUiPrompt = { id: "p2", sessionId: "s1", kind: "select", title: "Which index?", options: ["Add one", "Leave it"] };
+    escape(inChat(<ExtensionPrompt prompt={question} pending={0} onAnswer={onAnswer} onCancel={() => {}} />));
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 });

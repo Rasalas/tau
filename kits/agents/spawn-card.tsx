@@ -1,14 +1,13 @@
 import { useState, useSyncExternalStore } from "react";
-import { Bot, CircleHelp } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useThreadStore, type ToolCardProps } from "tau";
 import { formatCost, spawnCardModel } from "./model.js";
 import { AgentLineageRow } from "./lineage.js";
 import { agentsStore } from "./store.js";
+import { AgentProviderMark, AgentTranscriptElapsed } from "./transcript-marks.js";
 
 /**
- * One line per `tau_spawn_thread` batch: "Started 6 agents · 5 running ·
- * 1 question", which expands the linked chats. The transcript never folds it: a
- * spawn outlives the turn that made it.
+ * A batch expands its children; a single child opens its transcript directly.
  */
 export function SpawnCard({ tools, actions }: ToolCardProps) {
   const [expanded, setExpanded] = useState(false);
@@ -17,26 +16,26 @@ export function SpawnCard({ tools, actions }: ToolCardProps) {
   const navigation = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const model = spawnCardModel(tools, state, navigation.threads);
   if (model.rows.length === 0) return null;
+  if (model.rows.length === 1) return <AgentLineageRow row={model.rows[0]!} actions={actions} transcript />;
   const cost = model.totalCostUsd === undefined ? undefined : formatCost(model.totalCostUsd);
+  const headline = `${model.rows.length} subagents`;
+  const parts = model.parts.map((part) => ({ ...part, text: part.kind === "running" ? part.text.replace("running", "working") : part.text }));
   return (
     <div><button
       type="button"
       className={`agent-spawn-card status-${model.status}`}
-      aria-label={`${model.summary}. Show agents`}
+      aria-label={`${[headline, ...parts.map((part) => part.text)].join(" · ")}. Show agents`}
       aria-expanded={expanded}
+      title={cost ? `Total cost: ${cost}` : undefined}
       onClick={() => setExpanded((value) => !value)}
     >
-      <Bot size={14} aria-hidden="true" />
-      <strong>{model.headline}</strong>
-      {model.parts.map((part) => (
-        <span key={part.kind} className={`agent-spawn-part part-${part.kind}`}>
-          {part.kind === "running" ? <span className="spinner info spinner-sm" aria-hidden="true" /> : null}
-          {part.kind === "question" ? <CircleHelp size={12} aria-hidden="true" /> : null}
-          {part.text}
-        </span>
-      ))}
-      {cost ? <small className="agent-spawn-cost">{cost}</small> : null}
+      <span className="agent-spawn-avatars" aria-hidden="true">{model.rows.slice(0, 3).map((row) => <AgentProviderMark key={row.id} row={row} />)}</span>
+      <span className="agent-transcript-main"><strong>{headline}</strong>
+        <span className="agent-spawn-parts">{parts.map((part) => <span key={part.kind} className={`agent-spawn-part part-${part.kind}`}>{part.text}</span>)}</span>
+      </span>
+      <AgentTranscriptElapsed rows={model.rows} />
+      {expanded ? <ChevronDown className="agent-transcript-chevron" size={16} aria-hidden /> : <ChevronRight className="agent-transcript-chevron" size={16} aria-hidden />}
     </button>
-    {expanded ? <div className="agent-spawn-list">{model.rows.map((row) => <AgentLineageRow key={row.id} row={row} actions={actions} />)}</div> : null}</div>
+    {expanded ? <div className="agent-spawn-list">{model.rows.map((row) => <AgentLineageRow key={row.id} row={row} actions={actions} transcript />)}</div> : null}</div>
   );
 }

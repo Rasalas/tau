@@ -59,6 +59,14 @@ describe("rail request cache", () => {
     expect(changed).toHaveBeenCalled();
   });
 
+  it("tells a checkout without a request from one not asked about yet", async () => {
+    const rows = new RowRequests(async () => undefined, () => 0);
+    expect(rows.known("/a")).toBe(false);
+    rows.ensure("/a");
+    await vi.waitFor(() => expect(rows.known("/a")).toBe(true));
+    expect(rows.get("/a")).toBeUndefined();
+  });
+
   it("counts open requests once, however many checkouts share one", () => {
     const rows = new RowRequests(async () => undefined, () => 0);
     expect(rows.openCount()).toBe(0);

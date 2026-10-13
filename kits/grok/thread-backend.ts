@@ -285,7 +285,7 @@ export class GrokThreadRuntimeBackend extends AcpThreadBackend<GrokSessionLike> 
       agentArgs,
       onUpdate: (update) => this.onUpdate(update),
       onPermission: (request) => this.onPermission(request),
-      onElicitation: (request) => answerElicitation(request, this.options.ask, "Grok"),
+      onElicitation: (request) => answerElicitation(request, this.sessionAsk(session), "Grok"),
       onExit: (error) => this.onExit(session, error),
     });
     try {

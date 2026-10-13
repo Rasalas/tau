@@ -27,6 +27,14 @@ export function commitSummary(files: number, branch: string | undefined, push: b
   return push ? `${what}${where}${others}, then pushes ${branch ?? "the branch"}.` : `${what}${where}${others}. Nothing is pushed.`;
 }
 
+/** Why the commit button waits, in the words of its tooltip; undefined when it can go. */
+export function commitBlockReason(state: { busy: boolean; generating: boolean; empty: boolean }): string | undefined {
+  if (state.busy) return "A Git action is still running.";
+  if (state.generating) return "The message is being written from the diff.";
+  if (state.empty) return "Write a commit message first.";
+  return undefined;
+}
+
 /**
  * The commit, written where the diff is read: one message field and one button.
  * Where a commit can lead (a push, a pull request) sits in the button's menu, so
@@ -65,9 +73,14 @@ export function ReviewCommitBar({
   const [menu, setMenu] = useState(false);
   const anchor = useRef<HTMLSpanElement>(null);
   const empty = message.trim().length === 0;
-  const blocked = busy || generating || empty;
+  const reason = commitBlockReason({ busy, generating, empty });
+  // The chord has no disabled button to hover: it says why nothing happened, until the message changes.
+  const [pressed, setPressed] = useState(false);
   const mac = isMacPlatform();
-  const submit = () => { if (!blocked) onCommit(message, primaryPush); };
+  const submit = () => {
+    if (reason) setPressed(true);
+    else onCommit(message, primaryPush);
+  };
   const entries: MenuItem[] = [
     ...primaryPush ? [{ id: "push", label: "Commit & push", description: `Then push ${branch ?? "the branch"}` }] : [],
     ...primaryPush ? [{ id: "commit", label: "Commit", description: "Keep it on this computer; nothing is pushed" }] : [],
@@ -89,7 +102,12 @@ export function ReviewCommitBar({
 
   return <section className="review-commit" aria-label="Commit">
     <span className={`menu-anchor review-commit-split${entries.length > 0 ? " has-menu" : ""}`} ref={anchor}>
-      <button className="review-commit-button" title={commitSummary(fileCount, branch, primaryPush, stagedCount)} disabled={blocked} onClick={submit}>
+      <button
+        className="review-commit-button"
+        {...(reason ? tooltipProps(reason, { side: "bottom" }) : { title: commitSummary(fileCount, branch, primaryPush, stagedCount) })}
+        disabled={reason !== undefined}
+        onClick={submit}
+      >
         <GitCommitHorizontal size={14} aria-hidden="true" /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
       </button>
       {entries.length > 0 ? <button
@@ -97,7 +115,8 @@ export function ReviewCommitBar({
         aria-label="More ways to commit"
         aria-haspopup="menu"
         aria-expanded={menu}
-        disabled={blocked}
+        {...tooltipProps(reason, { side: "bottom" })}
+        disabled={reason !== undefined}
         onClick={() => setMenu((open) => !open)}
       ><ChevronDown size={14} aria-hidden="true" /></button> : null}
       {menu ? <Menu align="right" items={entries} label="Commit" onSelect={select} onClose={() => setMenu(false)} /> : null}
@@ -108,7 +127,7 @@ export function ReviewCommitBar({
         placeholder={generating ? "Writing from the diff…" : `Message (${mac ? "⌘" : "Ctrl+"}Enter to commit)`}
         value={generating ? "" : message}
         disabled={generating}
-        onChange={(event) => onMessageChange(event.target.value)}
+        onChange={(event) => { setPressed(false); onMessageChange(event.target.value); }}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
@@ -124,6 +143,6 @@ export function ReviewCommitBar({
         onClick={onGenerate}
       ><Sparkles className={generating ? "spinning" : ""} size={13} /></button> : null}
     </div>
-    {note ? <small className="review-commit-note" role="status"><Info size={12} aria-hidden="true" /> {note}</small> : null}
+    {note || (pressed && reason) ? <small className="review-commit-note" role="status"><Info size={12} aria-hidden="true" /> {note || reason}</small> : null}
   </section>;
 }

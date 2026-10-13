@@ -123,7 +123,7 @@ export const runtimeControls: DesktopExtension = {
         label: "Back to this computer",
         group: "Workbench",
         access: "read",
-        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(errorMessage(error))),
+        run: (app) => environments.showLocal().catch((error: unknown) => app.notify(errorMessage(error), "error")),
       });
     }
     // In the palette it lists the models; from a chord it opens the picker.
@@ -190,6 +190,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.restart-session", label: "Restart agent session", group: "Thread", access: "write", run: async (app) => { await app.restartAgentSession?.(); } });
     plugin.registerCommand({ id: "runtime.reload", label: "Apply changes and reload Tau", group: "Runtime", access: "write", run: async (app) => { await app.reloadWorkbench(); } });
     plugin.registerCommand({ id: "runtime.open-source", label: "Open Tau source", group: "Runtime", access: "write", run: async (app) => { await app.openWorkbenchSource(); } });
+    plugin.registerCommand({ id: "thread.find", label: "Find in thread", group: "Thread", access: "read", run: (app) => app.findInThread?.() });
     plugin.registerCommand({ id: "workbench.focus-composer", label: "Focus composer", group: "Workbench", access: "read", run: (app) => app.focusComposer() });
     plugin.registerCommand({ id: "workbench.focus-transcript", label: "Focus transcript", group: "Workbench", access: "read", run: (app) => app.focusTranscript() });
     plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", access: "read", run: (app) => app.focusStage() });
@@ -228,12 +229,12 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.cycle-model", label: "Cycle model forward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(1); } });
     plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });
     plugin.registerCommand({ id: "runtime.cycle-thinking", label: "Cycle thinking level", group: "Thread", access: "write", run: async (app) => { await app.cycleThinking?.(); } });
-    plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Open prompt in external editor", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
+    plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Edit prompt in $EDITOR", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
     const goalCommand = (id: string, label: string, action: "pause" | "resume" | "clear", refusal: "pause" | "resume" | "end") => plugin.registerCommand({
       id, label, group: "Thread", access: "write",
       unavailable: () => goalCommandRefusal(refusal),
       run: async (app) => {
-        try { await app.threadGoal?.(action); } catch (error) { app.notify(errorMessage(error)); }
+        try { await app.threadGoal?.(action); } catch (error) { app.notify(errorMessage(error), "error"); }
       },
     });
     goalCommand("runtime.goal-pause", "Pause goal", "pause", "pause");
@@ -244,6 +245,8 @@ export const runtimeControls: DesktopExtension = {
     }
     plugin.registerSlashCommand({ name: "goal", description: "Set a goal the runtime pursues across turns, or pause, resume or end it", argumentHint: "<objective> | pause | resume | end", run: runGoalCommand });
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
+    // T3 Code's `chat.find` chord. A terminal, the preview, the Files editor and an open overlay (Settings, a dialog) have a find of their own.
+    plugin.registerKeybinding({ keys: "mod+f", commandId: "thread.find", when: "!terminalFocus && !previewFocus && !editorFocus && !overlayOpen" });
     plugin.registerKeybinding({ keys: "mod+k", commandId: "runtime.command-palette" });
     // In a terminal ⌘[ and ⌘] move between its splits (Terminal Kit).
     plugin.registerKeybinding({ keys: "mod+[", commandId: "navigation.back", when: "!terminalFocus" });
@@ -252,20 +255,23 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+,", commandId: "runtime.settings" });
     // In a terminal these chords are the terminal's (Terminal Kit binds them under `terminalFocus`).
     // `mod+n` and `mod+shift+n` in the project on screen, `mod+shift+o` asks which project.
-    plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus" });
-    plugin.registerKeybinding({ keys: "mod+shift+n", commandId: "runtime.new-session", when: "!terminalFocus" });
+    // A browser keeps ⌘N and ⇧⌘N for its windows (the page never sees them), so a tab binds ⌥⌘N.
+    plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus && isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+shift+n", commandId: "runtime.new-session", when: "!terminalFocus && isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+n", commandId: "runtime.new-session", when: "!terminalFocus && !isDesktop" });
     plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "runtime.new-session-in", when: "!terminalFocus" });
     // Only from the chat: Escape elsewhere is a panel's, and an open overlay's always.
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort", when: "chatFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+enter", commandId: "thread.steerQueuedMessage", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+e", commandId: "composer.effort", when: "!terminalFocus" });
-    // Reopen takes ⇧⌘T as browsers, editors and T3 Code do; transcript detail moved to ⌥⌘T.
+    // Reopen takes ⇧⌘T as browsers, editors and T3 Code do; transcript detail moved to ⌥⌘T. In a browser ⇧⌘T is its own.
     plugin.registerKeybinding({ keys: "mod+alt+t", commandId: "runtime.transcript-detail" });
-    plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "workbench.reopen-stage-tab", when: "!terminalFocus" });
+    plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "workbench.reopen-stage-tab", when: "!terminalFocus && isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+shift+w", commandId: "workbench.reopen-stage-tab", when: "!terminalFocus && !isDesktop" });
     plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
     // Pi's chord, in the composer only: elsewhere Ctrl+P is `mod+p` off macOS, the file picker.
     plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model", when: "composerFocus" });
-    plugin.registerKeybinding({ keys: "shift+tab", commandId: "runtime.cycle-thinking" });
+    // No default chord for `runtime.cycle-thinking`: ⇧Tab toggles plan mode (Plan Kit); ⌘⇧E opens the thinking menu.
     // F2 as in VS Code; ⇧⌘R opens Reviews (design 2g). A terminal keeps its function keys.
     plugin.registerKeybinding({ keys: "f2", commandId: "runtime.rename-thread", when: "!terminalFocus" });
     // Not the design's ⇧⌘K: T3 Code and VS Code use it (K159).
@@ -280,9 +286,13 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+alt+b", commandId: "workbench.toggle-dock" });
     // The dock's chord with Shift.
     plugin.registerKeybinding({ keys: "mod+alt+shift+b", commandId: "rightPanel.toggleMaximized" });
-    plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
-    plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab" });
-    plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab" });
+    // ⌘W and Ctrl+Tab close and switch a browser's own tabs before the page hears them; a tab binds ⌥⌘W and ⌥⌘]/[ (VS Code's web chord for close).
+    plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab", when: "isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+w", commandId: "workbench.close-stage-tab", when: "!isDesktop" });
+    plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab", when: "isDesktop" });
+    plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab", when: "isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+]", commandId: "workbench.next-stage-tab", when: "!isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+[", commandId: "workbench.prev-stage-tab", when: "!isDesktop" });
     // ⌘\ splits as it does in VS Code; the spine takes the design's ⇧ variant.
     plugin.registerKeybinding({ keys: "mod+\\", commandId: "workbench.split-stage" });
     plugin.registerKeybinding({ keys: "mod+shift+\\", commandId: "workbench.toggle-spine" });

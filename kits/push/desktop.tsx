@@ -222,7 +222,7 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
       void refresh();
       return context.host.onEvent(PUSH_STATE_EVENT, () => void refresh());
     }, []);
-    const act = (command: string, input: unknown) => context.host.invoke(command, input).then((next) => { store.set(decodePushStatus(next)); }, (failure: unknown) => onNotify(errorMessage(failure)));
+    const act = (command: string, input: unknown) => context.host.invoke(command, input).then((next) => { store.set(decodePushStatus(next)); }, (failure: unknown) => onNotify(errorMessage(failure), "error"));
 
     const header = <>
       <h3>Push</h3>
@@ -302,9 +302,10 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
                 onTest={async () => {
                   try {
                     const outcome = await context.host.invoke("test", { id: device.id }) as { ok: boolean; detail?: string };
-                    onNotify(outcome.ok ? `Sent a test push to ${device.name}.` : `The test push to ${device.name} failed: ${outcome.detail ?? "no reason given"}.`);
+                    if (outcome.ok) onNotify(`Sent a test push to ${device.name}.`);
+                    else onNotify(`The test push to ${device.name} failed: ${outcome.detail ?? "no reason given"}.`, "error");
                   } catch (failure) {
-                    onNotify(errorMessage(failure));
+                    onNotify(errorMessage(failure), "error");
                   }
                 }}
                 onRemove={() => act("remove-device", { id: device.id })}

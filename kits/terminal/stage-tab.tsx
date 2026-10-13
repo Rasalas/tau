@@ -6,6 +6,7 @@ import { paneIds, restoreStageGroup, stageGroup } from "./layout.js";
 import { closeTerminals, openTerminal, returnTerminalToPanel } from "./controller.js";
 import { groupLabel, PaneTree, type Run } from "./panes.js";
 import { TERMINAL_PANEL } from "./protocol.js";
+import { inTerminal, useTerminalChord } from "./shortcut.js";
 
 /** What a terminal tab is opened and restored with: the id of the stage group it draws. */
 export interface TerminalTabParams extends Record<string, unknown> {
@@ -42,6 +43,7 @@ export function TerminalStageTab({ params, handle, actions }: { params: Terminal
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const { readOnly } = useHostCapabilities();
+  const chord = useTerminalChord();
   const drawn = useRef(false);
   if (live) drawn.current = true;
 
@@ -73,8 +75,8 @@ export function TerminalStageTab({ params, handle, actions }: { params: Terminal
   return <div className="terminal-stage">
     <header className="terminal-stage-header">
       {readOnly ? null : <>
-      <button type="button" className="icon-button" aria-label="Split right" title="Split right (⌘D in a terminal)" disabled={busy} onClick={() => run(() => openTerminal(actions, { direction: "right", target: group.focused }))}><Columns2 size={14} /></button>
-      <button type="button" className="icon-button" aria-label="Split down" title="Split down (⌘⇧D in a terminal)" disabled={busy} onClick={() => run(() => openTerminal(actions, { direction: "down", target: group.focused }))}><Rows2 size={14} /></button>
+      <button type="button" className="icon-button" aria-label="Split right" {...tooltipProps("Split right", { shortcut: inTerminal(chord("split")) })} disabled={busy} onClick={() => run(() => openTerminal(actions, { direction: "right", target: group.focused }))}><Columns2 size={14} /></button>
+      <button type="button" className="icon-button" aria-label="Split down" {...tooltipProps("Split down", { shortcut: inTerminal(chord("splitDown")) })} disabled={busy} onClick={() => run(() => openTerminal(actions, { direction: "down", target: group.focused }))}><Rows2 size={14} /></button>
       </>}
       {!readOnly && group.root.kind === "pane" ? <CloseShellButton id={group.focused} label={label} run={run} /> : null}
       {actions ? <button type="button" className="text-button terminal-stage-back" title="The shells keep running in the panel" onClick={toPanel}>Move to panel</button> : null}

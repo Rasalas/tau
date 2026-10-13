@@ -19,7 +19,7 @@ export function createSocketHostClient(
   const transport = createSocketHostTransport(url, token, {
     ...options,
     onOriginRefused: options?.onOriginRefused
-      ?? (() => connection?.refuse("This host does not accept connections from this page's address. Open the client from the host's own address, or add this one to TAU_HOST_ALLOWED_ORIGINS on the host.")),
+      ?? (() => connection?.refuse("This machine does not accept connections from this page’s address. Open Tau from the machine’s own address instead.")),
   });
   connection = new HostConnection(transport);
   const client = createHostClient(connection, local);

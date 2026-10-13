@@ -60,7 +60,7 @@ export function createArchivedPage(store: RailStore, page: ArchivedPageActions, 
       .sort((left, right) => (meta[right.id]?.archivedAt ?? 0) - (meta[left.id]?.archivedAt ?? 0));
     const groups = new Map<string, UiSession[]>();
     for (const thread of archived) groups.set(thread.projectName, [...groups.get(thread.projectName) ?? [], thread]);
-    const run = (work: Promise<void>, failure: string) => { work.catch((reason: unknown) => onNotify(`${failure}: ${errorMessage(reason)}`)); };
+    const run = (work: Promise<void>, failure: string) => { work.catch((reason: unknown) => onNotify(`${failure}: ${errorMessage(reason)}`, "error")); };
 
     return (
       <div className="settings-page thread-rail-archived">

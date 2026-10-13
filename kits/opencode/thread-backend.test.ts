@@ -1,7 +1,8 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TurnActivityStore, type BackendPrompt, type ExtensionUiAnswer, type HostExecutionPolicy, type RuntimePermissionLevel, type ThreadRuntimeEvent } from "tau/host-extension";
 import { ALLOW, DENY, rulesForLevel } from "./approvals.js";
 import { storedModels } from "./catalog.js";
@@ -32,7 +33,7 @@ async function scratch(script?: FakeScript) {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => ExtensionUiAnswer; resume?: boolean; tools?: string[]; activity?: TurnActivityStore; threadId?: string; policy?: () => Promise<HostExecutionPolicy> } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => ExtensionUiAnswer | Promise<ExtensionUiAnswer>; resume?: boolean; tools?: string[]; activity?: TurnActivityStore; threadId?: string; policy?: () => Promise<HostExecutionPolicy>; cancelPrompts?: () => void } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new OpenCodeThreadRuntimeBackend(options.threadId ?? "tau-1", space.dir, {
@@ -44,6 +45,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
     },
     storedModels: async () => storedModels(FAKE_PROVIDERS as unknown as OpenCodeProviderList),
     onEvent: (event) => events.push(event),
+    cancelPrompts: options.cancelPrompts,
     ask: async (prompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true }; },
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),
@@ -58,6 +60,27 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
 const prompts = (fake: FakeOpenCode) => fake.requests.filter((request) => request.path.endsWith("/prompt_async"));
 
 describe("OpenCodeThreadRuntimeBackend against a fake OpenCode server", () => {
+  it("holds a tool which outlives session.idle and handles its late result in the next turn", async () => {
+    let turns = 0;
+    let report!: () => void;
+    const space = await scratch((turn) => {
+      if (turns++ === 0) {
+        turn.emit({ type: "message.updated", properties: { sessionID: turn.session.id, info: { id: turn.assistantMessageId, role: "assistant" } } });
+        const part = { id: "part-build", messageID: turn.assistantMessageId, sessionID: turn.session.id, type: "tool", tool: "bash", callID: "build", state: { status: "running", input: { command: "npm test" } } };
+        turn.emit({ type: "message.part.updated", properties: { sessionID: turn.session.id, part } });
+        report = () => turn.emit({ type: "message.part.updated", properties: { sessionID: turn.session.id, part: { ...part, state: { status: "completed", output: "passed" } } } });
+      }
+      turn.emit({ type: "session.idle", properties: { sessionID: turn.session.id } });
+    });
+    const { backend } = await open(space);
+    await backend.prompt({ text: "Start tests", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "build", kind: "command" })]);
+    report();
+    await vi.waitFor(() => expect(backend.capabilities.background!.current()[0]?.state).toBe("reported"));
+    await backend.prompt({ text: "Handle tests", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([]);
+  });
+
   it("adopts OpenCode title updates without replacing manual names", async () => {
     const space = await scratch((turn) => {
       turn.emit({ type: "session.updated", properties: { info: { id: turn.session.id, title: "Bildvorschau im Chat" } } });
@@ -264,4 +287,29 @@ describe("a prompt's parts", () => {
       { type: "file", mime: "image/png", url: "data:image/png;base64,AAAA", filename: "shot.png" },
     ]);
   });
+});
+
+it.each(["exit", "clean", "stream"])("withdraws an open approval after %s loss and reconnects", async (loss) => {
+  const space = await scratch(replay("tool"));
+  const dialogs = backendPrompts("tau-1");
+  const { backend } = await open(space, { level: "ask", answer: dialogs.ask, cancelPrompts: dialogs.cancelPrompts });
+  const running = backend.prompt({ text: "Run echo hi", delivery: "prompt" });
+  await dialogs.opened;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(true);
+  if (loss === "exit") space.connects[0]!.onExit(new Error("server exited"));
+  else if (loss === "clean") space.connects[0]!.onExit(undefined);
+  else await space.fake.close();
+  await running;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(false);
+  expect(dialogs.ui.replay()).toEqual([]);
+  expect(dialogs.answers).toEqual([{ cancelled: true }]);
+  expect(backend.state().idle).toBe(true);
+  if (loss === "stream") return;
+  await backend.dispose();
+  await backend.start("resume");
+  const next = backend.prompt({ text: "Continue", delivery: "prompt" });
+  await expect.poll(() => dialogs.ui.replay().length).toBe(1);
+  dialogs.cancelPrompts();
+  await next;
+  expect(space.connects).toHaveLength(2);
 });

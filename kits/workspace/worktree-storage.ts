@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { HostCommandError, gitExecutable, readPersistedJson, writePersistedJson } from "tau/host-extension";
 import { readBranchBase, worktreeParentOf } from "./agent-worktrees.js";
 import { ensureWorktree, resolveDefaultBaseRef, type GitRunner } from "./workspace-git.js";
+import type { UiWorktreeRemoval } from "./protocol.js";
 import {
   EMPTY_POLICY,
   anyRule,
@@ -383,6 +384,22 @@ export class WorktreeStorage {
     } catch (error) {
       return { ...base, exists: true, inspectionError: error instanceof Error ? error.message.split("\n")[0] : String(error) };
     }
+  }
+
+  /** The picker also inspects linked worktrees created outside Tau. */
+  async previewRemoval(repository: string, path: string): Promise<UiWorktreeRemoval> {
+    const facts = await this.inspect({ repository, path, createdAt: 0 }, await this.options.sessions());
+    if (facts.inspectionError) throw new HostCommandError(facts.inspectionError);
+    if (!facts.exists || !facts.linked) throw new HostCommandError("Only an existing linked worktree can be removed.");
+    return {
+      path,
+      ...(facts.branch ? { branch: facts.branch } : {}),
+      dirtyFiles: facts.dirtyFiles,
+      ahead: facts.commitsBeyondBase,
+      unpushedCommits: facts.unpushedCommits,
+      ignoredFiles: facts.ignoredFiles,
+      openThreads: facts.openThreads,
+    };
   }
 
   private async judge(entry: WorktreeRecord, threads: readonly WorktreeStorageThread[]) {

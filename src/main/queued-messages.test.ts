@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -42,6 +42,35 @@ function bench(filePath?: string) {
 const text = (message: string) => ({ text: message, attachments: [] });
 
 describe("QueuedMessages", () => {
+  it("delivers an early message once after restoring a missing file", async () => {
+    const file = await tempFile();
+    const { queue, delivered } = bench(file);
+    queue.add("t", text("early"));
+    expect(delivered).toEqual([]);
+    await Promise.all([queue.restore(), queue.restore()]);
+    await queue.pump("t");
+    expect(delivered).toEqual([{ sessionId: "t", text: "early" }]);
+    await queue.flush();
+  });
+
+  it("keeps the previous file until restore, then persists old and new messages once", async () => {
+    const file = await tempFile();
+    const saved = { version: 1, threads: { t: [{ id: "saved", text: "older", attachments: [], queuedAt: 1 }] } };
+    await writeFile(file, JSON.stringify(saved));
+    const { queue, busy, delivered } = bench(file);
+    queue.add("t", text("newer"));
+    await queue.flush();
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(saved);
+    expect(delivered).toEqual([]);
+    busy.add("t");
+    await queue.restore();
+    await queue.restore();
+    expect(queue.list("t").map((message) => message.text)).toEqual(["older", "newer"]);
+    expect(queue.isHeld("t")).toBe(true);
+    await queue.flush();
+    expect(JSON.parse(await readFile(file, "utf8")).threads.t.map((message: { text: string }) => message.text)).toEqual(["older", "newer"]);
+  });
+
   it("says the run goes on while a message waits or is on its way, not while the queue is held", async () => {
     const { queue, busy, settle, refuseWith } = bench();
     busy.add("t1");
@@ -75,6 +104,29 @@ describe("QueuedMessages", () => {
     queue.add("idle", text("now"));
     await Promise.resolve();
     expect(delivered).toEqual([{ sessionId: "idle", text: "now" }]);
+  });
+
+  it("continues draining when the turn settles before delivery resolves", async () => {
+    let busy = true;
+    const delivered: string[] = [];
+    const queue = new QueuedMessages({
+      busy: () => busy,
+      waitForIdle: async () => undefined,
+      deliver: async (sessionId, message) => {
+        delivered.push(message.text);
+        queue.settled(sessionId);
+        await Promise.resolve();
+      },
+      publish: () => undefined,
+      log: () => undefined,
+    });
+    queue.add("t", text("first"));
+    queue.add("t", text("second"));
+    busy = false;
+    queue.settled("t");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(delivered).toEqual(["first", "second"]);
+    expect(queue.list("t")).toEqual([]);
   });
 
   it("reorders, takes back and holds what waits", async () => {
@@ -113,6 +165,7 @@ describe("QueuedMessages", () => {
   it("survives a restart and waits for the user unless the thread is continued", async () => {
     const filePath = await tempFile();
     const before = bench(filePath);
+    await before.queue.restore();
     before.busy.add("interrupted");
     before.busy.add("continued");
     before.queue.add("interrupted", { text: "after the turn", attachments: [{ kind: "file", name: "a.txt", mimeType: "text/plain", path: "/a.txt", size: 1 }] });
@@ -151,6 +204,7 @@ describe("QueuedMessages", () => {
     it("delivers a wake with its line in front and keeps its mark in the view and the file", async () => {
       const file = await tempFile();
       const { queue, busy, delivered, published, settle } = bench(file);
+      await queue.restore();
       busy.add("t");
       queue.add("t", wake("Woken by PR #42 · check smoke failed"));
       expect(published.get("t")?.messages[0]?.wake).toEqual({ source: "pull-request", label: "Woken by PR #42 · check smoke failed" });

@@ -26,6 +26,7 @@ import {
   AUTO_PULL_OPTION,
   isWorktreeSubmodules,
   WORKSPACE_HOST_EXTENSION_ID,
+  WORKSPACE_CHANGES_PANEL,
   WORKSPACE_FILES_PANEL,
   type ChangesSectionProps,
   type CommitMessageSuggester,
@@ -41,10 +42,12 @@ import {
   type ThreadRowAccessoryProps,
   type ThreadRowStatusMark,
   type RailThreadSource,
+  type RequestStep,
   type ThreadWorktreeRequest,
   type TurnStat,
   type WorkspaceStoreApi,
   type WorktreeNamer,
+  type WorktreeRemovalOptions,
   type WorktreeSubmodules,
   type BranchNaming,
   type DraftMachineSource,
@@ -52,9 +55,18 @@ import {
 import { recordTurnStat } from "./turn-stats.js";
 
 export const WORKSPACE_KIT_ID = WORKSPACE_HOST_EXTENSION_ID;
+
 export const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
 /** The kit's own key; core stopped listing it when the kit moved out. */
 const BASELINE_CACHE_KEY = "tau.workspace.turn-baseline.v1";
+
+/** The user would not run a prompt in the checkout after its worktree failed; nothing was sent. */
+export class WorktreeDeclined extends Error {
+  constructor() {
+    super("Not sent: the worktree could not be created.");
+    this.name = "WorktreeDeclined";
+  }
+}
 
 const INITIAL: WorkspaceKitState = {
   draftPending: false,
@@ -127,6 +139,11 @@ function writeBaseline(sessionId: string, baseline: UiWorkspaceChanges | undefin
   } catch { /* cache only */ }
 }
 
+/** Review Kit's `review.diff` panel claims the desktop alone; a browser tab and a phone have the Changes panel and Files. */
+export function clientDrawsReview(profile: string): boolean {
+  return profile === "desktop";
+}
+
 /**
  * Workspace Kit's own state: Git status, workspace info, editors, the file
  * index, the running turn's baseline and the review request. Core never reads
@@ -138,6 +155,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private actions?: WorkbenchActions;
   /** Kits that draw the review overlay. */
   private reviewViews = 0;
+  /** Whether this client draws `review.diff`; a client that does not reviews in the Changes panel. */
+  private reviewDrawn = true;
   private rowStatuses = new Map<string, Readonly<Record<string, ThreadRowStatusMark>>>();
   private changesRequest = 0;
   private workspaceRequest = 0;
@@ -193,7 +212,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.listeners.forEach((listener) => listener());
   }
 
-  private notify(message: string): void { this.actions?.notify(message); }
+  private notify(message: string, level?: "info" | "warning" | "error"): void { if (level) this.actions?.notify(message, level); else this.actions?.notify(message); }
 
   private readonly defaultBranchRequests = new Set<string>();
 
@@ -394,7 +413,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const base = await this.host.getWorktreeBase(this.workspace(), { startFromOrigin });
       if (cwd === this.state.cwd) this.update({ worktreeBase: base });
     } catch (error) {
-      if (cwd === this.state.cwd) this.notify(errorMessage(error));
+      if (cwd === this.state.cwd) this.notify(errorMessage(error), "error");
     }
   }
 
@@ -431,7 +450,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const terminalId = terminalOverride ?? this.activeTerminal()?.id;
     if (!this.requireHost("Opening a terminal")) return;
     try { await this.host.openTerminal(terminalId, this.workspace()); }
-    catch (error) { this.notify(errorMessage(error)); }
+    catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
   async refreshChanges(): Promise<void> {
@@ -443,7 +462,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const next = await this.host.getChanges(undefined, this.workspace());
       if (request === this.changesRequest && cwd === this.state.cwd) this.update({ changes: next });
     } catch (error) {
-      if (request === this.changesRequest) this.notify(errorMessage(error));
+      if (request === this.changesRequest) this.notify(errorMessage(error), "error");
     }
   }
 
@@ -459,7 +478,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
         this.suggestWorktree();
       }
     } catch (error) {
-      if (request === this.workspaceRequest) this.notify(errorMessage(error));
+      if (request === this.workspaceRequest) this.notify(errorMessage(error), "error");
     } finally {
       if (request === this.workspaceRequest) this.update({ workspaceBusy: false });
     }
@@ -472,7 +491,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     try {
       const tree = (await this.host.getFileTree(undefined, this.workspace())) ?? [];
       if (cwd === this.state.cwd) this.update({ fileTree: tree });
-    } catch (error) { this.notify(errorMessage(error)); }
+    } catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
   async loadFiles(path: string): Promise<FileNode[]> {
@@ -524,8 +543,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   openReview(path?: string, pushPrimary = Boolean(this.state.workspace?.upstream)): void {
     void this.refreshChanges();
     this.update({ pushPrimary, review: { path: path ?? this.state.changes.files[0]?.path, primaryPush: pushPrimary } });
-    // The review shares the stage with Files and Terminal.
-    this.actions?.openPanel("review.diff");
+    // The review shares the stage with Files and Terminal; a client without it commits from the Changes panel.
+    this.actions?.openPanel(this.reviewDrawn ? "review.diff" : WORKSPACE_CHANGES_PANEL);
   }
 
   selectReviewPath(path: string): void {
@@ -544,13 +563,13 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     const token = (this.state.filesFocus?.token ?? 0) + 1;
     const path = this.state.changes.files[0]?.path;
     this.update({ filesFocus: { token, ...(path ? { path } : {}) } });
-    this.actions?.openPanel(this.reviewViews > 0 ? "review.diff" : WORKSPACE_FILES_PANEL);
+    this.actions?.openPanel(this.reviewDrawn && this.reviewViews > 0 ? "review.diff" : WORKSPACE_FILES_PANEL);
   }
 
   private async mutate(what: string, run: () => Promise<UiWorkspaceChanges>): Promise<void> {
     if (!this.allowed(what) || !this.requireHost(what)) return;
     try { this.update({ changes: await run() }); }
-    catch (error) { this.notify(errorMessage(error)); }
+    catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
   stageFile(path: string): Promise<void> { return this.mutate("Staging changes", () => this.host.stageFile(path, this.workspace())); }
@@ -568,7 +587,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       void this.refreshWorkspace();
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     } finally {
       this.update({ committing: false });
@@ -583,7 +602,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.notify(result.detail);
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     } finally {
       this.update({ committing: false });
     }
@@ -597,7 +616,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.notify(result.detail);
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     } finally {
       this.update({ committing: false });
     }
@@ -609,7 +628,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
     if (!this.requireHost("Opening an editor")) return;
     try { await this.host.openInEditor(editorId, relPath, this.workspace(), position); }
-    catch (error) { this.notify(errorMessage(error)); }
+    catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
   async runShellAction(command: string, includeInContext: boolean, name: string): Promise<void> {
@@ -618,10 +637,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       this.notify(`Running ${name}…`);
       const result = await this.actions.runShellAction(command, includeInContext);
       const tail = result.output.trim().split("\n").at(-1);
-      this.notify(result.exitCode === 0 ? `${name} finished${tail ? ` · ${tail}` : ""}` : `${name} failed${tail ? ` · ${tail}` : ""}`);
+      this.notify(result.exitCode === 0 ? `${name} finished${tail ? ` · ${tail}` : ""}` : `${name} failed${tail ? ` · ${tail}` : ""}`, result.exitCode === 0 ? "info" : "error");
       await Promise.all([this.refreshChanges(), this.refreshWorkspace()]);
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
     }
   }
 
@@ -637,7 +656,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       void this.refreshWorkspace();
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     } finally {
       this.update({ workspaceBusy: false });
@@ -659,7 +678,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(baseRef ? { baseRef, startFromOrigin: false } : {}) }, this.workspace());
       return await this.actions.openWorkspace(created.workspaceId, { inheritDraft: true });
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     } finally {
       this.update({ workspaceBusy: false });
@@ -669,10 +688,13 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   /**
    * The worktree a new thread runs in, created while its first prompt waits.
-   * Anything that goes wrong leaves the thread in the checkout it was started
-   * from: a prompt is never lost to a worktree that could not be made.
+   * When it cannot be made the prompt waits for the user: the checkout is
+   * used only on their say, and declining throws `WorktreeDeclined`. A
+   * request that forces a worktree (several models) gets `{}` and counts the
+   * failure itself.
    */
   async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }> {
+    await this.loadProjectDefaults();
     if (this.state.workspaceId) this.freshProjects.delete(this.state.workspaceId);
     if ((!event.force && this.workspaceMode() !== "worktree") || !this.state.workspace?.isRepo || !hostAvailable()) return {};
     this.update({ preparingWorktree: true });
@@ -685,12 +707,37 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(!this.state.draftBranch ? { uniqueBranch: true } : {}), ...(base ? { baseRef: base, startFromOrigin: false } : {}) }, this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath }, ...(created.baseCommit ? { baseCommit: created.baseCommit } : {}) };
     } catch (error) {
+      const reason = errorMessage(error);
+      if (event.force) {
+        this.notify(`The worktree could not be created. ${reason}`, "error");
+        return {};
+      }
+      event.preparing("Waiting for your answer…");
+      if (!await this.askToUseCheckout(reason)) throw new WorktreeDeclined();
       if (this.state.worktreeSuggested) this.draftFellBack = true;
-      this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`);
       return {};
     } finally {
       this.update({ preparingWorktree: false });
     }
+  }
+
+  /** A toast that stays until answered; closing it is a no. Without toasts the answer is no. */
+  private askToUseCheckout(reason: string): Promise<boolean> {
+    const detail = reason.replace(/[.\s]+$/u, "");
+    if (!this.actions?.toast) {
+      this.notify(`The worktree could not be created. ${detail}.`, "error");
+      return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+      this.actions?.toast?.({
+        type: "error",
+        title: "The worktree could not be created",
+        description: `${detail}. Run this thread in the current checkout instead?`,
+        timeoutMs: 0,
+        actions: [{ label: "Use the checkout", run: () => resolve(true) }, { label: "Don't send", run: () => resolve(false) }],
+        onClose: () => resolve(false),
+      });
+    });
   }
 
   /**
@@ -712,16 +759,16 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   /** Removes a worktree the user no longer wants, after they saw what it holds. */
-  async removeWorktree(path: string, branch?: string): Promise<boolean> {
+  async removeWorktree(path: string, branch?: string, options: WorktreeRemovalOptions = {}): Promise<boolean> {
     if (!this.requireHost("Worktrees")) return false;
     this.update({ workspaceBusy: true });
     try {
-      await this.host.removeWorktree(path, branch, this.workspace());
+      await this.host.removeWorktree(path, branch, this.workspace(), options);
       await this.refreshWorkspace();
       this.notify(`Removed ${path}.`);
       return true;
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return false;
     } finally {
       this.update({ workspaceBusy: false });
@@ -746,7 +793,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const taken = this.state.workspace?.refs.map((ref) => ref.name) ?? [];
       return await this.namer({ hint, description: this.actions.composerDraft(), taken, actions: this.actions });
     } catch (error) {
-      this.notify(errorMessage(error));
+      this.notify(errorMessage(error), "error");
       return undefined;
     }
   }
@@ -771,15 +818,25 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return () => { if (this.state.workspaceMachine === control) this.update({ workspaceMachine: undefined }); };
   }
 
+  offerRequestStep(step: RequestStep): () => void {
+    this.update({ requestStep: step });
+    return () => { if (this.state.requestStep === step) this.update({ requestStep: undefined }); };
+  }
+
   registerReviewView(): () => void {
     this.reviewViews += 1;
     let registered = true;
     return () => { if (registered) { registered = false; this.reviewViews -= 1; } };
   }
 
+  /** Told by the follower which client this is: only the desktop draws `review.diff` (Review Kit). */
+  drawsReview(drawn: boolean): void {
+    this.reviewDrawn = drawn;
+  }
+
   /** The review in place of the Changes panel, while a kit draws it; false leaves the panel to open. */
   openChangesView(): boolean {
-    if (this.reviewViews === 0) return false;
+    if (!this.reviewDrawn || this.reviewViews === 0) return false;
     void this.refreshChanges();
     this.actions?.openPanel("review.diff");
     return true;
@@ -892,7 +949,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       try {
         if (await this.host.ensureWorktree(path, branch, this.workspace())) this.notify(`Recreated ${path}.`);
       } catch (error) {
-        this.notify(errorMessage(error));
+        this.notify(errorMessage(error), "error");
         return false;
       }
     }

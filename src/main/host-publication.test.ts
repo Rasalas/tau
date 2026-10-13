@@ -149,6 +149,24 @@ describe("HostPublication", () => {
     expect(models).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a discovered remote catalog in bootstrap while its next read is stalled", async () => {
+    const known = [{ provider: "openai", id: "gpt", name: "GPT" }];
+    const models = vi.fn().mockResolvedValueOnce(known).mockImplementation(() => new Promise(() => {}));
+    const { pub, view } = makePublication();
+    view.active.mockReturnValue({ threadId: "remote-thread", backend: { models } } as unknown as ThreadRuntime);
+    await pub.ensureModels();
+    expect((await pub.bootstrap()).catalog.models).toEqual(known);
+  });
+
+  it("returns the remote transcript before an undiscovered remote catalog answers", async () => {
+    const models = vi.fn(() => new Promise<never>(() => {}));
+    const { pub, view } = makePublication();
+    view.active.mockReturnValue({ threadId: "remote-thread", backend: { models } } as unknown as ThreadRuntime);
+    const bootstrap = await pub.bootstrap();
+    expect(bootstrap.detail.sessionId).toBe("remote-thread");
+    expect(bootstrap.catalog.models).toEqual([]);
+  });
+
   it("answers an empty result when a newer activation took the screen", async () => {
     let current = true;
     const { pub } = makePublication({ isCurrentActivation: () => current });
@@ -193,5 +211,33 @@ describe("HostPublication", () => {
   it("hands a client that connects mid-run the running threads and when each run began", async () => {
     const { pub } = makePublication({ runs: () => ({ "thread-a": 1_000 }) });
     expect((await pub.bootstrap()).threadIndex).toEqual({ projects: [], sessions: [], runs: { "thread-a": 1_000 } });
+  });
+
+  it.each(["classification", "models"])("returns first content while %s discovery is stalled", async (stalled) => {
+    const { thread } = localThread("saved-thread");
+    const { pub, view } = makePublication(stalled === "classification" ? {
+      projects: { label: () => undefined, settleClassifications: () => new Promise(() => {}) },
+    } : {});
+    if (stalled === "models") view.active.mockReturnValue(thread);
+    const result = await Promise.race([
+      pub.bootstrap(),
+      new Promise<undefined>((resolve) => setTimeout(resolve, 50)),
+    ]);
+    expect(result?.detail.sessionId).toBe(stalled === "models" ? "saved-thread" : "sess-1");
+  });
+
+  it("publishes the discovered models after the initial response", async () => {
+    const { thread, models, release } = localThread("saved-thread");
+    const { pub, view, emitUpdate } = makePublication();
+    view.active.mockReturnValue(thread);
+    const bootstrap = await pub.bootstrap();
+    expect(bootstrap.catalog.models).toEqual([]);
+    expect(emitUpdate).not.toHaveBeenCalled();
+    release();
+    await vi.waitFor(() => expect(emitUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      type: "catalog", catalog: expect.objectContaining({ models: [{ provider: "openai", id: "gpt" }] }),
+    })));
+    expect(models).toHaveBeenCalledOnce();
+    expect((await pub.bootstrap()).catalog.models).toEqual([{ provider: "openai", id: "gpt" }]);
   });
 });

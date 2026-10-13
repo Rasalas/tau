@@ -137,7 +137,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       applyHostResult(result, options?.inheritDraft ?? !pendingInFlight);
       return true;
     } catch (error) {
-      notify(errorMessage(error));
+      notify(errorMessage(error), "error");
       return false;
     }
   }, [activeDraftKey, applyHostResult, client, detachPendingDelivery, leavePendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
@@ -199,7 +199,6 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
 
   const switchSession = useCallback(async (path: string): Promise<boolean> => {
     if (!requireHost("Thread switching")) return false;
-    showThread();
     const target = threads.getSnapshot().threads.find((session) => session.path === path);
     const sending = detachPendingDelivery();
     leavePendingNewThread(undefined, sending);
@@ -213,6 +212,14 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       applySnapshot(optimisticThreadSnapshot(previous, target, detail));
       view.addEvent(cached ? "thread.switch.cached" : "thread.switch.selected", target.title);
     }
+    // The chat comes to the front with this thread in it, never with the one being left.
+    let shown = false;
+    const show = () => {
+      if (shown) return;
+      shown = true;
+      showThread();
+    };
+    if (cached || !previous || !target) show();
     let transition: TransitionToken = history.beginThreadSwitch(target?.id);
     // Before the switch is asked for, so the host streams the target from its snapshot on.
     const releaseTarget = target ? client!.watchThread(target.id) : undefined;
@@ -228,6 +235,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
         // Painting the page settles the history's transition; the host's answer needs one of its own.
         transition = history.beginThreadSwitch(target.id);
         previewed = true;
+        show();
         view.addEvent("thread.switch.preview", target.title);
       }, () => undefined);
     }
@@ -237,6 +245,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       // The page is longer than the host's first one; merged, it would stand for history the host never paged.
       if (previewed && history.isCurrentThreadTransition(transition)) view.details.delete(target!.id);
       if (!applyActionResult(next, transition)) return false;
+      show();
       threads.markRead(target?.id ?? "");
       view.addEvent("thread.switch.confirmed", `${Math.round(performance.now() - startedAt)}ms`);
       return true;
@@ -248,7 +257,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       const selected = view.getSnapshot();
       if (target && selected?.sessionId === target.id) applySnapshot(selected);
       else if (previous) applySnapshot(previous);
-      notify(errorMessage(error));
+      notify(errorMessage(error), "error");
       return false;
     } finally {
       releaseTarget?.();

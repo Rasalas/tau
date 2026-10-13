@@ -11,7 +11,7 @@ type Actions = Pick<WorkbenchActions, "openStageTab" | "toast"> & Partial<Pick<W
 export function guideToast(event: GuideEvent, open: () => void): ToastOptions | undefined {
   const what = `#${event.number}${event.title ? ` ${event.title}` : ""}`;
   if (event.kind === "ready") return { id: `review-guide:${event.url}`, type: "success", title: "Review guide ready", description: what, actions: [{ label: "Open", run: open }] };
-  if (event.kind === "failed") return { id: `review-guide:${event.url}`, type: "error", title: "Review guide failed", description: what, actions: [{ label: "Open", run: open }], timeoutMs: 10_000 };
+  if (event.kind === "failed") return { id: `review-guide:${event.url}`, type: "error", title: "Review guide failed", description: what, actions: [{ label: "Open", run: open }] };
   return undefined;
 }
 

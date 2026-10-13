@@ -15,6 +15,7 @@ import { errorMessage } from "../workbench/error-message";
 import type { PreferencesStore } from "./preferences";
 import type { StageTabController } from "./stage-tab-controller";
 import { effectiveNewThreadRuntime } from "./new-thread-runtime";
+import { runtimeCatalogStore } from "./use-runtime-catalog";
 import { newThreadProject, workspaceOnScreen } from "../workbench/new-thread-project";
 import { namesWorkspace } from "../shared/workspace-identity";
 import { isFilesystemRoot } from "../shared/filesystem-root";
@@ -23,7 +24,7 @@ import { offeringKey } from "./components/model-offerings";
 import type { NewThreadController } from "../workbench/new-thread-controller";
 import type { AppPageStore } from "../workbench/app-page-store";
 import { withAppPages } from "./app-page-actions";
-import { requestReveal } from "./components/transcript-reveal";
+import { requestFind, requestReveal } from "./components/transcript-reveal";
 import { actionableStageTab } from "./workspace-resource-navigation";
 import type { StageTab } from "../workbench/stage";
 
@@ -67,7 +68,7 @@ export interface UseWorkbenchActionsOptions {
   duplicateThread: WorkbenchActions["duplicateThread"];
   setComposerSeed: (seed: string) => void;
   setDockOpen: Dispatch<SetStateAction<boolean>>;
-  setNotice: (notice: any) => void;
+  setNotice: (message?: string, level?: "info" | "warning" | "error") => void;
   openProjectSources: (source?: string) => void;
   applyHostResult: (result: HostActionResult) => void;
   /** Every path that closes a stage tab, and the tabs extensions drew. */
@@ -193,7 +194,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           const source = await client.workbenchSource();
           return source.path ? openWorkspace(source.path) : false;
         } catch (error) {
-          options.setNotice(errorMessage(error));
+          options.setNotice(errorMessage(error), "error");
           return false;
         }
       },
@@ -212,6 +213,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       // Keep this action independent of its internal CSS and virtualizer rows.
       focusTranscript: () => { options.transcriptRef.current?.focus(); },
       revealMessage: (messageId) => requestReveal(options.transcriptRef.current, messageId),
+      findInThread: () => requestFind(options.transcriptRef.current),
       focusStage,
       toggleDock: () => { options.setDockOpen((open) => !open); },
       ...(toggleSidebar ? { toggleSidebar } : {}),
@@ -241,6 +243,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       ...(options.closeConversationView ? { closeConversationView: options.closeConversationView } : {}),
       ...(options.navigateHistory ? { navigateHistory: options.navigateHistory } : {}),
       compactContext: options.threadCommands.compactContext,
+      compactAndSend: options.threadCommands.compactAndSend,
       openModelPicker,
       setModel: async (providerOrQuery: string, id?: string) => {
         if (id) {
@@ -283,7 +286,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           };
         }
         // A draft starts on its own runtime and model, not on the last thread's.
-        const backendKind = effectiveNewThreadRuntime(pending.runtime ?? options.preferences?.getSnapshot().newThreadRuntime, snapshot);
+        const backendKind = effectiveNewThreadRuntime(pending.runtime ?? options.preferences?.getSnapshot().newThreadRuntime, snapshot, runtimeCatalogStore(client)?.all());
         const inherited = backendKind === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
         const model = pending.model ?? inherited;
         return {
@@ -337,7 +340,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
           }
         } catch (error) {
           const msg = errorMessage(error);
-          options.setNotice(msg);
+          options.setNotice(msg, "error");
         }
       },
       openInstructions,

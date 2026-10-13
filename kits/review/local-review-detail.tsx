@@ -20,7 +20,7 @@ import {
 import { mergeBlocker, reviewRuntime, type ConflictFile, type HunkPick, type LocalReview, type NoteThread } from "./local-reviews.js";
 import type { LocalReviewsStore, ReviewRun } from "./local-reviews-store.js";
 import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
-import { lineKeys, orderFiles, threadKey } from "./pull-request-logic.js";
+import { lineKeys, orderFiles, requestLabelOf, threadKey } from "./pull-request-logic.js";
 import { ReplyBox } from "./pull-request-parts.js";
 import { runsPipeline } from "./pipeline.js";
 import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
@@ -149,7 +149,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
   useEffect(() => {
     let live = true;
     setPicks({});
-    if (picking) parts.store.conflicts(review).then((answer) => { if (live) setConflicts(answer); }, (error) => { if (live) actions.notify(errorMessage(error)); });
+    if (picking) parts.store.conflicts(review).then((answer) => { if (live) setConflicts(answer); }, (error) => { if (live) actions.notify(errorMessage(error), "error"); });
     if (!review.remote) parts.store.notes(review).then((answer) => { if (live) setSent(Array.isArray(answer) ? answer : []); }, () => undefined);
     return () => { live = false; };
   }, [parts.store, review.key, review.tip, review.target, picking]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -400,10 +400,10 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
         <div className="rv-ask-open rvd-notice" role="status">
           {review.ask.kind === "note" ? <MessageSquare size={13} aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}
           <span>{review.ask.kind === "note" ? <>Your note: {review.ask.text}</> : "You asked the thread to rebase."} It shows here until the thread commits again.</span>
-          <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error))); }}>Withdraw</button>
+          <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error), "error")); }}>Withdraw</button>
         </div>
       ) : null}
-      {review.request && merged ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">PR #{review.request.number}</a>.</p>
+      {review.request && merged ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">{requestLabelOf(review.request.url, review.request.number)}</a>.</p>
         : review.mergedBy ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
       {!merged && review.mergeBlocked ? <p className="rvd-notice" role="status">{review.mergeBlocked}</p> : null}
       {review.conflicts.length > 0 && !picking ? (
@@ -455,7 +455,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
               })} /> : undefined,
               extra: (file: StackFile) => file.conflict ? <span className="rvd-legend"><i className="thread" />this thread<i className="main" />{review.target}</span> : null,
             } : {})}
-            {...(review.workspace && !review.remote ? { onOpenInEditor: (path: string) => { void openInEditor(detail.workspace, review, path).catch((error) => actions.notify(errorMessage(error))); } } : {})}
+            {...(review.workspace && !review.remote ? { onOpenInEditor: (path: string) => { void openInEditor(detail.workspace, review, path).catch((error) => actions.notify(errorMessage(error), "error")); } } : {})}
             jump={jump}
             onActive={setActive}
             {...(review.workspace ? {} : { unavailable: review.remote ? `This branch came back from ${review.remote.machine}; its diff is not read here.` : "The worktree is gone; the diff is not available." })}

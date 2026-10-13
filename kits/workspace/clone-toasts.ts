@@ -70,7 +70,7 @@ export class CloneToasts {
           title: `Cloning ${snapshot.name}`,
           description: cloneProgressSummary(snapshot),
           timeoutMs: 0,
-          actions: [{ label: "Cancel", keepOpen: true, run: () => void this.host.cancelClone(snapshot.id).catch((error: unknown) => actions.notify(errorMessage(error))) }],
+          actions: [{ label: "Cancel", keepOpen: true, run: () => void this.host.cancelClone(snapshot.id).catch((error: unknown) => actions.notify(errorMessage(error), "error")) }],
         };
       case "done": {
         const workspace = snapshot.workspace;
@@ -83,7 +83,7 @@ export class CloneToasts {
           onClose: forget,
           actions: workspace ? [{
             label: "Open project",
-            run: () => void actions.openWorkspace(workspace.workspaceId).catch((error: unknown) => actions.notify(errorMessage(error))),
+            run: () => void actions.openWorkspace(workspace.workspaceId).catch((error: unknown) => actions.notify(errorMessage(error), "error")),
           }] : [],
         };
       }

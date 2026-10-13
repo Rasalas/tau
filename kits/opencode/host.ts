@@ -239,7 +239,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         await refuseBroken(version, path);
         // A thread's server reaches Tau's tools; without the endpoint it still runs, only without them.
         const mcp = input.threadId
-          ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd }, input.tools ? { tools: input.tools } : undefined).catch(() => undefined)
+          ? await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd, nativeCapabilities: ["background-work"] }, input.tools ? { tools: input.tools } : undefined).catch(() => undefined)
           : undefined;
         const serve: OpenCodeServeInput = {
           command: path,
@@ -376,7 +376,9 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
               ...(tools ? { tools } : {}),
               onMessage: thread.onMessage,
               onEvent: thread.onEvent,
+              onBackgroundEnded: (text) => { void services.sessions.send?.(threadId, text, { delivery: "queue", wake: { source: "background", label: "Native background task ended" } }).catch((error: unknown) => services.log("background.wake-failed", error instanceof Error ? error.message : String(error))); },
               ask: thread.ask,
+              cancelPrompts: thread.cancelPrompts,
             });
             await backend.start(resume ? "resume" : "create");
             return backend;

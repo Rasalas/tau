@@ -37,7 +37,7 @@ describe("automatic title generation", () => {
     registry.activate(titleGeneratorExtension);
     await registry.notifyPromptSubmitted({ prompt: "first", snapshot: snapshot([]) }, { notify } as unknown as WorkbenchActions);
     registry.dispatchExtensionEvent({ type: "extension-event", extensionId: THREAD_TITLES_HOST_EXTENSION_ID, name: TITLE_FAILED_EVENT, payload: { sessionId: "session", message: "Model unavailable" } });
-    expect(notify).toHaveBeenCalledWith("Could not name the thread: Model unavailable");
+    expect(notify).toHaveBeenCalledWith("Could not name the thread: Model unavailable", "error");
   });
   it("titles a thread on its first prompt only", () => {
     expect(shouldTitleAutomatically({ prompt: "first", snapshot: snapshot([]) }, preferences)).toBe(true);

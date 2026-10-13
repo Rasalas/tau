@@ -71,6 +71,16 @@ describe("the workbench design language", () => {
   });
 });
 
+describe("reduced motion", () => {
+  it("is honoured once, for every animation and transition", () => {
+    const all = /@media \(prefers-reduced-motion: reduce\) \{\s*\*, \*::before, \*::after \{([^}]*)\}/u.exec(STYLES)?.[1] ?? "";
+    expect(all).toMatch(/animation-duration: \.01ms !important/u);
+    expect(all).toMatch(/animation-iteration-count: 1 !important/u);
+    expect(all).toMatch(/transition-duration: \.01ms !important/u);
+    expect(all).toMatch(/scroll-behavior: auto !important/u);
+  });
+});
+
 describe("a run in flight is blue (K70)", () => {
   it.each([
     [STYLES, ".spinner", "--info"],

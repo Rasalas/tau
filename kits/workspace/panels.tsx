@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, FileDiff, PanelTop, RotateCw, Search, SquarePen, WrapText } from "lucide-react";
-import { ChangesTree, DiffStack, FileKindIcon, tooltipProps, useHostCapabilities, useDiffPresentation, useWorkbench, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
+import { ChangesTree, DiffStack, FileKindIcon, tooltipProps, useClientEnvironment, useHostCapabilities, useDiffPresentation, useWorkbench, useWorkbenchShell, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
 import { FileReader } from "./file-reader.js";
 import { relativeHostPath } from "./host-paths.js";
+import { clientDrawsReview } from "./store.js";
 import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
 interface FlatNode { node: FileNode; depth: number; }
@@ -210,6 +211,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   const workspaceStore = useWorkspaceStore();
   const { fileTree, changes, cwd, workspace } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
+  const { registry } = useWorkbenchShell();
   const touch = useCompactLayout();
   const inSheet = placement === "sheet";
   const onStage = placement === "stage";
@@ -267,7 +269,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
     type="button"
     className="icon-button files-panel-search"
     aria-label="Go to file"
-    {...tooltipProps("Go to file", { shortcut: "⌘P", side: "bottom" })}
+    {...tooltipProps("Go to file", { shortcut: registry.keybindingLabel("search.files"), side: "bottom" })}
     onClick={() => searcher.pickFile(inSheet || onStage ? setReading : undefined)}
   ><Search size={touch ? 18 : 14} /></button> : null;
 
@@ -310,7 +312,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
           </div> : null}
           {changedPaths.has(reading) && fileView === "diff" ? <>
             <button type="button" className={`icon-button ${diffWrap ? "active" : ""}`} aria-pressed={diffWrap} aria-label={diffWrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setDiffWrap(!diffWrap)}><WrapText size={14} /></button>
-            <div className="toggle-group" aria-label="Diff layout">
+            <div className="toggle-group" role="group" aria-label="Diff layout">
               <button type="button" className={diffLayout === "unified" ? "active" : ""} aria-pressed={diffLayout === "unified"} onClick={() => setDiffLayout("unified")}>Unified</button>
               <button type="button" className={diffLayout === "split" ? "active" : ""} aria-pressed={diffLayout === "split"} onClick={() => setDiffLayout("split")}>Split</button>
             </div>
@@ -361,6 +363,7 @@ export function ChangesPanel({ active, actions }: PanelProps) {
   const workspaceStore = useWorkspaceStore();
   const { changes, committing, pushPrimary, commitFocusToken, cwd, workspace, changesSections } = useWorkspaceKit();
   const { activeDocumentPath: activePath } = useWorkbench();
+  const hasReview = clientDrawsReview(useClientEnvironment().profile);
   const snapshot = useMemo(() => cwd ? { cwd } : undefined, [cwd]);
   const canPush = Boolean(workspace?.upstream);
   const refreshChanges = () => workspaceStore.refreshChanges();
@@ -393,7 +396,7 @@ export function ChangesPanel({ active, actions }: PanelProps) {
       {changes.branch ? <small>{changes.branch}</small> : null}
       <span className="spacer" />
       {changes.refreshStatus?.state === "error" ? <small title={changes.refreshStatus.message}>stale · refresh failed</small> : null}
-      <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><FileDiff size={14} /></button>
+      {hasReview ? <button className="icon-button compact" title="Open full review" aria-label="Open full review" onClick={() => openReview()}><FileDiff size={14} /></button> : null}
       <button className="icon-button compact" aria-label="Rescan changes" {...tooltipProps("Rescan changes", { side: "bottom" })} onClick={() => void refreshChanges()}><RotateCw size={14} /></button>
     </header>
     {changesSections.map((Section, index) => <Section key={index} actions={actions} message={message} committed={() => setDirty(false)} />)}

@@ -3,7 +3,7 @@ import { useCompactForm } from "../use-layout-profile";
 
 import { useClientEnvironment } from "../client-environment";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowUp, ChevronDown, Lock, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
+import { ArrowUp, ChevronDown, CornerUpRight, ListPlus, Lock, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -66,9 +66,10 @@ import {
 import type { ChipLayerApi } from "./ComposerChipLayer";
 import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterControls";
-import { composerEnter, sendHint, sendShortcutFor } from "./composer-send-keys";
+import { composerEnter, sendBlockReason, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
+import { isImeComposing } from "../keybindings";
 import { THINKING_LABELS, carriedLevel } from "../thinking-levels";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerSendMode, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
@@ -139,6 +140,7 @@ export function Composer({
   onAbort,
   onCancelQueued,
   onSteerQueued,
+  onOpenQueue,
   onSetModel,
   onSetThinking,
   runtimeChoice,
@@ -179,6 +181,8 @@ export function Composer({
   onCancelQueued(id: string): void;
   /** Sends one queued message now, ahead of the rest of the queue. */
   onSteerQueued(id: string): void;
+  /** Brings the queued messages into view; "N queued" in the footer is a button when this is given. */
+  onOpenQueue?(): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
   /** Offered while the composer targets a thread that does not exist yet. */
@@ -192,9 +196,9 @@ export function Composer({
   onAnswerPrompt?(value: string | boolean, typed?: boolean, attachments?: UiPromptAttachment[]): void;
   onCancelPrompt?(): void;
   onCompactContext(): void;
-  /** An extension is changing the workspace; submitting would target the wrong thread. */
+  /** Submitting would go wrong now: an extension is changing the workspace, or the draft's runtime cannot start a thread. */
   held?: boolean;
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   /** Opens the current draft in an external editor via workspace extension. */
   onOpenPromptEditor?(): void;
   /** Direct shell execution for `! <command>` inputs. */
@@ -447,7 +451,7 @@ export function Composer({
     updateDraft(next);
     setCaret(nextCaret);
     setCommandMenuDismissed(true);
-    try { extensionTrigger.select(item, trigger.query, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error)); }
+    try { extensionTrigger.select(item, trigger.query, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error), "error"); }
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
@@ -613,12 +617,12 @@ export function Composer({
     let left = files;
     for (const inline of inlines) {
       if (!inline.takeFiles || left.length === 0) continue;
-      try { left = inline.takeFiles(left, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error)); }
+      try { left = inline.takeFiles(left, inlineContextRef.current); } catch (error) { onNotify?.(errorMessage(error), "error"); }
     }
     return left;
   }, [inlines, onNotify]);
   const pasteText = (pasted: string): boolean => inlines.some((inline) => {
-    try { return inline.pasteText?.(pasted, inlineContextRef.current) === true; } catch (error) { onNotify?.(errorMessage(error)); return false; }
+    try { return inline.pasteText?.(pasted, inlineContextRef.current) === true; } catch (error) { onNotify?.(errorMessage(error), "error"); return false; }
   });
   const draftStates = useMemo(() => new Map(inlines.map((inline) => [inline.extensionId, {
     read: () => draftStorageKey === undefined ? undefined : readComposerDraftState(clientStorage, draftStorageKey, inline.extensionId),
@@ -659,14 +663,12 @@ export function Composer({
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
   const speed = useComposerSpeed(registry?.getComposerSpeeds?.(), draftOnOtherRuntime ? undefined : snapshot);
   // A new thread's draft still carries the snapshot of the thread it was opened from.
-  const sendMode = useComposerSendMode(registry?.getComposerSendModes?.(), newThread || draftOnOtherRuntime || streaming ? undefined : snapshot);
-  // Held per draft: the prompt waits in its own thread while `beforeSend` runs.
+  const sendMode = useComposerSendMode(registry?.getComposerSendModes?.(), newThread || draftOnOtherRuntime || streaming || snapshot?.isCompacting ? undefined : snapshot);
+  // The busy label follows the captured submission in its own draft scope.
   const [sendModeBusy, setSendModeBusy] = useState<{ scope: string; label: string; Icon?: ComposerSendMode["Icon"] }>();
-  const sendModeBusyHere = sendModeBusy?.scope === attachmentScope ? sendModeBusy : undefined;
+  const sendModeBusyHere = sendModeBusy?.scope === attachmentScope && activeScopeSnapshot.submissionPending ? sendModeBusy : undefined;
   const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
   const sendOptionsAnchor = useRef<HTMLDivElement>(null);
-  const scopeRef = useRef(attachmentScope);
-  scopeRef.current = attachmentScope;
   // The context windows of the model in use: its `[1m]` twin and the like, with the catalog's sizes once asked.
   const inUse = modelSelectionAvailable ? snapshot?.model : undefined;
   const twins = inUse ? snapshot!.models.filter((model) => model.provider === inUse.provider && modelFamily(model) === modelFamily(inUse)) : [];
@@ -718,12 +720,29 @@ export function Composer({
   const answerable = prompt && arrival.armed;
   // A question that takes typed text takes the files waiting in the composer with it.
   const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
-  const submitPromptRef = useRef(submitPrompt);
-  submitPromptRef.current = submitPrompt;
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean, plain?: boolean) => void>(() => {});
+  const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
+  // Why sending is held now: the button's tooltip says it, and a key pressed anyway gets it as a notice.
+  const sendReason = sendBlockReason({
+    held,
+    dictating,
+    asking: arrival.waiting,
+    busyLabel: sendModeBusyHere?.label,
+    // An answer never waits for a prompt in flight: the prompt that asked may be the one still running.
+    sending: activeScopeSnapshot.submissionPending && !answerable,
+  });
+  const explainBlocked = useCallback((reason: string) => {
+    const actions = shellContext?.actions;
+    // One id: a key held down replaces the notice instead of stacking them.
+    if (actions?.toast) actions.toast({ id: "composer.send-blocked", title: reason });
+    else onNotify?.(reason);
+  }, [onNotify, shellContext?.actions]);
   // `plain` sends as usual, past a kit's send mode.
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false, plain = false) => {
-    if (held || arrival.waiting || dictating || sendModeBusyHere) return;
+    if (sendReason) {
+      if (hasDraft) explainBlocked(sendReason);
+      return;
+    }
     // An answer's chips go along as its files; its text is the user's own words.
     const intent = classifyComposerInput({
       text: plainChipText(text, Boolean(answerable)),
@@ -733,8 +752,6 @@ export function Composer({
       shellActionAvailable: onRunShellAction !== undefined,
       delivery,
     });
-    // An answer never waits for a prompt in flight: the prompt that asked may be the one still running.
-    if (activeScopeSnapshot.submissionPending && intent.kind !== "prompt-answer" && intent.kind !== "prompt-action") return;
     switch (intent.kind) {
       case "noop":
         return;
@@ -754,7 +771,7 @@ export function Composer({
         updateDraft("");
         recordPrompt(intent.historyText);
         void onRunShellAction(intent.command, intent.includeInContext).catch((error) => {
-          onNotify?.(errorMessage(error));
+          onNotify?.(errorMessage(error), "error");
         });
         return;
       case "prompt": {
@@ -767,12 +784,19 @@ export function Composer({
           }
           const scope = attachmentScope;
           setSendModeBusy({ scope, label: mode.busyLabel ?? mode.label, ...(mode.Icon ? { Icon: mode.Icon } : {}) });
-          void mode.beforeSend(shellContext?.actions)
-            .then(() => {
-              // The thread changed meanwhile: its draft stays there rather than going to this one.
-              if (scopeRef.current === scope) submitPromptRef.current(intent.delivery);
-            }, (error: unknown) => onNotify?.(errorMessage(error)))
-            .finally(() => setSendModeBusy((busy) => busy?.scope === scope ? undefined : busy));
+          submitPrompt(intent.delivery, async (capturedText = "", capturedAttachments = [], capturedDelivery, skillDraft) => {
+            try {
+              if (mode.submit) return await mode.submit(shellContext?.actions, { text: capturedText, attachments: capturedAttachments, ...(skillDraft ? { skillDraft } : {}) });
+              await mode.beforeSend(shellContext?.actions);
+              return await onSubmit(capturedText, capturedAttachments, capturedDelivery, skillDraft);
+            } catch (error) {
+              const message = errorMessage(error);
+              onNotify?.(message, "error");
+              return { accepted: false, message };
+            } finally {
+              setSendModeBusy((busy) => busy?.scope === scope ? undefined : busy);
+            }
+          });
           return;
         }
         const runtime = runtimeChoice?.kind ?? snapshot?.backendKind;
@@ -785,24 +809,23 @@ export function Composer({
       }
     }
   }, [
-    activeScopeSnapshot.submissionPending,
     answerHasFiles,
     answerWithDraft,
     answerable,
-    arrival.waiting,
-    held,
+    explainBlocked,
+    hasDraft,
     onAnswerPrompt,
     onNotify,
+    onSubmit,
     onRunShellAction,
     draftOnOtherRuntime,
     newThread,
     passGates,
     promptSubmit,
     recordPrompt,
-    dictating,
     runtimeChoice?.kind,
     sendMode,
-    sendModeBusyHere,
+    sendReason,
     shellContext?.actions,
     attachmentScope,
     snapshot,
@@ -839,7 +862,6 @@ export function Composer({
   // A touch screen's send button names no chord; which keyboard types decides what Enter does, when it is pressed.
   const [touchKeyboard] = useState(primaryPointerIsTouch);
   const streamingBase = registry?.streamingDelivery() ?? "followUp";
-  const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
   const inlineKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const { key, shiftKey, altKey, metaKey, ctrlKey, currentTarget } = event;
     const keyEvent = { key, shiftKey, altKey, metaKey, ctrlKey, text, selectionStart: currentTarget.selectionStart, selectionEnd: currentTarget.selectionEnd };
@@ -850,7 +872,7 @@ export function Composer({
       requestAnimationFrame(() => textareaRef.current?.setSelectionRange(next.length, next.length));
     };
     return inlines.some((inline) => {
-      try { return inline.keyDown?.(keyEvent, { ...inlineContextRef.current, setText }) === true; } catch (error) { onNotify?.(errorMessage(error)); return false; }
+      try { return inline.keyDown?.(keyEvent, { ...inlineContextRef.current, setText }) === true; } catch (error) { onNotify?.(errorMessage(error), "error"); return false; }
     });
   };
 
@@ -927,7 +949,9 @@ export function Composer({
         onSelect={onCompactContext}
       />,
     }] : []),
-    ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: <span className="composer-queued">{queue.length} queued</span> }] : []),
+    ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: onOpenQueue
+      ? <button type="button" className="composer-queued" {...tooltipProps("Show the queued messages")} onClick={onOpenQueue}>{queue.length} queued</button>
+      : <span className="composer-queued">{queue.length} queued</span> }] : []),
   ];
 
   const attachmentControl = (
@@ -1069,7 +1093,9 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
+            // IME keys still defer incoming questions.
             arrival.noteTyping();
+            if (isImeComposing(event.nativeEvent)) return;
             if (historySearch.handleSearchKeyDown(event)) {
               return;
             }
@@ -1289,13 +1315,13 @@ export function Composer({
             if (answerable || !(sendMode || sendModeBusyHere)) return null;
             const Icon = sendModeBusyHere?.Icon ?? sendMode?.Icon;
             const label = sendModeBusyHere?.label ?? sendMode?.label ?? "";
-            const blocked = held || dictating || arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft;
+            const blocked = Boolean(sendReason) || !hasDraft;
             const options = sendModeBusyHere ? [] : sendMode?.options ?? [];
             return (
               <div ref={sendOptionsAnchor} className={`send-split${options.length > 0 ? " with-options" : ""}`}>
                 <button
                   className="send-button send-mode"
-                  {...tooltipProps(sendMode?.title ?? label)}
+                  {...tooltipProps(sendReason ?? sendMode?.title ?? label)}
                   aria-busy={Boolean(sendModeBusyHere) || activeScopeSnapshot.submissionPending}
                   disabled={blocked || Boolean(sendModeBusyHere)}
                   onClick={() => submitCurrent()}
@@ -1309,7 +1335,7 @@ export function Composer({
                     aria-label="Send options"
                     aria-haspopup="menu"
                     aria-expanded={sendOptionsOpen}
-                    {...tooltipProps("Send options")}
+                    {...tooltipProps(sendReason ?? "Send options")}
                     disabled={blocked}
                     onClick={() => setSendOptionsOpen((open) => !open)}
                   >
@@ -1326,10 +1352,13 @@ export function Composer({
             const { label, hint } = answerable
               ? { label: typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer", hint: undefined }
               : sendHint(prefSnapshot.sendShortcut ?? "enter", streaming, streamingBase, touchKeyboard);
+            const unanswered = answerable && !typedAnswer && (promptSubmit?.disabled ?? true);
+            // Sending, queueing and steering look different: a ring while the message goes out, a list for the queue, a turn for a steer.
+            const SendIcon = !streaming || answerable ? ArrowUp : streamingBase === "steer" ? CornerUpRight : ListPlus;
             return (
               <button
                 className="send-button"
-                {...tooltipProps(hint ?? label)}
+                {...tooltipProps(sendReason ?? (unanswered ? "Pick an answer, or type one." : undefined) ?? hint ?? label)}
                 aria-label={label}
                 aria-busy={activeScopeSnapshot.submissionPending}
                 disabled={held || dictating || (answerable
@@ -1340,7 +1369,9 @@ export function Composer({
                   else submitCurrent(streaming && !answerable ? streamingBase : undefined);
                 }}
               >
-                <ArrowUp size={16} />
+                {activeScopeSnapshot.submissionPending && !answerable
+                  ? <span className="spinner spinner-sm tone-current" aria-hidden="true" />
+                  : <SendIcon size={16} aria-hidden="true" />}
               </button>
             );
           })()}

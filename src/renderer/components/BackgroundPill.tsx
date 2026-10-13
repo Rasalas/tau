@@ -38,6 +38,7 @@ export const BackgroundPill = memo(function BackgroundPill({ tasks, runtime, rea
   const open = pinned || hovered;
   const { label, hint } = backgroundSummary(tasks);
   const commandsOnly = !tasks.some((task) => task.kind !== "command");
+  const holds = backgroundHoldsRun(tasks);
 
   const hover = (next: boolean) => (event: ReactPointerEvent) => {
     if (event.pointerType !== "mouse") return;
@@ -82,20 +83,21 @@ export const BackgroundPill = memo(function BackgroundPill({ tasks, runtime, rea
       <span>{label}</span>
       {tasks.length > 1 ? <span className="background-pill-count">{tasks.length}</span> : null}
     </button>
-    {open ? <Popover anchor={anchor} side="top" align="center" label="Background work" className="background-popover" onClose={close}>
+    {open ? <Popover anchor={anchor} side="top" align="center" label="Background work" className="background-popover" takeFocus={false} onClose={close}>
       <div className="background-popover-body" onPointerEnter={hover(true)} onPointerLeave={hover(false)} tabIndex={-1}>
         <header className="background-popover-head"><strong>In the background</strong></header>
         <ul className="background-list">{tasks.map((task) => <li key={task.id}>
           <KindIcon kind={task.kind} />
           <div className="background-row-text">
             <span className="background-row-label">{task.label}</span>
-            <span className="background-row-meta">{KIND[task.kind]}{task.startedAt !== undefined ? ` · since ${clock(task.startedAt)}` : ""}</span>
+            <span className="background-row-meta">{task.state === "reported" ? "Result ready" : KIND[task.kind]}{task.blocksCompletion === false ? " · service" : ""}{task.startedAt !== undefined ? ` · since ${clock(task.startedAt)}` : ""}</span>
           </div>
           <button type="button" aria-label={`Stop ${task.label}`} disabled={readOnly || Boolean(busy)} title={readOnly ? READ_ONLY : undefined} onClick={() => void stop(task.id)}>{busy === task.id ? "Stopping…" : "Stop"}</button>
         </li>)}</ul>
-        <p className="background-explanation">{commandsOnly
-          ? `${runtime} hears when a command ends and may continue then. The thread counts as done meanwhile.`
-          : `${runtime} continues on its own when this work reports. The thread is not done until then.`}</p>
+        <p className="background-explanation">{tasks.some((task) => task.state === "reported")
+          ? `${runtime} still needs to handle the result. The request remains open.`
+          : holds ? `${runtime} continues when this work reports. The request remains open until the results are handled.`
+          : "These checked services keep running independently. They do not hold the request open."}</p>
         {error ? <p className="background-error" role="alert">{error}</p> : null}
         {tasks.length > 1 ? <footer className="background-actions">
           <button type="button" disabled={readOnly || Boolean(busy)} title={readOnly ? READ_ONLY : undefined} onClick={() => void stop()}>{busy === "all" ? "Stopping…" : "Stop all"}</button>

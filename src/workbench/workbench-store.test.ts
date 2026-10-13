@@ -57,6 +57,23 @@ function build(cached?: { snapshot?: HostSnapshot; threadIndex?: ThreadIndexSnap
 }
 
 describe("WorkbenchStore", () => {
+  it("keeps a delayed catalog's model on its owning thread, never on the thread now on screen", () => {
+    const { store, threads, view } = build();
+    const opus = { provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" };
+    const sol = { provider: "openai", id: "gpt-6.1-sol", name: "GPT-6.1 Sol" };
+    store.applyThreadIndex({ ...threadIndex, sessions: [
+      { ...threadIndex.sessions[0]!, backendKind: "claude-code", modelProvider: opus.provider, model: opus.id },
+      { ...threadIndex.sessions[0]!, id: "two", path: "two.jsonl", backendKind: "codex", modelProvider: sol.provider, model: sol.id },
+    ] });
+    store.applySnapshot({ ...snapshot, backendKind: "claude-code", model: opus });
+    store.applyHostUpdate({ version: 1, type: "catalog", catalog: {
+      sessionId: "two", backendKind: "codex", model: sol, models: [sol], thinkingLevel: "high", thinkingLevels: ["high"], allTools: [], extensionCount: 0,
+    } });
+    expect(view.getSnapshot()?.model).toEqual(opus);
+    expect(threads.getThread("one")).toMatchObject({ backendKind: "claude-code", modelProvider: opus.provider, model: opus.id });
+    expect(threads.getThread("two")).toMatchObject({ backendKind: "codex", modelProvider: sol.provider, model: sol.id });
+  });
+
   it("keeps Working when a delayed idle detail follows a live run-start event", () => {
     const { store, threads } = build();
     store.applySnapshot(snapshot);

@@ -24,7 +24,7 @@ export const MountedPanel = memo(function MountedPanel({
   extensionName: string;
   registry?: ExtensionRegistry;
   actions: WorkbenchActions;
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
 }) {
   return <div className={active ? "panel active" : "panel"}>
     <LazyFeatureBoundary

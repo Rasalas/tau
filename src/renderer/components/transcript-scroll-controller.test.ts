@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { globSync, readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptNavigationState } from "../../workbench/transcript-navigation";
@@ -8,6 +9,7 @@ import {
   jumpToLatestVisible,
   nearTranscriptStart,
   nearTranscriptTail,
+  scrollBehavior,
   scrollToTail,
   ScrollIntentTracker,
   TranscriptScrollController,
@@ -126,6 +128,25 @@ describe("transcript scroll ends", () => {
     top = 700;
     scrollToTail(node);
     expect(writes).toBe(1);
+  });
+});
+
+describe("scripted scrolling", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("animates unless the system asks for reduced motion", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query }));
+    expect(scrollBehavior()).toBe("smooth");
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)", media: query }));
+    expect(scrollBehavior()).toBe("auto");
+  });
+
+  it("leaves no smooth scroll to the call sites", () => {
+    // CSS scroll-behavior cannot override one a script asks for, so every call goes through scrollBehavior().
+    const sources = ["src/**/*.ts", "src/**/*.tsx", "kits/**/*.ts", "kits/**/*.tsx"].flatMap((pattern) => globSync(pattern));
+    expect(sources).toContain("src/renderer/components/TranscriptViewport.tsx");
+    const offenders = sources.filter((path) => !path.includes("node_modules") && !/\.test\.tsx?$/u.test(path) && /behavior:\s*["']smooth["']/u.test(readFileSync(path, "utf8")));
+    expect(offenders).toEqual([]);
   });
 });
 

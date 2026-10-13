@@ -184,7 +184,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     drop(threadId, { sectionId: section, ...(without[target] ? { beforeThreadId: without[target] } : {}) });
   };
 
-  const notify = (actions: WorkbenchActions | undefined, message: string) => { actions?.notify(message); };
+  const notify = (actions: WorkbenchActions | undefined, message: string, level?: "info" | "warning" | "error") => { if (level) actions?.notify(message, level); else actions?.notify(message); };
 
   const snoozeSubmenu = (): MenuSection[] => [
     { items: snoozePresets(new Date(now())).map(({ id, label, when }) => ({ id, label, hint: when })) },
@@ -197,7 +197,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     try {
       await run();
     } catch (error) {
-      notify(actions, errorMessage(error));
+      notify(actions, errorMessage(error), "error");
     }
   };
   /** Titles are made from a thread's live runtime. */
@@ -211,7 +211,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     try {
       await port.archive(session.id);
     } catch (error) {
-      notify(actions, `Failed to archive thread: ${errorMessage(error)}`);
+      notify(actions, `Failed to archive thread: ${errorMessage(error)}`, "error");
       return;
     }
     undo.record("archive", session.id, "Archived", async () => {
@@ -240,7 +240,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     try {
       await port.remove(session.id);
     } catch (error) {
-      notify(actions, `Failed to delete thread: ${errorMessage(error)}`);
+      notify(actions, `Failed to delete thread: ${errorMessage(error)}`, "error");
       return;
     }
     undo.record("delete", session.id, "Deleted", async () => {
@@ -447,7 +447,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const workspace = port.workspace?.();
       const copy = (value: string | undefined, what: string) => {
         if (!value) return;
-        actions.copyText(value).then(() => actions.notify(`${what} copied.`), (error: unknown) => actions.notify(errorMessage(error)));
+        actions.copyText(value).then(() => actions.notify(`${what} copied.`), (error: unknown) => actions.notify(errorMessage(error), "error"));
       };
       if (itemId === "pin" || itemId === "unpin") togglePin(session.id);
       else if (itemId === "settle" || itemId === "unsettle") toggleSettledById(session.id, actions);

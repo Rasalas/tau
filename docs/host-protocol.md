@@ -90,6 +90,13 @@ in that method's argument order. The host implements them in one table
 (`src/main/host-methods.ts`) which decodes every argument through `ipc-input.ts`;
 a transport only moves frames in and out of it.
 
+`prompt` deduplicates `clientMessageId` per addressed thread; `new-session`
+deduplicates it before creating a thread. Concurrent and later repetitions
+receive the original admission result, including a rejection, for the host's
+lifetime. A prompt already persisted in a thread's journal is also accepted
+without redelivery. Receipts for new threads and runtimes without a journal
+do not survive a host restart. Calls without an id remain independent.
+
 The core methods below start and continue a thread off screen. Both require
 `write` access and keep the host's active thread unchanged.
 
@@ -102,7 +109,7 @@ Neither method accepts attachments. `prompt` starts a turn or follows a running
 one; `steer` joins a running turn now; `queue` waits in the thread's visible
 queue until its turn ends.
 
-A connection opens with `hello { protocol, token?, lastSeq?, subscription? }`. The reply names
+A connection opens with `hello { protocol, token?, lastSeq?, bootId?, subscription? }`. The reply names
 the host version, its capabilities (`jobs`, `replay`, `local-files`, `heartbeat`, `subscriptions`), the pushes
 the client missed, and `resync: true` when it cannot be repaired from the
 buffer. The host numbers every push and keeps the latest 8 MB of them
@@ -110,6 +117,14 @@ buffer. The host numbers every push and keeps the latest 8 MB of them
 gap in `seq` re-hellos with its `lastSeq`, applies what comes back, and on a
 resync refetches the bootstrap. `HostConnection` in the renderer owns that and
 reports `connected`, `reconnecting` or `resyncing`.
+
+The reply also carries `bootId`, a random identity for the host's push log.
+A reconnect returns it alongside `lastSeq`. A cursor with a missing or different
+boot identity gets `resync: true` and no replay, even when the new host's sequence
+has already passed the old cursor. Clients resync on a changed boot identity
+before applying missed pushes. The phone keeps both fields with each cached
+machine index. Older hosts may omit `bootId`; their restart detection remains
+limited to sequence gaps.
 
 ### A link that dies without a close
 
@@ -348,7 +363,13 @@ fraction? }`, the outcome as `job-done { jobId, result | error }`, and
 callers keep a promise. A job failure is a partial failure: the connection
 stays. Which calls are jobs is data: a host extension marks its long commands
 with `registerCommand(name, handler, { long: true })` (those also skip the
-command timeout), and the client asks with `job-methods`.
+command timeout), and the client asks with `job-methods`. Core lists the
+workbench rebuild and the calls that can wait on a runtime starting or
+reopening (`new-session`, `prompt`, `steer`, `follow-up`): on a busy host they
+outlast the socket's 30-second request timeout, and the client gave up on a
+thread the host still created. A job also survives a reconnect whose replay
+holds its `job-done`; after a resync the client fails the jobs it waits for,
+since their result may be among the pushes it skipped.
 
 Two transports implement this. Electron IPC uses two channels, `tau:request` and
 `tau:host-event`; `src/main/ipc-contract.test.ts` checks that the client and the

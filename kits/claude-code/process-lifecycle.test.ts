@@ -12,7 +12,7 @@ function running(pid: number): boolean {
   catch { return false; }
 }
 
-it.skipIf(process.platform === "win32")("closing a real SDK session ends its detached shell and grandchild", async () => {
+it.skipIf(process.platform === "win32").each(["close", "auth-parent", "auth-child"])("ending a real SDK session on %s ends its detached shell and grandchild", async (ending) => {
   const dir = await mkdtemp(join(tmpdir(), "tau-sdk-processes-"));
   const pidsFile = join(dir, "pids");
   let pids: number[] = [];
@@ -22,14 +22,18 @@ it.skipIf(process.platform === "win32")("closing a real SDK session ends its det
     env: { ...process.env, TAU_AGENT_SCOPES: "0", TAU_PROCESS_FIXTURE_ROOT: join(dir, "root"), TAU_PROCESS_FIXTURE_PIDS: pidsFile },
   });
   const session = adapter.openSession({ cwd: dir, claudeSessionId: randomUUID(), started: false, permissionLevel: "full", onMessage() {}, onExit() {} });
-  void session.send("start the process fixture", "next").catch(() => undefined);
+  const pending = session.send(ending, "next").catch((error: unknown) => error);
   try {
     await expect.poll(async () => {
       pids = await readFile(pidsFile, "utf8").then((text) => text.trim().split(/\s+/u).map(Number)).catch(() => []);
       return pids.length;
     }, { timeout: 20_000 }).toBe(2);
     expect(pids.every(running)).toBe(true);
-    await session.close();
+    if (ending === "close") await session.close();
+    else {
+      expect(await pending).toMatchObject({ name: "ClaudeAuthenticationError" });
+      expect(session.closed).toBe(true);
+    }
     await expect.poll(() => pids.filter(running), { timeout: 20_000 }).toEqual([]);
   } finally {
     await session.close();

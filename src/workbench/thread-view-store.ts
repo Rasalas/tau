@@ -131,6 +131,7 @@ function isBackgroundEvent(state: ThreadViewState, event: HostEvent): boolean {
     case "tool-update":
     case "tool-end":
     case "queue":
+    case "context-compaction":
       return event.sessionId !== state.activeThreadId;
     case "agent-status":
     case "error":
@@ -200,6 +201,8 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
       return withoutOptimistic(state, event.clientMessageId);
     case "user-message-failed":
       return withoutOptimistic(state, event.clientMessageId);
+    case "context-compaction":
+      return state.snapshot ? { ...state, snapshot: { ...state.snapshot, isCompacting: event.running } } : state;
     case "agent-status":
       // A starting run opens a fresh activity group; a stopping one keeps the
       // finished tools on screen until the next turn replaces them.
@@ -296,7 +299,7 @@ export function reduceHostEvent(state: ThreadViewState, event: HostEvent): Threa
     case "event-log":
       return withEvent(state, event.label, event.detail, event.timestamp);
     case "error":
-      return withNotice(state, event.message);
+      return withNotice(state, event.message, "error");
     case "notice":
       // The transcript already shows a failed answer's reason; a toast over it would say it twice.
       if (event.level === "error" && showsError(state.transcript, event.message)) return state;

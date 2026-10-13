@@ -45,10 +45,13 @@ function withActions(run: (actions: WorkbenchActions) => unknown) {
 export const TERMINAL_KEYBINDINGS: ReadonlyArray<{ keys: string; commandId: string; when?: string }> = [
   { keys: "mod+j", commandId: TERMINAL_COMMANDS.toggle },
   { keys: "mod+j", commandId: TERMINAL_COMMANDS.toggle, when: "terminalFocus" },
-  { keys: "mod+n", commandId: TERMINAL_COMMANDS.new, when: "terminalFocus" },
+  // A browser keeps ⌘N and ⌘W; a tab takes the same chords with ⌥, as the window does.
+  { keys: "mod+n", commandId: TERMINAL_COMMANDS.new, when: "terminalFocus && isDesktop" },
+  { keys: "mod+alt+n", commandId: TERMINAL_COMMANDS.new, when: "terminalFocus && !isDesktop" },
   { keys: "mod+d", commandId: TERMINAL_COMMANDS.split, when: "terminalFocus" },
   { keys: "mod+shift+d", commandId: TERMINAL_COMMANDS.splitDown, when: "terminalFocus" },
-  { keys: "mod+w", commandId: TERMINAL_COMMANDS.close, when: "terminalFocus && !stageFocus" },
+  { keys: "mod+w", commandId: TERMINAL_COMMANDS.close, when: "terminalFocus && !stageFocus && isDesktop" },
+  { keys: "mod+alt+w", commandId: TERMINAL_COMMANDS.close, when: "terminalFocus && !stageFocus && !isDesktop" },
   { keys: "mod+]", commandId: TERMINAL_COMMANDS.focusNext, when: "terminalFocus" },
   { keys: "mod+[", commandId: TERMINAL_COMMANDS.focusPrevious, when: "terminalFocus" },
 ];

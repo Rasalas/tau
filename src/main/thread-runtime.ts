@@ -29,6 +29,9 @@ export class ThreadRuntime implements LiveTurnState {
   adapterAbortControllers = new Set<AbortController>();
   adapterQueue: Promise<void> = Promise.resolve();
   currentAssistantId?: string;
+  isCompacting = false;
+  /** Holds queued messages until the manual compaction request finishes. */
+  compactionPending = false;
   liveAssistant?: LiveAssistant;
   turnError?: string;
   /** The running turn is one the runtime began itself; no prompt of the host's ends it. */
@@ -61,6 +64,8 @@ export class ThreadRuntime implements LiveTurnState {
     this.pendingClientMessageFingerprints.clear();
     this.inFlightClientMessageIds.clear();
     this.adapterAbortControllers.clear();
+    this.isCompacting = false;
+    this.compactionPending = false;
     this.currentAssistantId = undefined;
     this.liveAssistant = undefined;
     this.turnError = undefined;

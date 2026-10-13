@@ -5,9 +5,11 @@ import type { UiBackgroundTask } from "./contracts.js";
 const task = (kind: UiBackgroundTask["kind"], label: string = kind): UiBackgroundTask => ({ id: label, kind, label });
 
 describe("background work", () => {
-  it("holds the run for anything but commands", () => {
+  it("requires every task unless it is explicitly released", () => {
     expect(backgroundHoldsRun(undefined)).toBe(false);
-    expect(backgroundHoldsRun([task("command")])).toBe(false);
+    expect(backgroundHoldsRun([task("command")])).toBe(true);
+    expect(backgroundHoldsRun([{ ...task("command"), blocksCompletion: false }])).toBe(false);
+    expect(backgroundHoldsRun([{ ...task("command"), blocksCompletion: false }, task("task")])).toBe(true);
     expect(backgroundHoldsRun([task("command"), task("agent")])).toBe(true);
   });
 
@@ -18,6 +20,8 @@ describe("background work", () => {
 
   it("says Waiting for sub-agents and tasks", () => {
     expect(backgroundSummary([task("agent", "Review")])).toEqual({ label: "Waiting", hint: "1 sub-agent in the background: Review. The agent continues when it reports." });
-    expect(backgroundSummary([task("command", "npm run dev")]).hint).toBe("1 command in the background: npm run dev. The agent hears when it ends.");
+    expect(backgroundSummary([task("command", "npm test")]).label).toBe("Waiting");
+    expect(backgroundSummary([{ ...task("command", "npm run dev"), blocksCompletion: false }])).toEqual({ label: "Running", hint: "1 command in the background: npm run dev. These services do not hold the request open." });
+    expect(backgroundSummary([{ ...task("monitor"), state: "reported" }]).label).toBe("Waiting");
   });
 });

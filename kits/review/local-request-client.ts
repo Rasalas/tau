@@ -19,7 +19,8 @@ export interface LocalRequestClient {
   evidence(root: string, threads: readonly string[]): Promise<{ available: boolean; evidence: LocalEvidence[] }>;
   /** A thumbnail through Evidence Kit when it took the picture, else the picture itself. */
   image(frame: Pick<LocalEvidence, "threadId" | "source" | "id">, thumb: boolean): Promise<string | null>;
-  describe(input: { base?: string; model?: ModelRef; prefer?: ModelRef; instructions?: string; template?: boolean; evidence?: string[] }): Promise<ReviewRequestDraft & { model?: string }>;
+  /** `pending`: the commit about to be made with the request, which the branch does not hold yet. */
+  describe(input: { base?: string; model?: ModelRef; prefer?: ModelRef; instructions?: string; template?: boolean; evidence?: string[]; pending?: { message: string; files: Array<{ path: string; added: number; removed: number }> } }): Promise<ReviewRequestDraft & { model?: string }>;
   plan(url?: string, branch?: string): Promise<UploadPlan>;
   attach(input: { url: string; body: string; branch?: string }): Promise<{ uploaded: number }>;
 }

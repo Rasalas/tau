@@ -443,6 +443,77 @@ describe("Remote Work Kit: a thread started here runs on another machine", () =>
     expect(await hosts.call<RemoteThreadLink[]>("threads", { active: true })).toEqual([]);
   });
 
+  it.each(["link", "home machine"] as const)("merges the latest result after a follow-up sent through the %s", async (from) => {
+    const hosts = await twoHosts();
+    const link = await hosts.call<RemoteThreadLink>("thread-start", { machine: "rex", cwd: hosts.work, prompt: "Write a changelog", title: "Changelog" });
+    const thread = hosts.sessions.threads.get((await started(hosts, link.id)).thread!)!;
+    await put(thread.cwd, "CHANGELOG.md", "- first result\n");
+    await hosts.sessions.finish(thread, "first result");
+    await hosts.call("thread-wait", { link: link.id });
+    const fetched = await hosts.call<RemoteThreadLink>("thread-result", { link: link.id });
+    expect(fetched.result?.state).toBe("branch");
+
+    if (from === "link") await hosts.call("thread-send", { link: link.id, text: "Add the follow-up" });
+    else await hosts.sessions.services.sessions!.send!(thread.id, "Add the follow-up");
+    await until(() => linkOf(hosts, link.id), (value) => value.status === "running", "the follow-up running");
+    await expect(hosts.call("thread-settle", { link: link.id, how: "apply" })).rejects.toThrow(/still working/u);
+    await put(thread.cwd, "CHANGELOG.md", "- first result\n- follow-up\n");
+    git(thread.cwd, "add", "CHANGELOG.md");
+    git(thread.cwd, "commit", "-qm", "Add follow-up");
+    const tip = git(thread.cwd, "rev-parse", "HEAD");
+    await hosts.sessions.finish(thread, "follow-up done");
+    await hosts.call("thread-wait", { link: link.id });
+
+    const settled = await hosts.call<RemoteThreadLink>("thread-settle", { link: link.id, how: "apply" });
+    expect(settled).toMatchObject({ status: "settled", result: { state: "branch", branch: "tau/rex/changelog", tip }, applied: { state: "merged" } });
+    expect(await readFile(join(hosts.work, "CHANGELOG.md"), "utf8")).toBe("- first result\n- follow-up\n");
+    expect(git(hosts.work, "merge-base", "--is-ancestor", tip, "HEAD")).toBe("");
+    expect(existsSync(thread.cwd)).toBe(false);
+  });
+
+  it("keeps the checkout and remote work when the latest result cannot be fetched", async () => {
+    const hosts = await twoHosts();
+    const link = await hosts.call<RemoteThreadLink>("thread-start", { machine: "rex", cwd: hosts.work, prompt: "Write a changelog" });
+    const thread = hosts.sessions.threads.get((await started(hosts, link.id)).thread!)!;
+    await put(thread.cwd, "CHANGELOG.md", "- first result\n");
+    await hosts.sessions.finish(thread, "first result");
+    await hosts.call("thread-wait", { link: link.id });
+    await hosts.call("thread-result", { link: link.id });
+    await hosts.sessions.services.sessions!.send!(thread.id, "Add the follow-up");
+    await put(thread.cwd, "CHANGELOG.md", "- first result\n- follow-up\n");
+    await hosts.sessions.finish(thread, "follow-up done");
+    await hosts.call("thread-wait", { link: link.id });
+    const head = git(hosts.work, "rev-parse", "HEAD");
+    hosts.setOnline(false);
+
+    await expect(hosts.call("thread-settle", { link: link.id, how: "apply" })).rejects.toThrow(/offline/u);
+    expect(git(hosts.work, "rev-parse", "HEAD")).toBe(head);
+    expect(existsSync(join(hosts.work, "CHANGELOG.md"))).toBe(false);
+    expect(await readFile(join(thread.cwd, "CHANGELOG.md"), "utf8")).toBe("- first result\n- follow-up\n");
+    expect((await linkOf(hosts, link.id)).settled).toBeUndefined();
+  });
+
+  it("clears the fetched result and merge attempt when a follow-up is accepted", async () => {
+    const hosts = await twoHosts();
+    const link = await hosts.call<RemoteThreadLink>("thread-start", { machine: "rex", cwd: hosts.work, prompt: "Edit the readme" });
+    const thread = hosts.sessions.threads.get((await started(hosts, link.id)).thread!)!;
+    await put(thread.cwd, "README.md", "# Remote version\n");
+    await hosts.sessions.finish(thread, "done");
+    await hosts.call("thread-wait", { link: link.id });
+    await hosts.call("thread-result", { link: link.id });
+    await put(hosts.work, "README.md", "# Local version\n");
+    git(hosts.work, "commit", "-qam", "Edit readme locally");
+    const conflict = await hosts.call<RemoteThreadLink>("thread-settle", { link: link.id, how: "apply" });
+    expect(conflict.applied?.state).toBe("conflict");
+
+    const sent = await hosts.call<RemoteThreadLink>("thread-send", { link: link.id, text: "Resolve the conflict" });
+    expect(sent.result).toBeUndefined();
+    expect(sent.applied).toBeUndefined();
+    const book = JSON.parse(await readFile(join(hosts.dir, "a-state", ID, "remote-links.json"), "utf8")) as RemoteThreadLink[];
+    expect(book.find((entry) => entry.id === link.id)?.result).toBeUndefined();
+    expect(book.find((entry) => entry.id === link.id)?.applied).toBeUndefined();
+  });
+
   it("starts from HEAD and the working copy, so a commit made after the last checkpoint survives the merge back", async () => {
     const hosts = await twoHosts();
     await put(hosts.work, "fruit.txt", "kiwi\n");

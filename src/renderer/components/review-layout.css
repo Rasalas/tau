@@ -19,7 +19,7 @@
 }
 .review-filter:focus-within { border-color: var(--line-float); color: var(--muted); }
 .review-filter input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink-2); font: var(--text-xs) var(--sans); }
-.review-filter input::placeholder { color: var(--fainter); }
+.review-filter input::placeholder { color: var(--faint); }
 .review-filter > button { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; }
 .review-progress { flex: none; display: flex; align-items: center; gap: 9px; padding: 7px 12px 2px; color: var(--faint); font: var(--text-xs) var(--mono); }
 .review-progress > i { height: 3px; flex: 1; overflow: hidden; border-radius: 2px; background: var(--line); }
@@ -47,7 +47,7 @@
   padding: 8px 36px 8px 11px; font: var(--text-input)/1.45 var(--sans);
 }
 .review-commit-field textarea:focus { outline: none; border-color: var(--line-float); }
-.review-commit-field textarea::placeholder { color: var(--fainter); }
+.review-commit-field textarea::placeholder { color: var(--faint); }
 .review-commit-write { position: absolute; top: 5px; right: 5px; }
 .review-commit-split { display: flex; min-height: 36px; align-items: stretch; }
 .review-commit-button, .review-commit-more {
@@ -88,7 +88,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-sidebar-toggle.active { background: var(--raised); color: var(--ink); }
 .review-scope-summary { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 0 4px; }
 .review-scope-summary strong { flex: none; color: var(--ink-2); font-size: var(--text-xs); }
-.review-scope-summary small { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fainter); font: var(--text-xs) var(--mono); }
+.review-scope-summary small { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font: var(--text-xs) var(--mono); }
 .review-scope-summary .review-request { flex: none; padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); font: var(--text-xs) var(--mono); text-decoration: none; }
 .review-scope-summary .review-request:hover { border-color: var(--acid-line); color: var(--acid-ink); }
 .review-scope-summary .stat-add, .review-scope-summary .stat-del { font: var(--text-xs) var(--mono); }
@@ -151,7 +151,7 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .review-tree-directory:hover { background: var(--raised); color: var(--ink-2); }
 .review-tree-directory > svg { flex: none; }
 .review-tree-directory > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-tree-directory > small { margin-left: auto; padding-right: 8px; color: var(--fainter); font: var(--text-xs) var(--mono); }
+.review-tree-directory > small { margin-left: auto; padding-right: 8px; color: var(--faint); font: var(--text-xs) var(--mono); }
 .review-tree-file { min-width: 0; height: 32px; display: flex; align-items: center; padding-right: 3px; border-radius: 5px; color: var(--ink-3); }
 .review-tree-file:hover { background: var(--raised); }
 .review-tree-file.active { background: var(--raised); box-shadow: inset 0 0 0 1px var(--acid-line); }

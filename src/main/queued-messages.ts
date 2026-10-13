@@ -112,9 +112,13 @@ export class QueuedMessages {
   /** Threads whose head is on its way; nothing else leaves until it is accepted. */
   private readonly delivering = new Map<string, QueuedMessage>();
   private pending: Promise<void> = Promise.resolve();
+  private restored: boolean;
+  private restoring?: Promise<void>;
   private frozen = false;
 
-  constructor(private readonly port: QueuedMessagesPort, private readonly options: QueuedMessagesOptions = {}) {}
+  constructor(private readonly port: QueuedMessagesPort, private readonly options: QueuedMessagesOptions = {}) {
+    this.restored = !options.filePath;
+  }
 
   /**
    * Reads what the previous run left and holds all of it: the turn those
@@ -123,18 +127,28 @@ export class QueuedMessages {
    */
   async restore(continued: readonly string[] = []): Promise<void> {
     if (!this.options.filePath) return;
-    const read = await readPersistedJson(this.options.filePath, {
+    if (!this.restored) await (this.restoring ??= this.read(this.options.filePath));
+    for (const sessionId of continued) {
+      this.started(sessionId);
+      this.settled(sessionId);
+    }
+  }
+
+  private async read(path: string): Promise<void> {
+    const read = await readPersistedJson(path, {
       expectedVersion: VERSION,
       ...(this.options.logger ? { logger: this.options.logger } : {}),
       decode: (value) => decodeQueues(value),
     });
     for (const [sessionId, messages] of read?.data ?? []) {
       this.queues.set(sessionId, [...messages, ...this.list(sessionId)]);
-      if (!continued.includes(sessionId)) this.held.add(sessionId);
+      this.held.add(sessionId);
       this.publish(sessionId);
       this.port.log("queue.restored", `${sessionId.slice(0, 8)} · ${messages.length}${this.held.has(sessionId) ? " held" : ""}`);
-      this.settled(sessionId);
     }
+    this.restored = true;
+    this.persist();
+    for (const sessionId of this.queues.keys()) this.settled(sessionId);
   }
 
   list(sessionId: string): readonly QueuedMessage[] {
@@ -251,7 +265,7 @@ export class QueuedMessages {
 
   /** Sends the head when nothing holds the thread back; a refusal puts it back and holds the queue. */
   async pump(sessionId: string): Promise<void> {
-    if (this.frozen || this.held.has(sessionId) || this.delivering.has(sessionId)) return;
+    if (!this.restored || this.frozen || this.held.has(sessionId) || this.delivering.has(sessionId)) return;
     const current = this.list(sessionId);
     if (!current[0] || this.port.busy(sessionId)) return;
     // A wake at the head takes every waiting wake with it, as one message.
@@ -279,6 +293,9 @@ export class QueuedMessages {
     } finally {
       this.delivering.delete(sessionId);
       this.port.delivered?.(sessionId);
+      // A fast turn can settle while its delivery still owns the pump. Retry
+      // after releasing it; busy/held/frozen still decide whether the head leaves.
+      void this.pump(sessionId);
     }
   }
 
@@ -297,7 +314,7 @@ export class QueuedMessages {
 
   private persist(): void {
     const path = this.options.filePath;
-    if (!path || this.frozen) return;
+    if (!path || !this.restored || this.frozen) return;
     // A concurrent add, take or move must retain a head whose admission is
     // still unresolved, even though it is already hidden from the composer.
     const durable = new Map(this.queues);

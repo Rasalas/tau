@@ -1,7 +1,8 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BackendPrompt, ExtensionUiAnswer, RuntimePermissionLevel, ThreadRuntimeEvent } from "tau/host-extension";
 import { ALLOW, ALLOW_SESSION, DENY, rulesForLevelV2 } from "./approvals.js";
 import { storedModels } from "./catalog.js";
@@ -42,7 +43,8 @@ type Scratch = Awaited<ReturnType<typeof scratch>>;
 
 interface OpenOptions {
   level?: RuntimePermissionLevel;
-  answer?: (prompt: BackendPrompt) => ExtensionUiAnswer;
+  answer?: (prompt: BackendPrompt) => ExtensionUiAnswer | Promise<ExtensionUiAnswer>;
+  cancelPrompts?: () => void;
   /** `false`: the host cannot ask. */
   ask?: boolean;
   resume?: boolean;
@@ -87,6 +89,7 @@ async function open(space: Scratch, options: OpenOptions = {}) {
       return space.models;
     },
     onEvent: (event) => events.push(event),
+    cancelPrompts: options.cancelPrompts,
     ...(options.ask === false ? {} : { ask: async (prompt: BackendPrompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true } as ExtensionUiAnswer; } }),
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),
@@ -131,6 +134,52 @@ const pick = (options: string[], extra: Record<string, unknown> = {}) => ({
 });
 
 describe("OpenCodeThreadRuntimeBackend against a fake OpenCode 2 server", () => {
+  it("holds a native child which outlives its parent, includes its result, and ignores duplicate end events", async () => {
+    let turns = 0;
+    const child = "ses_background_child";
+    const space = await scratch({ script: (turn) => {
+      announcePrompt(turn);
+      turn.emit("session.execution.started");
+      turn.emit("session.inbox.delivered", { inboxID: turn.inboxId });
+      if (turns++ === 0) {
+        space.fake.broadcast("session.created", { sessionID: child, parentID: turn.session.id, title: "Review" }, { directory: space.dir });
+        space.fake.broadcast("session.execution.started", { sessionID: child }, { directory: space.dir });
+      }
+      turn.emit("session.execution.succeeded");
+    } });
+    const { backend } = await open(space);
+    await backend.prompt({ text: "Start review", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: `opencode-child:${child}`, kind: "agent" })]);
+    space.fake.broadcast("session.execution.succeeded", { sessionID: child }, { directory: space.dir });
+    await vi.waitFor(() => expect(backend.capabilities.background!.current()[0]?.state).toBe("reported"));
+    space.fake.broadcast("session.execution.succeeded", { sessionID: child }, { directory: space.dir });
+    await backend.prompt({ text: "Handle review", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([]);
+  });
+
+  it("holds an unfinished shell past execution.succeeded and accepts its late tool.success", async () => {
+    let turns = 0;
+    let report!: () => void;
+    const space = await scratch({ script: (turn) => {
+      announcePrompt(turn);
+      turn.emit("session.execution.started");
+      turn.emit("session.inbox.delivered", { inboxID: turn.inboxId });
+      if (turns++ === 0) {
+        turn.emit("session.tool.input.started", { id: "build", name: "shell" });
+        turn.emit("session.tool.called", { id: "build", input: { command: "npm test" } });
+        report = () => turn.emit("session.tool.success", { id: "build", content: [{ type: "text", text: "passed" }] });
+      }
+      turn.emit("session.execution.succeeded");
+    } });
+    const { backend } = await open(space);
+    await backend.prompt({ text: "Start tests", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([expect.objectContaining({ id: "build", kind: "command" })]);
+    report();
+    await vi.waitFor(() => expect(backend.capabilities.background!.current()[0]?.state).toBe("reported"));
+    await backend.prompt({ text: "Handle tests", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([]);
+  });
+
   it("creates a session on the first turn, streams the answer and keeps the messages, usage and model", async () => {
     const space = await scratch({ script: textTurn("pong", { cost: 0.25, tokens: { input: 1000, output: 50, reasoning: 10, cache: { read: 5, write: 1 } } }) });
     const { backend, events } = await open(space);
@@ -738,4 +787,19 @@ describe("the same backend on an OpenCode 1 server", () => {
     expect(handles[0]!.api.generation).toBe(1);
     expect(fake.requests.some((request) => request.method === "POST" && request.path === "/session")).toBe(true);
   });
+});
+
+it("withdraws a version 2 approval when its server exits", async () => {
+  const space = await scratch({ script: replay2("permission") });
+  const dialogs = backendPrompts("tau-1");
+  const { backend } = await open(space, { level: "ask", answer: dialogs.ask, cancelPrompts: dialogs.cancelPrompts });
+  const running = backend.prompt({ text: "Run command", delivery: "prompt" });
+  await dialogs.opened;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(true);
+  space.connects[0]!.onExit(new Error("server exited"));
+  await running;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(false);
+  expect(dialogs.ui.replay()).toEqual([]);
+  expect(dialogs.answers).toEqual([{ cancelled: true }]);
+  expect(backend.state().idle).toBe(true);
 });

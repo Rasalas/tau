@@ -12,6 +12,8 @@ export interface TranscriptSearchProps {
   /** The query and the message the find stands on, for marking the words in the text. */
   onActive?(query: string, messageId: string | undefined): void;
   onClose(): void;
+  /** A new value takes the keyboard back into the bar and selects the query, as a second ⌘F does in a browser. */
+  focusToken?: number;
 }
 
 /** Typing pauses this long before the whole thread is asked. */
@@ -19,7 +21,7 @@ export const FIND_DEBOUNCE_MS = 200;
 
 type Remote = { query: string; ids: readonly string[] } | "failed";
 
-export function TranscriptSearch({ messages, find, onJump, onActive, onClose }: TranscriptSearchProps) {
+export function TranscriptSearch({ messages, find, onJump, onActive, onClose, focusToken }: TranscriptSearchProps) {
   const [query, setQuery] = useState("");
   const [remote, setRemote] = useState<Remote>();
   const [activeId, setActiveId] = useState<string>();
@@ -78,7 +80,7 @@ export function TranscriptSearch({ messages, find, onJump, onActive, onClose }: 
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
-  }, []);
+  }, [focusToken]);
 
   const position = activeId ? matches.indexOf(activeId) : -1;
   const step = (delta: number) => {

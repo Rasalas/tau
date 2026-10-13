@@ -117,13 +117,13 @@ export interface SetupCardActions {
   dismiss(setupId: string): Promise<void>;
 }
 
-export function SetupCard({ setup, actions, notify, draft = false }: { setup: UiWorktreeSetup; actions: SetupCardActions; notify(message: string): void; draft?: boolean }) {
+export function SetupCard({ setup, actions, notify, draft = false }: { setup: UiWorktreeSetup; actions: SetupCardActions; notify(message: string, level?: "info" | "warning" | "error"): void; draft?: boolean }) {
   const running = setup.phase === "running";
   const now = useNowWhile(running);
   const [open, setOpen] = useState(false);
   const total = formatElapsed((setup.endedAt ?? now) - setup.startedAt);
   const waiting = running && !setup.released && setup.stages.some((stage) => stage.status === "running" && stage.id.startsWith("script:") && !stage.async);
-  const act = (action: (id: string) => Promise<void>) => () => { action(setup.id).catch((error: unknown) => notify(errorMessage(error))); };
+  const act = (action: (id: string) => Promise<void>) => () => { action(setup.id).catch((error: unknown) => notify(errorMessage(error), "error")); };
   const tone = setup.phase === "failed" ? "failed" : setup.stages.some((stage) => stage.status === "failed") ? "warning" : setup.phase;
   // An ended setup folds to its headline, as T3 Code's summary row; the steps open on demand.
   const steps = running || open;
@@ -183,7 +183,7 @@ export function createSetupCards(store: SetupStore, host: ProjectScriptsHostClie
     if (visible.length === 0 || hostIsReadOnly()) return null;
     return (
       <div className="project-scripts-setups">
-        {visible.map((setup) => <SetupCard key={setup.id} setup={setup} actions={cardActions} notify={(message) => actions.notify(message)} draft={screen.draftPending} />)}
+        {visible.map((setup) => <SetupCard key={setup.id} setup={setup} actions={cardActions} notify={actions.notify} draft={screen.draftPending} />)}
       </div>
     );
   };

@@ -33,6 +33,8 @@ The client-side coordination of a person's threads, drafts, submissions and navi
 
 The process that owns an agent runtime and exposes it to a workbench client. A host may run on the same machine as the client or remotely.
 
+Where a person reads about it on the phone or in the browser's sign-in, a host is a **machine**, as on the desktop's Machines page, and the host token is the **access key**; neither "host" nor "token" nor a file path appears there. The words stay in the docs and in the desktop's Advanced settings.
+
 ## Project
 
 A user-recognizable body of work that can contain threads. A project has a source and resolves to a workspace that a host can open. A local repository or folder is a project. Future project sources may resolve remote repositories or managed environments.
@@ -55,7 +57,11 @@ A user-facing stream of agent work, optionally grouped in a project. A thread co
 
 ## Subagent
 
-Delegated agent work belonging to a parent thread. A subagent has its own execution context and visible activity, but is not a conversation the person selects in the thread rail. A runtime without native delegation may back a subagent with a hidden Tau thread.
+Delegated agent work belonging to a parent thread. A subagent has its own execution context and visible activity, but is not a conversation the person selects in the thread rail. A runtime may back a subagent with a hidden Tau thread when the task selects another runtime or model. Native subagents handle the parent's own runtime and model where available.
+
+## Delegation
+
+Assigning work to a subagent of the current thread. Tau validates an explicit runtime and model against the composer catalog, sign-in readiness and project settings. A child on another runtime uses that runtime's default model unless one is selected. Delegation keeps its parent link and reports back; creating an independent conversation requires the user's explicit request.
 
 ## Projectless thread
 
@@ -73,13 +79,17 @@ The document area of the workbench beside the conversation. It shows workspace f
 
 One open document in the stage. A preview tab comes from a single click and is replaced by the next preview; a pinned tab stays until closed. Each stage remembers the last twenty tabs closed on it; reopening one brings back a file or thread as it was, and a terminal as a new shell in the thread's folder, never the process it showed.
 
+## Project status card
+
+The workbench's compact summary of the current project's workspace, Git status and related work, with its project actions. Called "Projektstatus-Karte" in German.
+
 ## Wake
 
 A turn something other than the user started: a pull request event, a goal's next turn, a schedule, the end of background work. An external event waits in the thread's queue and never interrupts a turn; the transcript shows it as a wake line, not as the user's message. Stop drops the wakes that still wait and ends what would send more; the user's own queued messages stay.
 
 ## Background work
 
-Work a thread's runtime keeps running after its turn ended: a background command, a monitor, a sub-agent. The thread is not done while a monitor, sub-agent or task runs; the runtime continues when one reports, and only then is the run over. A command alone, such as a dev server, does not hold the thread open. Stop ends the turn, not the background work; the user stops that separately.
+Work belonging to a thread that continues after a turn ends: a command, a monitor, a sub-agent. The thread stays open until the work required by the request and its results are handled. A checked service explicitly released to run independently, such as a dev server, does not hold the request open. Stop ends the turn, not the background work; the user stops that separately.
 
 ## Goal
 

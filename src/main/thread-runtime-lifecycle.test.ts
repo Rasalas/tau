@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
+import type { HostBackendOpenContext } from "./host-extensions.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { SessionManager, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { processRunning } from "./test-support/process-running.js";
 import { ThreadRuntimeLifecycle, composeShellCommandPrefix, type ThreadRuntimeLifecyclePort } from "./thread-runtime-lifecycle.js";
 import { PARENT_LINK_ENTRY, parentLinkEntry } from "./session-lineage.js";
 import type { RuntimeSessionInfo } from "./host-extensions.js";
@@ -154,6 +158,27 @@ describe("ThreadRuntimeLifecycle", () => {
     await lifecycle.openExternal("test", "thread", "/repo");
     report({ type: "turn-started" });
     expect(emitted).toEqual([{ threadId: "thread", event: "turn-started" }]);
+  });
+
+  it("ignores events and messages from a discarded runtime after its replacement opens", async () => {
+    let report!: (event: { type: string }) => void;
+    let deliver!: (message: unknown) => void;
+    const backend = externalBackend("thread");
+    const live = new ThreadRuntime(externalBackend("thread") as never);
+    const provider = {
+      open: async (_id: string, _cwd: string, _options: unknown, context: { onEvent: typeof report; onMessage: typeof deliver }) => {
+        report = context.onEvent;
+        deliver = context.onMessage;
+        return backend;
+      },
+    };
+    const { lifecycle, emitted } = makeLifecycle({ currentRuntime: () => live }, { test: provider });
+    const old = await lifecycle.openExternal("test", "thread", "/repo");
+    lifecycle.discard(old);
+    report({ type: "turn-started" });
+    deliver({ role: "assistant", text: "too late" });
+    expect(emitted).toEqual([]);
+    expect(live.adapterMessages).toEqual([]);
   });
 
   it("puts a backend's question on the workbench dialog surface under the thread's id", async () => {
@@ -384,6 +409,33 @@ describe.skipIf(process.platform === "win32")("the shell of Pi's bash tool", () 
     }
   }
 
+  it("ends a shell and its resistant children when a tool call is aborted", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-shell-abort-"));
+    const pids: number[] = [];
+    try {
+      const { lifecycle } = makeLifecycle();
+      const create = (lifecycle as unknown as { create: (options: unknown) => Promise<{ session: any }> }).create;
+      const { session } = await create({ cwd: dir, agentDir: dir, sessionManager: SessionManager.inMemory(dir) });
+      const fixture = fileURLToPath(new URL("./test-support/shell-process-tree.mjs", import.meta.url));
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const controller = new AbortController();
+      try {
+        const executing = session.getToolDefinition("bash").execute("call-1", { command: `${quote(process.execPath)} ${quote(fixture)}` }, controller.signal, (update: { content: { text?: string }[] }) => {
+          const text = update.content.map((part) => part.text ?? "").join("").trim();
+          if (!text) return;
+          pids.push(...JSON.parse(text) as number[]);
+          controller.abort();
+        }, undefined);
+        await expect(executing).rejects.toThrow("Command aborted");
+        expect(pids).toHaveLength(2);
+        await expect.poll(() => pids.filter(processRunning)).toEqual([]);
+      } finally { session.dispose(); }
+    } finally {
+      for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("runs a bash call through the agent shell, which starts the real shell with the call's arguments", async () => {
     const dir = await mkdtemp(join(tmpdir(), "tau-agent-shell-"));
     try {
@@ -550,4 +602,34 @@ describe("a Pi session two hosts on one machine both reach", () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+it("cancels every backend question only for its thread and ignores a discarded runtime", async () => {
+  const contexts: HostBackendOpenContext[] = [];
+  const ui = new ExtensionUiCoordinator(() => undefined, () => undefined);
+  const provider = {
+    open: async (_id: string, _cwd: string, _options: unknown, context: HostBackendOpenContext) => {
+      contexts.push(context);
+      return externalBackend("thread");
+    },
+  };
+  const { lifecycle } = makeLifecycle({ extensionUi: ui }, { test: provider });
+  const thread = await lifecycle.openExternal("test", "thread", "/repo");
+  const first = contexts[0]!.ask({ kind: "confirm", title: "First approval" });
+  const second = contexts[0]!.ask({ kind: "input", title: "Question" });
+  const other = ui.ask({ id: "other", sessionId: "other-thread", kind: "confirm", title: "Other approval" });
+  contexts[0]!.cancelPrompts!();
+  await expect(first).resolves.toEqual({ cancelled: true });
+  await expect(second).resolves.toEqual({ cancelled: true });
+  expect(ui.hasOpen("thread")).toBe(false);
+  expect(ui.hasOpen("other-thread")).toBe(true);
+  lifecycle.discard(thread);
+  await lifecycle.openExternal("test", "thread", "/repo");
+  const replacement = contexts[1]!.ask({ kind: "confirm", title: "Replacement approval" });
+  contexts[0]!.cancelPrompts!();
+  expect(ui.hasOpen("thread")).toBe(true);
+  contexts[1]!.cancelPrompts!();
+  await expect(replacement).resolves.toEqual({ cancelled: true });
+  ui.cancelFor("other-thread");
+  await other;
 });

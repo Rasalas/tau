@@ -38,7 +38,7 @@ describe("large picker catalogs", () => {
   it("keeps command search and keyboard selection bounded", () => {
     render(<CommandPalette open commands={commands} actions={{} as WorkbenchActions} onClose={() => {}} />);
     expect(document.querySelectorAll(".palette-results button").length).toBeLessThan(50);
-    const input = screen.getByRole("textbox", { name: "Command" });
+    const input = screen.getByRole("combobox", { name: "Command" });
     fireEvent.change(input, { target: { value: "Command 9999" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(commands[9999].run).toHaveBeenCalledOnce();

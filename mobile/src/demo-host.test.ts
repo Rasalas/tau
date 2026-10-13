@@ -21,8 +21,8 @@ describe("the local demo host", () => {
   it("refuses real tools and credentials instead of pretending to execute them", async () => {
     const { client, start } = createDemoHost();
     await start();
-    await expect(client.runShellAction("touch /tmp/should-not-exist")).rejects.toThrow("needs a paired Tau host");
-    await expect(client.invokeHostExtension("tau.push", "register", { token: "example" })).rejects.toThrow("needs a paired Tau host");
+    await expect(client.runShellAction("touch /tmp/should-not-exist")).rejects.toThrow("needs a paired machine");
+    await expect(client.invokeHostExtension("tau.push", "register", { token: "example" })).rejects.toThrow("needs a paired machine");
     expect(client.hasCapability("local-files")).toBe(false);
   });
 });

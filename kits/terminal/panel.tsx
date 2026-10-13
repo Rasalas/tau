@@ -6,6 +6,7 @@ import { paneIds, type TerminalGroup } from "./layout.js";
 import { closeTerminals, groupPanes, moveTerminalToStage, openTerminal, syncStageTabs, TERMINAL_READ_ONLY, wantsFirstShell } from "./controller.js";
 import { groupLabel, PaneTree, shellDirectory, useOpenFolder, type Run } from "./panes.js";
 import { chipLabels, tabTitle, threadScope } from "./scope.js";
+import { inTerminal, useTerminalChord } from "./shortcut.js";
 import type { UiTerminalSession } from "./protocol.js";
 
 export { placeOf, type TerminalPlace } from "./panes.js";
@@ -36,6 +37,7 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
   const elsewhereButton = useRef<HTMLButtonElement>(null);
   const wasActive = useRef(false);
   const { readOnly } = useHostCapabilities();
+  const chord = useTerminalChord();
 
   const run: Run = (work) => {
     setBusy(true);
@@ -130,10 +132,10 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
         onClick={() => setMenu("elsewhere")}
       ><SquareStack size={13} aria-hidden="true" /><span>{scope.elsewhere.length}</span>{roomy ? <span>in other threads</span> : null}</button> : null}
       <span className="terminal-panel-actions">
-        {readOnly ? null : <button className="icon-button" aria-label="New terminal" {...tooltipProps("New terminal", { shortcut: "⌘N in a terminal" })} disabled={busy} onClick={newTerminal}><Plus size={14} /></button>}
+        {readOnly ? null : <button className="icon-button" aria-label="New terminal" {...tooltipProps("New terminal", { shortcut: inTerminal(chord("new")) })} disabled={busy} onClick={newTerminal}><Plus size={14} /></button>}
         {readOnly || narrow ? null : <>
-          <button className="icon-button" aria-label="Split right" {...tooltipProps("Split right", { shortcut: "⌘D in a terminal" })} disabled={busy || !target} onClick={() => split("right")}><Columns2 size={14} /></button>
-          <button className="icon-button" aria-label="Split down" {...tooltipProps("Split down", { shortcut: "⌘⇧D in a terminal" })} disabled={busy || !target} onClick={() => split("down")}><Rows2 size={14} /></button>
+          <button className="icon-button" aria-label="Split right" {...tooltipProps("Split right", { shortcut: inTerminal(chord("split")) })} disabled={busy || !target} onClick={() => split("right")}><Columns2 size={14} /></button>
+          <button className="icon-button" aria-label="Split down" {...tooltipProps("Split down", { shortcut: inTerminal(chord("splitDown")) })} disabled={busy || !target} onClick={() => split("down")}><Rows2 size={14} /></button>
         </>}
         {moreItems.length > 0 ? <button ref={moreButton} className="icon-button" aria-label="More terminal actions" aria-haspopup="menu" aria-expanded={menu === "more"} {...tooltipProps("More terminal actions")} disabled={busy} onClick={() => setMenu("more")}><Ellipsis size={14} /></button> : null}
       </span>

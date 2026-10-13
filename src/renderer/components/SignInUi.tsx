@@ -41,7 +41,7 @@ export interface SignInSetupProps {
   runInTerminal?(command: string): Promise<{ exitCode?: number }>;
   openExternal(url: string): void;
   copyText(text: string): Promise<void>;
-  onNotify?(message: string): void;
+  onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   /** Every report the host sends, for a card that shows more of it. */
   onReport?(report: SignInReport): void;
   /** Draws the account row too; a caller that shows its own leaves it out. */

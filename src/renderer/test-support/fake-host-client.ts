@@ -61,6 +61,7 @@ function defaults(): HostClient {
     setThinkingLevel: async () => ({ version: 1, updates: [] }),
     setMode: async () => ({ version: 1, updates: [] }),
     compactContext: async () => ({ version: 1, updates: [] }),
+    compactAndSend: async () => ({ version: 1, updates: [] }),
 
     restartSession: async () => ({ version: 1, updates: [] }),
     reloadRuntime: async () => undefined,

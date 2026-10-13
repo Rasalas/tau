@@ -22,6 +22,7 @@ import {
 } from "./host-messages.js";
 import type { HostThread } from "./host-extensions.js";
 import type { LiveTurnState } from "./live-turn-state.js";
+import { inStartOrder } from "./kit-message-order.js";
 import { isPiBackend, isThreadRuntime, type ThreadRuntime } from "./thread-runtime.js";
 
 /** The thread's interaction mode and the modes it offers, and whether it keeps goals; nothing when it offers none. */
@@ -120,15 +121,16 @@ export class ThreadProjection {
         .map((message, index) => mapMessage(message, index, mapping))
         .filter((message): message is UiMessage => isVisibleMessage(message, mapping.pinned)));
     }
-    messages.push(...thread.adapterMessages);
+    const adapter = [...thread.adapterMessages];
     const live = thread.liveAssistant;
-    if (live?.text) messages.push({
+    if (live?.text) adapter.push({
       id: live.id,
       role: "assistant",
       text: live.text,
       thinking: live.thinking || undefined,
       timestamp: live.timestamp,
     });
+    messages.push(...inStartOrder(adapter));
     return messages;
   }
 
@@ -226,6 +228,7 @@ export class ThreadProjection {
         ...threadModes(thread),
         messages,
         isStreaming: thread.adapterStreaming || externalState.streaming,
+        isCompacting: thread.isCompacting || thread.compactionPending,
         activeTools: [...externalState.activeTools],
         ...(turnActivity ? { turnActivity } : {}),
         turnActivityHistory: thread.adapterActivity.map((entry) => ({ ...entry, tools: [...entry.tools] })),
@@ -260,6 +263,7 @@ export class ThreadProjection {
       ...threadModes(thread),
       messages,
       isStreaming: state.streaming || thread.adapterStreaming,
+      isCompacting: thread.isCompacting || thread.compactionPending,
       activeTools: [...state.activeTools],
       turnActivity: this.turnActivity(thread, branchMessages),
       turnActivityHistory: turnActivityHistoryFromMessages(branchMessages),

@@ -53,7 +53,7 @@ describe("runtime desktop extensions", () => {
     }).sync("/project");
     expect(activate).not.toHaveBeenCalled();
     expect(registry.getExtensionSummaries()).toEqual([]);
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining("does not match manifest id"));
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("does not match manifest id"), "error");
   });
   it("re-reads the same workspace on resync, and does nothing before the first sync", async () => {
     const registry = new ExtensionRegistry();
@@ -144,7 +144,7 @@ describe("runtime desktop extensions", () => {
     const registry = new ExtensionRegistry();
     const { host: h, notify } = host([{ path: "/x/broken.tsx", module: { default: { id: "" } } }]);
     await new RuntimeExtensions(registry, h).sync("/project");
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining("broken.tsx"));
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("broken.tsx"), "error");
     expect(registry.getExtensionSummaries()).toHaveLength(0);
   });
 

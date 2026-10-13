@@ -95,7 +95,7 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle, re
               const number = turnNumber(entry.turn, messages ?? [], complete);
               view.set({ viewer: { threadId: sessionId, turn: entry.turn, index, ...(play ? { play } : {}), ...(title ? { title } : {}), ...(number ? { turnNumber: number } : {}) } });
             }}
-            notify={(message) => actions.notify(message)}
+            notify={actions.notify}
           />
         ),
       })));
@@ -113,7 +113,7 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle, re
           onConfirm={() => {
             const target = deleting;
             view.set({});
-            void client.deleteTurn(target.threadId, target.turnId).catch((error: unknown) => actions.notify(errorMessage(error)));
+            void client.deleteTurn(target.threadId, target.turnId).catch((error: unknown) => actions.notify(errorMessage(error), "error"));
           }}
         />
       );
@@ -127,7 +127,7 @@ function createController(client: EvidenceClient, rows: TranscriptRowsHandle, re
         request={viewer}
         onClose={() => view.set({})}
         onDelete={() => view.set({ viewer, deleting: { threadId: viewer.threadId, turnId: viewer.turn.turnId } })}
-        notify={(message) => actions.notify(message)}
+        notify={actions.notify}
         {...(attach ? { onAttach: () => {
           const media = viewer.turn.frames.map((frame) => ({ threadId: viewer.threadId, source: EVIDENCE_EXTENSION_ID, id: frame.id, caption: frame.caption }));
           if (!attach.attach(media, actions)) actions.notify("Open a project to review before attaching pictures.");
