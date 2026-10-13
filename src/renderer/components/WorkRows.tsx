@@ -18,7 +18,8 @@ import { useDisclosure, type WorkDisclosures } from "./work-disclosures";
 
 /**
  * The clock over a running turn. It writes its own text node every second, so
- * a turn that runs for minutes costs no React commit for the ticking.
+ * a turn that runs for minutes costs no React commit for the ticking. It is
+ * hidden from assistive technology: inside the transcript's log it would be read out every second.
  */
 export function WorkingTimer({ startedAt }: { startedAt: number }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -30,7 +31,7 @@ export function WorkingTimer({ startedAt }: { startedAt: number }) {
     const timer = window.setInterval(write, 1_000);
     return () => window.clearInterval(timer);
   }, [startedAt]);
-  return <span className="work-live-clock" ref={ref}>{formatLiveClock(Date.now() - startedAt)}</span>;
+  return <span className="work-live-clock" ref={ref} aria-hidden="true">{formatLiveClock(Date.now() - startedAt)}</span>;
 }
 
 export interface WorkRowActions {

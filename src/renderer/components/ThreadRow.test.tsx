@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadRow, ThreadStatus } from "./ThreadRow";
 
@@ -154,6 +154,21 @@ describe("ThreadRow project mark", () => {
     expect(badge?.textContent).toBe("Failed");
     expect(badge?.querySelector("svg")).toBeTruthy();
     expect(badge?.getAttribute("data-tooltip")).toBe("stream disconnected");
+  });
+});
+
+describe("ThreadRow current thread", () => {
+  it.each([["full", false], ["compact", true]])("marks the open thread's row as the current page (%s)", (_name, compact) => {
+    const row = (active: boolean) => <ThreadRow activity="idle" active={active} compact={compact} age="now" session={session} onSelect={() => {}} />;
+    const view = render(row(true));
+    expect(screen.getByRole("button", { name: /Use project icon/u }).getAttribute("aria-current")).toBe("page");
+    view.rerender(row(false));
+    expect(screen.getByRole("button", { name: /Use project icon/u }).hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("marks a settled row too, since it is drawn compact", () => {
+    render(<ThreadRow activity="settled" active age="now" session={session} onSelect={() => {}} />);
+    expect(screen.getByRole("button", { name: /Use project icon/u }).getAttribute("aria-current")).toBe("page");
   });
 });
 
