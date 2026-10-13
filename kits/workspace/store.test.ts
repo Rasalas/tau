@@ -204,10 +204,10 @@ describe("Workspace Kit thread worktrees", () => {
 
   it("makes the draft's worktree on the name and base chosen in its Branch section, and forgets them with the draft", async () => {
     const createWorktree = vi.fn(async (branch: string) => ({ workspaceId: `ws1_${branch}`, displayPath: `/project-worktrees/${branch}` }));
-    const workspaceStore = storeOver({ createWorktree });
+    const workspaceStore = storeOver({ createWorktree, getWorkspaceInfo: async () => REPO });
     workspaceStore.bind(actionsWith());
     workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
-    workspaceStore.update({ workspace: REPO });
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.isRepo).toBe(true));
     workspaceStore.setWorkspaceMode("worktree");
     workspaceStore.setDraftBranch({ name: "  feat/pages  ", base: "origin/release" });
     expect(workspaceStore.getSnapshot()).toMatchObject({ draftBranch: "feat/pages", draftBase: "origin/release" });
@@ -234,6 +234,20 @@ describe("Workspace Kit thread worktrees", () => {
     expect(workspaceStore.workspaceMode()).toBe("current");
     // A thread that exists has no choice left to make.
     workspaceStore.update({ draftPending: false });
+    expect(workspaceStore.workspaceMode()).toBe("current");
+  });
+
+  it("drops a cached project default before sending when its approval is no longer valid", async () => {
+    let approved = true;
+    const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_child", displayPath: "/worktrees/child" }));
+    const workspaceStore = storeOver({ getProjectDefaults: async () => approved ? { workspaceMode: "worktree" } : {}, createWorktree });
+    workspaceStore.bind(actionsWith());
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+    await vi.waitFor(() => expect(workspaceStore.workspaceMode()).toBe("worktree"));
+    workspaceStore.update({ workspace: REPO });
+    approved = false;
+    await expect(workspaceStore.prepareThreadWorktree({ prompt: "do the work", preparing: () => undefined })).resolves.toEqual({});
+    expect(createWorktree).not.toHaveBeenCalled();
     expect(workspaceStore.workspaceMode()).toBe("current");
   });
 });

@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { PROJECT_APPROVAL_EVENT, type ProjectApprovalRequest } from "../_project-file/setup-approval.js";
 import type { HostExtensionServices } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 // Test only: the two kits meet through the host registry, as they do in the app.
@@ -30,10 +31,12 @@ async function repository(projectFile: Record<string, unknown>): Promise<string>
   return repo;
 }
 
-async function workspaceKit(repo: string, withProjectScripts: boolean) {
+async function workspaceKit(repo: string, withProjectScripts: boolean, approve = true) {
   const logs: Array<[string, string | undefined]> = [];
+  const approvals: ProjectApprovalRequest[] = [];
   const services: Partial<HostExtensionServices> = {
     cwd: () => repo,
+    stateDir: join(repo, "..", "host-state"),
     knownWorkspacePath: async (path) => path,
     workspaceRef: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
     admitWorkspace: (path: string) => ({ workspaceId: `ws1_${path}`, displayPath: path }),
@@ -62,8 +65,16 @@ async function workspaceKit(repo: string, withProjectScripts: boolean) {
     presentUi: () => () => undefined,
   };
   const setups: UiWorktreeSetup[] = [];
+  let registry: Awaited<ReturnType<typeof activateHostKit>>;
   const waiters: Array<{ match(setup: UiWorktreeSetup): boolean; resolve(setup: UiWorktreeSetup): void }> = [];
   const publish = (event: PublishedKitEvent) => {
+    if (event.name === PROJECT_APPROVAL_EVENT) {
+      const request = (event.payload as ProjectApprovalRequest[])[0];
+      if (request) {
+        approvals.push(request);
+        void registry.invoke("tau.workspace", "answer-project-approval", { id: request.id, approved: approve });
+      }
+    }
     if (event.name !== SETUP_EVENT) return;
     const setup = event.payload as UiWorktreeSetup;
     setups.push(setup);
@@ -77,20 +88,56 @@ async function workspaceKit(repo: string, withProjectScripts: boolean) {
     const seen = setups.find(match);
     return seen ? Promise.resolve(seen) : new Promise<UiWorktreeSetup>((resolve) => waiters.push({ match, resolve }));
   };
-  const registry = await activateHostKit(createWorkspaceHostExtension(), services, publish);
+  registry = await activateHostKit(createWorkspaceHostExtension(), services, publish);
   if (withProjectScripts) await registry.activate(createProjectScriptsHostExtension({ watch: false }));
   const createWorktree = async (branch: string) => {
     const ref = await registry.invoke("tau.workspace", "create-worktree", { branch, workspace: repo }) as { displayPath: string };
     return ref.displayPath;
   };
   const scripts = (command: string, input?: unknown) => registry.invoke("tau.project-scripts", command, input);
-  return { registry, logs, createWorktree, setups, setupWhere, scripts };
+  return { registry, logs, approvals, createWorktree, setups, setupWhere, scripts };
 }
 
 const running = (scriptId: string) => (setup: UiWorktreeSetup) =>
   setup.stages.some((stage) => stage.id === `script:${scriptId}` && stage.status === "running");
 
 describe("worktree setup on the script definitions", () => {
+  it.each([true, false])("reuses approval until a command changes, with Project Scripts %s", async (withProjectScripts) => {
+    const repo = await repository({ runOnWorktreeCreate: "printf first > setup-ran" });
+    const kit = await workspaceKit(repo, withProjectScripts);
+    try {
+      const first = await kit.createWorktree("first");
+      const second = await kit.createWorktree("second");
+      expect(await readFile(join(first, "setup-ran"), "utf8")).toBe("first");
+      expect(await readFile(join(second, "setup-ran"), "utf8")).toBe("first");
+      expect(kit.approvals.map((request) => request.commands)).toEqual([["printf first > setup-ran"]]);
+      const file = join(repo, ".tau", "project.json");
+      const definitions = JSON.parse(await readFile(file, "utf8"));
+      await writeFile(file, JSON.stringify({ ...definitions, runOnWorktreeCreate: "printf changed > setup-ran" }));
+      const changed = await kit.createWorktree("changed");
+      expect(await readFile(join(changed, "setup-ran"), "utf8")).toBe("changed");
+      expect(kit.approvals.map((request) => request.commands)).toEqual([["printf first > setup-ran"], ["printf changed > setup-ran"]]);
+    } finally {
+      if (withProjectScripts) await kit.registry.deactivate("tau.project-scripts");
+      await kit.registry.deactivate("tau.workspace");
+    }
+  });
+
+  it.each([true, false])("keeps an unapproved worktree without running setup, with Project Scripts %s", async (withProjectScripts) => {
+    const repo = await repository({ runOnWorktreeCreate: "printf unsafe > setup-ran", scripts: [{ name: "Install", command: "printf unsafe > script-ran", runOnWorktreeCreate: true }] });
+    const kit = await workspaceKit(repo, withProjectScripts, false);
+    try {
+      const worktree = await kit.createWorktree("unapproved");
+      expect(existsSync(worktree)).toBe(true);
+      expect(existsSync(join(worktree, "setup-ran"))).toBe(false);
+      expect(existsSync(join(worktree, "script-ran"))).toBe(false);
+      expect(kit.logs).toContainEqual(["git.worktree.setup-skipped", "Project setup was not approved."]);
+    } finally {
+      if (withProjectScripts) await kit.registry.deactivate("tau.project-scripts");
+      await kit.registry.deactivate("tau.workspace");
+    }
+  });
+
   it("runs the blocking setup scripts, the old string among them, before the worktree is handed back", async () => {
     const repo = await repository({
       runOnWorktreeCreate: "echo legacy > legacy.txt",

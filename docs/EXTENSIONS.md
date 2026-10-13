@@ -38,8 +38,10 @@ you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
    [types](#types-for-a-package-of-your-own) in.
 
 **Project trust.** Packages in `<project>/.tau/packages.json` or
-`<project>/.tau/extensions` load only where Pi trusts the project. In a project
-Pi does not trust they are listed in Settings → Extensions as *Skipped:
+`<project>/.tau/extensions` load only in a trusted project. Automatic
+setup commands in `.tau/project.json` require a separate approval of the current
+definitions, owned by Workspace Kit. See [the project file](project-file.md#the-worktree-setup).
+In an untrusted project, packages are listed in Settings → Extensions as *Skipped:
 project not trusted*, the install toast says so, and **Trust this project**
 (in that toast, or in Settings → Packages) records the trust in Pi's
 `trust.json` through Pi's own store, the way Pi's `/trust` does; the packages

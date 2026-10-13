@@ -51,6 +51,27 @@ also types a script into a Terminal Kit shell, for one you want to talk to.
 
 ## The worktree setup
 
+Before running setup commands from an unapproved project file, Tau asks
+**Allow project setup commands?** and shows the commands. **Skip setup**, closing
+the dialog, or having no connected client to approve a new definition leaves the worktree
+available without running these commands. This applies to `scripts` with
+`runOnWorktreeCreate` and to the legacy command string, including when Project
+Scripts is disabled and when Remote Work creates a worktree on another host.
+Approval is asked on that host.
+
+Approval belongs to this project on this host and is stored in Tau's own state,
+outside the repository. It is bound to a SHA-256 hash of the script definitions,
+the legacy setup command, `workspaceMode` and `worktreeDirectory`. Changing
+these fields requires approval again; changing formatting does not. A change
+while the dialog is open invalidates its answer. Trust for project extensions
+and the thread's access level do not grant this separate permission. Setup commands
+run with the host's environment, so review the commands before approving them.
+
+Until the current definitions are approved, Tau ignores the file's
+`workspaceMode`. The user's per-project choice and global default still apply,
+and a worktree can be chosen explicitly. Clicking a script button or running
+its palette command remains an explicit action.
+
 When Workspace Kit creates a worktree for a new thread, the steps show as one
 card under the thread's transcript: fetching
 the base branch, creating the worktree, filling its submodules when it has any

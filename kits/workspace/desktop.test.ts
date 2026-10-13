@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { createElement } from "react";
 import type { WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
@@ -7,6 +9,18 @@ import { WORKSPACE_CHANGES_PANEL, WORKSPACE_FILES_PANEL, WORKSPACE_STORE_SERVICE
 import type { WorkspaceStore } from "./store.js";
 
 describe("Workspace Kit desktop extension", () => {
+  it.each(["desktop", "web", "compact"] as const)("shows setup commands in a slot available to %s clients", async (profile) => {
+    const invoke = vi.fn(async (_extension: string, command: string) => command === "project-approvals"
+      ? [{ id: "setup", project: "/project", commands: ["printf setup"] }] : undefined);
+    const { registry } = createKitHarness(invoke, profile);
+    registry.activate(workspaceExtension);
+    const approval = registry.getRegions("composer-above").find((region) => region.id === "workspace.project-approval");
+    expect(approval).toBeDefined();
+    const view = render(createElement(approval!.Component, { actions: { notify: vi.fn() } as unknown as WorkbenchActions }));
+    try { expect(await screen.findByText("printf setup")).toBeTruthy(); }
+    finally { view.unmount(); registry.deactivate(workspaceExtension.id); }
+  });
+
   it("registers workspace.open-in-editor command with mod+o keybinding and /code slash command", async () => {
     const invoke = vi.fn(async (_extensionId: string, command: string, _input?: unknown) => {
       if (command === "list-editors") return [{ id: "code", name: "VS Code" }, { id: "cursor", name: "Cursor" }];

@@ -18,6 +18,7 @@ import {
 import { ScriptRuns, spawnScript, type ScriptSpawner, type UrlProbe } from "./runner.js";
 import { GIT_STAGES, SetupTracker, type SetupGitStage } from "./setup.js";
 import { ProjectFileWatch, type WatchFn } from "./watch.js";
+import { PROJECT_APPROVAL_COMMAND } from "../_project-file/setup-approval.js";
 
 export interface ProjectScriptsHostOptions {
   spawn?: ScriptSpawner;
@@ -48,6 +49,7 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
     permissions: ["workspace:read", "sessions", "process", "network"],
     activate(context: HostExtensionContext) {
       const { services } = context;
+      let disposed = false;
       const setups = new SetupTracker({ emit: (setup) => context.emit(SETUP_EVENT, setup) });
       const runs = new ScriptRuns({
         spawn: options.spawn ?? spawnScript,
@@ -163,6 +165,16 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
         const scripts = state.scripts.filter((candidate) => candidate.runOnWorktreeCreate);
         const setupId = setupIdOf(input) ?? setups.begin({ project, scripts }).id;
         setups.created(setupId, worktree);
+        if (scripts.length) {
+          const approved = state.setupFingerprint && await context.invokeHostExtension("tau.workspace", PROJECT_APPROVAL_COMMAND, {
+            project, fingerprint: state.setupFingerprint,
+          }).then((answer) => answer === true, () => false);
+          if (!approved || disposed) {
+            setups.cancel(setupId);
+            services.log("git.worktree.setup-skipped", "Project setup was not approved.");
+            return { setupId, runs: [], skipped: "not-approved" };
+          }
+        }
         const started: UiScriptRun[] = [];
         const endings = new Map<string, Promise<UiScriptRun>>();
         const ended = (run: UiScriptRun) => {
@@ -223,6 +235,7 @@ export function createProjectScriptsHostExtension(options: ProjectScriptsHostOpt
         },
       });
       return () => {
+        disposed = true;
         unhook();
         watch?.dispose();
         runs.dispose();
