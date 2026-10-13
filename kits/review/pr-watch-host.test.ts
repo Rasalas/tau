@@ -182,7 +182,7 @@ it("ends after fifteen minutes unreadable", async () => {
   await h.call("watch-start", { threadId: "a", url: URL });
   h.unavailable();
   await vi.waitFor(async () => expect((await h.list()).watches[0]?.status).toBe("ended"));
-  expect(h.send).toHaveBeenCalledTimes(1);
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
   expect(h.send.mock.calls[0]?.[1]).toContain("unreadable for 15 minutes");
 });
 it("reads one compact GitHub query and refuses incomplete review-thread coverage", async () => {
@@ -215,7 +215,7 @@ it("ends after ten consecutive comment wakes and sends the stopping reason with 
   for (let count = 1; count <= 10; count++) {
     h.change({ comments: String(count) });
     // oxlint-disable-next-line no-await-in-loop -- each distinct provider event follows the previous admission.
-    await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(count));
+    await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(count), { timeout: 5_000 });
   }
   expect((await h.list()).watches[0]).toMatchObject({ status: "ended", wakes: 10, commentStreak: 10 });
   expect(h.send.mock.calls[9]?.[1]).toContain("watch ended after ten comment wakes");

@@ -9,6 +9,10 @@ export interface PersistedJsonLogger {
 
 const defaultLogger: PersistedJsonLogger = { warn: (message, detail) => console.warn(message, detail) };
 
+// Writers must respect a failed read or a newer schema even if a caller ignores it.
+const writeGuards = new Map<string, { error: unknown } | { version: number }>();
+const writeFailures = new Set<string>();
+
 export interface ReadPersistedJsonOptions<T> {
   /** The version this build knows how to write; a stored version above it is read-only. */
   expectedVersion: number;
@@ -20,7 +24,7 @@ export interface ReadPersistedJsonOptions<T> {
 export interface PersistedJsonRead<T> {
   data: T;
   version: number | undefined;
-  /** A newer build wrote this file; never persist it back without a real mutation. */
+  /** A newer build wrote this file; writes with an older version are refused. */
   readOnly: boolean;
 }
 
@@ -38,13 +42,16 @@ async function quarantine(path: string, logger: PersistedJsonLogger): Promise<vo
     logger.warn(`${path} was not valid JSON; moved it to ${target} and starting empty.`);
   } catch (error) {
     logger.warn(`${path} was not valid JSON and could not be moved aside`, error);
+    writeGuards.set(path, { error });
+    throw error;
   }
 }
 
 /**
  * Reads and decodes a persisted JSON file. A missing file is not an error
  * (returns `undefined` quietly); an unparsable one is quarantined so it is
- * never silently discarded, then also returns `undefined`.
+ * never silently discarded, then also returns `undefined`. Other read errors
+ * reject and prevent writes until a successful read of that path.
  */
 export async function readPersistedJson<T>(
   path: string,
@@ -54,9 +61,15 @@ export async function readPersistedJson<T>(
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
-  } catch {
-    return undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      writeGuards.delete(path);
+      return undefined;
+    }
+    writeGuards.set(path, { error });
+    throw error;
   }
+  writeGuards.delete(path);
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -65,6 +78,7 @@ export async function readPersistedJson<T>(
     return undefined;
   }
   const version = storedVersion(value);
+  if (version !== undefined && version > options.expectedVersion) writeGuards.set(path, { version });
   const decoded = options.decode(value, version);
   if (decoded === undefined) return undefined;
   const readOnly = version !== undefined && version > options.expectedVersion;
@@ -81,32 +95,57 @@ export interface WritePersistedJsonOptions {
 // One write in flight per path at a time, across every caller of this module.
 const writeQueues = new Map<string, Promise<void>>();
 
-async function writeOnce(path: string, version: number, data: Record<string, unknown>, logger: PersistedJsonLogger): Promise<void> {
+async function syncDirectory(dir: string): Promise<void> {
+  let handle;
+  try {
+    handle = await open(dir, "r");
+  } catch (error) {
+    // Node cannot open directories for syncing on Windows.
+    if (process.platform === "win32" && ["EISDIR", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
+    throw error;
+  }
+  try {
+    await handle.sync();
+  } catch (error) {
+    if (!["EINVAL", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writeOnce(path: string, version: number, data: Record<string, unknown>): Promise<void> {
+  const guard = writeGuards.get(path);
+  if (guard && "error" in guard) throw guard.error;
+  if (guard && "version" in guard && guard.version > version) {
+    throw new Error(`${path} is version ${guard.version}; refusing to overwrite it with version ${version}`);
+  }
   const dir = dirname(path);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(dir, 0o700).catch(() => undefined);
   const contents = JSON.stringify({ version, ...data }, null, 2);
   const temp = join(dir, `${basename(path)}.${randomUUID()}.tmp`);
-  const handle = await open(temp, "wx", 0o600);
   try {
-    await handle.writeFile(contents, "utf8");
-  } finally {
-    await handle.close();
-  }
-  try {
+    const handle = await open(temp, "wx", 0o600);
+    try {
+      await handle.writeFile(contents, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await rename(temp, path);
     await chmod(path, 0o600).catch(() => undefined);
+    await syncDirectory(dir);
   } catch (error) {
     await rm(temp, { force: true }).catch(() => undefined);
-    logger.warn(`failed to persist ${path}`, error);
     throw error;
   }
 }
 
 /**
  * Writes `{ version, ...data }` atomically: a temp file next to `path`, then
- * a rename. Concurrent writes to the same path are serialized so the file on
- * disk always ends up as the last call's value, never a torn mix of two.
+ * a rename, syncing the file and then its directory where supported. Concurrent
+ * writes to the same path are serialized. Failures reject and warn once per path
+ * until a write succeeds. Failed reads and newer schemas block writes.
  */
 export function writePersistedJson<T extends Record<string, unknown>>(
   path: string,
@@ -116,7 +155,18 @@ export function writePersistedJson<T extends Record<string, unknown>>(
 ): Promise<void> {
   const logger = options.logger ?? defaultLogger;
   const previous = writeQueues.get(path) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(() => writeOnce(path, version, data, logger));
+  const next = previous.catch(() => undefined).then(async () => {
+    try {
+      await writeOnce(path, version, data);
+      writeFailures.delete(path);
+    } catch (error) {
+      if (!writeFailures.has(path)) {
+        writeFailures.add(path);
+        logger.warn(`failed to persist ${path}`, error);
+      }
+      throw error;
+    }
+  });
   writeQueues.set(path, next);
   void next.catch(() => undefined).finally(() => {
     if (writeQueues.get(path) === next) writeQueues.delete(path);

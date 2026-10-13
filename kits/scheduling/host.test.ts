@@ -81,7 +81,7 @@ it("runs one-off prompts as ordinary threads only after explicit opt-in and hold
   await vi.advanceTimersByTimeAsync(30_000);
   await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "running", lastRun: { threadId: "thread-1", outcome: "running" } }] }));
   expect(h.threads).toEqual([expect.objectContaining({ cwd: "/worktree", backend: "codex@work", title: "Scheduled: Daily check", prompt: config.prompt })]);
-  await expect(h.call("run", { id: job.id })).rejects.toThrow("already running");
+  await vi.waitFor(async () => expect(h.call("run", { id: job.id })).rejects.toThrow("already running"));
   await h.end("thread-1");
   expect(await h.call("list")).toMatchObject({ jobs: [{ enabled: false, status: "completed", lastRun: { outcome: "completed" } }] });
 });
