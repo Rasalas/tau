@@ -687,6 +687,19 @@ describe("new-thread claims and model selections", () => {
     expect(notify.mock.calls).toEqual([["Project Gate: no project", "error"], ["Project Gate: no record", "error"]]);
   });
 
+  it("lets the first gate that stops the send end the round, ahead of the gates behind it", async () => {
+    const registry = new ExtensionRegistry();
+    const later = vi.fn(async () => ({ workspace: { workspaceId: "ws1_later", displayPath: "/later" } }));
+    registry.activate({ id: "gates", name: "Gates", activate(context) {
+      context.registerPromptHook({ id: "gates.stop", beforeNewThread: async () => ({ stop: "Not sent." }) });
+      context.registerPromptHook({ id: "gates.later", beforeNewThread: later });
+    } });
+    const actions = { notify: vi.fn() } as unknown as import("./extension-system").WorkbenchActions;
+
+    await expect(registry.prepareNewThread({ prompt: "go", projectPath: "/project" } as never, actions)).resolves.toEqual({ stop: "Not sent." });
+    expect(later).not.toHaveBeenCalled();
+  });
+
   it("offers the model selection the last extension registered, and forgets it on deactivation", () => {
     const registry = new ExtensionRegistry();
     const selection = (id: string) => ({ id, selected: () => [], subscribe: () => () => undefined, toggle: () => undefined, reset: () => undefined });

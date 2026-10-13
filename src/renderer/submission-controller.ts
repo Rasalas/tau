@@ -102,7 +102,8 @@ export class SubmissionController {
   /**
    * Runs the extensions' new-thread gates and moves the draft to the workspace
    * one of them names. A gate that fails or that the user left behind changes
-   * nothing: the prompt goes to the project the draft already had.
+   * nothing: the prompt goes to the project the draft already had. A gate that
+   * stops the send rejects it.
    */
   /** The line a draft's transcript shows while an extension works on its first prompt. */
   private preparingNotice(pending: NewThreadDraft, scope: DraftKey): { preparing(message: string): void; clear(): void } {
@@ -176,6 +177,8 @@ export class SubmissionController {
         { prompt, projectPath: pending.projectPath, ...(pending.workspaceId ? { workspaceId: pending.workspaceId } : {}), preparing },
         actions,
       );
+      // A stopped send is a rejected one: the caller takes the prompt back into the composer.
+      if (gate?.stop) throw new Error(gate.stop);
       const moved = gate?.workspace;
       // The user may have left this draft while the gate worked.
       if (!moved) return pending;

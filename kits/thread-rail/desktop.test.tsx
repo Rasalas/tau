@@ -25,7 +25,7 @@ const thread = (id: string, modifiedAt = 1): UiSession => ({
 const model = (id: string): UiModel => ({ provider: "openai", id, name: id } as UiModel);
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confirmations?: boolean } = {}) {
+function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confirmations?: boolean; declineWorktree?: boolean } = {}) {
   let state: RailState = { threads: {}, settings: { onMerged: true, onClosed: false }, ...options.initial };
   const invoke = vi.fn(async (_extensionId: string, command: string, input?: unknown) => {
     if (command === "state" || command === "import") return state;
@@ -65,6 +65,7 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confir
     registerThreadRailOrganizer: (value) => { organizer = value; return () => { organizer = undefined; }; },
     registerThreadRowAccessory: () => () => undefined,
     prepareThreadWorktree: async (request) => {
+      if (options.declineWorktree) throw new Error("Not sent: the worktree could not be created.");
       worktrees.push({ ...(request.force ? { force: true } : {}), ...(request.branchSuffix ? { branchSuffix: request.branchSuffix } : {}) });
       return request.force ? { workspace: { workspaceId: `ws-${worktrees.length}`, displayPath: `/worktrees/${worktrees.length}` }, baseCommit: "first-base" } : {};
     },
@@ -179,6 +180,12 @@ describe("Thread Rail on the desktop", () => {
     expect(actions.notify).toHaveBeenCalledWith("Started in the background: fix the queue");
     await expect(registry.claimNewThread(claim({ alternate: true, runtime: "claude-code" }), actions)).resolves.toBe(true);
     await expect(registry.claimNewThread(claim({ alternate: true, attachments: 1 }), actions)).rejects.toThrow("attached files were not available");
+  });
+
+  it("starts nothing in the background when the user would not run the prompt in the checkout", async () => {
+    const { registry, actions, calls } = setup({ declineWorktree: true });
+    await expect(registry.claimNewThread(claim({ alternate: true }), actions)).rejects.toThrow("Not sent: the worktree could not be created.");
+    expect(calls("start")).toEqual([]);
   });
 
   it("sends one prompt to every model of the set, each in its own worktree, and groups them as siblings", async () => {

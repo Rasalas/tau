@@ -22,6 +22,7 @@ import { retryPrompt } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
 import { declareRuntimeMarks } from "./runtime-marks";
 import { PairingRequestWatcher, QueuedMessages } from "./deferred-surfaces";
+import { revealQueuedMessages } from "./queue-reveal";
 import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";
@@ -595,6 +596,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     openProviders={openProviders}
     threadStore={threadStore}
     floating={floating}
+    onOpenQueue={() => revealQueuedMessages(thread.transcriptRef.current)}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -1190,8 +1192,9 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
 }
 
 /** The context meter reads the running token estimate, so the composer subscribes too. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating }: {
+function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating, onOpenQueue }: {
   view: ThreadViewStore;
+  onOpenQueue(): void;
   floating?: boolean;
   threadStore: ThreadStore;
   lead?: React.ReactNode;
@@ -1269,6 +1272,7 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onAbort={() => abort(snapshot?.sessionId)}
     onCancelQueued={cancelQueued}
     onSteerQueued={steerQueued}
+    onOpenQueue={onOpenQueue}
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}

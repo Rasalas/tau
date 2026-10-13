@@ -191,10 +191,18 @@ describe("ReviewMode", () => {
     expect(screen.queryByRole("button", { name: "More ways to commit" })).toBeNull();
     const field = screen.getByRole("textbox", { name: "Commit message" });
     fireEvent.change(field, { target: { value: "" } });
-    expect((screen.getByRole("button", { name: "Commit" }) as HTMLButtonElement).disabled).toBe(true);
+    const commit = screen.getByRole("button", { name: "Commit" }) as HTMLButtonElement;
+    expect(commit.disabled).toBe(true);
+    // The button says why it waits; the chord, which has no button to hover, says it in the bar.
+    expect(commit.dataset.tooltip).toBe("Write a commit message first.");
+    const bar = screen.getByRole("region", { name: "Commit" });
+    expect(bar.querySelector(".review-commit-note")).toBeNull();
     fireEvent.keyDown(field, { key: "Enter", metaKey: true });
     expect(onCommit).not.toHaveBeenCalled();
+    expect(bar.querySelector(".review-commit-note")?.textContent).toContain("Write a commit message first.");
     fireEvent.change(field, { target: { value: "Fix a" } });
+    expect(bar.querySelector(".review-commit-note")).toBeNull();
+    expect(commit.dataset.tooltip).toBeUndefined();
     fireEvent.keyDown(field, { key: "Enter", ctrlKey: true });
     expect(onCommit).toHaveBeenCalledWith("Fix a", false);
   });

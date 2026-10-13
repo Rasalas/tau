@@ -751,7 +751,7 @@ export interface ThreadWorktreeRequest {
   baseCommit?: string;
   prompt: string;
   preparing(message: string): void;
-  /** Make one even when the draft runs in the current checkout. */
+  /** Make one even when the draft runs in the current checkout; a failure is the caller's to handle. */
   force?: boolean;
   /** Appended to the branch name, so several worktrees for one prompt do not collide. */
   branchSuffix?: string;
@@ -830,8 +830,10 @@ export interface WorkspaceStoreApi {
   /**
    * The worktree a new thread of the followed project runs in, created the way
    * the new-thread gate creates one: named by the naming kit when there is one.
-   * Answers nothing, with a notice, when the project is no repository or the
-   * worktree could not be made.
+   * Answers nothing when the project is no repository or the draft runs in
+   * the checkout. When the worktree could not be made it asks the user whether
+   * the checkout will do and rejects if not (API 1.61.0); a request with `force`
+   * gets nothing and a notice instead.
    */
   prepareThreadWorktree(request: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string } }>;
 }

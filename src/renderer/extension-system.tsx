@@ -1377,6 +1377,8 @@ export interface NewThreadPromptEvent {
  */
 export interface NewThreadPromptGate {
   workspace?: { workspaceId: string; displayPath: string; name?: string };
+  /** Sends nothing: the prompt returns to the composer and this line says why (API 1.61.0). */
+  stop?: string;
 }
 
 /** A new thread's first prompt, offered to an extension that may start the thread itself. */
@@ -1406,8 +1408,8 @@ export interface PromptHookContribution {
   claimNewThread?(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean | void>;
   /**
    * Runs before a pending draft's first prompt leaves the composer. It may move
-   * the thread to another project; a failure is reported and the draft stays
-   * where it was, so the prompt is never lost to it.
+   * the thread to another project or `stop` the send; a failure is reported and
+   * the draft stays where it was, so the prompt is never lost to it.
    */
   beforeNewThread?(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | void>;
   afterPrompt?(event: PromptSubmittedEvent, actions: WorkbenchActions): void | Promise<void>;
@@ -2850,15 +2852,16 @@ export class ExtensionRegistry {
 
   /**
    * Asks every gate about a thread that is about to be created, in registration
-   * order; the first workspace named wins. A gate that throws is reported and
-   * skipped: the prompt still goes to the project the draft already has.
+   * order; the first workspace named, or the first `stop`, wins. A gate that
+   * throws is reported and skipped: the prompt still goes to the project the
+   * draft already has.
    */
   async prepareNewThread(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | undefined> {
     for (const hook of this.promptHooks.values()) {
       if (!hook.beforeNewThread) continue;
       try {
         const result = await hook.beforeNewThread(event, actions);
-        if (result?.workspace) return result;
+        if (result?.workspace || result?.stop) return result;
       } catch (error) {
         actions.notify(`${hook.extensionName}: ${errorMessage(error)}`, "error");
       }

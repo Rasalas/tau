@@ -33,7 +33,7 @@ import { DraftCheckout, DraftMachinePill, createHeadingBranch } from "./run-on.j
 import { FreshStart } from "./fresh-start.js";
 import { CloneProjectSource, LocalFolderSource, NewProjectSource, requestProjectSwitcher, WorkspaceSidebar } from "./navigation.js";
 import { ChangesPanel, FilesPanel, SEARCH_FILES_SERVICE, serviceSlot, type SearchFilesService } from "./panels.js";
-import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WorkspaceStore } from "./store.js";
+import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WorkspaceStore, WorktreeDeclined } from "./store.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { RowMarks } from "./row-marks.js";
@@ -296,10 +296,13 @@ export const workspaceExtension: DesktopExtension = {
         return null;
       },
     });
-    // A new thread's worktree is created while its first prompt waits (ADR 0017).
+    // A new thread's worktree is created while its first prompt waits (ADR 0017); a worktree the user will not trade for the checkout stops the send.
     context.registerPromptHook({
       id: "workspace.new-thread-worktree",
-      beforeNewThread: (event) => store.prepareThreadWorktree(event),
+      beforeNewThread: (event) => store.prepareThreadWorktree(event).catch((error: unknown) => {
+        if (error instanceof WorktreeDeclined) return { stop: error.message };
+        throw error;
+      }),
     });
     context.registerOptions([
       { id: START_FROM_ORIGIN_OPTION, kind: "toggle", label: "New worktrees start from origin", defaultValue: true },
