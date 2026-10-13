@@ -39,7 +39,8 @@ export function createServersHostExtension(): HostExtension {
       const checkouts = new MainCheckouts();
       const targets = new ServerTargets({ services, store, checkouts });
       targets.register(context);
-      const prompts = new ServerPrompts((event, payload) => context.emit(event, payload));
+      const prompts = new ServerPrompts((event, payload) => context.emit(event, payload), () => (services.clients?.count() ?? 0) > 0);
+      const stopPromptClients = services.clients?.observe({ detached: () => prompts.surfaceChanged() });
       const credentials = new ServerCredentials({
         prompts,
         targetsDir: store.targetsDir,
@@ -137,6 +138,7 @@ export function createServersHostExtension(): HostExtension {
         sync.dispose();
         withdraw?.();
         unregisterPi?.();
+        stopPromptClients?.();
         prompts.dispose();
         await ssh.dispose();
         await ftp.dispose();

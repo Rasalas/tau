@@ -1,3 +1,4 @@
+import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import { randomUUID } from "node:crypto";
 import type { ServerPrompt, ServerPromptAnswer, ServerPromptRequest } from "./protocol.js";
 import { SERVERS_PROMPTS_EVENT } from "./protocol.js";
@@ -5,6 +6,7 @@ import { SERVERS_PROMPTS_EVENT } from "./protocol.js";
 interface Pending {
   prompt: ServerPrompt;
   settle(answer: ServerPromptAnswer): void;
+  fail(error: Error): void;
 }
 
 /**
@@ -13,9 +15,10 @@ interface Pending {
  * the question only; an answer's value reaches `answer` and nothing keeps it.
  */
 export class ServerPrompts {
+  private stopped = false;
   private readonly open = new Map<string, Pending>();
 
-  constructor(private readonly publish: (event: string, payload: unknown) => void) {}
+  constructor(private readonly publish: (event: string, payload: unknown) => void, private readonly available: () => boolean = () => false) {}
 
   pending(): ServerPrompt[] {
     return [...this.open.values()].map((entry) => entry.prompt);
@@ -24,11 +27,16 @@ export class ServerPrompts {
   /** Answers `cancel` when `signal` aborts or the kit stops. */
   ask(request: ServerPromptRequest, signal?: AbortSignal): Promise<ServerPromptAnswer> {
     if (signal?.aborted) return Promise.resolve({ action: "cancel" });
-    return new Promise((resolve) => {
+    if (this.stopped || !this.available()) return Promise.reject(this.unavailable());
+    return new Promise((resolve, reject) => {
       const id = randomUUID();
       const onAbort = () => this.answer(id, { action: "cancel" });
       this.open.set(id, {
         prompt: { ...request, id },
+        fail: (error) => {
+          signal?.removeEventListener("abort", onAbort);
+          reject(error);
+        },
         settle: (answer) => {
           signal?.removeEventListener("abort", onAbort);
           resolve(answer);
@@ -49,12 +57,31 @@ export class ServerPrompts {
     return true;
   }
 
+  private unavailable(): HostCommandError {
+    return new HostCommandError("Open a Tau desktop or browser window to answer this server question, then retry.");
+  }
+
+  surfaceChanged(): void {
+    if (this.available()) return;
+    for (const [id, entry] of this.open) {
+      this.open.delete(id);
+      entry.fail(this.unavailable());
+    }
+    this.changed();
+  }
+
   dispose(): void {
+    this.stopped = true;
     for (const id of [...this.open.keys()]) this.answer(id, { action: "cancel" });
   }
 
   private changed(): void {
-    try { this.publish(SERVERS_PROMPTS_EVENT, { prompts: this.pending() }); } catch { /* delivery is best effort */ }
+    try { this.publish(SERVERS_PROMPTS_EVENT, { prompts: this.pending() }); } catch (cause) {
+      for (const [id, entry] of this.open) {
+        this.open.delete(id);
+        entry.fail(Object.assign(this.unavailable(), { cause }));
+      }
+    }
   }
 }
 
@@ -66,4 +93,13 @@ export function readPromptAnswer(input: unknown): { id: string; answer: ServerPr
   if (value.action !== "confirm") return undefined;
   if (value.value !== undefined && typeof value.value !== "string") return undefined;
   return { id: value.id, answer: typeof value.value === "string" ? { action: "confirm", value: value.value } : { action: "confirm" } };
+}
+
+export function registerServerPromptCommands(context: HostExtensionContext, prompts: ServerPrompts): void {
+  context.registerCommand("prompts", () => ({ prompts: prompts.pending() }), { access: "read" });
+  context.registerCommand("answer-prompt", (input) => {
+    const read = readPromptAnswer(input);
+    if (!read) throw new HostCommandError("Not an answer to a server question.");
+    return { answered: prompts.answer(read.id, read.answer) };
+  }, { audit: { label: "answered a server question" } });
 }

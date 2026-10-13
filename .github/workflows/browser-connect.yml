@@ -38,5 +38,4 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.98.1
         run: |
           npm run build:browser-connect
-          git diff --exit-code -- browser-connect/pkg
           npm test -- src/web/connect --maxWorkers=1

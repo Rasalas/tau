@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { HostExtensionContext } from "tau/host-extension";
 import type { PromptAsker } from "./askpass.js";
 import type { SftpJsonTarget } from "./sftp-json.js";
+import { ServerPrompts } from "./prompts.js";
 import { ServerFtp } from "./ftp-service.js";
 import type { ServerCredentials } from "./credentials.js";
 import type { ServersStore } from "./store.js";
@@ -71,4 +72,38 @@ it("requires repository consent for FTP before creating a transport", async () =
   await ftp.transport(input);
   expect(get).toHaveBeenCalledOnce();
   expect(ask).toHaveBeenCalledTimes(2);
+});
+
+it("direct user addresses and drafts need no repository consent", async () => {
+  const { ask, ssh, connect } = fixture();
+  ask.mockResolvedValue({ action: "cancel" });
+  await ssh.transport({ cwd: "/project", target: { id: "manual", host: "site.example.com", remotePath: "/srv/site" } });
+  await ssh.draftTransport({ id: "draft", host: "site.example.com", remotePath: "/srv/site" });
+  expect(ask).not.toHaveBeenCalled();
+  expect(connect).toHaveBeenCalledTimes(2);
+});
+
+it("fails a repository connection promptly when no surface can ask", async () => {
+  const { target, input, get } = fixture();
+  const prompts = new ServerPrompts(() => undefined, () => false);
+  const context = { services: { stateDir: "/tmp/unused-consent-state", knownWorkspacePath: async (path: string) => path } } as unknown as HostExtensionContext;
+  const ssh = new ServerSsh(context, { prompts, lookupTarget: async () => target });
+  let message: string | undefined;
+  const pending = ssh.transport(input).catch((error: Error) => { message = error.message; });
+  try {
+    await vi.waitFor(() => expect(message).toMatch(/open.*Tau.*window|no.*surface/iu), { timeout: 1000 });
+    expect(get).not.toHaveBeenCalled();
+    expect(prompts.pending()).toEqual([]);
+  } finally { prompts.dispose(); await pending; }
+});
+
+it("keeps an explicit project creation approved until its connection settings change", async () => {
+  const { target, ask, ssh, input } = fixture();
+  ssh.allowCreatedTarget(input.cwd, target);
+  ask.mockResolvedValue({ action: "cancel" });
+  await ssh.transport(input);
+  expect(ask).not.toHaveBeenCalled();
+  target.privateKeyPath = "another-key";
+  await expect(ssh.transport(input)).rejects.toThrow(/not approved/u);
+  expect(ask).toHaveBeenCalledOnce();
 });

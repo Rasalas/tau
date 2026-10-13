@@ -10,6 +10,10 @@ export class ConnectionConsent {
 
   constructor(private readonly prompts: PromptAsker) {}
 
+  allow(workspace: string, target: SftpJsonTarget): void {
+    this.approved.set(`${workspace}\0${target.id}`, createHash("sha256").update(JSON.stringify(target)).digest("hex"));
+  }
+
   async approve(workspace: string, target: SftpJsonTarget): Promise<SftpJsonTarget> {
     const snapshot = structuredClone(target);
     const fingerprint = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");

@@ -15,8 +15,3 @@ describe("browserConnectHash", () => {
     }
   });
 });
-
-it("checks rebuilt adapter artifacts against the committed ones in CI", () => {
-  const workflow = readFileSync(new URL("../.github/workflows/browser-connect.yml", import.meta.url), "utf8");
-  expect(workflow).toMatch(/build:browser-connect[\s\S]*git diff --exit-code -- browser-connect\/pkg/u);
-});

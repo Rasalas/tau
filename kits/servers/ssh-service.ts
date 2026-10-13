@@ -113,6 +113,11 @@ export class ServerSsh {
     return { workspace, target: decodeClientTarget(target) };
   }
 
+  /** Only the project-creation flow supplies settings the user just chose. */
+  allowCreatedTarget(workspace: string, target: SftpJsonTarget): void {
+    this.consent.allow(workspace, target);
+  }
+
   /** The transport of a project's target; connected on first use. */
   async transport(input: unknown): Promise<SshTransport> {
     const { workspace, target } = await this.resolve(input);
