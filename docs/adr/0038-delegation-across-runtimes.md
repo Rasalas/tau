@@ -25,8 +25,7 @@ one catalog entry. Errors include runtime states and known model ids; no
 catalog tool call is required before spawning.
 
 The generic in-process `HostExtensionServices.runtimeChoices(cwd, kind?)`
-service and `HostRuntimeChoice` type are API 1.60.0. The published API
-constant remains unchanged by this decision. The service uses the
+service and `HostRuntimeChoice` type are API 1.61.0. The service uses the
 host's existing catalogs and gate, without adding delegation to core.
 
 ## Comparison with T3
