@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { DesktopExtensionLoadResult, HostEvent } from "../shared/contracts.js";
+import type { DesktopExtensionLoadResult, ExtensionPackageSummary, HostEvent } from "../shared/contracts.js";
 import { isHostUpdate } from "../shared/host-protocol.js";
 import type { HostPush } from "../shared/host-transport.js";
 import type { HostLogger } from "./host-log.js";
@@ -10,7 +10,8 @@ import { HostServiceManager } from "./host-service.js";
 import { HostUplink } from "./host-uplink.js";
 import { readHostToken } from "./host-token.js";
 import type { EndpointTrust, HostCertificateRefusedError, ReachedCertificate } from "./host-tls-trust.js";
-import { WindowExtensionRegistry, type WindowExtensionPorts } from "./window-extensions.js";
+import { WINDOW_SERVICES_ID, WindowExtensionRegistry, type WindowExtensionPorts } from "./window-extensions.js";
+import { confirmUplinkExtensionGrant } from "./native-extension-grants.js";
 import { trustedDesktopBundles } from "../shared/trusted-desktop-bundles.js";
 
 /** Compiling every kit on a cold cache takes longer than a click does. */
@@ -42,6 +43,8 @@ export interface WindowHostOptions {
   showContextMenu?: WindowExtensionPorts["showContextMenu"];
   /** Bundles from this installation, never from the attached host. */
   desktopKits?(sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
+  /** This process owns the consent dialog, including for an attached machine. */
+  confirmExtensionGrant?(pkg: ExtensionPackageSummary): Promise<boolean>;
 }
 
 /**
@@ -176,6 +179,11 @@ export class WindowHost {
   /** Runs one call the host made into this process and reports back. */
   private async answer(callId: string, extensionId: string, command: string, input: unknown): Promise<void> {
     try {
+      if (extensionId === WINDOW_SERVICES_ID && command === "confirm-extension-grant") {
+        const accepted = await (this.options.confirmExtensionGrant ?? confirmUplinkExtensionGrant)(input as ExtensionPackageSummary);
+        await this.request("client-call-result", [callId, accepted]);
+        return;
+      }
       if (!this.local || !this.extensions.ids.includes(extensionId)) throw new Error("This machine may not call this window's commands.");
       const result = await this.extensions.invoke(extensionId, command, input);
       await this.request("client-call-result", [callId, result]);
@@ -196,7 +204,7 @@ export class WindowHost {
       onPush: (push) => this.receive(push),
       onCall: (call) => void this.answer(call.callId, call.extensionId, call.command, call.input),
       // The page shows threads and terminals; this process reads only what every client gets.
-      helloFields: () => ({ windowId: this.windowId, windowHalves: this.local ? this.extensions.ids : [], subscription: { threads: [], topics: [] } }),
+      helloFields: () => ({ windowId: this.windowId, nativeGrants: true, windowHalves: this.local ? this.extensions.ids : [], subscription: { threads: [], topics: [] } }),
       ...(this.trust ? { trust: this.trust } : {}),
       ...(this.options.onHello ? { onHello: (_reply: unknown, certificate?: ReachedCertificate) => this.options.onHello?.(certificate) } : {}),
       ...(this.options.onCertificateRefused ? { onCertificateRefused: this.options.onCertificateRefused } : {}),

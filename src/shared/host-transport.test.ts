@@ -41,6 +41,8 @@ describe("host transport frames", () => {
   });
 
   it("reads which window a hello comes from and which halves it runs", () => {
+    expect(decodeHostHello({ protocol: 1, nativeGrants: true })).toEqual({ protocol: 1, nativeGrants: true });
+    expect(decodeHostHello({ protocol: 1, nativeGrants: "true" })).toBeUndefined();
     expect(decodeHostHello({ protocol: 1, auxiliary: true, windowId: "w1", windowHalves: ["window", "tau.preview"] }))
       .toEqual({ protocol: 1, auxiliary: true, windowId: "w1", windowHalves: ["window", "tau.preview"] });
     expect(decodeHostHello({ protocol: 1, windowId: "" })).toBeUndefined();

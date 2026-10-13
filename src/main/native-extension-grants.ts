@@ -4,6 +4,13 @@ import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import type { ExtensionPackageSummary } from "../shared/contracts.js";
+import { confirmExtensionGrant } from "./extension-grants.js";
+
+/** Loaded only in a window process when its own uplink asks for consent. */
+export async function confirmUplinkExtensionGrant(pkg: ExtensionPackageSummary): Promise<boolean> {
+  const { dialog } = await import("electron");
+  return confirmExtensionGrant(pkg, (prompt) => dialog.showMessageBox({ ...prompt, noLink: true }));
+}
 
 /** A filesystem socket or named pipe, never a listener a browser can open. */
 function channelPath(userData: string): string {
@@ -37,7 +44,7 @@ function readFrames(socket: Duplex, receive: (frame: Record<string, unknown>) =>
   socket.on("error", () => socket.destroy());
 }
 
-/** Only native peers can answer; the public host protocol never participates. */
+/** The local pipe remains available to native windows on the host machine. */
 export class NativeExtensionGrants {
   private readonly peers = new Set<Duplex>();
   private readonly pending = new Map<string, { socket: Duplex; settle(answer: boolean): void }>();

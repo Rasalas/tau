@@ -408,6 +408,8 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         // Only a window's own process runs halves; a renderer names the window it sits in.
         options.calls?.attach(connection, {
           local,
+          ...(origin === undefined && request.headers["sec-websocket-tau-native"] === "1"
+            && frame.hello.auxiliary && frame.hello.nativeGrants ? { nativeGrants: true } : {}),
           ...(credential.kind === "client" ? { pairedClient: credential.clientId } : {}),
           ...(frame.hello.windowId ? { windowId: frame.hello.windowId } : {}),
           ...(frame.hello.auxiliary && frame.hello.windowHalves ? { windowHalves: frame.hello.windowHalves } : {}),

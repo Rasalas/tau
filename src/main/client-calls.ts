@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { HostClientCall } from "../shared/host-transport.js";
+import type { ExtensionPackageSummary } from "../shared/contracts.js";
 import type { DirectoryPickerOptions } from "./host-extensions.js";
 import { currentCaller } from "./host-invocation.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
@@ -16,6 +17,8 @@ export interface ClientPeer {
   pairedClient?: string;
   /** On the host's own machine (loopback). */
   local: boolean;
+  /** The transport verified a non-browser upgrade and native-dialog opt-in. */
+  nativeGrants?: true;
   /** Shared by a window's renderer and the window's process. */
   windowId?: string;
   /** Extensions whose window half this connection runs. */
@@ -111,8 +114,22 @@ export class ClientCalls {
       return Promise.reject(new Error(pinned ? PINNED_WINDOW_GONE : noWindow(extensionId, callerOnly)));
     }
     if (this.launcher && onHostMachine(this.peers.get(addressee)!)) this.launcher.activity();
+    return this.sendTo(addressee, extensionId, command, input, options.timeoutMs ?? this.timeoutMs);
+  }
+
+  /** Only the requesting window's native connection may confirm its package. */
+  async confirmExtensionGrant(pkg: ExtensionPackageSummary, caller = currentCaller()): Promise<boolean | undefined> {
+    const peer = caller === undefined ? undefined : this.peers.get(caller);
+    if (!peer?.windowId) return undefined;
+    const native = [...this.peers].reverse().find(([, other]) => other.nativeGrants
+      && other.windowId === peer.windowId && other.pairedClient === peer.pairedClient);
+    if (!native) return undefined;
+    try { return await this.sendTo(native[0], WINDOW_SERVICES_ID, "confirm-extension-grant", pkg, PICK_DIRECTORY_TIMEOUT_MS) === true; }
+    catch { return false; }
+  }
+
+  private sendTo(addressee: string, extensionId: string, command: string, input: unknown, timeoutMs: number): Promise<unknown> {
     const callId = randomUUID();
-    const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(callId);

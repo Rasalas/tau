@@ -188,6 +188,8 @@ export interface HostHello {
    * host serves it but does not count it among its clients.
    */
   auxiliary?: boolean;
+  /** Native package dialogs, accepted only with the native-only upgrade header. */
+  nativeGrants?: boolean;
   /**
    * Shared by a window's renderer and the window's own process, so a call a
    * renderer causes reaches the window it sits in. Random per window.
@@ -387,6 +389,7 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
   if (item.bootId !== undefined && !nonEmptyString(item.bootId)) return undefined;
   if (item.profile !== undefined && typeof item.profile !== "string") return undefined;
   if (item.auxiliary !== undefined && typeof item.auxiliary !== "boolean") return undefined;
+  if (item.nativeGrants !== undefined && typeof item.nativeGrants !== "boolean") return undefined;
   if (item.windowId !== undefined && !(nonEmptyString(item.windowId) && item.windowId.length <= MAX_WINDOW_ID)) return undefined;
   if (item.windowHalves !== undefined && !isWindowHalves(item.windowHalves)) return undefined;
   const subscription = item.subscription === undefined ? undefined : decodeHostSubscription(item.subscription);
@@ -398,6 +401,7 @@ export function decodeHostHello(value: unknown): HostHello | undefined {
     ...(typeof item.bootId === "string" ? { bootId: item.bootId } : {}),
     ...(typeof item.profile === "string" ? { profile: item.profile } : {}),
     ...(item.auxiliary === true ? { auxiliary: true } : {}),
+    ...(item.nativeGrants === true ? { nativeGrants: true } : {}),
     ...(typeof item.windowId === "string" ? { windowId: item.windowId } : {}),
     ...(Array.isArray(item.windowHalves) ? { windowHalves: [...item.windowHalves as string[]] } : {}),
     ...(subscription ? { subscription } : {}),
