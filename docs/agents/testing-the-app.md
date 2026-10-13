@@ -61,6 +61,14 @@ drawable window is retried; other errors fail immediately. The log records that
 error, the window unit's pid and running state, and the wait until a successful
 open. The frame check still proves the page was drawn.
 
+Cleanup scans `/proc` for surviving group members and descendants, including
+detached processes whose environment or arguments name the smoke's temporary
+HOME or userData. It checks PID start times before signaling, rescans during
+shutdown, and waits after SIGKILL before deleting directories. A deletion
+failure logs the remaining entries and live smoke processes without dumping
+environments or arguments. A remaining directory alone is a warning; any live
+smoke process fails the gate, including with `TAU_SMOKE_KEEP=1`.
+
 Checklist for the user, on the Linux machine itself (rex), after `sudo apt install xvfb` and `tau service install --display`:
 
 1. `tau service status` shows `display: :N (Xvfb running; window stopped, …)`, and `systemctl --user status tau-xvfb.service` is active.
