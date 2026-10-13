@@ -61,6 +61,11 @@ export function setScrollTopClamped(node: ScrollSurface, target: number): void {
   node.scrollTop = Math.max(0, Math.min(maxScrollTop(node), target));
 }
 
+/** Scrolling is animated unless the system asks for reduced motion, which CSS cannot enforce on a scripted scroll. */
+export function scrollBehavior(): ScrollBehavior {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
 export function scrollToTail(node: ScrollSurface): void {
   // Already there: a write would only fight an overscroll or a fling at the end.
   if (maxScrollTop(node) - node.scrollTop < SCROLL_EPSILON_PX) return;
@@ -322,10 +327,10 @@ export class TranscriptScrollController {
       this.sync();
       return;
     }
-    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+    node.scrollTo({ top: node.scrollHeight, behavior: scrollBehavior() });
     this.frames.schedule(() => {
       const current = this.deps.getNode();
-      if (current && this.state.following) current.scrollTo({ top: current.scrollHeight, behavior: "smooth" });
+      if (current && this.state.following) current.scrollTo({ top: current.scrollHeight, behavior: scrollBehavior() });
     });
   }
 

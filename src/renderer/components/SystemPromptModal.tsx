@@ -279,7 +279,7 @@ export function SystemPromptModal({ threadId, onClose }: SystemPromptModalProps)
                           </span>
                           <button
                             className="chrome-button"
-                            style={{ fontSize: 10, padding: "2px 6px" }}
+                            style={{ fontSize: 11, padding: "2px 6px" }}
                             onClick={() => handleCopy(file.content)}
                           >
                             Copy

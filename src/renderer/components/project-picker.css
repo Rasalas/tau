@@ -19,7 +19,7 @@
   padding: 0 12px; cursor: pointer; text-align: left; color: var(--ink-2);
 }
 .project-picker-results button.selected, .project-picker-add.selected { background: var(--raised); color: var(--ink); }
-.project-picker-results button > i { width: 22px; height: 22px; overflow: hidden; border-radius: 6px; font-size: 10px; }
+.project-picker-results button > i { width: 22px; height: 22px; overflow: hidden; border-radius: 6px; font-size: var(--text-2xs); }
 .project-picker-results button > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .project-picker-results strong { font-size: var(--text-md); font-weight: 600; }
 .project-picker-results small, .project-picker > footer { color: var(--muted); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -27,7 +27,7 @@
 .project-picker-results p { padding: 14px 12px; color: var(--muted); font-size: var(--text-sm); }
 .project-picker-add { height: 38px; margin-top: 4px; box-shadow: 0 -1px 0 var(--line); border-radius: 0 0 8px 8px; font-size: var(--text-md); }
 .project-picker-add > svg { flex: none; color: var(--muted); }
-.project-picker > footer { padding: 6px 12px 4px; font-size: 10px; }
+.project-picker > footer { padding: 6px 12px 4px; font-size: var(--text-2xs); }
 .project-picker-context-menu {
   position: fixed; z-index: 83; width: 204px; padding: 5px;
   border: 1px solid var(--line-float); border-radius: 10px;
@@ -43,7 +43,7 @@
 .project-picker-context-menu > button > svg { flex: none; }
 .project-picker-context-menu > button > span { display: flex; flex-direction: column; gap: 2px; }
 .project-picker-context-menu strong { color: var(--ink-2); font: 500 var(--text-sm) var(--sans); }
-.project-picker-context-menu small { color: var(--faint); font: 10px var(--sans); }
+.project-picker-context-menu small { color: var(--faint); font: var(--text-2xs) var(--sans); }
 /* A phone or tablet: 1o's sheet, search on top, rows of 56 px (44 px targets and more). */
 .project-picker-sheet .project-picker-results { max-height: none; }
 .project-picker-sheet .project-picker-results button { height: 56px; }

@@ -92,9 +92,9 @@
   --ink-3: light-dark(#504a43, #b3b8c1);             /* secondary text */
   --ink-code: light-dark(#433e38, #c2c6ce);          /* code and diff bodies */
   --muted: light-dark(#6d665d, #9197a1);             /* labels */
-  --muted-2: light-dark(#8f887e, #71767f);           /* small print */
-  --faint: light-dark(#8f887e, #71767f);             /* glyphs and disabled text */
-  --fainter: light-dark(#b7b1a8, #45484d);           /* a mark that is only a hint of one */
+  --muted-2: light-dark(#726b62, #7f848e);           /* small print: AA (4.5:1) on every text surface */
+  --faint: light-dark(#726b62, #7f848e);             /* faint print and glyphs: the same floor */
+  --fainter: light-dark(#b7b1a8, #45484d);           /* a mark that is only a hint of one: never text */
   --scrollbar: light-dark(#d8d4cd, #2e3136);         /* the scrollbar thumb */
   --scrollbar-hover: light-dark(#b7b1a8, #45484d);   /* the same, hovered */
 
@@ -192,6 +192,7 @@
   --label-size: var(--text-xs);                      /* its size */
   /* The type scale (ADR 0029): desktop body is 14px for readability, matching T3 Code.
      A tablet and a phone set their own role sizes below. */
+  --type-2xs: 11px;
   --type-xs: 12px;
   --type-sm: 13px;
   --type-md: 14px;
@@ -203,6 +204,7 @@
   --type-input-min: 0px;                             /* iOS zooms into a field under 16px */
   --text-scale: 1;                                   /* the system's text size on a touch device (type-scale.ts) */
   --text-step: 0px;                                  /* Tau's own Text size, on top of it */
+  --text-2xs: max(11px, calc(var(--type-2xs) * var(--text-scale) + var(--text-step))); /* the floor, 11px at any Text size: a hint, a timestamp, a shortcut, a tag */
   --text-xs: calc(var(--type-xs) * var(--text-scale) + var(--text-step));       /* meta: a branch, an age, a status */
   --text-sm: calc(var(--type-sm) * var(--text-scale) + var(--text-step));       /* secondary text and descriptions */
   --text-md: calc(var(--type-md) * var(--text-scale) + var(--text-step));       /* body and a thread's title */
@@ -263,8 +265,8 @@
 }
 
 /* A touch device reads from further away than a desktop (ADR 0029); type-scale.ts sets data-device. */
-:root[data-device="tablet"] { --type-xs: 12px; --type-sm: 13px; --type-md: 15px; --type-lg: 16px; --type-code: 13px; --type-input: 16px; --type-input-min: 16px; }
-:root[data-device="phone"] { --type-xs: 13px; --type-sm: 14px; --type-md: 16px; --type-lg: 17px; --type-display: 27px; --type-code: 14px; --type-input: 16px; --type-input-min: 16px; }
+:root[data-device="tablet"] { --type-2xs: 12px; --type-xs: 12px; --type-sm: 13px; --type-md: 15px; --type-lg: 16px; --type-code: 13px; --type-input: 16px; --type-input-min: 16px; }
+:root[data-device="phone"] { --type-2xs: 12px; --type-xs: 13px; --type-sm: 14px; --type-md: 16px; --type-lg: 17px; --type-display: 27px; --type-code: 14px; --type-input: 16px; --type-input-min: 16px; }
 
 /* The preference, as the client writes it onto <html>. `system` is the base
    above; these two take the choice away from the OS. */

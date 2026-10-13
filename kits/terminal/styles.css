@@ -27,7 +27,7 @@
 .terminal-tab:hover .terminal-tab-close, .terminal-tab.active .terminal-tab-close, .terminal-tab-close:focus-visible { opacity: 1; }
 .terminal-tab-close:hover { background: var(--line-strong); color: var(--ink); }
 .terminal-tab-close > svg, .terminal-pane-button > svg, .terminal-compact-close > svg { display: block; }
-.terminal-tab-place { flex: none; font: 10px var(--mono); color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.terminal-tab-place { flex: none; font: var(--text-2xs) var(--mono); color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
 /* Other threads' shells, summed up at the strip's end instead of as tabs. */
 .terminal-elsewhere { display: flex; align-items: center; gap: 5px; flex: none; padding: 0 10px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: calc(var(--text-xs) + .5px) var(--sans); white-space: nowrap; cursor: pointer; }
 .terminal-elsewhere:hover, .terminal-elsewhere[aria-expanded="true"] { background: var(--raised); color: var(--ink-2); }
@@ -114,7 +114,7 @@
 
 
 /* A rail row whose thread runs a program in one of its shells: a pulsing terminal mark. */
-.terminal-row-status { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--info-ink); font: 10px var(--mono); animation: terminal-row-pulse 1.6s ease-in-out infinite; }
+.terminal-row-status { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--info-ink); font: var(--text-2xs) var(--mono); animation: terminal-row-pulse 1.6s ease-in-out infinite; }
 @keyframes terminal-row-pulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .terminal-row-status { animation: none; } }
 

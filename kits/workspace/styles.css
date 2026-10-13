@@ -135,7 +135,7 @@
 .project-switcher-option.picked strong { font-weight: 600; }
 .project-switcher-pick span > small { display: flex; min-width: 0; color: var(--muted); font-size: var(--text-xs); }
 .project-switcher-count { flex: none; }
-.project-switcher-pick > small.current { color: var(--acid-text); font: 9px var(--mono); }
+.project-switcher-pick > small.current { color: var(--acid-text); font: var(--text-2xs) var(--mono); }
 .project-switcher-pick > svg { flex: none; color: var(--info-ink); }
 .project-switcher-settings {
   width: 26px; height: 26px; margin-right: 6px; flex: none; display: grid; place-items: center;
@@ -158,7 +158,7 @@
 .project-switcher-footer > button:is(:hover, :focus-visible) { outline: none; background: color-mix(in srgb, var(--ink) 7%, transparent); color: var(--ink); }
 .project-switcher-footer > button > svg { flex: none; color: var(--muted); }
 .project-switcher-footer > button > span { flex: 1; }
-.project-switcher-footer kbd { font: 10.5px var(--mono); color: var(--faint); }
+.project-switcher-footer kbd { font: var(--text-2xs) var(--mono); color: var(--faint); }
 
 /* One scroll: free space above the shelves keeps them at the bottom of short lists. */
 .session-list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -517,7 +517,7 @@
 .ref-list > button:hover { background: var(--raised); color: var(--ink); }
 
 .ref-list > button > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ref-list > button > small { font: 10px var(--mono); color: var(--faint); }
+.ref-list > button > small { font: var(--text-2xs) var(--mono); color: var(--faint); }
 .ref-list > p { padding: 14px 10px; color: var(--faint); font-size: var(--text-sm); }
 .ref-note {
   padding: 9px 12px; border-top: 1px solid var(--line);
@@ -538,7 +538,7 @@
 .file-row .file-kind-icon { width: 15px; flex: none; display: grid; place-items: center; color: var(--muted-2); }
 .file-row.directory .file-kind-icon { color: var(--folder); }
 
-.file-row > em { color: var(--working); font-size: 10px; font-style: normal; }
+.file-row > em { color: var(--working); font-size: var(--text-2xs); font-style: normal; }
 
 /* The Files panel: the tree, and on a phone the file read in its place. */
 .files-panel-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -566,7 +566,7 @@
 .files-explorer .file-row:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
 .files-explorer .file-row.active { background: var(--rail); font-weight: 600; }
 .files-explorer .file-row .file-kind-icon, .files-explorer .file-row.directory .file-kind-icon, .files-explorer .file-row.active .file-kind-icon { width: 12px; color: var(--muted); }
-.files-explorer .file-row > em { color: var(--acid-text); font: 600 10px var(--sans); }
+.files-explorer .file-row > em { color: var(--acid-text); font: 600 var(--text-2xs) var(--sans); }
 .files-changed-list { flex: 1; min-height: 0; overflow: auto; }
 .files-changed-list .file-row { width: 100%; cursor: pointer; }
 .files-changed-list .file-row.directory { cursor: default; }
@@ -635,7 +635,7 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 }
 .restore-dialog > header > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .restore-dialog > header strong { font-size: 16px; font-weight: 600; }
-.restore-dialog > header small { font: 10px var(--mono); color: var(--faint); }
+.restore-dialog > header small { font: var(--text-2xs) var(--mono); color: var(--faint); }
 .restore-dialog-mark {
   width: 25px; height: 25px; flex: none; display: grid; place-items: center;
   border-radius: 7px; background: var(--warn-chip); color: var(--working);
@@ -649,14 +649,14 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .restore-dialog-body ul { display: grid; gap: 4px; margin: 0 0 13px; padding: 9px 10px; border: 1px solid var(--line-soft); border-radius: 7px; list-style: none; }
 .restore-dialog-body li { display: flex; align-items: center; gap: 10px; font: var(--text-xs) var(--mono); }
 .restore-dialog-body li code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
-.restore-dialog-body li span { flex: none; color: var(--faint); font-size: 10px; }
-.restore-dialog-body .restore-dialog-more, .restore-dialog-muted { color: var(--faint); font: 10px var(--mono); }
+.restore-dialog-body li span { flex: none; color: var(--faint); font-size: var(--text-2xs); }
+.restore-dialog-body .restore-dialog-more, .restore-dialog-muted { color: var(--faint); font: var(--text-2xs) var(--mono); }
 .restore-dialog-body .restore-dialog-note { margin: 0; color: var(--faint); font-size: var(--text-xs); }
 .restore-dialog > footer {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; border-top: 1px solid var(--line);
 }
-.restore-dialog > footer > span:first-child { color: var(--faint); font: 10px var(--mono); }
+.restore-dialog > footer > span:first-child { color: var(--faint); font: var(--text-2xs) var(--mono); }
 
 .restore-dialog > footer > button {
   display: flex; align-items: center; gap: 7px;
@@ -674,8 +674,8 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
   padding: 10px 10px 10px; border-bottom: 1px solid var(--line);
 }
 .commit-selection { display: flex; align-items: center; min-height: 22px; }
-.commit-selection > small { flex: 1; color: var(--faint); font: 9.5px var(--mono); }
-.commit-selection > span { color: var(--acid-text); font: 9.5px var(--mono); }
+.commit-selection > small { flex: 1; color: var(--faint); font: var(--text-2xs) var(--mono); }
+.commit-selection > span { color: var(--acid-text); font: var(--text-2xs) var(--mono); }
 
 .commit-box textarea {
   width: 100%; resize: vertical; min-height: 60px;
@@ -687,7 +687,7 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .commit-box textarea::placeholder { color: var(--faint); }
 
 .commit-box .commit-actions { margin-top: 0; align-items: center; }
-.commit-box .commit-actions > small { margin-left: auto; font: 10px var(--mono); color: var(--faint); }
+.commit-box .commit-actions > small { margin-left: auto; font: var(--text-2xs) var(--mono); color: var(--faint); }
 
 .changed-files-list { max-height: 360px; overflow: auto; }
 
@@ -732,7 +732,7 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .workspace-storage-name > svg { flex: none; color: var(--faint); }
 .workspace-storage-name > strong { font: 600 var(--text-sm) var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-storage-name > small { font-size: var(--text-xs); color: var(--muted); white-space: nowrap; }
-.workspace-storage-path { font: 10px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-storage-path { font: var(--text-2xs) var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-storage-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--text-xs); color: var(--muted); }
 .workspace-storage-facts > span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-storage-status:empty { display: none; }
@@ -819,7 +819,7 @@ button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(
 .fresh-start-keys > div { display: contents; }
 .fresh-start-keys dt, .fresh-start-providers { display: flex; align-items: center; gap: 10px; }
 .fresh-start-keys dd { margin: 0; }
-.fresh-start-keys kbd { min-width: 18px; padding: 1px 6px; border-radius: 5px; background: var(--rail); box-shadow: 0 1px 0 var(--line-strong); color: var(--ink); font: 11px var(--mono); text-align: center; }
+.fresh-start-keys kbd { min-width: 18px; padding: 1px 6px; border-radius: 5px; background: var(--rail); box-shadow: 0 1px 0 var(--line-strong); color: var(--ink); font: var(--text-2xs) var(--mono); text-align: center; }
 .fresh-start-providers { gap: 8px; margin: 8px 0 0; }
 .fresh-start-providers button { padding: 0; border: 0; background: none; color: var(--acid-text); font: inherit; cursor: pointer; }
 /* A draft's "project · machine" on a phone keeps its dot (design 1o), at a line's end when the two wrap. */

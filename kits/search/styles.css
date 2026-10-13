@@ -46,7 +46,7 @@
 }
 .search-file-row > b {
   margin-left: auto; padding: 1px 6px; border-radius: var(--radius-pill);
-  background: var(--chip); font: 10px var(--mono); color: var(--muted);
+  background: var(--chip); font: var(--text-2xs) var(--mono); color: var(--muted);
 }
 .search-file-icon { display: inline-flex; flex: none; color: var(--faint); }
 .search-match-row { cursor: pointer; font: var(--text-sm) var(--mono); }
@@ -63,7 +63,7 @@
 .search-footer {
   display: flex; align-items: center; gap: 14px; height: 32px; flex: none;
   border-top: 1px solid var(--line); padding: 0 14px;
-  font: 10px var(--mono); color: var(--faint);
+  font: var(--text-2xs) var(--mono); color: var(--faint);
 }
 
 /* A compact client: a finger's rows, a close button beside the field, room for the on-screen keyboard. */

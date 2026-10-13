@@ -1,7 +1,7 @@
 /* Thread Rail: the marks it adds to a rail row, the snooze dialog and the fan-out chip. */
 .thread-rail-mark {
   display: inline-flex; align-items: center; gap: 3px; flex: none;
-  font: 10px var(--mono); color: var(--muted-2); white-space: nowrap;
+  font: var(--text-2xs) var(--mono); color: var(--muted-2); white-space: nowrap;
 }
 .thread-rail-mark > svg { color: var(--faint); }
 .thread-rail-mark.sibling { color: var(--cyan); }
