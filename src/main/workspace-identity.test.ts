@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -43,13 +43,42 @@ describe("workspace identity", () => {
     "0123456789abcdef",
     "0123456789abcdef0123456789abcdeg",
     "",
-  ])("rejects an invalid saved host id %s without replacing it", async (hostId) => {
+  ])("quarantines an invalid saved host id %s and creates a stable replacement", async (hostId) => {
     const path = join(directory, "host-id");
-    const contents = `${hostId}\n`;
+    const contents = hostId;
     await writeFile(path, contents);
 
-    expect(() => readOrCreateHostId(path)).toThrow(/must contain exactly 32 hexadecimal characters/u);
-    expect(await readFile(path, "utf8")).toBe(contents);
+    const replacement = readOrCreateHostId(path);
+    expect(replacement).toMatch(/^[0-9a-f]{32}$/u);
+    expect(await readFile(path, "utf8")).toBe(`${replacement}\n`);
+    expect(readOrCreateHostId(path)).toBe(replacement);
+    const quarantined = (await readdir(directory)).filter((name) => name.startsWith("host-id.corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    expect(await readFile(join(directory, quarantined[0]!), "utf8")).toBe(contents);
+    if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
+    const identity = new WorkspaceIdentity(replacement);
+    const restarted = new WorkspaceIdentity(readOrCreateHostId(path));
+    expect(identity.workspaceId(directory)).toBe(restarted.workspaceId(directory));
+  });
+
+  it("retains every quarantined file when the host id is damaged again", async () => {
+    const path = join(directory, "host-id");
+    await writeFile(path, "first truncated id");
+    readOrCreateHostId(path);
+    await writeFile(path, "second truncated id");
+    readOrCreateHostId(path);
+
+    const quarantined = (await readdir(directory)).filter((name) => name.startsWith("host-id.corrupt-"));
+    expect(quarantined).toHaveLength(2);
+    expect((await Promise.all(quarantined.map((name) => readFile(join(directory, name), "utf8")))).sort())
+      .toEqual(["first truncated id", "second truncated id"]);
+  });
+
+  it("propagates filesystem read errors instead of replacing unreadable state", async () => {
+    const path = join(directory, "host-id");
+    await mkdir(path);
+    expect(() => readOrCreateHostId(path)).toThrow();
+    expect(await readdir(directory)).toEqual(["host-id"]);
   });
 
   it("mints an opaque id that carries neither the path nor the host id", () => {
