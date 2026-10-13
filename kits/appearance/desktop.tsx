@@ -31,7 +31,7 @@ export const appearanceExtension: DesktopExtension = {
       id: APPEARANCE_SETTINGS_PAGE,
       label: "Appearance",
       description: "How Tau looks on this device: light or dark, the theme, density, motion and fonts.",
-      group: "general",
+      group: "app",
       Icon: Palette,
       order: 5,
       profiles: ["desktop", "web", "compact"],

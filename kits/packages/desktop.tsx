@@ -389,10 +389,10 @@ export const packagesExtension: DesktopExtension = {
       id: PACKAGES_SETTINGS_PAGE,
       label: "Packages",
       description: "Install, update and remove extension packages the way Pi does. An install never starts a package until you approve it in Settings → Extensions.",
-      group: "extensions",
+      group: "app",
       profiles: ["desktop", "web"],
       Icon: Package,
-      order: 30,
+      order: 91,
       rows: PACKAGES_ROWS,
       Component: (props: SettingsPageProps) => (
         <PackagesPage {...props} host={plugin.host} inspect={(cwd) => plugin.inspectPackages(cwd)} />

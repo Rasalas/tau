@@ -161,7 +161,7 @@ export const terminalExtension: DesktopExtension = {
       id: "terminal.settings",
       label: "Terminal",
       description: "Where the terminal opens and the font it draws with.",
-      group: "projects",
+      group: "tools",
       Icon: Terminal,
       order: 30,
       profiles: ["desktop", "web"],

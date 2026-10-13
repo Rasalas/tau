@@ -62,7 +62,7 @@ export const agentsExtension: DesktopExtension = {
       id: AGENTS_SETTINGS_PAGE,
       label: "Agents",
       description: "Where the sub-agents a thread starts do their work: on this machine or on another machine.",
-      group: "threads",
+      group: "agents",
       Icon: Bot,
       order: 45.2,
       profiles: ["desktop", "web"],

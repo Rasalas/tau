@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ArrowLeft, Blocks, Bot, ChevronLeft, ChevronRight, Command, Cpu, Info, MonitorSmartphone, Puzzle, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
+import { Activity, ArrowLeft, Blocks, Bot, ChevronLeft, ChevronRight, Command, Cpu, Info, MonitorSmartphone, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
 import type { HostSnapshot, UiProject, UiSession } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
@@ -14,7 +14,7 @@ import { isMacPlatform } from "../keybindings";
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { ConfigLayersStore, type SettingsProject } from "../../workbench/config-layers-store";
 import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "./settings-search";
-import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroupOpen, settingsNavGroups, settingsTarget, type SettingsNavGroup } from "./settings-nav";
+import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroupOpen, settingsNavGroups, settingsTarget, type SettingsNavGroup, type SettingsNavGroupAlias } from "./settings-nav";
 import { SettingsLevelsProvider } from "./settings-layout";
 import { SettingsPageActionSlot } from "./page-action";
 import { SettingsPageHead, type SettingsCrumb } from "./page-head";
@@ -56,14 +56,14 @@ const CORE_ICONS: Readonly<Record<string, LucideIcon>> = {
   pi: Cpu,
   connections: MonitorSmartphone,
   extensions: Blocks,
-  inspector: Puzzle,
+  inspector: Activity,
   about: Info,
 };
 
 interface NavItem {
   id: string;
   label: string;
-  group: SettingsNavGroup | undefined;
+  group: SettingsNavGroup | SettingsNavGroupAlias | undefined;
   order: number | undefined;
   Icon: PanelIconComponent | undefined;
   useSummary?: (() => string | undefined) | undefined;
@@ -331,6 +331,9 @@ export function SettingsScreen({
   const activeNav = onProviders ? "providers" : parent ?? page;
   // A folding group as the user left it, also last time Settings was open; unset, it follows the page on screen.
   const [toggledGroups, setToggledGroups] = useState<Partial<Record<SettingsNavGroup, boolean>>>(navFolds);
+  // The pages of the Diagnostics group stand at the foot, above About Tau.
+  const navGroupList = settingsNavGroups(navItems);
+  const footerItems = navGroupList.find((group) => group.id === "diagnostics")?.items ?? [];
   const navButton = (item: NavItem) => (
     <button
       key={item.id}
@@ -422,16 +425,14 @@ export function SettingsScreen({
                   </button>
                 ))}
               </div> : <p className="settings-search-empty" role="status">No setting matches “{search.trim()}”.</p>}
-            </> : settingsNavGroups(navItems).map((group) => {
+            </> : navGroupList.filter((group) => group.id !== "diagnostics").map((group) => {
               const open = settingsNavGroupOpen(group, activeNav, toggledGroups);
-              const waiting = group.id === "extensions" && !open && attention > 0;
               return (
                 <div key={group.id} className="settings-nav-group" role="group" aria-label={group.label} data-folds={group.folds ? "" : undefined}>
                   {group.folds ? (
                     <h2 className="settings-nav-heading">
                       <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => { navFolds = { ...navFolds, [group.id]: !open || undefined }; setToggledGroups((current) => ({ ...current, [group.id]: !open })); }}>
                         <ChevronRight size={12} aria-hidden /><span>{group.label}</span>
-                        {waiting ? <small className="settings-nav-count" aria-label={`${attention} need attention`}>{attention}</small> : null}
                       </button>
                     </h2>
                   ) : <h2 className="settings-nav-heading">{group.label}</h2>}
@@ -441,6 +442,11 @@ export function SettingsScreen({
             })}
           </div>
           <div className="settings-nav-footer">
+            {footerItems.map((item) => (
+              <button key={item.id} type="button" className={`settings-about-link ${activeNav === item.id ? "active" : ""}`} aria-current={activeNav === item.id ? "page" : undefined} onClick={() => openPage(item.id)}>
+                <PanelIcon Icon={item.Icon} size={15} /><span>{item.label}</span>{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
+              </button>
+            ))}
             <button type="button" className={`settings-about-link ${page === "about" ? "active" : ""}`} aria-current={page === "about" ? "page" : undefined} onClick={() => openPage("about")}>
               <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
             </button>

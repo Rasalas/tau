@@ -1513,18 +1513,19 @@ to the one action the page is for; an action on a group of rows belongs in
 that `SettingsSection`'s `headerAction`.
 
 **Where a page sits (new in API 1.18.0).** `group` on `registerSettingsPage`
-places a page in the section column: `general` (the main pages, always open
-under "Settings": General, Appearance, Models, Providers, Runtimes,
-Notifications, Keybindings, Connections; keep it short), `threads` (Pi and
-what shapes threads), `projects` (what works on a project: source control,
-review, terminal, preview), `remote` (Machines, servers, other devices),
-`extensions` (the list of extensions, Packages, and the default for a page
-that names no group) or `diagnostics` (Inspector, Signals). Every group but
-`general` folds under its heading (since API 1.27.0): it opens on a click, or
-by itself while it holds the page on screen. Within a group pages follow
-`order`; core's own pages take 0 to 90 (General 0, Models 10, Providers 20,
-Runtimes 30, Keybindings 80, Connections 90, Pi 20, Extensions 0, Inspector
-50). A page that lists `rows: [{ id, label,
+places a page in the section column: `app` (the default: General,
+Appearance, Notifications, Keybindings, Extensions, and a page that names no
+group), `agents` (Runtimes, Threads, what shapes threads), `projects` (what
+works on a project: source control, review, storage, servers), `tools`
+(terminal, preview, screenshots, simulators), `machines` (Machines, remote
+work, Connections) or `diagnostics` (Diagnostics, Signals; these stand at the
+foot of the column, above About Tau, without a heading). Since API 1.61.0 these
+are the groups; the older names still place a page: `general` and `extensions`
+in `app`, `threads` in `agents`, `remote` in `machines`. `projects`, `tools`
+and `machines` fold under their heading (since API 1.27.0): it opens on a
+click, or by itself while it holds the page on screen. Within a group pages
+follow `order`; core's own pages take 0 to 90 (General 0, Keybindings 80,
+Extensions 90, Runtimes 0, Threads 10, Connections 90, Diagnostics 0). A page that lists `rows: [{ id, label,
 keywords? }]` has each row found by the search, which scrolls to the element
 with that id — give the `SettingRow` the same `id`.
 

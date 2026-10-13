@@ -3,34 +3,49 @@
  * in Settings. Pure, so the order and the links are tested without the screen.
  */
 
-/** The groups of the navigation, in order; a page names its group, a page without one is an extension's. */
-export type SettingsNavGroup = "general" | "threads" | "projects" | "remote" | "extensions" | "diagnostics";
+/**
+ * The groups of the navigation, in order. A page names its group; one that names
+ * none sits in App, after the pages core keeps there. `diagnostics` is not a
+ * heading: its pages stand above About Tau at the foot of the column.
+ */
+export type SettingsNavGroup = "app" | "agents" | "projects" | "tools" | "machines" | "diagnostics";
+
+/** The names of a group before API 1.61.0; a page that still uses one is placed in the group it became. */
+export type SettingsNavGroupAlias = "general" | "threads" | "remote" | "extensions";
+
+const GROUP_ALIASES: Readonly<Record<SettingsNavGroupAlias, SettingsNavGroup>> = { general: "app", threads: "agents", remote: "machines", extensions: "app" };
 
 export const SETTINGS_NAV_GROUPS: ReadonlyArray<{ id: SettingsNavGroup; label: string; folds?: boolean }> = [
-  // The pages most people come for stay open; the rest fold (design 1j lists eight).
-  { id: "general", label: "Settings" },
-  { id: "threads", label: "Threads", folds: true },
+  // What most people come for stays open; the rest fold.
+  { id: "app", label: "App" },
+  { id: "agents", label: "Agents" },
   { id: "projects", label: "Projects", folds: true },
-  { id: "remote", label: "Remote", folds: true },
-  { id: "extensions", label: "Extensions", folds: true },
-  { id: "diagnostics", label: "Diagnostics", folds: true },
+  { id: "tools", label: "Tools", folds: true },
+  { id: "machines", label: "Machines", folds: true },
+  { id: "diagnostics", label: "Diagnostics" },
 ];
 
-export function isSettingsNavGroup(value: unknown): value is SettingsNavGroup {
-  return SETTINGS_NAV_GROUPS.some((group) => group.id === value);
+export function isSettingsNavGroup(value: unknown): value is SettingsNavGroup | SettingsNavGroupAlias {
+  return SETTINGS_NAV_GROUPS.some((group) => group.id === value) || (typeof value === "string" && Object.hasOwn(GROUP_ALIASES, value));
+}
+
+/** The group a page's `group` names; a page without one is in App. */
+export function navGroupOf(name: SettingsNavGroup | SettingsNavGroupAlias | undefined): SettingsNavGroup {
+  if (name === undefined) return "app";
+  return Object.hasOwn(GROUP_ALIASES, name) ? GROUP_ALIASES[name as SettingsNavGroupAlias] : name as SettingsNavGroup;
 }
 
 /** Core's own pages: their place among the pages kits add to the same groups. */
 export const CORE_SETTINGS_PAGES = [
-  { id: "general", label: "General", group: "general", order: 0 },
-  { id: "models", label: "Models", group: "general", order: 10 },
-  { id: "providers", label: "Providers", group: "general", order: 20 },
-  { id: "runtimes", label: "Runtimes", group: "general", order: 30 },
-  { id: "keybindings", label: "Keybindings", group: "general", order: 80 },
-  { id: "connections", label: "Connections", group: "general", order: 90 },
-  { id: "pi", label: "Pi", group: "threads", order: 20 },
-  { id: "extensions", label: "All extensions", group: "extensions", order: 0 },
-  { id: "inspector", label: "Inspector", group: "diagnostics", order: 50 },
+  { id: "general", label: "General", group: "app", order: 0 },
+  { id: "keybindings", label: "Keybindings", group: "app", order: 80 },
+  { id: "extensions", label: "Extensions", group: "app", order: 90 },
+  { id: "models", label: "Models", group: "agents", order: 10 },
+  { id: "providers", label: "Providers", group: "agents", order: 20 },
+  { id: "runtimes", label: "Runtimes", group: "agents", order: 0 },
+  { id: "pi", label: "Pi", group: "agents", order: 30 },
+  { id: "connections", label: "Connections", group: "machines", order: 90 },
+  { id: "inspector", label: "Diagnostics", group: "diagnostics", order: 0 },
 ] as const satisfies ReadonlyArray<{ id: string; label: string; group: SettingsNavGroup; order: number }>;
 
 export type CoreSettingsPage = (typeof CORE_SETTINGS_PAGES)[number]["id"] | "about";
@@ -45,7 +60,7 @@ export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
   pi: "Pi",
   connections: "Connections",
   extensions: "Extensions",
-  inspector: "Inspector",
+  inspector: "Diagnostics",
   about: "About",
 };
 
@@ -66,7 +81,7 @@ export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> 
 export interface SettingsNavItem {
   id: string;
   label: string;
-  group?: SettingsNavGroup | undefined;
+  group?: SettingsNavGroup | SettingsNavGroupAlias | undefined;
   order?: number | undefined;
 }
 
@@ -75,7 +90,7 @@ export function settingsNavGroups<T extends SettingsNavItem>(items: readonly T[]
   return SETTINGS_NAV_GROUPS.flatMap((group) => {
     const members = items
       .map((item, index) => ({ item, index }))
-      .filter(({ item }) => (item.group ?? "extensions") === group.id)
+      .filter(({ item }) => navGroupOf(item.group) === group.id)
       .sort((left, right) => (left.item.order ?? 100) - (right.item.order ?? 100) || left.index - right.index)
       .map(({ item }) => item);
     return members.length ? [{ ...group, items: members }] : [];

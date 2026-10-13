@@ -63,7 +63,7 @@ export const previewExtension: DesktopExtension = {
       id: "preview.settings",
       label: "Preview",
       description: "The browser beside a thread: the size and zoom a new page opens at, where links open, recordings and the floating preview.",
-      group: "projects",
+      group: "tools",
       Icon: Globe,
       order: 40,
       keywords: ["browser", "viewport", "zoom", "appearance", "dark mode", "links", "recording", "floating", "picture in picture"],

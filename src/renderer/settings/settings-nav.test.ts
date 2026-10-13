@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroupOpen, settingsNavGroups, settingsTarget } from "./settings-nav";
+import { extensionOfPage, extensionPage, isSettingsNavGroup, parentSettingsPage, parseSettingsTarget, settingsNavGroupOpen, settingsNavGroups, settingsTarget } from "./settings-nav";
 
 describe("settings links", () => {
   it("names a page, an extension's page and a row on a page", () => {
@@ -25,26 +25,39 @@ describe("settings links", () => {
 });
 
 describe("the section column's groups", () => {
-  it("orders each group by `order`, leaves empty groups out and puts a page without a group under Extensions", () => {
+  it("orders each group by `order`, leaves empty groups out and puts a page without a group under App", () => {
     const groups = settingsNavGroups([
-      { id: "b", label: "B", group: "general", order: 10 },
-      { id: "a", label: "A", group: "general", order: 0 },
+      { id: "b", label: "B", group: "app", order: 10 },
+      { id: "a", label: "A", group: "app", order: 0 },
       { id: "x", label: "X" },
+      { id: "t", label: "T", group: "tools" },
       { id: "i", label: "I", group: "diagnostics" },
     ]);
     expect(groups.map((group) => [group.id, group.label, group.items.map((item) => item.id)])).toEqual([
-      ["general", "Settings", ["a", "b"]],
-      ["extensions", "Extensions", ["x"]],
+      ["app", "App", ["a", "b", "x"]],
+      ["tools", "Tools", ["t"]],
       ["diagnostics", "Diagnostics", ["i"]],
     ]);
   });
 
-  it("keeps the main group open and folds the others until they hold the page or the user opens them", () => {
-    const [main, extensions] = settingsNavGroups([{ id: "a", label: "A", group: "general" }, { id: "x", label: "X" }]);
-    expect(settingsNavGroupOpen(main!, "x", {})).toBe(true);
-    expect(settingsNavGroupOpen(extensions!, "a", {})).toBe(false);
-    expect(settingsNavGroupOpen(extensions!, "x", {})).toBe(true);
-    expect(settingsNavGroupOpen(extensions!, "a", { extensions: true })).toBe(true);
-    expect(settingsNavGroupOpen(extensions!, "x", { extensions: false })).toBe(false);
+  it("still places a page by the name its group had before", () => {
+    const groups = settingsNavGroups([
+      { id: "g", label: "G", group: "general" },
+      { id: "t", label: "T", group: "threads" },
+      { id: "r", label: "R", group: "remote" },
+      { id: "e", label: "E", group: "extensions" },
+    ]);
+    expect(groups.map((group) => [group.id, group.items.map((item) => item.id)])).toEqual([["app", ["g", "e"]], ["agents", ["t"]], ["machines", ["r"]]]);
+    expect(isSettingsNavGroup("remote")).toBe(true);
+    expect(isSettingsNavGroup("toString")).toBe(false);
+  });
+
+  it("keeps App and Agents open and folds the others until they hold the page or the user opens them", () => {
+    const [app, projects] = settingsNavGroups([{ id: "a", label: "A", group: "app" }, { id: "p", label: "P", group: "projects" }]);
+    expect(settingsNavGroupOpen(app!, "p", {})).toBe(true);
+    expect(settingsNavGroupOpen(projects!, "a", {})).toBe(false);
+    expect(settingsNavGroupOpen(projects!, "p", {})).toBe(true);
+    expect(settingsNavGroupOpen(projects!, "a", { projects: true })).toBe(true);
+    expect(settingsNavGroupOpen(projects!, "p", { projects: false })).toBe(false);
   });
 });

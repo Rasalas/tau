@@ -98,7 +98,7 @@ export const environmentsExtension: DesktopExtension = {
       id: MACHINES_SETTINGS_PAGE,
       label: "Machines",
       description: "Other machines that run threads for you, over Tau's encrypted connection, and how to add one.",
-      group: "remote",
+      group: "machines",
       Icon: Network,
       order: 45,
       profiles: ["desktop"],
@@ -109,7 +109,7 @@ export const environmentsExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: MACHINES_SETTINGS_PAGE,
       label: "Machines",
-      group: "general",
+      group: "app",
       Icon: Network,
       order: -1,
       profiles: ["compact"],

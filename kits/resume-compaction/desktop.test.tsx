@@ -102,7 +102,7 @@ describe("Compact and send", () => {
     expect(mode.read(snapshot(usage(153_000, 120)))).toBeUndefined();
 
     const page = registry.getSettingsPages().find((entry) => entry.id === "resume-compaction.settings")!;
-    expect(page.group).toBe("threads");
+    expect(page.group).toBe("agents");
     const Page = page.Component;
     render(<WorkbenchShellContext.Provider value={{ snapshot: snapshot(undefined), registry }}><Page onNotify={vi.fn()} /></WorkbenchShellContext.Provider>);
     fireEvent.click(screen.getByRole("switch", { name: "Offer to compact Claude Code threads" }));
