@@ -1,4 +1,4 @@
-import type { ClientStorage, HostActionResult, HostExtensionClient, WorkbenchActions } from "tau";
+import { DEFAULT_INSTANCE_ID, SIGN_IN_COMMANDS, type ClientStorage, type HostActionResult, type HostExtensionClient, type SignInReport, type WorkbenchActions } from "tau";
 import {
   IMPORT_PROGRESS_EVENT,
   SESSION_SOURCES,
@@ -23,6 +23,8 @@ export interface AgentStatus {
   signedIn?: boolean;
   /** The program is older than its kit speaks to; `command` updates it. */
   update?: { command?: string };
+  /** Not installed, but the kit's own sign-in can start and fetches it (Codex's Continue with ChatGPT). */
+  signInInstalls?: boolean;
   /** The kit did not answer. */
   error?: string;
 }
@@ -31,6 +33,8 @@ export interface FlowState {
   /** Agents, projects, conversations, then the last screen that says what is ready. */
   step: 0 | 1 | 2 | 3;
   tools?: ToolsReport;
+  /** Why the machine's tools could not be asked. */
+  toolsError?: string;
   /** By runtime backend kind. */
   agents: Readonly<Record<string, AgentStatus>>;
   discovery?: Discovery;
@@ -159,6 +163,16 @@ function accountLabel(account: StatusAnswer["account"]): string | undefined {
   return account.email ?? account.plan ?? (account.kind === "apiKey" ? "API key" : "signed in");
 }
 
+/** Whether a sign-in method can start with the program missing, because it fetches the program (Codex's Continue with ChatGPT). */
+async function signInFetches(client: HostExtensionClient, instance: string | undefined): Promise<boolean> {
+  try {
+    const report = await client.invoke(SIGN_IN_COMMANDS.state, { target: instance ?? DEFAULT_INSTANCE_ID }) as Partial<SignInReport> | undefined;
+    return report?.methods?.some((method) => !method.unavailable) === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Asks a backend's kit about its program; the fields the backend kits share are read, the rest ignored. */
 async function agentStatus(host: (id: string) => HostExtensionClient, kind: string): Promise<AgentStatus> {
   const { extensionId, instance } = backendKit(kind);
@@ -166,7 +180,7 @@ async function agentStatus(host: (id: string) => HostExtensionClient, kind: stri
   const input = instance ? { instance } : undefined;
   try {
     const status = (await client.invoke("status", input) ?? {}) as StatusAnswer;
-    if (!status.path && status.installed !== true) return { installed: false };
+    if (!status.path && status.installed !== true) return { installed: false, ...(await signInFetches(client, instance) ? { signInInstalls: true } : {}) };
     let version = status.version;
     let account = accountLabel(status.account);
     // A kit that tried and failed to learn the login says why in `message`.
@@ -267,7 +281,7 @@ export class WelcomeFlow {
   checkAgents(): void {
     this.generation += 1;
     this.asked.clear();
-    this.set({ tools: undefined, agents: {} });
+    this.set({ tools: undefined, toolsError: undefined, agents: {} });
     this.askTools();
     this.askAgents(this.kinds);
   }
@@ -275,8 +289,8 @@ export class WelcomeFlow {
   private askTools(): void {
     const generation = this.generation;
     void this.host.invoke("tools").then(
-      (tools) => { if (generation === this.generation) this.set({ tools: tools as ToolsReport }); },
-      (error) => { if (generation === this.generation) this.set({ error: message(error) }); },
+      (tools) => { if (generation === this.generation) this.set({ tools: tools as ToolsReport, toolsError: undefined }); },
+      (error) => { if (generation === this.generation) this.set({ toolsError: message(error) }); },
     );
   }
 
@@ -318,7 +332,7 @@ export class WelcomeFlow {
 
   /** Asks for gh and glab again, after an install or a sign-in in a terminal. */
   checkTools(): void {
-    this.set({ tools: undefined });
+    this.set({ tools: undefined, toolsError: undefined });
     this.askTools();
   }
 

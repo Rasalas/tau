@@ -3209,6 +3209,13 @@ copy, with "I have signed in". `showAccount: false` leaves the account row to
 a caller that draws its own; `cardBadge: false` keeps a sign-in nested in a
 card's list (Pi's providers) out of the card's head.
 
+Onboarding asks `sign-in-state` of a runtime whose program is not found. A kit
+whose report then holds a method without `unavailable` (Codex's Continue with
+ChatGPT, which fetches the program itself) is set up through that sign-in in the
+wizard, the one its Providers card draws; a kit whose methods all wait for the
+program gets the vendor's installer there. No new command: this is how the
+existing `unavailable` is read.
+
 The shipped kits: Codex signs in over its app server (`account/login/start`:
 ChatGPT through the page its own login server serves, a device code, an API
 key handed to the CLI) or with `codex login` in a terminal, and signs out

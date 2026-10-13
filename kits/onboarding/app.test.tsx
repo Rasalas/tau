@@ -132,8 +132,9 @@ describe("Onboarding in the workbench", () => {
     expect(within(reviewTools).getByText("GitHub CLI")).toBeTruthy();
     expect(within(reviewTools).getByText("Not installed")).toBeTruthy();
     expect(screen.getAllByText(/GitHub CLI|GitLab CLI/).every((element) => reviewTools.contains(element))).toBe(true);
-    fireEvent.click(within(card("Codex")).getByRole("button", { name: "Install" }));
-    expect(screen.getByText("curl codex")).toBeTruthy();
+    // Codex is missing: its own sign-in sets it up, as on its Providers card, not the vendor's installer.
+    expect(within(card("Codex")).queryByRole("button", { name: "Install" })).toBeNull();
+    expect(within(card("Codex")).getByRole("button", { name: "Sign in" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
     // Projects: recent repositories with three conversations are chosen for you.
@@ -234,6 +235,129 @@ describe("Onboarding in the workbench", () => {
       fireEvent.keyDown(window, { key: "Escape" });
       await waitFor(() => expect(calls.some(([, command]) => command === "complete")).toBe(true));
       await waitFor(() => expect(screen.queryByRole("heading", { name: "Your agents" })).toBeNull());
+    });
+  });
+
+  describe("Codex, which the kit sets up itself", () => {
+    const nothing: Discovery = { projects: [], sessions: [], truncated: false, unavailable: [] };
+    const NOT_FOUND = { command: "codex", message: "The Codex CLI \"codex\" was not found." };
+    const WAITING = 'Install Codex first; "codex" was not found.';
+    const PLAN = { id: "chatgpt-plan", label: "Continue with ChatGPT", actionLabel: "Continue with ChatGPT", availableWhenSignedIn: true, kind: "browser" };
+    const TERMINAL = { id: "terminal", label: "Sign in in a terminal", kind: "terminal" };
+
+    /** A first start with Codex as the one runtime; `methods` is what the kit's `sign-in-state` offers while Codex is missing. */
+    function firstStart(methods: unknown[]) {
+      const { invokeHostExtension } = host();
+      let signedIn = false;
+      const base = createFakeHostClient();
+      const bootstrap = async () => {
+        const snapshot = await base.bootstrap();
+        return { ...snapshot, catalog: { ...snapshot.catalog, runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "codex", label: "Codex" }] } };
+      };
+      const answer = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
+        if (command === "discover") return nothing;
+        if (extensionId === "tau.codex" && command === "status") return signedIn ? { path: "/managed/codex", version: "0.159.2", signedIn: true, account: { kind: "chatgpt", plan: "plus" } } : NOT_FOUND;
+        if (extensionId === "tau.codex" && command === "sign-in-state") return { methods, account: { signedIn } };
+        if (extensionId === "tau.codex" && command === "sign-in") return { flowId: "f1", method: (input as { method: string }).method, phase: "waiting", browser: { url: "https://auth.example.test/consent" } };
+        return invokeHostExtension(extensionId, command, input);
+      });
+      const client = createFakeHostClient({ invokeHostExtension: answer, bootstrap });
+      renderApp(client, { extensions: [onboarding] });
+      return {
+        answer,
+        /** The kit tells the window the sign-in worked, and Codex answers as signed in from then on. */
+        finishSignIn: () => {
+          signedIn = true;
+          act(() => { client.emit({ type: "extension-event", extensionId: "tau.codex", name: "sign-in", payload: { target: "default", report: { methods, account: { signedIn: true, label: "Plus" } } } }); });
+        },
+      };
+    }
+
+    it("offers the kit's own sign-in, the one Settings draws, and ends ready", async () => {
+      const { answer, finishSignIn } = firstStart([PLAN, { ...TERMINAL, unavailable: WAITING }]);
+      const row = (await screen.findByText("Not installed · Tau fetches it when you sign in")).closest(".onboarding-card") as HTMLElement;
+      // One way in: no Install button that runs the vendor's installer.
+      expect(within(row).queryByRole("button", { name: "Install" })).toBeNull();
+      fireEvent.click(within(row).getByRole("button", { name: "Sign in" }));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Continue with ChatGPT" }));
+      await waitFor(() => expect(answer).toHaveBeenCalledWith("tau.codex", "sign-in", { target: "default", method: "chatgpt-plan" }));
+      expect(answer).toHaveBeenCalledWith("tau.codex", "sign-in-state", { target: "default" });
+      await screen.findByRole("button", { name: "Open sign-in page" });
+      // The vendor's installer is a hint to copy for a user who installs Codex themselves.
+      expect(screen.getByText(/Prefer your own copy of Codex\?/)).toBeTruthy();
+      expect(screen.getByText("curl codex")).toBeTruthy();
+
+      finishSignIn();
+      await screen.findByText("0.159.2 · plus");
+      expect(screen.queryByText("Not installed · Tau fetches it when you sign in")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByRole("heading", { name: "Codex is ready" });
+    });
+
+    it("keeps the vendor's installer when the kit's sign-in cannot start without Codex", async () => {
+      firstStart([{ ...PLAN, unavailable: "This instance keeps its existing CLI threads." }, { ...TERMINAL, unavailable: WAITING }]);
+      const row = (await screen.findByText("Codex", { selector: "strong" })).closest(".onboarding-card") as HTMLElement;
+      const install = await within(row).findByRole("button", { name: "Install" });
+      expect(within(row).getByText("Not installed")).toBeTruthy();
+      fireEvent.click(install);
+      expect(screen.getByText("curl codex")).toBeTruthy();
+      expect(screen.queryByText(/Prefer your own copy/)).toBeNull();
+    });
+  });
+
+  describe("a check that fails", () => {
+    it("reads as one line with the reason in its tooltip, and asks again on Retry", async () => {
+      const { invokeHostExtension } = host();
+      let broken = true;
+      const answer = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
+        if (extensionId === "tau.onboarding" && command === "tools" && broken) throw new Error("spawn gh ENOENT: worker restarted");
+        return invokeHostExtension(extensionId, command, input);
+      });
+      renderApp(createFakeHostClient({ invokeHostExtension: answer }), { extensions: [onboarding] });
+      const line = await screen.findByText("Could not check the tools on this machine.");
+      expect(line.getAttribute("title")).toBe("spawn gh ENOENT: worker restarted");
+      expect(screen.queryByText(/ENOENT/)).toBeNull();
+      broken = false;
+      fireEvent.click(within(line.closest("[role=alert]") as HTMLElement).getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(screen.queryByText("Could not check the tools on this machine.")).toBeNull());
+      const reviewTools = screen.getByRole("region", { name: /Tools for pull requests/ });
+      await within(reviewTools).findByText("2.81.0 · Signed in");
+    });
+
+    it("does not show a late tools error on the next step", async () => {
+      const { invokeHostExtension } = host();
+      let fail!: (error: Error) => void;
+      const answer = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
+        if (extensionId === "tau.onboarding" && command === "tools") return new Promise((_, reject) => { fail = reject; });
+        return invokeHostExtension(extensionId, command, input);
+      });
+      renderApp(createFakeHostClient({ invokeHostExtension: answer }), { extensions: [onboarding] });
+      await screen.findByRole("heading", { name: "Your agents" });
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByRole("heading", { name: "Choose your projects" });
+      await act(async () => { fail(new Error("tools are gone")); });
+      expect(screen.queryByText(/tools are gone/)).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("says projects could not be looked for in a line of its own, with Retry and the reason in the tooltip", async () => {
+      const { invokeHostExtension } = host();
+      let broken = true;
+      const answer = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
+        if (extensionId === "tau.onboarding" && command === "discover" && broken) throw new Error("Host extension tau.codex did not answer within 30s.");
+        return invokeHostExtension(extensionId, command, input);
+      });
+      renderApp(createFakeHostClient({ invokeHostExtension: answer }), { extensions: [onboarding] });
+      await screen.findByRole("heading", { name: "Your agents" });
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      const line = await screen.findByText("Could not look for projects on this machine.");
+      expect(line.getAttribute("title")).toBe("Host extension tau.codex did not answer within 30s.");
+      expect(screen.queryByText(/did not answer/)).toBeNull();
+      broken = false;
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await screen.findByRole("checkbox", { name: /alpha/ });
+      expect(screen.queryByText("Could not look for projects on this machine.")).toBeNull();
     });
   });
 
@@ -398,6 +522,50 @@ describe("Onboarding's choices", () => {
     expect(toolRows(state).map(line)).toEqual(["gh:ready:settings=", "glab:install:brew install glab"]);
     // A failed check says so in a few words; what the kit answered stays in the tooltip.
     expect(agentRows(state, 0, backends)[2]).toMatchObject({ summary: "Could not check", detail: expect.stringContaining("did not answer") });
+  });
+
+  it("sets a missing program up through its kit's sign-in when that can start, else with the vendor's installer", () => {
+    const state = {
+      step: 0 as const,
+      added: [],
+      tools,
+      agents: {
+        codex: { installed: false, signInInstalls: true },
+        // An instance has a home of its own: no default installer for it.
+        "codex@work": { installed: false, signInInstalls: true },
+        "claude-code": { installed: false },
+      },
+    };
+    const backends = ["pi", "codex", "codex@work", "claude-code"].map((kind) => ({ kind, label: kind }));
+    const [, codex, work, claude] = agentRows(state, 1, backends);
+    expect(codex).toMatchObject({ id: "codex", state: "signIn", summary: "Not installed · Tau fetches it when you sign in", signIn: { extensionId: "tau.codex", target: "default" }, ownInstall: "curl codex" });
+    expect(codex).not.toHaveProperty("command");
+    expect(work).toMatchObject({ id: "codex@work", state: "signIn", signIn: { extensionId: "tau.codex", target: "work" } });
+    expect(work).not.toHaveProperty("ownInstall");
+    expect(claude).toMatchObject({ id: "claude-code", state: "install", command: "curl claude" });
+  });
+
+  it("asks a missing program's kit whether its own sign-in can start without it", async () => {
+    const kit = (status: unknown, signIn: (input: unknown) => unknown) => ({
+      invoke: vi.fn(async (command: string, input?: unknown) => command === "status" ? status : signIn(input)),
+      onEvent: () => () => undefined,
+    });
+    const kits = {
+      "tau.codex": kit({ message: "not found" }, (input) => ({ methods: [{ id: "chatgpt-plan", label: "Continue with ChatGPT", kind: "browser", ...((input as { target: string }).target === "work" ? { unavailable: "Existing CLI threads." } : {}) }] })),
+      "tau.claude-code": kit({}, () => ({ methods: [{ id: "console", label: "Console", kind: "terminal", unavailable: "Install the CLI first." }] })),
+      "tau.opencode": kit({}, () => { throw new Error("Unknown command sign-in-state."); }),
+    } as const;
+    const flow = new WelcomeFlow({ invoke: async () => undefined, onEvent: () => () => undefined }, (id) => kits[id as keyof typeof kits]);
+    flow.askAgents(["codex", "codex@work", "claude-code", "opencode"]);
+    await waitFor(() => expect(Object.keys(flow.get().agents)).toHaveLength(4));
+    expect(flow.get().agents).toEqual({
+      codex: { installed: false, signInInstalls: true },
+      "codex@work": { installed: false },
+      "claude-code": { installed: false },
+      opencode: { installed: false },
+    });
+    expect(kits["tau.codex"].invoke).toHaveBeenCalledWith("sign-in-state", { target: "default" });
+    expect(kits["tau.codex"].invoke).toHaveBeenCalledWith("sign-in-state", { target: "work" });
   });
 
   it("goes past the steps that have nothing to choose, once the scan is in", () => {

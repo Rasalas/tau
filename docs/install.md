@@ -182,10 +182,13 @@ later. It has three steps:
    every other runtime Tau has (the Agent SDK runtime, Codex, Antigravity, and
    any instance of them): installed or not, which version, signed in or not,
    with the vendor's install or sign-in command, or a link to its card
-   under Settings → Providers. Each runtime answers through its own kit, so a
-   path set there counts. Below them, marked optional, **Tools for pull
-   requests**: `gh` and `glab`, which Tau needs only to open pull and merge
-   requests and show their checks. With Terminal Kit on, Install and Sign in
+   under Settings → Providers. A runtime whose own sign-in can fetch the
+   program, Codex with Continue with ChatGPT, signs in right there, the same
+   sign-in as its card; the vendor's installer stays a hint to copy. Each
+   runtime answers through its own kit, so a path set there counts. Below
+   them, marked optional, **Tools for pull requests**: `gh` and `glab`, which
+   Tau needs only to open pull and merge requests and show their checks. With
+   Terminal Kit on, Install and Sign in
    run the command in a terminal you see: the wizard steps aside for it (a
    button in the title bar leads back), and returns and checks again when the
    shell ends; without it the command is there to copy.
