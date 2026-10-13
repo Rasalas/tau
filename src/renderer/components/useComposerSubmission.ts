@@ -143,7 +143,7 @@ export type ComposerAnswerSink = (text: string, attachments: UiPromptAttachment[
 
 export interface UseComposerSubmissionResult {
   /** Captures the current scope and starts its asynchronous host submission, or answers with it. */
-  submit(delivery?: ComposerDelivery): void;
+  submit(delivery?: ComposerDelivery, send?: UseComposerSubmissionOptions["onSubmit"]): void;
   /**
    * Hands the draft, its images and what the inline contributions add to
    * `sink` as the answer to the open question, then clears them. It never waits
@@ -171,7 +171,7 @@ export function useComposerSubmission({
   recordPrompt,
   clearPreviewForScope,
 }: UseComposerSubmissionOptions): UseComposerSubmissionResult {
-  const submit = useCallback((delivery?: ComposerDelivery) => {
+  const submit = useCallback((delivery?: ComposerDelivery, send = onSubmit) => {
     const submission = scopeStore.beginSubmission(scope);
     if ("busy" in submission) return;
 
@@ -247,10 +247,10 @@ export function useComposerSubmission({
       let result: SubmissionResult;
       try {
         result = skillDraft
-          ? await onSubmit(promptToSend, attachmentsToSend, delivery, skillDraft)
+          ? await send(promptToSend, attachmentsToSend, delivery, skillDraft)
           : delivery
-            ? await onSubmit(promptToSend, attachmentsToSend, delivery)
-            : await onSubmit(promptToSend, attachmentsToSend);
+            ? await send(promptToSend, attachmentsToSend, delivery)
+            : await send(promptToSend, attachmentsToSend);
       } catch (error) {
         result = { accepted: false, message: errorMessage(error) };
       }

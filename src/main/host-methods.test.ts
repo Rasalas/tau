@@ -23,6 +23,17 @@ function methodsFor(host: PiHost) {
   });
 }
 
+it("requires a dedicated compact-and-send request so an older host cannot silently discard the prompt", async () => {
+  const compactContext = vi.fn(async () => ({ version: 1, updates: [] }));
+  const methods = methodsFor({ compactContext } as unknown as PiHost);
+  const prompt = { text: "after compaction", attachments: [] };
+  await invokeHostMethod(methods, "compact-and-send", ["thread-1", prompt]);
+  expect(compactContext).toHaveBeenCalledWith("thread-1", expect.objectContaining(prompt));
+  await expect(invokeHostMethod(methods, "compact-and-send", ["thread-1"])).rejects.toThrow("prompt is required");
+  await invokeHostMethod(methods, "compact-context", ["thread-1"]);
+  expect(compactContext).toHaveBeenLastCalledWith("thread-1");
+});
+
 function fakeThread(threadId: string, cwd: string, delivered: string[]): ThreadRuntime {
   let hasMessages = threadId === "saved";
   const backend = {

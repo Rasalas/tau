@@ -1,4 +1,5 @@
 import { AgentSessionControl } from "./agent-session-control.js";
+import { compactThreadContext } from "./host-compaction.js";
 import { rm } from "node:fs/promises";
 import { promptFiles } from "./prompt-attachments.js";
 import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
@@ -1847,9 +1848,9 @@ export class PiHost {
 
   reloadRuntime(): Promise<void> { return this.lifecycle.run("reload-runtime", () => this.sessionControl.reload()); }
 
-  async compactContext(expectedSessionId?: string): Promise<HostActionResult> {
+  async compactContext(expectedSessionId?: string, prompt?: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<HostActionResult> {
     const thread = this.requireThread(expectedSessionId);
-    await requireCapability(thread.backend, "compaction").compact(); this.log("context.compacted");
+    await compactThreadContext(thread, prompt, { queue: this.queue, prompts: this.prompts, emit: this.emit, report: this.report });
     return this.publication.actionResult(thread === this.active ? [await this.publication.publishDetail()] : []);
   }
 

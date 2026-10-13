@@ -32,6 +32,7 @@ import { authorizeMethod, ownerRefusal } from "./host-method-access.js";
 import { createEnvironmentMethods, type EnvironmentsService } from "./environment-methods.js";
 import {
   decodeBoolean,
+  decodeCompactionPrompt,
   decodeCommandName,
   decodeConfigPatch,
   decodeCustomProviderInput,
@@ -383,6 +384,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeOptionalString("set-mode", "expectedSessionId", params[1]),
     ),
     "compact-context": async (params) => (await host()).compactContext(decodeOptionalString("compact-context", "expectedSessionId", params[0])),
+    "compact-and-send": async (params) => {
+      const sessionId = decodeString("compact-and-send", "sessionId", params[0]);
+      const prompt = decodeCompactionPrompt(params[1]);
+      if (!prompt) throw new Error("compact-and-send: prompt is required");
+      return (await host()).compactContext(sessionId, prompt);
+    },
     "restart-session": async (params) => (await host()).restartSession(decodeString("restart-session", "threadId", params[0])),
     "reload-runtime": async () => (await host()).reloadRuntime(),
     "reload-extensions": async () => (await host()).reloadExtensions(),

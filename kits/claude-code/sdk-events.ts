@@ -373,9 +373,10 @@ export class SdkTurnTranslator {
       }];
     }
     if (subtype === "status") {
-      const status = message as { compact_result?: string; compact_error?: string };
+      const status = message as { status?: string | null; compact_result?: string; compact_error?: string };
       if (status.compact_result === "failed") this.compactionError = `Compaction failed${status.compact_error ? `: ${status.compact_error}` : "."}`;
-      return [];
+      return status.status === "compacting" || status.status === null
+        ? [{ type: "context-compaction", running: status.status === "compacting" }] : [];
     }
     if (subtype === "permission_denied") {
       const denied = message as { tool_name?: string; reason?: string };

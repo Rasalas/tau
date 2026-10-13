@@ -757,7 +757,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   });
   const persistedLogger = options.logger ? { logger: { warn: (message: string, detail?: unknown) => options.logger!.warn(message, detail) } } : {};
   const queue = new QueuedMessages({
-    busy: (sessionId) => deps.hostThread(sessionId)?.isIdle() === false,
+    busy: (sessionId) => deps.threadFor(sessionId)?.compactionPending === true || deps.hostThread(sessionId)?.isIdle() === false,
     waitForIdle: async (sessionId) => { await deps.threadFor(sessionId)?.backend.waitForIdle(); },
     admit: async (sessionId) => { const thread = deps.threadFor(sessionId); if (thread) await prompts.assertRuntimeOn(thread); },
     deliver: (sessionId, message) => deps.deliverQueued(sessionId, message),

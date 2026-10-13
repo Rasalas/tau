@@ -659,14 +659,12 @@ export function Composer({
   const runtimeLabel = runtimeChoice?.backends.find((backend) => backend.kind === runtimeChoice.kind)?.label ?? runtimeChoice?.kind ?? "";
   const speed = useComposerSpeed(registry?.getComposerSpeeds?.(), draftOnOtherRuntime ? undefined : snapshot);
   // A new thread's draft still carries the snapshot of the thread it was opened from.
-  const sendMode = useComposerSendMode(registry?.getComposerSendModes?.(), newThread || draftOnOtherRuntime || streaming ? undefined : snapshot);
-  // Held per draft: the prompt waits in its own thread while `beforeSend` runs.
+  const sendMode = useComposerSendMode(registry?.getComposerSendModes?.(), newThread || draftOnOtherRuntime || streaming || snapshot?.isCompacting ? undefined : snapshot);
+  // The busy label follows the captured submission in its own draft scope.
   const [sendModeBusy, setSendModeBusy] = useState<{ scope: string; label: string; Icon?: ComposerSendMode["Icon"] }>();
-  const sendModeBusyHere = sendModeBusy?.scope === attachmentScope ? sendModeBusy : undefined;
+  const sendModeBusyHere = sendModeBusy?.scope === attachmentScope && activeScopeSnapshot.submissionPending ? sendModeBusy : undefined;
   const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
   const sendOptionsAnchor = useRef<HTMLDivElement>(null);
-  const scopeRef = useRef(attachmentScope);
-  scopeRef.current = attachmentScope;
   // The context windows of the model in use: its `[1m]` twin and the like, with the catalog's sizes once asked.
   const inUse = modelSelectionAvailable ? snapshot?.model : undefined;
   const twins = inUse ? snapshot!.models.filter((model) => model.provider === inUse.provider && modelFamily(model) === modelFamily(inUse)) : [];
@@ -718,8 +716,6 @@ export function Composer({
   const answerable = prompt && arrival.armed;
   // A question that takes typed text takes the files waiting in the composer with it.
   const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
-  const submitPromptRef = useRef(submitPrompt);
-  submitPromptRef.current = submitPrompt;
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean, plain?: boolean) => void>(() => {});
   // `plain` sends as usual, past a kit's send mode.
   const submitCurrent = useCallback((delivery?: ComposerDelivery, gated = false, plain = false) => {
@@ -767,12 +763,19 @@ export function Composer({
           }
           const scope = attachmentScope;
           setSendModeBusy({ scope, label: mode.busyLabel ?? mode.label, ...(mode.Icon ? { Icon: mode.Icon } : {}) });
-          void mode.beforeSend(shellContext?.actions)
-            .then(() => {
-              // The thread changed meanwhile: its draft stays there rather than going to this one.
-              if (scopeRef.current === scope) submitPromptRef.current(intent.delivery);
-            }, (error: unknown) => onNotify?.(errorMessage(error), "error"))
-            .finally(() => setSendModeBusy((busy) => busy?.scope === scope ? undefined : busy));
+          submitPrompt(intent.delivery, async (capturedText = "", capturedAttachments = [], capturedDelivery, skillDraft) => {
+            try {
+              if (mode.submit) return await mode.submit(shellContext?.actions, { text: capturedText, attachments: capturedAttachments, ...(skillDraft ? { skillDraft } : {}) });
+              await mode.beforeSend(shellContext?.actions);
+              return await onSubmit(capturedText, capturedAttachments, capturedDelivery, skillDraft);
+            } catch (error) {
+              const message = errorMessage(error);
+              onNotify?.(message, "error");
+              return { accepted: false, message };
+            } finally {
+              setSendModeBusy((busy) => busy?.scope === scope ? undefined : busy);
+            }
+          });
           return;
         }
         const runtime = runtimeChoice?.kind ?? snapshot?.backendKind;
@@ -793,6 +796,7 @@ export function Composer({
     held,
     onAnswerPrompt,
     onNotify,
+    onSubmit,
     onRunShellAction,
     draftOnOtherRuntime,
     newThread,

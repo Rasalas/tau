@@ -103,7 +103,8 @@ export function useConversationActivities(input: ConversationActivityInput) {
     [taskProgress],
   );
   const extensionRows = registry.getTranscriptRows(conversationSnapshot?.sessionId);
-  const liveStatusLabel = registry.getLiveStatus(conversationSnapshot?.sessionId);
+  const liveStatusLabel = conversationSnapshot?.isCompacting
+    ? "Compacting context…" : registry.getLiveStatus(conversationSnapshot?.sessionId);
 
   useEffect(() => {
     // An empty live assistant row only becomes visible once an extension row
