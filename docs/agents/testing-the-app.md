@@ -55,6 +55,12 @@ The host's system service never reaches the machine's service manager from an in
 
 The display units (`tau service install --display`, Linux only) are tested the same way: `npm run smoke:display` installs them through the fake service manager, which starts Xvfb and the Tau window as ordinary processes of the smoke, checks that a preview call starts the window, that the window draws a frame, that it starts again after a stop, and that uninstalling stops everything. It logs which display it expects and why the numbers before it were skipped, fails when the display's lock names any process but its own Xvfb, or when Xvfb or the host started twice, and on any end (pass, failure, its guard, SIGINT/SIGTERM) stops what the fake started, by pid and process group after checking the start time, and removes the display's lock and socket only when its own Xvfb held them (`scripts/smoke-processes.mjs`). The fake manager carries a Wayland desktop's `WAYLAND_DISPLAY`, `WAYLAND_SOCKET` and `XDG_SESSION_TYPE` (`systemctl --user set-environment`), as a machine with a desktop session does, and the smoke checks that neither the host, the window (started with `--ozone-platform=x11`) nor a terminal of the host sees them. On macOS, or without Xvfb, it says so and passes; it runs on the Linux CI runner. Never install the display units against a real systemd from a test.
 
+The first preview open waits up to 60 s when the window half has connected
+before its browser window exists. Only the explicit error about a missing
+drawable window is retried; other errors fail immediately. The log records that
+error, the window unit's pid and running state, and the wait until a successful
+open. The frame check still proves the page was drawn.
+
 Checklist for the user, on the Linux machine itself (rex), after `sudo apt install xvfb` and `tau service install --display`:
 
 1. `tau service status` shows `display: :N (Xvfb running; window stopped, …)`, and `systemctl --user status tau-xvfb.service` is active.

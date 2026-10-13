@@ -32,6 +32,24 @@ describe("build time relative to the machine", () => {
     expect(check(31_000, 500).summary.normalizedMs).toBe(62_000);
   });
 
+  it.each([1.5, 1.6])("passes an unchanged build when only the reference speeds up by %s", (speed) => {
+    const result = check(23_000, FAST / speed, mainRuns);
+    expect(result.summary.normalizedMs).toBeGreaterThan(result.summary.history.limitMs);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("still rejects an injected slowdown with a fast reference", () => {
+    const history = Array.from({ length: 20 }, () => ({ epoch: 1, buildTimeMs: 20_000, referenceMs: FAST }));
+    const result = check(26_000, FAST / 1.6, history);
+    expect(result.summary.cappedMs).toBeLessThan(CAP);
+    expect(result.failures).toHaveLength(1);
+  });
+
+  it("does not reject a raw increase explained by a slower runner", () => {
+    const history = Array.from({ length: 20 }, () => ({ epoch: 1, buildTimeMs: 23_000, referenceMs: FAST }));
+    expect(check(32_200, SLOW, history).failures).toEqual([]);
+  });
+
   it("bounds the credit a slow or disturbed reference can give", () => {
     expect(check(59_000, 5000).failures).toEqual([]);
     expect(check(61_000, 5000).failures[0]).toMatch(/^buildTimeMs 61000 is 30500 at reference speed > budget 30000/u);
@@ -43,10 +61,11 @@ describe("build time relative to the machine", () => {
     const slowRegion = check(Math.round(32_200 * 1.3), SLOW, mainRuns);
     expect(slowRegion.summary.cappedMs).toBeLessThan(CAP);
     expect(slowRegion.failures).toEqual([
-      "buildTimeMs at reference speed 29900 > 27600, the median of the last 6 main runs (23000) + 20%",
+      "buildTimeMs at reference speed 29900 > 27600, the median of the last 6 main runs (23000) + 20%; raw 41860 > 33024 (median 27520)",
     ]);
-    expect(check(Math.round(23_000 * 1.3), FAST, mainRuns).failures).toHaveLength(1);
-    expect(check(23_000, FAST, mainRuns).summary.history).toEqual({ runs: 6, medianMs: 23_000, limitMs: 27_600 });
+    const fastRuns = mainRuns.filter((run) => run.referenceMs === FAST);
+    expect(check(Math.round(23_000 * 1.3), FAST, [...fastRuns, ...fastRuns]).failures).toHaveLength(1);
+    expect(check(23_000, FAST, mainRuns).summary.history).toEqual({ runs: 6, medianMs: 23_000, limitMs: 27_600, rawMedianMs: 27_520, rawLimitMs: 33_024 });
   });
 
   it("uses only enough recent runs of the current epoch", () => {

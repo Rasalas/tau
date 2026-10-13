@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describeCleanup, readStarted, stopStarted, xLockPath } from "./smoke-processes.mjs";
+import { openDisplayPreview } from "./display-smoke-preview.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MAIN = join(ROOT, "dist-electron", "main");
@@ -252,7 +253,12 @@ try {
 
   const preview = (command, input) => client.request("host-extension", ["tau.preview", command, input]);
   const started = Date.now();
-  const opened = await preview("open", { url: pageUrl });
+  const opened = await openDisplayPreview(preview, pageUrl, {
+    windowState: () => {
+      const pid = unitPid(windowUnit);
+      return `${windowUnit} pid ${pid ?? "none"} ${alive(pid) ? "running" : "not running"}`;
+    },
+  });
   if (!alive(unitPid(windowUnit))) fail("the preview opened without the window unit running");
   step("a preview call started the window unit", `${((Date.now() - started) / 1000).toFixed(1)} s, page ${opened?.url ?? "?"}`);
   const windowArgs = readFileSync(`/proc/${unitPid(windowUnit)}/cmdline`, "utf8").split("\0");
