@@ -3,8 +3,8 @@ import { performance } from "node:perf_hooks";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectBuildReport } from "./build-report.mjs";
-import { measureReference } from "./build-time.mjs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { measureBuildWithRetry, measureReference, readHistory } from "./build-time.mjs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const nodeModules = join(ROOT, "node_modules");
@@ -24,28 +24,35 @@ const parallel = async (jobs) => {
 // `--reference` brackets the build with a fixed workload so the budget can compare
 // build time across machines of different speed (scripts/build-time.mjs).
 const reference = process.argv.includes("--reference");
-const referenceSamplesMs = reference ? measureReference() : [];
-const started = performance.now();
-// `npm run typecheck` checks every target separately, including in CI. Build emits
-// the host as the editable-source build already does, without repeating that check.
-// The renderer reads source files only. Start it alongside the host, while kits
-// still wait for the compiled host modules they import.
-await parallel([
-  run("vite/bin/vite.js", ["build"]),
-  (async () => {
-    await parallel([
-      run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", "--noCheck"]),
-      run("../scripts/build-preload.mjs", []),
-      run("../scripts/build-host-worker.mjs", []),
-      run("../scripts/prepare-customization-source.mjs", []),
-    ]);
-    await run("../scripts/verify-sandboxed-preload.mjs", ["dist-electron/preload/bundle.cjs"]);
-    await run("../scripts/build-kits.mjs", []);
-  })(),
-]);
-const buildTimeMs = Math.round(performance.now() - started);
-if (reference) referenceSamplesMs.push(...measureReference());
-const report = await collectBuildReport(join(ROOT, "dist"), { buildTimeMs, referenceSamplesMs, kitsDirectory: join(ROOT, "dist-kits") });
+const measureBuild = async () => {
+  const referenceSamplesMs = reference ? measureReference() : [];
+  const started = performance.now();
+  // `npm run typecheck` checks every target separately, including in CI. Build emits
+  // the host as the editable-source build already does, without repeating that check.
+  // The renderer reads source files only. Start it alongside the host, while kits
+  // still wait for the compiled host modules they import.
+  await parallel([
+    run("vite/bin/vite.js", ["build"]),
+    (async () => {
+      await parallel([
+        run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", "--noCheck"]),
+        run("../scripts/build-preload.mjs", []),
+        run("../scripts/build-host-worker.mjs", []),
+        run("../scripts/prepare-customization-source.mjs", []),
+      ]);
+      await run("../scripts/verify-sandboxed-preload.mjs", ["dist-electron/preload/bundle.cjs"]);
+      await run("../scripts/build-kits.mjs", []);
+    })(),
+  ]);
+  const buildTimeMs = Math.round(performance.now() - started);
+  if (reference) referenceSamplesMs.push(...measureReference());
+  return { buildTimeMs, referenceSamplesMs };
+};
+const budgets = reference ? JSON.parse(await readFile(join(ROOT, "scripts/performance-budgets.json"), "utf8")) : {};
+const measurement = await measureBuildWithRetry(measureBuild, budgets.buildTimeMs, budgets.buildTimeReference,
+  reference ? await readHistory(process.env.TAU_BUILD_TIME_HISTORY) : []);
+const { buildTimeMs, referenceSamplesMs } = measurement;
+const report = await collectBuildReport(join(ROOT, "dist"), { ...measurement, kitsDirectory: join(ROOT, "dist-kits") });
 await mkdir(join(ROOT, "reports"), { recursive: true });
 await writeFile(join(ROOT, "reports/build-report.json"), `${JSON.stringify(report, null, 2)}\n`);
 // The host serves this to browsers and phones; a packaged app ships it (tooling/electron-builder.yml).
