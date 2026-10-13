@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -335,25 +336,32 @@ async function rewindFixture(options: Partial<WorkspaceKitLifecycleOptions> = {}
     { type: "custom", id: "custom-1", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: stored },
   ];
   const branches: Array<HostSessionFile & { appended: Array<{ customType: string; data: unknown }>; infos: string[] }> = [];
+  // Branches branch again: restore recovery saves the current tree in a branch of a backup.
+  const branchOf = (id: string) => (entryId: string): HostSessionFile => {
+    const appended: Array<{ customType: string; data: unknown }> = [];
+    const infos: string[] = [];
+    const branchId = `${id}-branch-${branches.length}-${entryId}`;
+    const path = join(cwd, `branch-${branches.length}.jsonl`);
+    // Recovery touches the file of the backup it creates.
+    writeFileSync(path, "");
+    const created = Object.assign(sessionFile({
+      path,
+      sessionId: branchId,
+      cwd,
+      entries: () => [...entries, ...appended.map((entry) => ({ type: "custom", customType: entry.customType, data: entry.data }))],
+      appendEntry: (customType, data) => { appended.push({ customType, data }); },
+      appendInfo: (text) => { infos.push(text); },
+      branch: (next) => branchOf(branchId)(next),
+    }), { appended, infos });
+    branches.push(created);
+    return created;
+  };
   const file = (path: string, id: string): HostSessionFile => sessionFile({
     path,
     sessionId: id,
     cwd,
     entries: () => entries,
-    branch: (entryId) => {
-      const appended: Array<{ customType: string; data: unknown }> = [];
-      const infos: string[] = [];
-      const created = Object.assign(sessionFile({
-        path: join(cwd, `branch-${branches.length}.jsonl`),
-        sessionId: `${id}-branch-${branches.length}-${entryId}`,
-        cwd,
-        entries: () => [...entries, ...appended.map((entry) => ({ type: "custom", customType: entry.customType, data: entry.data }))],
-        appendEntry: (customType, data) => { appended.push({ customType, data }); },
-        appendInfo: (text) => { infos.push(text); },
-      }), { appended, infos });
-      branches.push(created);
-      return created;
-    },
+    branch: branchOf(id),
   });
   const activate = vi.fn(async () => ({ version: 1 as const, updates: [] }));
   const refreshIndex = vi.fn(async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }));
