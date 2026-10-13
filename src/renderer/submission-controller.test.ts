@@ -559,6 +559,24 @@ describe("SubmissionController", () => {
       expect(scopes.getSnapshot(scope).draft).toBe("fix the queue");
     });
 
+    it("takes the prompt back and sends nothing when a gate stops the send", async () => {
+      const { submission, view, scopes, client } = harness({
+        pending: DRAFT,
+        prepareNewThread: (async () => ({ stop: "Not sent: the worktree could not be created." })) as unknown as ExtensionRegistry["prepareNewThread"],
+      });
+      const scope = createDraftKey(draftKey(undefined, DRAFT));
+      scopes.setDraft(scope, "fix the queue");
+      const handle = scopes.beginSubmission(scope);
+      if (!("text" in handle)) throw new Error("expected a submission handle");
+
+      await expect(submission.submit({ text: handle.text })).rejects.toThrow("Not sent: the worktree could not be created.");
+      handle.settle({ accepted: false, message: "Not sent: the worktree could not be created." });
+
+      expect(draftRows(view)).toEqual([]);
+      expect(scopes.getSnapshot(scope).draft).toBe("fix the queue");
+      expect(client.calls.some((call) => call.method === "newSession" || call.method === "sendPrompt")).toBe(false);
+    });
+
     it("takes the prompt back and restores it, in the moved draft, when the thread cannot start", async () => {
       const { view, scopes, finish, submit, prepareNewThread } = gated({
         newSession: async () => { throw new Error("no runtime"); },

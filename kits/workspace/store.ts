@@ -52,9 +52,18 @@ import {
 import { recordTurnStat } from "./turn-stats.js";
 
 export const WORKSPACE_KIT_ID = WORKSPACE_HOST_EXTENSION_ID;
+
 export const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
 /** The kit's own key; core stopped listing it when the kit moved out. */
 const BASELINE_CACHE_KEY = "tau.workspace.turn-baseline.v1";
+
+/** The user would not run a prompt in the checkout after its worktree failed; nothing was sent. */
+export class WorktreeDeclined extends Error {
+  constructor() {
+    super("Not sent: the worktree could not be created.");
+    this.name = "WorktreeDeclined";
+  }
+}
 
 const INITIAL: WorkspaceKitState = {
   draftPending: false,
@@ -669,8 +678,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   /**
    * The worktree a new thread runs in, created while its first prompt waits.
-   * Anything that goes wrong leaves the thread in the checkout it was started
-   * from: a prompt is never lost to a worktree that could not be made.
+   * When it cannot be made the prompt waits for the user: the checkout is
+   * used only on their say, and declining throws `WorktreeDeclined`. A
+   * request that forces a worktree (several models) gets `{}` and counts the
+   * failure itself.
    */
   async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }> {
     await this.loadProjectDefaults();
@@ -686,12 +697,37 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       const created = await this.host.createWorktree(branch, { ...this.worktreeOptions(), ...(!this.state.draftBranch ? { uniqueBranch: true } : {}), ...(base ? { baseRef: base, startFromOrigin: false } : {}) }, this.workspace());
       return { workspace: { workspaceId: created.workspaceId, displayPath: created.displayPath }, ...(created.baseCommit ? { baseCommit: created.baseCommit } : {}) };
     } catch (error) {
+      const reason = errorMessage(error);
+      if (event.force) {
+        this.notify(`The worktree could not be created. ${reason}`, "error");
+        return {};
+      }
+      event.preparing("Waiting for your answer…");
+      if (!await this.askToUseCheckout(reason)) throw new WorktreeDeclined();
       if (this.state.worktreeSuggested) this.draftFellBack = true;
-      this.notify(`The worktree could not be created; this thread runs in the checkout. ${errorMessage(error)}`, "error");
       return {};
     } finally {
       this.update({ preparingWorktree: false });
     }
+  }
+
+  /** A toast that stays until answered; closing it is a no. Without toasts the answer is no. */
+  private askToUseCheckout(reason: string): Promise<boolean> {
+    const detail = reason.replace(/[.\s]+$/u, "");
+    if (!this.actions?.toast) {
+      this.notify(`The worktree could not be created. ${detail}.`, "error");
+      return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+      this.actions?.toast?.({
+        type: "error",
+        title: "The worktree could not be created",
+        description: `${detail}. Run this thread in the current checkout instead?`,
+        timeoutMs: 0,
+        actions: [{ label: "Use the checkout", run: () => resolve(true) }, { label: "Don't send", run: () => resolve(false) }],
+        onClose: () => resolve(false),
+      });
+    });
   }
 
   /**

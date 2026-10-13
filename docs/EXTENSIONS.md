@@ -2132,8 +2132,14 @@ reader has moved elsewhere.
 worktree a new thread of the followed project runs in, the way the new-thread
 gate does and named by the same naming kit; `force` makes one although the
 draft runs in the current checkout, and `branchSuffix` keeps several worktrees
-for one prompt apart. It answers `{}` (with a notice) for a project that is no
-repository or a worktree that could not be made. A new thread's own choice in
+for one prompt apart. It answers `{}` for a project that is no repository or a
+draft that runs in the checkout. When the worktree could not be made it stops
+and asks (API 1.60.0): an error toast that stays offers "Use the checkout" and
+"Don't send", and the call rejects unless the checkout was chosen, so the
+agent never edits a checkout the user meant to keep clear; the new-thread gate
+turns that into `{ stop }`, the background start (⌘↵) lets the rejection keep
+the draft. A call with `force` (several models) answers `{}` with an error
+toast and leaves the failure to its caller. A new thread's own choice in
 its Branch section, `draftBranch` and `draftBase` in the store's state (set with
 `setDraftBranch({ name?, base? })`), wins over the naming kit and the default
 base; both are forgotten with the draft.
@@ -2304,9 +2310,12 @@ pending draft's first prompt is sent, while the thread still does not exist. It
 receives the draft's project (`projectPath`, `workspaceId`), the prompt, and
 `preparing(message)` — a line the transcript shows while the hook works — and
 may answer with `{ workspace: { workspaceId, displayPath, name? } }` to move the
-thread to another project. The first hook that names one wins; a hook that
-throws is reported and the draft stays where it was, so a prompt is never lost
-to a workspace that could not be prepared. Workspace Kit uses it to create the
+thread to another project, or with `{ stop }` (API 1.60.0), a line saying why,
+to send nothing: the prompt returns to the composer and the line shows under it.
+The first hook that names a workspace or stops wins; a hook that throws is
+reported and the draft stays where it was, so a prompt is never lost to a
+workspace that could not be prepared. A hook that must not let the prompt run
+in the wrong place answers `stop` instead of throwing. Workspace Kit uses it to create the
 worktree a new thread runs in ([ADR 0017](adr/0017-worktrees-for-threads-and-agents.md)).
 Meanwhile the prompt already shows in the draft's transcript as the user's
 message, above the `preparing` line, and stays the thread's first message when
