@@ -61,9 +61,11 @@ Threads
 - the current project (working directory) as Pi sees it
 - **which threads were mid-turn when the host stopped**: the host writes one
   marker per thread to `<userData>/turns-in-flight.json` when it accepts a
-  prompt (`{ sessionId, cwd, turnId, backend, startedAt, prompt }`, atomically,
+  prompt on an idle thread (`{ sessionId, cwd, turnId, backend, startedAt, prompt }`, atomically,
   never into the session file, which is the runtime's) and drops it when the
-  turn ends or is cancelled. At the next start each marker is dropped before
+  turn ends or is cancelled. Queued follow-ups keep the running turn's marker;
+  rejected preparation cancels the turn and removes its marker.
+  At the next start each marker is dropped before
   its thread is touched, so nothing is ever continued twice, and then: with
   **Continue threads after restarts** on (Settings → General,
   `threads.continueAfterRestart`, **off** by default) the thread is reopened

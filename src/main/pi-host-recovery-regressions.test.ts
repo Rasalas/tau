@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
-import type { HostBackendOpenContext, HostExtension } from "./host-extensions.js";
+import type { HostBackendOpenContext, HostExtension, HostTurnObserverSet } from "./host-extensions.js";
 import { HostStart } from "./host-start.js";
 import { PiHost } from "./pi-host.js";
 import { ProjectHistory } from "./project-history.js";
@@ -29,8 +29,10 @@ async function fixture() {
   for (const [key, path] of Object.entries({ PI_CODING_AGENT_DIR: "agent", PI_CODING_AGENT_SESSION_DIR: "sessions", TAU_CONFIG_FILE: "config.json", TAU_THEMES_DIR: "themes", TAU_PACKAGES_HOME: "packages" })) vi.stubEnv(key, join(root, path));
   vi.stubEnv("TAU_NO_WATCH", "1");
   vi.stubEnv("TAU_NO_RUNTIME_UPDATES", "1");
+  const journalEntries: unknown[] = [];
   const start = async (options: { beforeIndex?: () => Promise<void>; beforeNotice?: () => Promise<void>; journal?: boolean } = {}) => {
     const delivered: Array<{ text: string; hidden: boolean }> = [];
+    const notice = vi.fn(async () => { await options.beforeNotice?.(); });
     let streaming = false;
     const attempts: string[] = [];
     const aborts: string[] = [];
@@ -52,8 +54,8 @@ async function fixture() {
             return {
               kind: adapter.id, runtimeAdapter: adapter, threadId, providerSessionId: threadId, cwd: workspace, turnReporting: "streamed",
               capabilities: {
-                resume: { hiddenPrompt: true, notice: options.beforeNotice },
-                ...(options.journal ? { journal: { entries: () => [], appendCustomEntry: () => undefined, appendMessage: () => undefined } } : {}),
+                resume: { hiddenPrompt: true, notice },
+                ...(options.journal ? { journal: { entries: () => journalEntries, appendCustomEntry: () => undefined, appendMessage: (message: unknown) => { journalEntries.push({ type: "message", message }); } } } : {}),
               },
               start: async () => undefined, dispose: async () => undefined,
               waitForIdle: async () => { if (streaming) await new Promise<void>((resolve) => idleWaiters.add(resolve)); },
@@ -65,6 +67,7 @@ async function fixture() {
                 delivered.push({ text: input.text, hidden: input.hidden === true });
                 streaming = true;
                 input.onAdmitted?.(true);
+                if (input.queued) return {};
                 await new Promise<void>((resolve) => idleWaiters.add(resolve));
                 return {};
               },
@@ -83,7 +86,7 @@ async function fixture() {
       queuedMessagesPath: join(root, "queue.json"), threadLimitsPath: join(root, "limits.json"), turnsInFlightPath: join(root, "turns.json"),
       createModelRuntime: async () => ({ getAvailable: async () => [], getModels: () => [], getModel: () => undefined, isUsingSubscription: () => false }) as never,
     });
-    const { turnsInFlight } = host as unknown as { turnsInFlight: TurnsInFlight };
+    const { turnsInFlight, turnObservers } = host as unknown as { turnsInFlight: TurnsInFlight; turnObservers: HostTurnObserverSet };
     let disposed = false;
     const dispose = async () => {
       if (disposed) return;
@@ -108,12 +111,61 @@ async function fixture() {
       for (const resolve of idleWaiters) resolve();
       idleWaiters.clear();
     };
-    return { host, startup, ready, bootstrap, aborts, delivered, attempts, blockNextAdmission, settle, dispose, texts: () => delivered.map((entry) => entry.text) };
+    return { host, startup, ready, bootstrap, aborts, delivered, attempts, notice, turnsInFlight, turnObservers, blockNextAdmission, settle, dispose, texts: () => delivered.map((entry) => entry.text) };
   };
-  return { root, cwd, start };
+  return { root, cwd, start, journalEntries };
 }
 
 describe("host durable recovery through public operations", () => {
+  it("recovers the running turn after a queued prompt returns and the host stops", async () => {
+    const f = await fixture();
+    const first = await f.start({ journal: true });
+    await first.host.prompt("turn A", [], "saved");
+    const marker = first.turnsInFlight.get("saved");
+    expect(marker?.prompt.text).toBe("turn A");
+    let queuedReturned!: () => void;
+    const queued = new Promise<void>((resolve) => { queuedReturned = resolve; });
+    first.turnObservers.add({ ended: async () => { queuedReturned(); } });
+    await first.host.prompt("turn B", [], "saved");
+    await queued;
+    await first.turnsInFlight.flush();
+    expect(first.turnsInFlight.get("saved")).toEqual(marker);
+    f.journalEntries.push({ type: "message", message: {
+      role: "assistant", content: [{ type: "toolCall", id: "unfinished", name: "read", arguments: {} }],
+    } });
+    // Shutdown freezes the same durable markers a crash leaves behind.
+    await first.dispose();
+    const second = await f.start({ journal: true });
+    expect((await second.host.bootstrap()).threadIndex.sessions).toContainEqual(expect.objectContaining({
+      id: "saved", interrupted: true,
+    }));
+    expect(second.notice).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("Interrupted by a restart"));
+    expect(f.journalEntries).toContainEqual({ type: "message", message: expect.objectContaining({
+      role: "toolResult", toolCallId: "unfinished", isError: true,
+    }) });
+    expect(second.texts()).toEqual([]);
+    expect(second.turnsInFlight.list()).toEqual([]);
+  });
+
+  it.each(["accepted", "prepare"] as const)("cancels a turn and its durable marker when %s rejects", async (phase) => {
+    const f = await fixture();
+    await mkdir(join(f.cwd, ".tau"));
+    await writeFile(join(f.cwd, ".tau", "config.json"), JSON.stringify({ threads: { continueAfterRestart: true } }));
+    const first = await f.start({ journal: true });
+    const error = new Error("Preparation refused");
+    const cancelled = vi.fn();
+    first.turnObservers.add({ [phase]: () => { throw error; }, cancelled });
+    await expect(first.host.prompt("never admitted", [], "saved")).rejects.toBe(error);
+    expect(first.turnObservers.hasOpenTurn("saved")).toBe(false);
+    expect(first.turnsInFlight.list()).toEqual([]);
+    expect(cancelled).toHaveBeenCalledExactlyOnceWith("saved", expect.any(String));
+    expect(first.attempts).toEqual([]);
+    await first.dispose();
+    const second = await f.start({ journal: true });
+    expect(second.notice).not.toHaveBeenCalled();
+    expect(second.texts()).toEqual([]);
+  });
+
   it.each(["index", "recovery"] as const)("holds client sends during %s and retains old and new follow-ups exactly once", async (phase) => {
     const f = await fixture();
     await writeFile(join(f.root, "turns.json"), JSON.stringify({ version: 1, turns: [{ sessionId: "saved", cwd: f.cwd, turnId: "interrupted-turn", backend: adapter.id, startedAt: 1, prompt: { text: "unfinished" } }] }));
