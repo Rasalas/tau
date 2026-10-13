@@ -10,13 +10,13 @@
 // display's own lock and socket go; nothing it did not start is touched.
 // Linux with Xvfb only; elsewhere it says why and passes.
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { describeCleanup, readStarted, stopStarted, xLockPath } from "./smoke-processes.mjs";
+import { cleanSmoke, describeCleanup, readStarted, xLockPath } from "./smoke-processes.mjs";
 import { openDisplayPreview } from "./display-smoke-preview.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -160,10 +160,10 @@ let cleanedUp = false;
 function cleanUp() {
   if (cleanedUp) return;
   cleanedUp = true;
-  const report = stopStarted({ started: readStarted(units), display: displayNumber });
+  const report = cleanSmoke({ started: readStarted(units), display: displayNumber, directories: [userData, home], keep: process.env.TAU_SMOKE_KEEP === "1" });
   console.log(`cleanup:\n${describeCleanup(report).map((line) => `  ${line}`).join("\n")}`);
   if (process.env.TAU_SMOKE_KEEP === "1") console.log(`kept ${userData} and ${home}`);
-  else for (const directory of [userData, home]) rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  if (report.remaining.length > 0) process.exitCode = 1;
 }
 process.on("exit", cleanUp);
 for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) {
@@ -330,5 +330,5 @@ try {
   client?.close();
   page.close();
   cleanUp();
-  process.exit(passed ? 0 : 1);
+  process.exit(passed && process.exitCode !== 1 ? 0 : 1);
 }
