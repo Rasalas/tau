@@ -235,13 +235,23 @@ export class CodexAppServer {
     return models;
   }
 
-  startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy; ephemeral?: boolean; baseInstructions?: string }): Promise<CodexThreadInfo> {
+  async startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy; ephemeral?: boolean; baseInstructions?: string }): Promise<CodexThreadInfo> {
+    let config: Record<string, unknown> | undefined;
+    if (params.ephemeral) {
+      const result = await this.connection.request<{ config: { mcp_servers?: Record<string, unknown> } }>("config/read", { includeLayers: false, cwd: params.cwd }, { timeoutMs: this.timeouts.requestMs });
+      // Empty tables merge with the user's servers, so disable each effective entry.
+      config = {
+        mcp_servers: Object.fromEntries(Object.keys(result.config.mcp_servers ?? {}).map((name) => [name, { enabled: false }])),
+        "features.plugins": false, "features.apps": false,
+        "features.shell_tool": false, "features.apply_patch_tool": false,
+      };
+    }
     return this.connection.request("thread/start", {
       cwd: params.cwd,
       approvalPolicy: params.policy.approvalPolicy,
       approvalsReviewer: params.policy.approvalsReviewer ?? "user",
       sandbox: params.policy.sandbox,
-      ...(params.ephemeral ? { ephemeral: true, config: { mcp_servers: {}, "features.shell_tool": false, "features.apply_patch_tool": false }, developerInstructions: "Return the requested text only. Do not use tools or inspect the workspace." } : {}),
+      ...(params.ephemeral ? { ephemeral: true, config, developerInstructions: "Return the requested text only. Do not use tools or inspect the workspace." } : {}),
       ...(params.baseInstructions ? { baseInstructions: params.baseInstructions } : {}),
       ...(params.model ? { model: params.model } : {}),
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
