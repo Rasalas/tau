@@ -22,6 +22,7 @@ import takeover from "./takeover/desktop.js";
 import tailscale from "./tailscale/desktop.js";
 import composerContext from "./composer-context/desktop.js";
 import files from "./files/desktop.js";
+import { FILE_EDITOR_TAB } from "./files/protocol.js";
 import review from "./review/desktop.js";
 import signals from "./signals/desktop.js";
 import subscriptionLogin from "./subscription-login/desktop.js";
@@ -245,16 +246,16 @@ describe("client profiles", () => {
     for (const extension of kits) registry.deactivate(extension.id);
   });
 
-  it("leaves the host half of a kit alone when this client draws none of it", () => {
+  it("leaves the host half of a kit alone when this client draws only part of it", () => {
     const invoked: string[] = [];
     const host = async (extensionId: string, command: string) => { invoked.push(`${extensionId}:${command}`); return undefined; };
     const { registry } = createKitHarness(host, "web");
     registry.activate(workspace);
-    // Workspace Kit is desktop-only, so nothing of it is drawn here …
-    expect(registry.getPanels()).toEqual([]);
+    // A browser tab draws Workspace Kit's Files and Changes, with the documents they open …
+    expect(registry.getPanels().map((panel) => panel.id)).toEqual(["files", "changes"]);
+    expect(registry.getDocumentSource()?.id).toBe("workspace.documents");
+    // … but not its sidebar, and every contribution it leaves out is named as absent, not lost.
     expect(registry.getSidebarContributions()).toEqual([]);
-    expect(registry.getDocumentSource()).toBeUndefined();
-    // … and every one of those contributions is named as absent, not lost.
     const unrendered = registry.getUnrenderedContributions();
     expect(unrendered.length).toBeGreaterThan(8);
     expect(unrendered.every((entry) => entry.extensionId === workspace.id)).toBe(true);
@@ -263,6 +264,18 @@ describe("client profiles", () => {
     expect(invoked.some((entry) => entry.includes("deactivate"))).toBe(false);
     registry.deactivate(workspace.id);
   });
+});
+
+// Files' Edit button opens this tab, so a client that draws Files must draw it.
+describe("Files Kit's editor tab", () => {
+  for (const profile of CLIENT_PROFILES) {
+    it(`is drawn on the ${profile} profile`, () => {
+      const { registry } = createKitHarness(workspaceHostStub(), profile);
+      registry.activate(files);
+      expect(registry.getStageTabKinds().map((tab) => tab.kind)).toEqual([FILE_EDITOR_TAB]);
+      registry.deactivate(files.id);
+    });
+  }
 });
 
 describe("kits that meet through a service", () => {

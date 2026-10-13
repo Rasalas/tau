@@ -134,13 +134,13 @@ export const workspaceExtension: DesktopExtension = {
     });
     const FilesPanelWithSearch = (props: PanelProps) => <FilesPanel {...props} search={search} />;
     context.registerPanel({
-      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, threadActions: true, profiles: ["desktop", "compact"],
+      id: WORKSPACE_FILES_PANEL, label: "Files", Icon: Folder, order: 10, maximizable: true, stageButton: true, threadActions: true, profiles: ["desktop", "web", "compact"],
       Component: bind(FilesPanelWithSearch),
     });
     // The Changes panel reads the same Git state as the rest of the kit, so it
-    // travels with it. Where a kit draws the review, the entry opens that instead.
+    // travels with it. Where a kit draws the review (the desktop), the entry opens that instead.
     context.registerPanel({
-      id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, maximizable: true, profiles: ["desktop"],
+      id: WORKSPACE_CHANGES_PANEL, label: "Changes", Icon: GitCompare, order: 20, maximizable: true, profiles: ["desktop", "web"],
       redirect: () => store.openChangesView(), Component: bind(ChangesPanel),
     });
     // The kit owns its workspace state; these keep it following the workbench
@@ -171,7 +171,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerRegion({ id: "workspace.worktree-suggestion", placement: "draft-actions", order: 11, profiles: ["desktop", "compact"], Component: bind(WorktreeSuggestionPill) });
     const documents = documentStates(store);
     context.registerDocumentSource({
-      profiles: ["desktop", "compact"],
+      profiles: ["desktop", "web", "compact"],
       id: "workspace.documents",
       // The stage names the project its tabs belong to; a caller that does not means the followed one.
       loadFile: (relPath, from) => host.readFile(relPath, from?.workspace ?? store.workspace()),
