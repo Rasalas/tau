@@ -249,8 +249,8 @@ export const planKitExtension: DesktopExtension = {
         await actions.setMode(active.mode === PLAN_MODE ? DEFAULT_MODE : PLAN_MODE);
       },
     });
-    // Not ⇧Tab, which cycles the thinking level (Pi's chord). A terminal and Files Kit's editor ("select all matches") keep ⇧⌘L.
-    plugin.registerKeybinding({ keys: "mod+shift+l", commandId: "plan.toggle", when: "!terminalFocus && !editorFocus" });
+    // As in T3 Code. Only in the composer's text field, so ⇧Tab keeps moving focus back in a dialog, a form and everywhere else.
+    plugin.registerKeybinding({ keys: "shift+tab", commandId: "plan.toggle", when: "composerFocus && editableFocus && !overlayOpen" });
   },
 };
 

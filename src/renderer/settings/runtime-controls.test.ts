@@ -169,7 +169,6 @@ describe("runtime controls keybindings", () => {
       "navigation.back": ["mod+["],
       "navigation.forward": ["mod+]"],
       "runtime.cycle-model": ["ctrl+p"],
-      "runtime.cycle-thinking": ["shift+tab"],
       "runtime.instructions": ["mod+i"],
       "thread.find": ["mod+f"],
       "runtime.model": ["mod+shift+m"],
@@ -194,6 +193,8 @@ describe("runtime controls keybindings", () => {
       "runtime.open-prompt-editor": ["ctrl+g"],
       "rightPanel.toggleMaximized": ["mod+alt+shift+b"],
     });
+    // The command stays in the palette; ⇧Tab is Plan Kit's now and ⌘⇧E opens the thinking menu.
+    expect(registry.getCommands().map((command) => command.id)).toContain("runtime.cycle-thinking");
     const scoped = Object.fromEntries(registry.getKeybindings().filter((binding) => binding.when).map((binding) => [binding.keys, binding.when]));
     expect(scoped).toEqual({ "mod+f": "!terminalFocus && !previewFocus && !editorFocus && !overlayOpen", "mod+[": "!terminalFocus", "mod+]": "!terminalFocus", "mod+n": "!terminalFocus", "mod+shift+t": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+n": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus", escape: "chatFocus", f2: "!terminalFocus" });
   });

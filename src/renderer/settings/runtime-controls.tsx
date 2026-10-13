@@ -268,7 +268,7 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
     // Pi's chord, in the composer only: elsewhere Ctrl+P is `mod+p` off macOS, the file picker.
     plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model", when: "composerFocus" });
-    plugin.registerKeybinding({ keys: "shift+tab", commandId: "runtime.cycle-thinking" });
+    // No default chord for `runtime.cycle-thinking`: ⇧Tab toggles plan mode (Plan Kit); ⌘⇧E opens the thinking menu.
     // F2 as in VS Code; ⇧⌘R opens Reviews (design 2g). A terminal keeps its function keys.
     plugin.registerKeybinding({ keys: "f2", commandId: "runtime.rename-thread", when: "!terminalFocus" });
     // Not the design's ⇧⌘K: T3 Code and VS Code use it (K159).

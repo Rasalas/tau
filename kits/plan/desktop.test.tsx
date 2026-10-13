@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, WorkbenchActions } from "tau";
-import { createKitHarness, KitShell, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, KitShell, ThreadStore, ThreadStoreContext, useAppKeybindings, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { implementPlan, planKitExtension } from "./desktop.js";
 
 afterEach(cleanup);
@@ -63,19 +63,23 @@ describe("Plan Kit desktop extension", () => {
     expect(actions.setMode).toHaveBeenLastCalledWith("default");
   });
 
-  it("toggles plan mode from the keyboard everywhere but a terminal and the Files editor", async () => {
+  it("toggles plan mode with Shift+Tab in the composer's text field and nowhere else", async () => {
     const { registry } = createKitHarness();
     registry.activate(planKitExtension);
-    const mac = /mac/iu.test(navigator.platform);
     const press = (contexts: string[]) => registry.matchKeybinding(
-      new KeyboardEvent("keydown", { key: "L", code: "KeyL", metaKey: mac, ctrlKey: !mac, shiftKey: true }),
+      new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true }),
       (name) => contexts.includes(name),
-    );
-    expect(press(["composerFocus", "chatFocus"])?.command.id).toBe("plan.toggle");
-    expect(press([])?.command.id).toBe("plan.toggle");
-    // A terminal keeps ⇧⌘L, and CodeMirror binds it to "select all matches".
-    expect(press(["terminalFocus"])).toBeUndefined();
-    expect(press(["editorFocus"])).toBeUndefined();
+    )?.command.id;
+    expect(press(["chatFocus", "composerFocus", "editableFocus"])).toBe("plan.toggle");
+    // Shift+Tab goes back through the page: from a footer chip, the transcript, a form, a terminal or the Files editor.
+    expect(press([])).toBeUndefined();
+    expect(press(["chatFocus", "composerFocus"])).toBeUndefined();
+    expect(press(["chatFocus"])).toBeUndefined();
+    expect(press(["editableFocus"])).toBeUndefined();
+    expect(press(["terminalFocus", "editableFocus"])).toBeUndefined();
+    expect(press(["editorFocus", "editableFocus"])).toBeUndefined();
+    // A dialog or menu over the composer takes it.
+    expect(press(["composerFocus", "editableFocus", "overlayOpen"])).toBeUndefined();
     const toggle = registry.getCommands().find((command) => command.id === "plan.toggle")!;
     const planning = actionsFor();
     await toggle.run(planning);
@@ -87,6 +91,36 @@ describe("Plan Kit desktop extension", () => {
     await toggle.run(noPlan);
     expect(noPlan.setMode).not.toHaveBeenCalled();
     expect(noPlan.notify).toHaveBeenCalledWith("This thread's runtime has no plan mode.");
+  });
+
+  it("takes the Shift+Tab key only from the composer's text field, leaving every other field and dialog to move focus back", async () => {
+    const { registry } = createKitHarness();
+    registry.activate(planKitExtension);
+    const actions = actionsFor();
+    renderHook(() => useAppKeybindings(registry, actions, vi.fn()));
+    const page = (dialog: boolean) => (
+      <>
+        <footer data-keybinding-context="composer"><textarea aria-label="Prompt" /><button type="button">Model</button></footer>
+        <input aria-label="Name" />
+        {dialog ? <div role="dialog" aria-label="Rename"><input aria-label="Title" /></div> : null}
+      </>
+    );
+    const view = render(page(false));
+    // Returns whether the key was left to the browser.
+    const shiftTab = (name: string, role: "textbox" | "button") => {
+      const target = screen.getByRole(role, { name });
+      target.focus();
+      return fireEvent.keyDown(target, { key: "Tab", code: "Tab", shiftKey: true });
+    };
+    expect(shiftTab("Prompt", "textbox")).toBe(false);
+    await vi.waitFor(() => expect(actions.setMode).toHaveBeenCalledTimes(1));
+    expect(actions.setMode).toHaveBeenLastCalledWith("default");
+    expect(shiftTab("Model", "button")).toBe(true);
+    expect(shiftTab("Name", "textbox")).toBe(true);
+    view.rerender(page(true));
+    expect(shiftTab("Title", "textbox")).toBe(true);
+    expect(shiftTab("Prompt", "textbox")).toBe(true);
+    expect(actions.setMode).toHaveBeenCalledTimes(1);
   });
 
   it("draws a proposed plan as a card with its title", () => {

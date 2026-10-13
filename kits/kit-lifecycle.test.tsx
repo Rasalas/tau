@@ -197,10 +197,12 @@ describe("client profiles", () => {
     expect(press("1", ["modelPickerOpen"])).toBeUndefined();
     expect(press("j", ["terminalFocus"])).toBe("terminal.toggle");
     expect(press("b", [])).toBe("workbench.toggle-sidebar");
-    // Plan mode takes ⇧⌘L, not ⇧Tab (the thinking cycle); a terminal and Files Kit's editor keep it.
-    expect(press("L", [], true)).toBe("plan.toggle");
-    expect(press("L", ["terminalFocus"], true)).toBeUndefined();
-    expect(press("L", ["editorFocus"], true)).toBeUndefined();
+    // Plan mode takes a bare ⇧Tab in the composer's text field (T3 Code); elsewhere it still goes back through the page, and the thinking level has no ⇧Tab.
+    const shiftTab = (contexts: string[]) => registry.matchKeybinding(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true }), (name) => contexts.includes(name))?.command.id;
+    expect(shiftTab(["chatFocus", "composerFocus", "editableFocus"])).toBe("plan.toggle");
+    for (const contexts of [[], ["composerFocus"], ["chatFocus"], ["editableFocus"], ["terminalFocus", "editableFocus"], ["editorFocus", "editableFocus"], ["composerFocus", "editableFocus", "overlayOpen"]]) {
+      expect(shiftTab(contexts)).toBeUndefined();
+    }
     // ⇧ turns ] into }; the physical key still names the chord.
     expect(press("}", [], true, "BracketRight")).toBe("thread.next");
     for (const extension of kits) registry.deactivate(extension.id);

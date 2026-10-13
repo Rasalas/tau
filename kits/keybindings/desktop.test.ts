@@ -97,6 +97,31 @@ describe("Keybindings desktop extension", () => {
     ]);
   });
 
+  it("gives ⇧Tab back to the thinking level when keybindings.json binds it, over Plan Kit's default", async () => {
+    const invoke = vi.fn(async (_extensionId: string, command: string) => {
+      if (command === "pi-keybindings") return { bindings: { "app.thinking.cycle": ["shift+tab"] } };
+      if (command === "shortcuts") return { shortcuts: [] };
+      throw new Error(`unexpected ${command}`);
+    });
+    const { registry } = createKitHarness(invoke);
+    const command = (id: string) => ({ id, label: id, group: "Test", access: "write" as const, run: () => undefined });
+    registry.activateCore({ id: "tau.runtime-settings", name: "Runtime Controls", activate(context) { context.registerCommand(command("runtime.cycle-thinking")); } });
+    // Plan Kit's default, as it registers it.
+    registry.activate({ id: "tau.plan", name: "Plan Kit", activate(context) {
+      context.registerCommand(command("plan.toggle"));
+      context.registerKeybinding({ keys: "shift+tab", commandId: "plan.toggle", when: "composerFocus && editableFocus && !overlayOpen" });
+    } });
+    const press = () => registry.matchKeybinding(new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true }), (name) => name === "composerFocus" || name === "editableFocus")?.command.id;
+    expect(press()).toBe("plan.toggle");
+    registry.activate(keybindingsExtension);
+    await flush();
+    // The user's file is the user's word: it wins, and the two do not count as a conflict.
+    expect(press()).toBe("runtime.cycle-thinking");
+    expect(registry.getKeybindingConflicts()).toEqual([]);
+    registry.deactivate("tau.keybindings");
+    expect(press()).toBe("plan.toggle");
+  });
+
   it("lets an entry under the command id win over a Pi action that names the same command", async () => {
     const invoke = vi.fn(async (_extensionId: string, command: string) => {
       if (command === "pi-keybindings") return { bindings: {
