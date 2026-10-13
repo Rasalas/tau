@@ -8,6 +8,7 @@ import { createClaudeCodeRuntimeAdapter, type ClaudeSessionInput, type ClaudeQue
 import type { ClaudeSdkSession, ResultMessage, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend, promptContent } from "./thread-backend.js";
+import { ThreadBackgroundWork } from "../../src/main/thread-background-work.js";
 
 const directories: string[] = [];
 const WORKSPACE = process.cwd();
@@ -115,6 +116,98 @@ function scriptedAdapter(filePath: string, script: Script) {
 }
 
 describe("thread runtime backends", () => {
+  it.each(["parent", "child", "background", "result", "compact"])("stops native children and reports reauthentication to the parent after a %s auth failure, then resumes after login", async (source) => {
+    const { filePath, store } = await scratchStore();
+    const signals: AbortSignal[] = [];
+    let signedIn = false;
+    const query = ((params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
+      signals.push(params.options.abortController!.signal);
+      async function* run(): AsyncGenerator<SDKMessage> {
+        yield init();
+        for await (const message of params.prompt) {
+          if (signedIn) { yield result("Recovered", { user_message_uuids: [message.uuid] }); continue; }
+          yield frame({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: "agent-call", name: "Agent", input: { description: "Review", run_in_background: true } }] } });
+          yield frame({ type: "system", subtype: "task_started", task_id: "task", tool_use_id: "agent-call", task_type: "local_agent" });
+          if (source === "background") yield result("Delegated", { user_message_uuids: [message.uuid] });
+          if (source === "compact" && message.message.content !== "/compact") { yield result("Delegated", { user_message_uuids: [message.uuid] }); continue; }
+          const detail = "Failed to authenticate: OAuth session expired and could not be refreshed";
+          if (source === "result" || source === "compact") yield frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: source === "compact" ? 0 : 1, errors: [detail], usage: {}, user_message_uuids: [message.uuid] });
+          else yield frame({ type: "assistant", error: "authentication_failed", parent_tool_use_id: source === "child" || source === "background" ? "agent-call" : null, message: { content: [{ type: "text", text: detail }] } });
+          yield result("Must never run");
+        }
+      }
+      return Object.assign(run(), { interrupt: async () => undefined }) as unknown as ReturnType<ClaudeQuery>;
+    }) as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath, query });
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+    try {
+      await backend.start("create");
+      if (source === "compact") {
+        await backend.prompt({ text: "Delegate", delivery: "prompt" });
+        await expect(backend.capabilities.compaction!.compact()).rejects.toThrow(/claude auth login/u);
+      } else if (source === "background") {
+        await backend.prompt({ text: "Delegate", delivery: "prompt" });
+        await vi.waitFor(() => expect(events.some((event) => event.type === "turn-settled" && event.status === "error")).toBe(true));
+      } else await expect(backend.prompt({ text: "Delegate", delivery: "prompt" })).rejects.toThrow(/claude auth login/u);
+      expect(signals[0]!.aborted).toBe(true);
+      expect(backend.state()).toMatchObject({ streaming: false, idle: true });
+      expect(backend.capabilities.background!.current()).toEqual([]);
+      expect(backend.capabilities.background!.list!()).toEqual([]);
+      expect(events).toContainEqual(expect.objectContaining({ type: "turn-settled", status: "error", error: expect.stringContaining("claude auth login") }));
+      expect(events.filter((event) => event.type === "tool-end").at(-1)).toMatchObject({ tool: { status: "error", args: { agentStatus: "failed" } } });
+      expect((await backend.transcript()).at(-1)?.error).toContain("claude auth login");
+      signedIn = true;
+      await expect(backend.prompt({ text: "Continue", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "Recovered" });
+      expect(signals).toHaveLength(2);
+    } finally { await backend.dispose(); }
+    const restored = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), projectName: "repo" });
+    await restored.start("resume");
+    expect((await restored.transcript()).some((message) => message.error?.includes("claude auth login"))).toBe(true);
+    await restored.dispose();
+  });
+
+  it("routes stopping a foreground native subagent through the host's combined background capability", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, sessions } = scriptedAdapter(filePath, () => [
+      frame({ type: "assistant", message: { content: [{ type: "tool_use", id: "call", name: "Agent", input: { description: "Review" } }] } }),
+      frame({ type: "system", subtype: "task_started", task_id: "task", tool_use_id: "call", task_type: "local_agent", is_backgrounded: false }),
+      result("Delegated"),
+    ]);
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo" });
+    try {
+      await backend.start("create");
+      await backend.prompt({ text: "Review", delivery: "prompt" });
+      const registry = new ThreadBackgroundWork(() => backend.capabilities.background, () => undefined);
+      await registry.forThread("tau-thread")!.stop("task");
+      expect(sessions[0]!.stopTask).toHaveBeenCalledWith("task");
+      expect(backend.state().idle).toBe(true);
+    } finally { await backend.dispose(); }
+  });
+
+  it("settles a stale native child when the CLI says its task is no longer available, without swallowing other stop failures", async () => {
+    const { filePath, store } = await scratchStore();
+    const { adapter, sessions } = scriptedAdapter(filePath, () => [
+      frame({ type: "assistant", message: { content: [{ type: "tool_use", id: "call", name: "Agent", input: { description: "Review", run_in_background: true } }] } }),
+      frame({ type: "system", subtype: "task_started", task_id: "task", tool_use_id: "call", task_type: "local_agent" }),
+      result("Delegated"),
+    ]);
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+    try {
+      await backend.start("create");
+      await backend.prompt({ text: "Delegate", delivery: "prompt" });
+      sessions[0]!.stopTask.mockRejectedValueOnce(new Error("The control channel timed out"));
+      await expect(backend.capabilities.background!.stop("task")).rejects.toThrow("timed out");
+      expect(backend.state().idle).toBe(false);
+      sessions[0]!.stopTask.mockRejectedValueOnce(new Error("That background task is no longer available."));
+      await backend.capabilities.background!.stop("task");
+      expect(backend.state().idle).toBe(true);
+      expect(backend.capabilities.background!.current()).toEqual([]);
+      expect(events.filter((event) => event.type === "tool-end").at(-1)).toMatchObject({ tool: { status: "done", args: { agentStatus: "idle" } } });
+    } finally { await backend.dispose(); }
+  });
+
   it.each(["missing", "file"])("refuses a resumed thread whose working folder is %s before saving another message, and resumes after restoration", async (condition) => {
     const { filePath, store } = await scratchStore();
     const cwd = join(filePath, "..", "workspace");
@@ -637,8 +730,8 @@ describe("thread runtime backends", () => {
     await backend.start("create");
     await expect(backend.prompt({ text: "break", delivery: "prompt" })).rejects.toThrow("not logged in");
     expect(events.filter((event) => event.type === "notice" || event.type === "turn-settled")).toEqual([
-      { type: "notice", message: "Claude Code reported an error: not logged in", level: "error" },
-      { type: "turn-settled", status: "error", error: "not logged in" },
+      { type: "notice", message: expect.stringContaining("not logged in"), level: "error" },
+      { type: "turn-settled", status: "error", error: expect.stringContaining("claude auth login") },
     ]);
     expect(backend.state().streaming).toBe(false);
     expect((await store.get("tau-thread"))?.lastAttemptOutcome).toBe("failed");

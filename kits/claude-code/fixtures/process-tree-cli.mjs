@@ -31,5 +31,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     startTree();
     send({ type: "system", subtype: "init", model: "stub-process", tools: ["Bash"], mcp_servers: [], permissionMode: "bypassPermissions" });
     send({ type: "assistant", parent_tool_use_id: null, message: { id: randomUUID(), type: "message", role: "assistant", model: "stub-process", content: [{ type: "tool_use", id: "fixture-bash", name: "Bash", input: { command: "sleep 60", description: "Process lifecycle fixture" } }], stop_reason: null, usage: { input_tokens: 1, output_tokens: 1 } } });
+    if (/auth-(parent|child)/u.test(String(frame.message?.content))) setTimeout(() => {
+      send({ type: "assistant", error: "authentication_failed", parent_tool_use_id: String(frame.message.content).includes("auth-child") ? "agent-call" : null, message: { id: randomUUID(), type: "message", role: "assistant", model: "stub-process", content: [{ type: "text", text: "Failed to authenticate: OAuth session expired and could not be refreshed" }], usage: {} } });
+    }, 500);
   }
 }).on("close", () => process.exit(0));

@@ -71,6 +71,19 @@ export class NativeAgentTracker {
     return [...this.agents].flatMap(([id, agent]) => agent.status === "running" ? this.update(id, { status: "cancelled" }) : []);
   }
 
+  fail(error: string): ThreadRuntimeEvent[] {
+    return [...this.agents].flatMap(([id, agent]) => agent.status === "running"
+      ? [...this.text(id, "error", error), ...this.update(id, { status: "failed" })]
+      : []);
+  }
+
+  /** Includes foreground children so the host can route their stop buttons. */
+  tasks(): Array<{ id: string; kind: "agent"; label: string; startedAt: number }> {
+    return [...this.agents.values()].flatMap((agent) => agent.status === "running" && typeof agent.args.taskId === "string"
+      ? [{ id: agent.args.taskId, kind: "agent" as const, label: String(agent.args.title), startedAt: agent.startedAt }]
+      : []);
+  }
+
   private record(id: string, entry: NativeAgentEntry): ThreadRuntimeEvent[] {
     if (!this.has(id)) return [];
     const entries = this.entries.get(id) ?? new Map<string, NativeAgentEntry>();

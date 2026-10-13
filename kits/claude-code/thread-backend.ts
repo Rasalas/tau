@@ -1,4 +1,5 @@
 import { ClaudeNativeAgents } from "./native-agents.js";
+import { authenticationFailure, ClaudeAuthenticationError } from "./auth-failure.js";
 import { stat } from "node:fs/promises";
 import type { ModelInfo, PermissionMode, PermissionResult, PermissionUpdate, UserDialogRequest, UserDialogResult } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -235,6 +236,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       goals: this.goalCapability,
       background: {
         current: () => this.background.current(),
+        list: () => [...new Map([...this.background.current(), ...this.nativeAgents.tracker.tasks()].map((task) => [task.id, task])).values()],
         release: (taskId) => { this.background.release(taskId); this.report({ type: "background" }); },
         stop: (taskId) => this.stopBackground(taskId),
       },
@@ -299,6 +301,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       id: `claude-${message.role}-${message.clientMessageId ?? index}-${message.timestamp}`,
       role: message.role,
       text: message.text,
+      ...(message.error ? { error: message.error } : {}),
       timestamp: message.timestamp,
       ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
       ...(message.skill ? { skill: { ...message.skill } } : {}),
@@ -579,6 +582,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const mcpServer = await this.options.mcpServer?.(this.tools).catch(() => undefined);
     const live: LiveSession = { session: undefined as unknown as ClaudeSdkSession, mode, network: limit, resumed, confirmed: false, stderr: "" };
     this.clearBackground();
+    this.authenticationSettled = false;
     live.session = this.runtimeAdapter.openSession({
       cwd: this.cwd,
       claudeSessionId: record.claudeSessionId,
@@ -605,6 +609,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private readonly nativeAgents = new ClaudeNativeAgents(() => this.chosenEffort ?? this.observedEffort);
+  private authenticationSettled = false;
 
   private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0], unclaimed = false): void {
     // Not in the SDK's message union, but the query stream passes it on (sdk.d.ts `SDKActiveGoalMessage`).
@@ -614,6 +619,9 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
     if (this.background.push(frame)) this.report({ type: "background" });
     for (const event of this.nativeAgents.push(frame)) this.handleEvent(event);
+    // The exit path publishes one durable error on the parent. The provider's
+    // failed assistant frame is not a second conversational reply.
+    if (frame.type === "assistant" && authenticationFailure(frame)) return;
     if ("parent_tool_use_id" in frame && frame.parent_tool_use_id) return;
     if ((frame.type === "assistant" || frame.type === "user") && Array.isArray(frame.message.content)) {
       frame = { ...frame, message: { ...frame.message, content: frame.message.content.filter((block) => {
@@ -649,6 +657,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     // behind this one starts the moment this result is in.
     this.turns.shift();
     const outcome = turn.translator.outcome;
+    if (authenticationFailure(frame)) this.authenticationSettled = true;
     this.settleTurn(turn, outcome.interrupted ? "interrupted" : outcome.error ? "error" : "completed");
     if (turn.unprompted) void this.persistUsage().catch(() => undefined);
     const next = this.turns[0];
@@ -796,15 +805,27 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   private onExit(live: LiveSession, error: unknown): void {
+    const authentication = error instanceof ClaudeAuthenticationError;
     if (this.live === live) {
       this.live = undefined;
-      for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
+      for (const event of authentication ? this.nativeAgents.tracker.fail(error.message) : this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
       this.clearBackground();
     }
     const status = error ? "error" : "interrupted";
+    if (authentication && !this.authenticationSettled && this.turns.length === 0) {
+      // A background child may lose its login after the parent has answered.
+      // Its failure still settles a run on the parent's composer.
+      const turn: Turn = { translator: new SdkTurnTranslator(this.now), text: "", unprompted: true };
+      this.turns.push(turn);
+      this.beginTurn(turn);
+    }
     const memoryKill = error instanceof Error && error.message === AGENT_OOM_MESSAGE;
-    if (error) this.report({ type: "notice", message: memoryKill ? AGENT_OOM_MESSAGE : `Claude Code stopped: ${error instanceof Error ? error.message : String(error)}${live.stderr.trim() ? `\n${live.stderr.trim()}` : ""}`, level: "error" });
-    for (const turn of this.turns.splice(0)) this.settleTurn(turn, status);
+    if (error && !authentication) this.report({ type: "notice", message: memoryKill ? AGENT_OOM_MESSAGE : `Claude Code stopped: ${error instanceof Error ? error.message : String(error)}${live.stderr.trim() ? `\n${live.stderr.trim()}` : ""}`, level: "error" });
+    if (authentication) this.handleEvent({ type: "assistant-end", message: { id: `claude-auth-${this.now()}`, role: "assistant", text: "", error: error.message, timestamp: this.now() } });
+    for (const turn of this.turns.splice(0)) {
+      if (authentication) turn.translator.outcome = { texts: [], usage: SdkTurnTranslator.emptyUsage(), tallies: [], error: error.message };
+      this.settleTurn(turn, status);
+    }
     this.steering = [];
     this.reportQueue();
   }
@@ -816,12 +837,27 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** The CLI stops each task and answers with its notification; without a CLI nothing runs. */
   private async stopBackground(taskId?: string): Promise<void> {
     const live = this.live;
-    const ids = taskId === undefined ? this.background.current().map((task) => task.id) : [taskId];
+    const ids = taskId === undefined ? [...new Set([...this.background.current(), ...this.nativeAgents.tracker.tasks()].map((task) => task.id))] : [taskId];
     // A subagent's row stops by its task too, whether or not the CLI backgrounded it.
     if (taskId !== undefined && !this.background.has(taskId) && !this.nativeAgents.hasTask(taskId)) throw new Error("That background task is no longer running.");
-    if (!live || live.session.closed) { this.clearBackground(); return; }
+    if (!live || live.session.closed) {
+      for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
+      this.clearBackground();
+      return;
+    }
     const reported = new Set(this.background.reported());
-    await Promise.all(ids.filter((id) => !reported.has(id)).map((id) => live.session.stopTask(id)));
+    await Promise.all(ids.filter((id) => !reported.has(id)).map(async (id) => {
+      let status: "idle" | "cancelled" = "cancelled";
+      try { await live.session.stopTask(id); }
+      catch (error) {
+        // The CLI knows the task is gone even when its bookend was lost.
+        // A transport failure says nothing about whether work still runs.
+        if (!(error instanceof Error) || !/task[^\n]*(?:no longer (?:available|running)|not found|does not exist)|no (?:running )?task[^\n]*found/iu.test(error.message)) throw error;
+        status = "idle";
+      }
+      for (const event of this.nativeAgents.settleTask(id, status)) this.handleEvent(event);
+      if (this.background.forget(id)) this.report({ type: "background" });
+    }));
     if (this.background.handled(ids.filter((id) => reported.has(id)))) this.report({ type: "background" });
   }
 

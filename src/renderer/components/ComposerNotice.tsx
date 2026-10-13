@@ -66,6 +66,12 @@ function ErrorBar({ error = "", provider, onRetry, onSwitchModel, onReplaceKey }
   const retry = onRetry ? <button type="button" className="primary" onClick={onRetry}><RotateCcw size={12} aria-hidden="true" />Retry</button> : null;
   const alert = <TriangleAlert size={12} aria-hidden="true" />;
   const detail = <span title={text === error.trim() ? undefined : error}>{text}</span>;
+  if (/could not authenticate|failed to authenticate|authentication_failed|OAuth session expired|not logged in/iu.test(error)) {
+    return <Bar tone="fail" icon={alert} title="Sign in again" text={detail}>
+      <SwitchModel onSwitchModel={onSwitchModel} />
+      <button type="button" className="primary" onClick={onReplaceKey}>Open provider settings</button>
+    </Bar>;
+  }
   if (status === "401" || status === "403" || /api.?key|unauthori[sz]ed/iu.test(text)) {
     return <Bar tone="fail" icon={alert} title={`${who} rejected the API key`} text={detail}>
       <SwitchModel onSwitchModel={onSwitchModel} />

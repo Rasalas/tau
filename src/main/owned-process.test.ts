@@ -27,6 +27,19 @@ function cleanup(pids: number[]): void {
   for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
 }
 
+it("allows a one-shot CLI to finish its answer after input reaches EOF", async () => {
+  const child = spawnOwnedProcess({ command: process.execPath, args: ["-e", "process.stdin.resume(); process.stdin.on('end', () => setTimeout(() => process.stdout.write('finished'), 100));"], env: process.env });
+  let output = "";
+  child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+  const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  try {
+    child.stdin.end();
+    await exited;
+    expect(output).toBe("finished");
+    expect(child.exitCode).toBe(0);
+  } finally { child.kill("SIGKILL"); }
+});
+
 it.skipIf(process.platform === "win32")("accepts a stop before the guardian finished starting", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tau-owned-early-stop-"));
   const child = spawnOwnedProcess({ command: process.execPath, args: [fixture], env: environment(dir) });
