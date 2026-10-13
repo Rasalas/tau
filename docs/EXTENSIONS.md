@@ -5257,7 +5257,7 @@ A document source may implement `loadMedia(path, { workspace })`, returning `{ u
 
 Host extensions can reuse `shareableType(path)` and `respondSharedFile(path, mimeType, rangeHeader)` from `tau/host-extension`. The latter streams an **already authorized** file: callers must resolve and authorize the originating workspace and path before publishing a resource. It performs no authorization itself.
 
-### Runtime choices for extensions (API 1.60.0)
+### Runtime choices for extensions (API 1.61.0)
 
 `HostExtensionServices.runtimeChoices(cwd, kind?)` is an optional in-process
 service under `runtime:extend`. It returns `HostRuntimeChoice[]`: `backend`
@@ -5265,5 +5265,4 @@ with the composer's kind and label, `enabled` from the effective project gate,
 `catalog` from the same runtime catalog the composer reads, and `readiness`
 from the existing catalog and sign-in checks. Passing `kind` reads only that
 runtime instance; omitting it lists registered, visible backends. A missing or
-unavailable catalog never implies a valid model. This service is documented as
-API 1.60.0; this change leaves the published version constant unchanged.
+unavailable catalog never implies a valid model.

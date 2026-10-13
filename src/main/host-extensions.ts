@@ -1034,7 +1034,7 @@ export interface HostProjectTrust {
   trust(cwd?: string): string;
 }
 
-/** A start choice from the composer catalog and the project gate. API 1.60.0. */
+/** A start choice from the composer catalog and the project gate. API 1.61.0. */
 export interface HostRuntimeChoice {
   backend: UiRuntimeBackend;
   enabled: boolean;
@@ -1043,7 +1043,7 @@ export interface HostRuntimeChoice {
 }
 
 export interface HostExtensionServices {
-  /** Composer catalogs, readiness and project enablement; optionally one kind. API 1.60.0; in-process only. */
+  /** Composer catalogs, readiness and project enablement; optionally one kind. API 1.61.0; in-process only. */
   runtimeChoices?(cwd: string, kind?: string): Promise<HostRuntimeChoice[]>;
   /** Kit-owned background work, combined with the runtime's work on every client. New after API 1.59.0. */
   readonly background?: {
