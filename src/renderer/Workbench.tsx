@@ -1186,7 +1186,7 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
   </TranscriptHistoryBoundary>;
 }
 
-/** The context meter reads the running token estimate, so the composer subscribes too. */
+/** The context meter reads token estimates at its displayed precision. */
 function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating, onOpenQueue }: {
   view: ThreadViewStore;
   onOpenQueue(): void;
@@ -1204,8 +1204,8 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
   /** Opens Settings → Providers, on `kind`'s card when it has one. */
   openProviders(kind?: string): void;
 }) {
-  const transcript = useSyncExternalStore(view.subscribeToTranscript, view.getTranscript);
-  // Only at the meter's precision: tool output would otherwise re-render the composer every frame.
+  // Round both estimates so streamed text and tool output do not render the composer every frame.
+  const messageKiloTokens = useSyncExternalStore(view.subscribeToTranscript, () => Math.round(view.getTranscript().tokenEstimate / 1000));
   const toolKiloTokens = useSyncExternalStore(view.subscribeToTools, () => toolOutputKiloTokens(view.getToolView().tools));
   const preferences = usePreferences();
   const { newThreadRuntime } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -1245,8 +1245,8 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
     onReplaceKey={() => actions?.openSettings("providers")}
   /></Suspense> : undefined;
   const contextBreakdown = useMemo(
-    () => contextBreakdownFor(snapshot?.contextUsage, transcript.tokenEstimate, toolKiloTokens * 1000),
-    [snapshot?.contextUsage, toolKiloTokens, transcript.tokenEstimate],
+    () => contextBreakdownFor(snapshot?.contextUsage, messageKiloTokens * 1000, toolKiloTokens * 1000),
+    [snapshot?.contextUsage, toolKiloTokens, messageKiloTokens],
   );
   // A sub-agent's question arrives on its parent's composer, named after the agent.
   const asking = threadStore.getSnapshot().threads.find((thread) => thread.id === prompts[0]?.sessionId && thread.parentThreadId);

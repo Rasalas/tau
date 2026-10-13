@@ -11,6 +11,7 @@ import { createRendererServices } from "../renderer-services";
 import { RendererServicesProvider } from "../renderer-services-context";
 import { readComposerDraft } from "../../workbench/draft-store";
 import { createDraftKey } from "../../workbench/composer-scope-store";
+import { loadStoredPromptHistory, PROMPT_HISTORY_STORAGE_KEY, saveStoredPromptHistory } from "../../workbench/prompt-history";
 
 const snapshot: HostSnapshot = {
   cwd: "/project",
@@ -29,13 +30,13 @@ const snapshot: HostSnapshot = {
 
 const DRAFT_KEY = createDraftKey("session:session");
 
-function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: ClientStorage) {
+function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: ClientStorage, initialSnapshot = snapshot) {
   render(
     <ClientStorageProvider storage={storage}>
       <RendererServicesProvider services={createRendererServices()}>
         <Composer
           scopeStore={new ComposerScopeStore()}
-          snapshot={snapshot}
+          snapshot={initialSnapshot}
           draftStorageKey={DRAFT_KEY}
           queue={[]}
           contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
@@ -57,6 +58,30 @@ function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: Clie
 afterEach(cleanup);
 
 describe("Composer draft persistence", () => {
+  it("records only the accepted prompt and saves history once", async () => {
+    const storage = createMemoryStorage();
+    saveStoredPromptHistory(storage, ["previously sent"]);
+    const set = vi.spyOn(storage, "set");
+    const historyWrites = () => set.mock.calls.filter(([key]) => key === PROMPT_HISTORY_STORAGE_KEY);
+    const textarea = renderComposer(async () => ({ accepted: true }), storage, {
+      ...snapshot,
+      messages: [
+        { id: "user-1", role: "user", text: "loaded first", timestamp: 1 },
+        { id: "user-2", role: "user", text: "loaded second", timestamp: 2 },
+      ],
+    });
+    expect(loadStoredPromptHistory(storage)).toEqual(["previously sent"]);
+    expect(historyWrites()).toHaveLength(0);
+
+    fireEvent.change(textarea, { target: { value: "ship it", selectionStart: 7 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(loadStoredPromptHistory(storage)).toEqual(["previously sent", "ship it"]));
+    await waitFor(() => expect(textarea.value).toBe(""));
+    expect(historyWrites()).toHaveLength(1);
+    fireEvent.keyDown(textarea, { key: "ArrowUp" });
+    expect(textarea.value).toBe("ship it");
+  });
+
   it("drops the persisted draft of a prompt the host accepted", async () => {
     const storage = createMemoryStorage();
     const textarea = renderComposer(async () => ({ accepted: true }), storage);
@@ -96,5 +121,6 @@ describe("Composer draft persistence", () => {
 
     await waitFor(() => expect(screen.getByText("no")).toBeTruthy());
     expect(readComposerDraft(storage, DRAFT_KEY)).toBe("retry me");
+    expect(loadStoredPromptHistory(storage)).toEqual([]);
   });
 });
