@@ -1,10 +1,15 @@
-import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, open, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { languageForFile, MAX_FILE_CONTENT_BYTES, readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 
 const directories: string[] = [];
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const filesystem = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...filesystem, rename: vi.fn(filesystem.rename) };
+});
 
 async function workspace(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "tau-file-content-"));
@@ -34,6 +39,39 @@ describe("readBoundedFileContent", () => {
     await writeFile(path, Buffer.from([0x89, 0x50, 0x00, 0x47, 0x0d, 0x0a]));
 
     expect(await readBoundedFileContent(path)).toMatchObject({ kind: "binary", size: 6 });
+  });
+
+  it.each([Buffer.from("Grüße\n", "latin1"), Buffer.from([0xc3]), Buffer.concat([Buffer.alloc(9_000, 0x61), Buffer.from([0xff])])])(
+    "does not offer invalid UTF-8 as editable text",
+    async (bytes) => {
+      const path = join(await workspace(), "legacy.txt");
+      await writeFile(path, bytes);
+      expect(await readBoundedFileContent(path)).toMatchObject({ kind: "binary" });
+      await expect(readFile(path)).resolves.toEqual(bytes);
+    },
+  );
+
+  it("finds binary bytes beyond the initial 8 KiB", async () => {
+    const path = join(await workspace(), "blob.txt");
+    await writeFile(path, Buffer.concat([Buffer.alloc(9_000, 0x61), Buffer.from([0])]));
+    expect(await readBoundedFileContent(path)).toMatchObject({ kind: "binary" });
+  });
+
+  it("preserves a UTF-8 BOM and literal replacement characters", async () => {
+    const path = join(await workspace(), "unicode.txt");
+    const text = "\ufeffGrüße\r\n�";
+    await writeFile(path, text);
+    expect(await readBoundedFileContent(path)).toMatchObject({ kind: "text", text });
+  });
+
+  it("drops only an incomplete UTF-8 sequence at the preview ceiling", async () => {
+    const path = join(await workspace(), "big.txt");
+    const prefix = "x".repeat(MAX_FILE_CONTENT_BYTES - 4) + "�";
+    await writeFile(path, prefix + "ü");
+    const content = await readBoundedFileContent(path);
+    expect(content).toMatchObject({ kind: "text", truncated: true });
+    expect(content.text?.length).toBe(prefix.length);
+    expect(content.text?.slice(-2)).toBe("x�");
   });
 
   it("cuts oversized files at the ceiling and marks them truncated", async () => {
@@ -75,6 +113,61 @@ describe("languageForFile", () => {
 });
 
 describe("writeTextFile", () => {
+  it("leaves the original intact and removes temporary files when replacement fails", async () => {
+    const root = await workspace();
+    const path = join(root, "notes.txt");
+    await writeFile(path, "old\n");
+    vi.mocked(rename).mockRejectedValueOnce(new Error("Replacement failed"));
+    await expect(writeTextFile(path, "new\n", undefined)).rejects.toThrow("Replacement failed");
+    await expect(readFile(path, "utf8")).resolves.toBe("old\n");
+    expect(await readdir(root)).toEqual(["notes.txt"]);
+  });
+
+  it("creates a missing file when the editor expects none", async () => {
+    const path = join(await workspace(), "new.txt");
+    await expect(writeTextFile(path, "new\n", null)).resolves.toMatchObject({ status: "written", size: 4 });
+    await expect(readFile(path, "utf8")).resolves.toBe("new\n");
+  });
+
+  it("refuses to replace a dangling symlink", async () => {
+    const root = await workspace();
+    const path = join(root, "link.txt");
+    await symlink("missing.txt", path);
+    await expect(writeTextFile(path, "new\n", null)).rejects.toThrow("dangling symbolic link");
+    expect((await lstat(path)).isSymbolicLink()).toBe(true);
+  });
+
+  it("atomically replaces the file and preserves its permissions and owner", async () => {
+    const root = await workspace();
+    const path = join(root, "script.sh");
+    await writeFile(path, "old\n");
+    await chmod(path, 0o751);
+    const before = await stat(path);
+    const reader = await open(path, "r");
+    try {
+      await expect(writeTextFile(path, "new\n", before.mtimeMs)).resolves.toMatchObject({ status: "written" });
+      await expect(reader.readFile("utf8")).resolves.toBe("old\n");
+      await expect(readFile(path, "utf8")).resolves.toBe("new\n");
+      const after = await stat(path);
+      expect(after.mode).toBe(before.mode);
+      expect([after.uid, after.gid]).toEqual([before.uid, before.gid]);
+      expect(await readdir(root)).toEqual(["script.sh"]);
+    } finally {
+      await reader.close();
+    }
+  });
+
+  it("keeps a symlink and atomically replaces its target", async () => {
+    const root = await workspace();
+    const path = join(root, "target.txt");
+    const link = join(root, "link.txt");
+    await writeFile(path, "old\n");
+    await symlink("target.txt", link);
+    await writeTextFile(link, "new\n", (await stat(path)).mtimeMs);
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    await expect(readFile(path, "utf8")).resolves.toBe("new\n");
+  });
+
   it("writes when the file is as the editor last saw it and reports the new mtime", async () => {
     const root = await workspace();
     const path = join(root, "a.txt");

@@ -1,7 +1,7 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Annotation, Compartment, EditorSelection, EditorState, Prec } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState, Prec, Text } from "@codemirror/state";
 import {
   crosshairCursor,
   drawSelection,
@@ -57,10 +57,13 @@ const phrases = EditorState.phrases.of({
 /** Swallows an Escape nothing in the editor used, so it never stops the agent. */
 const keepEscape = Prec.lowest(keymap.of([{ key: "Escape", run: () => true }]));
 
+const lineSeparator = (text: string): string => /\r\n|\r|\n/u.exec(text)?.[0] ?? "\n";
+
 export function createCodeEditor(parent: HTMLElement, options: CodeEditorOptions): CodeEditorHandle {
   const language = new Compartment();
   const readOnly = new Compartment();
   const wrap = new Compartment();
+  const separator = new Compartment();
   let destroyed = false;
 
   const state = EditorState.create({
@@ -75,6 +78,7 @@ export function createCodeEditor(parent: HTMLElement, options: CodeEditorOptions
       dropCursor(),
       EditorState.allowMultipleSelections.of(true),
       EditorState.tabSize.of(4),
+      separator.of(EditorState.lineSeparator.of(lineSeparator(options.text))),
       indentUnit.of(detectIndentUnit(options.text)),
       indentOnInput(),
       bracketMatching(),
@@ -93,7 +97,7 @@ export function createCodeEditor(parent: HTMLElement, options: CodeEditorOptions
       EditorView.contentAttributes.of({ "aria-label": options.label, spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged && !update.transactions.some((transaction) => transaction.annotation(external))) {
-          options.callbacks.onChange(update.state.doc.toString());
+          options.callbacks.onChange(update.state.sliceDoc());
         }
         if (update.docChanged || update.selectionSet) {
           options.callbacks.onCaretLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
@@ -120,10 +124,13 @@ export function createCodeEditor(parent: HTMLElement, options: CodeEditorOptions
     view,
     setText(text) {
       const current = view.state.doc;
-      if (current.length === text.length && current.toString() === text) return;
-      const head = Math.min(view.state.selection.main.head, text.length);
+      if (view.state.sliceDoc() === text) return;
+      const nextSeparator = lineSeparator(text);
+      const insert = Text.of(text.split(nextSeparator));
+      const head = Math.min(view.state.selection.main.head, insert.length);
       view.dispatch({
-        changes: { from: 0, to: current.length, insert: text },
+        changes: { from: 0, to: current.length, insert },
+        effects: separator.reconfigure(EditorState.lineSeparator.of(nextSeparator)),
         selection: EditorSelection.cursor(head),
         annotations: external.of(true),
       });

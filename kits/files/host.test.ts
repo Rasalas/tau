@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +9,11 @@ import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js
 import { createWorkspaceHostExtension } from "../workspace/host.js";
 import createFilesHostExtension from "./host.js";
 import { createFilesHost, FILES_KIT_ID } from "./protocol.js";
+import { createCodeEditor } from "./editor-view.js";
+import { FileDocument } from "./document.js";
+
+Range.prototype.getClientRects ??= function getClientRects() { return [] as unknown as DOMRectList; };
+Range.prototype.getBoundingClientRect ??= function getBoundingClientRect() { return new DOMRect(); };
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -43,6 +50,73 @@ async function kits(cwd: string, known: readonly string[] = []) {
 }
 
 describe("Files Kit host", () => {
+  it("opens a CRLF file, edits one line and saves a one-line diff", async () => {
+    const original = "first\r\nsecond\r\nthird\r\n";
+    const cwd = await project(original);
+    await writeFile(join(cwd, "before.md"), original);
+    const registry = await kits(cwd);
+    const host = createFilesHost((command, input) => registry.invoke(FILES_KIT_ID, command, input));
+    const document = new FileDocument("notes.md", {
+      read: (path) => host.read(cwd, path),
+      stat: (path) => host.stat(cwd, path),
+      write: (path, text, mtime) => host.write(cwd, path, text, mtime),
+    });
+    await document.load();
+    const editor = createCodeEditor(globalThis.document.createElement("div"), {
+      text: document.getState().text, path: "notes.md", label: "Notes", readOnly: false, wrap: false, mac: false,
+      callbacks: { onChange: (text) => document.edit(text) },
+    });
+    try {
+      const line = editor.view.state.doc.line(2);
+      editor.view.dispatch({ changes: { from: line.from, to: line.to, insert: "changed" } });
+      expect(await document.save()).toBe(true);
+      await expect(readFile(join(cwd, "notes.md"), "utf8")).resolves.toBe("first\r\nchanged\r\nthird\r\n");
+      const diff = spawnSync("git", ["diff", "--no-index", "--numstat", "--", "before.md", "notes.md"], { cwd, encoding: "utf8" });
+      expect(diff.status).toBe(1);
+      expect(diff.stdout).toMatch(/^1\t1\t/u);
+    } finally {
+      editor.destroy();
+      document.dispose();
+    }
+  });
+
+  it("opens non-UTF-8 without allowing edits or saves", async () => {
+    const cwd = await project();
+    const bytes = Buffer.from("Grüße\n", "latin1");
+    await writeFile(join(cwd, "notes.md"), bytes);
+    const registry = await kits(cwd);
+    const host = createFilesHost((command, input) => registry.invoke(FILES_KIT_ID, command, input));
+    const document = new FileDocument("notes.md", {
+      read: (path) => host.read(cwd, path), stat: (path) => host.stat(cwd, path),
+      write: (path, text, mtime) => host.write(cwd, path, text, mtime),
+    });
+    await document.load();
+    expect(document.getState()).toMatchObject({ status: "ready", editable: false });
+    document.edit("changed");
+    await document.save();
+    await expect(readFile(join(cwd, "notes.md"))).resolves.toEqual(bytes);
+    document.dispose();
+  });
+
+  it("adopts the line separator on reload without echoing an edit", () => {
+    const changes: string[] = [];
+    const editor = createCodeEditor(document.createElement("div"), {
+      text: "first\nsecond\n", path: "notes.txt", label: "Notes", readOnly: false, wrap: false, mac: false,
+      callbacks: { onChange: (text) => changes.push(text) },
+    });
+    try {
+      for (const separator of ["\r\n", "\r", "\n"]) {
+        editor.setText(`first${separator}second${separator}`);
+        expect(changes).toEqual([]);
+        const line = editor.view.state.doc.line(2);
+        editor.view.dispatch({ changes: { from: line.from, to: line.to, insert: `changed${separator}new` } });
+        expect(changes.splice(0)).toEqual([`first${separator}changed${separator}new${separator}`]);
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("reads, stats and writes through Workspace Kit, refusing a stale write", async () => {
     const cwd = await project();
     const registry = await kits(cwd);
