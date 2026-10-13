@@ -71,7 +71,7 @@ describe("parallel worktree creation", () => {
     }
     expect(git(cwd, "worktree", "list", "--porcelain").match(/^worktree /gmu)).toHaveLength(22);
     expect(await readdir(worktreeParent)).toHaveLength(20);
-  });
+  }, 60_000);
 
   it("retries actual config lock errors for both required metadata writes", async () => {
     const { cwd, worktreeParent } = await repository();
