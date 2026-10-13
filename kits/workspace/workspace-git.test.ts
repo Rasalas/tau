@@ -518,15 +518,16 @@ describe("immutable turn snapshots", () => {
       const before = await createWorkspaceSnapshot(linked, { namespace: `${LIVE_LINKED_SESSION}/turn`, phase: "before" });
       await writeFile(join(linked, "seed.txt"), "turn\n");
       const after = await createWorkspaceSnapshot(linked, { namespace: `${LIVE_LINKED_SESSION}/turn`, phase: "after" });
+      const known = [{ sessionId: LIVE_LINKED_SESSION, checkpoints: [] }];
 
-      await cleanupCheckpointRefsForLiveSessions(cwd, []);
+      await cleanupCheckpointRefsForLiveSessions(cwd, known, undefined, { graceMs: 0 });
       await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, {
         sessionId: LIVE_LINKED_SESSION,
         turnId: "turn",
       })).resolves.toMatchObject({ beforeTreeId: before.treeId, afterTreeId: after.treeId });
 
       await lease.release();
-      await cleanupCheckpointRefsForLiveSessions(cwd, []);
+      await cleanupCheckpointRefsForLiveSessions(cwd, known, undefined, { graceMs: 0 });
       await expect(validateWorkspaceSnapshotRefs(cwd, before.id, after.id, {
         sessionId: LIVE_LINKED_SESSION,
         turnId: "turn",
@@ -651,7 +652,8 @@ describe("immutable turn snapshots", () => {
         return runGitCommand(path, args, maxBuffer, signal);
       };
 
-      await cleanupCheckpointRefsForLiveSessions(cwd, [], runGitDuringSweep);
+      const known = [{ sessionId: RACE_WRITER_SESSION, checkpoints: [] }];
+      await cleanupCheckpointRefsForLiveSessions(cwd, known, runGitDuringSweep, { graceMs: 0 });
       expect(writerStarted).toBe(true);
       await expect(validateWorkspaceSnapshotRefs(
         cwd,
@@ -663,7 +665,7 @@ describe("immutable turn snapshots", () => {
       if (!linkedLease) throw new Error("Linked writer did not acquire its lease.");
       await linkedLease.release();
       linkedLease = undefined;
-      await cleanupCheckpointRefsForLiveSessions(cwd, []);
+      await cleanupCheckpointRefsForLiveSessions(cwd, known, undefined, { graceMs: 0 });
       await expect(validateWorkspaceSnapshotRefs(
         cwd,
         turnSnapshotRef(RACE_WRITER_SESSION, "turn", "before"),
@@ -814,8 +816,7 @@ describe("immutable turn snapshots", () => {
       await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
         .rejects.toThrow();
 
-      // A startup sweep must reclaim refs for a session that was deleted while
-      // the host was offline, but it must leave a known sibling session alone.
+      // An absent session may belong to another host's session directory.
       await cloneTurnCheckpointRefs(cwd, "source", "fork", [checkpoint]);
       await cleanupCheckpointRefsForLiveSessions(cwd, [{
         sessionId: "source",
@@ -823,7 +824,7 @@ describe("immutable turn snapshots", () => {
         checkpoints: [checkpoint],
       }]);
       await expect(validateWorkspaceSnapshotRefs(cwd, forkBefore, forkAfter, { sessionId: "fork", turnId: "turn" }))
-        .rejects.toThrow();
+        .resolves.toMatchObject({ beforeTreeId: before.treeId, afterTreeId: after.treeId });
 
       // A checkpoint entry does not make a half-written ref pair valid. If a
       // process dies after publishing only one phase, the next session open
@@ -898,6 +899,7 @@ describe("immutable turn snapshots", () => {
       }));
       const refs = sessions.flatMap((session) => session.checkpoints.flatMap((entry) => [entry.beforeSnapshotId, entry.afterSnapshotId]));
       const gone = turnSnapshotRef("deleted", "turn", "before");
+      sessions.push({ sessionId: "deleted", cwd, checkpoints: [] });
       execFileSync("git", ["update-ref", "--stdin"], { cwd, input: `${[...refs, gone].map((ref) => `create ${ref} ${tree}`).join("\n")}\n` });
       const calls: string[][] = [];
       const counted = (dir: string, args: string[], maxBuffer?: number, signal?: AbortSignal) => {

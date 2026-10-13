@@ -219,8 +219,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       else persistedClaims.set(session.path, { stamp, claim });
       return claim;
     } catch {
-      // A session can disappear between listing and opening; its refs are
-      // intentionally eligible for the same sweep.
+      // Skip a session until its journal can be read safely.
       persistedClaims.delete(session.path);
       return undefined;
     }
@@ -856,16 +855,20 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       await maintenance.cleanupSessionRefs(cwd || services.cwd(), sessionId);
     },
     sweep: async ({ sessions, liveThreads, projectPaths, deleted }: HostSessionSweep) => {
+      const trash = await services.sessions.trash();
+      const retainedSessionIds = new Set(trash.map((session) => session.sessionId));
       // Reconcile every journal against the namespaced snapshot refs. Both
       // sides of a session are roots: the file on disk and the live thread,
       // whose newest entries may not have reached that file yet.
       const claims = new Map<string, WorkspaceKitLiveCheckpointSession>();
       for (const session of sessions) {
+        // A trash move can race the index read; its missing file is still retained.
+        if (retainedSessionIds.has(session.sessionId)) continue;
         const record = sessionCheckpoints(session);
         if (record) claims.set(record.sessionId, record);
       }
       for (const thread of liveThreads) {
-        if (thread.backendKind !== "pi") continue;
+        if (thread.backendKind !== "pi" || retainedSessionIds.has(thread.sessionId)) continue;
         const claim = claimOf(thread.sessionId, thread.cwd, thread.entries());
         const persisted = claims.get(thread.sessionId);
         claims.set(thread.sessionId, persisted ? mergeClaims(persisted, claim) : claim);
@@ -882,7 +885,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       for (const path of projectPaths) await remember(path);
       await Promise.allSettled([...workspaces.values()].map((cwd) => maintenance.cleanupLiveRefs(cwd, live)));
       // Runtime eviction keeps persisted history; only a missing session file is deletion.
-      await Promise.allSettled(deleted.map((session) => maintenance.cleanupSessionRefs(session.cwd, session.sessionId)));
+      await Promise.allSettled(deleted.filter((session) => !retainedSessionIds.has(session.sessionId))
+        .map((session) => maintenance.cleanupSessionRefs(session.cwd, session.sessionId)));
     },
   };
 
