@@ -400,6 +400,7 @@ export function createAgentsHostExtension(options: {
       const expect = (id: string) => { expecting.set(id, (expecting.get(id) ?? 0) + 1); save(); };
       /** Children that finished while nobody waited for them, by parent, until the parent hears. */
       const unreported = new Map<string, Set<string>>();
+      const stoppedParents = new Set<string>();
       /** The reasoning level each thread's Pi runtime last reported. */
       const efforts = new Map<string, string>();
       const notices = new Map<string, CompletionNotice>();
@@ -641,7 +642,7 @@ export function createAgentsHostExtension(options: {
        */
       const claimSlot = (agentId: string): boolean => {
         const link = book.linkFor(agentId);
-        if (closed || !link || link.status !== "pending" || held.has(agentId) || admitting.has(agentId)) return false;
+        if (closed || !link || stoppedParents.has(link.parentThreadId) || link.status !== "pending" || held.has(agentId) || admitting.has(agentId)) return false;
         if (book.busyChildren(link.parentThreadId) >= book.runningBudget) return false;
         // Another machine's slots are its own: as many as it has cores.
         if (!remote.hasRoom(link.machine?.id)) return false;
@@ -655,6 +656,7 @@ export function createAgentsHostExtension(options: {
 
       /** Builds one agent's thread. Its slot is already claimed. */
       const startAgent = async (agent: AgentThreadLink): Promise<void> => {
+        if (book.factsFor(agent.id).cancelled) return;
         if (agent.machine) return startRemote(agent);
         let workspace: AgentWorkspace | undefined;
         starting += 1;
@@ -664,6 +666,13 @@ export function createAgentsHostExtension(options: {
           if (wanted.get(agent.id) === "worktree") {
             workspace = await openWorktree(agent);
             changed(agent.id, book.noteWorkspace(agent.id, workspace));
+          }
+          if (book.factsFor(agent.id).cancelled) {
+            if (workspace?.branch) {
+              await removeAgentWorktree({ parentCwd: agent.projectPath, worktree: { path: workspace.path, branch: workspace.branch }, runGit });
+              changed(agent.id, book.noteWorkspace(agent.id, undefined));
+            }
+            return;
           }
           const definition = definitions.get(agent.id);
           const prompt = prompts.get(agent.id) ?? agent.title;
@@ -689,6 +698,10 @@ export function createAgentsHostExtension(options: {
           if (efforts.has(started.sessionId)) changed(agent.id, book.noteEffort(agent.id, efforts.get(started.sessionId)));
           if (acceptedEarly.delete(started.sessionId)) changed(agent.id, book.noteAccepted(agent.id));
           remember(book.linkFor(agent.id)!);
+          if (book.factsFor(agent.id).cancelled) {
+            await services.sessions.abort?.(started.sessionId);
+            return;
+          }
           services.log("agents.started", `${started.sessionId.slice(0, 8)} · ${agent.title}`);
           const guard = setTimeout(() => {
             if (book.factsFor(agent.id).spawning) {
@@ -737,6 +750,7 @@ export function createAgentsHostExtension(options: {
             agentDepth: agent.depth,
           });
           prompts.delete(agent.id);
+          if (book.factsFor(agent.id).cancelled) await remote.abort(agent.id);
           services.log("agents.started-remote", `${agent.id.slice(0, 8)} → ${machine.name} · ${agent.title}`);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -758,11 +772,12 @@ export function createAgentsHostExtension(options: {
        */
       const pumps = new Map<string, Promise<void>>();
       const pump = (parentThreadId: string): Promise<void> => {
-        if (closed) return Promise.resolve();
+        if (closed || stoppedParents.has(parentThreadId)) return Promise.resolve();
         const running = pumps.get(parentThreadId);
         if (running) return running;
         const work = (async () => {
           for (;;) {
+            if (closed || stoppedParents.has(parentThreadId)) return;
             const waiting = book.startable(parentThreadId, (agent) => !held.has(agent.id) && !admitting.has(agent.id) && remote.hasRoom(agent.machine?.id));
             // What else runs on those machines is read before the batch claims their slots.
             for (const machine of new Set(waiting.flatMap((agent) => agent.machine ? [agent.machine.id] : []))) await remote.prepare(machine);
@@ -850,6 +865,7 @@ export function createAgentsHostExtension(options: {
           }
           await remote.prepare(choice.machine.id);
         }
+        if (stoppedParents.has(parent.sessionId)) throw new Error("This thread was stopped; start it again before delegating work.");
         const id = randomUUID();
         prompts.set(id, request.prompt);
         runtimes.set(id, runtime);
@@ -1005,10 +1021,10 @@ export function createAgentsHostExtension(options: {
       /** Parents a wake is on its way to: the turn it starts ends with the next flush. */
       const waking = new Set<string>();
       const flushWakes = async (parentThreadId: string, afterTurn = false): Promise<void> => {
-        if (closed) return;
+        if (closed || stoppedParents.has(parentThreadId)) return;
         const parent = services.thread(parentThreadId);
         if (afterTurn) await parent?.waitForIdle().catch(() => undefined);
-        if (waking.has(parentThreadId) || (parent && (parent.isStreaming() || !parent.isIdle()))) return;
+        if (stoppedParents.has(parentThreadId) || waking.has(parentThreadId) || (parent && (parent.isStreaming() || !parent.isIdle()))) return;
         const ids = [...(unreported.get(parentThreadId) ?? [])];
         const send = services.sessions.send;
         if (ids.length === 0 || !send) return;
@@ -1050,12 +1066,14 @@ export function createAgentsHostExtension(options: {
             }
             await persistLinks();
           });
-          if (closed) return;
+          if (closed || stoppedParents.has(parentThreadId)) return;
           // A status ACK may have consumed a child while this flush built its
           // message or wrote the admission boundary. Do not send it afterwards.
           const ready = children.filter((child) => sending.has(child.noticeId) && notices.get(child.noticeId) === sending.get(child.noticeId));
           if (ready.length === 0) return;
-          await send(parentThreadId, wakeMessage(ready));
+          await send(parentThreadId, wakeMessage(ready), {
+            delivery: "queue", wake: { source: "background", label: ready.length === 1 ? "Sub-agent finished" : `${ready.length} sub-agents finished` },
+          });
           admitted = true;
           if (closed) return;
           await changeNotices(parentThreadId, async () => {
@@ -1087,7 +1105,7 @@ export function createAgentsHostExtension(options: {
           waking.delete(parentThreadId);
         }
         // What finished while this wake was on its way, or what it could not deliver, goes once the parent is idle.
-        if (!closed && unreported.has(parentThreadId)) {
+        if (!closed && !stoppedParents.has(parentThreadId) && unreported.has(parentThreadId)) {
           if (sent) void flushWakes(parentThreadId, true);
           else {
             const retry = setTimeout(() => { void flushWakes(parentThreadId, true); }, WAKE_RETRY_MS);
@@ -1184,26 +1202,24 @@ export function createAgentsHostExtension(options: {
       const cancelChild = async (parentThreadId: string, input: unknown) => {
         const result = await cancelOne(parentThreadId, input);
         const link = requireChild(parentThreadId, decodeThreadId(input));
-        const below = await cancelBelow(link);
+        const below = await cancelBelow(link.threadId);
         return below > 0 ? { ...result, alsoStopped: below } : result;
       };
 
-      /** Cancels every busy or queued agent under `link`, deepest levels included; answers how many it stopped. */
-      const cancelBelow = async (link: AgentThreadLink, seen = new Set<string>()): Promise<number> => {
-        if (!link.threadId || seen.has(link.id)) return 0;
-        seen.add(link.id);
-        let stopped = 0;
+      /** Cancels every busy or queued descendant and consumes results still waiting below the thread. */
+      const cancelBelow = async (threadId: string | undefined, seen = new Set<string>()): Promise<number> => {
+        if (!threadId || seen.has(threadId)) return 0;
+        seen.add(threadId);
         // Queued ones first: a freed slot would otherwise start one just to stop it.
-        const children = book.childrenOf(link.threadId).sort((left, right) => Number(right.status === "pending") - Number(left.status === "pending"));
-        for (const child of children) {
-          if (isBusyStatus(child.status) || child.status === "pending") {
-            await cancelOne(link.threadId, { threadId: child.id }).then(() => { stopped += 1; }, (error: unknown) => {
-              services.log("agents.cancel-failed", `${child.id.slice(0, 8)} · ${error instanceof Error ? error.message : String(error)}`);
-            });
-          }
-          stopped += await cancelBelow(child, seen);
-        }
-        return stopped;
+        const children = book.childrenOf(threadId).sort((left, right) => Number(right.status === "pending") - Number(left.status === "pending"));
+        const counts = await Promise.all(children.map(async (child) => {
+          const result = await cancelOne(threadId, { threadId: child.id }).catch((error: unknown) => {
+            services.log("agents.cancel-failed", `${child.id.slice(0, 8)} · ${error instanceof Error ? error.message : String(error)}`);
+          });
+          const below = await cancelBelow(child.threadId, seen);
+          return (result?.cancelled ? 1 : 0) + below;
+        }));
+        return counts.reduce((total, count) => total + count, 0);
       };
 
       /** Stops one child: a queued one never starts, a running one ends its turn. */
@@ -1229,7 +1245,11 @@ export function createAgentsHostExtension(options: {
           void pump(parentThreadId);
           return { threadId: handle, status: book.linkFor(link.id)?.status ?? "cancelled", cancelled: true };
         }
-        if (!isBusyStatus(link.status) || !link.threadId) return { threadId: handle, status: link.status, cancelled: false };
+        if (!isBusyStatus(link.status)) return { threadId: handle, status: link.status, cancelled: false };
+        if (!link.threadId) {
+          changed(link.id, book.noteCancelled(link.id, Date.now()));
+          return { threadId: handle, status: "cancelled", cancelled: true };
+        }
         if (!services.sessions.abort) throw new Error("This Tau cannot stop another thread's turn; it needs extension API 1.11.0.");
         changed(link.id, book.noteCancelled(link.id, Date.now()));
         await services.sessions.abort(link.threadId);
@@ -1522,6 +1542,7 @@ export function createAgentsHostExtension(options: {
         else if (expecting.has(link.id)) {
           if (!watched) {
             const answer = await answerOf(link);
+            if (!expecting.has(link.id) || stoppedParents.has(link.parentThreadId)) return;
             notices.set(link.id, { version: 1, state: "pending", status: outcome, ...(answer ? { answer } : {}), ...(link.error ? { error: link.error } : {}) });
             // Store the completed outcome before consuming the last tool-owned turn.
             await persistLinks();
@@ -1554,6 +1575,7 @@ export function createAgentsHostExtension(options: {
             : undefined)] : []),
         services.registerTurnObserver({
           accepted: (sessionId) => {
+            stoppedParents.delete(sessionId);
             if (book.has(sessionId)) changed(sessionId, book.noteAccepted(sessionId));
             else if (starting > 0) acceptedEarly.add(sessionId);
           },
@@ -1567,12 +1589,20 @@ export function createAgentsHostExtension(options: {
           reset: async (sessionId) => { changed(sessionId, book.noteClosed(sessionId)); },
           // An agent someone is waiting on is not an idle runtime to release.
           pending: (sessionId) => waiters.get(book.linkFor(sessionId)?.id ?? "")?.size ?? 0,
-          // Stopping a parent leaves its agents running (`tau_cancel_thread` stops one); the stop's line must not promise quiet.
-          stopped: (sessionId) => {
+          stopped: async (sessionId) => {
             settleExpectedTurns(sessionId);
-            const running = book.childrenOf(sessionId).filter((link) => isBusyStatus(link.status) || link.status === "pending").length;
-            if (running === 0) return undefined;
-            return { continues: [running === 1 ? "A sub-agent keeps running and reports back when it finishes" : `${running} sub-agents keep running and report back when they finish`] };
+            // Block every descendant's pump and result before cancellation awaits disk or a runtime.
+            const hold = (threadId: string) => {
+              if (stoppedParents.has(threadId)) return;
+              stoppedParents.add(threadId);
+              for (const child of book.childrenOf(threadId)) {
+                expecting.delete(child.id);
+                if (child.threadId) hold(child.threadId);
+              }
+            };
+            hold(sessionId);
+            const count = await cancelBelow(sessionId);
+            return count > 0 ? [`stopped ${count === 1 ? "a sub-agent" : `${count} sub-agents`}`] : undefined;
           },
         }),
         services.registerThreadLifecycle({
