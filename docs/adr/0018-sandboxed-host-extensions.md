@@ -2,7 +2,10 @@
 
 ## Status
 
-**Proposal**, 2026-09-10. Not yet decided.
+**Partially superseded**, 2026-10-13, by
+[ADR 0039](0039-package-grants-bind-to-code.md). Installed worker packages use
+permission-restricted child processes; bundled kits retain worker threads.
+The options below record the original 2026-09-10 proposal.
 
 ## Context
 
@@ -133,7 +136,7 @@ than the current state.
 
 ## Decision
 
-Not yet made. This ADR is a proposal.
+ADR 0039 adopts a scoped form of option 1, without claiming an OS sandbox.
 
 ## Consequences (if Option 3 is ratified)
 

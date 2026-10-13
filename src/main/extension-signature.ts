@@ -75,6 +75,7 @@ export async function hashPackageFiles(directory: string): Promise<Record<string
   const walk = async (current: string): Promise<void> => {
     const entries = await readdir(current, { withFileTypes: true });
     for (const entry of entries.sort((left, right) => (left.name < right.name ? -1 : 1))) {
+      if (entry.isSymbolicLink()) throw new Error("Extension package files must not be symbolic links");
       if (entry.name === ".git") continue;
       const path = join(current, entry.name);
       if (entry.isDirectory()) { await walk(path); continue; }
@@ -142,12 +143,15 @@ export async function verifyExtensionSignature(
   directory: string,
   manifest: SignatureCheckInput,
   publishers: readonly TrustedPublisher[],
+  snapshot?: { files: Record<string, string>; source?: string },
 ): Promise<SignatureState> {
   let source: string;
-  try {
-    source = await readFile(join(directory, SIGNATURE_FILE), "utf8");
-  } catch {
-    return { state: "unsigned" };
+  if (snapshot) {
+    if (snapshot.source === undefined) return { state: "unsigned" };
+    source = snapshot.source;
+  } else {
+    try { source = await readFile(join(directory, SIGNATURE_FILE), "utf8"); }
+    catch { return { state: "unsigned" }; }
   }
   let document: ExtensionSignatureDocument;
   try {
@@ -155,7 +159,7 @@ export async function verifyExtensionSignature(
   } catch (error) {
     return { state: "tampered", reason: error instanceof Error ? error.message : String(error) };
   }
-  const actual = await hashPackageFiles(directory);
+  const actual = snapshot?.files ?? await hashPackageFiles(directory);
   for (const [path, hash] of Object.entries(document.files)) {
     if (actual[path] === undefined) return { state: "tampered", publisher: document.publisher, reason: `${path} is signed but missing` };
     if (actual[path] !== hash) return { state: "tampered", publisher: document.publisher, reason: `${path} does not match its signed hash` };

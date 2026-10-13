@@ -78,11 +78,11 @@ export class ExtensionPackageActivator {
    * package is imported and started here, a revoked one loses both its halves.
    */
   async grant(id: string, granted: boolean): Promise<void> {
-    const manifest = this.entries.get(id)?.package.manifest
-      ?? this.ungranted.get(id)?.manifest
-      ?? (await listExtensionPackages(this.options.cwd(), this.options.agentDir)).packages.find((pkg) => pkg.manifest.id === id)?.manifest;
-    if (!manifest) return;
-    await grantPackage(manifest, granted, this.options.grantsFilePath);
+    const pkg = this.entries.get(id)?.package
+      ?? this.ungranted.get(id)
+      ?? (await listExtensionPackages(this.options.cwd(), this.options.agentDir)).packages.find((candidate) => candidate.manifest.id === id);
+    if (!pkg) return;
+    await grantPackage(pkg.manifest, granted, this.options.grantsFilePath, pkg.grantIdentity);
     this.options.log(granted ? "host-extension.granted" : "host-extension.revoked", id);
     await this.refresh();
   }
@@ -166,7 +166,7 @@ export class ExtensionPackageActivator {
       }
       this.entries.set(extension.id, entry);
       this.options.registry.addKnown(extension);
-      if (!isPackageGranted(pkg.manifest, grantsFile.grants)) {
+      if (!isPackageGranted(pkg.manifest, grantsFile.grants, pkg.grantIdentity)) {
         this.options.log("host-extension.package.ungranted", `${extension.name} · awaiting permission grant`);
         continue;
       }

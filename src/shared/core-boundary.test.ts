@@ -69,6 +69,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./bundled-kits.js",   "./client-calls.js",   "./client-message-tracker.js",   "./client-tool-output.js",   "./client-turn-ledger.js",   "./compaction-record.js",
   "./cli-versions.js",   "./clone-source.js",   "./config-watcher.js",   "./configured-sampling.js",   "./dangling-tool-calls.js",   "./data-folder-lock.js",   "./dependency-loader.js",   "./desktop-extensions.js",
   "./extension-bundle-server.js",   "./extension-grants.js",   "./extension-installer.js",
+  "./extension-grant-identity.js", // Package consent follows file content and signer.
+  "./host-extension-process.js", // Restricted transport for installed packages.
   "./native-extension-grants.js", // Native package consent stays outside the renderer's host connection.
   "./extension-package-activation.js",   "./extension-packages.js",   "./extension-signature.js",
   "./extension-sources.js",   "./extension-ui-coordinator.js",   "./extension-ui.js",

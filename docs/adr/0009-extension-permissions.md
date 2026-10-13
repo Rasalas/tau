@@ -165,3 +165,13 @@ has (`process.dlopen`, the `.node` handler, an `import` of one,
 Unlike the module hooks, the native doors cannot be put back: the worker keeps
 no copy of the originals. The approval box explains `native` beside its name.
 For `in-process` nothing changes: `loadDependency` needs no grant there.
+
+## 2026-10-13: grants cover code and installed workers cannot write files
+
+[ADR 0039](0039-package-grants-bind-to-code.md) updates the process and consent
+model above. Installed worker packages run in permission-restricted child
+processes with package reads and no direct file writes. Bundled kits keep
+worker threads. Grants bind to package content and signer; only an update
+verified against the same still-trusted key can retain consent across a code
+change with identical permissions and isolation. Legacy grants need approval
+again. This remains short of an OS sandbox.

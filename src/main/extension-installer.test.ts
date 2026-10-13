@@ -9,6 +9,7 @@ import { packagesFilePath, readPackagesFile, writePackagesFile } from "./extensi
 import { create as createTar } from "tar";
 import { SIGNATURE_FILE, hashPackageFiles, signaturePayload } from "./extension-signature.js";
 import { listExtensionPackages } from "./extension-packages.js";
+import { readPackageGrantIdentity } from "./extension-grant-identity.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 
 const dirs: string[] = [];
@@ -230,13 +231,13 @@ process.exit(result.status ?? 1);
     expect(removal.deleted).toBe(true);
   });
 
-  it("keeps a grant across an update that does not change the permissions", async () => {
+  it("requires renewed consent for an unsigned update with the same permissions", async () => {
     const home = await scratch();
     const project = await scratch();
     const grants = join(home, "grants.json");
     const source = await packageFolder(await scratch(), "hello", { permissions: ["workspace:read"] });
     const installed = await installExtensionSource(source, "global", { cwd: project, home });
-    await grantPackage({ id: "acme.hello", version: "1.0.0", permissions: ["workspace:read"] }, true, grants);
+    await grantPackage({ id: "acme.hello", version: "1.0.0", permissions: ["workspace:read"] }, true, grants, await readPackageGrantIdentity(installed.directory, { id: "acme.hello", version: "1.0.0" }, []));
 
     await packageFolder(await scratch(), "ignored");
     await writeFile(join(source, "tau-extension.json"), JSON.stringify({
@@ -247,7 +248,7 @@ process.exit(result.status ?? 1);
     expect(installed.version).toBe("1.0.0");
 
     const file = await readExtensionGrants(grants);
-    expect(isPackageGranted({ id: "acme.hello", permissions: ["workspace:read"] }, file.grants)).toBe(true);
+    expect(isPackageGranted({ id: "acme.hello", permissions: ["workspace:read"] }, file.grants, await readPackageGrantIdentity(updated.directory, { id: "acme.hello", version: "1.1.0" }, []))).toBe(false);
     expect(isPackageGranted({ id: "acme.hello", permissions: ["workspace:read", "process"] }, file.grants)).toBe(false);
   });
 

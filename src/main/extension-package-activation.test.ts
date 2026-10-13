@@ -46,8 +46,9 @@ async function harness() {
         continue;
       }
       const manifest = { id: entry.id, name: entry.name, permissions: entry.permissions, host: "./host.ts" };
-      const pkg = { scope: "global" as const, directory: `/home/.tau/extensions/${entry.id}`, manifest };
-      if (!isPackageGranted(manifest, grants)) {
+      const grantIdentity = { contentHash: entry.hash, signer: "test-publisher-key", trustedSigner: true };
+      const pkg = { grantIdentity, scope: "global" as const, directory: `/home/.tau/extensions/${entry.id}`, manifest };
+      if (!isPackageGranted(manifest, grants, grantIdentity)) {
         result.ungranted.push(pkg);
         continue;
       }
@@ -85,7 +86,7 @@ async function harness() {
   const install = (entry: Installed) => { disk.set(entry.id, entry); };
   const breakEntry = (id: string) => { failing.add(id); };
   const fixEntry = (id: string) => { failing.delete(id); };
-  const approve = (id: string) => grantPackage({ id, permissions: disk.get(id)?.permissions ?? [] }, true, grantsFilePath);
+  const approve = (id: string) => grantPackage({ id, permissions: disk.get(id)?.permissions ?? [] }, true, grantsFilePath, { contentHash: disk.get(id)!.hash, signer: "test-publisher-key", trustedSigner: true });
   return { activator, registry, events, activations, disk, install, breakEntry, fixEntry, approve, grantsFilePath };
 }
 
