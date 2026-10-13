@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -139,5 +139,33 @@ describe("runtime tool service", () => {
     const seam = createHostExtensionSeam({ ...base, runtimeTools });
     await seam.services.runtimeTools!("update", { kind: "codex" });
     expect(runtimeTools).toHaveBeenCalledExactlyOnceWith("update", { kind: "codex" });
+  });
+});
+
+describe("package updates and project trust", () => {
+  it("uses the host's project trust store before updating project sources", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tau-seam-packages-"));
+    vi.stubEnv("TAU_PACKAGES_HOME", join(dir, "home"));
+    const project = join(dir, "project");
+    const local = join(project, "local");
+    mkdirSync(join(project, ".tau"), { recursive: true });
+    mkdirSync(local);
+    writeFileSync(join(project, ".tau", "packages.json"), JSON.stringify({ version: 1, packages: ["./local"] }));
+    writeFileSync(join(local, "tau-extension.json"), JSON.stringify({ id: "acme.local", name: "Local", host: "./host.ts" }));
+    writeFileSync(join(local, "host.ts"), "export default { activate() {} }");
+    const { services } = createHostExtensionSeam({
+      cwd: () => project,
+      registerTurnObserver: () => () => undefined,
+      log: () => undefined,
+      noteSubprocess: () => undefined,
+    } as unknown as ExtensionServicesPort);
+    try {
+      expect(await services.updatePackages(undefined)).toEqual([]);
+      services.projectTrust!.trust(project);
+      expect(await services.updatePackages(undefined)).toMatchObject([{ id: "acme.local", scope: "project" }]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

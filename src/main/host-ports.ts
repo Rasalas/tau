@@ -324,6 +324,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   const installer = (progress?: (message: string) => void): InstallerOptions => ({
     cwd: port.cwd(),
     home: packagesHome(),
+    trusted: (cwd) => new ProjectTrustStore(getAgentDir()).get(cwd) === true,
     findCommand: (name) => findExecutable(name),
     ...(progress ? { progress } : {}),
   });

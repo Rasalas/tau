@@ -4623,6 +4623,12 @@ not install reads as `any` instead of failing.
 /remove npm:@acme/hello
 ```
 
+npm installs and updates use `--ignore-scripts`, so package lifecycle scripts
+never run during fetching. Native dependencies Tau ships can be loaded through
+`context.services.loadDependency(packageName)` after activation. `/update`
+skips project sources until the project is trusted; global sources still update.
+A named source listed only by an untrusted project is refused with a trust hint.
+
 The same four verbs live in Settings → Extensions — the kit's sections of
 that page, through `registerSettingsSection` (see [Sections of another
 page](#sections-of-another-page)) — with a source field, a global/project

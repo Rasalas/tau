@@ -156,10 +156,11 @@ export interface InstalledSource {
   error?: string;
 }
 
-/** Every source both packages files list, resolved to the folder it installed into. */
-export async function listInstalledSources(cwd: string, home: string = packagesHome()): Promise<InstalledSource[]> {
+/** Lists installed sources, optionally excluding the project's packages file. */
+export async function listInstalledSources(cwd: string, home: string = packagesHome(), includeProject = true): Promise<InstalledSource[]> {
   const found: InstalledSource[] = [];
   for (const scope of ["global", "project"] as const) {
+    if (scope === "project" && !includeProject) continue;
     const path = packagesFilePath(scope, cwd, home);
     const file = await readPackagesFile(path);
     for (const raw of file.sources) {

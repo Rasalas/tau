@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { installExtensionSource, listExtensionSources, removeExtensionSource, updateExtensionSources } from "./extension-installer.js";
-import { packagesFilePath, readPackagesFile } from "./extension-sources.js";
+import { packagesFilePath, readPackagesFile, writePackagesFile } from "./extension-sources.js";
+import { create as createTar } from "tar";
 import { SIGNATURE_FILE, hashPackageFiles, signaturePayload } from "./extension-signature.js";
 import { listExtensionPackages } from "./extension-packages.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
@@ -40,6 +41,82 @@ async function packageFolder(root: string, folder: string, fields: PackageFields
 }
 
 describe("extension installer", () => {
+  it("installs an npm package without running its postinstall script, including on update", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    const fixture = await scratch();
+    const source = await packageFolder(fixture, "package");
+    const marker = join(fixture, "postinstall-ran");
+    await writeFile(join(source, "package.json"), JSON.stringify({
+      name: "tau-test-lifecycle", version: "1.0.0", scripts: { postinstall: "node postinstall.cjs" },
+    }));
+    await writeFile(join(source, "postinstall.cjs"), `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");`);
+    const archive = join(fixture, "package.tgz");
+    await createTar({ gzip: true, file: archive, cwd: fixture }, ["package"]);
+    const config = join(fixture, "npmrc");
+    const globalConfig = join(fixture, "global-npmrc");
+    await writeFile(config, "");
+    await writeFile(globalConfig, "");
+    const shim = join(fixture, "npm");
+    // Use real npm with a local tarball in place of the registry package.
+    await writeFile(shim, `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2);
+args.pop();
+args.push(${JSON.stringify(archive)}, "--offline");
+const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)));
+const result = spawnSync("npm", args, { stdio: "inherit", env: { ...env,
+  npm_config_cache: ${JSON.stringify(join(fixture, "cache"))},
+  npm_config_userconfig: ${JSON.stringify(config)}, npm_config_globalconfig: ${JSON.stringify(globalConfig)},
+  npm_config_ignore_scripts: "false"
+} });
+if (result.error) throw result.error;
+process.exit(result.status ?? 1);
+`);
+    await chmod(shim, 0o755);
+    const options = { cwd: project, home, findCommand: (name: string) => name === "npm" ? shim : undefined };
+    const installed = await installExtensionSource("npm:tau-test-lifecycle", "global", options);
+    expect(installed).toMatchObject({ id: "acme.hello", directory: join(home, ".tau", "npm", "node_modules", "tau-test-lifecycle") });
+    expect((await readPackagesFile(packagesFilePath("global", project, home))).sources).toEqual(["npm:tau-test-lifecycle"]);
+    await expect(readFile(marker, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await rm(installed.directory, { recursive: true, force: true });
+    expect(await updateExtensionSources(undefined, options)).toMatchObject([{ id: "acme.hello" }]);
+    await expect(readFile(marker, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("updates only global sources in an untrusted project", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    const global = await packageFolder(await scratch(), "global");
+    const projectSource = "git:https://example.com/acme/project.git";
+    await writePackagesFile(packagesFilePath("global", project, home), { sources: [global] });
+    await writePackagesFile(packagesFilePath("project", project, home), { sources: [projectSource] });
+    const options = { cwd: project, home, findCommand: () => { throw new Error("Project source was fetched"); } };
+    expect(await updateExtensionSources(undefined, options)).toMatchObject([{ id: "acme.hello", scope: "global" }]);
+    await expect(updateExtensionSources(projectSource, options)).rejects.toThrow(/trust this project/iu);
+    expect(await updateExtensionSources(global, options)).toMatchObject([{ id: "acme.hello", scope: "global" }]);
+  });
+
+  it("does not read or quarantine the packages file of an untrusted project", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    const file = packagesFilePath("project", project, home);
+    await mkdir(join(project, ".tau"));
+    await writeFile(file, "invalid JSON");
+    expect(await updateExtensionSources(undefined, { cwd: project, home })).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe("invalid JSON");
+  });
+
+  it("updates project sources when the project is trusted", async () => {
+    const home = await scratch();
+    const project = await scratch();
+    const local = await packageFolder(project, "local", { id: "acme.local" });
+    await writePackagesFile(packagesFilePath("project", project, home), { sources: ["./local"] });
+    const options = { cwd: project, home, trusted: (cwd: string) => cwd === project };
+    expect(await updateExtensionSources(undefined, options)).toMatchObject([{ id: "acme.local", scope: "project", directory: local }]);
+    expect(await updateExtensionSources("./local", options)).toMatchObject([{ id: "acme.local", scope: "project" }]);
+  });
+
   it("installs a local folder by recording it and reading its manifest", async () => {
     const home = await scratch();
     const project = await scratch();
