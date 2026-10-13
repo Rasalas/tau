@@ -13,6 +13,21 @@ export interface OwnedProcessInput {
 
 /** A private IPC connection ties a CLI and its descendants to the caller, even after SIGKILL. */
 export function spawnOwnedProcess(input: OwnedProcessInput): ChildProcessWithoutNullStreams {
+  return spawnGuarded(input, false);
+}
+
+/** Shell background work stays owned until the host exits, even after the shell returns. */
+export function spawnOwnedShellProcess(input: OwnedProcessInput): { child: ChildProcessWithoutNullStreams; exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }> } {
+  const child = spawnGuarded(input, true);
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once("message", (message) => resolve(message as { code: number | null; signal: NodeJS.Signals | null }));
+    child.once("close", (code, signal) => resolve({ code, signal }));
+    child.once("error", reject);
+  });
+  return { child, exited };
+}
+
+function spawnGuarded(input: OwnedProcessInput, retainAfterExit: boolean): ChildProcessWithoutNullStreams {
   const guardian = spawnGuardian(process.execPath, ["-e", `(${processGuardian.toString()})()`], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: ["pipe", "pipe", "pipe", "ipc"],
@@ -20,7 +35,7 @@ export function spawnOwnedProcess(input: OwnedProcessInput): ChildProcessWithout
     // Survive a signal to the host's process group long enough to clean up.
     detached: process.platform !== "win32",
   }) as ChildProcessWithoutNullStreams;
-  guardian.send({ ...input, signal: undefined, token: randomUUID() }, () => undefined);
+  guardian.send({ ...input, signal: undefined, retainAfterExit, token: randomUUID() }, () => undefined);
   // SIGKILL targets the work, not the guardian that still has to reap it.
   guardian.kill = (signal = "SIGTERM") => {
     if (!guardian.connected || guardian.exitCode !== null || guardian.signalCode !== null) return false;
@@ -45,8 +60,8 @@ async function processGuardian(): Promise<void> {
   // Built-ins keep this function independent of bundler import rewrites.
   const { spawn, execFileSync } = process.getBuiltinModule("child_process") as typeof import("node:child_process");
   const { readdirSync, readFileSync } = process.getBuiltinModule("fs") as typeof import("node:fs");
-  const configuration = await new Promise<(OwnedProcessInput & { token: string }) | undefined>((resolve) => {
-    process.once("message", (message) => resolve(message as OwnedProcessInput & { token: string }));
+  const configuration = await new Promise<(OwnedProcessInput & { token: string; retainAfterExit: boolean }) | undefined>((resolve) => {
+    process.once("message", (message) => resolve(message as OwnedProcessInput & { token: string; retainAfterExit: boolean }));
     process.once("disconnect", () => resolve(undefined));
   });
   if (!configuration) return;
@@ -66,6 +81,7 @@ async function processGuardian(): Promise<void> {
   child.stdout.pipe(process.stdout);
   child.stderr.pipe(process.stderr);
   let stopping = false;
+  let retaining = false;
   const observed = new Map<number, string>();
 
   // No command lines or environments leave this process.
@@ -138,7 +154,7 @@ async function processGuardian(): Promise<void> {
         } catch { /* gone */ }
       }
       // Also covers descendants that replaced their environment inside this group.
-      if (child.pid && child.exitCode === null && child.signalCode === null) { try { process.kill(-child.pid, termination); } catch { /* gone */ } }
+      if (child.pid) { try { process.kill(-child.pid, termination); } catch { /* gone */ } }
     };
     send("SIGTERM");
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -155,13 +171,20 @@ async function processGuardian(): Promise<void> {
   let observation: ReturnType<typeof setTimeout> | undefined;
   const observe = () => {
     if (stopping) return;
-    try { owned(false); } catch { /* a stop still takes its own snapshot */ }
+    try {
+      const remaining = owned(retaining);
+      if (retaining && remaining.size === 0) {
+        let groupAlive = false;
+        if (child.pid && process.platform !== "win32") { try { process.kill(-child.pid, 0); groupAlive = true; } catch { /* gone */ } }
+        if (!groupAlive) { process.exit(0); return; }
+      }
+    } catch { /* a stop still takes its own snapshot */ }
     // The first tools can fork and exit during CLI startup. Sample that
     // brief window more often, then reduce the steady-state overhead.
     observation = setTimeout(observe, Date.now() - observingSince < 1_000 ? 25 : 250);
     observation.unref();
   };
-  if (process.platform === "darwin") { observation = setTimeout(observe, 25); observation.unref(); }
+  if (process.platform === "darwin" || input.retainAfterExit) { observation = setTimeout(observe, 25); observation.unref(); }
 
   child.once("error", (error) => { process.stderr.write(`${error.message}\n`); void stop(1, null); });
   // An owner that dies also closes stdout/stderr. EPIPE must not kill the
@@ -170,7 +193,14 @@ async function processGuardian(): Promise<void> {
     stream.on("error", () => { void stop(null, "SIGTERM"); });
   }
   // Inherited stdout must not postpone cleanup until `close`.
-  child.once("exit", (code, signal) => { void stop(code, signal); });
+  child.once("exit", (code, signal) => {
+    if (input.retainAfterExit && code === 0 && !stopping) {
+      retaining = true;
+      process.send?.({ code, signal }, () => undefined);
+      return;
+    }
+    void stop(code, signal);
+  });
   process.stdin.once("end", () => {
     try { owned(); } catch { /* cleanup still takes its own snapshot */ }
     // One-shot requests close input before their answer. Preserve graceful

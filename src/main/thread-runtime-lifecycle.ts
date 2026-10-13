@@ -44,6 +44,7 @@ import { defaultHostConfigManager } from "./host-config.js";
 import { agentShellFor } from "./agent-scope.js";
 import { withConfiguredSampling } from "./configured-sampling.js";
 import { createDeferredToolsExtension } from "./deferred-tools.js";
+import { ownedShellExtension } from "./owned-shell.js";
 import { hidePiPackages } from "./pi-package-hiding.js";
 
 type RuntimeStartEvent = Parameters<CreateAgentSessionRuntimeFactory>[0]["sessionStartEvent"];
@@ -206,6 +207,7 @@ export class ThreadRuntimeLifecycle {
         // Host extensions add theirs through the services facade; none in safe mode.
         // First, so extensions that narrow the active tools see tool_search and can drop it.
         extensionFactories: [
+          { name: "tau-shell-ownership", factory: ownedShellExtension(cwd, settingsManager) },
           ...(this.port.safeMode ? [] : [{ name: "tau-tool-search", factory: createDeferredToolsExtension() }]),
           ...extensions.map((extension) => ({ name: extension.name, factory: extension.factory })),
         ],
