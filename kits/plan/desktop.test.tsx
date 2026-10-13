@@ -3,10 +3,11 @@ import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, WorkbenchActions } from "tau";
-import { createKitHarness, KitShell, ThreadStore, ThreadStoreContext, useAppKeybindings, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, KitShell, setHostClient, ThreadStore, ThreadStoreContext, useAppKeybindings, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { implementPlan, planKitExtension } from "./desktop.js";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); setHostClient(undefined); });
 
 /** The window's registry around a chip that reads it for its shortcut hint. */
 const shell = (registry: ReturnType<typeof createKitHarness>["registry"]) => function Shell({ children }: { children: ReactNode }) {
@@ -70,7 +71,7 @@ describe("Plan Kit desktop extension", () => {
       new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true }),
       (name) => contexts.includes(name),
     )?.command.id;
-    expect(press(["chatFocus", "composerFocus", "editableFocus"])).toBe("plan.toggle");
+    expect(press(["chatFocus", "composerFocus", "editableFocus", "planOpen"])).toBe("plan.toggle");
     // Shift+Tab goes back through the page: from a footer chip, the transcript, a form, a terminal or the Files editor.
     expect(press([])).toBeUndefined();
     expect(press(["chatFocus", "composerFocus"])).toBeUndefined();
@@ -78,8 +79,11 @@ describe("Plan Kit desktop extension", () => {
     expect(press(["editableFocus"])).toBeUndefined();
     expect(press(["terminalFocus", "editableFocus"])).toBeUndefined();
     expect(press(["editorFocus", "editableFocus"])).toBeUndefined();
-    // A dialog or menu over the composer takes it.
-    expect(press(["composerFocus", "editableFocus", "overlayOpen"])).toBeUndefined();
+    // A dialog or menu over the composer takes it, and so does a question waiting there.
+    expect(press(["composerFocus", "editableFocus", "planOpen", "overlayOpen"])).toBeUndefined();
+    expect(press(["composerFocus", "editableFocus", "planOpen", "questionFocus"])).toBeUndefined();
+    // Without the runtime's plan mode (or on a Read-only device) the composer never says `planOpen`.
+    expect(press(["composerFocus", "editableFocus"])).toBeUndefined();
     const toggle = registry.getCommands().find((command) => command.id === "plan.toggle")!;
     const planning = actionsFor();
     await toggle.run(planning);
@@ -93,34 +97,82 @@ describe("Plan Kit desktop extension", () => {
     expect(noPlan.notify).toHaveBeenCalledWith("This thread's runtime has no plan mode.");
   });
 
-  it("takes the Shift+Tab key only from the composer's text field, leaving every other field and dialog to move focus back", async () => {
-    const { registry } = createKitHarness();
-    registry.activate(planKitExtension);
-    const actions = actionsFor();
-    renderHook(() => useAppKeybindings(registry, actions, vi.fn()));
-    const page = (dialog: boolean) => (
-      <>
-        <footer data-keybinding-context="composer"><textarea aria-label="Prompt" /><button type="button">Model</button></footer>
-        <input aria-label="Name" />
-        {dialog ? <div role="dialog" aria-label="Rename"><input aria-label="Title" /></div> : null}
-      </>
-    );
-    const view = render(page(false));
-    // Returns whether the key was left to the browser.
+  describe("Shift+Tab through the real dispatcher", () => {
+    /** The composer as core draws it: the footer, its prompt field, a chip and the footer controls the registry holds. */
+    const page = (registry: ReturnType<typeof createKitHarness>["registry"], actions: WorkbenchActions, fields: { snapshot?: HostSnapshot; asking?: boolean; dialog?: boolean } = {}) => {
+      const marker = registry.getComposerControls().find((entry) => entry.id === "plan.key-context")!;
+      return (
+        <>
+          <footer data-keybinding-context={fields.asking ? "composer question" : "composer"}>
+            <textarea aria-label="Prompt" />
+            <button type="button">Model</button>
+            <marker.Component snapshot={fields.snapshot ?? snapshot({ modes: ["plan"] })} actions={actions} />
+          </footer>
+          <input aria-label="Name" />
+          {fields.dialog ? <div role="dialog" aria-label="Rename"><input aria-label="Title" /></div> : null}
+        </>
+      );
+    };
+    /** Returns whether the key was left to the browser. */
     const shiftTab = (name: string, role: "textbox" | "button") => {
       const target = screen.getByRole(role, { name });
       target.focus();
       return fireEvent.keyDown(target, { key: "Tab", code: "Tab", shiftKey: true });
     };
-    expect(shiftTab("Prompt", "textbox")).toBe(false);
-    await vi.waitFor(() => expect(actions.setMode).toHaveBeenCalledTimes(1));
-    expect(actions.setMode).toHaveBeenLastCalledWith("default");
-    expect(shiftTab("Model", "button")).toBe(true);
-    expect(shiftTab("Name", "textbox")).toBe(true);
-    view.rerender(page(true));
-    expect(shiftTab("Title", "textbox")).toBe(true);
-    expect(shiftTab("Prompt", "textbox")).toBe(true);
-    expect(actions.setMode).toHaveBeenCalledTimes(1);
+    const setup = () => {
+      const { registry } = createKitHarness();
+      registry.activate(planKitExtension);
+      const actions = actionsFor();
+      const onNotice = vi.fn();
+      renderHook(() => useAppKeybindings(registry, actions, onNotice));
+      return { registry, actions, onNotice };
+    };
+
+    it("takes the key only from the composer's text field, leaving every other field and dialog to move focus back", async () => {
+      const { registry, actions } = setup();
+      const view = render(page(registry, actions));
+      expect(shiftTab("Prompt", "textbox")).toBe(false);
+      await vi.waitFor(() => expect(actions.setMode).toHaveBeenCalledTimes(1));
+      expect(actions.setMode).toHaveBeenLastCalledWith("default");
+      expect(shiftTab("Model", "button")).toBe(true);
+      expect(shiftTab("Name", "textbox")).toBe(true);
+      view.rerender(page(registry, actions, { dialog: true }));
+      expect(shiftTab("Title", "textbox")).toBe(true);
+      expect(shiftTab("Prompt", "textbox")).toBe(true);
+      expect(actions.setMode).toHaveBeenCalledTimes(1);
+    });
+
+    it("moves focus back, without a notice, where the thread's runtime has no plan mode", () => {
+      const { registry, actions, onNotice } = setup();
+      const view = render(page(registry, actions, { snapshot: snapshot({}) }));
+      expect(shiftTab("Prompt", "textbox")).toBe(true);
+      // A runtime that offers other modes but not this one.
+      view.rerender(page(registry, actions, { snapshot: snapshot({ modes: ["review"] }) }));
+      expect(shiftTab("Prompt", "textbox")).toBe(true);
+      expect(actions.setMode).not.toHaveBeenCalled();
+      expect(actions.notify).not.toHaveBeenCalled();
+      expect(onNotice).not.toHaveBeenCalled();
+    });
+
+    it("moves focus back, without a notice, on a device paired Read only", () => {
+      const { registry, actions, onNotice } = setup();
+      setHostClient(createFakeHostClient({ isReadOnly: () => true }));
+      render(page(registry, actions));
+      expect(shiftTab("Prompt", "textbox")).toBe(true);
+      expect(actions.setMode).not.toHaveBeenCalled();
+      expect(onNotice).not.toHaveBeenCalled();
+    });
+
+    it("moves focus back from a question's field instead of toggling plan mode", () => {
+      const { registry, actions, onNotice } = setup();
+      const view = render(page(registry, actions, { asking: true }));
+      expect(shiftTab("Prompt", "textbox")).toBe(true);
+      expect(actions.setMode).not.toHaveBeenCalled();
+      expect(onNotice).not.toHaveBeenCalled();
+      // The answer is in; the prompt field is the prompt field again.
+      view.rerender(page(registry, actions, { asking: false }));
+      expect(shiftTab("Prompt", "textbox")).toBe(false);
+    });
   });
 
   it("draws a proposed plan as a card with its title", () => {

@@ -378,7 +378,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
       { id: "checks:failing", label: "Failing", selected: preferences.checks === "failing" },
     ] },
     { items: [
-      { id: "labels", label: labels.length > 0 ? `Labels (${labels.length})` : "Labels", disabled: facets.labels.length === 0, submenu: [{ items: facets.labels.map((label) => ({ id: `label:${label.name}`, label: label.name, hint: String(label.count), selected: labels.includes(label.name) })) }] },
+      { id: "labels", label: labels.length > 0 ? `Labels (${labels.length})` : "Labels", disabled: facets.labels.length === 0, submenu: [{ items: facets.labels.map((label) => ({ id: `label:${label.name}`, label: label.name, hint: String(label.count), selected: labels.includes(label.name), multiple: true })) }] },
       { id: "authors", label: author ? `Author: ${author}` : "Author", disabled: facets.authors.length === 0, submenu: [{ items: [{ id: "author:", label: "Anyone", selected: !author }, ...facets.authors.map((person) => ({ id: `author:${person.login}`, label: person.login, hint: String(person.count), selected: author === person.login }))] }] },
       ...(filterCount > 0 ? [{ id: "clear", label: "Clear filters" }] : []),
     ] },

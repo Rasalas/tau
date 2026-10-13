@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionUiPrompt, HostSnapshot } from "../../shared/contracts";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import { runningTurn } from "../test-support/kit-harness";
 import { TestProviders } from "../test-support/test-providers";
+import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
+import { useAppKeybindings } from "../use-app-keybindings";
 import { WorkbenchShellContext } from "../workbench-context";
 import { Composer } from "./Composer";
 import { usePromptSubmit } from "./ExtensionPrompt";
@@ -326,6 +328,56 @@ describe("prompt controls in the composer", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("leaves Shift+Tab to move focus back while a question waits, in its own field and in the one answering it", async () => {
+    const registry = new ExtensionRegistry();
+    const toggle = vi.fn();
+    await registry.activate({ id: "test", name: "Test", activate(context) {
+      context.registerPromptRenderer({ id: "ask", match: () => true, Component: () => <input aria-label="Branch name" /> });
+      context.registerCommand({ id: "test.toggle", label: "Toggle", group: "Test", run: toggle });
+      context.registerKeybinding({ keys: "shift+tab", commandId: "test.toggle", when: "composerFocus && editableFocus && !questionFocus" });
+    } });
+    renderHook(() => useAppKeybindings(registry, {} as WorkbenchActions, vi.fn()));
+    const view = (prompt?: ExtensionUiPrompt) => (
+      <TestProviders>
+        <WorkbenchShellContext.Provider value={{ snapshot, registry }}>
+          <Composer
+            scopeStore={new ComposerScopeStore()}
+            snapshot={snapshot}
+            {...(prompt ? { prompt } : {})}
+            queue={[]}
+            contextBreakdown={{ system: 0, messages: 0, toolOutput: 0 }}
+            textareaRef={createRef<HTMLTextAreaElement>()}
+            onSubmit={vi.fn(async () => ({ accepted: true as const }))}
+            onAbort={() => {}}
+            onCancelQueued={() => {}}
+            onSteerQueued={() => {}}
+            onSetModel={() => {}}
+            onSetThinking={() => {}}
+            onCompactContext={() => {}}
+          />
+        </WorkbenchShellContext.Provider>
+      </TestProviders>
+    );
+    /** Returns whether the key was left to the browser. */
+    const shiftTab = (field: HTMLElement) => {
+      field.focus();
+      return fireEvent.keyDown(field, { key: "Tab", code: "Tab", shiftKey: true });
+    };
+    const promptField = () => document.querySelector<HTMLTextAreaElement>(".composer-zone textarea")!;
+    const { rerender } = render(view());
+    expect(shiftTab(promptField())).toBe(false);
+    expect(toggle).toHaveBeenCalledTimes(1);
+
+    rerender(view({ id: "ask", sessionId: "session", kind: "input", title: "Which branch?" }));
+    expect(shiftTab(await screen.findByRole("textbox", { name: "Branch name" }))).toBe(true);
+    expect(shiftTab(promptField())).toBe(true);
+    expect(toggle).toHaveBeenCalledTimes(1);
+
+    rerender(view());
+    expect(shiftTab(promptField())).toBe(false);
+    expect(toggle).toHaveBeenCalledTimes(2);
   });
 
   it("submits registered prompt actions from the composer button and on Enter", () => {

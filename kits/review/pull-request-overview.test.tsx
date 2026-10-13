@@ -111,6 +111,27 @@ describe("the Pull Requests page", () => {
   });
 
 
+  it("reads the labels filter as checkboxes, since several labels can be on at once", async () => {
+    const client = listClient((input) => ({ service: "github", host: "github.com", repo: "cli/cli", viewer: "BagToad", entries: rows.filter((row) => input.state === "all" || row.state === input.state), truncated: false, limit: input.limit }));
+    render(<PullRequestListView params={{ workspace: "/project" }} handle={handle()} actions={actions()} client={client} open={vi.fn()} />);
+    await screen.findByRole("region", { name: "Authored" });
+    const openLabels = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Filter pull requests" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Labels/u }));
+      return screen.findByRole("menuitemcheckbox", { name: /^go/u });
+    };
+    expect((await openLabels()).getAttribute("aria-checked")).toBe("false");
+    // The menu offers no radio item for the labels (the other filters do).
+    expect(screen.queryAllByRole("menuitemradio", { name: /^(go|ready-for-review)/u })).toHaveLength(0);
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /^go/u }));
+    await openLabels();
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /^ready-for-review/u }));
+    await openLabels();
+    expect(screen.getByRole("menuitemcheckbox", { name: /^go/u }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("menuitemcheckbox", { name: /^ready-for-review/u }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("menuitemcheckbox", { name: /^blocked/u }).getAttribute("aria-checked")).toBe("false");
+  });
+
   it("groups the viewer's own work first, sorts, filters by typed qualifiers and opens a row", async () => {
     const client = listClient((input) => ({ service: "github", host: "github.com", repo: "cli/cli", viewer: "BagToad", entries: rows.filter((row) => input.state === "all" || row.state === input.state), truncated: false, limit: input.limit }));
     const open = vi.fn();

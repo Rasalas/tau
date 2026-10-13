@@ -63,7 +63,7 @@ export function whenError(when: string): string | undefined {
 }
 
 /** Core's own contexts, beside whatever the live bindings name. */
-const CORE_CONTEXTS = ["chatFocus", "composerFocus", "stageFocus", "modelPickerFocus", "modelPickerOpen", "editableFocus", "overlayOpen", "isDesktop"];
+const CORE_CONTEXTS = ["chatFocus", "composerFocus", "questionFocus", "stageFocus", "modelPickerFocus", "modelPickerOpen", "editableFocus", "overlayOpen", "isDesktop"];
 
 /** Clauses to offer in the `when` field: every context name the bindings use, and its negation. */
 export function whenSuggestions(live: readonly ResolvedKeybinding[]): string[] {

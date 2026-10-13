@@ -48,6 +48,15 @@ function PlanModeControl({ snapshot, actions }: ComposerControlProps) {
   );
 }
 
+/**
+ * Marks the composer while Shift+Tab may toggle plan mode (the `planOpen`
+ * context): the runtime offers it and this device may change it.
+ */
+function PlanKeyContext({ snapshot, actions }: ComposerControlProps) {
+  if (!snapshot?.modes?.includes(PLAN_MODE) || !actions?.setMode || hostIsReadOnly()) return null;
+  return <span className="plan-key-context" data-keybinding-context="plan" aria-hidden="true" />;
+}
+
 /** While a thread plans, the footer says so beside the model; a click goes back to building. */
 function PlanningChip({ snapshot, actions }: ComposerControlProps) {
   const { registry } = useWorkbenchShell();
@@ -233,6 +242,7 @@ export const planKitExtension: DesktopExtension = {
   activate(plugin) {
     plugin.registerComposerControl({ id: "plan.mode", placement: "menu", order: 40, profiles: [...PROFILES], Component: PlanModeControl });
     plugin.registerComposerControl({ id: "plan.planning", order: 40, profiles: [...PROFILES], Component: PlanningChip });
+    plugin.registerComposerControl({ id: "plan.key-context", placement: "footer", profiles: [...PROFILES], Component: PlanKeyContext });
     plugin.registerMessageBlock({ id: "plan.card", tag: PLAN_TAG, profiles: [...PROFILES], Component: PlanCard });
     plugin.registerRegion({ id: "plan.follow-up", placement: "composer-above", profiles: [...PROFILES], Component: createFollowUp(plugin.host) });
     plugin.registerCommand({
@@ -249,8 +259,9 @@ export const planKitExtension: DesktopExtension = {
         await actions.setMode(active.mode === PLAN_MODE ? DEFAULT_MODE : PLAN_MODE);
       },
     });
-    // As in T3 Code. Only in the composer's text field, so ⇧Tab keeps moving focus back in a dialog, a form and everywhere else.
-    plugin.registerKeybinding({ keys: "shift+tab", commandId: "plan.toggle", when: "composerFocus && editableFocus && !overlayOpen" });
+    // As in T3 Code. Only in the prompt field of a runtime with plan mode, on a device that may change it: ⇧Tab otherwise moves focus back,
+    // in a dialog, a form, a question's field and everywhere else.
+    plugin.registerKeybinding({ keys: "shift+tab", commandId: "plan.toggle", when: "composerFocus && editableFocus && !overlayOpen && planOpen && !questionFocus" });
   },
 };
 

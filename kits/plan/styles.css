@@ -1,5 +1,8 @@
 /* Plan Kit: the Build/Plan chip, the plan card and the "Plan ready" row. */
 
+/* Takes no room: it only carries the `plan` keybinding context. */
+.plan-key-context { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+
 .plan-mode-chip.active { background: var(--acid-chip); color: var(--acid-text); }
 .plan-mode-chip.active:hover { background: var(--acid-chip); color: var(--acid-text); }
 

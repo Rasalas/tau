@@ -18,6 +18,8 @@ export interface MenuItem {
   description?: string;
   /** Set (true or false) the entry is a choice, read as a radio item that is checked or not; an entry with a `submenu` stays an item. */
   selected?: boolean;
+  /** With `selected`: one of several entries that can be on together, read as a checkbox item instead (API 1.61.0). */
+  multiple?: boolean;
   disabled?: boolean;
   /** Deletes or discards something; drawn in the danger colour. */
   destructive?: boolean;
@@ -113,7 +115,7 @@ function useMenuLevel({ groups, onPick, onCloseAll, onBack, focusFirst, mount }:
                 key={item.id}
                 ref={(element) => { buttons.current[index] = element; }}
                 type="button"
-                role={choice ? "menuitemradio" : "menuitem"}
+                role={choice ? (item.multiple ? "menuitemcheckbox" : "menuitemradio") : "menuitem"}
                 {...(choice ? { "aria-checked": item.selected } : {})}
                 tabIndex={-1}
                 className={[item.selected ? "selected" : "", item.destructive ? "destructive" : "", expanded ? "expanded" : ""].filter(Boolean).join(" ")}
