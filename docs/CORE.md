@@ -173,6 +173,12 @@ the workbench (`window-action`: menu, quit, release notes) — and a kit that
 needs the window's process for a native view ships a `window` half the host
 calls with `callClient`.
 
+The window loads before shell discovery and host startup. Its existing bootstrap
+cache can draw immediately; the initial IPC bootstrap waits for host readiness.
+Once the supervised host and window halves are ready, the window reloads with
+the host's socket address. Saved machines wake independently in the background.
+Reopening the last shown machine may then reload the page again.
+
 Host shutdown disposes the threads before closing the listeners and their
 sockets. Sockets are terminated without waiting for a peer's close frame;
 repeated shutdown requests share the first shutdown and its exit code.

@@ -8,7 +8,6 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
-import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { HostExtension } from "./host-extensions.js";
 import type { BuildDiagnostic, ExtensionInspection, ExtensionSkip } from "../shared/contracts.js";
 import { describeBuildError, packageBuilds } from "./package-builds.js";
@@ -275,7 +274,8 @@ export async function listExtensionPackages(
   agentDir: string,
   options: PackageScanOptions = {},
 ): Promise<PackageScanResult> {
-  const trusted = options.trusted ?? ((path: string) => new ProjectTrustStore(agentDir).get(path) === true);
+  const trusted: (path: string) => boolean = options.trusted ?? (await import("@earendil-works/pi-coding-agent")
+    .then(({ ProjectTrustStore }) => (path: string) => new ProjectTrustStore(agentDir).get(path) === true));
   const home = options.home ?? packagesHome();
   const publishers = await readTrustedPublishers(options.publishersFilePath ?? trustedPublishersPath(home));
   const result: PackageScanResult = { packages: [], errors: [], skipped: [] };

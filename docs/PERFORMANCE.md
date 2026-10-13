@@ -1775,6 +1775,40 @@ Captures and `measurements.json` go to a folder under `.scratch/` unless `--out`
 
 ## Execution order
 
+### Desktop startup, 2026-10-13
+
+The desktop now loads its first page before shell discovery, host startup,
+window-half loading and saved-machine recovery. The existing renderer bootstrap
+cache supplies the first view. IPC bootstrap waits until the host is ready;
+the page then reloads with the supervised host's socket address. Machine routes
+wake in parallel after that, and reopening the last machine has its own 2.5 s
+budget rather than waiting behind every saved route.
+
+`<userData>/shell-path.json` holds the last successful PATH, keyed by platform
+and shell. A warm start uses it and refreshes it in the background. A cold
+start still awaits shell discovery after showing the window. Credentials,
+socket paths and other shell variables are never persisted in this cache.
+The window and host each refresh their own process environment. The launcher
+and headless entry enable Node's compile cache before loading dependencies.
+The window's static import graph no longer loads the runtime SDK.
+
+Regression tests cover a blocked shell/host, an unreachable route beside a
+reachable machine, delayed page loading, recovery errors, PATH refresh and the
+static import graph. These are ordering checks, not first-paint measurements.
+No desktop instance was started in this ticket's verification wave. The real
+startup comparison from review ticket 61 and the under-2-second first-paint
+target with an unreachable saved machine remain unverified. Main bundling was
+left unchanged; evaluate it against that measurement before changing build
+outputs and module identity.
+
+The focused tests ran through `npm test -- <files> --maxWorkers=2`, with the
+existing core, kits, workbench and kit-lifecycle boundaries. On this sandbox,
+the normal global teardown fails because `ps` is forbidden. A temporary test
+configuration outside the repo excludes that teardown for the separate focused
+run; it preserves the home isolation, setup, aliases and shared check slot.
+
+### Remaining work
+
 1. Add repeatable renderer, IPC, Git, and lifecycle fixtures for the observed failures.
 2. Isolate streaming records and render an active Markdown tail without reparsing settled content.
 3. Bound transcript, tool-output, diff, and sidebar rendering.

@@ -13,7 +13,6 @@ import { decodeBadgeCount, decodeSystemNotification, type SystemNotification, ty
 import { decodeMenuPoint, decodeNativeMenu, type MenuPoint, type NativeMenuEntry } from "../shared/context-menu.js";
 import { decodeWindowAction, type WindowAction } from "../shared/window-shell.js";
 import type { PiHost } from "./pi-host.js";
-import { defaultHostConfigManager } from "./host-config.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
 import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
@@ -475,8 +474,9 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "install-update": async () => ({ installing: platform.installUpdate() }),
     "open-project": async (params) => (await host()).setWorkspace(await workspace("open-project", "workspace", params[0])),
     "remove-project": async (params) => (await host()).removeProject(await workspace("remove-project", "workspace", params[0])),
-    "get-config": async (params) => defaultHostConfigManager.read(await optionalWorkspace("get-config", "workspace", params[0])),
+    "get-config": async (params) => (await import("./host-config.js")).defaultHostConfigManager.read(await optionalWorkspace("get-config", "workspace", params[0])),
     "update-config": async (params) => {
+      const { defaultHostConfigManager } = await import("./host-config.js");
       const patch = decodeConfigPatch("update-config", "patch", params[0]);
       const scope = params[1] === "project" ? "project" : "global";
       const cwd = await optionalWorkspace("update-config", "workspace", params[2]);
@@ -486,8 +486,9 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       (await host()).configWritten([defaultHostConfigManager.filePath(scope, cwd)]);
       return config;
     },
-    "get-config-layers": async (params) => defaultHostConfigManager.readLayers(await optionalWorkspace("get-config-layers", "workspace", params[0])),
+    "get-config-layers": async (params) => (await import("./host-config.js")).defaultHostConfigManager.readLayers(await optionalWorkspace("get-config-layers", "workspace", params[0])),
     "clear-config": async (params) => {
+      const { defaultHostConfigManager } = await import("./host-config.js");
       const keys = decodeSettingKeys("clear-config", "keys", params[0]);
       const scope = params[1] === "project" ? "project" : "global";
       const cwd = await optionalWorkspace("clear-config", "workspace", params[2]);

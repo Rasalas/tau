@@ -4,8 +4,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
-import { PiHost } from "./pi-host.js";
-import { primeOpenCodeCatalog } from "./pi-model-runtime.js";
+import type { PiHost } from "./pi-host.js";
+import { startDesktop } from "./desktop-startup.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { ProjectHistory } from "./project-history.js";
 import { readBoundedImagePreview } from "./image-preview.js";
@@ -19,7 +19,6 @@ import { rebuildWorkbench } from "./workbench-build.js";
 import { WorkbenchReloader } from "./workbench-reloader.js";
 import { ManagedWorkbenchSource } from "./managed-workbench-source.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, loadBundledKitWindowHalves, shippedHostExtensions } from "./bundled-kits.js";
-import { getAgentDir, VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
 import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
@@ -51,7 +50,6 @@ import { createWindowAttention, OVERLAY_BADGE_SIZE, overlayBadgeBitmap } from ".
 import { installWorkbenchEditingMenu, showWindowContextMenu } from "./window-context-menu.js";
 import { menuIconImage } from "./menu-icons.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
-import { defaultHostConfigManager } from "./host-config.js";
 import electronUpdater from "electron-updater";
 import { createAppUpdates, installGuardPorts, installStillRunning, linuxInstall, linuxUpdates, nextStaging, readUpdateFeed, type AppUpdates } from "./app-updates.js";
 import { offerPackageInstall } from "./appimage-install.js";
@@ -136,7 +134,9 @@ process.on("unhandledRejection", (reason) => {
 });
 
 /** What a package's `engines` is checked against. */
-const extensionVersions: ExtensionHostVersions = { tau: app.getVersion(), pi: PI_VERSION, api: EXTENSION_API_VERSION };
+const piEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+const piVersion = (JSON.parse(readFileSync(join(dirname(piEntry), "../package.json"), "utf8")) as { version: string }).version;
+const extensionVersions: ExtensionHostVersions = { tau: app.getVersion(), pi: piVersion, api: EXTENSION_API_VERSION };
 // Clients name workspaces by an id of this host, never by one of its paths.
 const localHostId = readOrCreateHostId(join(app.getPath("userData"), "host-id"));
 const workspaceIdentity = new WorkspaceIdentity(localHostId);
@@ -156,7 +156,7 @@ const hostOptions = {
   hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
   // A userData cache dir keeps compiled extension code out of the shared
   // system temp dir, which every local user can otherwise browse.
-  hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
+  hostExtensionPackages: async (cwd: string) => loadHostExtensionPackages(cwd, (await import("@earendil-works/pi-coding-agent")).getAgentDir(), {
     versions: extensionVersions,
     cacheDir: join(app.getPath("userData"), "host-extensions"),
   }),
@@ -313,7 +313,7 @@ let releaseNotes: ReleaseNotesStore | undefined;
 /** How ⌘Q quits, from this machine's config; read again when the config changes. */
 let quitConfirmation: QuitConfirmation = DEFAULT_QUIT_CONFIRMATION;
 async function readShellConfig(): Promise<void> {
-  const config = await defaultHostConfigManager.read().catch(() => undefined);
+  const config = await import("./host-config.js").then(({ defaultHostConfigManager }) => defaultHostConfigManager.read()).catch(() => undefined);
   quitConfirmation = config?.confirm?.quit ?? DEFAULT_QUIT_CONFIRMATION;
 }
 /** Menu, quit and release notes between this process and its page (`src/shared/window-shell.ts`). */
@@ -534,13 +534,14 @@ function watchHostStart<T>(ready: Promise<T>): Promise<T> {
  * that still exists when that folder is gone: a deleted checkout must not turn
  * into the fatal dialog `watchHostStart` shows for a broken runtime.
  */
-function startLocalHost(): void {
+async function startLocalHost(): Promise<HostBootstrap> {
+  const [{ PiHost }, { primeOpenCodeCatalog }] = await Promise.all([import("./pi-host.js"), import("./pi-model-runtime.js")]);
   const startup = resolveStartupWorkspace(requestedWorkspace, projectHistory.list());
   if (startup.missing) hostLog.warn("workspace.missing", { requested: startup.missing, fallback: startup.cwd });
   // Off the critical path: the first thread's runtime finds the models.dev catalog done, later ones share it.
   primeOpenCodeCatalog();
   host = new PiHost(startup.cwd, publish, projectHistory, safeMode, true, hostOptions);
-  hostReady = watchHostStart(host.start());
+  return host.start();
 }
 
 /**
@@ -583,7 +584,7 @@ async function startHostProcess(): Promise<void> {
       ...(process.env.TAU_HOST_FINGERPRINT ? { fingerprint: process.env.TAU_HOST_FINGERPRINT } : {}),
       session: session.defaultSession,
       logger: hostLog,
-      parent: openWindow(),
+      parent: mainWindow ?? openWindow(),
       onRefused: refuseRemoteHost,
     });
     if (!remoteTrust) return;
@@ -593,7 +594,6 @@ async function startHostProcess(): Promise<void> {
   try {
     const running = await windowHost.startSupervised();
     await loadWindowHalves();
-    await startEnvironments(windowHost);
     hostLog.info("host-process.ready", { pid: running.pid, url: running.url, adopted: running.adopted });
   } catch (error: unknown) {
     hostLog.error("host-process.start.failed", error);
@@ -704,12 +704,7 @@ async function pointWindowAtHost(): Promise<void> {
 function createLocalHostMethods(): HostMethodTable {
   return createHostMethods({
     bootstrap: async () => {
-      if (!host) {
-        startLocalHost();
-        return hostReady as Promise<HostBootstrap>;
-      }
-      await hostReady;
-      return host.bootstrap();
+      return (await requireHostReady()).bootstrap();
     },
     requireHost: requireHostReady,
     host: () => host,
@@ -725,7 +720,7 @@ function createLocalHostMethods(): HostMethodTable {
       inspectExtensions: async (cwd) => {
         const [kits, inspection] = await Promise.all([
           safeMode ? NO_BUNDLED_KITS : inspectBundledKits(kitOptions),
-          inspectExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions }),
+          import("@earendil-works/pi-coding-agent").then(({ getAgentDir }) => inspectExtensionPackages(cwd, getAgentDir(), { versions: extensionVersions })),
         ]);
         return {
           ...inspection,
@@ -738,7 +733,7 @@ function createLocalHostMethods(): HostMethodTable {
         // desktop half; only their origin differs. Safe mode loads neither.
         const [kits, result] = await Promise.all([
           safeMode ? EMPTY_DESKTOP_EXTENSIONS : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports, ...(only ? { only } : {}) }),
-          loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions, ...(only ? { only } : {}) }),
+          import("@earendil-works/pi-coding-agent").then(({ getAgentDir }) => loadDesktopExtensions(cwd, getAgentDir(), { sharedExports, versions: extensionVersions, ...(only ? { only } : {}) })),
         ]);
         return serveBundles({
           bundles: [...kits.bundles, ...result.bundles],
@@ -799,9 +794,13 @@ function runRebuild(context: { progress(line: string): void }, activeWorkspace: 
 function installTransport(): void {
   // A window whose host lives elsewhere answers only for its own machine; the
   // host's own methods would have nothing here to answer with.
-  const methods = windowHost
+  const methods = !inProcessHost
     ? {
-      ...createUnsupportedHostMethods(`This window is a client of the host at ${windowHost.hostUrl}; only its own machine answers here.`),
+      ...createUnsupportedHostMethods("This window is a client of a host; only its own machine answers here."),
+      bootstrap: async () => {
+        await hostReady;
+        return windowHost!.request<HostBootstrap>("bootstrap");
+      },
       ...createClientHostMethods(createWindowPlatform()),
     }
     : createLocalHostMethods();
@@ -815,7 +814,7 @@ function installTransport(): void {
     beforeReply: () => pushes.flush(),
     onSnapshotClient: () => pushes.resendWholeOutputs(),
     hostVersion: app.getVersion(),
-    capabilities: windowHost ? [HOST_CAPABILITY.localFiles] : [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
+    capabilities: !inProcessHost ? [HOST_CAPABILITY.localFiles] : [HOST_CAPABILITY.jobs, HOST_CAPABILITY.replay, HOST_CAPABILITY.localFiles],
     send: (channel, payload) => { if (!mainWindow?.isDestroyed()) mainWindow?.webContents.send(channel, payload); },
   });
   // A second transport for a client that is not this window; off unless asked for.
@@ -918,8 +917,8 @@ if (primaryInstance) app.whenReady().then(async () => {
     currentVersion: app.getVersion(),
     ...(feed ? { feed } : {}),
     // This machine's config file: the updater belongs to the machine, not to a remote host.
-    channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
-    preserveNightlyChannel: () => defaultHostConfigManager.preserveNightlyChannel(),
+    channel: async () => (await (await import("./host-config.js")).defaultHostConfigManager.read()).updates?.channel,
+    preserveNightlyChannel: async () => (await import("./host-config.js")).defaultHostConfigManager.preserveNightlyChannel(),
     fetch: (url, init) => net.fetch(url, init),
     interactive: process.env.TAU_NO_NATIVE_DIALOGS !== "1",
   });
@@ -928,8 +927,6 @@ if (primaryInstance) app.whenReady().then(async () => {
     pageAction: (action) => publishWindowShell({ kind: "menu", action }),
     zoom: zoomWorkbench,
   })));
-  void readShellConfig();
-  updates.start();
   serveDesktopBundles(desktopBundles, sharedFiles, async (request) => {
     const source = new URL(request.url);
     const hostUrl = (shownHost ?? windowHost)?.hostUrl;
@@ -948,29 +945,34 @@ if (primaryInstance) app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   projectHistory = new ProjectHistory(join(app.getPath("userData"), "projects.json"), undefined, hostLog, (path) => workspaceIdentity.ref(path));
-  // The host and every tool it spawns (Pi's tools, runtimes, editors) see the
-  // login shell's PATH, not the one a Dock launch inherits.
-  const [shellEnvironment] = await Promise.all([
-    installShellEnvironment().catch((error: unknown) => { hostLog.warn("shell-environment.failed", error); return undefined; }),
-    projectHistory.load(),
-  ]);
-  if (shellEnvironment?.installed.length) console.log(`shell environment: ${shellEnvironment.installed.join(", ")} from ${shellEnvironment.pathSource}`);
-  // Prepare the host before creating the renderer so bootstrap is a read of
-  // already-started work, not the first expensive lifecycle operation.
-  if (!inProcessHost) await startHostProcess();
-  // The host in this process is one like any other: one per data folder.
-  if (inProcessHost && !(inProcessFolderLock = await claimDataFolder(app.getPath("userData")))) {
-    const userData = app.getPath("userData");
-    showErrorBox("Tau could not start its host", dataFolderBusyMessage(userData, await describeDataFolderOwner(userData)));
-    app.exit(DATA_FOLDER_BUSY_EXIT_CODE);
-    return;
-  }
-  // Not before: the host in this process may still be writing on its way out.
-  process.once("exit", () => inProcessFolderLock?.release());
-  if (inProcessHost) exposePiSessionLockExtension();
   installTransport();
-  if (inProcessHost) startLocalHost();
-  await createWindow();
+  hostReady = watchHostStart(startDesktop({
+    showWindow: createWindow,
+    prepareHost: async () => {
+      void readShellConfig();
+      updates?.start();
+      const [shellEnvironment] = await Promise.all([
+        installShellEnvironment({ cachePath: join(app.getPath("userData"), "shell-path.json"), onRefreshError: (error) => hostLog.warn("shell-environment.refresh.failed", error) })
+          .catch((error: unknown) => { hostLog.warn("shell-environment.failed", error); return undefined; }),
+        projectHistory.load(),
+      ]);
+      if (shellEnvironment?.installed.length) console.log(`shell environment: ${shellEnvironment.installed.join(", ")} from ${shellEnvironment.pathSource}`);
+      if (!inProcessHost) { await startHostProcess(); return; }
+      if (!(inProcessFolderLock = await claimDataFolder(app.getPath("userData")))) {
+        const userData = app.getPath("userData");
+        showErrorBox("Tau could not start its host", dataFolderBusyMessage(userData, await describeDataFolderOwner(userData)));
+        app.exit(DATA_FOLDER_BUSY_EXIT_CODE);
+        return;
+      }
+      process.once("exit", () => inProcessFolderLock?.release());
+      exposePiSessionLockExtension();
+      await startLocalHost();
+    },
+    connectWindow: () => inProcessHost ? Promise.resolve() : pointWindowAtHost(),
+    restoreMachines: async () => { if (windowHost && !remoteHostUrl) await startEnvironments(windowHost); },
+    onRestoreError: (error) => hostLog.error("environments.start.failed", error),
+  }));
+  await hostReady;
 });
 
 if (primaryInstance) app.on("window-all-closed", () => {
@@ -1039,7 +1041,7 @@ function readUpdateFeedFile() {
 /** The "keep the host running" preference; read from the file, not from the host that is stopping. */
 async function keepHostRunning(): Promise<boolean> {
   try {
-    return (await defaultHostConfigManager.read()).hostBackground === true;
+    return (await (await import("./host-config.js")).defaultHostConfigManager.read()).hostBackground === true;
   } catch {
     return false;
   }
