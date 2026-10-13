@@ -100,6 +100,27 @@ describe("Settings → Connections", () => {
     await waitFor(() => expect(rotateHostToken).toHaveBeenCalledOnce());
   });
 
+  it("keeps the access key under This machine, hidden, and drops a shown one once it is rotated", async () => {
+    const hostToken = vi.fn(async () => "a1b2".repeat(16));
+    renderPage({ listConnections: async () => connections(), hostToken });
+    const card = await screen.findByRole("region", { name: "This machine" });
+    expect(within(card).getByText("Access key")).toBeTruthy();
+    expect(hostToken).not.toHaveBeenCalled();
+    fireEvent.click(within(card).getByRole("button", { name: "Show the access key" }));
+    expect(await within(card).findByText("a1b2".repeat(16))).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rotate…" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Rotate the access key?" })).getByRole("button", { name: "Rotate" }));
+    await waitFor(() => expect(within(card).queryByText("a1b2".repeat(16))).toBeNull());
+    expect(within(card).getByRole("button", { name: "Show the access key" })).toBeTruthy();
+  });
+
+  it("shows no access key to a connection that is not the owner's", async () => {
+    renderPage({ listConnections: async () => connections(), isOwner: () => false });
+    expect(await screen.findByText("Connections are managed on your machine")).toBeTruthy();
+    expect(screen.queryByText("Access key")).toBeNull();
+  });
+
   it("tells a paired client that the owner manages connections", async () => {
     renderPage({ listConnections: async () => { throw Object.assign(new Error("no"), { code: "forbidden" }); } });
     expect(await screen.findByText("Connections are managed on your machine")).toBeTruthy();

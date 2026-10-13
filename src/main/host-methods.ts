@@ -190,6 +190,8 @@ export interface HostMethodDeps {
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
+/** Answer with the access key: a job's result is pushed to every client and kept for replay, so these never run as jobs. */
+const SECRET_METHODS = new Set(["connections-host-token", "connections-rotate-host-token"]);
 /** Calls that can wait on a runtime starting or reopening, which outlasts a remote request's timeout on a busy host. */
 const RUNTIME_START_METHODS = ["new-session", "prompt", "steer", "follow-up"];
 
@@ -549,6 +551,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const jobParams = params[1] === undefined ? [] : params[1];
       if (!Array.isArray(jobParams)) throw new Error("start-job: params must be an array");
       authorizeMethod(context.principal, method, jobParams);
+      if (SECRET_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       return { jobId: deps.jobs.start((jobContext) => target(jobParams as unknown[], jobContext), context.principal) };
     },
     "cancel-job": async (params) => ({ cancelled: deps.jobs.cancel(decodeString("cancel-job", "jobId", params[0])) }),

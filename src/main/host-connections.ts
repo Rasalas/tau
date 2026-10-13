@@ -244,6 +244,8 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
       if (!reloadCertificates) unavailable("This host serves no certificate to reload.");
       return reloadCertificates();
     }),
+    // The key itself, for the owner to sign another browser in. It never runs as a job, whose result goes to every client.
+    "connections-host-token": owned(({ access }) => ({ token: access.hostToken() })),
     // The caller keeps its connection and is answered the new token; it already held the old one.
     "connections-rotate-host-token": owned(({ access }, _params, connection) => ({ token: access.rotateHostToken(connection) })),
   };

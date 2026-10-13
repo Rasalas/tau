@@ -105,6 +105,8 @@ export const HOST_METHOD_ACCESS = {
   "connections-approve": "owner",
   "connections-deny": "owner",
   "connections-rotate-host-token": "owner",
+  // The access key itself (API 1.61.0); never in a list, a snapshot or a job's result.
+  "connections-host-token": "owner",
   "connections-set-network": "owner",
   "connections-reload-certificate": "owner",
   "connections-discover": "owner",

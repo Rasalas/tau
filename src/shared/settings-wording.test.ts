@@ -76,6 +76,7 @@ describe("how Settings and the app name things", () => {
     const host = /(?<![\w-])hosts?(?![\w-])/iu;
     const files = [
       "src/renderer/settings/ConnectionsPage.tsx",
+      "src/renderer/settings/AccessKeyRow.tsx",
       "src/renderer/settings/HostServiceSection.tsx",
       "src/renderer/settings/NetworkAccessSection.tsx",
       "src/renderer/settings/ConnectSettings.tsx",

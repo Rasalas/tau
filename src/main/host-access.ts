@@ -221,6 +221,11 @@ export class HostAccess {
     return this.options.tokenFile.path;
   }
 
+  /** The host token as it stands now; only `connections-host-token` may hand it on, and only to the owner. */
+  hostToken(): string {
+    return this.options.tokenFile.current();
+  }
+
   /** The credential a hello's token stands for, or undefined for a refusal. An unused token past its timeout is forgotten here. */
   authenticate(token: string | undefined): HostCredential | undefined {
     if (typeof token !== "string" || token.length === 0) return undefined;

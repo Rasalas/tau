@@ -128,6 +128,7 @@ function defaults(): HostClient {
     approvePairing: async () => ({ approved: false }),
     denyPairing: async () => ({ denied: false }),
     rotateHostToken: async () => undefined,
+    hostToken: async () => { throw Object.assign(new Error("No access key in tests."), { code: "unknown-method" }); },
     setNetworkAccess: async () => { throw Object.assign(new Error("No network access in tests."), { code: "unsupported" }); },
     reloadCertificate: async () => ({ changed: false }),
     discoverHosts: async () => ({ hosts: [], serviceType: "_tau-test._tcp" }),

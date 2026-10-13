@@ -679,9 +679,9 @@ describe("pairing over the socket", () => {
 
 describe("listeners beyond this machine", () => {
   /** A listener a reverse proxy feeds: every peer dials from 127.0.0.1 and none of them is this machine. */
-  async function proxyListener() {
+  async function proxyListener(trust: "proxy" | "network" = "proxy") {
     const server = createProtocolServer();
-    transport!.attach(server, "proxy");
+    transport!.attach(server, trust);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
     const address = server.address();
     return { server, port: typeof address === "object" && address ? address.port : 0 };
@@ -702,6 +702,24 @@ describe("listeners beyond this machine", () => {
     } finally {
       proxy.server.close();
     }
+  });
+
+  it("never hand the access key to the host token there", async () => {
+    const { access, tokenFile } = await openAccess();
+    const port = await listen(access, connectionsOf(access));
+    for (const trust of ["proxy", "network"] as const) {
+      const beyond = await proxyListener(trust);
+      try {
+        const remote = await client(beyond.port, tokenFile.current());
+        const answer = await remote.request("connections-host-token");
+        expect(answer.error, trust).toMatchObject({ code: HOST_ERROR.forbidden });
+        expect(JSON.stringify(answer), trust).not.toContain(tokenFile.current());
+      } finally {
+        beyond.server.close();
+      }
+    }
+    // The same key, asked for on this machine's loopback listener, is the owner's.
+    expect((await (await client(port, tokenFile.current())).request("connections-host-token")).result).toEqual({ token: tokenFile.current() });
   });
 
   it("count pairing attempts through a proxy apart and strictly, by the address it forwarded", async () => {
@@ -841,6 +859,45 @@ describe("rotating the host token", () => {
   });
 });
 
+describe("the access key itself", () => {
+  it("is answered to the owner on this machine, and follows a rotation", async () => {
+    const { access, tokenFile } = await openAccess();
+    const port = await listen(access, connectionsOf(access));
+    const owner = await client(port, tokenFile.current());
+    const first = tokenFile.current();
+    expect((await owner.request("connections-host-token")).result).toEqual({ token: first });
+    const { token } = (await owner.request("connections-rotate-host-token")).result as { token: string };
+    expect(token).not.toBe(first);
+    expect((await owner.request("connections-host-token")).result).toEqual({ token });
+  });
+
+  it("is never answered to a paired device, with Full access or Read only, not even through a job", async () => {
+    const { access, tokenFile } = await openAccess();
+    const connections = connectionsOf(access);
+    // A `start-job` that skips the dispatcher's check, so only the method's own check can refuse.
+    const port = await listen(access, { ...connections, "start-job": async (params, context) => connections[params[0] as string]!(params[1] as unknown[], context) });
+    const key = tokenFile.current();
+    const full = await client(port, await pair(access, { access: "full", from: { address: "192.0.2.10" } }));
+    const readOnly = await client(port, await pair(access, { access: "read-only", from: { address: "192.0.2.11" } }));
+    for (const [name, device] of [["full", full], ["read-only", readOnly]] as const) {
+      const direct = await device.request("connections-host-token");
+      expect(direct.error, name).toMatchObject({ code: HOST_ERROR.forbidden });
+      expect(JSON.stringify(direct), name).not.toContain(key);
+      const job = await device.request("start-job", ["connections-host-token", []]);
+      expect(job.error, name).toMatchObject({ code: HOST_ERROR.forbidden });
+      expect(JSON.stringify(job), name).not.toContain(key);
+    }
+  });
+
+  it("stays out of the connections list the owner reads", async () => {
+    const { access, tokenFile } = await openAccess();
+    const port = await listen(access, connectionsOf(access));
+    const owner = await client(port, tokenFile.current());
+    const listed = await owner.request("connections-list");
+    expect(JSON.stringify(listed)).not.toContain(tokenFile.current());
+  });
+});
+
 describe("the Connections methods", () => {
   it("answer the owner and refuse a paired client, even through a job", async () => {
     const { access, tokenFile } = await openAccess();
@@ -856,7 +913,7 @@ describe("the Connections methods", () => {
 
     const token = await pair(access, { code: created.code });
     const phone = await client(port, token);
-    for (const method of ["connections-list", "connections-create-link", "connections-rotate-host-token", "connections-set-network", "connections-reload-certificate", "connections-approve", "connections-update-client", "connections-revoke-others", "connections-discover"]) {
+    for (const method of ["connections-list", "connections-create-link", "connections-rotate-host-token", "connections-host-token", "connections-set-network", "connections-reload-certificate", "connections-approve", "connections-update-client", "connections-revoke-others", "connections-discover"]) {
       expect((await phone.request(method)).error?.code).toBe(HOST_ERROR.forbidden);
     }
     expect((await phone.request("start-job", ["connections-revoke-client", [token.split(".")[1]]])).error?.code).toBe(HOST_ERROR.forbidden);
