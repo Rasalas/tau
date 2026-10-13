@@ -7,6 +7,7 @@ import { isPreviewState, notePanelShown, previewKit, previewStore, readPreviewSt
 import { RecentPages, RecentSuggestions, useRecentPages } from "./recent.js";
 import { PortSuggestions } from "./suggestions.js";
 import { PreviewTools } from "./tools.js";
+import { pageChord } from "./shortcut.js";
 import { useLiveFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
 
 // Evaluated the first time someone looks at a driven window.
@@ -136,7 +137,7 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
       <div className="preview-toolbar">
         <button className="icon-button compact" aria-label="Back" {...tooltipProps("Back")} disabled={!state.canGoBack} onClick={() => guard(previewKit.navigate({ action: "back" }))}><ArrowLeft size={13} /></button>
         <button className="icon-button compact" aria-label="Forward" {...tooltipProps("Forward")} disabled={!state.canGoForward} onClick={() => guard(previewKit.navigate({ action: "forward" }))}><ArrowRight size={13} /></button>
-        <button className="icon-button compact" aria-label="Reload" {...tooltipProps("Reload", { shortcut: "⌘R" })} onClick={() => guard(previewKit.navigate({ action: "reload" }))}><RotateCw size={13} /></button>
+        <button className="icon-button compact" aria-label="Reload" {...tooltipProps("Reload", { shortcut: pageChord("R") })} onClick={() => guard(previewKit.navigate({ action: "reload" }))}><RotateCw size={13} /></button>
         <form onSubmit={(event) => { event.preventDefault(); openUrl(draft); }}>
           <input
             aria-label="Preview address"

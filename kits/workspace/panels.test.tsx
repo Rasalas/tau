@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiWorkspaceChanges, WorkbenchContextValue } from "tau";
-import { PreferencesStore, RendererServicesProvider, WorkbenchContext } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, KitShell, PreferencesStore, RendererServicesProvider, WorkbenchContext, type KitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { changedTreeRows, ChangesPanel, FilesPanel, serviceSlot, type SearchFilesService } from "./panels.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { withWorkspaceStore } from "./store-context.js";
@@ -37,9 +37,9 @@ function kitState(workspaceStore: WorkspaceStore, patch: Parameters<WorkspaceSto
 }
 
 /** The panels find the store the way activation binds it: through the kit's own provider. */
-function withServices(workspaceStore: WorkspaceStore, children: ReactNode) {
+function withServices(workspaceStore: WorkspaceStore, children: ReactNode, registry?: KitHarness["registry"]) {
   const Bound = withWorkspaceStore(workspaceStore, () => <>{children}</>);
-  return <RendererServicesProvider services={{ preferences: new PreferencesStore() }}><Bound /></RendererServicesProvider>;
+  return <KitShell {...(registry ? { registry } : {})}><RendererServicesProvider services={{ preferences: new PreferencesStore() }}><Bound /></RendererServicesProvider></KitShell>;
 }
 
 describe("ChangesPanel", () => {
@@ -179,6 +179,32 @@ describe("FilesPanel", () => {
     expect(onPick).toBeTypeOf("function");
     act(() => onPick!("b.md"));
     expect(await screen.findByText("# B")).toBeTruthy();
+  });
+
+  it("hints Go to file with the chord it is bound to, and with none when nothing binds it", () => {
+    const workspaceStore = newStore();
+    kitState(workspaceStore, { changes: NO_CHANGES, fileTree: [] });
+    vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
+    const search = serviceSlot<SearchFilesService>();
+    search.set({ pickFile: vi.fn() });
+    const panel = (registry: KitHarness["registry"]) => withServices(workspaceStore,
+      <WorkbenchContext.Provider value={workbench()}>
+        <FilesPanel active placement="dock" extensionName="Workspace" actions={{} as never} search={search} />
+      </WorkbenchContext.Provider>, registry);
+    const unbound = createKitHarness().registry;
+    const view = render(panel(unbound));
+    expect(screen.getByRole("button", { name: "Go to file" }).getAttribute("data-tooltip-shortcut")).toBeNull();
+    view.unmount();
+
+    const { registry } = createKitHarness();
+    registry.activate({ id: "test.search", name: "Search", activate(context) {
+      context.registerCommand({ id: "search.files", label: "Go to file…", group: "Project", run: () => undefined });
+      context.registerKeybinding({ keys: "mod+p", commandId: "search.files" });
+    } });
+    registry.applyKeybindingOverrides({ "search.files": "mod+alt+o" });
+    render(panel(registry));
+    // jsdom's navigator.platform is empty, so `mod` is Ctrl here.
+    expect(screen.getByRole("button", { name: "Go to file" }).getAttribute("data-tooltip-shortcut")).toBe("Ctrl+Alt+O");
   });
 
   it("lists the changed files as a tree on the stage, folders first, each file with its Git mark (design 1l)", () => {

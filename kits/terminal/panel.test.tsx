@@ -2,13 +2,15 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PanelProps, StageTab, StageTabHandle, WorkbenchActions } from "tau";
+import { createKitHarness, KitShell } from "../../src/renderer/test-support/kit-harness.js";
 import { TerminalPanel, placeOf } from "./panel.js";
 import { TerminalStageTab } from "./stage-tab.js";
 import { connectTerminalHost, terminalServices, terminalStore } from "./store.js";
 import { addExcerptToPrompt, openTerminalLink, targetShell, toggleTerminal } from "./controller.js";
 import { EMPTY_LAYOUT, paneIds, stageGroup } from "./layout.js";
 import { pathInside } from "./panes.js";
-import { TERMINAL_LIST_EVENT, TERMINAL_PANEL, TERMINAL_STAGE_TAB, type UiTerminalSession } from "./protocol.js";
+import { TERMINAL_COMMANDS, TERMINAL_LIST_EVENT, TERMINAL_PANEL, TERMINAL_STAGE_TAB, type UiTerminalSession } from "./protocol.js";
+import { TERMINAL_KEYBINDINGS } from "./desktop.js";
 
 // xterm draws on a canvas jsdom does not have; the panel is what is under test.
 vi.mock("@xterm/xterm", () => ({
@@ -179,7 +181,7 @@ describe("TerminalPanel", () => {
     const disconnect = connectTerminalHost(fake.host);
     activeSessionId = "s1";
     try {
-      render(<TerminalPanel {...panelProps()} />);
+      render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       expect(screen.queryByRole("button", { name: /in other threads/u })).toBeNull();
@@ -206,12 +208,29 @@ describe("TerminalPanel", () => {
     }
   });
 
+  it("hints the new-terminal and split buttons with the chords bound now, and with none when nothing binds them", () => {
+    const hints = () => ["New terminal", "Split right", "Split down"].map((name) => screen.getByRole("button", { name }).getAttribute("data-tooltip-shortcut"));
+    render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
+    expect(hints()).toEqual([null, null, null]);
+    cleanup();
+
+    const { registry } = createKitHarness();
+    registry.activate({ id: "test.terminal", name: "Terminal", activate(context) {
+      for (const id of Object.values(TERMINAL_COMMANDS)) context.registerCommand({ id, label: id, group: "Terminal", run: () => undefined });
+      for (const binding of TERMINAL_KEYBINDINGS) context.registerKeybinding(binding);
+    } });
+    registry.applyKeybindingOverrides({ [TERMINAL_COMMANDS.splitDown]: "mod+alt+d" });
+    // jsdom's navigator.platform is empty, so `mod` is Ctrl here.
+    render(<KitShell registry={registry}><TerminalPanel {...panelProps()} /></KitShell>);
+    expect(hints()).toEqual(["Ctrl+N in a terminal", "Ctrl+D in a terminal", "Ctrl+Alt+D in a terminal"]);
+  });
+
   it("draws one row of chrome above a lone shell: tabs, other threads, actions", async () => {
     const fake = fakeHost();
     const disconnect = connectTerminalHost(fake.host);
     activeSessionId = "s1";
     try {
-      const { container } = render(<TerminalPanel {...panelProps()} />);
+      const { container } = render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       expect(container.querySelectorAll("header")).toHaveLength(1);
@@ -236,7 +255,7 @@ describe("TerminalPanel", () => {
     try {
       // The host's list is in before the button is pressed.
       await waitFor(() => expect(terminalStore.isKnown()).toBe(true));
-      const { rerender } = render(<TerminalPanel {...panelProps()} active={false} />);
+      const { rerender } = render(<TerminalPanel {...panelProps()} active={false} />, { wrapper: KitShell });
       expect(fake.invoke).not.toHaveBeenCalledWith("open", expect.anything());
       rerender(<TerminalPanel {...panelProps()} active />);
       await screen.findByRole("tab", { name: /shell 1/u });
@@ -262,7 +281,7 @@ describe("TerminalPanel", () => {
     const disconnect = connectTerminalHost(fake.host);
     activeSessionId = "s1";
     try {
-      render(<TerminalPanel {...panelProps()} />);
+      render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       // The buttons stay disabled until the open has settled.
@@ -287,7 +306,7 @@ describe("TerminalPanel", () => {
     const fake = fakeHost();
     const disconnect = connectTerminalHost(fake.host);
     try {
-      render(<TerminalPanel {...panelProps()} />);
+      render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       act(() => fake.exit("t1", 2));
@@ -307,7 +326,7 @@ describe("TerminalPanel", () => {
     const disconnect = connectTerminalHost(fake.host);
     const actions = workbenchActions();
     try {
-      render(<TerminalPanel {...panelProps(actions)} />);
+      render(<TerminalPanel {...panelProps(actions)} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
 
@@ -318,7 +337,7 @@ describe("TerminalPanel", () => {
 
       // The tab draws the shell; closing it gives the shell back, never kills it.
       const handle = stageTabHandle();
-      render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />);
+      render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />, { wrapper: KitShell });
       act(() => { stageTabs = []; handle.close(); });
       await screen.findByRole("tab", { name: /shell 1/u });
       expect(layout().stage).toEqual([]);
@@ -333,7 +352,7 @@ describe("TerminalPanel", () => {
     const disconnect = connectTerminalHost(fake.host);
     const actions = workbenchActions();
     try {
-      const panel = render(<TerminalPanel {...panelProps(actions)} />);
+      const panel = render(<TerminalPanel {...panelProps(actions)} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       await moreAction(/Open as a stage tab/u);
@@ -341,7 +360,7 @@ describe("TerminalPanel", () => {
       panel.unmount();
 
       const handle = stageTabHandle();
-      const tab = render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />);
+      const tab = render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />, { wrapper: KitShell });
       const split = within(tab.container).getByRole("button", { name: "Split down" }) as HTMLButtonElement;
       fireEvent.click(split);
       await waitFor(() => expect(stageGroup(layout(), "t1")?.root).toEqual({ kind: "split", direction: "down", children: [{ kind: "pane", id: "t1" }, { kind: "pane", id: "t2" }] }));
@@ -370,13 +389,13 @@ describe("TerminalPanel", () => {
     const disconnect = connectTerminalHost(fake.host);
     const actions = workbenchActions();
     try {
-      render(<TerminalPanel {...panelProps(actions)} />);
+      render(<TerminalPanel {...panelProps(actions)} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       await moreAction(/Open as a stage tab/u);
       await waitFor(() => expect(layout().stage).toHaveLength(1));
       const handle = stageTabHandle();
-      const tab = render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />);
+      const tab = render(<TerminalStageTab params={{ id: "t1", label: "shell 1" }} handle={handle} actions={actions} />, { wrapper: KitShell });
       fireEvent.click(within(tab.container).getByRole("button", { name: "Split right" }));
       await waitFor(() => expect(paneIds(stageGroup(layout(), "t1")!.root)).toEqual(["t1", "t2"]));
 
@@ -406,7 +425,7 @@ describe("TerminalPanel", () => {
       });
     }
     try {
-      render(<TerminalPanel {...panelProps()} />);
+      render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       const split = screen.getByRole("button", { name: "Split right" }) as HTMLButtonElement;
@@ -452,7 +471,7 @@ describe("TerminalPanel", () => {
       openInEditor,
     };
     try {
-      render(<TerminalPanel {...panelProps()} />);
+      render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       // A pane alone in its tab has no header: the path is the tab's tooltip, the folder is under More.
@@ -478,7 +497,7 @@ describe("TerminalPanel", () => {
     const disconnect = connectTerminalHost(fake.host);
     const actions = workbenchActions();
     try {
-      const view = render(<TerminalPanel {...panelProps(actions)} />);
+      const view = render(<TerminalPanel {...panelProps(actions)} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       await moreAction(/Open as a stage tab/u);
@@ -496,7 +515,7 @@ describe("TerminalPanel", () => {
     const disconnect = connectTerminalHost(fake.host);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     try {
-      render(<TerminalPanel {...panelProps()} />);
+      render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       fake.foreground.set("t1", "top");
@@ -520,7 +539,7 @@ describe("TerminalPanel", () => {
     const disconnect = connectTerminalHost(fake.host);
     const confirm = vi.spyOn(window, "confirm");
     try {
-      render(<TerminalPanel {...panelProps()} />);
+      render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
       await screen.findByRole("tab", { name: /shell 1/u });
       fireEvent.click(screen.getByRole("button", { name: "Close tab shell 1" }));
@@ -541,7 +560,7 @@ describe("TerminalPanel", () => {
     const fake = fakeHost();
     const disconnect = connectTerminalHost(fake.host);
     try {
-      render(<TerminalPanel {...panelProps()} />);
+      render(<TerminalPanel {...panelProps()} />, { wrapper: KitShell });
       await act(async () => { await fake.host.invoke("open", { label: "dev server" }); });
       expect(await screen.findByRole("tab", { name: /shell 1/u })).toBeTruthy();
     } finally {

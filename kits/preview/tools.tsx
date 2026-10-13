@@ -7,6 +7,7 @@ import { DEFAULT_PREVIEW_PROFILE, profileLabel, type PreviewAppearance, type Pre
 import { previewKit } from "./store.js";
 import { VIEWPORT_PRESETS } from "./viewport.js";
 import { cookieImportDialogs } from "./cookie-import-dialog.js";
+import { pageChord } from "./shortcut.js";
 
 const NEW_PROFILE = "\u0000new";
 const RENAME_PROFILE = "\u0000rename";
@@ -43,9 +44,9 @@ function ViewOptions({ state, run }: { state: PreviewState; run(work: () => Prom
     {
       heading: `Zoom · ${zoomLabel(state.zoom)}`,
       items: [
-        { id: "zoom:in", label: "Zoom in", hint: "⌘+" },
-        { id: "zoom:out", label: "Zoom out", hint: "⌘−" },
-        { id: "zoom:reset", label: "Actual size", hint: "⌘0", disabled: state.zoom === 1 },
+        { id: "zoom:in", label: "Zoom in", hint: pageChord("+") },
+        { id: "zoom:out", label: "Zoom out", hint: pageChord("−") },
+        { id: "zoom:reset", label: "Actual size", hint: pageChord("0"), disabled: state.zoom === 1 },
       ],
     },
   ];
@@ -259,7 +260,7 @@ export function PreviewTools({ state, actions, run }: {
       type="button"
       className="text-button preview-zoom"
       aria-label={`Zoom ${zoomLabel(state.zoom)}, reset to actual size`}
-      {...tooltipProps("Actual size", { shortcut: "⌘0" })}
+      {...tooltipProps("Actual size", { shortcut: pageChord("0") })}
       onClick={() => run(() => previewKit.zoom({ step: "reset" }))}
     >{zoomLabel(state.zoom)}</button> : null}
     <ViewOptions state={state} run={run} />
