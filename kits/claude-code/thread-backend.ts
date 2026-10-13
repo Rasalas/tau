@@ -964,7 +964,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const live = this.live;
     if (!live || live.session.closed) return;
     if (this.turns.length === 0) return;
-    await live.session.interrupt().catch(() => undefined);
+    void live.session.interrupt().catch(() => undefined);
     const deadline = this.now() + (this.options.interruptGraceMs ?? INTERRUPT_GRACE_MS);
     while (this.turns.length > 0 && this.now() < deadline) {
       await new Promise<void>((resolve) => setTimeout(resolve, 25).unref?.());

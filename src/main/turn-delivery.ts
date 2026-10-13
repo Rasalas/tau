@@ -136,6 +136,7 @@ export class TurnDelivery {
     // attached Pi is the exception: its terminal owns turn and journal alike.
     // A steer or follow-up joins a turn that is already observed, as on the
     // journal path: it is announced, and cancelled if refused, but not ended.
+    const restartGeneration = thread.restartGeneration;
     const observed = !isPiBackend(thread);
     const ownTurn = observed && delivery === "prompt";
     const wasStreaming = observed && thread.state.streaming;
@@ -169,6 +170,7 @@ export class TurnDelivery {
         },
       }));
       await Promise.race([run, refusal]);
+      if (thread.restartGeneration !== restartGeneration) return;
       admitted = true;
       if (ownTurn) {
         this.port.turnsInFlight.clear(thread.threadId, turnId);
@@ -176,6 +178,7 @@ export class TurnDelivery {
         await this.port.index.refreshShell(thread, true);
       }
     } catch (error) {
+      if (thread.restartGeneration !== restartGeneration) return;
       if (identity) this.port.clientTurns.cancel(thread.threadId, identity);
       if (!observed) throw error;
       if (ownTurn) this.port.turnsInFlight.clear(thread.threadId, turnId);
@@ -203,6 +206,7 @@ export class TurnDelivery {
     thread.adapterPending ??= 0;
     thread.adapterAbortGeneration ??= 0;
     const generation = thread.adapterAbortGeneration;
+    const restartGeneration = thread.restartGeneration;
     const wasPending = thread.adapterPending > 0;
     thread.adapterPending += 1;
     thread.adapterStreaming = true;
@@ -225,7 +229,7 @@ export class TurnDelivery {
     });
     const settled = operation.finally(() => {
       thread.adapterPending = Math.max(0, thread.adapterPending - 1);
-      if (thread.adapterPending === 0) {
+      if (thread.adapterPending === 0 && thread.restartGeneration === restartGeneration) {
         thread.adapterStreaming = false;
         this.port.emit({ type: "agent-status", sessionId: thread.threadId, running: false });
       }
@@ -244,18 +248,21 @@ export class TurnDelivery {
   ): Promise<void> {
     const clientMessageId = identity?.clientMessageId;
     if (prepared) this.port.prompts.assertBound(thread, text, prepared, this.port.projection.composerCommands(thread));
+    const restartGeneration = thread.restartGeneration;
     const abortController = new AbortController();
     thread.adapterAbortControllers ??= new Set<AbortController>();
     thread.adapterAbortControllers.add(abortController);
     try {
       if (attachments.length > 0) throw new Error("Attachments are not supported by the selected runtime adapter.");
       await thread.backend.prompt({ text, delivery, ...(identity ? { identity } : {}), ...(prepared ? { prepared } : {}), signal: abortController.signal });
+      if (thread.restartGeneration !== restartGeneration) return;
       thread.adapterMessages = await thread.backend.transcript();
       const state = thread.state;
       thread.adapterTitle = state.title;
       thread.adapterTitleSource = state.titleSource;
       await this.port.index.refreshShell(thread, true);
     } catch (error) {
+      if (thread.restartGeneration !== restartGeneration) return;
       const aborted = error instanceof Error && error.name === "AbortError";
       if (clientMessageId) {
         this.port.emit({

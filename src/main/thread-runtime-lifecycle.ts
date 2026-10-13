@@ -26,7 +26,7 @@ import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { mapMessage } from "./host-messages.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
-import { PhaseTimer, externalThreadFromPath } from "./pi-host-support.js";
+import { beforeRuntimeDeadline, PhaseTimer, externalThreadFromPath } from "./pi-host-support.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import { parentThreadIdFromEntries } from "./session-lineage.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
@@ -127,7 +127,16 @@ export class ThreadRuntimeLifecycle {
   /** The session file each Pi runtime holds the lock of, released with the runtime. */
   private readonly lockedFiles = new WeakMap<ThreadRuntime, string>();
 
+  private readonly discarded = new WeakSet<ThreadRuntime>();
+
   constructor(private readonly port: ThreadRuntimeLifecyclePort) {}
+
+  /** A timed-out run must lose its event routes before its replacement opens. */
+  discard(thread: ThreadRuntime): void {
+    this.discarded.add(thread);
+    thread.backend.capabilities.extensions?.setLifecycleHooks(() => undefined, async () => undefined);
+    thread.runtime?.session.dispose();
+  }
 
   /** What a runtime's resources depend on; a changed answer is a new catalog. */
   fingerprint(cwd: string, settingsManager?: SettingsManager): string {
@@ -238,18 +247,21 @@ export class ThreadRuntimeLifecycle {
   ): Promise<ThreadRuntime> {
     if (this.port.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
     const provider = this.port.requireBackend(kind);
+    let owned: ThreadRuntime | undefined;
     const backend = await provider.open(threadId, cwd, { resume: options.resume !== false, ...(options.tools ? { tools: options.tools } : {}) }, {
       projectName: this.port.projects.name(cwd),
       projectLabel: this.port.projects.knownLabel(cwd),
       permissionLevel: () => this.port.permissionLevel(),
       onMessage: (message) => {
         const thread = this.port.currentRuntime(threadId);
-        if (thread) {
+        if (thread && (!owned || !this.discarded.has(owned))) {
           thread.adapterMessages = [...thread.adapterMessages, message];
           this.port.emitMessage(threadId, message);
         }
       },
-      onEvent: (event) => this.port.emitRuntimeEvent(threadId, event),
+      onEvent: (event) => {
+        if (!owned || !this.discarded.has(owned)) this.port.emitRuntimeEvent(threadId, event);
+      },
       priceUsage: (tallies) => this.port.priceUsage(tallies),
       executionPolicy: () => this.port.executionPolicy(cwd),
       ask: (prompt) => this.port.extensionUi.ask(
@@ -258,6 +270,7 @@ export class ThreadRuntimeLifecycle {
       ),
     });
     const thread = new ThreadRuntime(backend);
+    owned = thread;
     thread.adapterMessages = await backend.transcript();
     thread.adapterActivity = await backend.capabilities.activityHistory?.load().catch((error: unknown) => {
       this.port.log("activity.load.failed", this.port.errorMessage(error));
@@ -469,10 +482,11 @@ export class ThreadRuntimeLifecycle {
     thread.adapterAbortGeneration += 1;
     thread.unsubscribe?.();
     thread.unsubscribe = undefined;
+    const discarded = this.discarded.has(thread);
     try {
       for (const controller of thread.adapterAbortControllers) controller.abort();
       const state = thread.state;
-      if (state.streaming || !state.idle) {
+      if (!discarded && (state.streaming || !state.idle)) {
         await Promise.race([
           thread.backend.abort(),
           new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_ABORT_MS).unref?.()),
@@ -483,17 +497,22 @@ export class ThreadRuntimeLifecycle {
     }
     thread.backend.capabilities.extensions?.unbind();
     for (const id of thread.tools.keys()) this.port.releaseTool(id);
-    // Stop Pi before observers close: closing first would drop work in
-    // flight while the provider could still mutate the checkout.
-    const errors = thread.runtime ? await this.abortRuntime(thread.runtime) : [];
-    try {
-      await this.port.turnObservers.closed(thread.threadId);
-    } catch (error) {
-      errors.push(error);
-    }
-    if (thread.runtime) errors.push(...await this.disposeRuntime(thread.runtime));
-    else {
-      try { await thread.backend.dispose(); } catch (error) { errors.push(error); }
+    // A discarded Pi session is already disconnected; normal shutdown first drains it.
+    const errors = !discarded && thread.runtime ? await this.abortRuntime(thread.runtime) : [];
+    const closeObservers = async () => {
+      try { await this.port.turnObservers.closed(thread.threadId); } catch (error) { errors.push(error); }
+    };
+    const closeBackend = async () => {
+      if (thread.runtime) errors.push(...await this.disposeRuntime(thread.runtime));
+      else {
+        try { await thread.backend.dispose(); } catch (error) { errors.push(error); }
+      }
+    };
+    if (discarded) {
+      await beforeRuntimeDeadline(Promise.all([closeObservers(), closeBackend()]), 1_000);
+    } else {
+      await closeObservers();
+      await closeBackend();
     }
     // After Pi's last write: another host may take the session from here on.
     const lockedFile = this.lockedFiles.get(thread);

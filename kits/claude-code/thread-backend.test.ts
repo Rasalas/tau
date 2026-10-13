@@ -595,15 +595,23 @@ describe("thread runtime backends", () => {
     expect((await backend.transcript()).map((message) => message.text)).toEqual(["first", "second", "also", "one", "two"]);
   });
 
-  it("interrupts a turn, closes the session when the interrupt is not honoured, and settles it as interrupted", async () => {
+  it.each([false, true])("settles an ignored interrupt and resumes the session, with a pending control reply: %s", async (pendingReply) => {
     const { filePath, store } = await scratchStore();
     const { adapter, sessions } = scriptedAdapter(filePath, () => new Promise(() => undefined));
     const events: ThreadRuntimeEvent[] = [];
-    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", interruptGraceMs: 50, onEvent: (event) => { events.push(event); } });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", interruptGraceMs: 50, now: () => Date.now(), onEvent: (event) => { events.push(event); } });
     await backend.start("create");
     const pending = backend.prompt({ text: "hang", delivery: "prompt" });
     await until(() => backend.state().streaming && (sessions[0]?.send.mock.calls.length ?? 0) === 1);
-    await backend.abort();
+    if (pendingReply) sessions[0]!.interrupt.mockImplementation(() => new Promise(() => undefined));
+    vi.useFakeTimers();
+    try {
+      let stopped = false;
+      const stop = backend.abort().then(() => { stopped = true; });
+      await vi.advanceTimersByTimeAsync(50);
+      expect(stopped).toBe(true);
+      await stop;
+    } finally { vi.useRealTimers(); }
     expect(sessions[0]?.interrupt).toHaveBeenCalled();
     expect(sessions[0]?.close).toHaveBeenCalled();
     await expect(pending).resolves.toEqual({});

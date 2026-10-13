@@ -156,6 +156,27 @@ describe("ThreadRuntimeLifecycle", () => {
     expect(emitted).toEqual([{ threadId: "thread", event: "turn-started" }]);
   });
 
+  it("ignores events and messages from a discarded runtime after its replacement opens", async () => {
+    let report!: (event: { type: string }) => void;
+    let deliver!: (message: unknown) => void;
+    const backend = externalBackend("thread");
+    const live = new ThreadRuntime(externalBackend("thread") as never);
+    const provider = {
+      open: async (_id: string, _cwd: string, _options: unknown, context: { onEvent: typeof report; onMessage: typeof deliver }) => {
+        report = context.onEvent;
+        deliver = context.onMessage;
+        return backend;
+      },
+    };
+    const { lifecycle, emitted } = makeLifecycle({ currentRuntime: () => live }, { test: provider });
+    const old = await lifecycle.openExternal("test", "thread", "/repo");
+    lifecycle.discard(old);
+    report({ type: "turn-started" });
+    deliver({ role: "assistant", text: "too late" });
+    expect(emitted).toEqual([]);
+    expect(live.adapterMessages).toEqual([]);
+  });
+
   it("puts a backend's question on the workbench dialog surface under the thread's id", async () => {
     let ask!: (prompt: { kind: string; title: string }) => Promise<unknown>;
     const provider = {

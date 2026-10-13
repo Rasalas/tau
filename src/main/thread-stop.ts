@@ -150,10 +150,11 @@ export class ThreadControls {
       abort: () => port.abortThread(thread),
       background: () => this.background(thread)?.current() ?? [],
       notice: async (text) => {
-        const notice = thread.backend.capabilities.resume?.notice;
+        const stopped = await port.reopenThread(thread.threadId);
+        const notice = stopped.backend.capabilities.resume?.notice;
         if (!notice) throw new Error("no transcript row");
         await notice(text);
-        await port.publishDetail(thread);
+        await port.publishDetail(stopped);
       },
       toast: (text) => port.emitForThread(thread, { type: "notice", sessionId: thread.threadId, message: text, level: "info" }),
       log: (label, detail) => port.log(label, `${thread.threadId.slice(0, 8)} · ${detail}`),
