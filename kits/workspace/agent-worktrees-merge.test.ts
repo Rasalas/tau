@@ -3,8 +3,8 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { captureWorktreeTree, mergeBranchIntoCheckout, previewBranchMerge } from "./agent-worktrees.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { captureWorktreeTree, createAgentWorktree, mergeBranchIntoCheckout, previewBranchMerge, runAgentGit, type AgentGitRunner } from "./agent-worktrees.js";
 
 const created: string[] = [];
 
@@ -47,6 +47,58 @@ async function branchFromState(repo: Awaited<ReturnType<typeof repository>>, bra
 }
 
 describe("merging a branch back into a checkout", () => {
+  it.each([false, true])("serializes Apply and merges across module copies and releases after failure: %s", async (failFirst) => {
+    const repo = await repository();
+    await writeFile(join(repo.cwd, "draft.txt"), "parent draft\n");
+    const base = await branchFromState(repo, "first", async (dir) => { await writeFile(join(dir, "first.txt"), "first\n"); });
+    const child = await createAgentWorktree({ parentCwd: repo.cwd, agentId: "11111111", worktreeParent: repo.root });
+    await writeFile(join(child.path, "second.txt"), "second\n");
+    execFileSync("git", ["add", "-A"], { cwd: child.path });
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", "commit", "-qm", "second"], { cwd: child.path });
+    const subdirectory = join(repo.cwd, "nested");
+    await mkdir(subdirectory);
+    const other = await repository();
+    await branchFromState(other, "independent", async (dir) => { await writeFile(join(dir, "other.txt"), "other\n"); });
+    vi.resetModules();
+    const copy = await import("./agent-worktrees.js");
+    let entered!: () => void;
+    const writing = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let released = false;
+    let secondEnteredWhileHeld = false;
+    const firstRunner: AgentGitRunner = async (cwd, args, options) => {
+      if (args[0] === "read-tree" && args.includes("--reset")) {
+        entered();
+        await held;
+        if (failFirst) throw new Error("injected write failure");
+      }
+      return runAgentGit(cwd, args, options);
+    };
+    const secondRunner: AgentGitRunner = (cwd, args, options) => {
+      if (args[0] !== "rev-parse" || !args.includes("--git-common-dir")) secondEnteredWhileHeld ||= !released;
+      return runAgentGit(cwd, args, options);
+    };
+    const first = mergeBranchIntoCheckout({ cwd: repo.cwd, branch: "first", base, runGit: firstRunner });
+    const firstSettled = Promise.allSettled([first]);
+    await writing;
+    const second = copy.applyAgentWorktree({ parentCwd: subdirectory, worktree: child, runGit: secondRunner });
+    const secondSettled = Promise.allSettled([second]);
+    try {
+      expect(await copy.mergeBranchIntoCheckout({ cwd: other.cwd, branch: "independent" })).toMatchObject({ state: "merged" });
+    } finally {
+      released = true;
+      release();
+    }
+    const [firstResult] = await firstSettled;
+    const [secondResult] = await secondSettled;
+    expect(secondEnteredWhileHeld).toBe(false);
+    expect(firstResult.status).toBe(failFirst ? "rejected" : "fulfilled");
+    expect(secondResult).toMatchObject({ status: "fulfilled", value: { strategy: "merge" } });
+    expect(await readFile(join(repo.cwd, "second.txt"), "utf8")).toBe("second\n");
+    if (!failFirst) expect(await readFile(join(repo.cwd, "first.txt"), "utf8")).toBe("first\n");
+  });
+
   it("checks a merge without touching the checkout, and merges a clean one with --no-ff", async () => {
     const repo = await repository();
     await branchFromState(repo, "tau/rex/clean", async (dir) => { await writeFile(join(dir, "c.txt"), "new\n"); });

@@ -3451,6 +3451,12 @@ expiry. Their tip contains tracked and non-ignored untracked working files;
 its parent holds the index, and the next parent is the child's original HEAD.
 Recover the files with `git worktree add -b recovered <path> <ref>`.
 
+Applying a child's work requires its checkout to remain on the recorded branch
+at that branch's tip, and the parent's checkout to be on the recorded review
+target when one exists. A refusal keeps the child's worktree and branches.
+Apply and branch merges share a queue per canonical Git common directory in
+the host process, including across kit bundles; other repositories run independently.
+
 A kit's own tools for such an agent register as a Pi runtime extension for
 sub-agents whose persona is its definition (read from the thread's
 `PARENT_LINK_ENTRY`, which carries `persona.name`) and are named in the
