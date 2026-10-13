@@ -57,6 +57,8 @@ it("counts the thread's watched PRs and lists each with its own stop, and a star
   expect(screen.queryByText("#50")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Watch PR #44" }));
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("watch-start", { threadId: "a", url: "https://github.com/example/project/pull/44" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Stop watching PR #43" }));
+  const stop = await screen.findByRole("button", { name: "Stop watching PR #43" });
+  await waitFor(() => expect((stop as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(stop);
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("watch-stop", { threadId: "a", url: "https://github.com/example/project/pull/43" }));
 });

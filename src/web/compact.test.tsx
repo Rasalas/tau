@@ -455,6 +455,9 @@ describe("the web client at 400 px", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     const sheet = await screen.findByRole("dialog", { name: "Agents" });
     expect(await within(sheet).findByText("agents panel body")).toBeTruthy();
+    await waitFor(() => expect(phoneReaderFromState(window.history.state)).toMatchObject({
+      key: expect.stringContaining("Agents:"), route: { kind: "chat", thread: "t-a" },
+    }));
     fireEvent.click(within(sheet).getByRole("button", { name: "Close Agents" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Agents" })).toBeNull());
   });
