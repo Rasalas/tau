@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AccountInfo, EffortLevel, McpServerConfig, ModelInfo, Options, PermissionMode, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeQuery } from "./runtime-adapter.js";
+import { authenticationException, authenticationFailure, ClaudeAuthenticationError } from "./auth-failure.js";
 
 export type SendPriority = NonNullable<SDKUserMessage["priority"]>;
 export type UserContent = SDKUserMessage["message"]["content"];
@@ -176,22 +177,34 @@ export class ClaudeSdkSession {
     let error: unknown;
     try {
       for await (const message of this.query!) {
+        const authentication = authenticationFailure(message);
         if (message.type === "result") {
           const uuids = this.resultSends(message);
           if (uuids.length === 0) {
             this.options.onMessage(message, true);
-            continue;
+          } else {
+            // The backend settles its turn synchronously in onMessage. Validate
+            // first so background results cannot advance its turn queue.
+            this.options.onMessage(message);
+            this.settle(message, uuids);
           }
-          // The backend settles its turn synchronously in onMessage. Validate
-          // first so background results cannot advance its turn queue.
-          this.options.onMessage(message);
-          this.settle(message, uuids);
         } else {
           this.options.onMessage(message);
         }
+        if (authentication) {
+          error = authentication;
+          // Stop the CLI and all of its children before it can retry or consume
+          // another queued send. No result frame is required to end this run.
+          this.abortController.abort();
+          this.ended = true;
+          this.releaseMcp?.();
+          this.wake();
+          break;
+        }
       }
     } catch (caught) {
-      error = this.abortController.signal.aborted ? undefined : caught;
+      error ??= this.abortController.signal.aborted ? undefined : authenticationException(caught) ?? caught;
+      if (error instanceof ClaudeAuthenticationError) this.abortController.abort();
     }
     if (error !== undefined && this.options.explainExit) error = await this.options.explainExit(error).catch(() => error);
     this.finish(error);

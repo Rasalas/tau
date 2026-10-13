@@ -27,6 +27,7 @@ export class ClaudeBackgroundTasks {
   get size(): number { return this.tasks.size; }
   current(): UiBackgroundTask[] { return [...this.tasks.values()].map((task) => ({ ...task })); }
   has(taskId: string): boolean { return this.tasks.has(taskId); }
+  forget(taskId: string): boolean { this.started.delete(taskId); return this.tasks.delete(taskId); }
 
   release(taskId: string): void {
     const task = this.tasks.get(taskId);

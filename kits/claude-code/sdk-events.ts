@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { authenticationFailure } from "./auth-failure.js";
 import type { ThreadRuntimeEvent, UiContextUsage, UiMessage, UiThreadUsage, UiToolRun, UsageTally } from "tau/host-extension";
 
 /** Matches the host's own bound for a tool card; the durable result stays with Claude's session. */
@@ -320,7 +321,7 @@ export class SdkTurnTranslator {
       const tallies = resultTallies(message, this.facts.model);
       this.outcome = interruptedResult(message)
         ? { texts: this.texts, usage: resultUsage(message), tallies, interrupted: true }
-        : { texts: this.texts, usage: resultUsage(message), tallies, error: this.compactionError ?? resultErrorText(message), ...(limit ? { limit } : {}) };
+        : { texts: this.texts, usage: resultUsage(message), tallies, error: authenticationFailure(message)?.message ?? this.compactionError ?? resultErrorText(message), ...(limit ? { limit } : {}) };
       return [];
     }
     // A resumed session answers with an empty result before the turn. A compaction's result has no reply

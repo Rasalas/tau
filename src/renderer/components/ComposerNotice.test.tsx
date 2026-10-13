@@ -6,6 +6,14 @@ import { ComposerNotice } from "./ComposerNotice";
 afterEach(cleanup);
 
 describe("ComposerNotice (2c)", () => {
+  it.each(["Failed to authenticate: OAuth session expired and could not be refreshed", "Compaction failed: Error during compaction: Failed to authenticate: OAuth session expired and could not be refreshed"])("directs an expired login to provider settings instead of retrying: %s", (error) => {
+    const openSettings = vi.fn();
+    render(<ComposerNotice sessionId="s" error={error} provider="anthropic" onReplaceKey={openSettings} onRetry={vi.fn()} />);
+    expect(screen.getByRole("status").textContent).toContain("Sign in again");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open provider settings" }));
+    expect(openSettings).toHaveBeenCalledOnce();
+  });
   it("names a refused key and offers to replace it", () => {
     const onReplaceKey = vi.fn();
     const onSwitchModel = vi.fn();

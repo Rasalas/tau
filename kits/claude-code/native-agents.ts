@@ -16,6 +16,12 @@ export class ClaudeNativeAgents {
   constructor(private readonly ownerEffort: () => string | undefined = () => undefined) {}
   /** Whether a task id belongs to a subagent row, which `stopTask` may then stop. */
   hasTask(taskId: string): boolean { return this.tasks.has(taskId); }
+  settleTask(taskId: string, status: "idle" | "cancelled"): ThreadRuntimeEvent[] {
+    const id = this.tasks.get(taskId);
+    if (!id || !this.tracker.tasks().some((task) => task.id === taskId)) return [];
+    this.background.delete(id);
+    return this.tracker.update(id, { status });
+  }
   /** A SendMessage that resumed an agent, to the row the agent already has. */
   private readonly resumedBy = new Map<string, string>();
   private readonly background = new Set<string>();
