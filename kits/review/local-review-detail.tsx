@@ -20,7 +20,7 @@ import {
 import { mergeBlocker, reviewRuntime, type ConflictFile, type HunkPick, type LocalReview, type NoteThread } from "./local-reviews.js";
 import type { LocalReviewsStore, ReviewRun } from "./local-reviews-store.js";
 import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
-import { lineKeys, orderFiles, threadKey } from "./pull-request-logic.js";
+import { lineKeys, orderFiles, requestLabelOf, threadKey } from "./pull-request-logic.js";
 import { ReplyBox } from "./pull-request-parts.js";
 import { runsPipeline } from "./pipeline.js";
 import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
@@ -403,7 +403,7 @@ export function LocalReviewDetail({ review, parts, detail, act, actions, back, f
           <button type="button" disabled={!act.mayAsk} onClick={() => { void parts.store.withdraw(review).catch((error) => actions.notify(errorMessage(error), "error")); }}>Withdraw</button>
         </div>
       ) : null}
-      {review.request && merged ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">PR #{review.request.number}</a>.</p>
+      {review.request && merged ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Integrated into {review.target} through <a href={review.request.url} target="_blank" rel="noreferrer">{requestLabelOf(review.request.url, review.request.number)}</a>.</p>
         : review.mergedBy ? <p className="rv-already rvd-notice" role="status"><GitMerge size={13} aria-hidden="true" /> Already in {review.target}: {ALREADY[review.mergedBy]}</p> : null}
       {!merged && review.mergeBlocked ? <p className="rvd-notice" role="status">{review.mergeBlocked}</p> : null}
       {review.conflicts.length > 0 && !picking ? (

@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import type { PullRequestCheck, PullRequestThread } from "./protocol.js";
 import { parseGitHubChecks, parseGitHubDetail, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 import {
+  requestLabel,
+  requestLabelOf,
   anchorThreads,
   asReviewRequest,
   buildTimeline,
@@ -135,5 +137,16 @@ describe("small words", () => {
       label: "Thread on output.ts:10",
       payload: { source: "Review thread on PR #7 at kits/terminal/output.ts:10", text: "octo: Ready for a look.\n\nmona: Please name the offset." },
     });
+  });
+});
+
+describe("request numbers", () => {
+  it("writes a request's number as its provider does", () => {
+    expect(requestLabel("github", 12)).toBe("PR #12");
+    expect(requestLabel("gitlab", 12)).toBe("MR !12");
+    expect(requestLabel("azure-devops", 12)).toBe("PR !12");
+    expect(requestLabel("forgejo", 12)).toBe("PR #12");
+    expect(requestLabelOf("https://gitlab.com/g/p/-/merge_requests/3")).toBe("MR !3");
+    expect(requestLabelOf("https://github.com/o/r/pull/176")).toBe("PR #176");
   });
 });

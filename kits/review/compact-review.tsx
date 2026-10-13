@@ -15,7 +15,7 @@ import {
   tapLine, turnEntries, WORKTREE, type ReviewSource, type TurnEntry,
 } from "./compact-model.js";
 import type { CompactReviewStore } from "./compact-store.js";
-import { providerInfo, REVIEW_COMPACT_PANEL, WORKSPACE_CHECKPOINT_EVENT, type ReviewRequestStatus, type ReviewTurn } from "./protocol.js";
+import { providerInfo, requestNumber, REVIEW_COMPACT_PANEL, WORKSPACE_CHECKPOINT_EVENT, type ReviewRequestStatus, type ReviewTurn } from "./protocol.js";
 import type { RequestClient } from "./requests.js";
 import type { WorkspaceChangesReader } from "./workspace.js";
 
@@ -309,7 +309,7 @@ function ActionBar({ deps, source, changes, info, actions, readOnly, refresh }: 
     if ((info?.ahead ?? 0) > 0 && info?.hasRemote !== false) buttons.push(<PushButton key="push" info={info} disabled={readOnly} deps={deps} actions={actions} refresh={refresh} />);
     if (request) {
       buttons.push(<a key="open" className="review-compact-button" href={request.url} target="_blank" rel="noreferrer">
-        <ExternalLink size={16} aria-hidden="true" />{providerInfo(request.provider).short} #{request.number}
+        <ExternalLink size={16} aria-hidden="true" />{providerInfo(request.provider).short} {requestNumber(request.provider, request.number)}
       </a>);
     } else {
       buttons.push(<button key="request" type="button" className="review-compact-button primary" disabled={readOnly || changes.files.length === 0} onClick={() => deps.store.update({ page: "request" })}>

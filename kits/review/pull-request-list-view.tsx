@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type WorkbenchActions } from "tau";
 import { REVIEWS_PAGE } from "./local-reviews.js";
-import { providerInfo, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
+import { providerInfo, requestNumber, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import {
   arrangeList,
@@ -136,7 +136,7 @@ function RowChecks({ entry, client, onOpen }: Pick<RowProps, "entry" | "client" 
 const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, showRepository, client, onOpen }: RowProps) {
   const shown = entry.labels.slice(0, 3);
   return (
-    <button className="pr-row" data-pr-row="" aria-label={`#${entry.ref.number} ${entry.title}`} onClick={() => onOpen(entry)}>
+    <button className="pr-row" data-pr-row="" aria-label={`${requestNumber(entry.ref.service, entry.ref.number)} ${entry.title}`} onClick={() => onOpen(entry)}>
       <span className="pr-row-glyphs">
         <StateGlyph entry={entry} />
         {entry.mergeable === "conflicting" ? <span className="pr-row-conflict" title="Has conflicts with the base branch" aria-label="Has conflicts"><TriangleAlert size={10} aria-hidden="true" /></span> : null}
@@ -144,7 +144,7 @@ const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, s
       </span>
       <span className="pr-row-lines">
         <span className="pr-row-line">
-          <span className="pr-row-number">#{entry.ref.number}</span>
+          <span className="pr-row-number">{requestNumber(entry.ref.service, entry.ref.number)}</span>
           <span className="pr-row-title">{entry.title}</span>
           {entry.stack ? (
             <span className="pr-row-stack" title={`Layer ${entry.stack.position} of ${entry.stack.size} in stack #${entry.stack.number}`} aria-label={`Stack layer ${entry.stack.position} of ${entry.stack.size}`}>
@@ -185,14 +185,14 @@ const PullRequestTableRow = memo(function PullRequestTableRow({ entry, matchedEl
   const state: RequestState = entry.state === "open" && entry.draft ? "draft" : entry.state;
   const checks = entry.checks ? CHECKS_CELL[entry.checks] : undefined;
   return (
-    <button className="pr-row pr-trow" data-pr-row="" aria-label={`#${entry.ref.number} ${entry.title}`} onClick={() => onOpen(entry)}>
+    <button className="pr-row pr-trow" data-pr-row="" aria-label={`${requestNumber(entry.ref.service, entry.ref.number)} ${entry.title}`} onClick={() => onOpen(entry)}>
       <span className="pr-trow-state">
         <RequestStateIcon state={state} size={14} />
         {entry.mergeable === "conflicting" ? <span className="pr-row-conflict" title="Has conflicts with the base branch" aria-label="Has conflicts"><TriangleAlert size={10} aria-hidden="true" /></span> : null}
       </span>
       <span className="pr-row-lines">
         <span className="pr-row-line">
-          <span className="pr-row-number">#{entry.ref.number}</span>
+          <span className="pr-row-number">{requestNumber(entry.ref.service, entry.ref.number)}</span>
           <span className="pr-row-title">{entry.title}</span>
           {entry.stack ? (
             <span className="pr-row-stack" title={`Layer ${entry.stack.position} of ${entry.stack.size} in stack #${entry.stack.number}`} aria-label={`Stack layer ${entry.stack.position} of ${entry.stack.size}`}>

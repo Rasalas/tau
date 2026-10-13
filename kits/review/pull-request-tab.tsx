@@ -11,7 +11,7 @@ import { ReviewsFilter } from "./reviews-filter.js";
 import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
-import { pullRequestTabParams, shortNoun, type PullRequestTabParams } from "./pull-request-logic.js";
+import { pullRequestTabParams, requestLabel, type PullRequestTabParams } from "./pull-request-logic.js";
 import { PullRequestView, type PullRequestViewShared } from "./pull-request-view.js";
 import type { RequestClient, RowRequests } from "./requests.js";
 
@@ -46,7 +46,7 @@ export function registerPullRequestTab(
       kind: PULL_REQUEST_TAB,
       // Claimed for the one client it was tried on.
       profiles: ["desktop"],
-      title: (params) => `${shortNoun(params.service)} #${params.number}`,
+      title: (params) => requestLabel(params.service, params.number),
       Icon: GitPullRequest,
       render: (params, handle, actions) => {
         const parsed = pullRequestTabParams(params);

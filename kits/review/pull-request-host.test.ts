@@ -468,7 +468,7 @@ describe("pull request commands", () => {
 
     diffs = diffs.replace("export function unseenOutput", "export function unseenChunk");
     expect((await invoke<PullRequestFiles>("pr-files", { url: GITLAB.url, fresh: true })).files[0]!.viewed).toBe("dismissed");
-    await expect(invoke("pr-viewed", { url: GITLAB.url, path: "nope.ts", viewed: true })).rejects.toThrow(/not part of MR #12/u);
+    await expect(invoke("pr-viewed", { url: GITLAB.url, path: "nope.ts", viewed: true })).rejects.toThrow(/not part of MR !12/u);
   });
 
   it("writes to GitLab through its API with JSON on stdin", async () => {

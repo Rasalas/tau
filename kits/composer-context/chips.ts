@@ -14,6 +14,11 @@ import {
 } from "./protocol.js";
 
 /** A chip as the kit holds it: the service's shape plus the upload it may be waiting on. */
+
+/** "#12", or "!12" for a GitLab merge request or an Azure DevOps pull request, by the request's URL. */
+export function requestNumberOf(url: string, number: number): string {
+  return `${/\/-\/merge_requests\/|\/pullrequest\//u.test(url) ? "!" : "#"}${number}`;
+}
 export type ChipEntry = Chip & { uploading?: Promise<void>; error?: string };
 
 type Persist = (value: unknown) => void;
@@ -37,7 +42,7 @@ export function chipLabel(input: ChipInput): string {
       return endLine !== undefined && endLine !== startLine ? `${name}:${startLine}-${endLine}` : `${name}:${startLine}`;
     }
     case "text-excerpt": return input.payload.source;
-    case "pull-request": return `#${input.payload.number}`;
+    case "pull-request": return requestNumberOf(input.payload.url, input.payload.number);
     case "attachment": return input.payload.name;
   }
 }
@@ -273,7 +278,7 @@ export function serializeChips({ chips, files, attachments, fileAttachments }: S
           break;
         }
         case "pull-request":
-          blocks.push(`Pull request [#${chip.payload.number}](${chip.payload.url}): ${chip.payload.title}`);
+          blocks.push(`${chip.payload.url.includes("/-/merge_requests/") ? "Merge request" : "Pull request"} [${requestNumberOf(chip.payload.url, chip.payload.number)}](${chip.payload.url}): ${chip.payload.title}`);
           break;
         case "attachment": {
           if ((fileAttachments && !isVideo(chip.payload.mimeType)) || !chip.payload.path) break;

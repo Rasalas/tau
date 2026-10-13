@@ -49,7 +49,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [writtenBy, setWrittenBy] = useState<string>();
-  const { short, capabilities } = providerInfo(status?.service ?? "github");
+  const { short, sign, capabilities } = providerInfo(status?.service ?? "github");
   const request = status?.request;
   const open: ReviewRequest | undefined = request && (request.state === undefined || request.state === "open") ? request : undefined;
   const media = selected.map((frame): EvidenceMedia => ({ threadId: frame.threadId, source: frame.source, id: frame.id, caption: frame.caption }));
@@ -93,7 +93,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
     onCreated(result.status);
     const created = result.status.request;
     const pictures = result.uploaded ? ` with ${count(result.uploaded)}` : result.kept ? `; ${count(result.kept)} stayed on this machine` : "";
-    actions.notify(created ? `${short} #${created.number} created${pictures}.` : `${short} created${pictures}.`);
+    actions.notify(created ? `${short} ${sign}${created.number} created${pictures}.` : `${short} created${pictures}.`);
     if (created) openPullRequest(actions, created, root);
   });
 
@@ -101,7 +101,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
     const body = `Pictures from Tau of \`${branch ?? "this branch"}\`:\n\n${media.map(evidenceToken).join("\n")}`;
     const result = await client.attach({ url: target.url, body, ...(branch ? { branch } : {}) });
     setStep({ kind: "edit" });
-    actions.notify(`${count(result.uploaded)} added to ${short} #${target.number}.`);
+    actions.notify(`${count(result.uploaded)} added to ${short} ${sign}${target.number}.`);
   });
 
   // Writing runs a model, creating and attaching change the service: a Read-only device may draft only.
@@ -114,7 +114,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
   if (step.kind === "confirm") {
     const { plan } = step;
     const going = plan && plan.kind !== "none";
-    const verb = step.action === "create" ? `create the ${short} into ${form.base.trim() || status?.base || "its base"}` : `add them to ${short} #${open?.number ?? ""} as a comment`;
+    const verb = step.action === "create" ? `create the ${short} into ${form.base.trim() || status?.base || "its base"}` : `add them to ${short} ${sign}${open?.number ?? ""} as a comment`;
     return (
       <div className="lpr-confirm" role="group" aria-label={step.action === "create" ? `Create ${short}` : "Attach pictures"}>
         {step.planError ? <p className="pr-error" role="alert">{step.planError}</p> : null}
@@ -190,7 +190,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
         {inBody.length > 0 ? <small className="lpr-note">{count(inBody.length)} in the description</small> : null}
         {open ? (
           <>
-            <Button onClick={() => openPullRequest(actions, open, root)}>Open {short} #{open.number}</Button>
+            <Button onClick={() => openPullRequest(actions, open, root)}>Open {short} {sign}{open.number}</Button>
             {media.length > 0 ? <Button variant="primary" disabled={Boolean(busy) || !mayAttach} {...tooltipProps(mayAttach ? undefined : READ_ONLY_REASON)} onClick={() => confirm("attach")}>Attach {count(media.length)}…</Button> : null}
           </>
         ) : capabilities.create ? (

@@ -509,7 +509,7 @@ export function ReviewMode({
                 rel="noreferrer"
                 title={`${visibleChanges.request.title} · opens in the browser`}
               >
-                {visibleChanges.request.provider === "github" ? "PR" : "MR"} #{visibleChanges.request.number}
+                {visibleChanges.request.provider === "gitlab" ? "MR !" : "PR #"}{visibleChanges.request.number}
               </a>
             ) : null}
             <span className="stat-add">+{visibleChanges.added}</span>

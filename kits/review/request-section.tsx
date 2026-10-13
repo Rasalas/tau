@@ -77,7 +77,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
 
     const request = status?.request;
     const open = request && (request.state === undefined || request.state === "open") ? request : undefined;
-    const { short, capabilities } = providerInfo(status?.service ?? "github");
+    const { short, sign, capabilities } = providerInfo(status?.service ?? "github");
     const methods = METHODS.filter((entry) => capabilities.merge.includes(entry.value));
     // A provider without the chosen method merges by its first one.
     const chosen = methods.some((entry) => entry.value === method) ? method : methods[0]?.value ?? method;
@@ -127,7 +127,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       setMode("idle");
       void store.refresh();
       const created = result.status.request;
-      actions.notify(created ? `${requestShort(created)} #${created.number} created${form.draft ? " as draft" : ""}.` : `${short} created.`);
+      actions.notify(created ? `${requestShort(created)} ${providerInfo(created.provider).sign}${created.number} created${form.draft ? " as draft" : ""}.` : `${short} created.`);
     });
 
     const merge = () => run(`Merging ${short}…`, async () => {
@@ -136,7 +136,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       publish(next);
       setMode("idle");
       void store.refresh();
-      actions.notify(`${short} #${open?.number ?? ""} merged.${outcomeText(next.merge)}`);
+      actions.notify(`${short} ${sign}${open?.number ?? ""} merged.${outcomeText(next.merge)}`);
     });
 
     const autoMerge = (enable: boolean) => run(enable ? "Turning on auto-merge…" : "Turning off auto-merge…", async () => {
@@ -144,7 +144,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       const next = await client.autoMerge(enable, enable ? chosen : undefined, enable && deleteBranch && capabilities.deleteBranch);
       publish(next);
       setMode("idle");
-      actions.notify(enable ? `Auto-merge turned on for ${short} #${open?.number ?? ""}: it merges as soon as the host allows.` : `Auto-merge turned off for ${short} #${open?.number ?? ""}.`);
+      actions.notify(enable ? `Auto-merge turned on for ${short} ${sign}${open?.number ?? ""}: it merges as soon as the host allows.` : `Auto-merge turned off for ${short} ${sign}${open?.number ?? ""}.`);
     });
 
     const save = () => run(`Saving ${short}…`, async () => {
@@ -156,7 +156,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       });
       publish(next);
       setMode("idle");
-      actions.notify(`${short} #${open.number} updated.`);
+      actions.notify(`${short} ${sign}${open.number} updated.`);
     });
 
     const field = (key: keyof Form) => (event: { target: { value: string } }) => setForm((current) => ({ ...current, [key]: event.target.value }));
@@ -249,14 +249,14 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
         ) : null}
 
         {mode === "merge" && open ? (
-          <div className="request-form" role="group" aria-label={`Merge ${short} #${open.number}`}>
+          <div className="request-form" role="group" aria-label={`Merge ${short} ${sign}${open.number}`}>
             <div className="toggle-group" role="radiogroup" aria-label="Merge method">
               {methods.map((entry) => (
                 <button key={entry.value} role="radio" aria-checked={chosen === entry.value} className={chosen === entry.value ? "active" : ""} onClick={() => setMethod(entry.value)}>{entry.label}</button>
               ))}
             </div>
             <p className="request-confirm">
-              Merge {short} #{open.number} into <code>{open.baseRef}</code> ({METHODS.find((entry) => entry.value === chosen)?.label.toLowerCase()})?
+              Merge {short} {sign}{open.number} into <code>{open.baseRef}</code> ({METHODS.find((entry) => entry.value === chosen)?.label.toLowerCase()})?
               {open.draft ? " It is still a draft." : ""}
               {open.checks && open.checks.failed > 0 ? ` ${open.checks.failed} check${open.checks.failed === 1 ? " is" : "s are"} failing.` : ""}
               {waiting ? " Auto-merge lets the host merge it once its checks and approvals pass." : ""}
@@ -268,7 +268,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
             ) : null}
             <div className="commit-actions">
               {waiting ? <button className="primary" disabled={Boolean(busy)} onClick={() => void autoMerge(true)}>Enable auto-merge</button> : null}
-              <button className={waiting ? "" : "primary"} disabled={Boolean(busy)} onClick={() => void merge()}>{waiting ? "Merge now" : `Merge ${short} #${open.number}`}</button>
+              <button className={waiting ? "" : "primary"} disabled={Boolean(busy)} onClick={() => void merge()}>{waiting ? "Merge now" : `Merge ${short} ${sign}${open.number}`}</button>
               <button disabled={Boolean(busy)} onClick={() => setMode("idle")}>Cancel</button>
             </div>
           </div>
@@ -284,13 +284,13 @@ function RequestSummary({ request, onOpen, onBrowse }: { request: ReviewRequest;
   const armed = request.state === "open" && request.autoMerge ? `auto-merge${request.autoMerge.method ? ` · ${request.autoMerge.method}` : ""}` : undefined;
   const state = requestStateLabel(request);
   const checks = checksLabel(request.checks);
-  const short = requestShort(request);
+  const { short, sign } = providerInfo(request.provider);
   return (
     <>
       <button className="request-link" title={`${request.title} · opens the ${short} view`} onClick={onOpen}>
-        {short} #{request.number}
+        {short} {sign}{request.number}
       </button>
-      <button className="icon-button compact" aria-label={`Open ${short} #${request.number} in the browser`} title="Open in the browser" onClick={onBrowse}>
+      <button className="icon-button compact" aria-label={`Open ${short} ${sign}${request.number} in the browser`} title="Open in the browser" onClick={onBrowse}>
         <ExternalLink size={10} />
       </button>
       <RequestStateIcon state={state} size={12} />
@@ -334,16 +334,16 @@ function LinkedRequests({ actions, parts }: { actions: WorkbenchActions; parts: 
         </button>}
       </div>
       {links.map((link) => {
-        const short = providerInfo(link.service).short;
+        const { short, sign } = providerInfo(link.service);
         const state = link.state === "open" && link.draft ? "draft" : link.state ?? "open";
         return (
           <div key={link.url} className="request-link-row">
             <button className="request-link" title={`${link.title ?? link.url} · opens the ${short} view`} onClick={() => openPullRequest(actions, { url: link.url, number: link.number, provider: link.service }, thread?.cwd)}>
-              {short} #{link.number}
+              {short} {sign}{link.number}
             </button>
             <span className="request-link-title" title={`${link.repo}${link.title ? ` · ${link.title}` : ""}`}>{link.title ?? link.repo}</span>
             <RequestStateIcon state={state} size={12} />
-            {readOnly ? null : <button className="icon-button compact" aria-label={`Unlink ${short} #${link.number}`} title="Unlink" onClick={() => void unlink(link.url)}>
+            {readOnly ? null : <button className="icon-button compact" aria-label={`Unlink ${short} ${sign}${link.number}`} title="Unlink" onClick={() => void unlink(link.url)}>
               <X size={11} />
             </button>}
           </div>

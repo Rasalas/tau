@@ -130,7 +130,7 @@ export function parseAzureList(output: string, host: string, repo: string, viewe
     const conflicting = text(raw.mergeStatus)?.toLowerCase() === "conflicts";
     return [{
       ref: { service: "azure-devops", host, repo, number, url: `${web}/pullrequest/${number}` },
-      title: text(raw.title) ?? `#${number}`,
+      title: text(raw.title) ?? `!${number}`,
       ...(author ? { author } : {}),
       headRef: branchName(raw.sourceRefName) ?? "",
       baseRef: branchName(raw.targetRefName) ?? "",
@@ -206,7 +206,7 @@ export function parseAzureDetail(ref: PullRequestRef, pull: string, threads: str
     ...(state(raw) === "closed" && closed ? { closedAt: closed } : {}),
     ...(branchName(raw.sourceRefName) ? { headRef: branchName(raw.sourceRefName) } : {}),
     ...(text(record(raw.lastMergeSourceCommit).commitId) ? { headSha: text(record(raw.lastMergeSourceCommit).commitId) } : {}),
-    title: text(raw.title) ?? `#${ref.number}`,
+    title: text(raw.title) ?? `!${ref.number}`,
     body: typeof raw.description === "string" ? raw.description : "",
     state: state(raw),
     draft: raw.isDraft === true,
@@ -228,7 +228,7 @@ export function parseAzureDetail(ref: PullRequestRef, pull: string, threads: str
 
 export function createAzureProvider(tools: ProviderTools): SourceControlProvider {
   const kind = "azure-devops" as const;
-  const noun = (ref: PullRequestRef) => `PR #${ref.number}`;
+  const noun = (ref: PullRequestRef) => `PR !${ref.number}`;
 
   const az = async (target: { host: string; repo: string }, args: string[], action: string): Promise<string> => {
     const { organizationUrl } = place(target.host, target.repo);
@@ -298,7 +298,7 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
       const failed = found.filter((check) => check.status === "failed" || check.status === "cancelled").length;
       const pending = found.filter((check) => check.status === "pending").length;
       const request: ReviewRequest = {
-        provider: kind, number, title: text(raw.title) ?? `#${number}`, url: ref.url, baseRef: branchName(raw.targetRefName) ?? "",
+        provider: kind, number, title: text(raw.title) ?? `!${number}`, url: ref.url, baseRef: branchName(raw.targetRefName) ?? "",
         ...(branchName(raw.sourceRefName) ? { headRef: branchName(raw.sourceRefName) } : {}),
         state: state(raw), draft: raw.isDraft === true,
         ...(typeof raw.description === "string" ? { body: raw.description } : {}),
@@ -315,7 +315,7 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
       return typeof created.pullRequestId === "number" ? refFor(target, created.pullRequestId).url : undefined;
     },
     merge: async (target, request, method, options = {}) => {
-      await update(target, request.number, ["--status", "completed", "--squash", method === "squash" ? "true" : "false", ...(options.deleteBranch ? ["--delete-source-branch", "true"] : [])], `Merging PR #${request.number}`);
+      await update(target, request.number, ["--status", "completed", "--squash", method === "squash" ? "true" : "false", ...(options.deleteBranch ? ["--delete-source-branch", "true"] : [])], `Merging PR !${request.number}`);
       return options.deleteBranch && request.headRef ? { branchDeleted: request.headRef } : undefined;
     },
     // Azure calls it auto-complete: the request completes itself once its policies pass.
@@ -323,13 +323,13 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
       const args = enable
         ? ["--auto-complete", "true", "--squash", method === "squash" ? "true" : "false", ...(options.deleteBranch ? ["--delete-source-branch", "true"] : [])]
         : ["--auto-complete", "false"];
-      await update(target, request.number, args, `${enable ? "Turning on" : "Turning off"} auto-complete for PR #${request.number}`);
+      await update(target, request.number, args, `${enable ? "Turning on" : "Turning off"} auto-complete for PR !${request.number}`);
     },
     edit: async (target, request, input) => {
-      await update(target, request.number, [...(input.title !== undefined ? ["--title", input.title] : []), ...(input.body !== undefined ? ["--description", input.body || " "] : [])], `Editing PR #${request.number}`);
+      await update(target, request.number, [...(input.title !== undefined ? ["--title", input.title] : []), ...(input.body !== undefined ? ["--description", input.body || " "] : [])], `Editing PR !${request.number}`);
     },
     setDraft: async (target, request, draft) => {
-      await update(target, request.number, ["--draft", draft ? "true" : "false"], `Editing PR #${request.number}`);
+      await update(target, request.number, ["--draft", draft ? "true" : "false"], `Editing PR !${request.number}`);
     },
 
     list: async (target, input, viewer) => {
@@ -337,7 +337,7 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
       const output = await az(target, ["repos", "pr", "list", ...inRepository(target), "--status", STATUS[input.state], "--top", String(top)], `Listing the pull requests of ${place(target.host, target.repo).repository}`);
       const words = input.search?.toLowerCase();
       // `az` searches nothing; the rows are narrowed here.
-      const entries = parseAzureList(output, target.host, target.repo, viewer).filter((entry) => !words || entry.title.toLowerCase().includes(words) || `#${entry.ref.number}` === words);
+      const entries = parseAzureList(output, target.host, target.repo, viewer).filter((entry) => !words || entry.title.toLowerCase().includes(words) || `!${entry.ref.number}` === words || `#${entry.ref.number}` === words);
       return { entries: entries.slice(0, input.limit), more: entries.length > input.limit };
     },
 
