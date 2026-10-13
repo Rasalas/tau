@@ -1,3 +1,11 @@
+/** Median of a few timings; with an even count, the mean of the two middle ones. */
+export function medianMs(samples) {
+  const sorted = [...samples].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length === 0) return 0;
+  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
 export function evaluateHostBudgets(report, budgets = {}) {
   const warmSwitchP95Ms = budgets.warmSwitchP95Ms ?? 150;
   const bootstrapP95Ms = budgets.bootstrapP95Ms
@@ -19,9 +27,12 @@ export function evaluateHostBudgets(report, budgets = {}) {
   if (!bootstrap || ![bootstrap.median, bootstrap.p95, bootstrap.maximum].every(Number.isFinite)) {
     failures.push("bootstrap median, p95, and maximum were not reported by the host fixture");
   } else if ((bootstrap.cold ?? bootstrap.maximum) > bootstrapP95Ms) {
-    // Only the first start of a process is cold; that sample is the gate, median and p95 stay informational.
+    // The gate is the median of fresh-process cold starts; one slow start on a busy machine must not fail it.
     const cold = bootstrap.cold ?? bootstrap.maximum;
-    failures.push(`${report.mode} bootstrap cold ${cold.toFixed(1)}ms > ${bootstrapP95Ms}ms (median ${bootstrap.median.toFixed(1)}ms, p95 ${bootstrap.p95.toFixed(1)}ms, max ${bootstrap.maximum.toFixed(1)}ms)`);
+    const samples = Array.isArray(bootstrap.coldSamples) && bootstrap.coldSamples.length > 0
+      ? `, cold samples ${bootstrap.coldSamples.map((sample) => `${sample.toFixed(1)}ms`).join(" / ")}`
+      : "";
+    failures.push(`${report.mode} bootstrap cold ${cold.toFixed(1)}ms > ${bootstrapP95Ms}ms (median ${bootstrap.median.toFixed(1)}ms, p95 ${bootstrap.p95.toFixed(1)}ms, max ${bootstrap.maximum.toFixed(1)}ms${samples})`);
   }
   if (report.mode === "full") {
     const cold = report.summaries?.["cold-switch"];

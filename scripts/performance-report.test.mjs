@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { classifyAsset, evaluateBuildBudgets } from "./build-report.mjs";
 import { buildFixtureEnv, evaluateStartBudgets } from "./start-report.mjs";
 import { evaluateRendererBudgets } from "./renderer-budget.mjs";
-import { evaluateHostBudgets } from "./host-budget.mjs";
+import { evaluateHostBudgets, medianMs } from "./host-budget.mjs";
 import { evaluateGitBudgets } from "./git-budget.mjs";
 import { buildRendererComparisonReproduction } from "./renderer-comparison-commands.mjs";
 
@@ -95,6 +95,21 @@ describe("performance report checks", () => {
     expect(failures).toEqual([
       "full bootstrap cold 2300.0ms > 2000ms (median 2100.0ms, p95 2300.0ms, max 2300.0ms)",
     ]);
+  });
+
+  it("gates the median of the cold bootstrap samples: one slow start passes, two fail", () => {
+    const report = (coldSamples) => ({ mode: "safe", summaries: {
+      bootstrap: { median: 40, p95: 60, maximum: 1_405, cold: medianMs(coldSamples), coldSamples },
+      "warm-switch": { median: 1, p95: 1, maximum: 1 },
+    }, phases: [], background: [{ name: "project-label", durationMs: 10 }] });
+    const budgets = { hostBootstrapSafeMs: 1_000 };
+    expect(evaluateHostBudgets(report([427, 1_405, 450]), budgets)).toEqual([]);
+    expect(evaluateHostBudgets(report([1_405, 450, 427]), budgets)).toEqual([]);
+    expect(evaluateHostBudgets(report([1_405, 1_290, 427]), budgets)).toEqual([
+      "safe bootstrap cold 1290.0ms > 1000ms (median 40.0ms, p95 60.0ms, max 1405.0ms, cold samples 1405.0ms / 1290.0ms / 427.0ms)",
+    ]);
+    expect(medianMs([3, 1, 2])).toBe(2);
+    expect(medianMs([4, 1, 3, 2])).toBe(2.5);
   });
 
   it("fails an idle host heap over its budget, and one that was not reported", () => {
