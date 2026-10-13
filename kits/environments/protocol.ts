@@ -112,7 +112,7 @@ export interface ChooseMachineInput {
   backend?: string;
   /** `provider/id`. */
   model?: string;
-  /** Host ids the caller could use besides this computer; every machine the agents reach when absent. */
+  /** Host ids the caller could use besides this machine; every machine the agents reach when absent. */
   machines?: string[];
 }
 
@@ -126,7 +126,7 @@ export interface ChooseMachineVerdict {
 }
 
 export interface ChooseMachineAnswer {
-  /** A host id; null for this computer. */
+  /** A host id; null for this machine. */
   machine: string | null;
   /** One line on why, for a tooltip. */
   reason: string;

@@ -138,7 +138,7 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     watches.set(id, watch); await changed(); return structuredClone(watch);
   };
   const wake = async (threadId: string, events: readonly WatchEvent[]) => {
-    if (!services.sessions.send) throw new HostCommandError("The host cannot queue PR wakes.");
+    if (!services.sessions.send) throw new HostCommandError("This machine cannot queue PR wakes.");
     const others = [...watches.values()].filter((watch) => watch.threadId === threadId && watch.status !== "ended" && !events.some((event) => event.watch === watch));
     await services.sessions.send(threadId, wakeText(events, others), { delivery: "queue", wake: { source: "pull-request", label: wakeLabel(events) } });
   };

@@ -20,7 +20,7 @@ export interface MachineChooserPorts {
 
 /**
  * Gathers each machine's load and readiness through `services.machines`
- * (this computer by its own id), timed by when the answer arrived here, and
+ * (this machine by its own id), timed by when the answer arrived here, and
  * hands them to `chooseMachine`.
  */
 export function createMachineChooser(ports: MachineChooserPorts) {
@@ -45,7 +45,7 @@ export function createMachineChooser(ports: MachineChooserPorts) {
 
   return async function choose(input: ChooseMachineInput): Promise<ChooseMachineAnswer> {
     const machines = ports.machines();
-    if (!machines) return { machine: null, reason: "This host keeps no other machines; this computer runs it.", machines: [] };
+    if (!machines) return { machine: null, reason: "This machine keeps no other machines; it runs here.", machines: [] };
     const weights = await ports.weights();
     const allowed = input.machines ? new Set(input.machines) : undefined;
     const others = machines.list().filter((machine) => machine.id !== machines.self.id && (!allowed || allowed.has(machine.id)));
@@ -54,7 +54,7 @@ export function createMachineChooser(ports: MachineChooserPorts) {
       const base = { id: machine.id, name: machine.name, ...(local ? { local: true } : {}), weight: weightOf(weights, machine.id, local) };
       if (!local) {
         if (machine.status !== "connected") return { ...base, unavailable: machine.status };
-        if (machine.readOnly) return { ...base, unavailable: "Read only for this computer's agents" };
+        if (machine.readOnly) return { ...base, unavailable: "Read only for this machine's agents" };
       }
       if (base.weight <= 0) return base;
       const results = await Promise.allSettled([
@@ -70,6 +70,6 @@ export function createMachineChooser(ports: MachineChooserPorts) {
     }));
     const choice = chooseMachine(candidates, { ...(input.backend ? { backend: input.backend } : {}), ...(input.model ? { model: input.model } : {}) }, now());
     const machine = choice.chosen && !choice.chosen.local ? choice.chosen.id : null;
-    return { machine, reason: choice.chosen ? choice.reason : `${choice.reason} This computer runs it.`, machines: choice.verdicts };
+    return { machine, reason: choice.chosen ? choice.reason : `${choice.reason} This machine runs it.`, machines: choice.verdicts };
   };
 }

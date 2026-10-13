@@ -92,7 +92,7 @@ describe("a fresh install (2a)", () => {
   it("calls any folder a project, as the folder picker does", async () => {
     start({ isRepo: false, messageCount: 0 });
     await screen.findByRole("heading", { name: "Open a project to start" });
-    expect(document.querySelector(".fresh-start-lede")?.textContent).toBe("A project is any folder on this computer. A git repo adds worktrees and reviews.");
+    expect(document.querySelector(".fresh-start-lede")?.textContent).toBe("A project is any folder on this machine. A git repo adds worktrees and reviews.");
   });
 
   it("names the runtimes that are ready, not the models Pi lists", async () => {

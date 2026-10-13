@@ -402,7 +402,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         return { html: await readVisualizationFragment(project, requiredString(input, "relPath")) };
       }, { access: "read" });
       context.registerCommand("publish-visualization", (input) => {
-        if (!services.browserResources) throw new Error("This host does not support visualization resources.");
+        if (!services.browserResources) throw new Error("This machine does not support visualization resources.");
         const html = requiredString(input, "html");
         if (Buffer.byteLength(html, "utf8") > 1024 * 1024) throw new Error("Visualization fragment is too large.");
         const theme = record(input).theme === "dark" ? "dark" : "light";
@@ -414,7 +414,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       // A clicked transcript link is a host filesystem read, not a Git/workspace operation.
       // Require its origin even for absolute paths; never substitute the active project.
       context.registerCommand("publish-linked-media", async (input) => {
-        if (!services.browserResources) throw new Error("This host does not support media resources.");
+        if (!services.browserResources) throw new Error("This machine does not support media resources.");
         const project = await services.knownWorkspacePath(requiredString(input, "workspace"));
         const path = await realpath(resolve(project, linkedFilePath(requiredString(input, "path"))));
         const mimeType = shareableType(path);

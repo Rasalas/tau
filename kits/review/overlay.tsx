@@ -65,7 +65,7 @@ export function createReviewOverlay(
         return diff;
       } catch (error) {
         if (!(error instanceof HostUnavailableError)) throw error;
-        return { path, added: 0, removed: 0, hunks: [], note: "Diffs require the Electron host." };
+        return { path, added: 0, removed: 0, hunks: [], note: "Diffs require a connected machine." };
       }
     }, []);
     // Request controls share the review sidebar.

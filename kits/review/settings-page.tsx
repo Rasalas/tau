@@ -45,7 +45,7 @@ export const REVIEW_SETTINGS_ROWS = [
   { id: "setting-review-whitespace", label: "Hide whitespace changes", keywords: ["diff", "whitespace"] },
   { id: "setting-review-collapsed", label: "Files start collapsed", keywords: ["diff", "collapse"] },
   { id: "setting-review-git-hosts", label: "Git hosts", keywords: ["github", "gitlab", "forgejo", "bitbucket", "azure devops", "signed in"] },
-  { id: "setting-review-github-sharing", label: "GitHub across paired hosts", keywords: ["github", "sharing", "routing", "machines", "credentials"] },
+  { id: "setting-review-github-sharing", label: "GitHub across paired machines", keywords: ["github", "sharing", "routing", "machines", "credentials"] },
   { id: "setting-review-servers", label: "Self-hosted servers", keywords: ["self-hosted", "gitea", "forgejo", "provider", "host"] },
 ];
 

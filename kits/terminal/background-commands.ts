@@ -123,7 +123,7 @@ export function registerBackgroundCommands(services: HostExtensionServices): () 
     execute: async (_id, input: { command: string; label: string; kind?: "command" | "monitor" }, signal) => {
       const thread = services.thread(session.sessionId);
       if (!thread || thread.cwd !== session.cwd) throw new Error("The thread's workspace is no longer available.");
-      if (!services.sessions.send) throw new Error("This host cannot deliver command results to the thread.");
+      if (!services.sessions.send) throw new Error("This machine cannot deliver command results to the thread.");
       const refusal = executionPolicyRefusal(await services.executionPolicy?.for(thread.cwd), "Tracked background commands");
       if (refusal) throw new Error(refusal);
       services.noteSubprocess();

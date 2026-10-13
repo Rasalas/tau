@@ -398,7 +398,7 @@ describe("socket host client on a mobile network", () => {
     const started = connection.start("compact").catch((error: Error) => error.message);
     if (failure === "close") FakeSocket.opened[0]!.drop();
     else await vi.advanceTimersByTimeAsync(SOCKET_CONNECT_TIMEOUT_MS);
-    expect(await started).toBe("The host connection dropped.");
+    expect(await started).toBe("The connection to the machine dropped.");
     await vi.advanceTimersByTimeAsync(250);
     const reachable = FakeSocket.opened[1]!;
     reachable.accept();

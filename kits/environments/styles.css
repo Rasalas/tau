@@ -55,7 +55,7 @@
 .machine-nearby-head { display: flex; align-items: center; justify-content: space-between; font: 500 var(--text-sm) var(--sans); color: var(--ink-2); }
 .machine-nearby-note { margin: 0; font-size: var(--text-sm); line-height: 1.45; color: var(--muted); }
 
-/* This computer's agents on a machine (ADR 0027): a switch under the row's details. */
+/* This machine's agents on a machine (ADR 0027): a switch under the row's details. */
 .machine-agents { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .machine-agents-line { display: flex; align-items: center; gap: 8px; }
 .machine-agents-line .switch { flex: none; }

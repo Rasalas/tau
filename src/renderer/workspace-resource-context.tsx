@@ -59,8 +59,8 @@ export function bindWorkspaceFileLoader(source: DocumentSourceContribution | und
       const message = error instanceof Error ? error.message : String(error);
       if (/ENOENT|not a known Tau project/iu.test(message)) throw new Error(`File not found on this thread's machine. ${message}`, { cause: error });
       if (/forbidden|denied|EACCES|permission/iu.test(message)) throw new Error("Access to this workspace file was denied.", { cause: error });
-      if (/offline|disconnect|not connected|not reachable/iu.test(message)) throw new Error("The file's host is offline. Reconnect and open the file again.", { cause: error });
-      if (/unsupported|not supported|Update .*machine/iu.test(message)) throw new Error("This host does not support reading this file. Update the host and try again.", { cause: error });
+      if (/offline|disconnect|not connected|not reachable/iu.test(message)) throw new Error("The file's machine is offline. Reconnect and open the file again.", { cause: error });
+      if (/unsupported|not supported|Update .*machine/iu.test(message)) throw new Error("This machine does not support reading this file. Update Tau on it and try again.", { cause: error });
       throw error;
     }
   };
@@ -78,13 +78,13 @@ export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, c
     const value: WorkspaceResources = {
       origin, available: Boolean(origin), displayPath,
       loadMedia: async (path) => {
-        if (!lease.active || !origin || !source?.loadMedia) throw new Error("This host does not support media previews.");
+        if (!lease.active || !origin || !source?.loadMedia) throw new Error("This machine does not support media previews.");
         const result = await source.loadMedia(linkedFilePath(path), { workspace: origin.workspace });
         if (!lease.active) { result.release?.(); throw new Error(RESOURCE_UNAVAILABLE); }
         return result;
       },
       loadVisualization: async (path, theme) => {
-        if (!lease.active || !origin || !source?.loadVisualization) throw new Error("This host does not support inline visualizations.");
+        if (!lease.active || !origin || !source?.loadVisualization) throw new Error("This machine does not support inline visualizations.");
         const result = await source.loadVisualization(resourceRelativePath(path), { workspace: origin.workspace }, theme);
         if (!lease.active) { result.release?.(); throw new Error(RESOURCE_UNAVAILABLE); }
         return result;

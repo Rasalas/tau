@@ -100,7 +100,7 @@ export class ServersStatusStore {
         // The client may name the project another way than the host: an event that came in meanwhile is newer.
         const newer = answered && this.published.get(answered.workspace);
         const status = newer && newer.at > asked ? newer.status : answered;
-        this.set(cwd, status ? { status, loading: false } : { ...current, error: "The host answered no status.", loading: false });
+        this.set(cwd, status ? { status, loading: false } : { ...current, error: "The machine answered no status.", loading: false });
       },
       (failure: unknown) => this.set(cwd, { ...current, error: errorMessage(failure), loading: false }),
     );

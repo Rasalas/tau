@@ -112,7 +112,7 @@ export const workspaceExtension: DesktopExtension = {
       id: "workspace.local-folder",
       label: "Local folder",
       profiles: ["desktop", "web", "compact"],
-      description: "Open an existing checkout or any folder on the host.",
+      description: "Open an existing checkout or any folder on the machine.",
       glyph: "▱",
       order: 10,
       Component: bind(LocalFolderSource),

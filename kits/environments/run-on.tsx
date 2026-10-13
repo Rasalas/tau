@@ -27,10 +27,10 @@ export function runOnDetail(machine: UiEnvironment, now: number, running = machi
 /** The chip's tooltip while Automatic is chosen: what it does, and where it would go now. */
 export function autoTooltip(preview: { answer?: { machine: string | null; reason: string }; error?: string }, names: ReadonlyMap<string, string>, targets: number): string {
   const head = "Automatic: when you send, the thread starts on the machine with the most room (Settings → Machines weighs them).";
-  if (targets === 0) return `${head}\nNo other machine has this project and lets this computer's agents in, so it starts here.`;
+  if (targets === 0) return `${head}\nNo other machine has this project and lets this machine's agents in, so it starts here.`;
   if (preview.error) return `${head}\nCould not ask: ${preview.error}`;
   if (!preview.answer) return `${head}\nChecking the machines…`;
-  const where = preview.answer.machine ? names.get(preview.answer.machine) ?? preview.answer.machine : "this computer";
+  const where = preview.answer.machine ? names.get(preview.answer.machine) ?? preview.answer.machine : "this machine";
   return `${head}\nNow: ${where}. ${preview.answer.reason}`;
 }
 
@@ -119,7 +119,7 @@ export function createRunOnSource(environments: PlatformEnvironments, host?: Hos
     const preview = useAutoPreview(host, automatic && targets.size > 0 ? chooseInput(targets, active?.cwd, active?.backendKind, active?.model) : undefined);
     const chosen = useSyncExternalStore(bringing?.choice.subscribe ?? noChoice, () => bringing?.choice.get());
     if (!list || !current || !actions || !unstarted) return undefined;
-    // Only the page of the machine whose host holds the agents' keys starts work elsewhere: this computer's, or the host a phone shows.
+    // Only the page of the machine whose host holds the agents' keys starts work elsewhere: this machine's, or the host a phone shows.
     const canRunThere = bringing !== undefined && isDraft && pageMachine(environments, list)?.id === current.id;
     const canBring = canRunThere && bringing.identities.movable(active?.cwd, active?.workspaceId);
     const hasAgents = (machine: UiEnvironment) => agentView?.machines?.some((entry) => entry.id === machine.id && entry.status === "connected" && !entry.readOnly) ?? false;

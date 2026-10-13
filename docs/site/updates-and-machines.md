@@ -19,11 +19,11 @@ Each kind of install updates in its own way:
 
 From a terminal, `tau update` does the same (`--check` only looks, `--status` tells where it stands). The design and the threat model are in [Host updates](../host-updates.md).
 
-## Another computer
+## Another machine
 
 Pair a second Mac or a Linux box with the window you already use. Its threads show up in your list, and a new thread can start there.
 
-**With a link.** On the other machine, open Settings → Connections, turn on network access and create a pairing link. On this one, open Settings → Machines and paste the link, type the other machine's address, or click **Find machines** to list the ones on your network. The other machine asks whether to let this computer in and shows six digits; allow it if this window shows the same six.
+**With a link.** On the other machine, open Settings → Connections, turn on network access and create a pairing link. On this one, open Settings → Machines and paste the link, type the other machine's address, or click **Find machines** to list the ones on your network. The other machine asks whether to let this machine in and shows six digits; allow it if this window shows the same six.
 
 **Over SSH.** If you can already `ssh` to the machine, one command pairs the two:
 
@@ -31,7 +31,7 @@ Pair a second Mac or a Linux box with the window you already use. Its threads sh
 tau machines add --ssh studio --agents
 ```
 
-Tau must run on both machines. `--agents` also lets this computer's agents start work there.
+Tau must run on both machines. `--agents` also lets this machine's agents start work there.
 
 Once paired:
 

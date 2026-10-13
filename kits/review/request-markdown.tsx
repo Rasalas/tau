@@ -23,7 +23,7 @@ export function RequestMediaProvider({ client, request, children }: { client: Pi
     return {
       ref: request,
       load(source: string, retry: boolean) {
-        if (!client.media) return Promise.reject(new Error("This host does not support request uploads."));
+        if (!client.media) return Promise.reject(new Error("This machine does not support request uploads."));
         if (retry) {
           cache.delete(source);
           const previous = bySource.get(source);

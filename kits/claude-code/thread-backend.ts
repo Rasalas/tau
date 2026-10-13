@@ -888,7 +888,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     options: { signal: AbortSignal; suggestions?: PermissionUpdate[]; title?: string; displayName?: string; description?: string; decisionReason?: string; blockedPath?: string },
   ): Promise<PermissionResult> {
     const ask = this.options.ask;
-    if (!ask) return { behavior: "deny", message: "Tau cannot ask the user on this host." };
+    if (!ask) return { behavior: "deny", message: "Tau cannot ask the user on this machine." };
     const stopped = (): PermissionResult => ({ behavior: "deny", message: "The turn was stopped.", interrupt: true });
     if (options.signal.aborted) return stopped();
     if (toolName === "AskUserQuestion") {

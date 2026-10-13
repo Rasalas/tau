@@ -65,7 +65,7 @@ export class ChatGPTPlanStore {
     for (;;) {
       held = await tryProcessLock(path, { pid: process.pid, startedAt: new Date().toISOString(), app: "Tau" });
       if (held) break;
-      if (Date.now() >= deadline) throw new Error("Another Tau host is updating this ChatGPT account. Try again shortly.");
+      if (Date.now() >= deadline) throw new Error("Another Tau on this machine is updating this ChatGPT account. Try again shortly.");
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     try { return await run(); }

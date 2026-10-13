@@ -82,7 +82,7 @@ export function GuideTab({ lines, client, guides, actions, files, filesError, lo
       <div className="guide-tab">
         <div className="guide-empty" role="alert">
           <p className="guide-empty-title">Could not read the guide</p>
-          <p>{error ?? "The host did not answer."}</p>
+          <p>{error ?? "The machine did not answer."}</p>
           <button type="button" className="mini-button" onClick={() => void refresh()}>Retry</button>
         </div>
       </div>

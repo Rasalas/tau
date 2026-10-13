@@ -158,7 +158,7 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
 
   async start(mode: "create" | "resume"): Promise<void> {
     if (mode !== "resume") throw new Error("Start threads on another machine with Run on.");
-    if (!this.machines.followThread) throw new Error("This host cannot follow threads on another machine.");
+    if (!this.machines.followThread) throw new Error("This machine cannot follow threads on another machine.");
     if (this.stopFollowing) return;
     this.stopFollowing = this.machines.followThread(this.machine, this.providerSessionId, (push) => {
       this.pushWork = this.pushWork.then(() => this.receive(push)).catch((error: unknown) => {

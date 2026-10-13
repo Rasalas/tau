@@ -15,14 +15,14 @@ function describe(choices: HostRuntimeChoice[]): string {
 /** Resolve picker ids and bare runtime model ids before creating any child state. */
 export async function delegationModel(services: HostExtensionServices, cwd: string, runtime: string, model: string | undefined, machine?: string): Promise<string | undefined> {
   const read = machine ? async (kind?: string): Promise<HostRuntimeChoice[]> => {
-    if (!services.machines) throw new Error("This host cannot reach the selected machine.");
+    if (!services.machines) throw new Error("This machine cannot reach the selected machine.");
     const readiness = await services.machines.request(machine, "readiness") as HostReadiness;
     return Promise.all(readiness.runtimes.filter((entry) => !kind || entry.kind === kind).map(async (entry) => ({
       backend: { kind: entry.kind, label: entry.label }, enabled: true, readiness: entry,
       catalog: await services.machines!.request(machine, "runtime-catalog", [entry.kind]) as UiRuntimeCatalog | undefined,
     })));
   } : services.runtimeChoices ? (kind?: string) => services.runtimeChoices!(cwd, kind) : undefined;
-  if (!read) throw new Error("This host cannot validate runtime choices. Update the host before selecting a runtime or model.");
+  if (!read) throw new Error("This machine cannot validate runtime choices. Update Tau on it before selecting a runtime or model.");
   const choices = await read(runtime);
   const choice = choices[0];
   const fail = async (reason: string): Promise<never> => {

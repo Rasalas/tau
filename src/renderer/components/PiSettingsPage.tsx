@@ -99,7 +99,7 @@ export function PiSettingsPage({ snapshot, onNotify }: { snapshot?: HostSnapshot
   };
 
   if (!client) {
-    return <div className="settings-page"><SettingsState kind="empty" title="No host connected" description="Pi's settings live on the host. Connect to one to read and change them." /></div>;
+    return <div className="settings-page"><SettingsState kind="empty" title="No machine connected" description="Pi's settings live on the machine. Connect to one to read and change them." /></div>;
   }
   // Nothing is drawn before the file has been read: a control that shows a
   // default while the real value is still on its way would be a guess.

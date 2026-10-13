@@ -168,7 +168,7 @@ describe("Machines Kit on the host", () => {
   it("says there are none on a host that keeps no machines", async () => {
     const registry = await activateHostKit(createEnvironmentsHostExtension());
     expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, "agents")).toEqual({ available: false, machines: [] });
-    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "probe", { machine: "rex" })).rejects.toThrow(/keeps no machines/u);
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "probe", { machine: "rex" })).rejects.toThrow(/keeps no list of machines/u);
   });
 
   it("reaches the same kit on another machine, which names the device the call came as", async () => {
@@ -197,7 +197,7 @@ describe("Machines Kit on the host", () => {
 
   it("has nothing to ask on a host that keeps no machines", async () => {
     const registry = await activateHostKit(createEnvironmentsHostExtension());
-    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "resources", { machine: "rex" })).rejects.toThrow(/keeps no machines/u);
+    await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, "resources", { machine: "rex" })).rejects.toThrow(/keeps no list of machines/u);
   });
 
   it("registers the hidden backend and throttles index rescans to one per second, then cleans up", async () => {

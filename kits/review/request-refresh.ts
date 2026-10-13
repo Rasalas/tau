@@ -5,7 +5,7 @@ export const READ_LIMIT_MS = 120_000;
 /** `read`, failed once `ms` passed without an answer; a late answer is dropped. */
 export function settleWithin<T>(read: Promise<T>, ms = READ_LIMIT_MS): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The host did not answer in time.")), ms); });
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The machine did not answer in time.")), ms); });
   return Promise.race([read, late]).finally(() => clearTimeout(timer));
 }
 

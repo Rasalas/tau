@@ -169,7 +169,7 @@ export class RepoTransfers {
 
   private machines(): HostMachineServices {
     const machines = this.options.machines();
-    if (!machines) throw new HostCommandError("This host keeps no other machines for its agents.");
+    if (!machines) throw new HostCommandError("This machine keeps no list of other machines for its agents.");
     return machines;
   }
 
@@ -178,9 +178,9 @@ export class RepoTransfers {
     const byId = all.find((machine) => machine.id === name);
     const byName = all.filter((machine) => machine.name === name);
     const machine = byId ?? (byName.length === 1 ? byName[0] : undefined);
-    if (!machine) throw new HostCommandError(byName.length > 1 ? `More than one machine is called ${name}; name it by its id.` : `This computer's agents do not know a machine ${name}.`);
+    if (!machine) throw new HostCommandError(byName.length > 1 ? `More than one machine is called ${name}; name it by its id.` : `This machine's agents do not know a machine ${name}.`);
     if (machine.status !== "connected") throw new HostCommandError(`${machine.name} is ${machine.status}${machine.detail ? `: ${machine.detail}` : ""}.`);
-    if (machine.readOnly) throw new HostCommandError(`${machine.name} lets this computer's agents in Read only; work there needs Full access.`);
+    if (machine.readOnly) throw new HostCommandError(`${machine.name} lets this machine's agents in Read only; work there needs Full access.`);
     return machine;
   }
 
@@ -292,7 +292,7 @@ export class RepoTransfers {
         const readiness = await this.machines().request(machine.id, "readiness", [], { timeoutMs: 20_000 }).then((value) => value as HostReadiness, () => undefined);
         if (!readiness) await set("check", "skipped", `${machine.name} does not report its readiness`);
         else {
-          if (!readiness.git?.version) throw new HostCommandError(`${machine.name} has no git on its host's PATH.`);
+          if (!readiness.git?.version) throw new HostCommandError(`${machine.name} has no git on its PATH.`);
           const free = readiness.disk?.free;
           if (free !== undefined && free < MIN_FREE_BYTES) throw new HostCommandError(`${machine.name} has only ${size(free)} free.`);
           await set("check", "done", `git ${readiness.git.version}${free !== undefined ? `, ${size(free)} free` : ""}`);

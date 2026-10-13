@@ -38,7 +38,7 @@ export interface RemoteChildrenOptions {
   pollMs?: number;
 }
 
-/** A machine a spawn resolved to; `undefined` machine is this computer. */
+/** A machine a spawn resolved to; `undefined` machine is this machine. */
 export interface MachineChoice {
   machine?: { id: string; name: string };
   /** Why, when Tau chose. */
@@ -54,7 +54,7 @@ const SOURCE_HINT: Record<MachineSource, string> = {
 };
 
 /**
- * Where a spawn runs: this computer, a machine this host's agents reach, or
+ * Where a spawn runs: this machine, a machine this host's agents reach, or
  * the one Machines Kit picks for `auto`. A machine that cannot take work now
  * fails the spawn with the reason, never falls back quietly.
  */
@@ -68,13 +68,13 @@ export async function resolveMachine(
   let reason: string | undefined;
   if (name.toLowerCase() === AUTO_MACHINE) {
     const answer = await ports.auto();
-    if (!answer) return { reason: "Automatic choice needs Machines Kit's choose-machine; this computer runs it." };
+    if (!answer) return { reason: "Automatic choice needs Machines Kit's choose-machine; this machine runs it." };
     if (!answer.machine) return { reason: answer.reason };
     name = answer.machine;
     reason = answer.reason;
   }
   const machines = ports.machines();
-  if (!machines) throw new Error(`This host keeps no other machines for its agents, so none runs on ${name}.${SOURCE_HINT[source]}`);
+  if (!machines) throw new Error(`This machine keeps no list of other machines for its agents, so none runs on ${name}.${SOURCE_HINT[source]}`);
   if (name === machines.self.id || name.toLowerCase() === machines.self.name.toLowerCase()) return reason ? { reason } : {};
   const all = machines.list();
   const named = all.filter((machine) => machine.name.toLowerCase() === name.toLowerCase());
@@ -83,10 +83,10 @@ export async function resolveMachine(
     const known = all.map((entry) => entry.name).join(", ");
     throw new Error(named.length > 1
       ? `More than one machine is called ${name}; name it by its id.${SOURCE_HINT[source]}`
-      : `This computer's agents know no machine ${name}${known ? ` (they know ${known})` : ""}.${SOURCE_HINT[source]}`);
+      : `This machine's agents know no machine ${name}${known ? ` (they know ${known})` : ""}.${SOURCE_HINT[source]}`);
   }
   if (machine.status !== "connected") throw new Error(`${machine.name} is ${machine.status}${machine.detail ? `: ${machine.detail}` : ""}.${SOURCE_HINT[source]}`);
-  if (machine.readOnly) throw new Error(`${machine.name} lets this computer's agents in Read only; a sub-agent there needs Full access.${SOURCE_HINT[source]}`);
+  if (machine.readOnly) throw new Error(`${machine.name} lets this machine's agents in Read only; a sub-agent there needs Full access.${SOURCE_HINT[source]}`);
   return { machine: { id: machine.id, name: machine.name }, ...(reason ? { reason } : {}) };
 }
 

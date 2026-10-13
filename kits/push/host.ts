@@ -69,7 +69,7 @@ interface Note {
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 function ownerOnly(call: HostCommandCall | undefined): void {
-  if (!call?.owner) throw new HostCommandError("Only this machine's owner can change push notifications (Settings → Push on the host).");
+  if (!call?.owner) throw new HostCommandError("Only this machine's owner can change push notifications (Settings → Push on the machine itself).");
 }
 
 /** The relay's half of a registration; one that does not read is left out, not refused. */
@@ -87,7 +87,7 @@ function decodeRegistration(input: unknown): PushRegistration {
   if (platform !== "ios" && platform !== "android") throw new HostCommandError("register takes { platform: ios | android, token?, host, topic?, relay? }.");
   const token = typeof value.token === "string" ? value.token.trim() : undefined;
   if (token !== undefined && !(platform === "ios" ? APNS_TOKEN : FCM_TOKEN).test(token)) throw new HostCommandError(`That is not an ${platform === "ios" ? "APNs device" : "FCM registration"} token.`);
-  if (typeof value.host !== "string" || !HOST_KEY.test(value.host)) throw new HostCommandError("register needs the app's id for this host.");
+  if (typeof value.host !== "string" || !HOST_KEY.test(value.host)) throw new HostCommandError("register needs the app's id for this machine.");
   const topic = typeof value.topic === "string" ? value.topic : undefined;
   if (platform === "ios" && (!topic || !BUNDLE_ID.test(topic))) throw new HostCommandError("An iOS device names its app's bundle identifier as topic.");
   const relay = decodeRelay(value.relay);
@@ -225,7 +225,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (!device.token) return { ok: false, gone: false, status: 0, reason: "This phone hands its token to your own key the next time it opens this machine in the Tau app." };
         const token = device.token;
         if (device.platform === "android") {
-          if (!fcm) return { ok: false, gone: false, status: 0, reason: keyErrors.fcm ? `The saved Firebase service account does not read: ${keyErrors.fcm}` : "No Firebase service account is set up on this host." };
+          if (!fcm) return { ok: false, gone: false, status: 0, reason: keyErrors.fcm ? `The saved Firebase service account does not read: ${keyErrors.fcm}` : "No Firebase service account is set up on this machine." };
           return fcm.send(token, {
             ...(note.activity ? {} : { notification: { title: note.title, body: note.body } }),
             data: { ...(note.activity ? { activity: JSON.stringify(note.activity) } : {}), ...(url ? { url } : {}), ...(note.kind ? { kind: note.kind } : {}) },
@@ -237,7 +237,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
             },
           });
         }
-        if (!apns) return { ok: false, gone: false, status: 0, reason: keyErrors.apns ? `The saved APNs key does not read: ${keyErrors.apns}` : "No APNs key is set up on this host." };
+        if (!apns) return { ok: false, gone: false, status: 0, reason: keyErrors.apns ? `The saved APNs key does not read: ${keyErrors.apns}` : "No APNs key is set up on this machine." };
         const request = {
           token,
           topic: device.topic ?? "",
@@ -419,7 +419,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         if (!call?.device) throw new HostCommandError("Only a paired device can register its activity token.");
         const registration = readActivityRegistration(input, call.device, now());
         const saved = store.devices().find((device) => device.id === call.device);
-        if (!saved || saved.platform !== "ios" || saved.host !== registration.hostId || saved.topic !== registration.topic) throw new HostCommandError("The activity must belong to this device's registered host and app.");
+        if (!saved || saved.platform !== "ios" || saved.host !== registration.hostId || saved.topic !== registration.topic) throw new HostCommandError("The activity must belong to this device's registered machine and app.");
         if (registration.activityId && !activityStarts.owns(registration, now())) throw new HostCommandError("This activity was not started for this phone and key.");
         if (registration.activityId) registration.expiresAt = Math.min(registration.expiresAt, activityStarts.expiry(registration));
         await activityTokens.register(registration);
@@ -462,7 +462,7 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
       ];
 
       context.registerCommand("register", async (input, call) => {
-        if (!call?.device) throw new HostCommandError("Only a paired device can receive push notifications from this host.");
+        if (!call?.device) throw new HostCommandError("Only a paired device can receive push notifications from this machine.");
         const { token, relay, ...registration } = decodeRegistration(input);
         const route = routeFor(registration.platform);
         // A token only for this host's own key; a handle the relay refused is not kept.

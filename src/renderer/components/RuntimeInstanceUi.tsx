@@ -203,7 +203,7 @@ export function RuntimeInstanceSetup({ program, homeVariable, homePlaceholder, c
         title="Setup"
         description={setupSummary(instance) ?? `${isDefault ? `${program}'s own` : "The default"} home and environment, no extra arguments.`}
         status={failure ? <p className="runtime-row-error" role="alert">{failure}</p> : undefined}
-        disabledReason={instance ? undefined : `Waiting for the host to name ${program}'s instances.`}
+        disabledReason={instance ? undefined : `Waiting for the machine to name ${program}'s instances.`}
         control={<Button onClick={() => setDialog("edit")}>Edit…</Button>}
       />
       {isDefault ? (
@@ -402,7 +402,7 @@ export function RuntimeCommandRow({ id, program, commandName, variable, kind, kn
       title="Executable"
       description={fromEnv ? `Set by ${override ?? "a variable"} in Tau's environment.`
         : description ?? `A name on the PATH or an absolute path. Empty looks for ${name ?? program} on the PATH.`}
-      disabledReason={fromEnv ? `${override ?? "A variable"} in Tau's environment names it; change it there.` : !known ? `Waiting for the host to report ${program}.` : undefined}
+      disabledReason={fromEnv ? `${override ?? "A variable"} in Tau's environment names it; change it there.` : !known ? `Waiting for the machine to report ${program}.` : undefined}
       control={<TextField label={`${program} executable`} mono width="lg" value={fromEnv ? command ?? "" : saved} placeholder={placeholder ?? (name ? `${name}, from your login shell's PATH` : "A name or an absolute path")} onCommit={(text) => void onSave(text.trim())} />}
     />
   );

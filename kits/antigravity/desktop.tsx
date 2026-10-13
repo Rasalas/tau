@@ -180,7 +180,7 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
   const label = installLabel(progress);
   const project = status?.gcpProject ?? "";
   const location = status?.gcpLocation ?? "";
-  const waiting = status ? undefined : "Waiting for Antigravity's host half to answer.";
+  const waiting = status ? undefined : "Waiting for Antigravity on the machine to answer.";
 
   return (
     <Suspense fallback={<SettingsState kind="loading" rows={3} title="Loading Antigravity" />}>
@@ -189,7 +189,7 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
         id={ROWS.runtime}
         title="Runtime"
         help="Gemini through Google's own agent. Tau downloads Google's Antigravity server, checks it against the release it expects, and runs it with the sign-in you choose below. A Google sign-in happens in that server, in your browser; Tau never sees a token."
-        description={!status ? error ? "Tau could not ask Antigravity's host half." : "Checking…"
+        description={!status ? error ? "Tau could not ask Antigravity on the machine." : "Checking…"
           : installed ? <>{status.version ? `${status.version} · ` : ""}{SOURCE_LABELS[status.source ?? ""] ?? status.source}{status.path ? <> · <code>{status.path}</code></> : null}</>
             : status.available === undefined ? "Google publishes no Antigravity runtime for this platform."
               : status.message ?? "Install it to open Antigravity threads."}

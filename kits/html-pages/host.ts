@@ -37,7 +37,7 @@ export function createHtmlPagesHostExtension(): HostExtension {
       context.registerCommand(HTML_PAGE_COMMANDS.open, async (input): Promise<HtmlPageOpen> => {
         const call = record(input);
         const resources = services.browserResources;
-        if (!resources) throw new HostCommandError("This host serves no sandboxed frames.");
+        if (!resources) throw new HostCommandError("This machine serves no sandboxed frames.");
         const page = await store.get(text(call.threadId, "thread"), text(call.id, "page"));
         if (!page) return { state: "missing" };
         const colorScheme = call.colorScheme === "dark" ? "dark" : "light";

@@ -109,7 +109,7 @@ export function createPackagesHostExtension(): HostExtension {
 
       context.registerCommand("trust", async (input) => {
         const trust = services.projectTrust;
-        if (!trust) throw new HostCommandError("This host cannot record Pi's project trust.");
+        if (!trust) throw new HostCommandError("This machine cannot record Pi's project trust.");
         const value = record(input).cwd;
         if (value !== undefined && (typeof value !== "string" || !isAbsolute(value))) throw new HostCommandError(`"cwd" must be an absolute path.`);
         const cwd = trust.trust(value);

@@ -43,7 +43,7 @@ const CORE_PAGES: ReadonlyArray<{ page: CoreSettingsPage; label: string; keyword
       ["Fold the composer while scrolling", ["fold", "composer", "scroll"]],
       ["Send with", ["send", "enter", "submit", "shortcut"]],
       ["Theme", ["appearance", "dark", "light", "system", "color", "colour"]],
-      ["Keep the host running in the background", ["host", "background", "quit"]],
+      ["Keep Tau running in the background", ["host", "background", "quit"]],
       ["Continue threads after restarts", ["restart", "resume", "interrupted"]],
       ["Reload files when they change", ["watch", "hot reload", "extensions", "packages", "themes", "config"]],
       ["Quit shortcut", ["quit", "cmd q", "hold", "press twice", "confirm", "confirmation"]],

@@ -228,20 +228,20 @@ export function isAgentsState(value: unknown): value is AgentsState {
 // ---------------------------------------------------------------------------
 // Sub-agents on other machines (ADR 0027)
 
-/** `machine` values that mean this computer. */
+/** `machine` values that mean this machine; the computer spellings stay accepted for definitions written before. */
 export const LOCAL_MACHINE = "local";
-const LOCAL_ALIASES = new Set([LOCAL_MACHINE, "this", "here", "this computer", "this-computer"]);
+const LOCAL_ALIASES = new Set([LOCAL_MACHINE, "this", "here", "this machine", "this-machine", "this computer", "this-computer"]);
 export const isLocalMachine = (value: string): boolean => LOCAL_ALIASES.has(value.trim().toLowerCase());
 
 /** Tau picks the machine when the agent starts (Machines Kit's `choose-machine`). */
 export const AUTO_MACHINE = "auto";
 
-/** `values.tau.agents.machine`: where a spawn that names no machine runs; this computer when unset. */
+/** `values.tau.agents.machine`: where a spawn that names no machine runs; this machine when unset. */
 export const MACHINE_SETTING = "machine";
 
 /**
  * Machines Kit answers where an automatic agent goes. The command names
- * `tau.agents` as its caller; without it, "auto" runs on this computer.
+ * `tau.agents` as its caller; without it, "auto" runs on this machine.
  */
 export const MACHINES_KIT_ID = "tau.environments";
 export const CHOOSE_MACHINE_COMMAND = "choose-machine";
@@ -257,7 +257,7 @@ export interface ChooseMachineInput {
 }
 
 export interface ChooseMachineAnswer {
-  /** A host id from `services.machines`; absent or null for this computer. */
+  /** A host id from `services.machines`; absent or null for this machine. */
   machine?: string | null;
   /** One line on why, for the panel's tooltip and the tool's answer. */
   reason: string;

@@ -44,7 +44,7 @@ export async function transferPromptAttachments(machines: HostMachineServices, m
   const result: TransferredPromptAttachment[] = [];
   for (const attachment of attachments) {
     if (attachment.kind === "image") { result.push(attachment); continue; }
-    if (!isAbsolute(attachment.path)) throw new HostCommandError("An attachment needs an absolute path on this host.");
+    if (!isAbsolute(attachment.path)) throw new HostCommandError("An attachment needs an absolute path on this machine.");
     const info = await stat(attachment.path);
     if (!info.isFile() || info.size > MAX_FILE_ATTACHMENT_BYTES) throw new HostCommandError("File attachments must be files of 50 MB or smaller.");
     const blob = await machines.upload(machine, createReadStream(attachment.path, { end: MAX_FILE_ATTACHMENT_BYTES }), { size: info.size });
@@ -67,7 +67,7 @@ export async function withReceivedPromptAttachments<T>(
   try {
     for (const item of input) {
       if (item.kind === "image") { attachments.push(item); continue; }
-      if (!services.blobs) throw new HostCommandError("This host cannot receive attachment files; update Tau here.");
+      if (!services.blobs) throw new HostCommandError("This machine cannot receive attachment files; update Tau here.");
       await services.blobs.take(item.blob, async (blob) => {
         if (blob.size !== item.size || blob.size > MAX_FILE_ATTACHMENT_BYTES) throw new HostCommandError("The attachment size does not match its blob.");
         await mkdir(folder, { recursive: true, mode: 0o700 });

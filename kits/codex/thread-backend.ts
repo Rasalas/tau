@@ -774,7 +774,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private async openSession(): Promise<CodexSessionLike> {
     const level = this.permissionLevel();
-    if ((level === "ask" || level === "auto") && !this.options.ask) throw new Error("Codex cannot ask for approvals on this host; choose read-only or full access.");
+    if ((level === "ask" || level === "auto") && !this.options.ask) throw new Error("Codex cannot ask for approvals on this machine; choose read-only or full access.");
     await this.store.ensure(this.threadId, this.cwd, this.options.instance);
     // A process that dies during the handshake exits before `session` is assigned.
     let session: CodexSessionLike | undefined;

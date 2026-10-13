@@ -25,7 +25,7 @@ export const PREVIEW_PANEL = "preview";
 /**
  * This client shows frames of the host's page rather than a view of its own:
  * a browser or a phone (even on the host's machine), or a desktop window on
- * another computer. The workbench names the client's profile on `<body>`.
+ * another machine. The workbench names the client's profile on `<body>`.
  */
 export function drawsFrames(): boolean {
   const client = typeof document === "undefined" ? undefined : document.body.dataset.client;

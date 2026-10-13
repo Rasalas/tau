@@ -229,10 +229,12 @@ describe("resolveMachine", () => {
   const ports = (list: HostMachine[], auto?: { machine?: string | null; reason: string }) => ({ machines: () => machines(list), auto: async () => auto });
   const rex: HostMachine = { id: "rex-id", name: "rex", status: "connected" };
 
-  it("runs here for nothing, local and this computer's own name; finds a machine by name or id", async () => {
+  it("runs here for nothing, local and this machine's own name; finds a machine by name or id", async () => {
     expect(await resolveMachine(undefined, "setting", ports([rex]))).toEqual({});
     expect(await resolveMachine("local", "tool", ports([rex]))).toEqual({});
     expect(await resolveMachine("mini", "tool", ports([rex]))).toEqual({});
+    // "This computer" stays accepted for definitions written before "machine".
+    for (const alias of ["this machine", "This-Machine", "this computer", "this-computer"]) expect(await resolveMachine(alias, "tool", ports([rex]))).toEqual({});
     expect(await resolveMachine("REX", "tool", ports([rex]))).toEqual({ machine: { id: "rex-id", name: "rex" } });
     expect(await resolveMachine("rex-id", "tool", ports([rex]))).toEqual({ machine: { id: "rex-id", name: "rex" } });
   });
@@ -242,11 +244,11 @@ describe("resolveMachine", () => {
     await expect(resolveMachine("rex", "setting", ports([{ ...rex, status: "offline", detail: "last seen 5m ago" }]))).rejects.toThrow('rex is offline: last seen 5m ago. Sub-agents go there by Settings → Agents; pass machine "local"');
     await expect(resolveMachine("rex", "definition", ports([{ ...rex, readOnly: true }]))).rejects.toThrow(/Read only.*The agent definition names it/u);
     await expect(resolveMachine("rex", "tool", ports([rex, { ...rex, id: "rex-2" }]))).rejects.toThrow("More than one machine is called rex");
-    await expect(resolveMachine("rex", "tool", { machines: () => undefined, auto: async () => undefined })).rejects.toThrow("keeps no other machines");
+    await expect(resolveMachine("rex", "tool", { machines: () => undefined, auto: async () => undefined })).rejects.toThrow("keeps no list of other machines");
   });
 
   it("asks Machines Kit for auto, and runs here with the reason when it has no answer", async () => {
-    expect(await resolveMachine("auto", "setting", ports([rex]))).toEqual({ reason: expect.stringMatching(/choose-machine; this computer runs it/u) });
+    expect(await resolveMachine("auto", "setting", ports([rex]))).toEqual({ reason: expect.stringMatching(/choose-machine; this machine runs it/u) });
     expect(await resolveMachine("auto", "tool", ports([rex], { machine: null, reason: "rex is busy" }))).toEqual({ reason: "rex is busy" });
     expect(await resolveMachine("auto", "tool", ports([rex], { machine: "rex-id", reason: "rex has room" }))).toEqual({ machine: { id: "rex-id", name: "rex" }, reason: "rex has room" });
   });
@@ -294,7 +296,7 @@ describe("Agents Kit: sub-agents on another machine", () => {
     const offline = await bench({ setting: "rex", rex: { status: "offline" } });
     await expect(offline.call("tau_spawn_thread", { prompt: "x" })).rejects.toThrow(/rex is offline.*Settings → Agents/u);
     const b = await bench();
-    await expect(b.call("tau_spawn_thread", { prompt: "x", machine: "rex", workspace: "shared" })).rejects.toThrow('"shared" only works on this computer');
+    await expect(b.call("tau_spawn_thread", { prompt: "x", machine: "rex", workspace: "shared" })).rejects.toThrow('"shared" only works on this machine');
     await expect(b.call("tau_spawn_thread", { prompt: "x", machine: "nowhere" })).rejects.toThrow("know no machine nowhere");
     expect(b.remoteWork.started).toEqual([]);
   });
@@ -371,7 +373,7 @@ describe("Agents Kit: sub-agents on another machine", () => {
 
   it("chooses through Machines Kit for auto, and runs here without it", async () => {
     const without = await bench({ setting: "auto" });
-    expect(await without.call("tau_spawn_thread", { prompt: "x", workspace: "shared" })).toMatchObject({ machineChoice: expect.stringMatching(/this computer runs it/u) });
+    expect(await without.call("tau_spawn_thread", { prompt: "x", workspace: "shared" })).toMatchObject({ machineChoice: expect.stringMatching(/this machine runs it/u) });
     expect(without.started).toHaveLength(1);
     const chosen = await bench({ setting: "auto", extra: [fakeMachinesKit({ machine: "rex-id", reason: "rex has 2 free cores" })] });
     expect(await chosen.call("tau_spawn_thread", { prompt: "x" })).toMatchObject({ machine: "rex", machineChoice: "rex has 2 free cores" });

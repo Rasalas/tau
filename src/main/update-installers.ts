@@ -193,7 +193,7 @@ export function windowsInstaller(system: InstallerSystem, execPath: string, task
   return {
     method: "windows",
     async blocked() {
-      return system.writable(folder) ? undefined : `Tau is installed for all users in ${folder}; that needs an administrator. Update from a Tau window on this computer.`;
+      return system.writable(folder) ? undefined : `Tau is installed for all users in ${folder}; that needs an administrator. Update from a Tau window on this machine.`;
     },
     async install(update) {
       const quote = (value: string) => `"${value.replaceAll("\"", "")}"`;

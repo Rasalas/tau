@@ -275,7 +275,7 @@ describe("agents on another machine", () => {
 
   it("says in Settings → Agents where sub-agents go and how many run there", () => {
     const rex = { id: "rex-id", name: "rex", status: "connected" as const, budget: 2 };
-    expect(machineChoiceText("local", [rex])).toMatch(/this computer/u);
+    expect(machineChoiceText("local", [rex])).toMatch(/this machine/u);
     expect(machineChoiceText("rex-id", [rex])).toBe("Sub-agents run on rex, 2 at a time (its cores); the rest wait. Their work comes back here as a branch.");
     expect(machineChoiceText("rex-id", [{ ...rex, status: "offline" }])).toMatch(/rex is offline now/u);
     expect(machineChoiceText("gone-id", [rex])).toMatch(/no longer reach/u);
@@ -297,7 +297,7 @@ describe("agents on another machine", () => {
     const page = registry.getSettingsPages().find((entry) => entry.id === "agents.settings")!;
     render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
     const menu = screen.getByRole("combobox", { name: "Run sub-agents on" });
-    await waitFor(() => expect(within(menu).getAllByRole("option").map((option) => option.textContent)).toEqual(["This computer", "rex", "Automatic"]));
+    await waitFor(() => expect(within(menu).getAllByRole("option").map((option) => option.textContent)).toEqual(["This machine", "rex", "Automatic"]));
     for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
     cleanup();
   });

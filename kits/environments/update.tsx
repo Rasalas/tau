@@ -50,7 +50,7 @@ export function MachineUpdateLine({ machine, environments, behind }: {
   const pending = behind || hostUpdatePending(update);
   const unreachable = machine.status !== "connected";
   const why = update.phase === "unsupported" ? update.reason
-    : machine.readOnly ? `${machine.name} paired this computer Read only.`
+    : machine.readOnly ? `${machine.name} paired this machine Read only.`
     : unreachable ? `${machine.name} is not connected.`
     : undefined;
   const working = busy || BUSY.has(update.phase);
@@ -77,7 +77,7 @@ export function MachineUpdateLine({ machine, environments, behind }: {
       {confirming ? (
         <ConfirmDialog
           title={`Update Tau on ${machine.name}?`}
-          message={`${machine.name} installs Tau ${update.latest ?? "newer"} as soon as no turn runs there, then its host restarts. Its threads stay and this window reconnects.`}
+          message={`${machine.name} installs Tau ${update.latest ?? "newer"} as soon as no turn runs there, then Tau there restarts. Its threads stay and this window reconnects.`}
           confirmLabel="Update"
           onConfirm={() => { setConfirming(false); run("install"); }}
           onCancel={() => setConfirming(false)}

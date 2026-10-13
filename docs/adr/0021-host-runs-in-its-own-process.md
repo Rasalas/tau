@@ -99,7 +99,7 @@ folder picker, so `pickDirectory` is a call to the window's own half
 **Lifetime.** Closing the window leaves the host running, on every platform;
 the next window adopts it through `host.json`, and starting Tau again while it
 has no window opens one. Quitting the app stops the host — `host.shutdown`,
-ten seconds, then SIGTERM — unless "Keep the host running in the background"
+ten seconds, then SIGTERM — unless "Keep Tau running in the background"
 (Settings → Defaults, `hostBackground`, off by default) says otherwise.
 
 **The way back.** `TAU_HOST_INPROCESS=1` keeps the old shape — `PiHost` in the

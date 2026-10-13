@@ -114,7 +114,7 @@ export function ThreadTranscript({ sessionId, loadThread, registry: given }: {
   useEffect(() => {
     let cancelled = false;
     if (!load) {
-      setState((current) => ({ ...current, loaded: true, error: "Reading another thread requires the Electron host" }));
+      setState((current) => ({ ...current, loaded: true, error: "Reading another thread requires a connected machine" }));
       return;
     }
     void load(sessionId).then(

@@ -14,7 +14,7 @@ function KindIcon({ kind }: { kind: UiBackgroundTask["kind"] }) {
   return <Eye aria-hidden="true" />;
 }
 
-const READ_ONLY = "This paired device is read-only. Stop it on the host's own window.";
+const READ_ONLY = "This paired device is read-only. Stop it in Tau on the machine itself.";
 const KIND: Record<UiBackgroundTask["kind"], string> = { command: "Command", monitor: "Monitor", agent: "Sub-agent", task: "Task" };
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 

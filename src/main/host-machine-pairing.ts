@@ -11,7 +11,7 @@ import { decodeString } from "./ipc-input.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import type { ClientCalls } from "./client-calls.js";
 
-/** How one side of this computer reaches a machine: its window, or its agents. */
+/** How one side of this machine reaches a machine: its window, or its agents. */
 export interface MachineLinkState {
   status: EnvironmentStatus;
   detail?: string;
@@ -39,7 +39,7 @@ export interface MachineOverviewEntry {
 }
 
 export interface MachinesOverview {
-  /** False when no Tau window runs on this computer: only the agents' machines are known then. */
+  /** False when no Tau window runs on this machine: only the agents' machines are known then. */
   window: boolean;
   machines: MachineOverviewEntry[];
 }
@@ -50,7 +50,7 @@ export type MachinePairResult =
   | { state: "denied" | "expired" | "cancelled" }
   | { state: "failed"; message: string };
 
-/** Core's window half on this computer (`WINDOW_SERVICES_ID`), when a Tau window runs here. */
+/** Core's window half on this machine (`WINDOW_SERVICES_ID`), when a Tau window runs here. */
 export interface MachineWindowPort {
   available(): boolean;
   call(command: string, input: unknown, timeoutMs: number): Promise<unknown>;
@@ -63,7 +63,7 @@ export interface MachinePairingDeps {
   pair?(options: PairEnvironmentOptions): Promise<PairEnvironmentResult>;
 }
 
-/** Core's window half through the host's client calls: only a window on this computer, never one started for it. */
+/** Core's window half through the host's client calls: only a window on this machine, never one started for it. */
 export function localWindowPort(calls: Partial<Pick<ClientCalls, "call" | "hasLocalWindow">> | undefined): MachineWindowPort | undefined {
   const { call, hasLocalWindow } = calls ?? {};
   if (!call || !hasLocalWindow) return undefined;
@@ -123,7 +123,7 @@ function matching(list: MachinesOverview, machine: string): MachineOverviewEntry
   if (byId) return byId;
   const named = list.machines.filter((entry) => entry.name.toLowerCase() === machine.trim().toLowerCase());
   if (named.length === 1) return named[0]!;
-  throw failure(named.length > 1 ? `Several machines are called ${machine}; name one by its id.` : `This computer knows no machine called ${machine}.`);
+  throw failure(named.length > 1 ? `Several machines are called ${machine}; name one by its id.` : `This machine knows no machine called ${machine}.`);
 }
 
 type Method = (params: readonly unknown[], context: HostMethodContext) => Promise<unknown>;
@@ -150,7 +150,7 @@ export function createMachinePairingMethods(deps: MachinePairingDeps): Record<st
       const needAgents = input.agents && !known?.agents;
       if (!needWindow && !needAgents) {
         if (known) return { state: "known", machine: { id: known.id, name: known.name } };
-        return { state: "failed", message: "No Tau window runs on this computer, so only its agents could keep the machine: start Tau, or ask for the agents." };
+        return { state: "failed", message: "No Tau window runs on this machine, so only its agents could keep the machine: start Tau, or ask for the agents." };
       }
       if (needWindow) {
         const result = await window.call("pair-environment", { text: input.link, agents: needAgents, ...(input.name ? { name: input.name } : {}) }, PAIR_TIMEOUT_MS) as
@@ -161,7 +161,7 @@ export function createMachinePairingMethods(deps: MachinePairingDeps): Record<st
         return { state: "added", machine: { id: result.environment.id, name: result.environment.name }, window: true, ...(result.agents ? { agents: result.agents } : {}) };
       }
       const machines = deps.machines();
-      if (!machines) return { state: "failed", message: "This host keeps no machines for its agents." };
+      if (!machines) return { state: "failed", message: "This machine keeps no list of machines for its agents." };
       const result = await (deps.pair ?? pairEnvironment)({ text: input.link, deviceName: agentsDeviceName(machines.self.name) });
       if (result.state !== "approved") return result;
       const { environment } = result;
@@ -177,7 +177,7 @@ export function createMachinePairingMethods(deps: MachinePairingDeps): Record<st
       const list = await overview(deps);
       const entry = matching(list, decodeString("machines-update", "machine", params[0]));
       const window = entry.window ? deps.window() : undefined;
-      if (!window) throw failure(`Only a Tau window on this computer keeps a connection to ${entry.name} that may update it. Start Tau here, or add ${entry.name} in Settings → Machines.`, HOST_ERROR.unsupported);
+      if (!window) throw failure(`Only a Tau window on this machine keeps a connection to ${entry.name} that may update it. Start Tau here, or add ${entry.name} in Settings → Machines.`, HOST_ERROR.unsupported);
       const status = decodeHostUpdateStatus(await window.call("update-environment", { id: entry.id, action }, action === "status" ? WINDOW_TIMEOUT_MS : UPDATE_TIMEOUT_MS));
       if (!status) throw failure(`${entry.name} did not say how its update stands.`);
       return { id: entry.id, name: entry.name, update: status };

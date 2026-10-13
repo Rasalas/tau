@@ -16,11 +16,11 @@ not cached.
 2. Sign `gh` into the same account on the same GitHub endpoint on both hosts.
    The tokens can have different scopes. Both hosts need a pinned public host
    identity. A host without one cannot enable sharing.
-3. On the project host, open Settings → Review → GitHub across paired hosts.
+3. On the project host, open Settings → Review → GitHub across paired machines.
    Choose the other machine and its GitHub endpoint. Select Read PRs or Read
    and act.
 4. On the credential host, find the project host's paired device in the same
-   section. Select its source host, endpoint and matching permission. Approve
+   section. Select its source machine, endpoint and matching permission. Approve
    the companion "Agents" device because it carries the host-to-host request.
 5. To use that machine for actions even when the local token can read the PR,
    turn on Use for actions on the project host. Only one host per GitHub

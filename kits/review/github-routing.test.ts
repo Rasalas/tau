@@ -137,7 +137,7 @@ describe("GitHub access across paired hosts", () => {
     await p.grant("read");
     await expect(p.registryA.invoke(ID, "test-comment")).rejects.toThrow("Local read unavailable");
     p.machinesA[0]!.readOnly = true;
-    await expect(p.grant("act")).rejects.toThrow("Read only host");
+    await expect(p.grant("act")).rejects.toThrow("Read only machine");
     expect(p.remoteWrite).not.toHaveBeenCalled();
     expect(p.localWrite).not.toHaveBeenCalled();
   });

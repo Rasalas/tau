@@ -37,13 +37,13 @@ function fakeMachines(list: HostMachine[], load: Record<string, Partial<HostReso
 const rex: HostMachine = { id: "rex-id", name: "rex", status: "connected" };
 
 describe("choose-machine on the host", () => {
-  it("sends work to rex while this computer is busy, and keeps it here once rex is loaded", async () => {
+  it("sends work to rex while this machine is busy, and keeps it here once rex is loaded", async () => {
     const load: Record<string, Partial<HostResources>> = { "mac-id": { cpuCount: 10, cpuUtilization: 0.6 }, "rex-id": {} };
     const { machines } = fakeMachines([rex], load);
     let now = 0;
     const choose = createMachineChooser({ machines: () => machines, weights: async () => ({}), now: () => now });
     const first = await choose({ purpose: "sub-agent", model: "openai-codex/gpt-5.6-luna" });
-    expect(first).toMatchObject({ machine: "rex-id", reason: expect.stringMatching(/^rex has the most room: 45 .*; this computer 10\.$/u) });
+    expect(first).toMatchObject({ machine: "rex-id", reason: expect.stringMatching(/^rex has the most room: 45 .*; this machine 10\.$/u) });
     load["rex-id"] = { cpuUtilization: 0.97 };
     now += 11_000;
     expect(await choose({ purpose: "sub-agent" })).toMatchObject({ machine: null, reason: expect.stringContaining("rex left out: CPU 97 %") });
@@ -79,7 +79,7 @@ describe("choose-machine on the host", () => {
       ["mac", undefined],
       ["rex", "weight 0, never automatically"],
       ["ci", "offline"],
-      ["ro", "Read only for this computer's agents"],
+      ["ro", "Read only for this machine's agents"],
       ["mute", "did not answer: timed out"],
     ]);
     expect(request.mock.calls.map(([machine]) => machine).sort()).toEqual(["mac-id", "mac-id", "mute-id", "mute-id"]);
@@ -87,7 +87,7 @@ describe("choose-machine on the host", () => {
 
   it("runs here on a host that keeps no machines", async () => {
     const choose = createMachineChooser({ machines: () => undefined, weights: async () => ({}) });
-    expect(await choose({ purpose: "sub-agent" })).toEqual({ machine: null, reason: "This host keeps no other machines; this computer runs it.", machines: [] });
+    expect(await choose({ purpose: "sub-agent" })).toEqual({ machine: null, reason: "This machine keeps no other machines; it runs here.", machines: [] });
   });
 
   it("reads the weights from Settings → Machines, for any client that may look", async () => {
@@ -95,7 +95,7 @@ describe("choose-machine on the host", () => {
     const settings = vi.fn(async () => ({ options: {}, values: { weights: JSON.stringify({ "mac-id": 100 }) } }));
     const registry = await activateHostKit(createEnvironmentsHostExtension(), { machines, settings });
     // mac: 100 × 10 × 0.4 × 0.5 = 200 against rex's 45.
-    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, CHOOSE_MACHINE_COMMAND, { purpose: "sub-agent" })).toMatchObject({ machine: null, reason: expect.stringMatching(/^This computer has the most room: 200/u) });
+    expect(await registry.invoke(ENVIRONMENTS_EXTENSION_ID, CHOOSE_MACHINE_COMMAND, { purpose: "sub-agent" })).toMatchObject({ machine: null, reason: expect.stringMatching(/^This machine has the most room: 200/u) });
     const paired = { kind: "workbench-client" as const, connection: "c1", pairedClient: "d1", readOnly: true as const };
     await expect(registry.invoke(ENVIRONMENTS_EXTENSION_ID, CHOOSE_MACHINE_COMMAND, { purpose: "thread" }, paired)).resolves.toMatchObject({ machine: null });
   });

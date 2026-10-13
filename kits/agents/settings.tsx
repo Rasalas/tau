@@ -19,10 +19,10 @@ export function readMachineChoice(raw: unknown): string | undefined {
 
 /** What the row says about the current choice. */
 export function machineChoiceText(value: string, machines: readonly AgentMachineOption[]): string {
-  if (value === LOCAL_MACHINE) return "Sub-agents run on this computer, in worktrees of their own.";
+  if (value === LOCAL_MACHINE) return "Sub-agents run on this machine, in worktrees of their own.";
   if (value === AUTO_MACHINE) return "Tau picks the machine with the most room when each sub-agent starts, weighed in Settings → Machines.";
   const machine = machines.find((entry) => entry.id === value || entry.name === value);
-  if (!machine) return `Sub-agents go to a machine this computer's agents no longer reach; spawns fail until you choose again.`;
+  if (!machine) return `Sub-agents go to a machine this machine's agents no longer reach; spawns fail until you choose again.`;
   const budget = machine.budget ? `${machine.budget} at a time (its cores)` : "as many at a time as it has cores";
   const status = machine.status === "connected" ? "" : ` ${machine.name} is ${machine.status} now, so spawns fail until it is back.`;
   return `Sub-agents run on ${machine.name}, ${budget}; the rest wait. Their work comes back here as a branch.${status}`;
@@ -40,7 +40,7 @@ export function createAgentsSettingsPage(host: HostExtensionClient) {
     const setting = useSetting<string>(`values.${AGENTS_HOST_EXTENSION_ID}.${MACHINE_SETTING}`, {
       defaultValue: LOCAL_MACHINE,
       read: readMachineChoice,
-      format: (value) => (value === LOCAL_MACHINE ? "This computer" : value === AUTO_MACHINE ? "Automatic" : view?.machines.find((machine) => machine.id === value)?.name ?? value),
+      format: (value) => (value === LOCAL_MACHINE ? "This machine" : value === AUTO_MACHINE ? "Automatic" : view?.machines.find((machine) => machine.id === value)?.name ?? value),
     });
     useEffect(() => {
       let live = true;
@@ -50,13 +50,13 @@ export function createAgentsSettingsPage(host: HostExtensionClient) {
     }, [attempt]);
     const machines = view?.machines.filter((machine) => !machine.readOnly) ?? [];
     const choices = [
-      { value: LOCAL_MACHINE, label: "This computer" },
+      { value: LOCAL_MACHINE, label: "This machine" },
       ...machines.map((machine) => ({ value: machine.id, label: machine.status === "connected" ? machine.name : `${machine.name} (${machine.status})` })),
       // A choice that points at a machine no longer listed stays visible, so it can be changed.
       ...(setting.value !== LOCAL_MACHINE && setting.value !== AUTO_MACHINE && !machines.some((machine) => machine.id === setting.value) ? [{ value: setting.value, label: `${setting.value} (not reachable)` }] : []),
       { value: AUTO_MACHINE, label: "Automatic" },
     ];
-    const none = view && !view.available ? "This host keeps no other machines for its agents." : view && machines.length === 0 ? "To run them elsewhere, pair a machine in Settings → Machines and let this computer's agents in." : undefined;
+    const none = view && !view.available ? "This machine keeps no list of other machines for its agents." : view && machines.length === 0 ? "To run them elsewhere, pair a machine in Settings → Machines and let this machine's agents in." : undefined;
     return (
       <div className="settings-page agents-settings">
         <h3>Agents</h3>
@@ -68,7 +68,7 @@ export function createAgentsSettingsPage(host: HostExtensionClient) {
             help="Where a sub-agent runs when its spawn names no machine. A spawn that names one goes there."
             status={error ? (
               <p role="alert">
-                The list of machines did not load: {error} Only This computer and Automatic are offered.{" "}
+                The list of machines did not load: {error} Only This machine and Automatic are offered.{" "}
                 <Button variant="ghost" onClick={() => setAttempt((count) => count + 1)}>Try again</Button>
               </p>
             ) : none ? <p>{none}</p> : undefined}

@@ -5,7 +5,7 @@ import { ENVIRONMENTS_EXTENSION_ID, WEIGHTS_SETTING, type AgentMachines } from "
 /**
  * Settings → Machines → Automatic: how strongly each machine is preferred
  * when Tau picks one ("Run on: Automatic", sub-agents on Automatic). Only
- * machines this computer's agents reach can be measured, so only they are listed.
+ * machines this machine's agents reach can be measured, so only they are listed.
  */
 export function MachineWeights({ machines, agents }: { machines: readonly UiEnvironment[]; agents: AgentMachines }) {
   const setting = useSetting<string>(`values.${ENVIRONMENTS_EXTENSION_ID}.${WEIGHTS_SETTING}`, { defaultValue: "", read: (raw) => (typeof raw === "string" ? raw : undefined) });
@@ -18,7 +18,7 @@ export function MachineWeights({ machines, agents }: { machines: readonly UiEnvi
       <p className="settings-group-note">
         When a new thread runs on Automatic, or a sub-agent does, it goes to the machine with the most room: weight × cores ×
         idle CPU × free memory. A machine is left out while its CPU is at 95 %, its memory is almost full, it runs a turn per
-        core, or the thread&apos;s runtime is not ready there. 0 keeps a machine out; this computer starts at 5, so an idle machine elsewhere gets the work first.
+        core, or the thread&apos;s runtime is not ready there. 0 keeps a machine out; this machine starts at 5, so an idle machine elsewhere gets the work first.
       </p>
       {listed.map((machine) => {
         const value = weightOf(weights, machine.id, machine.local);
@@ -26,7 +26,7 @@ export function MachineWeights({ machines, agents }: { machines: readonly UiEnvi
           <SettingRow
             key={machine.id}
             id={`machine-weight-${machine.id}`}
-            title={machine.local ? `${machine.name} (this computer)` : machine.name}
+            title={machine.local ? `${machine.name} (this machine)` : machine.name}
             description={value === 0 ? "Never chosen automatically." : undefined}
             control={<NumberField label={`Weight of ${machine.name}`} value={value} min={0} max={MAX_WEIGHT} step={5} integer onCommit={(next) => set(machine.id, next)} />}
           />

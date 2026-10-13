@@ -64,12 +64,12 @@ export function InlineVisualization({ reference }: { reference: VisualizationRef
   useEffect(() => {
     if (!current?.url || current.url === readyUrl) return;
     // Missing/expired resource responses have no runtime handshake and would otherwise remain blank.
-    const timeout = window.setTimeout(() => setResult({ resources, path: path!, theme, error: "The visualization did not load. Open its source or reconnect to the host and try again." }), 15000);
+    const timeout = window.setTimeout(() => setResult({ resources, path: path!, theme, error: "The visualization did not load. Open its source or reconnect to the machine and try again." }), 15000);
     return () => window.clearTimeout(timeout);
   }, [current?.url, path, readyUrl, resources, theme]);
   const error = !path ? "This visualization must be inside the thread's workspace. Ask for a workspace-relative visualization file."
     : !resources?.available ? RESOURCE_UNAVAILABLE
-    : !resources.loadVisualization ? "This host does not support inline visualizations. Update the host to display this file."
+    : !resources.loadVisualization ? "This machine does not support inline visualizations. Update Tau on it to display this file."
     : current?.error;
   const title = reference.title || "Visualization";
   const surface = error ? <div role="status">{error}{path && resources?.available ? <> <button type="button" className="text-button" style={{ minHeight: 32 }} onClick={() => resources.openFile(path)}>Open visualization source</button></> : null}</div>

@@ -298,7 +298,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
   if (params.view === "sources") return <Sources summary={summary} limits={allLimits} machines={summaries} />;
 
   const read = summary ? `Read ${new Date(summary.scannedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` : "Reading usage…";
-  const status = busy && !summary ? "Reading…" : `${machines.length > 0 ? `${read} · this computer and ${machines.map((other) => other.name).join(", ")}` : read}${busy ? " · updating…" : logsReading ? " · still reading the CLIs' logs" : ""}`;
+  const status = busy && !summary ? "Reading…" : `${machines.length > 0 ? `${read} · this machine and ${machines.map((other) => other.name).join(", ")}` : read}${busy ? " · updating…" : logsReading ? " · still reading the CLIs' logs" : ""}`;
   return (
     <div className="usage-page">
       <SettingsPageAction>

@@ -135,7 +135,7 @@ export function registerRequestMedia(context: HostExtensionContext, sources: Sou
     const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
     const target = typeof fields.url === "string" ? sources.forUrl(fields.url) : undefined;
     const resources = context.services.browserResources;
-    if (!resources || !target || typeof fields.source !== "string" || fields.source.length > 4096) throw new HostCommandError("This host cannot serve this request upload.");
+    if (!resources || !target || typeof fields.source !== "string" || fields.source.length > 4096) throw new HostCommandError("This machine cannot serve this request upload.");
     const source = fields.source;
     const media = requestMediaSource(source, target.ref);
     if (!media) throw new HostCommandError("Name an upload of this request's forge.");

@@ -175,7 +175,7 @@ describe("large diff bounds", () => {
     const result = parseUnifiedDiff("large.txt", patch, { hunkLimit: 1 });
     expect(result.truncated).toBe(true);
     expect(result.nextHunkOffset).toBeUndefined();
-    expect(result.note).toContain("host byte or line limit");
+    expect(result.note).toContain("byte or line limit");
   });
 
   it("streams and pages hunks from git without retaining the complete patch", async () => {

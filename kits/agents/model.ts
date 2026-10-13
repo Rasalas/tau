@@ -42,7 +42,7 @@ export interface AgentRow {
   costUsd?: number;
   /** The checkout this agent worked in, when it had one of its own. */
   workspace?: AgentWorkspace;
-  /** The machine it runs on, when that is not this computer. */
+  /** The machine it runs on, when that is not this machine. */
   machine?: AgentRowMachine;
 }
 

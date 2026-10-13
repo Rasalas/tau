@@ -45,15 +45,15 @@ Tau uses the tools and sign-ins you already have. It never copies a login from o
 
 ## Your phone
 
-1. On your computer, open Settings → Connections. Turn on **Local network**, or **Tailscale** to reach Tau from anywhere, and create a pairing link.
+1. On the machine that runs Tau, open Settings → Connections. Turn on **Local network**, or **Tailscale** to reach Tau from anywhere, and create a pairing link.
 2. Scan its QR code with the Tau app, or with the phone's camera to open Tau in the browser.
-3. Your computer shows six digits and asks whether to let the phone in. Allow it if the phone shows the same six.
+3. That machine shows six digits and asks whether to let the phone in. Allow it if the phone shows the same six.
 
-The phone then shows the same threads, their questions and your reviews. It talks to your computer directly; there is no Tau server in between.
+The phone then shows the same threads, their questions and your reviews. It talks to your machine directly; there is no Tau server in between.
 
 ## Next
 
 - [Make a change](make-a-change.md): your own kit, or a change to Tau itself.
-- [Updates and machines](updates-and-machines.md): how Tau stays current, and how another computer joins in.
+- [Updates and machines](updates-and-machines.md): how Tau stays current, and how another machine joins in.
 - [Install and run](../install.md): every installer, Linux details, and the `tau` command.
 - [Runtimes and tools](../runtimes.md): what each agent runtime needs, and pull request tools.

@@ -308,9 +308,9 @@ export const STEPS = [
       if (!readiness.git?.mergeTree || !(readiness.disk?.free > 0) || !readiness.display?.kind) throw new Error(`rex reports ${JSON.stringify({ git: readiness.git, disk: readiness.disk, display: readiness.display })}`);
       const self = (await ctx.aOwner.hello()).host.id;
       const own = await ask("resources", self);
-      if (!(own.cpuCount > 0) || own.sampledAt === resources.sampledAt) throw new Error(`this computer reports ${JSON.stringify(own)}`);
+      if (!(own.cpuCount > 0) || own.sampledAt === resources.sampledAt) throw new Error(`this machine reports ${JSON.stringify(own)}`);
       const cpu = Math.round(resources.cpuUtilization * 100);
-      return `rex: ${resources.cpuCount} cores, CPU ${cpu} %, ${resources.runningTurns} turns; Pi ready with ${pi.models} model(s); Git ${readiness.git.version}; display ${readiness.display.kind}; this computer ${own.cpuCount} cores`;
+      return `rex: ${resources.cpuCount} cores, CPU ${cpu} %, ${resources.runningTurns} turns; Pi ready with ${pi.models} model(s); Git ${readiness.git.version}; display ${readiness.display.kind}; this machine ${own.cpuCount} cores`;
     },
   },
   {
@@ -590,12 +590,12 @@ export const STEPS = [
     },
   },
   {
-    title: "Automatic: an idle rex wins over this computer; with a turn per core running there it is left out",
+    title: "Automatic: an idle rex wins over this machine; with a turn per core running there it is left out",
     async run(ctx) {
       const choose = () => ctx.aOwner.request("host-extension", [MACHINES_KIT, "choose-machine", { purpose: "thread", backend: "pi", model: `${FAKE_PROVIDER}/${FAKE_MODEL}` }]);
       const rexVerdict = (answer) => answer.machines.find((verdict) => verdict.id === ctx.rexHostId);
       const idle = await choose();
-      if (idle.machine !== ctx.rexHostId) throw new Error(`with rex idle, Automatic chose ${idle.machine ?? "this computer"}: ${idle.reason}`);
+      if (idle.machine !== ctx.rexHostId) throw new Error(`with rex idle, Automatic chose ${idle.machine ?? "this machine"}: ${idle.reason}`);
 
       // Load: a waiting fake turn per core on rex. The chooser reads rex again once its reading is 10 s old.
       const from = ctx.rexOwner.pushes.length;
@@ -627,7 +627,7 @@ export const STEPS = [
       await ctx.rexOwner.request("connections-revoke-client", [ctx.pairing.companion.clientId]);
       await waitFor(async () => (await ctx.aOwner.request("machines-list")).machines.some((machine) => machine.id === ctx.rexHostId && machine.status === "refused"), "A's host to see rex refuse its agents");
       const refused = await ctx.aOwner.request("host-extension", ["tau.environments", "probe", { machine: REX.machineName }]).then(() => "answered", (error) => String(error.message));
-      if (!/refuses this computer's agents/u.test(refused)) throw new Error(`a call after the revocation ended: ${refused}`);
+      if (!/refuses this machine's agents/u.test(refused)) throw new Error(`a call after the revocation ended: ${refused}`);
       const device = new HostUplink({ url: ctx.rex.url, token: ctx.pairing.token, trust: { pin: { publicKey: ctx.rex.publicKey } } });
       ctx.closers.push(() => device.close());
       await device.hello();

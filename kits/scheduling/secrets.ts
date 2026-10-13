@@ -38,7 +38,7 @@ export class WebhookSecrets {
       const value = text(v.value, "Secret", 8192);
       const request = this.requests.get(id);
       if (!request || request.status !== "pending" || request.expiresAt < Date.now()) throw new HostCommandError("This secret request ended.");
-      if (!this.store) throw new HostCommandError("No operating-system secret store is available on this host.");
+      if (!this.store) throw new HostCommandError("No operating-system secret store is available on this machine.");
       if (this.saving.has(id)) throw new HostCommandError("The secret is already being saved.");
       this.saving.add(id);
       const reference = randomUUID();
@@ -64,7 +64,7 @@ export class WebhookSecrets {
       execute: async (_id: string, input: unknown, signal?: AbortSignal) => {
         const v = object(input, ["consumer", "target", "label", "reason"]);
         if (v.consumer !== "webhook-signature") throw new HostCommandError("Only webhook-signature is a private secret consumer.");
-        if (!this.store) throw new HostCommandError("No operating-system secret store is available on this host.");
+        if (!this.store) throw new HostCommandError("No operating-system secret store is available on this machine.");
         const job = this.job(text(v.target, "Automation ID", 36));
         const path = await context.services.knownWorkspacePath(session.cwd);
         if (job.workspaceId !== context.services.workspaceRef(path).workspaceId || job.config.schedule.kind !== "webhook") throw new HostCommandError("The webhook must belong to this thread's project.");

@@ -395,7 +395,7 @@ export class ServerStatusService {
     context.registerCommand("target-levels", (input) => this.levels(input), { access: "read" });
     context.registerCommand("set-target-level", (input) => this.setLevel(input), { audit: { label: "set what the agent may run on a server" } });
     context.registerCommand("ssh-terminal", async (input) => {
-      if (!this.options.terminalCommand) throw new HostCommandError("This host opens no SSH terminals.");
+      if (!this.options.terminalCommand) throw new HostCommandError("This machine opens no SSH terminals.");
       return { command: await this.options.terminalCommand(decodeRef(input)) };
     }, { long: true, audit: { label: "opened an SSH terminal" } });
   }

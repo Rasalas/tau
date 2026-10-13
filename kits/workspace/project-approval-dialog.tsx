@@ -38,7 +38,7 @@ export function createProjectApprovalDialog(host: ApprovalHost) {
       <Dialog label="Allow project setup commands?" className="confirm-dialog" onClose={() => { void answer(false); }}>
         <h2>Allow project setup commands?</h2>
         <p><code>{request.project}/.tau/project.json</code></p>
-        <p>These commands run on the host with your environment in each new worktree. Approve only commands you trust. Changes to the script definitions require approval again.</p>
+        <p>These commands run on the machine with your environment in each new worktree. Approve only commands you trust. Changes to the script definitions require approval again.</p>
         <pre className="project-approval-commands">{request.commands.join("\n\n")}</pre>
         <footer>
           <button type="button" className="text-button" disabled={busy} onClick={() => { void answer(false); }}>Skip setup</button>

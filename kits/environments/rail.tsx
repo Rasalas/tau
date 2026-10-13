@@ -172,7 +172,7 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
       // The own index keeps proxy rows across disconnection; do not list them twice then either.
       if (represented.has(machine.id)) continue;
       const reason = unavailableReason(machine, now);
-      // Threads this computer's sub-agents run there show in the Agents panel, not here.
+      // Threads this machine's sub-agents run there show in the Agents panel, not here.
       const subagents = agentThreadsSource.threadsOn(machine.id);
       readShelf(machine);
       const shelf = shelves.get(machine.id)?.settled ?? NOTHING_SETTLED;
@@ -303,9 +303,9 @@ export function createShownMachine(environments: PlatformEnvironments) {
           <Menu
             items={[{
               id: "back",
-              label: `Back to ${local?.name ?? "this computer"}`,
+              label: `Back to ${local?.name ?? "this machine"}`,
               icon: <Laptop size={13} aria-hidden="true" />,
-              description: "Shows this computer's threads in the window again",
+              description: "Shows this machine's threads in the window again",
             }]}
             onSelect={() => { setOpen(false); back(); }}
             onClose={() => setOpen(false)}

@@ -96,7 +96,7 @@ export function ServerFields({ view, onSave, ids = { server: "setting-opencode-s
         description={saved
           ? `Threads use the server at ${saved}, with its own providers and logins. Tau's tools reach only servers Tau starts.`
           : "Empty: Tau starts OpenCode for each thread, on 127.0.0.1 with a password of its own."}
-        disabledReason={view ? undefined : "Waiting for the host to name OpenCode's instances."}
+        disabledReason={view ? undefined : "Waiting for the machine to name OpenCode's instances."}
         control={<TextField label="OpenCode server URL" mono width="lg" value={saved} placeholder="Empty: Tau starts OpenCode itself" onCommit={(url) => void onSave(url.trim())} />}
       />
       {saved ? (

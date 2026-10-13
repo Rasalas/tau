@@ -51,8 +51,8 @@ export function WorkspaceImage({ src = "", alt = "", title, width, height }: { s
       const message = error instanceof Error ? error.message : String(error);
       const reason = /not found|ENOENT|unknown|not a known/iu.test(message) ? "Image not found in this workspace."
         : /denied|forbidden|permission/iu.test(message) ? "Image access denied."
-        : /offline|disconnect|not connected/iu.test(message) ? "Image host offline. Reconnect to load it."
-        : /unsupported|not support/iu.test(message) ? "Image reads are not supported by this host."
+        : /offline|disconnect|not connected/iu.test(message) ? "The machine is offline. Reconnect to load the image."
+        : /unsupported|not support/iu.test(message) ? "Image reads are not supported by this machine."
         : /size|large|limit/iu.test(message) ? "Image too large to display."
         : "The workspace image could not be loaded.";
       finish({ resources, path, error: reason });

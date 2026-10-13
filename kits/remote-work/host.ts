@@ -348,7 +348,7 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         const raw = fields(input);
         const machine = required(raw, "machine");
         const machines = services.machines;
-        if (!machines) throw new HostCommandError("This host keeps no machines for copying projects.");
+        if (!machines) throw new HostCommandError("This machine keeps no list of machines for copying projects.");
         const target = text(raw.targetMachine);
         const targetWorkspace = text(raw.targetWorkspace);
         const repository = !target && targetWorkspace ? await services.knownWorkspacePath(targetWorkspace) : undefined;
@@ -459,7 +459,7 @@ export function createRemoteWorkHostExtension(options: RemoteWorkHostOptions = {
         const name = optionalText(raw, "name");
         const from = optionalText(raw, "from");
         const named = { ...(name ? { name } : {}), ...(from ? { from } : {}) };
-        if (blob && !services.blobs) throw new HostCommandError("This host takes no files from other machines.");
+        if (blob && !services.blobs) throw new HostCommandError("This machine takes no files from other machines.");
         const steps = pending([["unpack", "Unpack"], ["worktree", "Worktree"], ["files", "Ignored files"], ["setup", "Setup"]]);
         const operation = operations.start("receive", device(call), steps, async (step): Promise<ReceiveResult> => {
           const receive = (bundle?: string) => mirrors.receive({ transfer, repo, base, ...(bundle ? { bundle } : {}), ...(device(call) ? { device: device(call) } : {}), ...(repository ? { repository } : {}), ...named }, step);

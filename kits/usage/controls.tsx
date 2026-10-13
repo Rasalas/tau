@@ -65,7 +65,7 @@ function RuntimeFilter({ runtimes, hidden, onChange }: { runtimes: readonly stri
 }
 
 function machineOptions(machines: readonly UsageMachine[]): Array<{ id: string | undefined; label: string }> {
-  return [{ id: undefined, label: "All machines" }, { id: "", label: "This computer" }, ...machines.map((machine) => ({ id: machine.id, label: machine.name }))];
+  return [{ id: undefined, label: "All machines" }, { id: "", label: "This machine" }, ...machines.map((machine) => ({ id: machine.id, label: machine.name }))];
 }
 
 /** Every machine, this one (`""`), or another by its host id. */

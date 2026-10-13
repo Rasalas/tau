@@ -293,7 +293,7 @@ export function createTakeoverBar(hosts: TakeoverHosts) {
 
 export function TakeoverFooter() {
   const machine = useHostName();
-  return <p className="takeover-footer">This page runs on {machine ?? "your computer"} and streams to your phone. Evidence is paused while you type.</p>;
+  return <p className="takeover-footer">This page runs on {machine ?? "your machine"} and streams to your phone. Evidence is paused while you type.</p>;
 }
 
 const ENDED: ReadonlyArray<[RegExp, string]> = [

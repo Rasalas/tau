@@ -5,7 +5,7 @@ import { readinessFacts, resourcesText, runtimeText } from "./machines.js";
 type Load<T> = { state: "loading" } | { state: "done"; value: T } | { state: "failed"; message: string };
 
 /**
- * How busy a machine is and what it could run, asked through this computer's
+ * How busy a machine is and what it could run, asked through this machine's
  * host when the row shows and on "Check again"; nothing is polled (plan H §7).
  * Runtimes are marks, their state in the tooltip.
  */

@@ -199,7 +199,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
                 onRevoke={() => void act(`client:${paired.id}`, () => client!.revokeClient(paired.id), `${paired.label} can no longer connect`)} />
             ))}
             {data.owners.map((owner) => <OwnerRow key={owner.id} owner={owner} now={now} />)}
-            {nothing ? <tr><td colSpan={4}><SettingsState kind="empty" title="No device is paired yet" description="Pair a device and open the link on a phone or another computer; you allow it here when it asks." /></td></tr> : null}
+            {nothing ? <tr><td colSpan={4}><SettingsState kind="empty" title="No device is paired yet" description="Pair a device and open the link on a phone or another machine; you allow it here when it asks." /></td></tr> : null}
           </tbody>
         </table>
       </div>

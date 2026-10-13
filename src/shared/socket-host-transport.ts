@@ -164,7 +164,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     if (outbox.length >= OUTBOX_LIMIT) {
       const evicted = outbox.shift()!;
       const request = pending.get(evicted.id);
-      if (request) { timers.cancel(request.timer); pending.delete(evicted.id); request.reject(new Error("Too many requests waiting for the host.")); }
+      if (request) { timers.cancel(request.timer); pending.delete(evicted.id); request.reject(new Error("Too many requests waiting for the machine.")); }
     }
     outbox.push({ id, text, hello });
     flush();
@@ -204,7 +204,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     stopTimers();
     socket = undefined;
     needsRecovery = true;
-    failPending("The host connection dropped.");
+    failPending("The connection to the machine dropped.");
     for (const listener of closeListeners) listener();
     if (closed) return;
     // Anything short of an explicit refusal (a malformed frame included) keeps the token and retries.
@@ -307,7 +307,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       }
     } catch (error) {
       // Malformed JSON: cannot extract id, log and drop
-      console.error("Host sent invalid JSON:", error);
+      console.error("The machine sent invalid JSON:", error);
       return;
     }
     const frame = decodeHostServerFrame(parsed);
@@ -321,7 +321,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
           request.reject(new Error(`${HOST_ERROR.invalidResponse}: undecodable frame`));
         }
       }
-      console.error("Host sent undecodable frame:", parsed);
+      console.error("The machine sent a frame Tau cannot decode:", parsed);
       return;
     }
     if (frame.type === "push") {
@@ -429,7 +429,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       return new URL(path, endpoint).toString();
     },
     request: (method, params) => new Promise<HostResponse>((resolve, reject) => {
-      if (closed) { reject(new Error("The host connection was closed.")); return; }
+      if (closed) { reject(new Error("The connection to the machine was closed.")); return; }
       counter += 1;
       const id = `c${counter}`;
       const timer = later(() => {
@@ -463,7 +463,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       timers.cancel(retryTimer);
       stopTimers();
       timers.close();
-      failPending(`The host connection was closed (${HOST_ERROR.cancelled}).`);
+      failPending(`The connection to the machine was closed (${HOST_ERROR.cancelled}).`);
       setLink({ phase: "closed" });
       socket?.close();
     },

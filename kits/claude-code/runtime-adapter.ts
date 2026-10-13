@@ -35,7 +35,7 @@ export function assertClaudePermissionPolicySupported(policy: RuntimePermissionP
     throw new Error("Claude Code received an unsupported Tau permission policy.");
   }
   if (policy.permissionMode === "default" && options.canAsk === false) {
-    throw new Error("Claude Code manual approvals are unsupported on this host; choose read-only or full access before launching Claude.");
+    throw new Error("Claude Code manual approvals are unsupported on this machine; choose read-only or full access before launching Claude.");
   }
 }
 

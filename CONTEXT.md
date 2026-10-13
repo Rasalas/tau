@@ -21,6 +21,12 @@ there (ADR 0030). It is chosen in the draft and never changes; a thread that
 continues on another machine is a new thread there. The device in front of the
 person only shows and steers the thread.
 
+Every screen calls a computer that runs Tau a **machine**, as Settings → Machines
+does: "This machine", "Back to this machine", "Run on this machine". Neither
+"computer" (Computer Use is a feature's name) nor "host" names one where a person
+reads; "host" stays in Advanced settings, the docs and the code.
+`src/shared/machine-wording.test.ts` guards "this computer".
+
 ## Workbench
 
 The interactive client in which a person manages projects, threads, agent activity, and extension-provided workflows. Tau is the workbench.

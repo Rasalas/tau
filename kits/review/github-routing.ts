@@ -140,7 +140,7 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
     await ready;
     const started = ++generation;
     const fields = object(input);
-    const id = typeof fields.id === "string" ? fields.id : fail("Choose a paired host or device.");
+    const id = typeof fields.id === "string" ? fields.id : fail("Choose a paired machine or device.");
     const grants = fields.direction === "machine" ? outgoing : fields.direction === "device" ? incoming : fail("Choose the sharing direction.");
     // Changing an endpoint or a failed re-verification revokes the previous grant.
     grants.delete(id);
@@ -151,10 +151,10 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
     const account = await identity(host);
     if (grants === outgoing) {
       const machine = machines?.list().find((entry) => entry.id === id);
-      if (!machine || !machine.address || !machine.trustIdentity || machine.status !== "connected" || machine.id === machines?.self.id) fail("Connect a different trusted paired host first.");
-      if (machine.readOnly && fields.mode === "act") fail("A Read only host cannot perform shared GitHub actions.");
+      if (!machine || !machine.address || !machine.trustIdentity || machine.status !== "connected" || machine.id === machines?.self.id) fail("Connect a different trusted paired machine first.");
+      if (machine.readOnly && fields.mode === "act") fail("A Read only machine cannot perform shared GitHub actions.");
       const remote = object(await machines!.call(id, REVIEW_HOST_EXTENSION_ID, "github-sharing-identity", { host }));
-      if (remote.account !== account || remote.source !== id) fail("The hosts are signed into different GitHub accounts.");
+      if (remote.account !== account || remote.source !== id) fail("The machines are signed into different GitHub accounts.");
       const current = machines!.list().find((entry) => entry.id === id);
       if (started !== generation || !current || address(current.address) !== address(machine.address) || current.trustIdentity !== machine.trustIdentity || current.status !== "connected" || fields.mode === "act" && current.readOnly) fail("Sharing changed during verification. No approval was saved.");
       if (fields.preferred === true) for (const other of outgoing.values()) if (other.host === host) other.preferred = false;
@@ -164,9 +164,9 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
       if (!device) fail("That paired device is no longer allowed here.");
       if (device.access === "read-only" && fields.mode === "act") fail("A Read only device cannot perform shared GitHub actions.");
       const peer = machines?.list().find((entry) => entry.id === fields.machine && entry.status === "connected");
-      if (!peer || !peer.address || !peer.trustIdentity || peer.id === machines?.self.id) fail("Choose the connected source host for this paired device.");
+      if (!peer || !peer.address || !peer.trustIdentity || peer.id === machines?.self.id) fail("Choose the connected source machine for this paired device.");
       const verified = object(await machines!.call(peer.id, REVIEW_HOST_EXTENSION_ID, "github-sharing-identity", { host }));
-      if (verified.account !== account || verified.source !== peer.id) fail("The hosts are signed into different GitHub accounts.");
+      if (verified.account !== account || verified.source !== peer.id) fail("The machines are signed into different GitHub accounts.");
       const current = machines!.list().find((entry) => entry.id === peer.id);
       if (started !== generation || !devices().some((entry) => entry.id === id && entry.access === device.access) || !current || address(current.address) !== address(peer.address) || current.trustIdentity !== peer.trustIdentity || current.status !== "connected") fail("Sharing changed during verification. No approval was saved.");
       grants.set(id, { mode: fields.mode, host, account, access: device.access, machine: peer.id, address: address(peer.address), trust: peer.trustIdentity });
@@ -179,11 +179,11 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
   }, { access: "read", long: true });
 
   const invokeLocal = async (operation: string, args: unknown[]): Promise<unknown> => {
-    if (operation.startsWith("viewed-") && !local.viewedMarks) fail("This host does not support GitHub viewed marks.");
+    if (operation.startsWith("viewed-") && !local.viewedMarks) fail("This machine does not support GitHub viewed marks.");
     if (operation === "viewed-states") return [...await local.viewedMarks!.states(args[0] as never, args[1] as boolean)];
     if (operation === "viewed-set") return local.viewedMarks!.set(args[0] as never, args[1] as string, args[2] as boolean, () => local.detail(args[0] as never, true));
     const method = local[operation as keyof SourceControlProvider];
-    if (typeof method !== "function") fail("This host does not support that GitHub operation.");
+    if (typeof method !== "function") fail("This machine does not support that GitHub operation.");
     return (method as (...args: unknown[]) => unknown)(...args);
   };
   const receive = async (input: unknown, call: HostCommandCall, write: boolean) => {
@@ -194,11 +194,11 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
     if (!(write ? ACTIONS : READS).has(operation)) fail("This GitHub operation is not permitted by this command.");
     const grant = call.device ? incoming.get(call.device) : undefined;
     if (!grant || write && grant.mode !== "act" || fields.host !== grant.host || fields.account !== grant.account) fail("GitHub sharing is off for this device or endpoint.");
-    if (fields.source !== grant.machine) fail("This request names a different source host.");
+    if (fields.source !== grant.machine) fail("This request names a different source machine.");
     const device = devices().find((entry) => entry.id === call.device);
     if (!device || write && device.access !== "full") fail("A Read only device cannot perform shared GitHub actions.");
     const peer = object(await machines!.call(grant.machine!, REVIEW_HOST_EXTENSION_ID, "github-sharing-identity", { host: grant.host }));
-    if (peer.account !== grant.account || peer.source !== grant.machine) { incoming.delete(call.device!); await persist(); fail("The source host's GitHub account changed."); }
+    if (peer.account !== grant.account || peer.source !== grant.machine) { incoming.delete(call.device!); await persist(); fail("The source machine's GitHub account changed."); }
     const args = argumentsFor(operation, fields.args, grant.host);
     if (await identity(grant.host) !== grant.account) { incoming.delete(call.device!); await persist(); fail("The GitHub account changed. Enable sharing again after signing into the same account."); }
     if (incoming.get(call.device!) !== grant) fail("GitHub sharing was revoked while verifying the account.");
@@ -228,7 +228,7 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
     }
     let account: string;
     try { account = await identity(host); } catch (error) {
-      if (write && [...outgoing.values()].some((grant) => grant.host === host && grant.preferred)) throw new HostCommandError(`No GitHub action was sent because this host could not verify its account: ${error instanceof Error ? error.message : String(error)}`);
+      if (write && [...outgoing.values()].some((grant) => grant.host === host && grant.preferred)) throw new HostCommandError(`No GitHub action was sent because this machine could not verify its account: ${error instanceof Error ? error.message : String(error)}`);
       return invokeLocal(operation, args);
     }
     let accountChanged = false;
@@ -263,7 +263,7 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
       try { return await machines!.call(id, REVIEW_HOST_EXTENSION_ID, "github-sharing-read", request, { timeoutMs: 2 * 60_000 }); }
       catch (error) { routingError = `${machine.name}: ${error instanceof Error ? error.message : String(error)}`; }
     }
-    if (preferred) fail("The selected GitHub action host could not verify its account. No action was sent. Check sharing on both hosts.");
+    if (preferred) fail("The selected GitHub action machine could not verify its account. No action was sent. Check sharing on both machines.");
     if (routingError) throw new HostCommandError(`${localError instanceof Error ? localError.message : String(localError)} Shared GitHub access failed: ${routingError}`);
     throw localError;
   };

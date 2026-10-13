@@ -297,7 +297,7 @@ export default function App() {
       turn: turnScope,
       host: workbenchSession,
       enqueueFollowUp: async (threadId, item) => {
-        if (!clientRef.current) throw new Error("Queued messages require the host.");
+        if (!clientRef.current) throw new Error("Queued messages need a connection to the machine.");
         await clientRef.current.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
       },
     };

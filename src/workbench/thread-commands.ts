@@ -80,7 +80,7 @@ export class ThreadCommands {
   /** Says why an action is unavailable rather than failing silently without a host. */
   requireHost = (what: string): boolean => {
     if (this.client) return true;
-    this.notify(`${what} requires the Electron host`);
+    this.notify(`${what} requires a connected machine`);
     return false;
   };
 
@@ -104,13 +104,13 @@ export class ThreadCommands {
 
   loadThread = async (sessionId: string): Promise<TranscriptPage> => {
     const client = this.client;
-    if (!client) throw new Error("Reading another thread requires the Electron host");
+    if (!client) throw new Error("Reading another thread requires a connected machine");
     return client.loadTranscript(sessionId);
   };
 
   loadTranscriptPage = async (sessionId: string, cursor: HostTranscriptCursor) => {
     const client = this.client;
-    if (!client) throw new Error("Transcript history requires the Electron host.");
+    if (!client) throw new Error("Transcript history requires a connected machine.");
     return client.loadTranscript(sessionId, cursor);
   };
 
@@ -220,7 +220,7 @@ export class ThreadCommands {
   /** Pi's `!command` for extensions: runs in the active thread's project. */
   runShellAction = async (command: string, includeInContext: boolean): Promise<ShellActionResult> => {
     const client = this.client;
-    if (!client) throw new Error("Project actions require the Electron host");
+    if (!client) throw new Error("Project actions require a connected machine");
     return client.runShellAction(command, includeInContext, this.ports.view.getSnapshot()?.cwd);
   };
 

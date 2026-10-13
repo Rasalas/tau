@@ -24,13 +24,13 @@ export function isScratchWorkspace(stateDir: string, path: string): boolean {
 }
 
 export async function createScratchWorkspace(stateDir: string, git = "git"): Promise<string> {
-  if (!isAbsolute(stateDir)) throw new Error("The host has no private workspace storage.");
+  if (!isAbsolute(stateDir)) throw new Error("This machine has no private workspace storage.");
   const root = join(stateDir, "scratch");
   await mkdir(root, { recursive: true, mode: 0o700 });
   const canonicalRoot = await realpath(root);
   try {
     const inherited = await execute(git, ["rev-parse", "--show-toplevel"], { cwd: canonicalRoot, timeout: 10_000 });
-    if (inherited.stdout.trim()) throw new Error("Private scratch storage is inside a Git repository. Choose a host data folder outside that repository.");
+    if (inherited.stdout.trim()) throw new Error("Private scratch storage is inside a Git repository. Choose a data folder on this machine outside that repository.");
   } catch (error) {
     if (!(error && typeof error === "object" && "code" in error && error.code === 128)) throw error;
   }

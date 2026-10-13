@@ -2118,7 +2118,7 @@ export function parseUnifiedDiff(path: string, patch: string, options: DiffLoadO
     note: hasMoreParsedHunks
       ? `Showing ${visibleHunks.length} hunks. Load more to continue.`
       : byteTruncated || lineTruncated
-        ? "Diff truncated at the host byte or line limit. Open the file in an editor for the complete patch."
+        ? "Diff truncated at the byte or line limit. Open the file in an editor for the complete patch."
         : undefined,
   };
 }

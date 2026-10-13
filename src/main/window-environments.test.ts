@@ -333,7 +333,7 @@ describe("the machines of a window", () => {
   });
 });
 
-describe("this computer's agents on a machine (ADR 0027)", () => {
+describe("this machine's agents on a machine (ADR 0027)", () => {
   const agentsHost = () => ({ add: vi.fn(async (_entry: SavedEnvironment) => undefined), remove: vi.fn(async (_id: string) => undefined) });
 
   it("asks for the agents in the same pairing and hands their key to this machine's host, keeping its own", async () => {
