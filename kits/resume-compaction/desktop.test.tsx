@@ -47,6 +47,13 @@ describe("Compact and send", () => {
     const compactContext = vi.fn(async () => undefined);
     await offered.beforeSend({ compactContext } as unknown as WorkbenchActions);
     expect(compactContext).toHaveBeenCalledTimes(1);
+    const compactAndSend = vi.fn(async () => true);
+    const prompt = { text: "and how far are we?", attachments: [] };
+    expect(await offered.submit!({ compactAndSend } as unknown as WorkbenchActions, prompt)).toEqual({ accepted: true });
+    expect(compactAndSend).toHaveBeenCalledWith("t1", prompt);
+    const other = mode.read({ ...snapshot(usage(153_412, 71)), sessionId: "other" })!;
+    await other.submit!({ compactAndSend } as unknown as WorkbenchActions, prompt);
+    expect(compactAndSend).toHaveBeenLastCalledWith("other", prompt);
     await expect(offered.beforeSend({} as WorkbenchActions)).rejects.toThrow("Compaction is unavailable here.");
     // A compaction that failed keeps the prompt: sending it would re-read everything after all.
     await expect(offered.beforeSend({ compactContext: async () => false } as unknown as WorkbenchActions)).rejects.toThrow(/^Not sent: the compaction failed/u);

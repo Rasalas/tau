@@ -241,6 +241,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       ...(options.closeConversationView ? { closeConversationView: options.closeConversationView } : {}),
       ...(options.navigateHistory ? { navigateHistory: options.navigateHistory } : {}),
       compactContext: options.threadCommands.compactContext,
+      compactAndSend: options.threadCommands.compactAndSend,
       openModelPicker,
       setModel: async (providerOrQuery: string, id?: string) => {
         if (id) {

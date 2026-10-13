@@ -426,7 +426,7 @@ const WRITES = [
   ["steer", ["x"]], ["follow-up", ["x"]], ["queue-message", ["s", "x"]], ["new-session", []], ["abort", [undefined]],
   ["rename-thread", ["Renamed by a Read-only device"]], ["set-model", ["p", "m"]], ["set-thinking", ["high"]], ["set-mode", ["plan"]],
   ["run-shell-action", ["echo hi"]], ["update-config", [{}]], ["clear-config", [[]]], ["open-project", ["/"]], ["remove-project", ["/"]],
-  ["add-model-provider", [{}]], ["reload-runtime", []], ["compact-context", []], ["answer-extension-ui", ["id", {}]],
+  ["add-model-provider", [{}]], ["reload-runtime", []], ["compact-context", []], ["compact-and-send", ["id", { text: "next", attachments: [] }]], ["answer-extension-ui", ["id", {}]],
   ["host-extension-active", ["tau.terminal", false]], ["extension-grant", ["tau.terminal", true]], ["copy-text", ["x"]],
   ["start-job", ["prompt", ["x"]]],
 ];

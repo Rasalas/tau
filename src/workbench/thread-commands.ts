@@ -4,6 +4,8 @@ import type {
   ShellActionResult,
   UiMessage,
   UiProject,
+  UiPromptAttachment,
+  UiSkillDraft,
   UiToolOutputPreview,
   UiToolRun,
 } from "../shared/contracts";
@@ -204,6 +206,15 @@ export class ThreadCommands {
       this.notify(errorMessage(error), "error");
       return false;
     }
+  };
+
+  /** Accepts the prompt into its thread's queue before compaction begins. */
+  compactAndSend = async (sessionId: string, prompt: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<boolean> => {
+    if (!this.requireWrite("Compaction")) return false;
+    try {
+      this.ports.applyActionResult(await this.client!.compactAndSend(sessionId, prompt));
+      return true;
+    } catch (error) { this.notify(errorMessage(error), "error"); return false; }
   };
 
   /** Pi's `!command` for extensions: runs in the active thread's project. */

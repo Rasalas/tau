@@ -246,7 +246,7 @@ export class SubmissionController {
       return { accepted: false, message: errorMessage(error) };
     }
     const snapshot = view.getSnapshot();
-    const visibleStreaming = threads.getActivity().isStreaming;
+    const visibleStreaming = threads.getActivity().isStreaming || snapshot?.isCompacting === true;
     // Enter during a run parks the message above the composer. It is prepared
     // and sent as a plain prompt once the thread settles, or steered on demand.
     if (shouldQueueSubmission({ isPendingNewThread: Boolean(pendingNewThread), hasSnapshot: Boolean(snapshot), visibleStreaming, delivery })) {

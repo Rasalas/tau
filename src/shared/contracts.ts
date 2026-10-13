@@ -685,6 +685,8 @@ export interface HostSnapshot extends TranscriptBundle<UiMessage, HostTranscript
   goals?: boolean;
   /** Cursor for the next page when this snapshot already contains a bounded window. */
   isStreaming: boolean;
+  /** The runtime is summarizing context, independently of assistant output. */
+  isCompacting?: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
   taskProgress?: UiTaskProgress;
@@ -857,6 +859,7 @@ export type GlobalHostEvent =
 export type ThreadHostEvent =
   /** `startedAt`: when the host saw this run start (epoch ms), on every `running: true` (API 1.27.0). */
   | { type: "agent-status"; sessionId: string; running: boolean; startedAt?: number }
+  | { type: "context-compaction"; sessionId: string; running: boolean }
   /** Adds the persisted session-entry id to a row emitted optimistically at message_end. */
   | {
       type: "assistant-anchor";

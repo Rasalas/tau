@@ -36,6 +36,10 @@ export interface BackendEventServices {
 export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: ThreadRuntime, services: BackendEventServices): void {
   const sessionId = thread.threadId;
   switch (event.type) {
+    case "context-compaction":
+      thread.isCompacting = event.running;
+      services.emit({ type: "context-compaction", sessionId, running: event.running });
+      break;
     case "turn-started":
       thread.turnError = undefined;
       thread.unpromptedTurn = event.unprompted === true;
@@ -187,6 +191,10 @@ function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEve
 
 function settleTurn(status: "completed" | "interrupted" | "error", thread: ThreadRuntime, services: BackendEventServices, failure?: string, limit?: { resetsAt?: number }): void {
   const sessionId = thread.threadId;
+  if (thread.isCompacting) {
+    thread.isCompacting = false;
+    services.emit({ type: "context-compaction", sessionId, running: false });
+  }
   // A tool still running when the turn ends never reports again; close its card.
   for (const tool of [...thread.tools.values()]) {
     finishTool({ ...tool, status: "error", output: tool.output ?? (status === "interrupted" ? "Interrupted." : "The turn ended before this tool finished.") }, thread, services);

@@ -11,6 +11,7 @@ export interface LiveAssistant {
 export interface LiveTurnState {
   readonly tools: Map<string, UiToolRun>;
   currentAssistantId?: string;
+  isCompacting?: boolean;
   /** Assistant text still streaming, so a thread opened mid-turn shows it. */
   liveAssistant?: LiveAssistant;
   /** Why the current turn failed so far; a later answer in the same run clears it. */

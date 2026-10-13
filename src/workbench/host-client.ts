@@ -113,6 +113,7 @@ export interface HostClient {
   /** The interaction mode the thread's next turns run in; the active thread without `expectedSessionId`. */
   setMode(mode: string, expectedSessionId?: string): Promise<HostActionResult>;
   compactContext(expectedSessionId?: string): Promise<HostActionResult>;
+  compactAndSend(sessionId: string, prompt: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<HostActionResult>;
 
   // Desktop/host extension lifecycle and the generic host-extension channel.
   restartSession(threadId: string): Promise<HostActionResult>;
@@ -397,6 +398,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     setThinkingLevel: (level, expectedSessionId) => call<HostActionResult>("set-thinking", [level, expectedSessionId]),
     setMode: (mode, expectedSessionId) => call<HostActionResult>("set-mode", [mode, expectedSessionId]),
     compactContext: (expectedSessionId) => call<HostActionResult>("compact-context", [expectedSessionId]),
+    compactAndSend: (sessionId, prompt) => call<HostActionResult>("compact-and-send", [sessionId, prompt]),
 
     restartSession: (threadId) => call<HostActionResult>("restart-session", [threadId]),
     reloadRuntime: () => call<void>("reload-runtime"),

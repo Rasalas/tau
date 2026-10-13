@@ -116,6 +116,7 @@ export type RuntimeEventListener = (event: unknown, threadId: string) => void;
  * Every event belongs to the thread the backend was opened for.
  */
 export type ThreadRuntimeEvent =
+  | { type: "context-compaction"; running: boolean }
   /** `unprompted`: the runtime began the turn itself, e.g. after background work reported (API 1.58.0). */
   | { type: "turn-started"; unprompted?: boolean }
   /**

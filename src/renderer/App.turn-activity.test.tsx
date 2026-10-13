@@ -184,6 +184,21 @@ describe("last-turn activity", () => {
     expect(readFiles.compareDocumentPosition(screen.getByText("Found the issue")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("shows compaction instead of Thinking and restores the normal status afterwards", async () => {
+    const view = renderApp(client);
+    await screen.findByRole("heading", { name: /do next\?$/ });
+    act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
+    await waitFor(() => expect(view.container.querySelector(".work-live.thinking")).toBeTruthy());
+    act(() => client.emit({ type: "context-compaction", sessionId: "session", running: true }));
+    expect(await screen.findByText("Compacting context…")).toBeTruthy();
+    expect(view.container.querySelector(".work-live.thinking")).toBeNull();
+    act(() => client.emit({ type: "context-compaction", sessionId: "background", running: false }));
+    expect(screen.getByText("Compacting context…")).toBeTruthy();
+    act(() => client.emit({ type: "context-compaction", sessionId: "session", running: false }));
+    await waitFor(() => expect(view.container.querySelector(".work-live.thinking")).toBeTruthy());
+    expect(screen.queryByText("Compacting context…")).toBeNull();
+  });
+
   it("says Thinking whenever the running turn has no live tool row, as T3 Code does", async () => {
     const view = renderApp(client);
     await screen.findByRole("heading", { name: /do next\?$/ });

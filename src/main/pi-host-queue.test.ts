@@ -74,6 +74,42 @@ async function host(dir?: string) {
 }
 
 describe("PiHost queue and limits", () => {
+  it("queues the captured prompt before compaction and sends it once afterwards", async () => {
+    const bench = await host();
+    let finish!: () => void;
+    const compact = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    bench.internals.threads.get("thread-1").runtime.backend.capabilities.compaction = { compact };
+    const attachment = { kind: "image" as const, name: "note.png", mimeType: "image/png", data: "aGVsbG8=", size: 5 };
+    const pending = bench.host.compactContext("thread-1", { text: "and how far are we?", attachments: [attachment] });
+    await vi.waitFor(() => expect(compact).toHaveBeenCalledOnce());
+    expect(bench.host.queue.list("thread-1")).toMatchObject([{ text: "and how far are we?", attachments: [attachment] }]);
+    await pending; // Admission returns while compaction still runs.
+    expect(bench.delivered).toEqual([]);
+    await bench.host.queue.pump("thread-1");
+    expect(bench.delivered).toEqual([]);
+    const otherDelivered: DeliveredPrompt[] = [];
+    const other = streamedThread("thread-2", otherDelivered);
+    bench.internals.threads.adopt({ threadId: "thread-2", cwd: "/repo", runtime: other.runtime, isolation: "in-process" });
+    bench.internals.threads.setActive("thread-2");
+    finish();
+    await pending;
+    await vi.waitFor(() => expect(bench.delivered.map((entry) => entry.text)).toEqual(["and how far are we?"]));
+    expect(bench.host.queue.list("thread-1")).toEqual([]);
+    expect(otherDelivered).toEqual([]);
+    await bench.host.queue.flush();
+  });
+
+  it("holds the queued prompt when compaction fails instead of losing it or sending it unconditionally", async () => {
+    const bench = await host();
+    bench.internals.threads.get("thread-1").runtime.backend.capabilities.compaction = { compact: async () => { throw new Error("OAuth session expired"); } };
+    await bench.host.compactContext("thread-1", { text: "next", attachments: [] });
+    expect(bench.delivered).toEqual([]);
+    expect(bench.host.queue.list("thread-1")).toMatchObject([{ text: "next" }]);
+    await vi.waitFor(() => expect(bench.host.queue.isHeld("thread-1")).toBe(true));
+    expect(bench.internals.threads.get("thread-1").runtime.compactionPending).toBe(false);
+    await bench.host.queue.flush();
+  });
+
   it("sends a queued message when the running turn ends", async () => {
     const bench = await host();
     await bench.host.prompt("long job", [], "thread-1");

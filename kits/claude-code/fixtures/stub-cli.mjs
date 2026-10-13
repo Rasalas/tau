@@ -47,7 +47,8 @@ function streamTurns() {
   const model = models[0].value;
   const send = (frame) => process.stdout.write(`${JSON.stringify({ uuid: randomUUID(), session_id: sessionId, ...frame })}\n`);
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const assistant = (content) => send({ type: "assistant", parent_tool_use_id: null, message: { id: `msg_${randomUUID()}`, type: "message", role: "assistant", model, content, stop_reason: null, usage: { input_tokens: 1, output_tokens: 1 } } });
+  let callContext = 0;
+  const assistant = (content) => send({ type: "assistant", parent_tool_use_id: null, message: { id: `msg_${randomUUID()}`, type: "message", role: "assistant", model, content, stop_reason: null, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: callContext } } });
   const result = (id, content, isError = false) => send({ type: "user", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] } });
   const account = { ...status(), tokenSource: "apiKey" };
   let turn = Promise.resolve();
@@ -113,12 +114,16 @@ function streamTurns() {
   }
 
   async function compact() {
-    await sleep(300);
+    send({ type: "system", subtype: "status", status: "compacting" });
+    const delayFile = join(home, "stub-compact-delay.txt");
+    await sleep(existsSync(delayFile) ? Math.min(Number(readFileSync(delayFile, "utf8")) || 300, 60_000) : 300);
+    send({ type: "system", subtype: "status", status: null });
     send({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 150_000, post_tokens: 4_000 } });
-    send({ type: "result", subtype: "success", is_error: false, num_turns: 0, result: "", duration_ms: 300, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: { [model]: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, contextWindow: 200_000 } }, permission_denials: [] });
+    send({ type: "result", subtype: "success", is_error: false, num_turns: 0, local_command: "compact", result: "", duration_ms: 300, duration_api_ms: 0, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, modelUsage: { [model]: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0, contextWindow: 200_000 } }, permission_denials: [] });
   }
 
   async function play(prompt) {
+    callContext = /\blong\b/iu.test(prompt) ? 150_000 : 0;
     if (/\[scenario:(background|service|reported)\]/u.test(prompt)) {
       const service = prompt.includes("[scenario:service]");
       if (prompt.includes("[scenario:reported]")) {

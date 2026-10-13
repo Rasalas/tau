@@ -43,6 +43,7 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "set-thinking": { label: "changed the thinking level" },
   "set-mode": { label: "changed the mode", thread: 1 },
   "compact-context": { label: "compacted the context" },
+  "compact-and-send": { label: "compacted the context and queued a message" },
   "restart-session": { label: "restarted an agent session" },
   "reload-runtime": { label: "reloaded the runtime" },
   "reload-extensions": { label: "reloaded extensions" },

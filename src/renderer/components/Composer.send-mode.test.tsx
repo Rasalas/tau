@@ -76,9 +76,12 @@ describe("a kit's send mode", () => {
     const busy = screen.getByRole("button", { name: "Compacting…" }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
     expect(onSubmit).not.toHaveBeenCalled();
+    expect((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value).toBe("");
+    type("a later message");
     await act(async () => { finish(); });
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect((onSubmit.mock.calls as unknown[][])[0]?.[0]).toBe("hello");
+    expect((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value).toBe("a later message");
     expect(screen.getByRole("button", { name: "Compact and send" })).toBeTruthy();
   });
 

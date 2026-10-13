@@ -29,6 +29,7 @@ export function hostPushScope(event: HostPushEvent): HostPushScope {
     case "tool-end":
     case "tool-update-delta":
     case "tool-end-delta":
+    case "context-compaction":
     case "queue":
     case "notice":
       return threadScope(event.sessionId);

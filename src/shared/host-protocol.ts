@@ -48,6 +48,7 @@ export interface ThreadDetail extends TranscriptBundle<UiMessage, HostTranscript
   /** Runtime lifecycle owner for this thread; absent for old clients. */
   backendKind?: ThreadBackendKind;
   isStreaming: boolean;
+  isCompacting?: boolean;
   activeTools: string[];
   turnActivity?: UiTurnActivity;
   taskProgress?: UiTaskProgress;
@@ -266,6 +267,7 @@ export function threadDetailFromHostSnapshot(snapshot: HostSnapshot): ThreadDeta
     messages: snapshot.messages,
     ...(snapshot.backendKind ? { backendKind: snapshot.backendKind } : {}),
     isStreaming: snapshot.isStreaming,
+    isCompacting: snapshot.isCompacting,
     activeTools: snapshot.activeTools,
     turnActivity: snapshot.turnActivity,
     taskProgress: snapshot.taskProgress,
@@ -323,6 +325,7 @@ export function hostSnapshotFromThreadDetail(snapshot: HostSnapshot, detail: Thr
     historyCompleteness: detail.historyCompleteness,
     ...(transcriptWindow ? { transcriptWindow } : {}),
     isStreaming: detail.isStreaming,
+    isCompacting: detail.isCompacting,
     activeTools: detail.activeTools,
     turnActivity: detail.turnActivity,
     taskProgress: detail.taskProgress,
@@ -368,6 +371,7 @@ export function detailFromSnapshot(
     sessionId: snapshot.sessionId,
     messages: page.messages,
     isStreaming: snapshot.isStreaming,
+    isCompacting: snapshot.isCompacting,
     activeTools: [...snapshot.activeTools],
     turnActivity: snapshot.turnActivity,
     taskProgress: snapshot.taskProgress,

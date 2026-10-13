@@ -25,6 +25,7 @@ import type {
   UiSession,
   UiPromptAttachment,
   UiSkillDraft,
+  SubmissionResult,
   UiPromptImageAttachment,
   UiSharedFile,
   UiToolOutputPreview,
@@ -229,6 +230,8 @@ export interface WorkbenchActions {
   closePage?(): void;
   /** Manually compact the active thread's context window. Resolves `false` when it did not (API 1.53.0); the user was told why. */
   compactContext?(): Promise<boolean | void>;
+  /** Queues a captured prompt on this thread, compacts, then sends it automatically. */
+  compactAndSend?(sessionId: string, prompt: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<boolean>;
   /** Opens the model picker modal for selecting a model. */
   openModelPicker?(): void;
   /** Sets the model for the active thread or pending new thread. Accepts (provider, id) or query string. */
@@ -748,6 +751,8 @@ export interface ComposerSendMode {
   Icon?: PanelIconComponent;
   /** Runs once the prompt has passed every gate; the prompt goes when it resolves. A rejection keeps the draft. */
   beforeSend(actions: WorkbenchActions | undefined): Promise<void>;
+  /** Owns submission of the captured prompt, including any prerequisite work. */
+  submit?(actions: WorkbenchActions | undefined, prompt: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<SubmissionResult>;
   /** The menu beside the button. */
   options?: readonly ComposerSendOption[];
 }

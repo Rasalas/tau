@@ -38,6 +38,16 @@ function record(channel: string, field: string, value: unknown): Record<string, 
   return value as Record<string, unknown>;
 }
 
+export function decodeCompactionPrompt(value: unknown): { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft } | undefined {
+  if (value === undefined) return undefined;
+  const prompt = record("compact-and-send", "prompt", value);
+  return {
+    text: decodeText("compact-and-send", "text", prompt.text),
+    attachments: decodeUiPromptAttachments("compact-and-send", "attachments", prompt.attachments) ?? [],
+    skillDraft: decodeUiSkillDraft("compact-and-send", "skillDraft", prompt.skillDraft),
+  };
+}
+
 export function decodeString(channel: string, field: string, value: unknown): string {
   if (typeof value !== "string" || value.length === 0) fail(channel, field, "must be a non-empty string");
   return value;

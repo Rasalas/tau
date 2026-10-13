@@ -53,7 +53,7 @@ export function createResumeCompactionSendMode({ preferences, now = Date.now }: 
         return undefined;
       }
       const runtimeLabel = snapshot.runtimeBackends?.find((backend) => backend.kind === runtime)?.label ?? runtime;
-      const key = `${runtime}|${runtimeLabel}|${usage.tokens}|${usage.updatedAt}`;
+      const key = `${snapshot.sessionId}|${runtime}|${runtimeLabel}|${usage.tokens}|${usage.updatedAt}`;
       if (cached?.key === key) return cached.mode;
       const tokens = formatContextTokens(usage.tokens);
       const mode: ComposerSendMode = {
@@ -61,6 +61,11 @@ export function createResumeCompactionSendMode({ preferences, now = Date.now }: 
         busyLabel: "Compacting…",
         Icon: Minimize2,
         title: `Summarize ${tokens} tokens of earlier history, then send`,
+        async submit(actions, prompt) {
+          if (!actions?.compactAndSend) return { accepted: false, message: "Compact and send is unavailable here. Send with full history from the menu beside the button." };
+          return await actions.compactAndSend(snapshot.sessionId, prompt)
+            ? { accepted: true } : { accepted: false, message: "Your message was not queued. Try again or send with full history." };
+        },
         async beforeSend(actions) {
           if (!actions?.compactContext) throw new Error("Compaction is unavailable here.");
           if (await actions.compactContext() === false) throw new Error("Not sent: the compaction failed. Send with full history from the menu beside the button.");
