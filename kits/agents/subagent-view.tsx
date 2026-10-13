@@ -174,7 +174,7 @@ function NativeChild({ snapshot, toolId, onClose, headed }: ConversationViewProp
       </div>
     </div>
     <Bar
-      mark={row?.native?.runtime ? <ProviderIconStack runtimeProvider={row.native.runtime} hint={false} /> : null}
+      mark={row?.runtime || row?.native?.runtime ? <ProviderIconStack runtimeProvider={row.runtime ?? row.native?.runtime} hint={false} /> : null}
       model={row?.model ?? row?.native?.runtime ?? "Subagent"}
       timing={row}
       onClose={onClose}

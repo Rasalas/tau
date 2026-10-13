@@ -187,6 +187,7 @@ if (!granted.has("network")) {
 const UNAVAILABLE = new Set([
   "attachedRuntime",
   "registerRuntimeBackend",
+  "runtimeChoices",
   "registerRuntimeExtension",
   "loadRuntimeExtension",
   "loadDependency",

@@ -36,6 +36,7 @@ import type { CompletionRequest, ThreadBackgroundCapability, ThreadRuntimeBacken
 import type { HostModelAuthServices } from "./model-auth.js";
 import { HOST_SERVICE_PERMISSIONS, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
+import type { RuntimeReadiness } from "../shared/host-resources.js";
 import { HostAuthorizationError, HostCommandError, hostErrorDiagnostic, isExpectedCommandError } from "./host-extension-errors.js";
 import { HOST_CORE_PRINCIPAL, currentInvocationPrincipal, currentReadCwd, isHostOwner, runAsCaller, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
 import { authorizeReadPaths } from "./host-read-paths.js";
@@ -1033,7 +1034,17 @@ export interface HostProjectTrust {
   trust(cwd?: string): string;
 }
 
+/** A start choice from the composer catalog and the project gate. API 1.60.0. */
+export interface HostRuntimeChoice {
+  backend: UiRuntimeBackend;
+  enabled: boolean;
+  catalog?: UiRuntimeCatalog;
+  readiness: RuntimeReadiness;
+}
+
 export interface HostExtensionServices {
+  /** Composer catalogs, readiness and project enablement; optionally one kind. API 1.60.0; in-process only. */
+  runtimeChoices?(cwd: string, kind?: string): Promise<HostRuntimeChoice[]>;
   /** Kit-owned background work, combined with the runtime's work on every client. New after API 1.59.0. */
   readonly background?: {
     provide(provider: (threadId: string) => ThreadBackgroundCapability | undefined): () => void;

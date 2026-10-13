@@ -8,7 +8,7 @@ import type { AgentRow } from "./model.js";
 export function AgentProviderMark({ row }: { row: AgentRow }) {
   const provider = row.model?.includes("/") ? row.model.slice(0, row.model.indexOf("/")) : undefined;
   return <span className="agent-provider-mark" aria-hidden="true">
-    {provider || row.native?.runtime ? <ProviderIconStack modelProvider={provider} runtimeProvider={row.native?.runtime} runtimeMark={false} brand hint={false} /> : <Bot size={16} />}
+    {provider || row.runtime || row.native?.runtime ? <ProviderIconStack modelProvider={provider} runtimeProvider={row.runtime ?? row.native?.runtime} brand hint={{}} /> : <Bot size={16} />}
   </span>;
 }
 

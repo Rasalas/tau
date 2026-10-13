@@ -55,7 +55,11 @@ A user-facing stream of agent work, optionally grouped in a project. A thread co
 
 ## Subagent
 
-Delegated agent work belonging to a parent thread. A subagent has its own execution context and visible activity, but is not a conversation the person selects in the thread rail. A runtime without native delegation may back a subagent with a hidden Tau thread.
+Delegated agent work belonging to a parent thread. A subagent has its own execution context and visible activity, but is not a conversation the person selects in the thread rail. A runtime may back a subagent with a hidden Tau thread when the task selects another runtime or model. Native subagents handle the parent's own runtime and model where available.
+
+## Delegation
+
+Assigning work to a subagent of the current thread. Tau validates an explicit runtime and model against the composer catalog, sign-in readiness and project settings. A child on another runtime uses that runtime's default model unless one is selected. Delegation keeps its parent link and reports back; creating an independent conversation requires the user's explicit request.
 
 ## Projectless thread
 
