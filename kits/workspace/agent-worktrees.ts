@@ -4,10 +4,37 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 import { HostCommandError, gitExecutable, tauHomeDir } from "tau/host-extension";
 
 const execFileAsync = promisify(execFile);
 const PATCH_BUFFER = 64 * 1024 * 1024;
+const configWrites = new Map<string, Promise<unknown>>();
+
+async function withConfigWrite<T>(commonDir: string, write: () => Promise<T>): Promise<T> {
+  const previous = configWrites.get(commonDir) ?? Promise.resolve();
+  const writing = previous.catch(() => undefined).then(write);
+  configWrites.set(commonDir, writing);
+  try {
+    return await writing;
+  } finally {
+    if (configWrites.get(commonDir) === writing) configWrites.delete(commonDir);
+  }
+}
+
+async function retryConfigLock(write: () => Promise<string>): Promise<string> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await write();
+    } catch (error) {
+      const stderr = (error as { stderr?: unknown })?.stderr;
+      const message = `${gitFailure(error).message}\n${typeof stderr === "string" ? stderr : ""}`;
+      if (attempt >= 4 || !/could not lock config file[^\n]*: File exists/iu.test(message)) throw error;
+      // Other processes and separately bundled callers still share Git's lock.
+      await delay(25 * (attempt + 1));
+    }
+  }
+}
 
 // Kits bundle their own copy of this leaf; every copy in the host must share the queue.
 const repositoryApplyQueueKey = Symbol.for("tau.workspace.repository-apply-queue");
@@ -290,14 +317,29 @@ export async function createAgentWorktree(options: {
   const branch = agentBranchName(options.agentId);
   const parent = options.worktreeParent ?? await worktreeParentOf(parentCwd, runGit);
   const path = join(parent, branch.replace(/[^a-z0-9._-]+/giu, "-"));
+  const commonPath = resolve(parentCwd, (await runGit(parentCwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
+  const commonDir = await realpath(commonPath).catch(() => commonPath);
+  const worktree = { path, branch, baseCommit, withUncommitted: state.dirty };
   await mkdir(parent, { recursive: true });
   await runGit(parentCwd, ["worktree", "add", "-b", branch, path, baseCommit]);
-  // The base is the child's own starting point, so its diff is exactly what it
-  // changed — never what the parent had already changed before it started.
-  await runGit(parentCwd, ["config", branchBaseConfigKey(branch), baseCommit]).catch(() => "");
-  const target = (await runGit(parentCwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
-  if (target) await runGit(parentCwd, ["config", branchReviewTargetConfigKey(branch), target]);
-  return { path, branch, baseCommit, withUncommitted: state.dirty };
+  return withConfigWrite(commonDir, async () => {
+    try {
+      // The base records only the child's changes, excluding the parent's prior work.
+      await retryConfigLock(() => runGit(parentCwd, ["config", branchBaseConfigKey(branch), baseCommit]));
+      const target = (await runGit(parentCwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+      if (target) await retryConfigLock(() => runGit(parentCwd, ["config", branchReviewTargetConfigKey(branch), target]));
+      return worktree;
+    } catch (error) {
+      // Only a successful add belongs to this call; a duplicate branch stays intact.
+      try {
+        await runGit(parentCwd, ["worktree", "remove", "--force", worktree.path]);
+        await retryConfigLock(() => runGit(parentCwd, ["branch", "-D", worktree.branch]));
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], `${gitFailure(error).message}\nCould not clean up ${worktree.path}: ${gitFailure(cleanupError).message}`, { cause: cleanupError });
+      }
+      throw error;
+    }
+  });
 }
 
 function parseNumstat(stdout: string): { files: number; added: number; removed: number; paths: string[] } {
