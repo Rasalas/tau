@@ -59,7 +59,7 @@ function Sources({ summary, limits, machines = [] }: { summary: UsageSummary | u
     <div className="usage-subpage">
       <p className="lede">
         Where the figures come from. Pi writes every response with its tokens into its session files; the Codex, Agent SDK, Antigravity,
-        OpenCode, Grok and Cursor kits keep every turn. Work outside Tau comes from the logs the Codex, Claude Code and OpenCode CLIs keep
+        OpenCode, Grok and Cursor extensions keep every turn. Work outside Tau comes from the logs the Codex, Claude Code and OpenCode CLIs keep
         on their own, in the folders each runtime&apos;s settings name; only counts are read, and a session a Tau thread ran counts once, with
         its thread. Limits are what a runtime&apos;s login reports about its plan. Nothing here is a bill:
         billed is what an API key was charged per token, plan value is what a subscription&apos;s tokens would have cost over the provider&apos;s API.

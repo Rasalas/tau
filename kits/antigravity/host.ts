@@ -183,7 +183,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           return {
             tool: "Antigravity",
             ...(executable.version ? { installed: executable.version } : {}),
-            ...(managed ? { latest: ANTIGRAVITY_RELEASE_VERSION, updateCommand: "Settings → Providers → Antigravity → Update" } : {}),
+            ...(managed ? { latest: ANTIGRAVITY_RELEASE_VERSION, updateCommand: "Settings → Runtimes → Antigravity → Update" } : {}),
           };
         },
       };

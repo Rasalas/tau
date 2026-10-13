@@ -73,7 +73,7 @@ export function InspectorPage({ registry, cwd }: { registry: ExtensionRegistry; 
             { label: "Tau", value: inspection.versions.tau, mono: true, copy: inspection.versions.tau },
             { label: "Pi", value: inspection.versions.pi, mono: true, copy: inspection.versions.pi },
             { label: "Extension API", value: inspection.versions.api, mono: true, copy: inspection.versions.api },
-            ...(inspection.distribution ? [{ label: "Kits", value: `${inspection.distribution.name} ${inspection.distribution.version}`, mono: true }] : []),
+            ...(inspection.distribution ? [{ label: "Extensions", value: `${inspection.distribution.name} ${inspection.distribution.version}`, mono: true }] : []),
           ]} />
         ) : error ? <SettingsState kind="empty" title="The versions are not known" description="They come with the scan of the package folders, which failed: see Packages on disk." />
           : !cwd ? noProject : <SettingsState kind="loading" title="Reading the versions" rows={3} />}

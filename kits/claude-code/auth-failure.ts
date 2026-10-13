@@ -2,7 +2,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 export class ClaudeAuthenticationError extends Error {
   constructor(detail: string) {
-    super(`Claude Code could not authenticate. Sign in again in Settings → Providers on this thread's home machine, or run \`claude auth login\` there. For an API-key account, check its configured credentials.${detail ? `\n${detail}` : ""}`);
+    super(`Claude Code could not authenticate. Sign in again in Settings → Runtimes on this thread's home machine, or run \`claude auth login\` there. For an API-key account, check its configured credentials.${detail ? `\n${detail}` : ""}`);
     this.name = "ClaudeAuthenticationError";
   }
 }

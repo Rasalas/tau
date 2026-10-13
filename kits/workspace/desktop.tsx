@@ -75,7 +75,7 @@ function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChan
  */
 export const workspaceExtension: DesktopExtension = {
   id: WORKSPACE_HOST_EXTENSION_ID,
-  name: "Workspace Kit",
+  name: "Workspace",
   activate(context) {
     const host = createWorkspaceHostClient((command, input) => context.host.invoke(command, input));
     const store = new WorkspaceStore(context.preferences, host);

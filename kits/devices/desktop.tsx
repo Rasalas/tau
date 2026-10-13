@@ -214,16 +214,16 @@ export function DeviceSettingsPage({ invoke }: { invoke: Invoke }) {
     {!availability.available && <p role="status">{availability.reason}</p>}
     {error && <p role="alert" className="devices-error">{error}</p>}{status && <p className="devices-notice" role="status">{status}</p>}
     <SettingsSection title="Agent access">
-      <SettingRow title="Allow agents to control devices" description="Screenshots and device input for agents. Off by default. Save to apply." help="Includes device power, location, accessibility and app permissions." control={<Switch label="Allow agents to control devices" role="checkbox" checked={settings.agentControl} disabled={disabled} onChange={(agentControl) => setSettings({ ...settings, agentControl })} />} />
+      <SettingRow title="Allow agents to control simulators" description="Screenshots and input for agents. Off by default. Save to apply." help="Includes device power, location, accessibility and app permissions." control={<Switch label="Allow agents to control simulators" role="checkbox" checked={settings.agentControl} disabled={disabled} onChange={(agentControl) => setSettings({ ...settings, agentControl })} />} />
     </SettingsSection>
-    <SettingsSection title="Device machines" headerAction={<Button variant="ghost" icon={<Smartphone size={14} />} disabled={disabled} onClick={() => setSettings({ ...settings, hosts: [...settings.hosts, { id: `ssh-${Date.now()}`, name: "Remote devices", ssh: "", remoteDirectory: "" }] })}>Add SSH host</Button>}>
+    <SettingsSection title="Machines with simulators" headerAction={<Button variant="ghost" icon={<Smartphone size={14} />} disabled={disabled} onClick={() => setSettings({ ...settings, hosts: [...settings.hosts, { id: `ssh-${Date.now()}`, name: "Remote devices", ssh: "", remoteDirectory: "" }] })}>Add SSH host</Button>}>
       {settings.hosts.map((host, index) => {
         const change = (field: "name" | "ssh" | "remoteDirectory", value: string) => setSettings({ ...settings, hosts: settings.hosts.map((entry) => entry.id === host.id ? { ...entry, [field]: value } : entry) });
         const saved = state?.settings.hosts.some((entry) => JSON.stringify(entry) === JSON.stringify(host));
         return <div key={host.id} className="devices-host">
           <SettingRow title={host.id === "local" ? "This machine" : "SSH host"} control={<div className="devices-field-actions"><TextField label={`Host ${index + 1} name`} value={host.name} disabled={disabled} onChange={(value) => change("name", value)} />{host.id !== "local" && <Button variant="ghost" disabled={disabled} aria-label={`Remove ${host.name}`} onClick={() => setSettings({ ...settings, hosts: settings.hosts.filter((entry) => entry.id !== host.id) })}>Remove</Button>}</div>} />
           {host.id !== "local" && <><SettingRow title="SSH alias" description="A host from your SSH configuration." control={<TextField label={`Host ${index + 1} SSH alias`} mono placeholder="SSH config alias" value={host.ssh ?? ""} disabled={disabled} onChange={(value) => change("ssh", value)} />} /><SettingRow title="Tool directory" description="An absolute path on the remote host." control={<TextField label={`Host ${index + 1} tool directory`} mono placeholder="/path/to/tau-device-tools" value={host.remoteDirectory ?? ""} disabled={disabled} onChange={(value) => change("remoteDirectory", value)} />} /></>}
-          <SettingRow title="Device tools" description={host.id === "local" ? "Private tools for Tau. Requires Xcode or the Android SDK." : "Save this host before installing. Requires trusted, key-based SSH access."} control={<div className="devices-field-actions"><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "hub" }); }}>Install viewer</Button><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "agent" }); }}>Install input tools</Button></div>} />
+          <SettingRow title="Simulator tools" description={host.id === "local" ? "Private tools for Tau. Requires Xcode or the Android SDK." : "Save this host before installing. Requires trusted, key-based SSH access."} control={<div className="devices-field-actions"><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "hub" }); }}>Install viewer</Button><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "agent" }); }}>Install input tools</Button></div>} />
         </div>;
       })}
     </SettingsSection>
@@ -233,19 +233,19 @@ export function DeviceSettingsPage({ invoke }: { invoke: Invoke }) {
       {state?.tools.map((tool) => <SettingRow key={tool.tool} title={tool.package} description={`Supported ${tool.required}${tool.latest ? ` · Latest ${tool.latest}` : ""}`} control={<Badge dot tone={tool.installed ? "success" : "neutral"}>{tool.installed ? "Installed locally" : "Not installed"}</Badge>} />)}
       <SettingRow title="Supported versions" description="Check for newer versions. Updates are installed separately." control={<Button disabled={disabled} onClick={() => { void work("check-versions"); }}>Check tool versions</Button>} />
     </SettingsSection>
-    <div className="devices-settings-footer"><Button variant="primary" busy={busy} disabled={!availability.available} onClick={() => { void work("configure", settings); }}>Save device settings</Button></div>
+    <div className="devices-settings-footer"><Button variant="primary" busy={busy} disabled={!availability.available} onClick={() => { void work("configure", settings); }}>Save simulator settings</Button></div>
   </div>;
 }
 
 export default {
-  id: DEVICE_KIT, name: "Devices",
+  id: DEVICE_KIT, name: "Simulators",
   activate(context) {
     const floating = new FloatingDevice();
     const invoke: Invoke = <T,>(command: string, input?: unknown) => context.host.invoke(command, input) as Promise<T>;
-    context.registerPanel({ id: "devices", label: "Devices", Icon: Smartphone, order: 45, width: "wide", maximizable: true, profiles: ["desktop", "web", "compact"], Component: (props) => <DevicePanel {...props} invoke={invoke} floating={floating} /> });
+    context.registerPanel({ id: "devices", label: "Simulators", Icon: Smartphone, order: 45, width: "wide", maximizable: true, profiles: ["desktop", "web", "compact"], Component: (props) => <DevicePanel {...props} invoke={invoke} floating={floating} /> });
     context.registerRegion({ id: "devices.floating", placement: "composer-above", order: 62, profiles: ["desktop", "web", "compact"], Component: (props) => <FloatingDeviceView {...props} store={floating} invoke={invoke} /> });
-    context.registerSettingsPage({ id: "devices.settings", label: "Devices", description: "View and control simulators and emulators on this machine or an SSH host, and choose whether agents can use them.", keywords: ["Geräte", "Simulator", "Emulator", "iOS", "Android", "Agent-Gerätesteuerung", "Freigabe", "consent", "permissions"], Icon: Smartphone, group: "tools", order: 60, profiles: ["desktop", "web", "compact"], Component: () => <DeviceSettingsPage invoke={invoke} /> });
-    context.registerCommand({ id: "devices.open", label: "Open devices", group: "Devices", access: "read", run: (actions) => actions.openPanel("devices") });
+    context.registerSettingsPage({ id: "devices.settings", label: "Simulators", description: "View and control simulators and emulators on this machine or another, and choose whether agents can use them.", keywords: ["devices", "Geräte", "Simulator", "Emulator", "iOS", "Android", "Agent-Gerätesteuerung", "Freigabe", "consent", "permissions"], Icon: Smartphone, group: "tools", order: 60, profiles: ["desktop", "web", "compact"], Component: () => <DeviceSettingsPage invoke={invoke} /> });
+    context.registerCommand({ id: "devices.open", label: "Open simulators", group: "Simulators", access: "read", run: (actions) => actions.openPanel("devices") });
     return () => floating.set();
   },
 } satisfies DesktopExtension;

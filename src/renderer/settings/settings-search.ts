@@ -100,7 +100,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
   {
     page: "connections",
     label: "Connections",
-    keywords: ["pairing", "pair", "devices", "clients", "web client", "browser", "phone", "qr", "revoke", "sessions", "host token", "rotate", "remote"],
+    keywords: ["pairing", "pair", "devices", "clients", "web client", "browser", "phone", "qr", "revoke", "sessions", "access key", "host token", "rotate", "remote"],
     rows: [
       ["Address", ["url", "endpoint", "reachable", "ip"]],
       ["Other machines", ["nearby", "bonjour", "find machines", "discover"]],
@@ -116,7 +116,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
       ["Keep Tau running in the background", ["host", "background", "quit", "this machine"]],
       ["Command line", ["tau command", "cli", "terminal command", "terminal", "shell", "path", "install", "symlink", "tau app"]],
       ["Sign out every other device", ["revoke others", "sign out", "devices"]],
-      ["Rotate the host token", ["host token", "rotate", "token", "secret"]],
+      ["Rotate the access key", ["host token", "access key", "rotate", "token", "secret"]],
     ],
   },
   {

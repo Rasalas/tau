@@ -68,7 +68,7 @@ export async function resolveMachine(
   let reason: string | undefined;
   if (name.toLowerCase() === AUTO_MACHINE) {
     const answer = await ports.auto();
-    if (!answer) return { reason: "Automatic choice needs Machines Kit's choose-machine; this machine runs it." };
+    if (!answer) return { reason: "Automatic choice needs the Machines extension's choose-machine; this machine runs it." };
     if (!answer.machine) return { reason: answer.reason };
     name = answer.machine;
     reason = answer.reason;

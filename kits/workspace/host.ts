@@ -178,7 +178,7 @@ function invalidateAfterTool(git: GitCoordinator, tool: UiToolRun, cwd: string):
 export function createWorkspaceHostExtension(): HostExtension {
   return {
     id: WORKSPACE_HOST_EXTENSION_ID,
-    name: "Workspace Kit",
+    name: "Workspace",
     permissions: [
       "workspace:read",
       "workspace:write",

@@ -119,7 +119,7 @@ export class TerminalSessions {
 
   /** Starts a shell in `cwd` and files it under `root`. */
   open(input: OpenTerminalInput): UiTerminalSession {
-    if (this.disposed) throw new Error("The terminal kit is shutting down; no new terminals.");
+    if (this.disposed) throw new Error("The terminal extension is shutting down; no new terminals.");
     this.assertCapacity(input.root);
     const id = randomUUID();
     const shell = input.shell || defaultShell();

@@ -15,6 +15,7 @@ import { loadSharedIcons } from "../runtime-extensions";
 import { Badge, Button, Select, SettingsState, Switch, ValueList, type ValueListItem } from "./controls";
 import { extensionBlurb, stateLabel, type ExtensionEntry } from "./extension-catalog";
 import { SettingRow, SettingsSection } from "./settings-layout";
+import { runtimePage } from "./settings-nav";
 
 /** Each permission in the words of what it lets a package do. */
 const PERMISSION_TITLES: Readonly<Record<ExtensionPermission, string>> = {
@@ -364,9 +365,9 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
       {summary && (summary.options.length > 0 || pages.length > 0) ? (
         <SettingsSection title="Settings">
           {pages.map((page) => (
-            <button key={page.id} type="button" className="extension-page-link" onClick={() => onOpen(page.runtime ? "providers" : page.id)}>
+            <button key={page.id} type="button" className="extension-page-link" onClick={() => onOpen(page.runtime ? runtimePage(page.runtime) : page.id)}>
               <PanelIcon Icon={page.Icon} size={15} />
-              <span>{page.runtime ? `${page.label} on Providers` : page.label}</span>
+              <span>{page.runtime ? `${page.label} on Runtimes` : page.label}</span>
               <ChevronRight size={15} aria-hidden />
             </button>
           ))}

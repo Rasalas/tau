@@ -154,7 +154,7 @@ export class ExtensionPackageActivator {
       const { extension, package: pkg } = entry;
       if (!wanted(extension.id)) continue;
       if (this.options.bundled(extension.id)) {
-        this.options.log("host-extension.package.failed", `${pkg.directory}: id ${extension.id} belongs to a bundled kit`);
+        this.options.log("host-extension.package.failed", `${pkg.directory}: id ${extension.id} belongs to a bundled extension`);
         continue;
       }
       const key = packageIdentity(entry);

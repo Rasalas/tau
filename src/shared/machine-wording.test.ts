@@ -53,12 +53,9 @@ describe("how a machine is named", () => {
   });
 
   const HOST = /\b(?:this host|host half|Electron host)\b/iu;
-  /** Advanced settings, text meant for the model, and SSH or Git hosts: "host" is their word. */
+  /** Text meant for the model, and SSH or Git hosts: "host" is their word. */
   const KEEPS_HOST_WORD = [
-    "src/renderer/settings/ConnectionsPage.tsx",
-    "src/renderer/settings/HostServiceSection.tsx",
     "src/renderer/App.tsx",
-    "kits/tailscale/",
     "kits/agents/host.ts",
     "kits/thread-rail/agent-tools.ts",
     "kits/review/guide-host.ts",

@@ -1,7 +1,7 @@
 import { HOST_ERROR } from "./host-transport.js";
 
 export const MACHINE_KIT_NAMES: Readonly<Record<string, string>> = {
-  "tau.workspace": "Workspace Kit", "tau.files": "Files", "tau.terminal": "Terminal", "tau.review": "Review Kit",
+  "tau.workspace": "Workspace", "tau.files": "Files", "tau.terminal": "Terminal", "tau.review": "Review",
 };
 
 /** Only an absent remote feature asks for an update; installed but inactive kits keep their own failure. */
@@ -21,5 +21,5 @@ export function machineKitError(error: unknown, machine: string, extensionId: st
 /** Notices carry text only. Recognize the complete sentences our compatibility callers produce, before headline truncation. */
 export function isMachineUpdateNotice(message: string): boolean {
   return /^(.+) runs an older Tau that cannot (take messages from here|start threads|rename threads from here|take images from here|change models from here) yet\. Update \1 in Settings → Machines\.$/u.test(message)
-    || /^(.+) has no (Workspace Kit|Files|Terminal|Review Kit) that can do this yet\. Update \1\.$/u.test(message);
+    || /^(.+) has no (Workspace|Files|Terminal|Review) that can do this yet\. Update \1\.$/u.test(message);
 }

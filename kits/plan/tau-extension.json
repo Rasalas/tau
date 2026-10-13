@@ -1,6 +1,6 @@
 {
   "id": "tau.plan",
-  "name": "Plan Kit",
+  "name": "Plan",
   "description": "Plan mode: the agent proposes a plan first, and you choose when it builds.",
   "icon": "ListChecks",
   "version": "1.0.0",

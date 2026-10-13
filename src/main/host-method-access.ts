@@ -10,7 +10,7 @@ export function readOnlyRefusal(action: string): Error {
 
 /** The refusal of an `owner` method or kit command to anyone but the host token on this machine. */
 export function ownerRefusal(): Error {
-  return Object.assign(new Error("Only a connection with the host token, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
+  return Object.assign(new Error("Only a connection with the access key, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
 }
 
 /**

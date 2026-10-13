@@ -28,8 +28,8 @@ async function requireLogin(runtime: Runtime, model: Model, signal: AbortSignal 
     if (!(error instanceof Error) || error.name !== "ModelsError" || (code !== "oauth" && code !== "auth")) return;
     const name = runtime.getProvider?.(model.provider)?.name || model.provider;
     throw new ModelLoginError(/\binvalid_grant\b/u.test(error.message)
-      ? `Pi's ${name} login has expired. Sign in again on Pi's card under Settings → Providers.`
-      : `Pi could not refresh its ${name} login. Sign in again on Pi's card under Settings → Providers if this keeps happening.`, error);
+      ? `Pi's ${name} login has expired. Sign in again on Pi under Settings → Runtimes.`
+      : `Pi could not refresh its ${name} login. Sign in again on Pi under Settings → Runtimes if this keeps happening.`, error);
   }
 }
 

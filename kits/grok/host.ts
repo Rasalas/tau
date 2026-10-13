@@ -127,7 +127,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
       const locate = (id: string): string | undefined => services.findCommand(grokCommand(id));
       const cli = async (id: string): Promise<{ path: string; version?: string }> => {
         const path = locate(id);
-        if (!path) throw new Error(`The Grok CLI "${grokCommand(id)}" was not found on the PATH of your login shell. Install Grok Build's CLI or set its path under Settings → Providers.`);
+        if (!path) throw new Error(`The Grok CLI "${grokCommand(id)}" was not found on the PATH of your login shell. Install Grok Build's CLI or set its path under Settings → Runtimes.`);
         const entry = state(id);
         const key = await executableFingerprint(path);
         if (entry.installed?.path !== path || entry.installed.key !== key) {

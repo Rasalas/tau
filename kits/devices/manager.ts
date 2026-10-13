@@ -37,7 +37,7 @@ export function validateSettings(value: unknown): DeviceSettings {
   const ids = new Set<string>();
   const hosts = input.hosts.map((host): DeviceHost => {
     const id = string(host.id, "host id", 80);
-    if (!/^[a-zA-Z0-9_-]+$/.test(id) || ids.has(id)) throw new Error("Device machines need distinct IDs.");
+    if (!/^[a-zA-Z0-9_-]+$/.test(id) || ids.has(id)) throw new Error("Machines with simulators need distinct IDs.");
     ids.add(id);
     if (id === "local") return { id, name: string(host.name, "host name", 120) };
     const ssh = string(host.ssh, "SSH host", 200);
@@ -94,7 +94,7 @@ export class DeviceManager {
   }
   async consent(): Promise<void> {
     await this.load;
-    if (!this.settings.agentControl) throw new Error('Agent device control is off. Ask the user to enable it with request_takeover: target="settings", settingsPage="devices.settings". They must turn on "Allow agents to control devices" and save.');
+    if (!this.settings.agentControl) throw new Error('Agent device control is off. Ask the user to enable it with request_takeover: target="settings", settingsPage="devices.settings". They must turn on "Allow agents to control simulators" and save.');
   }
   private host(id: string): DeviceHost {
     const host = this.settings.hosts.find((entry) => entry.id === id);
@@ -125,7 +125,7 @@ export class DeviceManager {
   }
   private async hub(hostId: string): Promise<RunningHub> {
     await this.load;
-    if (this.closed) throw new Error("Devices kit is stopped.");
+    if (this.closed) throw new Error("The Simulators extension is stopped.");
     const current = this.hubs.get(hostId);
     if (current && current.child.exitCode === null) return current;
     const active = this.starting.get(hostId);
@@ -135,7 +135,7 @@ export class DeviceManager {
     return starting;
   }
   private async startHub(host: DeviceHost): Promise<RunningHub> {
-    if (!host.ssh && !await this.tools.installed("hub")) throw new Error("Install the device viewer tools in Settings → Devices first.");
+    if (!host.ssh && !await this.tools.installed("hub")) throw new Error("Install the device viewer tools in Settings → Simulators first.");
     const generation = this.generation;
     const localPort = await port(), remotePort = host.ssh ? await port() : localPort;
     const args = [host.ssh ? this.remoteEntry(host, "hub") : this.tools.entry("hub"), "--port", String(remotePort), "--host", "127.0.0.1", "--hide-sidebar", "--hide-boot-device"];
@@ -287,7 +287,7 @@ export class DeviceManager {
     return value;
   }
   private async agentAction(host: DeviceHost, device: Device, input: ActionInput, signal?: AbortSignal): Promise<string> {
-    if (!host.ssh && !await this.tools.installed("agent")) throw new Error("Install agent-device in Settings → Devices to send device input.");
+    if (!host.ssh && !await this.tools.installed("agent")) throw new Error("Install agent-device in Settings → Simulators to send device input.");
     const entry = host.ssh ? this.remoteEntry(host, "agent") : this.tools.entry("agent");
     const target = ["--platform", device.platform, device.platform === "ios" ? "--udid" : "--serial", device.id, "--session", `tau-${host.id}-${device.id.replaceAll(/[^a-zA-Z0-9_-]/g, "_")}`, "--state-dir", host.ssh ? `${host.remoteDirectory}/agent-state` : join(this.directory, "agent-state")];
     let args: string[];

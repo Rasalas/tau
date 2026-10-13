@@ -62,13 +62,13 @@ function fakeNetwork(options: { proxyOpens?: boolean; none?: boolean } = {}) {
   const services: HostNetworkServices = {
     state: () => options.none ? undefined : state(),
     holdProxy: async () => {
-      if (options.none) throw new Error("This host opens no listeners of its own.");
+      if (options.none) throw new Error("This machine opens no listeners of its own.");
       live += 1;
       let released = false;
       return () => { if (!released) { released = true; live -= 1; } };
     },
     keepProxy: async (keep) => {
-      if (options.none) throw new Error("This host opens no listeners of its own.");
+      if (options.none) throw new Error("This machine opens no listeners of its own.");
       kept = keep;
     },
     publishEndpoints: (endpoints) => {

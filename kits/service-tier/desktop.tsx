@@ -40,7 +40,7 @@ export function createServiceTierSpeed(host: HostExtensionClient): ComposerSpeed
         openai = !snapshot?.model || /^(openai|azure-openai)/u.test(snapshot.model.provider);
         shape();
         void host.invoke("state").then((value) => { if (isState(value)) publish(value); }).catch((error: unknown) => {
-          if (!(error instanceof HostUnavailableError)) console.warn("Service Tier Kit could not read the tier", error);
+          if (!(error instanceof HostUnavailableError)) console.warn("The Service Tier extension could not read the tier", error);
         });
       }
       return held;

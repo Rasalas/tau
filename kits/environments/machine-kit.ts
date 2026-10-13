@@ -4,7 +4,7 @@ import type { HostExtensionClient, PlatformEnvironments } from "tau";
 export function machineKitClient(environments: PlatformEnvironments, machine: string, extensionId: string, options?: { timeoutMs?: number }): HostExtensionClient {
   return {
     invoke: (command, input) => {
-      if (!environments.invokeExtension) throw new Error("This window cannot reach kits of other machines.");
+      if (!environments.invokeExtension) throw new Error("This window cannot reach extensions of other machines.");
       return options
         ? environments.invokeExtension(machine, extensionId, command, input, options)
         : environments.invokeExtension(machine, extensionId, command, input);

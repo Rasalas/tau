@@ -49,7 +49,7 @@ function takenBy(view: TailscaleView, port: number): string | undefined {
 function describe(view: TailscaleView, open: (url: string) => void): { description: ReactNode; action?: ReactNode } {
   const link = (label: string, url: string) => <Button icon={<ExternalLink size={13} />} onClick={() => open(url)}>{label}</Button>;
   switch (view.state) {
-    case "no-host-network": return { description: "This host opens no listeners of its own, so Tailscale has nothing to forward to." };
+    case "no-host-network": return { description: "This machine opens no listeners of its own, so Tailscale has nothing to forward to." };
     case "not-installed": return { description: "Install Tailscale on this machine and sign in to reach Tau from your tailnet over HTTPS.", action: link("Get Tailscale", DOWNLOAD_URL) };
     case "needs-login": return { description: "Tailscale is signed out on this machine. Sign in, then check again." };
     case "not-running": return { description: `Tailscale is not connected on this machine${view.backendState ? ` (${view.backendState})` : ""}. Start it, then check again.` };

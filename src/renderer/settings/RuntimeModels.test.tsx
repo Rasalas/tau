@@ -16,7 +16,7 @@ const models: UiModel[] = [
   { provider: "openai", id: "o4-mini", name: "o4-mini", billing: "api-key", price: { input: 1.1, output: 4.4 } },
 ];
 
-describe("Settings → Providers → Models", () => {
+describe("Settings → Runtimes → Models", () => {
   it("lists favourites first, then the user's order, the hidden last", () => {
     const arranged = arrangeModels(models, { hidden: ["openai/gpt-5.6-luna"], order: ["openai/o4-mini"] }, (model) => (model.id === "gpt-5.6-sol" ? 0 : -1));
     expect(arranged.map((entry) => [entry.model.id, entry.group])).toEqual([["gpt-5.6-sol", "favourite"], ["o4-mini", "shown"], ["gpt-5.6-luna", "hidden"]]);

@@ -31,7 +31,7 @@ function newThreadInput(input: unknown): NewThreadInput {
 export function createPlanHostExtension(): HostExtension {
   return {
     id: PLAN_HOST_EXTENSION_ID,
-    name: "Plan Kit",
+    name: "Plan",
     activate(context) {
       const releaseRuntime = context.services.registerRuntimeExtension("tau-plan", createPlanModeExtension(), { modes: [PLAN_MODE] });
       const releaseCommand = context.registerCommand("implement-in-new-thread", async (input) => {

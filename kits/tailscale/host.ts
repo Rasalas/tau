@@ -186,7 +186,7 @@ class TailscaleKit {
 
   private blocker(state: TailscaleState): string {
     switch (state) {
-      case "no-host-network": return "This host opens no listeners of its own.";
+      case "no-host-network": return "This machine opens no listeners of its own.";
       case "not-installed": return "Tailscale is not installed on this machine.";
       case "needs-login": return "Tailscale is signed out on this machine.";
       case "not-running": return "Tailscale is not connected on this machine.";

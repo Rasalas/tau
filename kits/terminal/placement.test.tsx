@@ -42,7 +42,7 @@ describe("Settings → Terminal", () => {
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Show the terminal in" })).getByRole("radio", { name: "Drawer" }));
     expect(preferences.value(TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING)).toBe("drawer");
     expect(registry.getPanels().find((panel) => panel.id === TERMINAL_PANEL)?.placement).toBe("drawer");
-    expect(page.rows?.length).toBe(2);
+    expect(page.rows?.map((row) => row.id)).toEqual(["setting-terminal-placement", "setting-shell", "setting-terminal-font"]);
     for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
     // The font is Appearance's row; the button opens it there.
     fireEvent.click(screen.getByRole("button", { name: "Open in Appearance" }));

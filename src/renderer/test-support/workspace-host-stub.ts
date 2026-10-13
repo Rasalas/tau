@@ -171,7 +171,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "rewind": return client.rewindCheckpoint(field(input, "sessionId")!, field(input, "checkpointId")!);
       case "turn-file-diff": return client.getTurnFileDiff(field(input, "sessionId")!, field(input, "checkpointId")!, field(input, "relPath")!, field(input, "options"));
       case "turn-files": return client.getTurnFiles(field(input, "sessionId")!, field(input, "checkpointId")!, field(input, "cursor"), field(input, "limit"));
-      default: throw new Error(`Host extension Workspace Kit has no command "${command}".`);
+      default: throw new Error(`Host extension Workspace has no command "${command}".`);
     }
   };
 }

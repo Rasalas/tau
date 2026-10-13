@@ -555,7 +555,7 @@ describe("HostExtensionRegistry", () => {
     await expect(expiredInvoke("tau.workspace", "changes")).rejects.toMatchObject({
       name: "HostAuthorizationError",
       code: "unauthorized",
-      details: { caller: "tau.review", target: "tau.workspace", command: "changes", reason: "the calling kit instance was stopped" },
+      details: { caller: "tau.review", target: "tau.workspace", command: "changes", reason: "the calling extension instance was stopped" },
     });
     await expect(r.activateKnown("tau.review")).resolves.toBe(true);
     expect(reviewContextId).toMatch(/^[0-9a-f-]{36}$/u);

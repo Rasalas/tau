@@ -57,7 +57,7 @@ describe("completeText", () => {
       });
       const failure = await completeText(models as never, model, { system: "s", prompt: "p" }, attribution).catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toBe("Pi's Anthropic login has expired. Sign in again on Pi's card under Settings → Providers.");
+      expect((failure as Error).message).toBe("Pi's Anthropic login has expired. Sign in again on Pi under Settings → Runtimes.");
       // A login to renew is no broken command: it must not count toward deactivating the package that asked.
       expect(isExpectedCommandError(failure)).toBe(true);
       expect(models.completeSimple).not.toHaveBeenCalled();
@@ -66,7 +66,7 @@ describe("completeText", () => {
     it("names a refresh that failed for another reason without claiming the login expired", async () => {
       const models = withLogin(async () => { throw modelsError("oauth", "OAuth refresh failed for p: fetch failed"); });
       const failure = await completeText(models as never, model, { system: "s", prompt: "p" }, attribution).catch((error: unknown) => error);
-      expect((failure as Error).message).toBe("Pi could not refresh its Anthropic login. Sign in again on Pi's card under Settings → Providers if this keeps happening.");
+      expect((failure as Error).message).toBe("Pi could not refresh its Anthropic login. Sign in again on Pi under Settings → Runtimes if this keeps happening.");
       expect(isExpectedCommandError(failure)).toBe(true);
     });
 

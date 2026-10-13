@@ -17,7 +17,7 @@ export function deviceTools(manager: DeviceManager): AnyTool[] {
   const result = (value: unknown) => ({ details: {}, content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value) }] });
   return [
     {
-      name: "device_list", label: "List devices", description: "Discover iOS simulators and Android emulators on a configured host. Requires explicit agent device consent in Settings → Devices.",
+      name: "device_list", label: "List devices", description: "Discover iOS simulators and Android emulators on a configured host. Requires explicit agent device consent in Settings → Simulators.",
       parameters: Type.Object({ hostId: Type.Optional(Type.String()) }),
       execute: async (_id: string, input: { hostId?: string }) => { await manager.consent(); return result(await manager.discover(input.hostId ?? "local")); },
     },
@@ -39,7 +39,7 @@ export function deviceTools(manager: DeviceManager): AnyTool[] {
 }
 export default {
   id: DEVICE_KIT,
-  name: "Devices",
+  name: "Simulators",
   permissions: ["runtime:extend", "process", "network"],
   activate(context) {
     const manager = new DeviceManager(context.services.stateDir);

@@ -66,7 +66,7 @@ describe("the access every host method needs", () => {
 
   it("keeps access management from every paired device and records what each changed", () => {
     audit.mockClear();
-    expect(() => authorizeMethod(full, "connections-approve")).toThrow(/host token/u);
+    expect(() => authorizeMethod(full, "connections-approve")).toThrow(/access key/u);
     expect(() => authorizeMethod(owner, "connections-approve")).not.toThrow();
     for (const method of ["connections-approve", "connections-set-network", "connections-rotate-host-token", "host.shutdown"]) {
       expect(() => authorizeMethod(remoteOwner, method), method).toThrow(/on this machine/u);
@@ -126,7 +126,7 @@ describe("what one host may ask another for its agents (ADR 0027)", () => {
   it("keeps the machines' keys to the host token on this machine", () => {
     for (const method of ["machines-list", "machines-add", "machines-remove", "machines-overview", "machines-pair", "machines-forget"]) {
       expect(methodAccess(method), method).toBe("owner");
-      expect(() => authorizeMethod(full, method), method).toThrow(/host token/u);
+      expect(() => authorizeMethod(full, method), method).toThrow(/access key/u);
       expect(() => authorizeMethod(owner, method), method).not.toThrow();
     }
   });

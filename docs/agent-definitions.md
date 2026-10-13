@@ -130,7 +130,7 @@ instead.
 
 A file that cannot be used — no frontmatter, a missing `description`, an
 unknown `access`, `access` on a runtime other than Pi, a name taken twice —
-is listed in Settings → Inspector under PROBLEMS with its reason, and the
+is listed in Settings → Diagnostics under PROBLEMS with its reason, and the
 Agents panel says how many there are. An unknown field is a warning and is
 ignored. A broken file never stops the others or a spawn without `agent`; a
 spawn that names it fails with the same reason, and one that names no

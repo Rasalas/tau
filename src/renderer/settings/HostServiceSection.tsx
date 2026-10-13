@@ -23,9 +23,9 @@ const SANDBOX_PROBLEM = "chrome-sandbox";
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
 
 const WHAT_IT_DOES: Record<NonNullable<UiHostService["manager"]>, string> = {
-  launchd: "A LaunchAgent starts Tau’s host when you log in and keeps it running after you quit Tau. It stops when you log out.",
-  systemd: "A systemd user unit starts Tau’s host and keeps it running after you quit Tau, at boot when lingering is on.",
-  "task-scheduler": "A scheduled task starts Tau’s host when you log in and keeps it running after you quit Tau.",
+  launchd: "A LaunchAgent starts Tau when you log in and keeps it running after you quit the window. It stops when you log out.",
+  systemd: "A systemd user unit starts Tau and keeps it running after you quit the window, at boot when lingering is on.",
+  "task-scheduler": "A scheduled task starts Tau when you log in and keeps it running after you quit the window.",
 };
 
 function serviceSummary(service: UiHostService): { tone: "neutral" | "success" | "warn"; text: string } {
@@ -122,8 +122,8 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string, lev
     if (action === "uninstall") {
       if (service && !service.installed) onNotify("The service is removed");
       else onNotify(failure ?? "The service is still installed", "error");
-    } else if (service?.installed && service.running) onNotify("Tau’s host runs as a service");
-    else onNotify(failure ?? "The service is installed but its host did not answer yet; see its log", "error");
+    } else if (service?.installed && service.running) onNotify("Tau runs as a service");
+    else onNotify(failure ?? "The service is installed but Tau did not answer there yet; see its log", "error");
   };
 
   const serviceRow = (() => {
@@ -132,7 +132,7 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string, lev
     if (state.status === "error") {
       return <SettingsState kind="error" title="The service did not answer" description={state.message} onRetry={() => { setState({ status: "loading" }); void load(); }} />;
     }
-    if (state.status === "absent") return <SettingRow id={id} title={SERVICE_TITLE} description="This host does not manage a service of its machine." />;
+    if (state.status === "absent") return <SettingRow id={id} title={SERVICE_TITLE} description="This machine does not manage a service." />;
     const service = state.service;
     if (!service.supported || !service.manager) return <SettingRow id={id} title={SERVICE_TITLE} description={service.reason ?? "This machine has no service manager Tau knows."} />;
     const summary = serviceSummary(service);
@@ -242,8 +242,8 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string, lev
       />
       {confirm === "install" || confirm === "repair" ? (
         <ConfirmDialog
-          title={confirm === "install" ? "Run Tau’s host as a service?" : "Repair the service?"}
-          message="Tau’s host moves into the service. Turns running now stop for a moment and continue if “Continue threads after restarts” is on; this window reconnects by itself."
+          title={confirm === "install" ? "Run Tau as a service?" : "Repair the service?"}
+          message="Tau moves into the service. Turns running now stop for a moment and continue if “Continue threads after restarts” is on; this window reconnects by itself."
           confirmLabel={confirm === "install" ? "Install" : "Repair"}
           onCancel={() => setConfirm(undefined)}
           onConfirm={() => void run(confirm)}
@@ -253,8 +253,8 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string, lev
         <ConfirmDialog
           title={confirm === "display-add" ? "Add an invisible display?" : "Remove the invisible display?"}
           message={confirm === "display-add"
-            ? "Tau’s host restarts with the display. Turns running now stop for a moment and continue if “Continue threads after restarts” is on. Where the system restricts Chromium’s sandbox (Ubuntu 24.04 and later), it asks for your password once."
-            : "Tau’s host restarts without it. The window on the display closes, and agents’ shells no longer get a DISPLAY."}
+            ? "Tau restarts with the display. Turns running now stop for a moment and continue if “Continue threads after restarts” is on. Where the system restricts Chromium’s sandbox (Ubuntu 24.04 and later), it asks for your password once."
+            : "Tau restarts without it. The window on the display closes, and agents’ shells no longer get a DISPLAY."}
           confirmLabel={confirm === "display-add" ? "Add display" : "Remove display"}
           destructive={confirm === "display-remove"}
           onCancel={() => setConfirm(undefined)}
@@ -264,7 +264,7 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string, lev
       {confirm === "uninstall" ? (
         <ConfirmDialog
           title="Remove the service?"
-          message="The host stops and no longer starts at login. Running turns stop; this window starts a host of its own again."
+          message="The service stops and Tau no longer starts at login. Running turns stop; this window runs Tau on its own again."
           confirmLabel="Remove service"
           destructive
           onCancel={() => setConfirm(undefined)}

@@ -385,8 +385,8 @@ export function certificateRefusalMessage(url: string, trust: HostTrust, present
     `Presented ${byKey ? "key " : ""}SHA-256: ${shown}`,
     "",
     byKey
-      ? "A renewed certificate keeps the key, so someone may be intercepting the connection. Tau did not send the host token."
-      : "Someone may be intercepting the connection. Tau did not send the host token.",
+      ? "A renewed certificate keeps the key, so someone may be intercepting the connection. Tau did not send the access key."
+      : "Someone may be intercepting the connection. Tau did not send the access key.",
     repair,
   ].join("\n");
 }

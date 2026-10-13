@@ -138,6 +138,7 @@ const RENAMED_ANCHORS: Readonly<Record<string, string>> = {
   "setting-max-retries": "setting-retries",
   "setting-base-delay": "setting-first-wait",
   "setting-terminal-command": "setting-command-line",
+  "setting-rotate-the-host-token": "setting-rotate-the-access-key",
 };
 
 /** Rows that left General: where a link to one now lands (API 1.61.0). */

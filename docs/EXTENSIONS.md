@@ -262,7 +262,7 @@ phrases a title. Thread Title Generator keeps that wording once, in its own
 | `engines` | Ranges of `tau`, `pi` and `api` this package runs on (all optional; see below). |
 | `permissions` | The permission vocabulary this package asks for (§ below); missing means none. |
 | `isolation` | `"worker"` (default) or `"in-process"` (§6). |
-| `source` | `{ url, commit? }`, shown in Settings → Inspector. Provenance only — it proves nothing by itself (§4). |
+| `source` | `{ url, commit? }`, shown in Settings → Diagnostics. Provenance only — it proves nothing by itself (§4). |
 | `desktop` / `host` | Relative entry paths inside the package folder; either may be missing, and both may be when `styles` is there instead. |
 | `window` | Relative entry path of the half that runs in the process the user's window lives in (§ below); optional, and only useful together with a `host` entry. |
 | `styles` | Relative path of a stylesheet loaded while the package is active. On its own — no `desktop`, no `host` — it makes the package a **theme** (§8). |
@@ -1263,7 +1263,7 @@ working and stays honest: it claims no client it was never tried on.
 
 A client whose profile is not in the list never registers the contribution, so
 your component never mounts there — but the extension still activates and **its
-host half still runs**. Settings → Inspector lists what this client leaves out
+host half still runs**. Settings → Diagnostics lists what this client leaves out
 under "Not on this client", with the kind and the profiles you did claim. Claim
 a profile only for a contribution you have actually seen work there; a Git
 panel over the machine's own files or a native view over the window is
@@ -1343,17 +1343,24 @@ in API 1.26.0) — an optional `Icon` the way panels pass theirs, an optional
 `order`, optional `keywords` — the words the Settings search field and the
 palette find the page by besides its label — an optional `scope` (below) and a `Component`
 receiving `SettingsPageProps`: `cwd`, `onNotify`, and `onOpenSettings(target)`, which opens another place in Settings, new in API 1.19.0). A page that also names a
-`runtime` — a backend kind — gets no nav entry: core draws it as that runtime's
-card on its Providers page, under the runtime's mark and `label`, in `order`,
-and opens Providers for its `id`. The backend kits Tau ships put the CLI, its
+`runtime` — a backend kind — gets no nav entry: core draws its component as that
+runtime's detail on the Runtimes page, under the runtime's mark and `label`, in
+`order`, and opens that runtime for its `id` (`openSettings("codex.settings")` lands on
+`runtimes/codex`; since API 1.61.0 `runtimes/<kind>` is the page of one runtime, and
+`providers`, `models` and `pi` open Runtimes, Pi's entry among them). The backend kits Tau ships put the CLI, its
 version and update, the login and a path override there, one card per
 instance (below). Such a card's `runtimeRows` (new in API 1.27.0) name the
 rows Settings → Runtimes opens: `program`, where the program is installed and
 updated (its Update and Install buttons), and `addInstance`, on the default
-instance's card, where another setup is added ("Add a custom runtime").
-Without them the buttons open the card. Runtimes is core's: a table of every
-backend in `runtimeBackends` with its state, version, the model providers its
-catalog names and Make default, Update, Install, Config and Permissions. Its
+instance's card, where another setup is added ("Add instance").
+Without them the buttons open the runtime. Runtimes is core's: a list of every
+backend in `runtimeBackends` with its state, and the one chosen beside it (a page
+under the list on a phone, `runtimes/<kind>`) with its program and sign-in rows
+from the kit's card, its models and its default model (only Pi's can be set so far;
+the others say "Runtime's choice"), a star that makes it the runtime for new
+threads and the switch that turns it off. Pi's expert values (where its file is
+written, trust, compaction, retries, message delivery, tools, sampling) fold under
+Advanced, which a search result or a link to a row inside opens. Its
 buttons only open places in Settings and set the client's runtime for new
 threads; installing, updating and signing in stay on the kit's card.
 `inspectPackages(cwd)`
@@ -1362,8 +1369,8 @@ answers core's own scan of the package folders and the shipped kits
 the name and version of the set the `bundled` entries came in, absent in safe
 mode, which loads none, and `skipped`, the folders the scan passed over, each
 with its `reason` and, where Pi's project trust was why, the
-`untrustedProject` and the `packages` it holds (K112). Core keeps General, Models, Runtimes, Pi, Keybindings,
-Connections, Extensions and the Inspector; every other page is a contribution
+`untrustedProject` and the `packages` it holds (K112). Core keeps General, Threads, Runtimes (Pi's entry among them), Keybindings,
+Connections, Extensions and Diagnostics; every other page is a contribution
 and is gone with its extension. The search field at the top of the Settings
 column finds core's own rows (and scrolls to the row), a page by its label,
 its description and `keywords` and the `rows` it names, an extension's page by its
@@ -1659,7 +1666,7 @@ underneath are `get-config-layers` (both files without Pi's keys) and
 `context.setProblems(problems)` is how a package says that something it reads
 is wrong — a project file that does not parse, an entry it had to skip. Each
 `ExtensionProblem` is `{ source, message, level? }` (`level` is `"error"`, the
-default, or `"warning"`); Settings → Inspector lists them under PROBLEMS with
+default, or `"warning"`); Settings → Diagnostics lists them under PROBLEMS with
 the package's name. A call replaces the package's whole list, `[]` clears it,
 and the list goes with the package when it deactivates. Project Scripts is the
 caller that motivated it: an invalid `.tau/project.json` shows there.
@@ -2817,7 +2824,7 @@ to do nothing; it never sees the request. The workbench marks such a backend
 `disabled: true` on its copy of `snapshot.runtimeBackends` for the project on
 screen (the draft's project while a draft is); a kit that offers runtimes to
 start work on leaves those out, and one that only reads or configures a runtime
-(its own Providers card) ignores the flag. The host never publishes it.
+(its own part of the Runtimes page) ignores the flag. The host never publishes it.
 
 `HostProjectFacts.root(cwd)` (API 1.59.0, optional) answers the project a nested
 checkout belongs to: the folder whose settings a linked worktree follows, so a
@@ -2995,7 +3002,7 @@ whether to load the chunk at all). Each backend kind gets one toast per
 `latest` — "Update available: Codex v0.156.1" with Settings and Update — and
 none while the policy calls the installed version unsafe or broken, since the
 banner speaks then. Settings opens `settingsPage(backend)`, which lands on the
-Providers page scrolled to that card. Update runs `updateCommand` through
+Runtimes page with that runtime chosen. Update runs `updateCommand` through
 `run` — the shipped kits use Terminal Kit's `tau.terminal/run`, so the user
 watches brew or npm work — then, on exit status 0, asks `recheck` and says
 whether the version moved; a failed command, a closed shell or an unchanged
@@ -3041,7 +3048,7 @@ its own store, so removing an instance only takes its threads out of the list
 until an instance with that id comes back.
 
 On the desktop side `loadRuntimeInstanceUi()` on `tau` loads one chunk (with
-its stylesheet) that holds the settings rows of a Providers card.
+its stylesheet) that holds the settings rows of a runtime's part of the Runtimes page.
 `RuntimeProgramRows` is the program itself: found where and which version
 with Check again, then a version the policy calls unsafe or broken, one older
 than Tau speaks to, or a newer release, each with a button that hands the
@@ -3180,7 +3187,7 @@ worker may call it.
 
 #### Signing in from the window (new in API 1.12.0)
 
-A runtime's login, or a Pi provider's, starts on its Providers card (and in
+A runtime's login, or a Pi provider's, starts on its entry in Settings → Runtimes (and in
 Onboarding) instead of in a terminal the user has to find. The flow is the
 program's own; Tau shows where it stands and answers what it asks, and never
 keeps a credential: Codex keeps its login in its home, the Agent SDK
@@ -3248,7 +3255,7 @@ card's list (Pi's providers) out of the card's head.
 Onboarding asks `sign-in-state` of a runtime whose program is not found. A kit
 whose report then holds a method without `unavailable` (Codex's Continue with
 ChatGPT, which fetches the program itself) is set up through that sign-in in the
-wizard, the one its Providers card draws; a kit whose methods all wait for the
+wizard, the one its Runtimes entry draws; a kit whose methods all wait for the
 program gets the vendor's installer there. No new command: this is how the
 existing `unavailable` is read.
 
@@ -4018,9 +4025,9 @@ it beside the client in Connections — never as a login.
 
 On the desktop side, `registerSettingsSection({ id, page, order?, rows?, Component })`
 (new in API 1.13.0) adds a section to one of core's Settings pages, below
-core's own sections: `"connections"`; `"runtimes"`, below the table of
-runtimes (new in API 1.27.0; a section whose `rows` name `runtime-permissions`
-is what Pi's Permissions button there opens, as Access Kit's cards do);
+core's own sections: `"connections"`; `"runtimes"`, below the runtimes
+(new in API 1.27.0; a link to `runtimes#runtime-permissions` lands on the section whose `rows` name
+it, as Access Kit's does);
 `"extensions"`, above the list of extensions; or `"extension"`, on every
 extension's own page after its
 settings, where the component also gets `extensionId` and `cwd` and draws
@@ -4033,13 +4040,14 @@ are the section's rows the Settings search finds, as on a page: `{ id, label,
 keywords? }`, each the `id` of a `SettingRow` in the section.
 
 A section can also join one of the cards core draws (design 2i, 2h): with
-`page: "general"` and `card` set to `"appearance"`, `"notify"`,
-`"new-threads"` or `"threads"`, or with `page: "connections"` and
-`card: "this-machine"`, its component draws `SettingRow`s only, and the card
-puts them among its own rows in `order` under its heading. A card no row
-lands in is left out. A `general` section without `card` follows the cards.
-Workspace, Machines, Thread Rail, Resume Compaction, Notifications and
-Appearance fill General's cards; Workspace and Terminal fill This machine.
+`page: "general"` and `card` set to `"new-threads"` or `"threads"` (drawn on
+Threads since API 1.61.0, as "New threads" and "Existing threads"), or `"appearance"`
+or `"notify"` (General draws them only where a package fills them), or with
+`page: "connections"` and `card: "this-machine"`, its component draws `SettingRow`s only,
+and the card puts them among its own rows in `order` under its heading. A card no
+row lands in is left out. A `general` section without `card` follows the cards.
+Workspace, Machines, Thread Rail and Resume Compaction fill Threads's cards;
+Workspace fills This machine, beside core's command line.
 
 ### Other machines, for this machine's agents: `services.machines` (new in API 1.15.0)
 
@@ -4280,7 +4288,7 @@ contribution interfaces themselves: `HostExtensionServices`,
 moves when one of those breaks; its **minor** moves when one of them only
 grows (a new optional member, a new contribution type). A package that
 constrains `engines.api` and fails the check stays off on **both** sides, with
-the reason shown in Settings → Inspector; a package that names no `engines.api`
+the reason shown in Settings → Diagnostics; a package that names no `engines.api`
 always passes.
 
 A client carries its own `EXTENSION_API_VERSION`, and the phone app can lag
@@ -4837,7 +4845,7 @@ its own. There is no revocation list: removing a key from
   three-strikes rule above can turn repeated denials into a deactivation.
 - **A failed reload is not a failure:** when a watched edit leaves a package
   that no longer parses or compiles, the version that is running stays
-  running. The error is reported (toast, Settings → Inspector) and nothing is
+  running. The error is reported (toast, Settings → Diagnostics) and nothing is
   counted against the package — neither the three-strikes counter nor the
   timeout rule applies to code that never ran.
 - **What the user sees:** the deactivation reason is recorded in

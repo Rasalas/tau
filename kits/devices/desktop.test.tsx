@@ -34,7 +34,7 @@ it("waits for consent data and requires Save before granting agent device contro
   expect(consent.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(consent);
   expect(invoke).not.toHaveBeenCalledWith("configure", expect.anything());
-  fireEvent.click(screen.getByRole("button", { name: "Save device settings" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save simulator settings" }));
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("configure", expect.objectContaining({ agentControl: true })));
   await screen.findByText("Settings saved.");
 });

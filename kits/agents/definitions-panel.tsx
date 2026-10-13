@@ -20,7 +20,7 @@ function DefinitionItem({ row, parentThreadId, actions }: {
     const text = prompt.trim();
     if (!text || !parentThreadId || busy) return;
     setBusy(true);
-    void (agentsHost.invoke?.("start", { parentThreadId, agent: definition.name, prompt: text }) ?? Promise.reject(new Error("Agents Kit is not connected.")))
+    void (agentsHost.invoke?.("start", { parentThreadId, agent: definition.name, prompt: text }) ?? Promise.reject(new Error("The Agents extension is not connected.")))
       .then(() => {
         setPrompt("");
         setOpen(false);
@@ -93,7 +93,7 @@ export function DefinitionsSection({ state, activeThreadId, actions }: {
       </ul>
       {errors > 0 ? (
         <small className="agent-definitions-problems">
-          {errors === 1 ? "1 file" : `${errors} files`} in .tau/agents could not be used; Settings → Inspector says why.
+          {errors === 1 ? "1 file" : `${errors} files`} in .tau/agents could not be used; Settings → Diagnostics says why.
         </small>
       ) : null}
     </section>

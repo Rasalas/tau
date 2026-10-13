@@ -155,7 +155,7 @@ export function NetworkAccessSection({ part, network, busy, onChange, onReload }
           id={settingAnchor("Announce on this network")}
           title="Announce on this network"
           description={settings.announce
-            ? "Lets devices here find Tau. It shares only the host id and certificate fingerprint; a device still needs your approval."
+            ? "Lets devices here find Tau. It shares only this machine’s id and certificate fingerprint; a device still needs your approval."
             : "Only a pairing link or QR code leads here."}
           status={settings.announce ? announcementText(network.announcement, lanListening) : undefined}
           control={<Switch label="Announce on this network" checked={settings.announce} disabled={busy} onChange={(on) => void onChange({ announce: on }, on ? "Announcing Tau on this network" : "No longer announced on this network")} />}

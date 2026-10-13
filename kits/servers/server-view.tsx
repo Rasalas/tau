@@ -111,7 +111,7 @@ export function useTargetActions(parts: ServerViewParts, actions: WorkbenchActio
   const terminal = () => {
     if (!targetId || !target) return;
     const service = parts.terminal();
-    if (!service) { actions.notify("The SSH terminal needs Terminal Kit, which is off."); return; }
+    if (!service) { actions.notify("The SSH terminal needs the Terminal extension, which is off."); return; }
     run("terminal", async () => {
       const { command } = await parts.host.invoke("ssh-terminal", { cwd, targetId }) as { command: string };
       void service.run({ command, label: `ssh ${target.label}` }, actions);

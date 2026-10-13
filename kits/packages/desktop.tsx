@@ -258,7 +258,7 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
       <DevelopSection host={host} nameOf={(id) => packages?.find((entry) => entry.id === id)?.name ?? summaryOf(id)?.name} onNotify={onNotify} />
 
       <p className="settings-footnote">
-        The kits Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} kits)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off and see what it may do.
+        The extensions Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} extensions)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off and see what it may do.
       </p>
 
       {removing ? (

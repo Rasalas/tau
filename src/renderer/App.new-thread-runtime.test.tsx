@@ -68,7 +68,7 @@ it("holds the first prompt back and leads to Providers while no runtime is set u
   fireEvent.change(composer, { target: { value: "hello" } });
   fireEvent.keyDown(composer, { key: "Enter" });
   expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Open Providers" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open Runtimes" }));
   // Settings is a lazy chunk; its frame is there as soon as the page was asked for.
   await waitFor(() => expect(view.container.querySelector(".settings-screen")).not.toBeNull());
   expect(preparePrompt).not.toHaveBeenCalled();

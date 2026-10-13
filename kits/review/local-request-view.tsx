@@ -128,7 +128,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
   // Oldest first, the order a reader follows the change in.
   const chosen = useMemo(() => [...frames.values()].filter((frame) => selected.has(evidenceKey(frame))).sort((left, right) => left.at - right.at), [frames, selected]);
 
-  if (!store) return <div className="stage-empty" role="status">The local pull request needs Workspace Kit.</div>;
+  if (!store) return <div className="stage-empty" role="status">The local pull request needs the Workspace extension.</div>;
   if (!root) return <div className="stage-empty" role="status">Open a thread in a project to see its branch as a pull request.</div>;
 
   const service = data.status?.service ?? "github";
@@ -192,7 +192,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
                 <EvidenceGroups groups={groups} titles={threads} client={parts.client} selected={selected} onToggle={toggle} onOpen={(list, index) => setViewer({ frames: list, index })} />
               </> : <details className="lpr-empty-detail">
                 <summary>Pictures <span>{!data.evidence ? "Loading…" : "None yet"}</span></summary>
-                <p className="pr-empty">{data.evidenceAvailable === false ? "Turn pictures are unavailable because Evidence Kit is off." : "Screenshots from this branch’s turns will appear here."}</p>
+                <p className="pr-empty">{data.evidenceAvailable === false ? "Turn pictures are unavailable because the Evidence extension is off." : "Screenshots from this branch’s turns will appear here."}</p>
               </details>}
 
             </section>

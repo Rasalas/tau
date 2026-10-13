@@ -70,9 +70,9 @@ function ErrorBar({ error = "", provider, onRetry, onSwitchModel, onReplaceKey }
   const detail = <span title={text === error.trim() ? undefined : error}>{text}</span>;
   // Pi's own words point at /login and its docs folder; neither exists in Tau. Checked first: they also say "API key".
   if (/no models? (?:selected|available)/iu.test(text)) {
-    return <Bar tone="fail" icon={alert} title="No model selected" text={<span title={error}>Sign in to a provider or add an API key under Providers, then pick a model.</span>}>
+    return <Bar tone="fail" icon={alert} title="No model selected" text={<span title={error}>Sign in to a provider or add an API key under Runtimes, then pick a model.</span>}>
       <SwitchModel onSwitchModel={onSwitchModel} />
-      <button type="button" className="primary" onClick={onReplaceKey}>Open Providers</button>
+      <button type="button" className="primary" onClick={onReplaceKey}>Open Runtimes</button>
     </Bar>;
   }
   if (/could not authenticate|failed to authenticate|authentication_failed|OAuth session expired|not logged in/iu.test(error)) {
@@ -127,21 +127,21 @@ function LimitBar({ sessionId, limit, provider, onSwitchModel }: ComposerNoticeP
 }
 
 const SETUP_COPY = {
-  "signed-out": { title: (label: string) => `${label} is signed out`, text: "Sign in on its card in Providers to start a thread, or pick another runtime.", open: "Sign in" },
-  "not-installed": { title: (label: string) => `${label} is not installed`, text: "Set it up on its card in Providers, or pick another runtime.", open: "Set up" },
+  "signed-out": { title: (label: string) => `${label} is signed out`, text: "Sign in on its entry in Runtimes to start a thread, or pick another runtime.", open: "Sign in" },
+  "not-installed": { title: (label: string) => `${label} is not installed`, text: "Set it up in Runtimes, or pick another runtime.", open: "Set up" },
 } as const;
 
 /** Over a new thread's composer: what is missing before it can start, and the way to it. The send button waits. */
 export function SetupNotice({ setup, onOpen, onSwitchRuntime }: { setup: NewThreadSetup; onOpen(): void; onSwitchRuntime?: (() => void) | undefined }) {
   const alert = <TriangleAlert size={12} aria-hidden="true" />;
   if (setup.state === "none") {
-    return <Bar tone="warn" icon={alert} title="No provider is set up yet" text="Sign in to a runtime or add an API key under Providers to start a thread.">
-      <button type="button" className="primary" onClick={onOpen}>Open Providers</button>
+    return <Bar tone="warn" icon={alert} title="No provider is set up yet" text="Sign in to a runtime or add an API key under Runtimes to start a thread.">
+      <button type="button" className="primary" onClick={onOpen}>Open Runtimes</button>
     </Bar>;
   }
   // Pi signs in to no account of its own: what it lacks is a model provider.
   const copy = setup.backend.kind === "pi" && setup.state === "signed-out"
-    ? { title: () => "Pi has no model provider yet", text: "Add an API key or sign in to a provider in Providers, or pick another runtime.", open: "Add a provider" }
+    ? { title: () => "Pi has no model provider yet", text: "Add an API key or sign in to a provider on Pi in Runtimes, or pick another runtime.", open: "Add a provider" }
     : SETUP_COPY[setup.state];
   return <Bar tone="warn" icon={alert} title={copy.title(setup.backend.label)} text={copy.text}>
     {onSwitchRuntime ? <button type="button" onClick={onSwitchRuntime}>Switch runtime</button> : null}

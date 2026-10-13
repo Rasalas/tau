@@ -75,7 +75,7 @@ function createPullRequestStrip(parts: StripParts) {
  */
 export const reviewExtension: DesktopExtension = {
   id: REVIEW_HOST_EXTENSION_ID,
-  name: "Review Kit",
+  name: "Review",
   activate(plugin) {
     let workspaceStore: WorkspaceStoreApi | undefined;
     const workspace = workspaceChangesReader(plugin.host, () => {

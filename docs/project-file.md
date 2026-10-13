@@ -90,7 +90,7 @@ also appear in the bar above the composer, tagged `setup`.
 A script with a missing `name` or `command`, a bad `id` or a taken one is
 skipped; the others still load. Fields Tau does not know, an unknown icon or a
 `previewUrl` that is not `http(s)` are warnings. All of them are listed in
-Settings → Inspector under PROBLEMS, and the bar shows a chip while there are
+Settings → Diagnostics under PROBLEMS, and the bar shows a chip while there are
 errors. A file that is not JSON loads no scripts.
 
 Tau re-reads the file when it changes on disk (not under `TAU_NO_WATCH=1`), and

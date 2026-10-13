@@ -151,7 +151,7 @@ export function createComposerContextHostExtension(): HostExtension {
         if (into) {
           // Only a file this kit started itself takes more chunks.
           const target = resolve(into);
-          if (!isAbsolute(into) || !target.startsWith(attachmentsRoot + sep)) throw new HostCommandError("The attachment to continue is not this kit's.");
+          if (!isAbsolute(into) || !target.startsWith(attachmentsRoot + sep)) throw new HostCommandError("The attachment to continue is not this extension's.");
           const before = (await stat(target)).size;
           if (before + bytes.length > MAX_FILE_BYTES) {
             await rm(target, { force: true });

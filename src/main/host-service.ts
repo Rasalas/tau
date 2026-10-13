@@ -638,7 +638,7 @@ export function createHostServiceMethods(manager: () => HostServiceManager | und
   };
   const owned = (run: (service: HostServiceManager, params: readonly unknown[]) => Promise<unknown>): Method => async (params, context) => {
     if (!isHostOwner(context.principal)) {
-      throw Object.assign(new Error("Only a connection with the host token, on this machine, manages the host's service."), { code: HOST_ERROR.forbidden });
+      throw Object.assign(new Error("Only a connection with the access key, on this machine, manages the service."), { code: HOST_ERROR.forbidden });
     }
     return run(available(), params);
   };

@@ -126,7 +126,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
       const locate = (id: string): string | undefined => services.findCommand(cursorCommand(id));
       const cli = async (id: string): Promise<{ path: string; version?: string }> => {
         const path = locate(id);
-        if (!path) throw new Error(`The Cursor CLI "${cursorCommand(id)}" was not found on the PATH of your login shell. Install it (curl https://cursor.com/install -fsS | bash) or set its path under Settings → Providers.`);
+        if (!path) throw new Error(`The Cursor CLI "${cursorCommand(id)}" was not found on the PATH of your login shell. Install it (curl https://cursor.com/install -fsS | bash) or set its path under Settings → Runtimes.`);
         const entry = state(id);
         const key = await executableFingerprint(path);
         if (entry.installed?.path !== path || entry.installed.key !== key) {

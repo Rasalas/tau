@@ -183,7 +183,7 @@ export class HostMachines {
 
   async request(machine: string, method: string, params: readonly unknown[] = [], options: { timeoutMs?: number } = {}): Promise<unknown> {
     if (!isMachineRequestMethod(method)) {
-      throw failure(`${method} is not a method a host may ask another machine for; call a kit command there instead.`, HOST_ERROR.forbidden);
+      throw failure(`${method} is not a method a host may ask another machine for; call an extension command there instead.`, HOST_ERROR.forbidden);
     }
     if (machine === this.options.ownId && this.options.local) {
       if (methodAccess(method) !== "read") throw failure(`${method} on this host's own threads goes through services.sessions.`, HOST_ERROR.forbidden);
