@@ -15,7 +15,7 @@ const schedulingExtension: DesktopExtension = {
     const feed = new SchedulingFeed(plugin.host);
     plugin.useService<WorkspaceSummaryService>("tau.workspace/store", (workspace) => workspace.registerWorkspaceSummarySection?.((props) => <Suspense fallback={null}><Summary {...props} feed={feed} workspace={workspace} /></Suspense>, "footer"));
     plugin.registerPage({
-      id: "scheduling.automations", label: "Automations", description: "Start a saved prompt at a time or from a signed webhook. Runs use the runtime's normal access and approvals.",
+      id: "scheduling.automations", label: "Automations", description: "Start a saved prompt at a time or from a signed webhook. New automations use the default access for new threads. Choose their workspace and time limit.",
       Icon: CalendarClock, order: 30, layout: "readable", profiles: ["desktop", "web", "compact"], keywords: ["schedule", "daily", "jobs", "webhook"],
       useBadge: () => { const state = useSyncExternalStore(feed.subscribe, feed.get).state; return state ? state.jobs.filter(needsDecision).length + state.secretRequests.filter((request) => request.status === "pending").length : undefined; },
       Component: (props) => <Suspense fallback={<p>Loading automations…</p>}><Page {...props} feed={feed} /></Suspense>,

@@ -543,6 +543,7 @@ export class PiHost {
     // Wait for admission, so callers can retain drafts and remove unused
     // worktrees on rejection. The answer continues on the child's own thread.
     try {
+      await options.beforePrompt?.(this.hostThreadFor(thread));
       const nativeFiles = thread.runtimeAdapter.capabilities.fileAttachments === true;
       const text = !nativeFiles && files.length ? `${options.prompt}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}` : options.prompt;
       const deliveredAttachments = nativeFiles ? attachments : attachments.filter((attachment) => attachment.kind === "image");

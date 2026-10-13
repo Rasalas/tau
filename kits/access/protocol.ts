@@ -44,7 +44,7 @@ export function strictestAccessLevel(left: AccessLevel, right: AccessLevel | und
 export const ACCESS_THREAD_LEVEL_COMMAND = "thread-level";
 
 /** Agents Kit applies an agent definition's `access` through it. */
-export const ACCESS_THREAD_LEVEL_CALLERS = ["tau.agents"] as const;
+export const ACCESS_THREAD_LEVEL_CALLERS = ["tau.agents", "tau.scheduling"] as const;
 
 /** The level one thread runs at, `{ threadId }` → `AccessLevel`: the workbench's, narrowed by the thread's own. */
 export const ACCESS_THREAD_LEVEL_OF_COMMAND = "thread-level-of";

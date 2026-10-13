@@ -633,3 +633,17 @@ it("cancels every backend question only for its thread and ignores a discarded r
   ui.cancelFor("other-thread");
   await other;
 });
+
+
+it("passes the external thread's identity to its permission policy on every read", async () => {
+  let narrowed = true;
+  const permissionLevel = vi.fn((id?: string) => id === "scheduled" && narrowed ? "read-only" as const : "full" as const);
+  let readPolicy: (() => string) | undefined;
+  const provider = { open: async (_id: string, _cwd: string, _options: unknown, context: { permissionLevel(): string }) => { readPolicy = context.permissionLevel; return externalBackend("scheduled"); } };
+  const { lifecycle } = makeLifecycle({ permissionLevel }, { test: provider });
+  await lifecycle.openExternal("test", "scheduled", "/repo", { adopt: false });
+  expect(readPolicy?.()).toBe("read-only");
+  expect(permissionLevel).toHaveBeenLastCalledWith("scheduled");
+  narrowed = false;
+  expect(readPolicy?.()).toBe("full");
+});

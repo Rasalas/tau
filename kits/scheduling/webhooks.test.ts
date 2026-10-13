@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import type { HostMcpTool, HostMcpToolProvider, HostSessionServices, HostTurnObserver, SecretStore } from "tau/host-extension";
+import type { HostMcpTool, HostMcpToolProvider, HostSessionServices, HostThread, HostTurnObserver, SecretStore } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createSchedulingHostExtension } from "./host.js";
 import type { Job, ManagementState } from "./protocol.js";
@@ -30,10 +30,16 @@ async function harness(existing?: { stateDir: string; store: SecretStore }) {
     knownWorkspacePath: async (path) => { if (!["/project", "host:/project", "/second"].includes(path)) throw new Error("Unknown project"); return path === "/second" ? path : "/project"; },
     workspaceRef: (path) => ({ workspaceId: `host:${path}`, displayPath: path }),
     thread: () => undefined,
-    sessions: { start: async (options) => { starts.push(options); return { sessionId: `thread-${starts.length}`, cwd: "/project" }; } } as HostSessionServices,
+    sessions: { start: async (options) => {
+      const sessionId = `thread-${starts.length + 1}`;
+      await options.beforePrompt?.({ sessionId, appendEntry: () => undefined } as unknown as HostThread);
+      starts.push(options); return { sessionId, cwd: options.cwd };
+    } } as HostSessionServices,
     registerTurnObserver: (value) => { observer = value; return () => { observer = undefined; }; },
     mcp: { registerTools: (value) => { provider = value; return () => undefined; }, gate: () => () => undefined, connect: async () => undefined },
   }, (event) => events.push(event));
+  await registry.activate({ id: "tau.workspace", name: "Workspace", activate(context) { context.registerCommand("create-worktree", () => ({ path: "/worktree" }), { callers: ["tau.scheduling"] }); } });
+  await registry.activate({ id: "tau.access", name: "Access", activate(context) { context.registerCommand("thread-level", () => "full", { callers: ["tau.scheduling"] }); context.registerCommand("level", () => "full", { access: "read", callers: ["tau.scheduling"] }); } });
   cleanups.push(() => registry.deactivate("tau.scheduling"));
   const call = (command: string, input?: unknown) => registry.invoke("tau.scheduling", command, input);
   const manage = () => call("manage") as Promise<ManagementState>;
@@ -64,7 +70,7 @@ it("starts only after owner opt-in and signature validation, deduplicates across
   expect(h.starts).toEqual([]);
   expect((await h.post(job, event)).status).toBe(202);
   expect((await h.post(job, delivery(event.id, event.timestamp + 1))).status).toBe(200);
-  expect(h.starts).toEqual([{ cwd: "/project", backend: "pi", title: "Scheduled: CI triage", prompt: "Inspect CI" }]);
+  expect(h.starts).toEqual([expect.objectContaining({ cwd: "/worktree", backend: "pi", title: "Scheduled: CI triage", prompt: "Inspect CI" })]);
   await h.end("thread-1");
   expect(JSON.stringify(h.events)).not.toContain(SECRET);
   expect(await readFile(join(h.stateDir, "tau.scheduling", "jobs.json"), "utf8")).not.toContain(SECRET);

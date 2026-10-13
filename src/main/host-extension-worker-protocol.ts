@@ -177,7 +177,7 @@ export interface WorkerHostServices {
     /** Reads a session file once; the manager behind it stays in the host. */
     read(path: string): Promise<WorkerSessionSnapshot>;
     /** Starts a thread for a project and delivers its first prompt, off screen. */
-    start(options: HostThreadStartOptions): Promise<HostStartedThread>;
+    start(options: Omit<HostThreadStartOptions, "beforePrompt">): Promise<HostStartedThread>;
     /** Takes over a session another machine wrote; plain data both ways. */
     import(options: HostThreadImportOptions): Promise<HostImportedThread>;
     /** Moves a thread to the trash; `threadDeleted` runs when it is purged. */

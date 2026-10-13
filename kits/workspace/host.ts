@@ -680,7 +680,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           uniqueBranch: record(input).uniqueBranch === true,
           submodules: record(input).submodules,
         });
-      }, { long: true, audit: { label: "created a worktree" } });
+      }, { long: true, callers: ["tau.scheduling"], audit: { label: "created a worktree" } });
       context.registerCommand("worktree-removal-preview", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const path = requiredString(input, "path");

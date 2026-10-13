@@ -180,3 +180,29 @@ describe("Access Kit host extension", () => {
     expect(registry.isActive(ACCESS_HOST_EXTENSION_ID)).toBe(false);
   });
 });
+
+
+it("narrows an external runtime's permission policy for the scheduled thread only", async () => {
+  let policy: ((threadId?: string) => AccessLevel) | undefined;
+  const registry = await activateHostKit(createAccessHostExtension(), { setPermissionLevel: (provider) => { policy = provider; } });
+  let caller: HostExtensionContext | undefined;
+  await registry.activate({ id: "tau.scheduling", name: "Scheduling", activate(context) { caller = context; } });
+  await caller!.invokeHostExtension("tau.access", "thread-level", { threadId: "scheduled", level: "read-only" });
+  expect(policy?.("scheduled")).toBe("read-only");
+  expect(policy?.("other")).toBe("full");
+  await registry.invoke("tau.access", "set-level", { level: "ask" });
+  await caller!.invokeHostExtension("tau.access", "thread-level", { threadId: "scheduled", level: "full" });
+  expect(policy?.("scheduled")).toBe("ask");
+  await registry.deactivate("tau.access");
+});
+
+
+it("lets Scheduling read the configured default for new threads through the existing level command", async () => {
+  const registry = await activateHostKit(createAccessHostExtension(), { setPermissionLevel: () => undefined, settings: async () => ({ options: {}, values: { level: "ask" } }) });
+  let caller: HostExtensionContext | undefined;
+  await registry.activate({ id: "tau.scheduling", name: "Scheduling", activate(context) { caller = context; } });
+  expect(await caller!.invokeHostExtension("tau.access", "level")).toBe("ask");
+  await registry.invoke("tau.access", "set-level", { level: "full" });
+  expect(await caller!.invokeHostExtension("tau.access", "level")).toBe("full");
+  await registry.deactivate("tau.access");
+});

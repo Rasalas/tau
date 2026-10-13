@@ -12,7 +12,7 @@ import { ThreadRuntime, threadBackendKind } from "./thread-runtime.js";
 export interface PromptPreparationPort {
   /** The provider behind a non-Pi backend kind, for its own prompt gate. */
   requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider;
-  permissionLevel(): RuntimePermissionLevel;
+  permissionLevel(sessionId?: string): RuntimePermissionLevel;
   /** Whether a runtime may start work in a folder (ADR 0033). */
   runtimeGate: RuntimeGate;
   /** The terminal owns an attached Pi session; the gate is for threads Tau starts work on. */
@@ -63,7 +63,7 @@ export class PromptPreparation {
     threadId: string | undefined,
     backendKind: ThreadBackendKind,
   ): PreparedPrompt {
-    if (adapter.id !== "pi") this.port.requireBackend(adapter.id).assertPromptAllowed?.(this.port.permissionLevel());
+    if (adapter.id !== "pi") this.port.requireBackend(adapter.id).assertPromptAllowed?.(this.port.permissionLevel(threadId));
     const prepared = prepareSkillPrompt(text, adapter, commands, skill);
     const result: PreparedPrompt = {
       ...(threadId ? { tauThreadId: threadId } : {}),

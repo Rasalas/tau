@@ -9,7 +9,7 @@ import type { Job, ManagementState } from "./protocol.js";
 import AutomationsSummary, { type WorkspaceSummaryService } from "./summary.js";
 
 afterEach(cleanup);
-const job: Job = { id: "job-1", workspaceId: "host:/project", enabled: true, status: "ready", nextAt: "2026-10-14T09:00:00Z", config: { name: "Check triage of open issues", workspace: "/project", backend: "pi", prompt: "Inspect issues", schedule: { kind: "daily", time: "09:00", timezone: "UTC" } } };
+const job: Job = { id: "job-1", workspaceId: "host:/project", enabled: true, status: "ready", nextAt: "2026-10-14T09:00:00Z", config: { workspaceStrategy: "worktree", accessLevel: "read-only", maxDurationMinutes: 60, name: "Check triage of open issues", workspace: "/project", backend: "pi", prompt: "Inspect issues", schedule: { kind: "daily", time: "09:00", timezone: "UTC" } } };
 function setup(patch: Partial<ManagementState> = {}, failure?: string, initialProject = "/project") {
   let state: ManagementState = { enabled: true, canManage: true, jobs: [structuredClone(job)], secretRequests: [], ...patch };
   const invoke = vi.fn(async (command: string) => {

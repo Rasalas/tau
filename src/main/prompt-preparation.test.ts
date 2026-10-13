@@ -130,3 +130,14 @@ describe("PromptPreparation runtime gate", () => {
     await expect(makePrompts().runtimeRefusal("codex", "/work")).resolves.toBeUndefined();
   });
 });
+
+
+it("uses the requested thread's permission level for the external prompt gate", () => {
+  const permissionLevel = vi.fn((id?: string) => id === "scheduled" ? "read-only" as const : "full" as const);
+  const gate = vi.fn();
+  const prompts = new PromptPreparation({ requireBackend: () => ({ assertPromptAllowed: gate } as never), permissionLevel, runtimeGate: runtimeGate as never, ownedByPi: () => false });
+  const adapter = { ...PI_AGENT_RUNTIME_ADAPTER, id: "test" };
+  prompts.prepare("inspect", undefined, adapter as never, [], "scheduled", "test");
+  expect(permissionLevel).toHaveBeenCalledWith("scheduled");
+  expect(gate).toHaveBeenCalledWith("read-only");
+});
