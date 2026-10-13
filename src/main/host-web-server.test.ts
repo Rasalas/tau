@@ -41,6 +41,14 @@ describe("the web client a listening host serves", () => {
     expect(asset.headers.get("cache-control")).toContain("immutable");
   });
 
+  it("refuses framing the workbench on successful and error responses", async () => {
+    for (const path of ["/", "/nope.js", "/pair"]) {
+      const response = await fetch(`${origin}${path}`);
+      expect(response.headers.get("x-frame-options")).toBe("DENY");
+      expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    }
+  });
+
   it("lets the browser revalidate the files that keep their names", async () => {
     const manifest = await fetch(`${origin}/manifest.webmanifest`);
     expect(manifest.status).toBe(200);

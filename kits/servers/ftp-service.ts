@@ -1,4 +1,5 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
+import { ConnectionConsent } from "./connection-consent.js";
 import type { PromptAsker } from "./askpass.js";
 import { loginAccount, type CredentialProject, type ServerCredentials } from "./credentials.js";
 import type { SftpJsonTarget } from "./sftp-json.js";
@@ -40,15 +41,20 @@ const updateTrust = (store: ServersStore, key: TargetKey, change: (trust: FtpTru
   updateTargetFile(store, key, (file) => ({ ...file, ftp: change(ftpTrustOf(file)) }));
 
 export class ServerFtp {
+  private readonly consent: ConnectionConsent;
   readonly connections = new FtpConnections();
   private unhook: (() => void) | undefined;
 
-  constructor(private readonly context: HostExtensionContext, private readonly options: ServerFtpOptions) {}
+  constructor(private readonly context: HostExtensionContext, private readonly options: ServerFtpOptions) {
+    this.consent = new ConnectionConsent(options.prompts);
+  }
 
   /** The connected transport of a project's FTP target. */
   async transport(input: { cwd: string; targetId: string }): Promise<FtpTransport> {
     const workspace = await this.context.services.knownWorkspacePath(input.cwd);
-    const { project, target } = await this.options.lookupTarget(workspace, input.targetId);
+    const found = await this.options.lookupTarget(workspace, input.targetId);
+    const project = found.project;
+    const target = await this.consent.approve(workspace, found.target);
     if (target.protocol !== "ftp") throw new HostCommandError(`${target.name ?? target.host} is not an FTP server.`);
     if (!target.usable) throw new HostCommandError(`${target.name ?? target.host} cannot be reached as sftp.json names it.`);
     const transport = this.connections.get(workspace, target, () => this.create(project, target));

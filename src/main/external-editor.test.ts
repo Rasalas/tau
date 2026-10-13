@@ -1,7 +1,27 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { editorCommandArgv, isTerminalEditor, resolveEditorCommand } from "./external-editor.js";
+import { openExternalEditor, editorCommandArgv, isTerminalEditor, resolveEditorCommand } from "./external-editor.js";
 
 describe("external-editor", () => {
+  it.skipIf(process.platform === "win32")("uses a private temporary directory and file and removes both after editing", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "tau-editor-test-"));
+    const report = join(scratch, "report.json");
+    const script = `const fs=require('fs'),path=require('path');const file=process.argv[2];fs.writeFileSync(process.env.EDITOR_REPORT,JSON.stringify({file,dirMode:fs.statSync(path.dirname(file)).mode&511,fileMode:fs.statSync(file).mode&511}));`;
+    const scriptFile = join(scratch, "editor.cjs");
+    await writeFile(scriptFile, script);
+    try {
+      const result = await openExternalEditor({ editorCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(scriptFile)}`, initialText: "private prompt", platform: "linux", env: { ...process.env, EDITOR_REPORT: report } });
+      const saved = JSON.parse(await readFile(report, "utf8"));
+      expect(saved.dirMode).toBe(0o700);
+      expect(saved.fileMode).toBe(0o600);
+      expect(existsSync(dirname(saved.file))).toBe(false);
+      expect(result).toEqual({ text: "private prompt", modified: false });
+    } finally { await rm(scratch, { recursive: true, force: true }); }
+  });
+
   describe("resolveEditorCommand", () => {
     it("prefers explicit editorCommand over environment variables", () => {
       const command = resolveEditorCommand({

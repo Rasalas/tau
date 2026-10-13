@@ -74,7 +74,6 @@ interface TargetRecord {
   serverGit?: ServerGitInfo;
   caps?: ServerCapabilities;
   checking: boolean;
-  autoChecked: boolean;
 }
 
 // A status asked within this many ms reuses the local comparison.
@@ -97,8 +96,7 @@ function decodeRef(value: unknown): { cwd: string; targetId: string } {
 /**
  * Each target's state for the server view: the local changes not uploaded,
  * what changed on the server, whether it answers and its own Git. The local
- * side is compared on every ask; the server only on a check, which runs once
- * by itself per target and host session and again on the user's request.
+ * side is compared on every ask; the server only on an explicit check.
  */
 export class ServerStatusService {
   private readonly records = new Map<string, TargetRecord>();
@@ -118,7 +116,7 @@ export class ServerStatusService {
     const id = `${workspace}\0${targetId}`;
     let record = this.records.get(id);
     if (!record) {
-      record = { pending: [], pendingTotal: 0, withheld: [], liveConfigs: [], checking: false, autoChecked: false };
+      record = { pending: [], pendingTotal: 0, withheld: [], liveConfigs: [], checking: false };
       this.records.set(id, record);
     }
     return record;
@@ -240,18 +238,13 @@ export class ServerStatusService {
       const record = this.record(workspace, target.id);
       const stale = input.fresh === true || record.pendingAt === undefined || this.now() - record.pendingAt > PENDING_FRESH_MS;
       if (stale) await this.once(`pending\0${workspace}\0${target.id}`, () => this.refreshPending(workspace, project, target)).catch((error: unknown) => { record.error = message(error); });
-      if (!record.autoChecked && !this.stopped.signal.aborted) {
-        record.autoChecked = true;
-        void this.check({ cwd: workspace, targetId: target.id }, { drift: false }).catch(() => undefined);
-      }
     }));
     return this.compose(workspace, project, targets);
   }
 
   /**
    * Reaches the server: whether it answers, its Git and, unless `drift` is
-   * false, what changed there. The check Tau starts by itself leaves drift
-   * to the drift service's own check when the project opens.
+   * false, what changed there.
    */
   async check(raw: unknown, options: { drift?: boolean } = {}): Promise<ServersStatus> {
     const { cwd, targetId } = decodeRef(raw);
@@ -260,7 +253,6 @@ export class ServerStatusService {
     if (!target) throw new HostCommandError("sftp.json no longer names this server.");
     if (!target.usable) return this.compose(workspace, project, targets);
     const record = this.record(workspace, targetId);
-    record.autoChecked = true;
     await this.once(`check\0${workspace}\0${targetId}`, async () => {
       record.checking = true;
       void this.publish(workspace);

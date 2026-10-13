@@ -8,7 +8,8 @@ import { ServerAgentTools } from "./agent-tools";
 import { findSftpServer, startFakeSshServer } from "./fixtures/fake-ssh-server.mjs";
 import { hasCommand } from "./fixtures/run-command";
 import { paths, readCalls } from "./fixtures/servers-test-env.mjs";
-import { ServerPrompts } from "./prompts";
+import { answeringPrompts } from "./fixtures/prompt-surface.js";
+import type { ServerPrompts } from "./prompts";
 import type { SftpJsonTarget } from "./sftp-json";
 import { ServerSsh } from "./ssh-service";
 import { gitCall } from "./sync/git";
@@ -56,7 +57,7 @@ describe.skipIf(!ready)("the agent's server tools over ssh to the fake server", 
       id: "site", protocol: "sftp", host: "fake", port: server.port, username: "tester", remotePath: site, name: "site", context: "",
       hop: [], hostVerification: true, connectTimeout: 10_000, concurrency: 4, usable: true, ignore: [],
     } as unknown as SftpJsonTarget;
-    prompts = new ServerPrompts(() => undefined);
+    prompts = answeringPrompts(context);
     ssh = new ServerSsh(context, { prompts, controlRoot, lookupTarget: async () => target });
     const agent = new ServerAgentTools({
       list: async () => ({ project: { root: local, workspaceId: "ws1" }, targets: [target] }),

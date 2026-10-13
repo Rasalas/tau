@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { HostCommandError, readPersistedJson, writePersistedJson, type HostExtensionContext, type PersistedJsonLogger } from "tau/host-extension";
 import { SecretToolStore, SecurityKeychain, runProcess, type LabelledSecretItem, type ProcessRunner, type SecretItem, type SecretStore } from "./keychain.js";
 import type { ServerPrompts } from "./prompts.js";
-import { readPromptAnswer } from "./prompts.js";
+import { registerServerPromptCommands } from "./prompts.js";
 import type { CredentialCheck, CredentialSecretStatus, CredentialStatus, SecretKind } from "./protocol.js";
 import { SFTP_JSON_PATH, sftpJsonSecrets, type CredentialSpec, type SftpJsonTarget } from "./sftp-json.js";
 import { isStoreSegment } from "./store.js";
@@ -593,12 +593,7 @@ const kindOf = (value: unknown): SecretKind => (value === "passphrase" ? "passph
 
 /** The host commands of credentials and of the dialogs they (and later tickets) ask. */
 export function registerCredentialCommands(context: HostExtensionContext, credentials: ServerCredentials, prompts: ServerPrompts, lookup: TargetLookup, list: TargetList): void {
-  context.registerCommand("prompts", () => ({ prompts: prompts.pending() }), { access: "read" });
-  context.registerCommand("answer-prompt", (input) => {
-    const read = readPromptAnswer(input);
-    if (!read) throw new HostCommandError("Not an answer to a server question.");
-    return { answered: prompts.answer(read.id, read.answer) };
-  }, { audit: { label: "answered a server question" } });
+  registerServerPromptCommands(context, prompts);
   context.registerCommand("credential-status", async (input) => {
     const { project, targets } = await list((input as { cwd?: unknown } | undefined)?.cwd);
     return { targets: await Promise.all(targets.map((target) => credentials.status(project, target))) };

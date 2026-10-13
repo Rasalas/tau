@@ -108,7 +108,7 @@ describe.skipIf(skipOnWindows)("AskpassBridge", () => {
 
   it("cancels an open question when the call ends", async () => {
     const session = await bridge.session({ id: "site", label: "site" });
-    const dialogs = new ServerPrompts(() => undefined);
+    const dialogs = new ServerPrompts(() => undefined, () => true);
     const waiting = new AskpassBridge({ stateDir: join(dir, "state2"), socketDir: dir, sources: [new AskpassPrompts(dialogs)] });
     const other = await waiting.session({ id: "site", label: "site" });
     const asking = helper(other.env, "Password: ");
@@ -128,7 +128,7 @@ describe("AskpassPrompts", () => {
 
   function asked() {
     const published: ServerPrompt[][] = [];
-    const prompts = new ServerPrompts((_event, payload) => published.push((payload as { prompts: ServerPrompt[] }).prompts));
+    const prompts = new ServerPrompts((_event, payload) => published.push((payload as { prompts: ServerPrompt[] }).prompts), () => true);
     return { prompts, published, last: () => published.at(-1)![0]! };
   }
 

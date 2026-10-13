@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionServices } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createServersHostExtension } from "./host.js";
@@ -15,7 +15,7 @@ afterEach(async () => { await Promise.all(temps.splice(0).map((dir) => rm(dir, {
 describe("ServerPrompts", () => {
   it("publishes open questions, takes the first answer and cancels on abort and dispose", async () => {
     const published: unknown[] = [];
-    const prompts = new ServerPrompts((_event, payload) => published.push(payload));
+    const prompts = new ServerPrompts((_event, payload) => published.push(payload), () => true);
     const first = prompts.ask({ kind: "secret", title: "Password", message: "m", confirmLabel: "Connect" });
     const [open] = prompts.pending();
     expect(decodeServerPrompts(published.at(-1))).toEqual([open]);
@@ -34,6 +34,26 @@ describe("ServerPrompts", () => {
     expect(prompts.pending()).toEqual([]);
   });
 
+  it("rejects a pending question when its last surface disconnects", async () => {
+    let available = true;
+    const prompts = new ServerPrompts(() => undefined, () => available);
+    let message: string | undefined;
+    const pending = prompts.ask({ kind: "confirm", title: "t", message: "m", confirmLabel: "OK" }).catch((error: Error) => { message = error.message; });
+    try {
+      expect(prompts.pending()).toHaveLength(1);
+      available = false;
+      prompts.surfaceChanged();
+      await vi.waitFor(() => expect(message).toMatch(/open.*Tau.*window|no.*surface/iu), { timeout: 1000 });
+      expect(prompts.pending()).toEqual([]);
+    } finally { prompts.dispose(); await pending; }
+  });
+
+  it("rejects rather than losing a question when publishing fails", async () => {
+    const prompts = new ServerPrompts(() => { throw new Error("offline"); }, () => true);
+    await expect(prompts.ask({ kind: "confirm", title: "t", message: "m", confirmLabel: "OK" })).rejects.toThrow(/Open a Tau/u);
+    expect(prompts.pending()).toEqual([]);
+  });
+
   it("reads an answer only in its known shapes", () => {
     expect(readPromptAnswer({ id: "a", action: "confirm", value: "x" })).toEqual({ id: "a", answer: { action: "confirm", value: "x" } });
     expect(readPromptAnswer({ id: "a", action: "alternative" })).toEqual({ id: "a", answer: { action: "alternative" } });
@@ -43,6 +63,23 @@ describe("ServerPrompts", () => {
 });
 
 describe.skipIf(process.platform === "win32")("the host commands", () => {
+  it("refuses repository connection consent in a host with no workbench", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tau-servers-no-ui-")));
+    temps.push(root);
+    await mkdir(join(root, ".vscode"));
+    const text = JSON.stringify({ host: "127.0.0.1", username: "tester", remotePath: "/srv" });
+    await writeFile(join(root, ".vscode", "sftp.json"), text);
+    const registry = await activateHostKit(createServersHostExtension(), {
+      stateDir: join(root, "state"), knownWorkspacePath: async (path) => path,
+      workspaceRef: () => ({ workspaceId: "no-ui", displayPath: root }),
+      clients: { count: () => 0, observe: () => () => undefined }, findCommand: () => undefined,
+    });
+    try {
+      await expect(registry.invoke(SERVERS_EXTENSION_ID, "ssh-connect", { cwd: root, targetId: readSftpJson(text).targets[0]!.id })).rejects.toThrow(/Open a Tau/u);
+      expect(decodeServerPrompts(await registry.invoke(SERVERS_EXTENSION_ID, "prompts"))).toEqual([]);
+    } finally { await registry.dispose(); }
+  });
+
   it("check a target's password through a question the window answers, and never publish the secret", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "tau-servers-host-")));
     const state = await mkdtemp(join(tmpdir(), "tau-servers-state-"));
@@ -57,6 +94,7 @@ describe.skipIf(process.platform === "win32")("the host commands", () => {
       stateDir: state,
       knownWorkspacePath: async (path: string) => path,
       workspaceRef: () => ({ workspaceId: "ws-1" }),
+      clients: { count: () => 1, observe: () => () => undefined },
       findCommand: () => undefined,
       log: () => undefined,
     } as unknown as Partial<HostExtensionServices>, (event) => events.push(event));

@@ -24,7 +24,7 @@ function gitEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 }
 
 function spawnGit(args: readonly string[], options: GitOptions = {}) {
-  return spawn(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
+  return spawn(gitExecutable(), ["-c", "core.quotePath=false", "-c", "core.fsmonitor=false", ...args], {
     cwd: options.cwd, env: gitEnv(options.env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
   });
 }

@@ -80,7 +80,7 @@ function leaseRoot(): string {
 }
 
 async function defaultRunGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", ...args], {
+  const { stdout } = await execFileAsync(gitExecutable(), ["-c", "core.quotePath=false", "-c", "core.fsmonitor=false", ...args], {
     cwd,
     maxBuffer: 1024 * 1024,
     timeout: 10_000,

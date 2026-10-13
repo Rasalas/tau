@@ -1,4 +1,5 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
+import { ConnectionConsent } from "./connection-consent.js";
 import { AskpassBridge, AskpassPrompts, type CredentialSource, type LoginOutcome, type PromptAsker } from "./askpass.js";
 import { ServerPathError, type ServerEntry } from "./server-fs.js";
 import { SftpError } from "./sftp-client.js";
@@ -62,7 +63,7 @@ export function sshTargetOf(target: SftpJsonTarget): SshTarget {
     host: target.host,
     port: target.port,
     remotePath: target.remotePath,
-    hostVerification: target.hostVerification,
+    hostVerification: true,
     connectTimeout: target.connectTimeout,
     concurrency: target.concurrency,
     ...(target.name ? { name: target.name } : {}),
@@ -78,12 +79,14 @@ const DRAFT_WORKSPACE = "draft:";
 
 /** SSH connections of the open projects and the askpass bridge behind them. */
 export class ServerSsh {
+  private readonly consent: ConnectionConsent;
   readonly askpass: AskpassBridge;
   readonly connections: SshConnections;
   private readonly sources: readonly CredentialSource[];
   private unhook: (() => void) | undefined;
 
   constructor(private readonly context: HostExtensionContext, private readonly options: ServerSshOptions) {
+    this.consent = new ConnectionConsent(options.prompts);
     const services = context.services;
     this.sources = [...(options.credentialSources ?? []), new AskpassPrompts(options.prompts)];
     this.askpass = new AskpassBridge({ stateDir: services.stateDir, sources: this.sources, ...(options.controlRoot ? { controlRoot: options.controlRoot } : {}) });
@@ -104,9 +107,15 @@ export class ServerSsh {
     const workspace = await this.context.services.knownWorkspacePath(cwd);
     if (typeof targetId === "string" && targetId) {
       if (!this.options.lookupTarget) throw new HostCommandError("This machine reads no sftp.json targets.");
-      return { workspace, target: sshTargetOf(await this.options.lookupTarget(workspace, targetId)) };
+      const approved = await this.consent.approve(workspace, await this.options.lookupTarget(workspace, targetId));
+      return { workspace, target: sshTargetOf(approved) };
     }
     return { workspace, target: decodeClientTarget(target) };
+  }
+
+  /** Only the project-creation flow supplies settings the user just chose. */
+  allowCreatedTarget(workspace: string, target: SftpJsonTarget): void {
+    this.consent.allow(workspace, target);
   }
 
   /** The transport of a project's target; connected on first use. */

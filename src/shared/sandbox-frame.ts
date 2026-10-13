@@ -38,6 +38,20 @@ export type FrameColorScheme = "light" | "dark";
 // keywords, paths, quotes or whitespace could widen or break the policy.
 const DOMAIN = /^(?:https?|wss?):\/\/(?:\*\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*(?::\d{1,5})?$/iu;
 
+function publicOrigin(domain: string): boolean {
+  try {
+    const host = new URL(domain.replace("://*.", "://")).hostname.toLowerCase();
+    if (!host.includes(".") || /\.(?:localhost|local|internal)$/u.test(host)) return false;
+    const octets = host.split(".").map(Number);
+    if (octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+      const [a, b] = octets as [number, number, number, number];
+      return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254)
+        || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127));
+    }
+    return true;
+  } catch { return false; }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -45,7 +59,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readDomains(value: unknown): readonly string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const domains = value
-    .filter((domain): domain is string => typeof domain === "string" && domain.length <= MAX_DOMAIN_LENGTH && DOMAIN.test(domain))
+    .filter((domain): domain is string => typeof domain === "string" && domain.length <= MAX_DOMAIN_LENGTH && DOMAIN.test(domain) && publicOrigin(domain))
     .slice(0, MAX_DOMAINS);
   return domains.length === 0 ? undefined : domains;
 }
@@ -90,6 +104,7 @@ export function clampFrameHeight(height: number): number {
  * loads from the host's own origin (`'self'` would reach its API).
  */
 export function frameContentSecurityPolicy(csp: SandboxFrameCsp | undefined): string {
+  csp = readFrameCsp(csp);
   const resources = csp?.resourceDomains?.join(" ") ?? "";
   const list = (domains: readonly string[] | undefined) => domains?.length ? domains.join(" ") : "'none'";
   return [

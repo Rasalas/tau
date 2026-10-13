@@ -123,7 +123,7 @@ describe.skipIf(!ready)("sync against the fake SSH server", () => {
       for (const prompt of (payload as { prompts: ServerPrompt[] }).prompts) {
         queueMicrotask(() => prompts.answer(prompt.id, prompt.kind === "secret" ? { action: "confirm", value: TEST_PASSWORD } : { action: "confirm" }));
       }
-    });
+    }, () => true);
     ssh = new ServerSsh(harness.context, { prompts, controlRoot, lookupTarget: async (_cwd, id) => target(id) });
     const sync = new SyncService(harness.context, {
       store,

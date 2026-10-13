@@ -11,7 +11,8 @@ import { hasCommand } from "./fixtures/run-command";
 import { paths, readCalls } from "./fixtures/servers-test-env.mjs";
 import type { DraftListing, FolderInspection, ProjectMade } from "./project-plan";
 import { registerServerProjects } from "./projects";
-import { ServerPrompts } from "./prompts";
+import { answeringPrompts } from "./fixtures/prompt-surface.js";
+import type { ServerPrompts } from "./prompts";
 import { ServerSsh } from "./ssh-service";
 import { ServersStore } from "./store";
 import type { CompareResult, ScanSummary } from "./sync/protocol";
@@ -50,6 +51,7 @@ describe.skipIf(!ready)("a project from the fake SSH server", () => {
   let invoke: <T>(command: string, input?: unknown) => Promise<T>;
   let stop: () => Promise<void>;
   const saved = process.env.TAU_SERVERS_SSH_CONFIG;
+  const questions: string[] = [];
   const admitted = new Set<string>();
 
   beforeAll(async () => {
@@ -95,7 +97,7 @@ describe.skipIf(!ready)("a project from the fake SSH server", () => {
         const store = new ServersStore(context.services.stateDir, { warn: () => undefined });
         const targets = new ServerTargets({ services: context.services, store });
         targets.register(context);
-        prompts = new ServerPrompts(() => undefined);
+        prompts = answeringPrompts(context, (prompt) => questions.push(prompt.title));
         ssh = new ServerSsh(context, { prompts, controlRoot, lookupTarget: async (cwd, id) => (await targets.target(cwd, id)).target });
         ssh.register();
         const sync = new SyncService(context, { store, target: (cwd, id) => targets.target(cwd, id), transport: (input) => ssh!.transport(input) });
@@ -135,9 +137,11 @@ describe.skipIf(!ready)("a project from the fake SSH server", () => {
   it("makes a project with one commit of the server state, the deselected folders in .gitignore, and nothing to upload or import", async () => {
     const parent = join(dir, "projects");
     mkdirSync(parent);
+    const questionsBefore = questions.length;
     const made = await invoke<ProjectMade>("create-project", {
       server: { alias: "fake" }, remotePath: site, parent, name: "shop", exclude: ["wp-content/uploads", "cache"],
     });
+    expect(questions).toHaveLength(questionsBefore);
     const project = realpathSync(join(parent, "shop"));
     expect(made).toMatchObject({ path: project, branch: "main", files: 24, ignoredIn: "gitignore", liveConfigs: 1 });
     expect(git(project, "rev-list", "--count", "HEAD")).toBe("1");

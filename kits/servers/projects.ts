@@ -7,7 +7,7 @@ import {
   NEW_PROJECT_IGNORE, excludeLinesFor, excludedFolderLines, newProjectGitignore, normalizeExcluded, serverStateMessage,
   type DraftListing, type DraftServer, type FolderInspection, type ProjectMade,
 } from "./project-plan.js";
-import { SFTP_JSON_PATH, readProfileChoices, readSftpJsonFile, renderSftpJson, writeSftpJson, type SftpJsonDraft, type SftpJsonTarget } from "./sftp-json.js";
+import { SFTP_JSON_PATH, readSftpJson, readProfileChoices, readSftpJsonFile, renderSftpJson, writeSftpJson, type SftpJsonDraft, type SftpJsonTarget } from "./sftp-json.js";
 import { parseManualTarget } from "./ssh-hosts.js";
 import type { ServerSsh } from "./ssh-service.js";
 import type { SshTarget } from "./ssh-target.js";
@@ -175,6 +175,12 @@ export class ServerProjects {
     return { root: this.root ?? null };
   }
 
+  private allowCreatedDraft(path: string, draft: SftpJsonDraft): void {
+    const target = readSftpJson(renderSftpJson([draft]), { workspaceRoot: path }).targets[0];
+    if (!target?.usable) throw new HostCommandError("The new sftp.json names no server Tau can reach.");
+    this.options.ssh.allowCreatedTarget(path, target);
+  }
+
   async create(input: unknown): Promise<ProjectMade> {
     const fields = record(input);
     const server = decodeServer(fields.server);
@@ -191,6 +197,7 @@ export class ServerProjects {
     const path = await realpath(folder);
     try {
       await writeSftpJson(path, [draft]);
+      this.allowCreatedDraft(path, draft);
       this.options.services.admitWorkspace(path);
       const { project, targets } = await this.options.targets.list(path);
       const target = targets[0];
@@ -202,7 +209,9 @@ export class ServerProjects {
       if (!serverGitignore) {
         await writeFile(join(path, ".gitignore"), newProjectGitignore(exclude, SFTP_JSON_PATH.split("\\").join("/")));
         // Tau's .gitignore stays local like the sftp.json: never an upload, never pending.
-        await writeFile(join(path, SFTP_JSON_PATH), renderSftpJson([{ ...draft, ignore: [...NEW_PROJECT_IGNORE, "/.gitignore"] }]));
+        const finalDraft = { ...draft, ignore: [...NEW_PROJECT_IGNORE, "/.gitignore"] };
+        await writeFile(join(path, SFTP_JSON_PATH), renderSftpJson([finalDraft]));
+        this.allowCreatedDraft(path, finalDraft);
       }
       const made = await this.options.workspace("repo-from-tree", {
         path,

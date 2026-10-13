@@ -382,7 +382,7 @@ function targetOf(raw: Json, index: number, configKey: string, options: SftpJson
 
   const hostVerification = read.boolean("hostVerification") ?? true;
   if (!hostVerification) {
-    issues.push({ code: "host-verification-off", level: "warning", field: "hostVerification", message: "Host key checking is off for this server; Tau cannot tell it from an impostor." });
+    issues.push({ code: "host-verification-off", level: "warning", field: "hostVerification", message: "sftp.json disables host key checking; Tau ignores that setting and still verifies the server." });
   }
   const uploadOnSave = read.boolean("uploadOnSave") ?? false;
   if (uploadOnSave) issues.push({ code: "upload-on-save-ignored", level: "info", field: "uploadOnSave", message: "Tau does not upload on save; uploads start only from Tau." });

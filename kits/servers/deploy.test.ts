@@ -198,6 +198,7 @@ describe.skipIf(!posix)("deployments", () => {
     await interruption;
     expect((await readDeployments(w.store, KEY))[0]?.status).toBe("in-progress");
     w = world({ dir: w.dir });
+    await w.call("check", ref(w));
     const status = await pendingOf(w);
     expect(status.state).toBe("incomplete");
     expect(status.pending.map((row) => row.path).sort()).toEqual(paths.slice(2).sort());
@@ -225,6 +226,7 @@ describe.skipIf(!posix)("deployments", () => {
     w.status.dispose();
     mirrorGit(w.store, "gc", "--prune=now", "--quiet");
     w = world({ dir: w.dir });
+    await w.call("check", ref(w));
     expect((await pendingOf(w)).state).toBe("incomplete");
     const comparison = await w.call<CompareResult>("compare", { ...ref(w), thorough: true });
     expect(comparison.drift?.rows).toEqual([]);

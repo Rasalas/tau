@@ -38,4 +38,4 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.98.1
         run: |
           npm run build:browser-connect
-          npx vitest run src/web/connect --maxWorkers=1
+          npm test -- src/web/connect --maxWorkers=1

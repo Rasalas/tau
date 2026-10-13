@@ -90,7 +90,7 @@ describe.skipIf(!ready)("ServerSsh against the fake server", () => {
       for (const prompt of (payload as { prompts: ServerPrompt[] }).prompts) {
         queueMicrotask(() => prompts.answer(prompt.id, prompt.kind === "secret" ? { action: "confirm", value: TEST_PASSWORD } : { action: "confirm" }));
       }
-    });
+    }, () => true);
     const outcomes: Array<[AskpassTarget, LoginOutcome]> = [];
     const recorder: CredentialSource = { answer: async () => undefined, settled: (target, outcome) => { outcomes.push([target, outcome]); } };
     const site = realpathSync(join(paths(dir).root, "site"));

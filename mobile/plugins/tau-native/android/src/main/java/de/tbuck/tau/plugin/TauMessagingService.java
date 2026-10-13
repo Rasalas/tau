@@ -37,11 +37,6 @@ public class TauMessagingService extends MessagingService {
     public void onMessageReceived(@NonNull RemoteMessage message) {
         String sealed = message.getData().get("sealed");
         if (sealed == null) {
-            String activity = message.getData().get("activity");
-            if (activity != null) {
-                try { AgentActivity.update(this, new JSONObject(activity)); } catch (Exception invalid) { /* Drop invalid data. */ }
-                return;
-            }
             super.onMessageReceived(message);
             return;
         }

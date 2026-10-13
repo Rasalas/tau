@@ -48,7 +48,7 @@ describe("workspace Git command timeouts", () => {
     const signal = new AbortController().signal;
     const env = { GIT_INDEX_FILE: "/scratch/index" };
     await runGitCommand("/workspace", ["commit", "-m", "change"], 1024, signal, env, 60_000);
-    expect(execute).toHaveBeenCalledWith(expect.any(String), ["-c", "core.quotePath=false", "commit", "-m", "change"], expect.objectContaining({
+    expect(execute).toHaveBeenCalledWith(expect.any(String), ["-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "commit", "-m", "change"], expect.objectContaining({
       cwd: "/workspace", maxBuffer: 1024, signal, env: { ...env, GIT_OPTIONAL_LOCKS: "0" }, timeout: 60_000,
     }));
   });

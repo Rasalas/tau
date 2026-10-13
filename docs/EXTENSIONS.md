@@ -4013,7 +4013,9 @@ the generic header. There is no `allow-same-origin`, so the page has an opaque
 origin and no access to the workbench's storage or host connection. `csp`
 lists the origins the document needs (`connectDomains`, `resourceDomains`,
 `frameDomains`, `baseUriDomains`); core keeps `scheme://host[:port]` entries
-only, at most 32 per list, and never allows `'self'`. Pass what you read
+only, at most 32 per list, and never allows `'self'`, literal loopback or private
+network addresses, or local host names. This validates origin text; it does not
+restrict DNS resolution. Pass what you read
 through `readFrameCsp` if it came from a third party. Core inserts the
 doctype if missing, then the same policy as a `<meta>`, a script that sets the
 document's colour scheme (`colorScheme`, `"light"` by default) and a guard that
