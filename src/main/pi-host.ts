@@ -810,16 +810,20 @@ export class PiHost {
         this.projects.label(this.cwd);
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
-        // Client commands wait for start; recovery must finish before it returns.
-        await this.index.refresh("index");
-        this.recordBackgroundLifecycle("session-index", indexStartedAt);
-        await this.reconcileInterruptedTurns(interruptedTurns);
-        this.log("bootstrap.full-ready");
-        this.index.startRecovery();
-        this.trash.start();
-        this.prewarm.scheduleThreads();
-        this.catalogs.start();
-        this.toolUpdates.start();
+        // First content does not wait for every session file, unless the previous run left
+        // turns to recover: then no client command may race their reconciliation.
+        const ready = this.index.refresh("index").then(async () => {
+          this.recordBackgroundLifecycle("session-index", indexStartedAt);
+          this.log("bootstrap.full-ready");
+          this.index.startRecovery();
+          this.trash.start();
+          // The index is the only way back to a marked thread's session file.
+          await this.reconcileInterruptedTurns(interruptedTurns);
+          this.prewarm.scheduleThreads();
+          this.catalogs.start();
+          this.toolUpdates.start();
+        }).catch((error) => this.fail(error));
+        if (interruptedTurns.length) await ready;
         const result = await this.bootstrap();
         this.lifecycleMetrics.end();
         return result;

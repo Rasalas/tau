@@ -74,8 +74,10 @@ Threads
   message, and a runtime without that capability is only marked. An external
   shell a kit owns is always interrupted; the kit says so through its own
   `closed` hook.
-  Startup loads the queue and scheduled limits with the markers, then finishes
-  indexing and recovery before bootstrap admits client commands. Queue writes
+  Startup loads the queue and scheduled limits with the markers. When the
+  previous run left marked turns, it finishes indexing and recovery before
+  bootstrap admits client commands; otherwise the index fills in the
+  background and first content does not wait for it. Queue writes
   and deliveries wait for restore; limit timers wait for recovery. Recovery
   removes only the marked turn's ID, preserving a newer marker of that thread.
 
