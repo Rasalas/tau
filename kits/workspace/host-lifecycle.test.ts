@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,9 +10,10 @@ import {
   type HostSessionFile,
   type HostThread,
 } from "tau/host-extension";
-import { TURN_CHECKPOINT_CUSTOM_TYPE, TURN_RESTORE_BACKUP_CUSTOM_TYPE, TURN_RESTORE_TRANSACTION_CUSTOM_TYPE } from "./turn-checkpoint-codec.js";
+import { TURN_CHECKPOINT_CUSTOM_TYPE, TURN_RESTORE_BACKUP_CUSTOM_TYPE, TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, turnRestoreBackupsFromEntries, turnRestoreTransactionsFromEntries } from "./turn-checkpoint-codec.js";
 import { createTurnWorkspaceSnapshot } from "./workspace-git.js";
-import type { UiTurnCheckpoint } from "./turn-checkpoint-types.js";
+import * as workspaceGit from "./workspace-git.js";
+import type { TurnRestoreTransaction, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { WorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 import { createWorkspaceKitLifecycle, prioritizeRestoreTargetSession, type WorkspaceKitLifecycleOptions } from "./host-lifecycle.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
@@ -19,6 +21,7 @@ import { createCheckoutTurns } from "./checkout-turns.js";
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 async function workspace(): Promise<string> {
@@ -333,25 +336,32 @@ async function rewindFixture(options: Partial<WorkspaceKitLifecycleOptions> = {}
     { type: "custom", id: "custom-1", customType: TURN_CHECKPOINT_CUSTOM_TYPE, data: stored },
   ];
   const branches: Array<HostSessionFile & { appended: Array<{ customType: string; data: unknown }>; infos: string[] }> = [];
+  // Branches branch again: restore recovery saves the current tree in a branch of a backup.
+  const branchOf = (id: string) => (entryId: string): HostSessionFile => {
+    const appended: Array<{ customType: string; data: unknown }> = [];
+    const infos: string[] = [];
+    const branchId = `${id}-branch-${branches.length}-${entryId}`;
+    const path = join(cwd, `branch-${branches.length}.jsonl`);
+    // Recovery touches the file of the backup it creates.
+    writeFileSync(path, "");
+    const created = Object.assign(sessionFile({
+      path,
+      sessionId: branchId,
+      cwd,
+      entries: () => [...entries, ...appended.map((entry) => ({ type: "custom", customType: entry.customType, data: entry.data }))],
+      appendEntry: (customType, data) => { appended.push({ customType, data }); },
+      appendInfo: (text) => { infos.push(text); },
+      branch: (next) => branchOf(branchId)(next),
+    }), { appended, infos });
+    branches.push(created);
+    return created;
+  };
   const file = (path: string, id: string): HostSessionFile => sessionFile({
     path,
     sessionId: id,
     cwd,
     entries: () => entries,
-    branch: (entryId) => {
-      const appended: Array<{ customType: string; data: unknown }> = [];
-      const infos: string[] = [];
-      const created = Object.assign(sessionFile({
-        path: join(cwd, `branch-${branches.length}.jsonl`),
-        sessionId: `${id}-branch-${branches.length}-${entryId}`,
-        cwd,
-        entries: () => [...entries, ...appended.map((entry) => ({ type: "custom", customType: entry.customType, data: entry.data }))],
-        appendEntry: (customType, data) => { appended.push({ customType, data }); },
-        appendInfo: (text) => { infos.push(text); },
-      }), { appended, infos });
-      branches.push(created);
-      return created;
-    },
+    branch: branchOf(id),
   });
   const activate = vi.fn(async () => ({ version: 1 as const, updates: [] }));
   const refreshIndex = vi.fn(async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }));
@@ -371,6 +381,108 @@ async function rewindFixture(options: Partial<WorkspaceKitLifecycleOptions> = {}
   const kit = createWorkspaceKitLifecycle(host, { emit: () => undefined, maintenance: maintenance(), ...options });
   return { cwd, git, sessionId, kit, host, branches, activate, refreshIndex, note: () => readFile(join(cwd, "note.txt"), "utf8") };
 }
+
+async function recoveryFixture(kind: TurnRestoreTransaction["kind"]) {
+  const fixture = await rewindFixture();
+  const sessionsDir = await workspace();
+  const backupPath = join(sessionsDir, "backup.jsonl");
+  const backupSessionId = `backup-${fixture.sessionId}`;
+  await writeFile(backupPath, [
+    JSON.stringify({ type: "session", version: 3, id: backupSessionId, timestamp: new Date().toISOString(), cwd: fixture.cwd }),
+    JSON.stringify({ type: "message", id: "assistant", parentId: null, timestamp: new Date().toISOString(), message: { role: "assistant", content: [] } }),
+    "",
+  ].join("\n"));
+  const open = (path: string): HostSessionFile => {
+    const manager = SessionManager.open(path, sessionsDir);
+    return sessionFile({
+      path, sessionId: manager.getSessionId(), cwd: manager.getCwd(),
+      entries: () => manager.getBranch(), leafId: () => manager.getLeafId() ?? undefined,
+      appendEntry: (type, data) => { manager.appendCustomEntry(type, data); },
+      appendInfo: (text) => { manager.appendSessionInfo(text); },
+      branch: (leaf) => {
+        const branched = manager.createBranchedSession(leaf);
+        return branched ? open(branched) : undefined;
+      },
+    });
+  };
+  await createTurnWorkspaceSnapshot(fixture.cwd, backupSessionId, "rollback", "before");
+  const after = await createTurnWorkspaceSnapshot(fixture.cwd, backupSessionId, "rollback", "after");
+  const transaction: TurnRestoreTransaction = {
+    version: 1, kind, transactionId: "interrupted", state: "workspace-applied",
+    sessionId: backupSessionId, backupSessionId, backupTurnId: "rollback",
+    sourceSessionId: fixture.sessionId, sourceTurnId: "turn-1", sourceCheckpointId: "turn-1",
+    targetSessionId: kind === "backup-open" ? backupSessionId : "unfinished-target",
+    cwd: fixture.cwd, targetAfterSnapshotId: `refs/tau/checkpoints/${fixture.sessionId}/turn-1/after`,
+    backupAfterSnapshotId: after.id, createdAt: Date.now(),
+  };
+  open(backupPath).appendEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, transaction);
+  await writeFile(join(fixture.cwd, "note.txt"), "work since the crash\n");
+  await writeFile(join(fixture.cwd, "new.txt"), "new work since the crash\n");
+  const list = async () => (await SessionManager.list(fixture.cwd, sessionsDir)).map((item) => ({ sessionId: item.id, path: item.path, cwd: fixture.cwd }));
+  const host = services({ cwd: () => fixture.cwd, sessions: { ...services().sessions, list, open } });
+  const restart = () => createWorkspaceKitLifecycle(host, { emit: () => undefined });
+  return { ...fixture, path: backupPath, open, list, restart };
+}
+
+describe("recovering an interrupted restore", () => {
+  it.each(["checkpoint-restore", "backup-open"] as const)("keeps post-crash work in a durable backup for %s", async (kind) => {
+    const fixture = await recoveryFixture(kind);
+    await fixture.restart().lifecycle.beforeWorkspace!(fixture.cwd);
+
+    const saved = (await fixture.list()).filter((item) => item.path !== fixture.path);
+    expect(saved).toHaveLength(1);
+    const file = fixture.open(saved[0]!.path);
+    const backup = turnRestoreBackupsFromEntries(file.entries(), file.sessionId).at(-1)!;
+    expect(backup).toBeDefined();
+    expect(fixture.git("show", `${backup.afterSnapshotId}:note.txt`)).toBe("work since the crash\n");
+    expect(fixture.git("show", `${backup.afterSnapshotId}:new.txt`)).toBe("new work since the crash\n");
+    expect(await fixture.note()).toBe("later, uncommitted\n");
+    expect(turnRestoreTransactionsFromEntries(fixture.open(fixture.path).entries(), fixture.open(fixture.path).sessionId).at(-1)?.state).toBe("recovered");
+
+    const restarted = fixture.restart();
+    await restarted.lifecycle.beforeWorkspace!(fixture.cwd);
+    await restarted.lifecycle.beforeOpen!(file);
+    const activation = await restarted.lifecycle.beforeActivate!(thread({
+      sessionId: file.sessionId, cwd: fixture.cwd, sessionFile: file.path,
+      entries: file.entries, appendEntry: file.appendEntry,
+    }));
+    await activation?.commit();
+    expect(await fixture.note()).toBe("work since the crash\n");
+    expect(await readFile(join(fixture.cwd, "new.txt"), "utf8")).toBe("new work since the crash\n");
+    expect(await fixture.list()).toHaveLength(2);
+  });
+
+  it("leaves the workspace and pending transaction intact when the safety copy is incomplete", async () => {
+    const fixture = await recoveryFixture("checkpoint-restore");
+    const capture = workspaceGit.createTurnWorkspaceSnapshot;
+    vi.spyOn(workspaceGit, "createTurnWorkspaceSnapshot").mockImplementation(async (...args) => ({
+      ...await capture(...args), complete: false,
+    }));
+
+    await expect(fixture.restart().lifecycle.beforeWorkspace!(fixture.cwd)).rejects.toThrow("only partially captured");
+
+    expect(await fixture.note()).toBe("work since the crash\n");
+    expect(await readFile(join(fixture.cwd, "new.txt"), "utf8")).toBe("new work since the crash\n");
+    expect(await fixture.list()).toHaveLength(1);
+    const file = fixture.open(fixture.path);
+    expect(turnRestoreTransactionsFromEntries(file.entries(), file.sessionId).at(-1)?.state).toBe("workspace-applied");
+  });
+
+  it.each(["checkpoint-restore", "backup-open"] as const)("rolls back a failed %s recovery to the post-crash tree", async (kind) => {
+    const fixture = await recoveryFixture(kind);
+    const restore = workspaceGit.restoreWorkspaceSnapshot;
+    vi.spyOn(workspaceGit, "restoreWorkspaceSnapshot").mockImplementation((cwd, ref, options) => restore(cwd, ref, {
+      ...options,
+      onPhase: (phase) => { if (phase === "cleaned") throw new Error("injected apply failure"); },
+    }));
+
+    await expect(fixture.restart().lifecycle.beforeWorkspace!(fixture.cwd)).rejects.toThrow("injected apply failure");
+
+    expect(await fixture.note()).toBe("work since the crash\n");
+    expect(await readFile(join(fixture.cwd, "new.txt"), "utf8")).toBe("new work since the crash\n");
+    expect(await fixture.list()).toHaveLength(2);
+  });
+});
 
 describe("rewinding to a checkpoint", () => {
   it.each([true, false])("refuses another thread's turn only in the same checkout: %s", async (sameCheckout) => {
