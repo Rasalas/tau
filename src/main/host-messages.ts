@@ -505,7 +505,7 @@ export async function mapSessions(
   fallbackCwd: string,
   resolveLabel: (cwd: string) => Promise<string | undefined>,
   resolveProjectName: (cwd: string) => string = (cwd) => basename(cwd) || cwd,
-  knownModels: ReadonlyMap<string, SessionModel> = new Map(),
+  knownModels: ReadonlyMap<string, SessionModel | undefined> = new Map(),
   /** Already-known cost for a session file; the index never reads one itself. */
   usageFor: (session: SessionInfo) => UiThreadUsage | undefined = () => undefined,
   /** The thread that spawned this one, already resolved from the session file. */

@@ -20,6 +20,7 @@ import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ProjectHistory } from "./project-history.js";
 import { PARENT_LINK_ENTRY, SessionLineageIndex, parentLinkEntry } from "./session-lineage.js";
 import { SessionUsageIndex, hasThreadUsage, readSessionFileStamp } from "./session-usage.js";
+import { SessionInfoIndex } from "./session-info-index.js";
 import type { UsageTally } from "./usage-pricing.js";
 import { ThreadRuntime, threadBackendKind } from "./thread-runtime.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -75,6 +76,7 @@ export interface ThreadIndexOptions {
  */
 export class ThreadIndex {
   private sessions: UiSession[] = [];
+  private readonly sessionInfos: SessionInfoIndex;
   /** What each thread has cost, cached by session file so a scan never reads one. */
   private readonly usage: SessionUsageIndex;
   private usageCacheLoaded?: Promise<void>;
@@ -111,6 +113,7 @@ export class ThreadIndex {
   private readonly threadProjectIcons = new Map<string, string | undefined>();
 
   constructor(private readonly port: ThreadIndexPort, options: ThreadIndexOptions = {}) {
+    this.sessionInfos = new SessionInfoIndex(port.sessionsDir);
     this.usage = new SessionUsageIndex({
       ...(options.usageCachePath ? { path: options.usageCachePath } : {}),
       ...(options.logger ? { logger: options.logger } : {}),
@@ -139,11 +142,13 @@ export class ThreadIndex {
     return this.firstScan.promise;
   }
 
-  /** `byId`, but a thread not indexed yet is looked up again once the first scan is done. */
+  /** A cache miss waits for indexing, then reads the session files directly. */
   async find(sessionId: string): Promise<UiSession | undefined> {
     const known = this.byId(sessionId);
     if (known) return known;
     await this.ready();
+    while (this.scan) await this.scan;
+    if (!this.byId(sessionId)) await this.refresh("changes", true);
     return this.byId(sessionId);
   }
 
@@ -179,9 +184,9 @@ export class ThreadIndex {
    * share it, so the recovery timer can never run a second sweep into the
    * lifecycle hooks while one is still in flight.
    */
-  async refresh(publish: "none" | "index" | "changes" | "changed-index"): Promise<ThreadIndexSnapshot> {
+  async refresh(publish: "none" | "index" | "changes" | "changed-index", readFiles = false): Promise<ThreadIndexSnapshot> {
     if (!this.scan) {
-      this.scan = this.scanSessions().finally(() => { this.scan = undefined; });
+      this.scan = this.scanSessions(readFiles).finally(() => { this.scan = undefined; });
       this.scan.then(() => this.firstScan.resolve(), (error: unknown) => this.firstScan.reject(error));
     }
     const { previous, next, projectsChanged } = await this.scan;
@@ -198,15 +203,13 @@ export class ThreadIndex {
     this.recoveryTimer.unref?.();
   }
 
-  private async scanSessions(): Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }> {
+  private async scanSessions(readFiles: boolean): Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }> {
     const scanStartedAt = Date.now();
     this.usageCacheLoaded ??= this.usage.load().catch(() => undefined);
     this.lineageCacheLoaded ??= this.lineage.load().catch(() => undefined);
-    const [sessionInfos] = await Promise.all([SessionManager.listAll(this.port.sessionsDir), this.usageCacheLoaded, this.lineageCacheLoaded]);
-    // Stamps are a stat per file; reading the files themselves is what the
-    // usage index defers, so the scan stays a listing.
-    const stamps = new Map(await Promise.all(sessionInfos.map(async (info) =>
-      [info.path, await readSessionFileStamp(info.path)] as const)));
+    const [{ infos: sessionInfos, stamps, models }] = await Promise.all([
+      this.sessionInfos.list(readFiles), this.usageCacheLoaded, this.lineageCacheLoaded,
+    ]);
     this.usage.retain(sessionInfos.map((info) => info.path));
     // Two lines per session file the cache has not answered yet, so the rail
     // knows which threads an agent spawned before it paints them.
@@ -224,7 +227,7 @@ export class ThreadIndex {
       this.port.cwd(),
       async (cwd) => this.port.projects.label(cwd),
       (cwd) => this.port.projects.name(cwd),
-      new Map(this.sessions.flatMap((session) => session.modelProvider ? [[session.id, { provider: session.modelProvider, ...(session.model ? { id: session.model } : {}) }]] : [])),
+      models,
       (info) => this.liveUsage(info.id) ?? this.cachedUsage(info.path, stamps.get(info.path)),
       (info) => parents.get(info.path) ?? this.parents.get(info.id),
       (info) => this.lineage.originOf(info.path),

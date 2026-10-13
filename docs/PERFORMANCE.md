@@ -1785,3 +1785,58 @@ Captures and `measurements.json` go to a folder under `.scratch/` unless `--out`
 8. Promote stable fixtures to CI gates.
 
 Performance work must preserve extension ownership from ADR 0002 and thread ownership from ADR 0003. The target is a fast extension system, not a fast monolith.
+
+## Session index recovery, 2026-10-13
+
+The recovery timer called the runtime's full session listing every 30 seconds.
+`SessionInfoIndex` now caches shell metadata and selected models by path, mtime
+and size. Each refresh lists and stats the files with bounded concurrency, reads
+changed files alone and shares those stamps with the usage and lineage indexes.
+An absent model is cached too. Searchable conversation text is not retained in
+this cache. The 30-second reconciliation remains for externally created,
+renamed or deleted sessions and the other runtime backends. No directory
+watcher or extension API was added.
+
+A thread lookup that still misses after indexing reads the runtime's listing
+without the cache and reconciles the index before reopening or deleting the
+thread. A missing file stamp alone does not discard a directly listed session.
+This also recovers a replaced session whose size and mtime were preserved.
+Cache entries are written only from reads made after their stamp was captured.
+
+The focused host-index benchmark uses 1000 temporary sessions, each with 40
+messages, about 40 MB altogether. A synthetic token producer runs every 5 ms
+while ten unchanged refreshes and ten refreshes of a growing session run. The
+existing background usage refills remain enabled. It measures the complete
+`ThreadIndex.refresh("changes")` and event-loop delay at 1 ms resolution, without
+starting an app or a runtime. Its budgets are under 50 ms for every unchanged
+refresh and under 24 ms for event-loop p99. The latter is a budget for this
+fixture, not an existing host-wide streaming guarantee.
+
+The first after run also ran alongside the kit lifecycle checks. A second
+focused run verified the final code. The table includes both after runs.
+
+| Measurement | Before | After, two runs |
+| --- | ---: | ---: |
+| Unchanged refresh, range | 124.6–569.6 ms | 9.5–34.1 ms |
+| Growing session refresh, range | 106.8–212.7 ms | 8.0–45.4 ms |
+| Event-loop p99 during synthetic streaming | 5.39 ms | 6.11–10.76 ms |
+
+The measured p99 remains within budget; this run demonstrates the reduction in
+history scanning cost, not a reduction in streaming latency. Cold startup still
+reads the history. A changed large session still costs a full asynchronous read,
+and ordinary refreshes do not detect rewrites that preserve both size and mtime.
+An unknown thread ID takes the direct lookup recovery path described above.
+
+```sh
+TAU_SESSION_INDEX_BENCHMARK=1 npm test -- src/main/thread-index.test.ts --maxWorkers=2
+```
+
+The regression test failed before the fix because an unchanged second refresh
+called the full listing again. Cache tests cover selective reads, an absent
+model, model changes, mtime-only and size-only changes, rename, deletion,
+restoration, partial files and both session-directory layouts. Shell metadata
+is compared with the runtime's own listing. In a sandbox that prohibits `ps`,
+the normal global test teardown fails its process scan. The recorded local
+verification used a temporary config in `.scratch/rv56-verification/` that
+preserves the test setup and omits that teardown; no repository test
+configuration was changed.

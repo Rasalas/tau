@@ -1,4 +1,6 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -102,6 +104,97 @@ function piThread(threadId: string, title?: string) {
 }
 
 describe("ThreadIndex", () => {
+  it("finds and indexes a session created after the first scan through a direct read", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-index-late-"));
+    const { index } = makeIndex({ sessionsDir });
+    const listing = vi.spyOn(SessionManager, "listAll");
+    try {
+      await index.refresh("none");
+      const path = join(sessionsDir, "later.jsonl");
+      await writeFile(path, JSON.stringify({ type: "session", version: 3, id: "later", timestamp: "2026-10-12T10:00:00Z", cwd: "/repo" }) + "\n");
+      expect(index.byId("later")).toBeUndefined();
+      await expect(index.find("later")).resolves.toMatchObject({ id: "later", path });
+      expect(index.byId("later")?.path).toBe(path);
+      expect(listing).toHaveBeenCalledTimes(1);
+    } finally {
+      listing.mockRestore();
+      await index.dispose();
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.env.TAU_SESSION_INDEX_BENCHMARK !== "1")("benchmarks 1000 sessions during a synthetic token stream", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-index-benchmark-"));
+    const { index } = makeIndex({ sessionsDir });
+    const delay = monitorEventLoopDelay({ resolution: 1 });
+    let tokens = 0;
+    let stream: ReturnType<typeof setInterval> | undefined;
+    try {
+      for (let batch = 0; batch < 1000; batch += 20) {
+        await Promise.all(Array.from({ length: 20 }, async (_, offset) => {
+          const id = String(batch + offset);
+          const entries = [JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-10-12T10:00:00Z", cwd: "/repo" })];
+          for (let turn = 0; turn < 40; turn++) entries.push(JSON.stringify({
+            type: "message", id: `${id}-${turn}`, parentId: turn ? `${id}-${turn - 1}` : null,
+            message: { role: turn % 2 ? "assistant" : "user", content: "x".repeat(850), provider: "fixture", model: "fixture", timestamp: turn + 1 },
+          }));
+          await writeFile(join(sessionsDir, `${id}.jsonl`), entries.join("\n") + "\n");
+        }));
+      }
+      await index.refresh("none");
+      // Keep the existing usage refill work in the measured host workload.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const unchanged: number[] = [];
+      const changed: number[] = [];
+      stream = setInterval(() => {
+        JSON.stringify({ type: "message-update", sessionId: "0", delta: `token ${tokens++}` });
+      }, 5);
+      delay.enable();
+      for (let sample = 0; sample < 20; sample++) {
+        if (sample >= 10) await appendFile(join(sessionsDir, "0.jsonl"), JSON.stringify({
+          type: "message", id: `stream-${sample}`, parentId: sample === 10 ? "0-39" : `stream-${sample - 1}`,
+          message: { role: "assistant", content: "streamed response", provider: "fixture", model: "fixture", timestamp: 100 + sample },
+        }) + "\n");
+        const started = performance.now();
+        await index.refresh("changes");
+        (sample < 10 ? unchanged : changed).push(performance.now() - started);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const p99 = delay.percentile(99) / 1e6;
+      console.info("session index benchmark", JSON.stringify({ sessions: index.list().length, unchangedMs: unchanged, changedMs: changed, eventLoopP99Ms: p99, tokens }));
+      expect(index.list()).toHaveLength(1000);
+      expect(tokens).toBeGreaterThan(0);
+      expect(Math.max(...unchanged)).toBeLessThan(50);
+      expect(p99).toBeLessThan(24);
+    } finally {
+      if (stream) clearInterval(stream);
+      delay.disable();
+      await index.dispose();
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not parse the whole session history again on an unchanged recovery refresh", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-index-refresh-"));
+    const { index } = makeIndex({ sessionsDir });
+    const listing = vi.spyOn(SessionManager, "listAll");
+    try {
+      await writeFile(join(sessionsDir, "one.jsonl"), [
+        JSON.stringify({ type: "session", version: 3, id: "one", timestamp: "2026-10-12T10:00:00Z", cwd: "/repo" }),
+        JSON.stringify({ type: "message", id: "u", parentId: null, message: { role: "user", content: "Hello", timestamp: 1 } }),
+      ].join("\n"));
+      await index.refresh("none");
+      listing.mockClear();
+      await index.refresh("changes");
+      expect(index.byId("one")?.messageCount).toBe(1);
+      expect(listing).not.toHaveBeenCalled();
+    } finally {
+      listing.mockRestore();
+      await index.dispose();
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
   it("publishes a remote project icon change even when its threads have not changed", async () => {
     const sessionsDir = await mkdtemp(join(tmpdir(), "tau-project-icon-"));
     const record: HostBackendThreadRecord = {
