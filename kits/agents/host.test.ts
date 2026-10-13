@@ -663,6 +663,39 @@ describe("Agents Kit", () => {
     }
   });
 
+  it.each(["tau-base", "tau-review-target"])("cleans up a child's failed worktree setup when writing %s fails", async (key) => {
+    const root = await mkdtemp(join(tmpdir(), "tau-child-setup-failure-"));
+    try {
+      const project = join(root, "project");
+      await mkdir(project);
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: project, stdio: "pipe" }).toString().trim();
+      git("init", "-q", "-b", "main");
+      git("config", "user.name", "Tau");
+      git("config", "user.email", "tau@example.com");
+      await writeFile(join(project, "README.md"), "start\n");
+      git("add", "-A");
+      git("commit", "-qm", "first");
+      const runGit: AgentGitRunner = (cwd, args, options) => {
+        if (args[0] === "config" && args[1].endsWith(key)) return Promise.reject(new Error("config is read-only"));
+        return runAgentGit(cwd, args, options);
+      };
+      const bench = await activated({ runGit, settingsPath: join(root, "settings.json") });
+      bench.setProject(project);
+      try {
+        const result = await bench.runtime("parent", project).call("tau_spawn_thread", { prompt: "Read the fixture", workspace: "worktree" }) as { status: string; error?: string };
+        expect(result).toMatchObject({ status: "failed", error: "config is read-only" });
+        expect(bench.started).toEqual([]);
+        expect((await bench.state()).links[0]?.workspace).toBeUndefined();
+        expect(git("worktree", "list", "--porcelain").match(/^worktree /gmu)).toHaveLength(1);
+        expect(git("branch", "--list", "tau/*")).toBe("");
+      } finally {
+        await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([false, true])("verifies a whole-repo apply before removing a child's worktree (skipped paths: %s)", async (skipOutside) => {
     const root = await mkdtemp(join(tmpdir(), "tau-agent-subdirectory-"));
     try {
