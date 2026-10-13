@@ -263,7 +263,7 @@ of address each time it connects (`mobile/src/endpoints.ts`). It asks two things
 workbench and nothing of the host: `SocketTransportOptions.createSocket`, so every socket
 is a native one that pins the host's key (or checks an address the host flagged for a
 CA), and `ClientEnvironment.shell`, the
-host's name above the thread list and the shell's own actions (Hosts) in its More menu.
+host's name above the thread list and the shell's own actions (Machines) in its More menu.
 Each host gets its own view of the page's store (`mobile/src/storage.ts`), so drafts and
 the bootstrap cache of one never show up for another.
 

@@ -220,9 +220,9 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
 }
 
 const CONNECTION_TEXT: Record<"reconnecting" | "resyncing" | "refused", { title: string; detail: string }> = {
-  reconnecting: { title: "Connecting to the host…", detail: "Threads appear once it answers." },
-  resyncing: { title: "Updating", detail: "Refetching the threads from the host…" },
-  refused: { title: "The host refused this device", detail: "Pair it again from the host's Settings → Connections." },
+  reconnecting: { title: "Connecting to your machine…", detail: "Threads appear once it answers." },
+  resyncing: { title: "Updating", detail: "Getting the latest threads from your machine…" },
+  refused: { title: "Your machine refused this device", detail: "Pair it again in Tau’s Settings → Connections on that machine." },
 };
 
 function useConnectionState() {
@@ -243,12 +243,12 @@ function Unreachable({ name, retry }: { name: string | undefined; retry(): void 
   const minutes = Math.floor((now - since) / 60_000);
   return <p className="touch-thread-notice unreachable" role="status">
     <TriangleAlert size={16} aria-hidden />
-    <span>{name ?? "The host"} not reachable · last seen {minutes < 1 ? "just now" : `${minutes} min ago`}</span>
+    <span>{name ?? "Your machine"} not reachable · last seen {minutes < 1 ? "just now" : `${minutes} min ago`}</span>
     <button type="button" onClick={retry}>Retry</button>
   </p>;
 }
 
-/** A list that may be stale says so; one that never loaded says it is waiting for the host. */
+/** A list that may be stale says so; one that never loaded says it is waiting for the machine. */
 function ConnectionNotice({ state, refusal, empty }: { state: keyof typeof CONNECTION_TEXT; refusal?: string | undefined; empty: boolean }) {
   const text = CONNECTION_TEXT[empty && state !== "refused" ? "reconnecting" : state];
   return <p className={`touch-thread-notice ${state}`} role={state === "refused" ? "alert" : "status"}>

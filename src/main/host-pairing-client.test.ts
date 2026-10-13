@@ -122,13 +122,13 @@ describe("a device pairing with a host", () => {
       publicKey: relayKey,
       createSocket: (target) => new WebSocket(target, { createConnection: pinnedTlsConnect(certificateFingerprint(tls.cert)) as unknown as ClientOptions["createConnection"] }) as unknown as PairingSocket,
     });
-    expect(result).toMatchObject({ state: "failed", message: expect.stringMatching(/not the host/u) });
+    expect(result).toMatchObject({ state: "failed", message: expect.stringMatching(/codes do not match.*Do not allow/u) });
   });
 
   it("gives up when the host's digits are not its own: something in between is not the host", async () => {
     const { url } = await host();
     const result = await pairWithHost({ url, fingerprint: "AB:".repeat(31) + "AB", createSocket: socket });
-    expect(result).toMatchObject({ state: "failed", message: expect.stringMatching(/not the host/u) });
+    expect(result).toMatchObject({ state: "failed", message: expect.stringMatching(/codes do not match.*Do not allow/u) });
   });
 
   it("hears a spent link as such", async () => {

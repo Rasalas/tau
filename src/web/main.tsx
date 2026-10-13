@@ -132,7 +132,7 @@ async function pairConnect(link: string): Promise<void> {
     if (ownAttempt !== attempt) return;
     if (cancel.signal.aborted) { showGate(); return; }
     const offer = browserConnectOffer(link);
-    if (!offer) { showGate("This Tau Connect link is invalid or has no host key. Copy a new link from the host."); return; }
+    if (!offer) { showGate("This Tau Connect link is not valid. Copy a new one in Tau on your machine."); return; }
     let failure: string | undefined;
     const result = await pairWithHost({ url: offer.route.url, code: offer.code, name: "Browser", ...(offer.route.key ? { publicKey: offer.route.pin } : { fingerprint: offer.route.pin }), createSocket: () => new BrowserConnectSocket(offer.route, (message) => { failure = message; }), signal: cancel.signal, onWaiting: ({ verification }) => wait(verification) });
     if (ownAttempt !== attempt) return;

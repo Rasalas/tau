@@ -105,7 +105,7 @@ xcodebuild -exportArchive -archivePath build/Tau.xcarchive -exportOptionsPlist b
 1. On the Mac, in Tau: **Settings → Connections → Network access**, turn on **Local
    network** (home Wi-Fi) and/or **Tailscale** (on the way).
 2. **Create link**. A QR code appears.
-3. On the iPhone, open Tau → **+** (Add host) → **Scan QR code**. Allow the camera, and
+3. On the iPhone, open Tau → **+** (Add machine) → **Scan QR code**. Allow the camera, and
    the local network when iOS asks.
 4. The Mac's window shows "<your iPhone> wants to connect" with six digits; the phone
    shows six digits too. **Allow** only if they are the same.

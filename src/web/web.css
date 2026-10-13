@@ -15,7 +15,7 @@
 .token-gate-request { display: grid; gap: 10px; }
 .token-gate-entry { display: grid; gap: 10px; }
 .token-gate-request + .token-gate-entry { margin-top: 4px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
-.token-gate-field-label { display: flex; align-items: center; gap: 6px; font: 500 var(--text-sm) var(--sans); }
+.token-gate-entry label { font: 500 var(--text-sm) var(--sans); }
 .token-gate-wait { align-items: center; text-align: center; }
 .token-gate-wait > button { align-self: stretch; }
 .token-gate input, .token-gate button {
@@ -28,13 +28,7 @@
 .token-gate button.token-gate-primary { background: var(--acid); border-color: var(--acid); color: var(--acid-ink); }
 .token-gate button.token-gate-primary:hover { background: var(--acid-strong); }
 .token-gate button:disabled { opacity: .45; cursor: not-allowed; }
-.token-gate :is(input, button, summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.token-gate-help { position: relative; color: var(--muted); }
-.token-gate-help > summary { display: grid; place-items: center; width: 20px; height: 20px; list-style: none; cursor: pointer; }
-.token-gate-help > summary::-webkit-details-marker { display: none; }
-.token-gate-help > summary::before { content: "i"; display: grid; place-items: center; width: 14px; height: 14px; border: 1px solid currentColor; border-radius: 50%; font: 600 10px/1 var(--sans); }
-.token-gate-help > p { position: absolute; z-index: 1; right: 0; top: 24px; width: 240px; padding: 12px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--float); color: var(--ink-2); box-shadow: 0 4px 16px var(--shadow); }
-.token-gate-help code { font: var(--text-xs) var(--mono); }
+.token-gate :is(input, button):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .token-gate-code {
   display: block; padding: 12px 0; font: 600 34px/1 var(--mono); letter-spacing: 0.08em; color: var(--ink);
   font-variant-numeric: tabular-nums;

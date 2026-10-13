@@ -41,4 +41,12 @@ describe("how a browser learns the host token", () => {
     expect(pairingNotice({ state: "refused", reason: "busy" })).toMatch(/not taking a request/u);
     expect(pairingNotice({ state: "failed", message: "offline" })).toBe("offline");
   });
+
+  it("names no host, token or file path in what it says", () => {
+    const notices = [
+      pairingNotice({ state: "denied" }), pairingNotice({ state: "expired" }),
+      ...(["unknown-code", "busy", "rate-limited", "invalid"] as const).map((reason) => pairingNotice({ state: "refused", reason })),
+    ];
+    for (const notice of notices) expect(notice).not.toMatch(/\bhost\b|token|~\/|\.tau/iu);
+  });
 });

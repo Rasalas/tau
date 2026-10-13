@@ -4,7 +4,7 @@ import { RacingSocket, listAddresses, socketCandidates, type AttemptSocket, type
 import type { SavedHost } from "./hosts";
 import { connectCandidate, type MobileConnect } from "./relay-connect";
 
-/** A host to pair with, from a QR code, a pasted link or a Bonjour record. */
+/** A machine to pair with, from a QR code, a pasted link or a Bonjour record. */
 export interface PairTarget {
   hostId: string;
   name: string;
@@ -76,13 +76,13 @@ export function pairingBinding(candidate: SocketCandidate, seen: { fingerprint?:
 export function pairingFailureMessage(failure: PairingFailure): string {
   switch (failure.reason) {
     case "no-address":
-      return "None of this host's addresses can be reached from a phone. Turn on Local network or Tailscale in the host's Settings → Connections, then scan a new code.";
+      return "This phone cannot reach any address in this link. On your machine, turn on Local network or Tailscale in Settings → Connections, then scan a new QR code.";
     case "unreachable":
-      return "The host did not answer on any of its addresses. Is this phone on the same network, or on Tailscale?";
+      return "Your machine did not answer. Is this phone on the same Wi-Fi network, or connected through Tailscale?";
     case "certificate-mismatch":
-      return `${listAddresses(failure.addresses)} answered with another certificate than the one in the code. This phone did not send it anything.`;
+      return `${listAddresses(failure.addresses)} is not the machine this link is for, so the phone sent it nothing. Create a new link on your machine and try again.`;
     case "untrusted-certificate":
-      return `${listAddresses(failure.addresses)} showed a certificate this phone does not trust, so the phone sent it nothing. Something on this network may be in between; try another network.`;
+      return `${listAddresses(failure.addresses)} could not show that it is your machine, so the phone sent it nothing. Something on this network may be in between; try another network.`;
   }
 }
 

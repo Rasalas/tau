@@ -95,7 +95,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
     if (!client) return;
     // The host would refuse it, and log the refusal of a device that only looked.
     if (client.isOwner?.() === false) {
-      setState({ status: "error", code: "forbidden", message: "Only the host's own machine manages connections." });
+      setState({ status: "error", code: "forbidden", message: "Only the machine itself manages connections." });
       return;
     }
     try {
@@ -147,10 +147,10 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
     return <div className="settings-page"><SettingsState kind="loading" rows={5} title="Loading connections" /></div>;
   }
   if (state.status === "error") {
-    const title = state.code === "forbidden" ? "Connections are managed on the host’s machine"
+    const title = state.code === "forbidden" ? "Connections are managed on your machine"
       : state.code === "unsupported" || state.code === "unknown-method" ? "This host takes no other clients"
         : "Connections did not load";
-    const description = state.code === "forbidden" ? "Pairing links, waiting devices and revocations are handled in a Tau window on the machine that runs the host, with the host token. A paired device, or the host token from another machine, can use the host but not change who may reach it."
+    const description = state.code === "forbidden" ? "Pairing links, waiting devices and unpairing are handled in Tau on the machine itself. A paired phone or browser can use Tau there, but cannot change who may reach it."
       : state.code === "unsupported" || state.code === "unknown-method" ? "It has no socket listener, so there is nobody to pair or revoke. The host a Tau window starts for itself has one."
         : state.message;
     return <div className="settings-page">{state.code === "forbidden" || state.code === "unsupported" || state.code === "unknown-method"
