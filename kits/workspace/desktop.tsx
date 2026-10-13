@@ -150,11 +150,11 @@ export const workspaceExtension: DesktopExtension = {
     context.registerRegion({ id: "workspace.stage-context", placement: "stage-bar", order: 5, profiles: ["desktop", "web"], Component: bind(WorkspaceStageContext) });
     context.registerRegion({ id: "workspace.title-actions", placement: "workspace-summary", order: 10, profiles: ["desktop", "web"], Component: bind(WorkspaceTitleActions) });
     context.registerRegion({ id: "workspace.trace-tabs", placement: "title-bar", profiles: ["desktop"], Component: () => <TraceTabs enabled={() => context.preferences.optionValue(WORKSPACE_HOST_EXTENSION_ID, TRACE_TABS_OPTION, true)} /> });
-    context.registerSettingsSection({ id: "workspace.new-threads", page: "general", card: "new-threads", order: 20, profiles: ["desktop"], Component: bind(NewThreadRows),
+    context.registerSettingsSection({ id: "workspace.new-threads", page: "threads", card: "new-threads", order: 20, profiles: ["desktop"], Component: bind(NewThreadRows),
       rows: [{ id: "setting-new-thread-workspace", label: "New threads run in" }, { id: "setting-branch-name", label: "Branch name", keywords: ["worktree", "from prompt", "random"] }] });
     context.registerSettingsSection({ id: "workspace.this-machine", page: "connections", card: "this-machine", order: 10, profiles: ["desktop"], Component: bind(ThisMachineRows),
       rows: [{ id: "setting-editor", label: "Editor", keywords: ["open in editor", "vscode", "zed"] }] });
-    context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "threads", profiles: ["desktop"], Component: TraceTabsRow,
+    context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "transcript", order: 30, profiles: ["desktop"], Component: TraceTabsRow,
       rows: [{ id: "setting-trace-tabs", label: "Trace tabs", keywords: ["files the agent touches", "tabs"] }] });
     // The design's Editor button at the stage strip's right end.
 
@@ -258,11 +258,11 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: "workspace.source-control",
       label: "Source control",
-      description: "Where a new worktree is made and how it fills its submodules, whether the default branch keeps itself current, and where new projects start.",
+      description: "Where a new worktree is made and how it fills its submodules, whether the default branch keeps itself current, where new projects start, and how a thread's changes are reviewed and handed in.",
       group: "projects",
       Icon: GitBranch,
       order: 35,
-      keywords: ["git", "worktree", "submodules", "pull", "fast-forward", "default branch", "clone", "base folder", "origin"],
+      keywords: ["git", "worktree", "submodules", "pull", "fast-forward", "default branch", "clone", "base folder", "origin", "review", "commit message", "pull request", "diff"],
       rows: SOURCE_CONTROL_SETTINGS_ROWS,
       profiles: ["desktop", "web"],
       Component: SourceControlPage,

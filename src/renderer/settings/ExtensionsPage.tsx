@@ -105,7 +105,7 @@ export function ExtensionsPage({ entries, registry, loading, error, onOpen, onRe
         ))}
       </fieldset>
 
-      <SettingsPageSections page="extensions" onNotify={onNotify} onChanged={onChanged} />
+      <SettingsPageSections page="extensions" onNotify={onNotify} onChanged={onChanged} onOpenSettings={onOpen} />
 
       {error ? <SettingsState kind="error" title="The package folders could not be read" description={`${error} The list shows what this window runs.`} onRetry={onRetry} /> : null}
       {entries.length === 0 && loading ? <SettingsState kind="loading" rows={6} title="Loading extensions" /> : null}
@@ -125,7 +125,7 @@ export function ExtensionsPage({ entries, registry, loading, error, onOpen, onRe
           <ul className="extensions-list">{group.items.map(row)}</ul>
         </section>
       ) : null)}
-      <SettingsPageSections page="extensions" advanced onNotify={onNotify} onChanged={onChanged} />
+      <SettingsPageSections page="extensions" advanced onNotify={onNotify} onChanged={onChanged} onOpenSettings={onOpen} />
     </div>
   );
 }

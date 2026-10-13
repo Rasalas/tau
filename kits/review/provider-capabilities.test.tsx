@@ -12,7 +12,7 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import { parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 import { PullRequestView } from "./pull-request-view.js";
 import { RowRequests } from "./requests.js";
-import { createReviewSettingsPage, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
+import { createReviewSettingsSections, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
 import { SourceControlSettings } from "./source-settings.js";
 import { missingSettingsRows, renderKitSettingsPage } from "../../src/renderer/test-support/kit-settings-page.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
@@ -151,7 +151,7 @@ describe("Settings → Review", () => {
 
   it("writes the format, the instructions and the diff colours, and has every searched row", async () => {
     const { host } = sourceHost();
-    const Page = createReviewSettingsPage(host);
+    const Page = createReviewSettingsSections(host);
     const { updates, cleared } = renderKitSettingsPage(Page, { host: { values: { "tau.review.writing-instructions": "Say why." } } });
     const key = (name: string) => `tau.review.${name}`;
 

@@ -76,7 +76,8 @@ const noSubscription = () => () => undefined;
 
 /** The pages of core that draw the sections other extensions attach to them. */
 const CORE_SECTION_PAGES: readonly string[] = ["connections", "extensions", "extension", "runtimes", "general", "threads", "inspector"];
-/** The row a package's trust answer sits on: the one an extension's own page sends the user to. */
+/** The install form's row, which says a package installer is attached to Extensions, and the row beside it a project's trust is answered on. */
+const INSTALL_ROW = "setting-packages-source";
 const TRUST_ROW = "setting-packages-trust";
 
 /** The groups the user opened, kept while the window lives; one they folded follows the page on screen again next time. */
@@ -173,7 +174,7 @@ export function SettingsScreen({
   // Sections of a page that is not there are drawn on their own extension's page.
   const sectionHosts = new Set<string>([...CORE_SECTION_PAGES, ...pages.map((entry) => entry.id)]);
   const orphanSections = registry.getSettingsSections().filter((section) => !sectionHosts.has(section.page));
-  const trustRow = registry.getSettingsSections("extensions").some((section) => section.rows?.some((row) => row.id === TRUST_ROW));
+  const trustRow = registry.getSettingsSections("extensions").some((section) => section.rows?.some((row) => row.id === INSTALL_ROW));
   const runtimeKind = runtimeOfPage(page);
   const runtimeName = runtimeKind ? snapshot?.runtimeBackends?.find((backend) => backend.kind === runtimeKind)?.label ?? runtimeKind : undefined;
   const pageLabel = runtimeName ?? (extensionId ? extension?.name ?? "Extension"

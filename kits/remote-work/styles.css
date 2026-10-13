@@ -1,4 +1,4 @@
-/* Remote Work Kit: Settings → Remote work. Tokens only; the rows are core's settings rows. */
+/* Remote Work: its sections on Settings → Machines. Tokens only; the rows are core's settings rows. */
 .remote-work-steps {
   display: flex;
   flex-wrap: wrap;

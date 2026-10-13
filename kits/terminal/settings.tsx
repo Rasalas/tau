@@ -1,12 +1,13 @@
 import { useSyncExternalStore } from "react";
-import { Button, SegmentedControl, SettingRow, SettingsSection, TextField, useSetting, type PreferencesStore, type SettingsPageProps } from "tau";
-import { TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING, type TerminalPlacement } from "./protocol.js";
+import { SegmentedControl, SettingRow, SettingsSection, TextField, useSetting, type PreferencesStore, type SettingsPageProps } from "tau";
+import { TerminalFontRow } from "./font-row.js";
+import { TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING, type TerminalFontService, type TerminalPlacement } from "./protocol.js";
 
 /** What the Settings search finds on the page; each id is a row's anchor. */
 export const TERMINAL_SETTINGS_ROWS = [
   { id: "setting-terminal-placement", label: "Show the terminal in", keywords: ["dock", "drawer", "panel", "bottom", "layout", "placement"] },
+  { id: "setting-terminal-font", label: "Font", keywords: ["terminal font", "font size", "font family", "ghostty", "monospace", "typeface"] },
   { id: "setting-shell", label: "Shell", keywords: ["terminal", "zsh", "bash", "login shell"] },
-  { id: "setting-terminal-font", label: "Font", keywords: ["terminal font", "font size", "ghostty", "monospace"] },
 ];
 
 const PLACEMENTS: ReadonlyArray<{ value: TerminalPlacement; label: string }> = [
@@ -14,8 +15,8 @@ const PLACEMENTS: ReadonlyArray<{ value: TerminalPlacement; label: string }> = [
   { value: "drawer", label: "Drawer" },
 ];
 
-/** Where the terminal sits. Its font is a row of Settings → Appearance, through `tau.terminal/font`. */
-export function TerminalSettingsPage({ preferences, onOpenSettings }: SettingsPageProps & { preferences: PreferencesStore }) {
+/** Where the terminal sits, which shell it starts and the font it draws with. */
+export function TerminalSettingsPage({ preferences, font }: SettingsPageProps & { preferences: PreferencesStore; font: TerminalFontService }) {
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const placement = useSetting<TerminalPlacement>(`values.${TERMINAL_HOST_EXTENSION_ID}.${TERMINAL_PLACEMENT_SETTING}`, {
     defaultValue: "dock",
@@ -34,12 +35,9 @@ export function TerminalSettingsPage({ preferences, onOpenSettings }: SettingsPa
         setting={placement}
         control={<SegmentedControl label="Show the terminal in" value={placement.value} options={PLACEMENTS} onChange={placement.set} />}
       />
-      <SettingRow
-        id="setting-terminal-font"
-        title="Font"
-        description="The terminal's font and size are under Appearance → Typography. Left empty, they follow your Ghostty config."
-        control={onOpenSettings ? <Button onClick={() => onOpenSettings("appearance#setting-appearance-terminal-font")}>Open in Appearance</Button> : undefined}
-      />
+    </SettingsSection>
+    <SettingsSection title="Font">
+      <TerminalFontRow service={font} />
     </SettingsSection>
     <SettingsSection title="Shell">
       <ShellRow />

@@ -1,11 +1,10 @@
 import { useState, useSyncExternalStore } from "react";
-import { AlarmClock, Archive, GitFork, ListTree, Trash2, X } from "lucide-react";
+import { AlarmClock, Archive, GitFork, Trash2, X } from "lucide-react";
 import {
   HostUnavailableError,
   Menu,
   Select,
   SettingRow,
-  SettingsSection,
   Switch,
   errorMessage,
   hostIsReadOnly,
@@ -18,7 +17,6 @@ import {
   type NewThreadClaimEvent,
   type PreferencesStore,
   type RegionProps,
-  type SettingsPageProps,
   type SettingsSectionProps,
   type UiSession,
   type WorkbenchActions,
@@ -137,14 +135,16 @@ function inactiveChoices(current: number | undefined): Array<{ value: string; la
   return [{ value: "off", label: "Off" }, ...days.map((entry) => ({ value: String(entry), label: daysLabel(entry) }))];
 }
 
-/** What the Settings search finds on the Thread rail page; each id is a row's anchor. */
+/** What the Settings search finds in Threads' Rail card; each id is a row's anchor. */
 export const THREAD_RAIL_ROWS = [
   { id: "setting-thread-rail-workingSection", label: "Separate working threads", keywords: ["working", "running", "attention"] },
-  { id: "setting-thread-rail-inactive", label: "After a quiet spell", keywords: ["settle", "inactive", "idle", "days", "auto settle"] },
+  { id: "setting-thread-rail-inactive", label: "Settle after a quiet spell", keywords: ["settle", "inactive", "idle", "days", "auto settle", "settle automatically"] },
   { id: "setting-thread-rail-onMerged", label: "When its pull request merges", keywords: ["settle", "merged", "pull request", "merge request", "worktree"] },
   { id: "setting-thread-rail-onClosed", label: "When its pull request is closed", keywords: ["settle", "closed", "pull request", "merge request"] },
-  ...(Object.values(RAIL_CONFIRMATIONS).map(({ option, label }) => ({ id: `setting-thread-rail-${option}`, label, keywords: ["ask first", "confirm", "confirmation", "dialog"] }))),
 ];
+
+/** What it finds in Threads' Ask first card. */
+export const ASK_FIRST_ROWS = Object.values(RAIL_CONFIRMATIONS).map(({ option, label }) => ({ id: `setting-thread-rail-${option}`, label, keywords: ["ask first", "confirm", "confirmation", "dialog"] }));
 
 const readBoolean = (raw: unknown) => (typeof raw === "boolean" ? raw : undefined);
 
@@ -163,10 +163,10 @@ function ConfirmationRow({ action, preferences }: { action: RailQuestionAction; 
   );
 }
 
-function createSettingsPage(store: RailStore, preferences: PreferencesStore, update: (settings: Partial<Record<keyof RailSettings, unknown>>) => Promise<void>) {
-  return function ThreadRailSettings({ onNotify }: SettingsPageProps) {
+/** Threads' Rail card: what the rail keeps in the active list, and the rules that settle a thread on their own. */
+function createRailRows(store: RailStore, update: (settings: Partial<Record<keyof RailSettings, unknown>>) => Promise<void>) {
+  return function ThreadRailRows({ onNotify }: SettingsSectionProps) {
     useSyncExternalStore(store.subscribe, store.getVersion);
-    useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
     const settings = store.getState().settings;
     const readOnly = useHostCapabilities().readOnly ? READ_ONLY_REASON : undefined;
     const change = (patch: Partial<Record<keyof RailSettings, unknown>>) => { update(patch).catch((error: unknown) => onNotify(errorMessage(error), "error")); };
@@ -181,49 +181,32 @@ function createSettingsPage(store: RailStore, preferences: PreferencesStore, upd
       />
     );
     return (
-      <div className="settings-page thread-rail-settings">
-        <h3>Thread rail</h3>
-        <SettingsSection title="Thread list">
-          {toggle("workingSection", "Separate working threads", "Show running threads in Working until they finish or need your attention.")}
-        </SettingsSection>
-        <SettingsSection title="Settle automatically">
-          <SettingRow
-            id="setting-thread-rail-inactive"
-            title="After a quiet spell"
-            description="Settle a thread that had no turn for this long."
-            disabledReason={readOnly}
-            control={<Select
-              label="Settle after a quiet spell"
-              width="sm"
-              value={settings.inactiveDays === undefined ? "off" : String(settings.inactiveDays)}
-              options={inactiveChoices(settings.inactiveDays)}
-              onChange={(next) => change({ inactiveDays: next === "off" ? null : Number(next) })}
-            />}
-          />
-          {toggle("onMerged", "When its pull request merges", "Worktree threads only: their branch is theirs alone.")}
-          {toggle("onClosed", "When its pull request is closed", "Closed without merging.")}
-        </SettingsSection>
-        <SettingsSection title="Ask first">
-          {(Object.keys(RAIL_CONFIRMATIONS) as RailQuestionAction[]).map((action) => <ConfirmationRow key={action} action={action} preferences={preferences} />)}
-        </SettingsSection>
-      </div>
+      <>
+        {toggle("workingSection", "Separate working threads", "Show running threads in Working until they finish or need your attention.")}
+        <SettingRow
+          id="setting-thread-rail-inactive"
+          title="Settle after a quiet spell"
+          description="Settling never deletes a thread."
+          disabledReason={readOnly}
+          control={<Select
+            label="Settle after a quiet spell"
+            width="sm"
+            value={settings.inactiveDays === undefined ? "off" : String(settings.inactiveDays)}
+            options={inactiveChoices(settings.inactiveDays)}
+            onChange={(next) => change({ inactiveDays: next === "off" ? null : Number(next) })}
+          />}
+        />
+        {toggle("onMerged", "When its pull request merges", "Settle it. Worktree threads only: their branch is theirs alone.")}
+        {toggle("onClosed", "When its pull request is closed", "Settle it. Closed without merging.")}
+      </>
     );
   };
 }
 
-/** General's Threads card (design 2i): the rules as one switch, worded as they stand; the Thread rail page has each. */
-function createSettleRow(store: RailStore, update: (settings: Partial<Record<keyof RailSettings, unknown>>) => Promise<void>) {
-  return function SettleAutomatically({ onNotify }: SettingsSectionProps) {
-    useSyncExternalStore(store.subscribe, store.getVersion);
-    const { settings } = store.getState();
-    const days = settings.inactiveDays;
-    const on = settings.onMerged || days !== undefined;
-    return (
-      <SettingRow id="setting-settle-automatically" title="Settle automatically" wholeMachine description={on ? `after a merge, or ${daysLabel(days ?? 7)} idle` : undefined}
-        control={<Switch label="Settle automatically" checked={on} onChange={(next) => {
-          update(next ? { onMerged: true, inactiveDays: days ?? 7 } : { onMerged: false, onClosed: false, inactiveDays: null }).catch((error: unknown) => onNotify(errorMessage(error), "error"));
-        }} />} />
-    );
+/** Threads' Ask first card: which actions on a thread ask before they happen. */
+function createAskFirstRows(preferences: PreferencesStore) {
+  return function AskFirstRows() {
+    return <>{(Object.keys(RAIL_CONFIRMATIONS) as RailQuestionAction[]).map((action) => <ConfirmationRow key={action} action={action} preferences={preferences} />)}</>;
   };
 }
 
@@ -465,19 +448,12 @@ export const threadRailExtension: DesktopExtension = {
         id: "thread-rail.start",
         claimNewThread: (event, actions) => claimNewThread(event, actions, context, selection, workspace),
       }),
-      context.registerSettingsPage({
-        id: "thread-rail.settings",
-        label: "Thread rail",
-        description: "Which threads the rail keeps in the active list, and when it settles one on its own. Settling never deletes a thread.",
-        group: "agents",
-        Icon: ListTree,
-        order: 40,
-        profiles: ["desktop", "web"],
-        rows: THREAD_RAIL_ROWS,
-        Component: createSettingsPage(store, context.preferences, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
+      // Threads' Rail and Ask first cards (API 1.61.0); the page the rail had before opens Threads.
+      context.registerSettingsSection({
+        id: "thread-rail.rail", page: "threads", card: "rail", order: 10, profiles: ["desktop", "web"], replaces: ["thread-rail.settings"], rows: THREAD_RAIL_ROWS,
+        Component: createRailRows(store, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
       }),
-      context.registerSettingsSection({ id: "thread-rail.settle", page: "general", card: "threads", order: 10, profiles: ["desktop"],
-        Component: createSettleRow(store, async (settings) => { store.set(await context.host.invoke("settings", settings)); }) }),
+      context.registerSettingsSection({ id: "thread-rail.ask-first", page: "threads", card: "ask-first", order: 10, profiles: ["desktop", "web"], rows: ASK_FIRST_ROWS, Component: createAskFirstRows(context.preferences) }),
       context.registerCommand({ id: "thread.pin", label: "Pin or unpin thread", group: "Thread", access: "write", run: (app) => withActive(app, organizer.togglePin) }),
       context.registerCommand({ id: "thread.settle", label: "Settle or un-settle thread", group: "Thread", access: "write", run: (app) => withActive(app, (threadId) => organizer.toggleSettledById(threadId, app)) }),
       context.registerCommand({

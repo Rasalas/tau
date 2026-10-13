@@ -2,34 +2,6 @@ import { useEffect, useSyncExternalStore } from "react";
 import { Button, NumberField, SettingRow, TextField } from "tau";
 import type { TerminalFontService, TerminalFontServiceState, TerminalFontSource } from "./protocol.js";
 
-/** The Terminal Kit's font service while it is there; the page follows it coming and going. */
-export class TerminalFontLink {
-  private service: TerminalFontService | undefined;
-  private readonly listeners = new Set<() => void>();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => { this.listeners.delete(listener); };
-  };
-
-  getSnapshot = (): TerminalFontService | undefined => this.service;
-
-  /** For `useService`: holds the service and lets go of it when it is withdrawn. */
-  connect(service: TerminalFontService): () => void {
-    this.service = service;
-    this.emit();
-    return () => {
-      if (this.service !== service) return;
-      this.service = undefined;
-      this.emit();
-    };
-  }
-
-  private emit(): void {
-    this.listeners.forEach((listener) => listener());
-  }
-}
-
 const SOURCE: Record<TerminalFontSource, string> = {
   settings: "set here",
   ghostty: "from your Ghostty config",
@@ -65,28 +37,23 @@ function Fields({ state, service }: { state: TerminalFontServiceState; service: 
   </>;
 }
 
-function TerminalFontFields({ service }: { service: TerminalFontService }) {
+/** Settings → Terminal's font row: the family and size, what they resolve to now, and a sample. */
+export function TerminalFontRow({ service }: { service: TerminalFontService }) {
   const state = useSyncExternalStore(service.subscribe, service.getSnapshot);
   // The Ghostty config may have changed since the terminal first read it.
   useEffect(() => { void service.refresh().catch(() => undefined); }, [service]);
   const { resolved, ghostty } = state;
   return <SettingRow
-    id="setting-appearance-terminal-font"
-    title="Terminal font"
+    id="setting-terminal-font"
+    title="Font"
     description="Terminal output in the panel, the drawer and terminal tabs, apart from code blocks and diffs. Empty fields follow your Ghostty config, then the platform's monospace faces."
     status={<>
       <span role="status">{resolved.face ?? "SF Mono"} ({SOURCE[resolved.familySource]}) at {resolved.size}px ({SOURCE[resolved.sizeSource]}).</span>
       {ghostty && ghostty.files.length > 0 ? <> Ghostty config: {ghostty.files.map((file, index) => <span key={file}>{index > 0 ? ", " : ""}<code title={file}>{fileName(file)}</code></span>)}.</> : null}
-      {ghostty?.problems.map((problem) => <span key={problem} className="appearance-terminal-problem"> {problem}</span>)}
+      {ghostty?.problems.map((problem) => <span key={problem} className="terminal-font-problem"> {problem}</span>)}
     </>}
     control={<Fields state={state} service={service} />}
   >
-    <div className="appearance-terminal-sample" aria-hidden style={{ fontFamily: resolved.stack, fontSize: `${resolved.size}px` }}>{SAMPLE}</div>
+    <div className="terminal-font-sample" aria-hidden style={{ fontFamily: resolved.stack, fontSize: `${resolved.size}px` }}>{SAMPLE}</div>
   </SettingRow>;
-}
-
-/** Settings → Appearance's terminal row; nothing while the Terminal Kit is off. */
-export function TerminalFontRow({ link }: { link: TerminalFontLink }) {
-  const service = useSyncExternalStore(link.subscribe, link.getSnapshot);
-  return service ? <TerminalFontFields service={service} /> : null;
 }

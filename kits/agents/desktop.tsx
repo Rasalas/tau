@@ -1,9 +1,8 @@
-import { Bot } from "lucide-react";
 import { HostUnavailableError, type DesktopExtension } from "tau";
 import { AGENTS_HOST_EXTENSION_ID, AGENTS_STATE_EVENT, REMOTE_AGENT_THREADS_SERVICE, SPAWN_TOOL, THREAD_SIBLINGS_SERVICE, tauToolName, type ThreadSiblingsService } from "./protocol.js";
 import { AgentQuestionsBanner } from "./banner.js";
 import { AgentLineage, CompactLineage, type WorkspaceSummaryService } from "./lineage.js";
-import { AGENTS_SETTINGS_PAGE, createAgentsSettingsPage } from "./settings.js";
+import { AGENTS_SETTINGS_PAGE, createAgentsSettingsRow } from "./settings.js";
 import { SpawnCard } from "./spawn-card.js";
 import { AgentsSpine } from "./spine.js";
 import { SUBAGENT_VIEW, SubagentTitle, SubagentView } from "./subagent-view.js";
@@ -58,17 +57,11 @@ export const agentsExtension: DesktopExtension = {
       Component: SpawnCard,
       transcriptRows: agentReturnRows,
     });
-    context.registerSettingsPage({
-      id: AGENTS_SETTINGS_PAGE,
-      label: "Agents",
-      description: "Where the sub-agents a thread starts do their work: on this machine or on another machine.",
-      group: "agents",
-      Icon: Bot,
-      order: 45.2,
-      profiles: ["desktop", "web"],
-      keywords: ["sub-agents", "subagents", "spawn", "machine", "remote machine", "other machine", "computer", "automatic"],
-      rows: [{ id: "setting-agents-machine", label: "Run sub-agents on", keywords: ["sub-agents", "spawn", "machine", "other machine", "computer", "automatic", "this machine"] }],
-      Component: createAgentsSettingsPage(context.host),
+    // Threads' While a thread runs card (API 1.61.0); the page it had before opens Threads.
+    context.registerSettingsSection({
+      id: "agents.machine", page: "threads", card: "running", order: 70, profiles: ["desktop", "web"], replaces: [AGENTS_SETTINGS_PAGE],
+      rows: [{ id: "setting-agents-machine", label: "Run sub-agents on", keywords: ["sub-agents", "subagents", "spawn", "machine", "other machine", "automatic", "this machine"] }],
+      Component: createAgentsSettingsRow(context.host),
     });
     // The Machines rail leaves out the threads other machines run for this host's agents.
     context.provideService(REMOTE_AGENT_THREADS_SERVICE, remoteAgentThreads(agentsStore));

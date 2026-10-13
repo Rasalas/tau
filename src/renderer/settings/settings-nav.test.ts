@@ -24,6 +24,21 @@ describe("settings links", () => {
   });
 });
 
+describe("links to rows that moved", () => {
+  it("lands a row of General that went to Threads or Connections on its new page, and one that stayed on General", () => {
+    expect(parseSettingsTarget("general#setting-run-on")).toEqual({ page: "threads", anchor: "setting-run-on" });
+    expect(parseSettingsTarget("general#setting-command-line")).toEqual({ page: "connections", anchor: "setting-command-line" });
+    expect(parseSettingsTarget("general#setting-trace-tabs")).toEqual({ page: "general", anchor: "setting-trace-tabs" });
+    // A link that names another page than the one the row left is not touched.
+    expect(parseSettingsTarget("threads#setting-run-on")).toEqual({ page: "threads", anchor: "setting-run-on" });
+  });
+
+  it("lands the terminal's font row, once Appearance's, on Terminal", () => {
+    expect(parseSettingsTarget("appearance#setting-appearance-terminal-font")).toEqual({ page: "terminal.settings", anchor: "setting-terminal-font" });
+    expect(parseSettingsTarget("terminal.settings#setting-terminal-font")).toEqual({ page: "terminal.settings", anchor: "setting-terminal-font" });
+  });
+});
+
 describe("links to the pages that became Runtimes", () => {
   it("lands the older Models, Pi and Providers pages on Runtimes", () => {
     expect(parseSettingsTarget("models#setting-thinking-level")).toEqual({ page: "runtimes/pi", anchor: "setting-default-thinking" });

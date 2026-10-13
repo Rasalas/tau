@@ -16,7 +16,7 @@ const noSubscription = () => () => undefined;
  * Advanced fold, which this draws (and leaves out when none asked); core's
  * pages draw theirs the same way (API 1.61.0).
  */
-export function SettingsPageSections({ page, advanced = false, onNotify, onChanged = () => undefined, cwd }: {
+export function SettingsPageSections({ page, advanced = false, onNotify, onChanged = () => undefined, onOpenSettings, cwd }: {
   /** The id of the page the sections joined. */
   page: SettingsSectionPage;
   /** Draw the sections that asked to sit under the page's Advanced fold, in a fold of their own, instead of the others. */
@@ -24,6 +24,8 @@ export function SettingsPageSections({ page, advanced = false, onNotify, onChang
   onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** Reads the page's own data again, after a section changed something it shows. */
   onChanged?(): void;
+  /** Opens another place in Settings, as the page's own `onOpenSettings` does. */
+  onOpenSettings?(target: string): void;
   cwd?: string | undefined;
 }) {
   const provided = useContext(SettingsRegistryContext);
@@ -32,6 +34,6 @@ export function SettingsPageSections({ page, advanced = false, onNotify, onChang
   useSyncExternalStore(registry?.subscribe ?? noSubscription, registry?.getVersion ?? (() => 0));
   const sections = registry?.getSettingsSections(page).filter((section) => !section.card && Boolean(section.advanced) === advanced) ?? [];
   if (sections.length === 0) return null;
-  const drawn = sections.map(({ id, Component }) => <Component key={id} {...(cwd ? { cwd } : {})} onNotify={onNotify} onChanged={onChanged} />);
+  const drawn = sections.map(({ id, Component }) => <Component key={id} {...(cwd ? { cwd } : {})} {...(onOpenSettings ? { onOpenSettings } : {})} onNotify={onNotify} onChanged={onChanged} />);
   return advanced ? <SettingsAdvanced>{drawn}</SettingsAdvanced> : <>{drawn}</>;
 }

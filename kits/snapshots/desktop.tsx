@@ -24,7 +24,7 @@ import {
   type SnapShotMeta,
   type SnapShotsHostCommands,
 } from "./protocol.js";
-import { createSnapShotsSettingsPage, SNAPSHOTS_SETTINGS_ROWS } from "./settings.js";
+import { createSnapShotsSettingsSections, SNAPSHOTS_SETTINGS_ROWS } from "./settings.js";
 import { ShotStore, type Shot, type ShotContent } from "./shots.js";
 
 type Commands = SnapShotsHostCommands;
@@ -234,17 +234,15 @@ const snapshots: DesktopExtension = {
       },
     });
 
-    context.registerSettingsPage({
-      id: "snapshots.settings",
-      label: "SnapShots",
-      description: "Capture the window in front from any app with a shortcut: its picture, title and, if you allow it, what it says. It lands as a chip in the composer.",
-      group: "tools",
-      Icon: Camera,
-      order: 46,
-      keywords: ["snapshot", "screenshot", "capture", "window", "accessibility", "shortcut", "screen recording"],
-      rows: SNAPSHOTS_SETTINGS_ROWS,
+    // On Screenshots, the Evidence page; its own page where that extension is off.
+    context.registerSettingsSection({
+      id: "snapshots.capture",
+      page: "evidence",
+      order: 20,
       profiles: ["desktop"],
-      Component: createSnapShotsSettingsPage(context, host, () => { void host("arm", undefined).catch(() => undefined); }),
+      replaces: ["snapshots.settings"],
+      rows: SNAPSHOTS_SETTINGS_ROWS,
+      Component: createSnapShotsSettingsSections(context, host, () => { void host("arm", undefined).catch(() => undefined); }),
     });
 
     return () => {

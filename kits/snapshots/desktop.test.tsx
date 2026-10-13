@@ -177,7 +177,7 @@ describe("SnapShots desktop", () => {
   });
 });
 
-describe("Settings → SnapShots", () => {
+describe("Settings → Screenshots › SnapShots", () => {
   function settingsPage(access: unknown) {
     const invoke = vi.fn(async (_id: string, command: string): Promise<unknown> => {
       if (command === "access") return access;
@@ -186,7 +186,10 @@ describe("Settings → SnapShots", () => {
     });
     const { registry } = createKitHarness(invoke);
     registry.activate(snapshots);
-    return { page: registry.getSettingsPages().find((entry) => entry.id === "snapshots.settings")!, invoke };
+    const [section] = registry.getSettingsSections("evidence");
+    expect(registry.getSettingsPages().find((entry) => entry.id === "snapshots.settings")).toBeUndefined();
+    expect(registry.settingsPageReplacedBy("snapshots.settings")).toBe("evidence");
+    return { page: section!, invoke };
   }
 
   it("turns the shortcut on, states each permission and asks macOS for a missing one", async () => {

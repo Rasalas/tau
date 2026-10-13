@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, TextField, useSetting, type SettingHandle } from "tau";
+import { SegmentedControl, Select, SettingRow, SettingsPageSections, SettingsSection, Switch, TextField, useSetting, type SettingHandle, type SettingsPageProps } from "tau";
 import { WORKSPACE_HOST_EXTENSION_ID as ID, type BranchNaming, type WorktreeSubmodules } from "./protocol.js";
 import { AUTO_PULL_OPTION, BRANCH_NAMING_KEY, NEW_THREAD_WORKSPACE_KEY, PROJECT_BASE_DIRECTORY_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, WORKTREE_DIRECTORY_KEY, WORKTREE_SUBMODULES_KEY } from "./store.js";
 import { useWorkspaceState } from "./branch-menu.js";
@@ -30,7 +30,7 @@ export const SOURCE_CONTROL_SETTINGS_ROWS = [
  * projects start.
  * Where new threads run and what they start from are General's New threads.
  */
-export function SourceControlPage() {
+export function SourceControlPage({ onNotify }: SettingsPageProps) {
   const submodules = useSetting<"" | WorktreeSubmodules>(value(WORKTREE_SUBMODULES_KEY), {
     defaultValue: "",
     scope: "both",
@@ -60,6 +60,8 @@ export function SourceControlPage() {
         <SettingRow id="setting-project-base-directory" title="Add project starts in" description="Where the local-folder browser opens and where a clone lands. Empty starts in your home folder and asks for each clone." setting={baseDirectory}
           control={<PathField label="Add project starts in" placeholder="~/" setting={baseDirectory} />} />
       </SettingsSection>
+      {/* What other extensions attach: Review's commit messages, diffs and Git hosts (API 1.61.0). */}
+      <SettingsPageSections page="workspace.source-control" onNotify={onNotify} />
     </div>
   );
 }
@@ -75,7 +77,7 @@ function PathField({ label, placeholder, setting }: { label: string; placeholder
 }
 
 /**
- * General's New threads card (design 2i): a worktree branch's name when its
+ * Threads' New threads card (design 2i): a worktree branch's name when its
  * field stays empty, what it starts from, and whether a new thread gets one;
  * the draft's popover changes each for one thread.
  */
@@ -97,7 +99,7 @@ export function NewThreadRows() {
   </>;
 }
 
-/** General's Threads card: a tab for each file the agent reads or edits (design 1a). */
+/** General's Transcript card: a tab for each file the agent reads or edits (design 1a). */
 export function TraceTabsRow() {
   const trace = useSetting<boolean>(option(TRACE_TABS_OPTION), { defaultValue: true, scope: "both", read: readBoolean });
   return <SettingRow id="setting-trace-tabs" title="Trace tabs" description="open files the agent touches" setting={trace}

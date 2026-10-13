@@ -93,12 +93,12 @@ export function createPackagesHostExtension(): HostExtension {
         // Windows that did not ask (the command line, another client) raise the same toast from this.
         context.emit("changed", { command: "install", result: installed, ...(untrusted ? { untrusted } : {}) });
         if (untrusted) {
-          return { installed, untrusted: true, message: `${describeInstalled(installed)} — skipped: Pi does not trust this project. Trust it in Settings → Packages, then approve the package in Settings → Extensions.` };
+          return { installed, untrusted: true, message: `${describeInstalled(installed)} — skipped: Pi does not trust this project. Trust it in Settings → Extensions, then approve the package there.` };
         }
         return { installed, message: `${describeInstalled(installed)} — approve it in Settings → Extensions to start it.` };
       }, { long: true });
 
-      // The last build of each package half, and each new one as it lands: Settings → Packages' development view.
+      // The last build of each package half, and each new one as it lands: Settings → Extensions' development view.
       context.registerCommand("builds", () => ({ builds: services.packageBuilds?.list() ?? [] }), { access: "read" });
       const stopBuilds = services.packageBuilds?.observe((build) => context.emit("build", build));
 

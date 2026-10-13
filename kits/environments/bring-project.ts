@@ -8,8 +8,8 @@ export const REMOTE_WORK_EXTENSION_ID = "tau.remote-work";
 const PROJECT_IDENTITIES_COMMAND = "project-identities";
 const THREAD_START_COMMAND = "thread-start";
 const THREAD_LINK_EVENT = "thread-link";
-/** Remote Work Kit's settings page, where such a thread's work is brought back and merged. */
-const REMOTE_WORK_SETTINGS_PAGE = "remote-work.settings";
+/** The Machines page, where Remote Work attaches the sections that bring such a thread's work back and merge it. */
+const MACHINES_PAGE = "environments.machines";
 
 /**
  * Where a new thread of this project would run on a machine: its own checkout
@@ -168,7 +168,7 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
       if (next.status === "failed") {
         done = true;
         stop();
-        actions.toast?.({ type: "error", title: `The thread did not start on ${next.machineName}`, description: next.error ?? "Settings → Remote work shows what happened.", timeoutMs: 0 });
+        actions.toast?.({ type: "error", title: `The thread did not start on ${next.machineName}`, description: next.error ?? "Settings → Machines shows what happened.", timeoutMs: 0 });
         return;
       }
       if (!next.thread || next.status === "sending" || next.status === "starting") return;
@@ -177,10 +177,10 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
       actions.toast?.({
         type: "success",
         title: `Runs on ${next.machineName}`,
-        description: `${projectName} is there now, in a worktree of its own. Its work comes back as a branch from Settings → Remote work.`,
+        description: `${projectName} is there now, in a worktree of its own. Its work comes back as a branch from Settings → Machines.`,
         actions: [
           ...(environments.watchThread ? [{ label: "Look in", run: () => actions.openThread(next.thread!, { pin: true, machine: next.machine }) }] : []),
-          { label: "Remote work", run: () => actions.openSettings(REMOTE_WORK_SETTINGS_PAGE) },
+          { label: "Machines", run: () => actions.openSettings(MACHINES_PAGE) },
         ],
       });
     });

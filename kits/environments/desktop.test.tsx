@@ -420,7 +420,7 @@ describe("Run on", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const { registry } = createKitHarness(undefined, undefined, { environments });
     registry.activate(environmentsExtension);
-    const named = registry.getSettingsSections("general").flatMap((section) => section.rows ?? []);
+    const named = registry.getSettingsSections("threads").flatMap((section) => section.rows ?? []);
     expect(named.map((entry) => entry.label)).toContain("Run on");
     render(withSettings(<RunOnDefaultRow />));
     for (const entry of named) expect(document.getElementById(entry.id), entry.id).toBeTruthy();

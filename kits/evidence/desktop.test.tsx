@@ -122,7 +122,7 @@ describe("Evidence rows", () => {
   });
 });
 
-describe("Settings → Evidence", () => {
+describe("Settings → Screenshots", () => {
   it("turns capture on and off, chooses how long pictures stay, and has every searched row", async () => {
     const { registry } = createKitHarness(host().invoke);
     registry.activate(evidence);

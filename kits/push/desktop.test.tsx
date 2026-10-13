@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SettingsPageProps } from "tau";
+import type { SettingsSectionProps } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import push from "./desktop.js";
@@ -21,14 +21,18 @@ function setup(answer: (command: string, input?: unknown) => unknown) {
   const invoke = vi.fn(async (_id: string, command: string, input?: unknown) => answer(command, input));
   const { registry, preferences } = createKitHarness(invoke);
   registry.activate(push);
-  const page = registry.getSettingsPages().find((entry) => entry.id === "push.settings")!;
-  const props: SettingsPageProps = { onNotify: vi.fn() };
-  render(<TestProviders preferences={preferences}><page.Component {...props} /></TestProviders>);
+  // Sections of Notifications' page: the ones for the phone, and the ones under its Advanced fold.
+  const sections = registry.getSettingsSections("notifications.settings");
+  expect(registry.settingsPageReplacedBy("push.settings")).toBe("notifications.settings");
+  expect(sections.map((section) => [section.id, Boolean(section.advanced)])).toEqual([["push.phone", false], ["push.keys", true]]);
+  const props: SettingsSectionProps = { onNotify: vi.fn(), onChanged: vi.fn() };
+  const page = { rows: sections.flatMap((section) => section.rows ?? []) };
+  render(<TestProviders preferences={preferences}>{sections.map((section) => <section.Component key={section.id} {...props} />)}</TestProviders>);
   const event = () => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: PUSH_EXTENSION_ID, name: PUSH_STATE_EVENT }));
   return { invoke, preferences, props, event, page };
 }
 
-describe("Settings → Push", () => {
+describe("Settings → Notifications → your phone", () => {
   it("shows what is saved without the key, the file it lives in and the devices that asked", async () => {
     setup((command) => (command === "status" ? STATUS : undefined));
     await flush();

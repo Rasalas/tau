@@ -13,7 +13,7 @@ import {
   formatCost,
   useCommandAllowed,
   type HostExtensionClient,
-  type SettingsPageProps,
+  type SettingsSectionProps,
   type UiThreadUsage,
 } from "tau";
 import {
@@ -265,12 +265,12 @@ export const REMOTE_WORK_ROWS = [
 ];
 
 /**
- * Settings → Remote work, for the open project: which ignored files go along
- * when its work moves to another machine (chosen once, remembered by this
- * machine), and the transfers made from it, with their result.
+ * Sections of Settings → Machines, for the open project: which ignored files
+ * go along when its work moves to another machine (chosen once, remembered by
+ * this machine), and the transfers made from it, with their result.
  */
-export function createRemoteWorkPage(host: HostExtensionClient, openThere?: (link: RemoteThreadLink) => Promise<void>) {
-  return function RemoteWorkPage({ cwd, onNotify }: SettingsPageProps) {
+export function createRemoteWorkSections(host: HostExtensionClient, openThere?: (link: RemoteThreadLink) => Promise<void>) {
+  return function RemoteWorkSections({ cwd, onNotify }: SettingsSectionProps) {
     const { view, setView, problem, setProblem, reload } = useIgnoredFiles(host, cwd);
     const transfers = useTransfers(host, cwd, view?.root);
     const threads = useThreadLinks(host, view?.root);
@@ -291,22 +291,20 @@ export function createRemoteWorkPage(host: HostExtensionClient, openThere?: (lin
     }, [cwd, view, setView, setProblem]);
 
     const lede = (
-      <p className="lede">Tau offers small text files, <code>.env</code> files and note or issue folders, never dependencies, builds or caches. Your choice is remembered for this project on this machine.</p>
+      <p className="settings-group-note">Tau offers small text files, <code>.env</code> files and note or issue folders, never dependencies, builds or caches. Your choice is remembered for this project on this machine.</p>
     );
     if (!cwd) {
       return (
-        <div className="settings-page remote-work-page">
-          <h3>Remote work</h3>
+        <SettingsSection title="Work on other machines">
           {lede}
           <SettingsState kind="empty" title="No project open" description="Open a project to choose what goes along when its work moves to another machine." />
-        </div>
+        </SettingsSection>
       );
     }
     return (
-      <div className="settings-page remote-work-page">
-        <h3>Remote work</h3>
-        {lede}
+      <>
         <SettingsSection title="Ignored files that go along" id="setting-remote-work-ignored-files">
+          {lede}
           {problem ? (
             <SettingsState
               kind="error"
@@ -346,7 +344,7 @@ export function createRemoteWorkPage(host: HostExtensionClient, openThere?: (lin
           {ownTransfers.length === 0 ? <SettingsState kind="empty" title="No transfers yet" description="Work this project sends to another machine shows here, with what came back." /> : null}
           {ownTransfers.map((transfer) => <TransferRow key={transfer.id} transfer={transfer} host={host} allowed={canAct} now={now} onNotify={onNotify} />)}
         </SettingsSection>
-      </div>
+      </>
     );
   };
 }

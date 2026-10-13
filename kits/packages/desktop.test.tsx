@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionInspection, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { PackagesPage, createExtensionSection, followInstalls, packagesExtension } from "./desktop.js";
-import { PACKAGES_EXTENSION_ID, PACKAGES_SETTINGS_PAGE, parseInstallArguments } from "./protocol.js";
+import { PackagesInstall, PackagesSources, createExtensionSection, followInstalls, packagesExtension } from "./desktop.js";
+import { PACKAGES_EXTENSION_ID, PACKAGES_RETIRED_PAGE, parseInstallArguments } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -13,6 +14,11 @@ const actions = () => ({ notify: vi.fn(), openSettings: vi.fn() } as unknown as 
 const inspection = (packages: ExtensionInspection["packages"], distribution?: ExtensionInspection["distribution"]): ExtensionInspection => ({
   versions: { tau: "0", pi: "0", api: "1.2.0" }, directories: [], packages, errors: [], skipped: [], ...(distribution ? { distribution } : {}),
 });
+
+/** Both halves of what the extension adds to Settings → Extensions, as the page draws them. */
+function PackagesPage(props: Omit<ComponentProps<typeof PackagesInstall>, "onChanged">) {
+  return <><PackagesInstall onChanged={vi.fn()} {...props} /><PackagesSources onChanged={vi.fn()} {...props} /></>;
+}
 
 const host = (invoke: (command: string, input?: unknown) => Promise<unknown>) => ({
   invoke: (command: string, input?: unknown) => invoke(command, input),
@@ -59,21 +65,6 @@ describe("install arguments", () => {
     expect(onOpenSettings).toHaveBeenCalledWith("extensions/me.kit");
   });
 
-  it("names the distribution the shipped kits came in", async () => {
-    const invoke = vi.fn(async () => ({ packages: [] }));
-    render(
-      <PackagesPage
-        cwd="/project"
-        onNotify={vi.fn()}
-        host={host(invoke)}
-        inspect={async () => inspection(
-          [{ id: "tau.packages", name: "Packages", version: "1.0.0", permissions: ["packages"], isolation: "in-process", granted: true, scope: "bundled", directory: "/app/dist-kits/tau.packages", desktop: true, host: true }],
-          { name: "@tau/kits", version: "0.1.0" },
-        )}
-      />,
-    );
-    expect(await screen.findByText(/@tau\/kits 0\.1\.0/u)).toBeTruthy();
-  });
 });
 
 describe("Packages kit", () => {
@@ -155,16 +146,19 @@ describe("Packages kit", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("contributes the Settings page its command opens, and takes it back", () => {
+  it("attaches its sections to Extensions, which its command opens, and takes them back", () => {
     const { registry } = createKitHarness(vi.fn(async () => ({})));
     registry.activate(packagesExtension);
-    expect(registry.getSettingsPages().map((page) => page.id)).toEqual([PACKAGES_SETTINGS_PAGE]);
+    expect(registry.getSettingsPages()).toEqual([]);
+    expect(registry.getSettingsSections("extensions").map((section) => [section.id, Boolean(section.advanced)])).toEqual([["packages.install", false], ["packages.sources", true]]);
+    // The page it had before still opens: its links land on Extensions.
+    expect(registry.settingsPageReplacedBy(PACKAGES_RETIRED_PAGE)).toBe("extensions");
     const open = registry.getCommands().find((command) => command.id === "packages.install");
     const app = actions();
     open?.run(app);
-    expect(app.openSettings).toHaveBeenCalledWith(PACKAGES_SETTINGS_PAGE);
+    expect(app.openSettings).toHaveBeenCalledWith("extensions#setting-packages-source");
     registry.deactivate(PACKAGES_EXTENSION_ID);
-    expect(registry.getSettingsPages()).toEqual([]);
+    expect(registry.getSettingsSections("extensions")).toEqual([]);
   });
 
   it("installs from the settings form at the scope the user picked", async () => {
@@ -234,10 +228,11 @@ describe("Packages kit", () => {
   it("draws each row the settings search lists", async () => {
     const { registry } = createKitHarness(vi.fn(async (_id: string, command: string) => (command === "list" ? { packages: [] } : {})));
     registry.activate(packagesExtension);
-    const page = registry.getSettingsPages().find((entry) => entry.id === PACKAGES_SETTINGS_PAGE)!;
-    render(<page.Component cwd="/project" onNotify={vi.fn()} />);
-    expect(page.rows?.length).toBe(4);
-    for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
+    const sections = registry.getSettingsSections("extensions");
+    render(<>{sections.map(({ id, Component }) => <Component key={id} cwd="/project" onNotify={vi.fn()} onChanged={vi.fn()} />)}</>);
+    const rows = sections.flatMap((section) => section.rows ?? []);
+    expect(rows.length).toBe(4);
+    for (const row of rows) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 
   it("lists the packages a source installed, and leaves the kits Tau ships to Extensions", async () => {
@@ -263,28 +258,11 @@ describe("Packages kit", () => {
     await screen.findByRole("heading", { level: 3, name: /^Hello/u });
     const installed = document.getElementById("setting-packages-installed")!;
     expect(screen.queryByLabelText("Bundled kits")).toBeNull();
-    expect(await screen.findByText(/listed under Settings → Extensions/u)).toBeTruthy();
     expect(installed.textContent).toContain("signed by ACME");
     expect(installed.textContent).toContain("signature not trusted");
     expect(installed.textContent).not.toContain("tau.packages");
     // A package still waiting for its grant says so where it is listed.
     expect(within(installed).getByText("Waiting for approval")).toBeTruthy();
-  });
-
-  it("names the distribution the shipped kits came in", async () => {
-    const invoke = vi.fn(async () => ({ packages: [] }));
-    render(
-      <PackagesPage
-        cwd="/project"
-        onNotify={vi.fn()}
-        host={host(invoke)}
-        inspect={async () => inspection(
-          [{ id: "tau.packages", name: "Packages", version: "1.0.0", permissions: ["packages"], isolation: "in-process", granted: true, scope: "bundled", directory: "/app/dist-kits/tau.packages", desktop: true, host: true }],
-          { name: "@tau/kits", version: "0.1.0" },
-        )}
-      />,
-    );
-    expect(await screen.findByText(/@tau\/kits 0\.1\.0/u)).toBeTruthy();
   });
 
   it("updates and removes an installed package from its own page, after asking", async () => {

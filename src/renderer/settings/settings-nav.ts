@@ -139,20 +139,21 @@ const RENAMED_ANCHORS: Readonly<Record<string, string>> = {
   "setting-base-delay": "setting-first-wait",
   "setting-terminal-command": "setting-command-line",
   "setting-rotate-the-host-token": "setting-rotate-the-access-key",
+  "setting-appearance-terminal-font": "setting-terminal-font",
 };
 
-/** Rows that left General: where a link to one now lands (API 1.61.0). */
-const MOVED_FROM_GENERAL: Readonly<Record<string, string>> = {
-  "setting-run-on": "threads",
-  "setting-new-thread-workspace": "threads",
-  "setting-branch-name": "threads",
-  "setting-settle-automatically": "threads",
-  "setting-trace-tabs": "threads",
-  "setting-compact-context": "threads",
-  "setting-continue-threads-after-restarts": "threads",
-  "setting-wakes-during-a-turn": "threads",
-  "setting-keep-tau-running-in-the-background": "connections",
-  "setting-command-line": "connections",
+/** Rows that left the page a link names for another one: where a link to one now lands (API 1.61.0). */
+const MOVED_ROWS: Readonly<Record<string, { from: string; page: string }>> = {
+  "setting-run-on": { from: "general", page: "threads" },
+  "setting-new-thread-workspace": { from: "general", page: "threads" },
+  "setting-branch-name": { from: "general", page: "threads" },
+  "setting-settle-automatically": { from: "general", page: "threads" },
+  "setting-compact-context": { from: "general", page: "threads" },
+  "setting-continue-threads-after-restarts": { from: "general", page: "threads" },
+  "setting-wakes-during-a-turn": { from: "general", page: "threads" },
+  "setting-keep-tau-running-in-the-background": { from: "general", page: "connections" },
+  "setting-command-line": { from: "general", page: "connections" },
+  "setting-terminal-font": { from: "appearance", page: "terminal.settings" },
 };
 
 /**
@@ -167,7 +168,8 @@ export function parseSettingsTarget(target: string | undefined): { page: string;
   const named = RENAMED[rawPage] ?? (rawPage || "general");
   const modelsOf = named === "providers" ? /^runtime-models-(.+)$/u.exec(anchor ?? "")?.[1] : undefined;
   const merged = modelsOf ? runtimePage(modelsOf) : Object.hasOwn(MERGED_PAGES, named) ? MERGED_PAGES[named]! : named;
-  const page = merged === "general" && anchor !== undefined && Object.hasOwn(MOVED_FROM_GENERAL, anchor) ? MOVED_FROM_GENERAL[anchor]! : merged;
+  const moved = anchor !== undefined && Object.hasOwn(MOVED_ROWS, anchor) ? MOVED_ROWS[anchor]! : undefined;
+  const page = moved?.from === merged ? moved.page : merged;
   return anchor ? { page, anchor } : { page };
 }
 

@@ -29,7 +29,7 @@ export function mergeBuild(builds: readonly PackageBuild[], build: PackageBuild)
 const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 /**
- * Settings → Packages → Develop a package: how to start one, and the last
+ * Settings → Extensions → Advanced → Develop a package: how to start one, and the last
  * build of each installed package's halves with esbuild's errors in full,
  * updated as the host rebuilds a saved file.
  */

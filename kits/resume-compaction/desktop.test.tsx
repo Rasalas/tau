@@ -101,12 +101,14 @@ describe("Compact and send", () => {
     act(() => service!.turnOff("claude-code"));
     expect(mode.read(snapshot(usage(153_000, 120)))).toBeUndefined();
 
-    const page = registry.getSettingsPages().find((entry) => entry.id === "resume-compaction.settings")!;
-    expect(page.group).toBe("agents");
-    const Page = page.Component;
-    render(<WorkbenchShellContext.Provider value={{ snapshot: snapshot(undefined), registry }}><Page onNotify={vi.fn()} /></WorkbenchShellContext.Provider>);
+    const section = registry.getSettingsSections("threads").find((entry) => entry.id === "resume-compaction.offer")!;
+    expect(section.card).toBe("long-threads");
+    expect(section.replaces).toEqual(["resume-compaction.settings"]);
+    expect(registry.settingsPageReplacedBy("resume-compaction.settings")).toBe("threads");
+    const Offer = section.Component;
+    render(<WorkbenchShellContext.Provider value={{ snapshot: snapshot(undefined), registry }}><Offer onNotify={vi.fn()} onChanged={vi.fn()} /></WorkbenchShellContext.Provider>);
     fireEvent.click(screen.getByRole("switch", { name: "Offer to compact Claude Code threads" }));
     expect(mode.read(snapshot(usage(153_000, 120)))).toBeDefined();
-    expect(screen.getByText("Offered on every runtime")).toBeTruthy();
+    expect(screen.getByText(/^Offered on every runtime/u)).toBeTruthy();
   });
 });

@@ -282,20 +282,23 @@ describe("agents on another machine", () => {
     expect(machineChoiceText("auto", [rex])).toMatch(/Tau picks/u);
   });
 
-  it("adds Settings → Agents", () => {
+  it("adds a row to Settings → Threads, and sends the page it had to Threads", () => {
     const { registry } = createKitHarness();
     registry.activate(agentsExtension);
-    expect(registry.getSettingsPages().map((page) => page.id)).toContain("agents.settings");
+    expect(registry.getSettingsPages().map((page) => page.id)).not.toContain("agents.settings");
+    const section = registry.getSettingsSections("threads").find((entry) => entry.id === "agents.machine")!;
+    expect(section.card).toBe("running");
+    expect(registry.settingsPageReplacedBy("agents.settings")).toBe("threads");
   });
 
-  it("offers the machines in a menu on Settings → Agents, and draws each row the search lists", async () => {
+  it("offers the machines in a menu on Settings → Threads, and draws each row the search lists", async () => {
     const invoke = vi.fn(async (_id: string, command: string) => command === "machines"
       ? { available: true, machines: [{ id: "rex-id", name: "rex", status: "connected" }, { id: "ro-id", name: "watcher", status: "connected", readOnly: true }] }
       : undefined);
     const { registry, preferences } = createKitHarness(invoke);
     registry.activate(agentsExtension);
-    const page = registry.getSettingsPages().find((entry) => entry.id === "agents.settings")!;
-    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    const page = registry.getSettingsSections("threads").find((entry) => entry.id === "agents.machine")!;
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} onChanged={vi.fn()} /></TestProviders>);
     const menu = screen.getByRole("combobox", { name: "Run sub-agents on" });
     await waitFor(() => expect(within(menu).getAllByRole("option").map((option) => option.textContent)).toEqual(["This machine", "rex", "Automatic"]));
     for (const row of page.rows ?? []) expect(document.getElementById(row.id), row.id).toBeTruthy();
@@ -311,8 +314,8 @@ describe("agents on another machine", () => {
     });
     const { registry, preferences } = createKitHarness(invoke);
     registry.activate(agentsExtension);
-    const page = registry.getSettingsPages().find((entry) => entry.id === "agents.settings")!;
-    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} /></TestProviders>);
+    const page = registry.getSettingsSections("threads").find((entry) => entry.id === "agents.machine")!;
+    render(<TestProviders preferences={preferences}><page.Component onNotify={vi.fn()} onChanged={vi.fn()} /></TestProviders>);
     expect((await screen.findByRole("alert")).textContent).toContain("The host is gone.");
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PlatformEnvironments, SettingsPageProps, WorkbenchActions } from "tau";
+import type { PlatformEnvironments, SettingsSectionProps, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import remoteWork, { REMOTE_WORK_SETTINGS_PAGE } from "./desktop.js";
@@ -43,15 +43,18 @@ function setup(answer: (command: string, input?: unknown) => unknown, cwd: strin
   const invoke = vi.fn(async (_id: string, command: string, input?: unknown) => answer(command, input));
   const { registry, preferences } = createKitHarness(invoke, undefined, platform);
   registry.activate(remoteWork);
-  const page = registry.getSettingsPages().find((entry) => entry.id === REMOTE_WORK_SETTINGS_PAGE)!;
-  const props: SettingsPageProps = { onNotify: vi.fn(), ...(cwd ? { cwd } : {}) };
+  // The sections sit on the Machines page, which the old page's id still names.
+  expect(registry.getSettingsPages().find((entry) => entry.id === REMOTE_WORK_SETTINGS_PAGE)).toBeUndefined();
+  expect(registry.settingsPageReplacedBy(REMOTE_WORK_SETTINGS_PAGE)).toBe("environments.machines");
+  const page = registry.getSettingsSections("environments.machines")[0]!;
+  const props: SettingsSectionProps = { onNotify: vi.fn(), onChanged: vi.fn(), ...(cwd ? { cwd } : {}) };
   render(<TestProviders preferences={preferences}><page.Component {...props} /></TestProviders>);
   const push = (transfer: RepoTransfer) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: ID, name: TRANSFER_EVENT, payload: transfer }));
   const pushLink = (link: RemoteThreadLink) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: ID, name: THREAD_LINK_EVENT, payload: link }));
   return { invoke, props, push, pushLink, page, registry, preferences };
 }
 
-describe("Settings → Remote work", () => {
+describe("Settings → Machines › Remote work", () => {
   it("offers the project's ignored files with what was ticked, and remembers a change through the host", async () => {
     const { invoke } = setup((command, input) => {
       if (command === "ignored-files") return VIEW;

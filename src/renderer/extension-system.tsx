@@ -1101,6 +1101,8 @@ export interface SettingsSectionProps {
   extensionId?: string;
   /** On an extension's page: the open project, whose package folder the extension may live in. */
   cwd?: string;
+  /** Opens another place in Settings (`"extensions/<id>"`) without leaving it (API 1.61.0). */
+  onOpenSettings?(target: string): void;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { BellRing, FileKey, Lock, Send } from "lucide-react";
+import { FileKey, Lock, Send } from "lucide-react";
 import {
   Badge,
   Button,
@@ -15,7 +15,7 @@ import {
   errorMessage,
   useSetting,
 } from "tau";
-import type { DesktopExtension, DesktopExtensionContext, SettingsPageProps } from "tau";
+import type { DesktopExtension, DesktopExtensionContext, SettingsSectionProps } from "tau";
 import {
   AWAY_MINUTES,
   DEFAULT_AWAY_MINUTES,
@@ -201,9 +201,22 @@ function DeviceRow({ device, platformRoute = "relay", onTest, onRemove }: { devi
   );
 }
 
-function createSettingsPage(context: DesktopExtensionContext, store: StatusStore) {
-  return function PushSettingsPage({ onNotify }: SettingsPageProps) {
-    const { status, error } = useSyncExternalStore(store.subscribe, store.get);
+/** The status of the push keys and the phones, read when a section mounts and again when the host says it changed. */
+function usePushStatus(context: DesktopExtensionContext, store: StatusStore, onNotify: (message: string, level?: "info" | "warning" | "error") => void) {
+  const { status, error } = useSyncExternalStore(store.subscribe, store.get);
+  useEffect(() => {
+    const refresh = () => context.host.invoke("status").then((next) => store.set(decodePushStatus(next)), (failure: unknown) => store.set(undefined, errorMessage(failure)));
+    void refresh();
+    return context.host.onEvent(PUSH_STATE_EVENT, () => void refresh());
+  }, []);
+  const act = (command: string, input: unknown) => context.host.invoke(command, input).then((next) => { store.set(decodePushStatus(next)); }, (failure: unknown) => onNotify(errorMessage(failure), "error"));
+  return { status, error, act };
+}
+
+/** Notifications' sections for the phone: what a push says, when the phone hears, how it travels, and the phones that asked. */
+function createPhoneSections(context: DesktopExtensionContext, store: StatusStore) {
+  return function PushPhoneSections({ onNotify }: SettingsSectionProps) {
+    const { status, error, act } = usePushStatus(context, store, onNotify);
     const content = useSetting<PushContent>(`values.${ID}.${PUSH_CONTENT_KEY}`, {
       defaultValue: DEFAULT_PUSH_CONTENT,
       read: (raw) => (raw === "title" || raw === "excerpt" ? raw : undefined),
@@ -217,23 +230,10 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
       format: (value) => `${value} min`,
       offline: (value) => context.preferences.setValue(ID, PUSH_AWAY_KEY, value),
     });
-    useEffect(() => {
-      const refresh = () => context.host.invoke("status").then((next) => store.set(decodePushStatus(next)), (failure: unknown) => store.set(undefined, errorMessage(failure)));
-      void refresh();
-      return context.host.onEvent(PUSH_STATE_EVENT, () => void refresh());
-    }, []);
-    const act = (command: string, input: unknown) => context.host.invoke(command, input).then((next) => { store.set(decodePushStatus(next)); }, (failure: unknown) => onNotify(errorMessage(failure), "error"));
-
-    const header = <>
-      <h3>Push</h3>
-    </>;
-    if (!status && error) return <div className="settings-page push-settings">{header}<Empty icon={<Lock size={18} />} title="Only this machine can set this up" description={error} /></div>;
-    if (!status) return <div className="settings-page push-settings">{header}<SettingsState kind="loading" rows={3} title="Reading the push keys" /></div>;
-
-    const forget = (service: "apns" | "fcm") => act("forget", { service });
+    if (!status && error) return <SettingsSection title="Your phone"><Empty icon={<Lock size={18} />} title="Only this machine can set this up" description={error} /></SettingsSection>;
+    if (!status) return <SettingsSection title="Your phone"><SettingsState kind="loading" rows={3} title="Reading the push keys" /></SettingsSection>;
     return (
-      <div className="settings-page push-settings">
-        {header}
+      <>
         <SettingsSection title="What a notification says">
           <SettingRow
             id="setting-push-content"
@@ -264,6 +264,40 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
             />
           </SettingsSection>
         ) : null}
+        <SettingsSection title="Phones" id="setting-push-devices">
+          {status.devices.length === 0
+            ? <SettingsState kind="empty" title="No phone has asked yet" description="Open this machine in the Tau app on your phone and allow notifications when it asks." />
+            : status.devices.map((device) => (
+              <DeviceRow
+                key={device.id}
+                device={device}
+                platformRoute={status.routes?.[device.platform]}
+                onTest={async () => {
+                  try {
+                    const outcome = await context.host.invoke("test", { id: device.id }) as { ok: boolean; detail?: string };
+                    if (outcome.ok) onNotify(`Sent a test push to ${device.name}.`);
+                    else onNotify(`The test push to ${device.name} failed: ${outcome.detail ?? "no reason given"}.`, "error");
+                  } catch (failure) {
+                    onNotify(errorMessage(failure), "error");
+                  }
+                }}
+                onRemove={() => act("remove-device", { id: device.id })}
+              />
+            ))}
+        </SettingsSection>
+      </>
+    );
+  };
+}
+
+/** Under Notifications' Advanced fold: the keys of your own that send pushes directly, and where they are kept. */
+function createKeySections(context: DesktopExtensionContext, store: StatusStore) {
+  return function PushKeySections({ onNotify }: SettingsSectionProps) {
+    const { status, act } = usePushStatus(context, store, onNotify);
+    if (!status) return null;
+    const forget = (service: "apns" | "fcm") => act("forget", { service });
+    return (
+      <>
         <KeySection
           title="iPhone: Apple Push Notification service"
           id="setting-push-apns"
@@ -291,27 +325,6 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
             status={<ValueList label="Key file" items={[{ label: "File", value: status.file, mono: true, copy: status.file }]} />}
           />
         </SettingsSection>
-        <SettingsSection title="Devices" id="setting-push-devices">
-          {status.devices.length === 0
-            ? <SettingsState kind="empty" title="No phone has asked yet" description="Open this machine in the Tau app on your phone and allow notifications when it asks." />
-            : status.devices.map((device) => (
-              <DeviceRow
-                key={device.id}
-                device={device}
-                platformRoute={status.routes?.[device.platform]}
-                onTest={async () => {
-                  try {
-                    const outcome = await context.host.invoke("test", { id: device.id }) as { ok: boolean; detail?: string };
-                    if (outcome.ok) onNotify(`Sent a test push to ${device.name}.`);
-                    else onNotify(`The test push to ${device.name} failed: ${outcome.detail ?? "no reason given"}.`, "error");
-                  } catch (failure) {
-                    onNotify(errorMessage(failure), "error");
-                  }
-                }}
-                onRemove={() => act("remove-device", { id: device.id })}
-              />
-            ))}
-        </SettingsSection>
         {status.apns || status.fcm ? (
           <DangerZone>
             {status.apns ? (
@@ -336,43 +349,42 @@ function createSettingsPage(context: DesktopExtensionContext, store: StatusStore
             ) : null}
           </DangerZone>
         ) : null}
-      </div>
+      </>
     );
   };
 }
 
-/** The rows the Settings search finds; each id is a row's on the page. */
+/** The rows the Settings search finds in the sections under Notifications; each id is a row's. */
 export const PUSH_ROWS = [
-  { id: "setting-push-content", label: "Content", keywords: ["notification text", "excerpt", "title only"] },
-  { id: "setting-push-route", label: "Route", keywords: ["relay", "end-to-end", "encrypted", "direct"] },
-  { id: "setting-push-apns", label: "APNs key", keywords: ["apple", "iphone", "ios", "p8", "key id", "team id"] },
-  { id: "setting-push-fcm", label: "Service account", keywords: ["firebase", "android", "fcm", "json"] },
-  { id: "setting-push-key-file", label: "Key file", keywords: ["encrypted", "keychain", "storage"] },
-  { id: "setting-push-devices", label: "Devices", keywords: ["phones", "test push", "stop pushes"] },
+  { id: "setting-push-content", label: "Content", keywords: ["push", "notification text", "excerpt", "title only", "phone"] },
+  { id: "setting-push-away", label: "After you left Tau for", keywords: ["push", "away", "idle", "phone"] },
+  { id: "setting-push-route", label: "Route", keywords: ["push", "relay", "end-to-end", "encrypted", "direct"] },
+  { id: "setting-push-devices", label: "Phones that asked for pushes", keywords: ["push", "devices", "phones", "test push", "stop pushes"] },
+];
+
+/** What it finds under Notifications' Advanced fold. */
+export const PUSH_KEY_ROWS = [
+  { id: "setting-push-apns", label: "APNs key", keywords: ["push", "apple", "iphone", "ios", "p8", "key id", "team id"] },
+  { id: "setting-push-fcm", label: "Service account", keywords: ["push", "firebase", "android", "fcm", "json"] },
+  { id: "setting-push-key-file", label: "Key file", keywords: ["push", "encrypted", "keychain", "storage"] },
 ];
 
 /**
- * Push's desktop half: Settings → Push, where the owner enters the APNs key
- * and the Firebase service account, picks what a notification says, and sees
- * the phones that asked for pushes.
+ * Push's desktop half: sections of Settings → Notifications (API 1.61.0), where
+ * the owner picks what a push says and sees the phones that asked for pushes,
+ * and, under Advanced, enters the APNs key and the Firebase service account.
  */
 const push: DesktopExtension = {
   id: ID,
   name: "Push",
   activate(context) {
     const store = new StatusStore();
-    return context.registerSettingsPage({
-      id: "push.settings",
-      label: "Push",
-      description: "Your phone hears of a thread that finished, failed or needs you while you are away from Tau: through Tau's relay, encrypted for your phone alone, or directly with keys of your own.",
-      Icon: BellRing,
-      group: "app",
-      order: 46,
-      profiles: ["desktop", "web"],
-      keywords: ["notifications", "phone", "apns", "firebase", "fcm", "relay"],
-      rows: PUSH_ROWS,
-      Component: createSettingsPage(context, store),
-    });
+    const stops = [
+      // The page Push had before opens Notifications.
+      context.registerSettingsSection({ id: "push.phone", page: "notifications.settings", order: 20, profiles: ["desktop", "web"], replaces: ["push.settings"], rows: PUSH_ROWS, Component: createPhoneSections(context, store) }),
+      context.registerSettingsSection({ id: "push.keys", page: "notifications.settings", order: 20, advanced: true, profiles: ["desktop", "web"], rows: PUSH_KEY_ROWS, Component: createKeySections(context, store) }),
+    ];
+    return () => { for (const stop of stops) stop(); };
   },
 };
 

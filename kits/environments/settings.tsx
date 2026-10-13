@@ -7,6 +7,7 @@ import {
   type HostExtensionClient,
   NearbyMachineList,
   SettingRow,
+  SettingsPageSections,
   SettingsSection,
   TextField,
   errorMessage,
@@ -16,6 +17,7 @@ import {
   type EnvironmentPairInput,
   type EnvironmentPairResult,
   type PlatformEnvironments,
+  type SettingsPageProps,
   type UiDiscoveredHosts,
   type UiEnvironment,
   type UiEnvironmentPairing,
@@ -25,7 +27,7 @@ import { MachineHealth } from "./health.js";
 import { statusText } from "./machines.js";
 import { AgentsSwitch, PairingStatus, useAgentMachines } from "./agents.js";
 import { MachineSetup } from "./setup.js";
-import type { AgentMachines, MachineImportProps } from "./protocol.js";
+import { MACHINES_SETTINGS_PAGE, type AgentMachines, type MachineImportProps } from "./protocol.js";
 import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
 import { MachineWeights } from "./weights.js";
 import { MachineUpdateLine } from "./update.js";
@@ -269,7 +271,7 @@ function AddMachine({ environments, secureStorage, offerAgents, host, ImportConv
  * one. Adding one asks that machine's owner, who compares a code (ADR 0024).
  */
 export function createMachinesPage(environments: PlatformEnvironments, host?: HostExtensionClient, ImportConversations?: ComponentType<MachineImportProps>) {
-  return function MachinesPage() {
+  return function MachinesPage({ cwd, onNotify }: Partial<SettingsPageProps> = {}) {
     const list = useEnvironments(environments);
     // Agents are this machine's host's: only while the page shows this machine, and on a host that keeps machines.
     const agentMachines = useAgentMachines(environments.shownElsewhere ? undefined : host);
@@ -346,6 +348,8 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
             )}
           />
         </SettingsSection>
+        {/* What other extensions attach: Remote work's ignored files and transfers (API 1.61.0). */}
+        <SettingsPageSections page={MACHINES_SETTINGS_PAGE} onNotify={onNotify ?? (() => undefined)} {...(cwd ? { cwd } : {})} />
         {removing ? (
           <ConfirmDialog
             title={`Remove ${removing.name}?`}
