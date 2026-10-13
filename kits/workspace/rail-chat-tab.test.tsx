@@ -117,7 +117,7 @@ describe("picking a thread in the rail while only one of chat and stage fits", (
     fireEvent.click(await screen.findByRole("button", { name: "Files" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Diffs/ }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Diffs/ }));
     fireEvent.click(await within(stage).findByRole("button", { name: "Maximize stage" }));
     expect(center()).toContain("conversation-folded");
 
@@ -221,7 +221,7 @@ describe("starting a new thread while only one of chat and stage fits", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Files" }));
     const stage = await screen.findByRole("region", { name: "Stage" });
     fireEvent.click(within(stage).getByRole("button", { name: "More tools" }));
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Diffs/ }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Diffs/ }));
     fireEvent.click(await within(stage).findByRole("button", { name: "Maximize stage" }));
     expect(center()).toContain("conversation-folded");
 

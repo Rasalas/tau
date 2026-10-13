@@ -70,7 +70,7 @@ export function StageTools({ panels, shown, opened = noOpened, onOpen, side = "b
       <button type="button" className="stage-tool" aria-label="More tools" aria-haspopup="menu" aria-expanded={more}
         {...tooltipProps("More tools", { side })} onClick={() => setMore((open) => !open)}><Ellipsis size={14} /></button>
       {more ? <Menu align="right" label="More tools"
-        items={rest.map((panel) => ({ id: panel.id, label: panel.label, icon: <PanelIcon Icon={panel.Icon} size={15} />, selected: shown.has(panel.id) }))}
+        items={rest.map((panel) => ({ id: panel.id, label: panel.label, icon: <PanelIcon Icon={panel.Icon} size={15} />, selected: shown.has(panel.id), multiple: true }))}
         onSelect={(id) => { setMore(false); onOpen(id); }} onClose={() => setMore(false)} /> : null}
     </span> : null}
   </div>;

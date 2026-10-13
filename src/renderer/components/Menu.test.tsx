@@ -183,6 +183,30 @@ describe("Menu semantics", () => {
     expect(within(screen.getByRole("group", { name: "Sort" })).getAllByRole("menuitemradio")).toHaveLength(2);
   });
 
+  it("reads a choice among several that can all be on as a checkbox item", () => {
+    const onSelect = vi.fn();
+    render(<Menu
+      sections={[{ heading: "Tools", items: [
+        { id: "files", label: "Files", selected: true, multiple: true },
+        { id: "diffs", label: "Diffs", selected: false, multiple: true },
+        { id: "sub", label: "More", selected: true, multiple: true, submenu: [{ items: [{ id: "x", label: "X" }] }] },
+        { id: "plain", label: "Plain", multiple: true },
+      ] }]}
+      label="Tools"
+      onSelect={onSelect}
+      onClose={() => undefined}
+    />);
+    const menu = screen.getByRole("menu", { name: "Tools" });
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Files", checked: true })).toBeTruthy();
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Diffs", checked: false })).toBeTruthy();
+    expect(within(menu).queryAllByRole("menuitemradio")).toHaveLength(0);
+    // `multiple` alone is no choice, and a submenu entry stays an item.
+    expect(within(menu).getByRole("menuitem", { name: "Plain" }).hasAttribute("aria-checked")).toBe(false);
+    expect(within(menu).getByRole("menuitem", { name: "More" }).getAttribute("aria-haspopup")).toBe("menu");
+    fireEvent.click(within(menu).getByRole("menuitemcheckbox", { name: "Diffs" }));
+    expect(onSelect).toHaveBeenCalledWith("diffs");
+  });
+
   it("picks a radio item like any other entry", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
