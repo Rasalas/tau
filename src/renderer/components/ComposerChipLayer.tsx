@@ -5,6 +5,7 @@ import { CHIP_MARK, CHIP_SLOT, mirrorSegments, removeChipToken, repairChipTokens
 import { ComposerChipPopover } from "./ComposerChipPopover";
 import { useComposerChips, type UseComposerChipsOptions } from "./useComposerChips";
 import { useComposerCollapse } from "./useComposerCollapse";
+import { useMobileComposerFold } from "./useMobileComposerFold";
 import { composerFold } from "./composer-fold";
 import { useCompactForm } from "../use-layout-profile";
 
@@ -198,7 +199,9 @@ export default function ComposerChipLayer(props: ComposerChipLayerProps) {
   const idle = () => (mobileComposer
     ? latest.current.text.length === 0 && attachments.length === 0 && !document.body.hasAttribute("data-keyboard")
     : !latest.current.text.includes("\n")) && !zoneRef.current?.querySelector(BUSY);
-  const { collapsed } = useComposerCollapse({ enabled: collapseEnabled && !openChip, idle, zoneRef });
+  const foldEnabled = collapseEnabled && !openChip;
+  const { collapsed } = useComposerCollapse({ enabled: foldEnabled && !mobileComposer, idle, zoneRef });
+  useMobileComposerFold({ enabled: foldEnabled && mobileComposer, idle, zoneRef });
   useLayoutEffect(() => { zoneRef.current?.classList.toggle("collapsed", collapsed); }, [collapsed, zoneRef]);
 
   const openFromList = (label: string) => {

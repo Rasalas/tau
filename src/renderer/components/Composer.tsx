@@ -240,6 +240,13 @@ export function Composer({
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
+    // The compact profile is applied after mount; do not pin the desktop's
+    // initial minimum onto an empty mobile editor.
+    if (!text) {
+      textarea.style.height = "";
+      textarea.style.overflowY = "hidden";
+      return;
+    }
     textarea.style.height = "auto";
     const contentHeight = textarea.scrollHeight;
     if (contentHeight <= 0) {

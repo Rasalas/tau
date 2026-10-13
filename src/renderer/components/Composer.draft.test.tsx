@@ -55,9 +55,22 @@ function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: Clie
   return screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 }
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("Composer draft persistence", () => {
+  it("lets the current layout size an empty editor, including after clearing a draft", () => {
+    // A draft mounts before the compact profile replaces the desktop's taller minimum.
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(78);
+    const textarea = renderComposer(async () => ({ accepted: true }), createMemoryStorage());
+    expect(textarea.style.height).toBe("");
+
+    fireEvent.change(textarea, { target: { value: "First line\nSecond line" } });
+    expect(textarea.style.height).toBe("78px");
+    fireEvent.change(textarea, { target: { value: "" } });
+    expect(textarea.style.height).toBe("");
+    expect(textarea.style.overflowY).toBe("hidden");
+  });
+
   it("records only the accepted prompt and saves history once", async () => {
     const storage = createMemoryStorage();
     saveStoredPromptHistory(storage, ["previously sent"]);
