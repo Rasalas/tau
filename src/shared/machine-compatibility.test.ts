@@ -34,7 +34,7 @@ it("recognizes only complete generated update notices for presentation", () => {
   expect(isMachineUpdateNotice("rex runs an older Tau that cannot start threads yet. Update rex in Settings → Machines.")).toBe(true);
   for (const operation of ["rename threads from here", "take images from here", "change models from here"]) expect(isMachineUpdateNotice(`rex runs an older Tau that cannot ${operation} yet. Update rex in Settings → Machines.`)).toBe(true);
   expect(isMachineUpdateNotice("rex runs an older Tau that cannot fly yet. Update rex in Settings → Machines.")).toBe(false);
-  expect(isMachineUpdateNotice("rex has no Workspace Kit that can do this yet. Update rex.")).toBe(true);
+  expect(isMachineUpdateNotice("rex has no Workspace that can do this yet. Update rex.")).toBe(true);
   expect(isMachineUpdateNotice("rex has no Files that can do this yet. Update attic.")).toBe(false);
   expect(isMachineUpdateNotice("Provider says update rex in Settings → Machines.")).toBe(false);
   expect(isMachineUpdateNotice("Failed: rex has no Files that can do this yet. Update rex.")).toBe(false);

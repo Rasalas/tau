@@ -18,14 +18,16 @@ const SUBMODULES: ReadonlyArray<{ value: "" | WorktreeSubmodules; label: string 
 
 /** The page's rows, for the Settings search. */
 export const SOURCE_CONTROL_SETTINGS_ROWS = [
+  { id: "setting-worktrees-under", label: "Worktrees under", keywords: ["git", "folder", "directory", "worktree"] },
   { id: "setting-worktree-submodules", label: "Submodules", keywords: ["git submodules", "recursive", "worktreeSubmodules"] },
   { id: "setting-auto-pull", label: "Keep the default branch current", keywords: ["pull", "fast-forward", "upstream", "main"] },
   { id: "setting-project-base-directory", label: "Add project starts in", keywords: ["clone", "folder", "base folder", "directory"] },
 ];
 
 /**
- * Settings → Source control: how a new worktree fills its submodules, whether
- * the default branch keeps itself current, and where new projects start.
+ * Settings → Source control: where a new worktree is made and how it fills its
+ * submodules, whether the default branch keeps itself current, and where new
+ * projects start.
  * Where new threads run and what they start from are General's New threads.
  */
 export function SourceControlPage() {
@@ -37,11 +39,14 @@ export function SourceControlPage() {
   });
   const autoPull = useSetting<boolean>(option(AUTO_PULL_OPTION), { defaultValue: false, scope: "both", read: readBoolean });
   const baseDirectory = useSetting<string>(value(PROJECT_BASE_DIRECTORY_KEY), { defaultValue: "", read: readString, format: (next) => next || "Home folder" });
+  const folder = useSetting<string>(value(WORKTREE_DIRECTORY_KEY), { defaultValue: "", read: readString });
 
   return (
     <div className="settings-page source-control-page">
       <h3>Source control</h3>
       <SettingsSection title="New worktrees">
+        <SettingRow id="setting-worktrees-under" title="Worktrees under" description="Empty puts a worktree beside its project." setting={folder}
+          control={<PathField label="Worktrees under" placeholder="Beside each project" setting={folder} />} />
         <SettingRow id="setting-worktree-submodules" title="Submodules" description="How a new worktree fills its git submodules."
           help="Top level only stops at the ones the repository declares; Skip leaves them to a setup script. Project file reads worktreeSubmodules from the branch's .tau/project.json, else recursive." setting={submodules}
           control={<Select label="Submodules" value={submodules.value} options={SUBMODULES} onChange={(next) => (next === "" ? submodules.reset() : submodules.set(next))} />} />
@@ -99,15 +104,10 @@ export function TraceTabsRow() {
     control={<Switch label="Trace tabs" checked={trace.value} onChange={trace.set} />} />;
 }
 
-/** Connections' This machine card (design 2h): the editor "Open in editor" launches, and where new worktrees go. */
+/** Connections' This machine card (design 2h): the editor "Open in editor" launches. */
 export function ThisMachineRows() {
   const { store, state } = useWorkspaceState();
   useEffect(() => { void store.loadEditors(); }, [store]);
-  const folder = useSetting<string>(value(WORKTREE_DIRECTORY_KEY), { defaultValue: "", read: readString });
-  return <>
-    <SettingRow id="setting-editor" title="Editor" description="“Open in editor” launches"
-      control={<Select label="Editor" value={store.activeEditor()?.id} options={state.editors.map((entry) => ({ value: entry.id, label: entry.name }))} onChange={(id) => store.chooseEditor(id)} />} />
-    <SettingRow id="setting-worktrees-under" title="Git" description="worktrees under" setting={folder}
-      control={<PathField label="Worktrees under" placeholder="Beside each project" setting={folder} />} />
-  </>;
+  return <SettingRow id="setting-editor" title="Editor" description="“Open in editor” launches"
+    control={<Select label="Editor" value={store.activeEditor()?.id} options={state.editors.map((entry) => ({ value: entry.id, label: entry.name }))} onChange={(id) => store.chooseEditor(id)} />} />;
 }

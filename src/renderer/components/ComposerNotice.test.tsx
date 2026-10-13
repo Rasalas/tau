@@ -48,7 +48,7 @@ describe("ComposerNotice (2c)", () => {
     const text = screen.getByRole("status").textContent ?? "";
     expect(text).not.toMatch(/rejected|Replace key|\/login|\.md/u);
     expect(screen.queryByRole("button", { name: "Replace key" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open Providers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Runtimes" }));
     expect(onReplaceKey).toHaveBeenCalledOnce();
   });
 });
@@ -84,7 +84,7 @@ describe("SetupNotice", () => {
     const onOpen = vi.fn();
     render(<SetupNotice setup={{ state: "none" }} onOpen={onOpen} />);
     expect(screen.getByRole("status").querySelector("strong")?.textContent).toBe("No provider is set up yet");
-    fireEvent.click(screen.getByRole("button", { name: "Open Providers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Runtimes" }));
     expect(onOpen).toHaveBeenCalledOnce();
   });
 });

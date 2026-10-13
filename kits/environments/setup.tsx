@@ -76,7 +76,7 @@ function SetupAgent({ row, environments, machine, tools, actions }: {
       <td>{stateText(row.there)}</td>
       <td>
         {row.there?.state === "sign-in-required" ? row.kind === "pi"
-          ? <small>Set up providers on {machine.name} in Settings → Models there</small>
+          ? <small>Set up providers on {machine.name} in Settings → Runtimes there</small>
           : <Button onClick={() => setExpanded(!expanded)}>Sign in on {machine.name}</Button>
           : row.there?.state === "not-installed" && tool ? <><code>{tool.install}</code> <Button onClick={() => void copyText(tool.install)}>Copy</Button></> : null}
       </td>

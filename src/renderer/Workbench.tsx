@@ -324,9 +324,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     dropController, activeDraftKey, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
     renameThread, copyThreadValue, threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   } = thread;
-  const {
-    setModel, setThinking,
-  } = composer;
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const hostCapabilities = useHostCapabilities();
@@ -683,8 +680,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
           projects={projects}
           threads={threadStore.getSnapshot().threads}
           onSetPage={setSettingsPage}
-          onSetModel={(provider, id) => void setModel(provider, id)}
-          onSetThinking={(level) => void setThinking(level)}
           onClose={() => setSettingsPage(undefined)}
           onNotify={setNotice}
         />

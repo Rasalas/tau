@@ -367,7 +367,7 @@ describe("trusting a remote host", () => {
     const message = certificateRefusalMessage("wss://127.0.0.1:7788", trust, OTHER, "/data/known-hosts.json");
     expect(message).toContain(`Expected SHA-256: ${FINGERPRINT}`);
     expect(message).toContain(`Presented SHA-256: ${OTHER}`);
-    expect(message).toContain("did not send the host token");
+    expect(message).toContain("did not send the access key");
     expect(message).toContain("remove the entry for 127.0.0.1:7788 from /data/known-hosts.json");
     expect(certificateRefusalMessage("wss://h:1", { ...trust, source: "environment" }, OTHER, "x")).toMatch(/update TAU_HOST_FINGERPRINT.*TAU_HOST_PUBLIC_KEY/u);
 

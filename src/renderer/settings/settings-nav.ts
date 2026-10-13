@@ -3,34 +3,47 @@
  * in Settings. Pure, so the order and the links are tested without the screen.
  */
 
-/** The groups of the navigation, in order; a page names its group, a page without one is an extension's. */
-export type SettingsNavGroup = "general" | "threads" | "projects" | "remote" | "extensions" | "diagnostics";
+/**
+ * The groups of the navigation, in order. A page names its group; one that names
+ * none sits in App, after the pages core keeps there. `diagnostics` is not a
+ * heading: its pages stand above About Tau at the foot of the column.
+ */
+export type SettingsNavGroup = "app" | "agents" | "projects" | "tools" | "machines" | "diagnostics";
+
+/** The names of a group before API 1.61.0; a page that still uses one is placed in the group it became. */
+export type SettingsNavGroupAlias = "general" | "threads" | "remote" | "extensions";
+
+const GROUP_ALIASES: Readonly<Record<SettingsNavGroupAlias, SettingsNavGroup>> = { general: "app", threads: "agents", remote: "machines", extensions: "app" };
 
 export const SETTINGS_NAV_GROUPS: ReadonlyArray<{ id: SettingsNavGroup; label: string; folds?: boolean }> = [
-  // The pages most people come for stay open; the rest fold (design 1j lists eight).
-  { id: "general", label: "Settings" },
-  { id: "threads", label: "Threads", folds: true },
+  // What most people come for stays open; the rest fold.
+  { id: "app", label: "App" },
+  { id: "agents", label: "Agents" },
   { id: "projects", label: "Projects", folds: true },
-  { id: "remote", label: "Remote", folds: true },
-  { id: "extensions", label: "Extensions", folds: true },
-  { id: "diagnostics", label: "Diagnostics", folds: true },
+  { id: "tools", label: "Tools", folds: true },
+  { id: "machines", label: "Machines", folds: true },
+  { id: "diagnostics", label: "Diagnostics" },
 ];
 
-export function isSettingsNavGroup(value: unknown): value is SettingsNavGroup {
-  return SETTINGS_NAV_GROUPS.some((group) => group.id === value);
+export function isSettingsNavGroup(value: unknown): value is SettingsNavGroup | SettingsNavGroupAlias {
+  return SETTINGS_NAV_GROUPS.some((group) => group.id === value) || (typeof value === "string" && Object.hasOwn(GROUP_ALIASES, value));
+}
+
+/** The group a page's `group` names; a page without one is in App. */
+export function navGroupOf(name: SettingsNavGroup | SettingsNavGroupAlias | undefined): SettingsNavGroup {
+  if (name === undefined) return "app";
+  return Object.hasOwn(GROUP_ALIASES, name) ? GROUP_ALIASES[name as SettingsNavGroupAlias] : name as SettingsNavGroup;
 }
 
 /** Core's own pages: their place among the pages kits add to the same groups. */
 export const CORE_SETTINGS_PAGES = [
-  { id: "general", label: "General", group: "general", order: 0 },
-  { id: "models", label: "Models", group: "general", order: 10 },
-  { id: "providers", label: "Providers", group: "general", order: 20 },
-  { id: "runtimes", label: "Runtimes", group: "general", order: 30 },
-  { id: "keybindings", label: "Keybindings", group: "general", order: 80 },
-  { id: "connections", label: "Connections", group: "general", order: 90 },
-  { id: "pi", label: "Pi", group: "threads", order: 20 },
-  { id: "extensions", label: "All extensions", group: "extensions", order: 0 },
-  { id: "inspector", label: "Inspector", group: "diagnostics", order: 50 },
+  { id: "general", label: "General", group: "app", order: 0 },
+  { id: "keybindings", label: "Keybindings", group: "app", order: 80 },
+  { id: "extensions", label: "Extensions", group: "app", order: 90 },
+  { id: "runtimes", label: "Runtimes", group: "agents", order: 0 },
+  { id: "threads", label: "Threads", group: "agents", order: 10 },
+  { id: "connections", label: "Connections", group: "machines", order: 90 },
+  { id: "inspector", label: "Diagnostics", group: "diagnostics", order: 0 },
 ] as const satisfies ReadonlyArray<{ id: string; label: string; group: SettingsNavGroup; order: number }>;
 
 export type CoreSettingsPage = (typeof CORE_SETTINGS_PAGES)[number]["id"] | "about";
@@ -39,24 +52,20 @@ export type CoreSettingsPage = (typeof CORE_SETTINGS_PAGES)[number]["id"] | "abo
 export const CORE_PAGE_TITLES: Readonly<Record<CoreSettingsPage, string>> = {
   general: "General",
   keybindings: "Keybindings",
-  models: "Models",
-  providers: "Providers",
   runtimes: "Runtimes",
-  pi: "Pi",
+  threads: "Threads",
   connections: "Connections",
   extensions: "Extensions",
-  inspector: "Inspector",
+  inspector: "Diagnostics",
   about: "About",
 };
 
 /** What a core page governs, in one sentence under its title; the search finds it too. */
 export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> = {
-  general: "How the transcript and the composer behave, and how Tau runs in the background and quits.",
+  general: "How the composer and the transcript behave, and how Tau quits.",
   keybindings: "Shortcuts follow the layer you are in: the app, the conversation, the stage. Conflicts are shown as you type.",
-  models: "What a new thread starts with: its model and how hard it thinks, and what Pi samples with.",
-  providers: "Who each runtime is signed in as and the providers it reaches, where its program lives, and the models it offers.",
-  runtimes: "A runtime is the program that runs a thread, with its own tools, approvals and sessions; providers are what it talks to. The composer picks one per thread.",
-  pi: "Pi's own settings, shared with the Pi CLI. A change applies to the next thread Tau starts; a running one keeps what it began with.",
+  runtimes: "A runtime is the program that runs a thread, with its own sign-in, models and tools. The star marks where a new thread starts; the composer can still pick another per thread.",
+  threads: "Where a new thread starts, and how a thread behaves while it runs and after a restart.",
   connections: "Devices that talk to this machine directly, and the tools threads hand off to. Pairing uses a code you compare on both sides.",
   extensions: "Everything that adds to Tau, bundled or installed. Turn one on or off, approve what it asks for, or open its page.",
   inspector: "Every extension both halves know and the package folders on disk, to find out why something did not load.",
@@ -66,7 +75,7 @@ export const CORE_PAGE_DESCRIPTIONS: Readonly<Record<CoreSettingsPage, string>> 
 export interface SettingsNavItem {
   id: string;
   label: string;
-  group?: SettingsNavGroup | undefined;
+  group?: SettingsNavGroup | SettingsNavGroupAlias | undefined;
   order?: number | undefined;
 }
 
@@ -75,7 +84,7 @@ export function settingsNavGroups<T extends SettingsNavItem>(items: readonly T[]
   return SETTINGS_NAV_GROUPS.flatMap((group) => {
     const members = items
       .map((item, index) => ({ item, index }))
-      .filter(({ item }) => (item.group ?? "extensions") === group.id)
+      .filter(({ item }) => navGroupOf(item.group) === group.id)
       .sort((left, right) => (left.item.order ?? 100) - (right.item.order ?? 100) || left.index - right.index)
       .map(({ item }) => item);
     return members.length ? [{ ...group, items: members }] : [];
@@ -102,17 +111,63 @@ export function extensionOfPage(page: string): string | undefined {
   return page.startsWith(EXTENSION_PAGE_PREFIX) ? page.slice(EXTENSION_PAGE_PREFIX.length) || undefined : undefined;
 }
 
+/** A runtime on the Runtimes page: `runtimes/<kind>`, under the list of runtimes (API 1.61.0). */
+export const RUNTIME_PAGE_PREFIX = "runtimes/";
+
+export function runtimePage(kind: string): string {
+  return `${RUNTIME_PAGE_PREFIX}${kind}`;
+}
+
+export function runtimeOfPage(page: string): string | undefined {
+  return page.startsWith(RUNTIME_PAGE_PREFIX) ? page.slice(RUNTIME_PAGE_PREFIX.length) || undefined : undefined;
+}
+
 /** Page ids older links still use. */
 const RENAMED: Readonly<Record<string, string>> = { defaults: "general" };
+
+/** Pages that became part of Runtimes (API 1.61.0): Pi's and the model settings are Pi's entry there; a kit's card has its runtime's. */
+const MERGED_PAGES: Readonly<Record<string, string>> = { models: runtimePage("pi"), pi: runtimePage("pi"), providers: "runtimes" };
+
+/** Rows whose title, and so their id, changed when their page was merged or cleaned up. */
+const RENAMED_ANCHORS: Readonly<Record<string, string>> = {
+  "setting-startup-model": "setting-default-model",
+  "setting-startup-thinking-level": "setting-default-thinking",
+  "setting-thinking-level": "setting-default-thinking",
+  "setting-reserve-tokens": "setting-room-for-the-reply",
+  "setting-keep-recent-tokens": "setting-keep-recent",
+  "setting-max-retries": "setting-retries",
+  "setting-base-delay": "setting-first-wait",
+  "setting-terminal-command": "setting-command-line",
+  "setting-rotate-the-host-token": "setting-rotate-the-access-key",
+};
+
+/** Rows that left General: where a link to one now lands (API 1.61.0). */
+const MOVED_FROM_GENERAL: Readonly<Record<string, string>> = {
+  "setting-run-on": "threads",
+  "setting-new-thread-workspace": "threads",
+  "setting-branch-name": "threads",
+  "setting-settle-automatically": "threads",
+  "setting-trace-tabs": "threads",
+  "setting-compact-context": "threads",
+  "setting-continue-threads-after-restarts": "threads",
+  "setting-wakes-during-a-turn": "threads",
+  "setting-keep-tau-running-in-the-background": "connections",
+  "setting-command-line": "connections",
+};
 
 /**
  * A place in Settings, as `openSettings` and a phone's `?settings=` name it:
  * a page id, optionally `#` and the id of a row on it — `general#setting-show-costs`,
- * `extensions/tau.terminal`, `models#setting-thinking-level`.
+ * `extensions/tau.terminal`, `runtimes/pi#setting-default-thinking`. The older
+ * `models`, `pi` and `providers` land on Runtimes, and `providers#runtime-models-<kind>` on that runtime.
  */
 export function parseSettingsTarget(target: string | undefined): { page: string; anchor?: string } {
-  const [rawPage = "", anchor] = (target ?? "").split("#", 2);
-  const page = RENAMED[rawPage] ?? (rawPage || "general");
+  const [rawPage = "", rawAnchor] = (target ?? "").split("#", 2);
+  const anchor = rawAnchor === undefined ? undefined : RENAMED_ANCHORS[rawAnchor] ?? rawAnchor;
+  const named = RENAMED[rawPage] ?? (rawPage || "general");
+  const modelsOf = named === "providers" ? /^runtime-models-(.+)$/u.exec(anchor ?? "")?.[1] : undefined;
+  const merged = modelsOf ? runtimePage(modelsOf) : Object.hasOwn(MERGED_PAGES, named) ? MERGED_PAGES[named]! : named;
+  const page = merged === "general" && anchor !== undefined && Object.hasOwn(MOVED_FROM_GENERAL, anchor) ? MOVED_FROM_GENERAL[anchor]! : merged;
   return anchor ? { page, anchor } : { page };
 }
 

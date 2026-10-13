@@ -366,7 +366,7 @@ const push: DesktopExtension = {
       label: "Push",
       description: "Your phone hears of a thread that finished, failed or needs you while you are away from Tau: through Tau's relay, encrypted for your phone alone, or directly with keys of your own.",
       Icon: BellRing,
-      group: "remote",
+      group: "app",
       order: 46,
       profiles: ["desktop", "web"],
       keywords: ["notifications", "phone", "apns", "firebase", "fcm", "relay"],

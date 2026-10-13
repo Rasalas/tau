@@ -24,7 +24,7 @@ export const resumeCompactionExtension: DesktopExtension = {
         label: "Resume compaction",
         description: "A thread with a long context, quiet for longer than its prompt cache lasts, resumes with a cold cache. Its send button then compacts first, on the runtimes whose provider caches the prompt.",
         Icon: Minimize2,
-        group: "threads",
+        group: "agents",
         order: 60,
         keywords: ["compact", "context", "prompt cache"],
         profiles: EVERY_CLIENT,

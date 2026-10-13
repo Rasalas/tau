@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 function Harness({ registry }: { registry: ExtensionRegistry }) {
   const [page, setPage] = useState("defaults");
-  return <SettingsScreen page={page} registry={registry} onSetPage={setPage} onSetModel={() => undefined} onSetThinking={() => undefined} onClose={() => undefined} onNotify={() => undefined} />;
+  return <SettingsScreen page={page} registry={registry} onSetPage={setPage} onClose={() => undefined} onNotify={() => undefined} />;
 }
 
 /** A page whose row waits for an answer, the way rows read from the host do. */

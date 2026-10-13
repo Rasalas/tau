@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ArrowLeft, Blocks, Bot, ChevronLeft, ChevronRight, Command, Cpu, Info, MonitorSmartphone, Puzzle, Search, Server, Settings2, Sparkles, X, type LucideIcon } from "lucide-react";
+import { Activity, ArrowLeft, Blocks, Bot, ChevronLeft, ChevronRight, Command, Info, ListTree, MonitorSmartphone, Search, Settings2, X, type LucideIcon } from "lucide-react";
 import type { HostSnapshot, UiProject, UiSession } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { usePreferences } from "../renderer-services-context";
@@ -8,13 +8,12 @@ import { useHostCapabilities } from "../use-host-capabilities";
 import { usePlatform } from "../platform-context";
 import { useAppPageStore } from "../app-page-context";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
-import { PiSettingsPage } from "../components/PiSettingsPage";
 import { WindowControlsInset } from "../components/WindowControlsInset";
 import { isMacPlatform } from "../keybindings";
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { ConfigLayersStore, type SettingsProject } from "../../workbench/config-layers-store";
 import { searchSettings, settingsSearchEntries, type SettingsSearchEntry } from "./settings-search";
-import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, settingsNavGroupOpen, settingsNavGroups, settingsTarget, type SettingsNavGroup } from "./settings-nav";
+import { CORE_PAGE_DESCRIPTIONS, CORE_PAGE_TITLES, CORE_SETTINGS_PAGES, extensionOfPage, extensionPage, parentSettingsPage, parseSettingsTarget, runtimeOfPage, runtimePage, settingsNavGroupOpen, settingsNavGroups, settingsTarget, type SettingsNavGroup, type SettingsNavGroupAlias } from "./settings-nav";
 import { SettingsLevelsProvider } from "./settings-layout";
 import { SettingsPageActionSlot } from "./page-action";
 import { SettingsPageHead, type SettingsCrumb } from "./page-head";
@@ -23,12 +22,11 @@ import { extensionCatalog, needsAttention } from "./extension-catalog";
 import { AboutPage } from "./AboutPage";
 import { ConnectionsPage } from "./ConnectionsPage";
 import { GeneralPage } from "./GeneralPage";
-import { ModelsPage } from "./ModelsPage";
+import { ThreadsPage } from "./ThreadsPage";
 import { ExtensionPage, ExtensionPageFallback, useExtensionSources } from "./ExtensionPage";
 import { ExtensionsPage } from "./ExtensionsPage";
 import { InspectorPage } from "./InspectorPage";
 import { KeybindingsPage } from "./KeybindingsPage";
-import { ProvidersPage, providerCardId } from "./ProvidersPage";
 import { RuntimesPage } from "./RuntimesPage";
 import { inRuntimeOrder } from "../runtime-order";
 import { effectiveNewThreadRuntime } from "../new-thread-runtime";
@@ -50,20 +48,18 @@ function currentProject(snapshot: HostSnapshot | undefined, projects: readonly U
 const CORE_ICONS: Readonly<Record<string, LucideIcon>> = {
   general: Settings2,
   keybindings: Command,
-  models: Sparkles,
-  providers: Server,
   runtimes: Bot,
-  pi: Cpu,
+  threads: ListTree,
   connections: MonitorSmartphone,
   extensions: Blocks,
-  inspector: Puzzle,
+  inspector: Activity,
   about: Info,
 };
 
 interface NavItem {
   id: string;
   label: string;
-  group: SettingsNavGroup | undefined;
+  group: SettingsNavGroup | SettingsNavGroupAlias | undefined;
   order: number | undefined;
   Icon: PanelIconComponent | undefined;
   useSummary?: (() => string | undefined) | undefined;
@@ -95,8 +91,6 @@ export function SettingsScreen({
   projects = [],
   threads = [],
   onSetPage,
-  onSetModel,
-  onSetThinking,
   onClose,
   onNotify,
   stacked = false,
@@ -111,8 +105,6 @@ export function SettingsScreen({
   /** The window's threads: those of other machines tell which projects are not this machine's. */
   threads?: readonly UiSession[];
   onSetPage(page: string): void;
-  onSetModel(provider: string, id: string): void;
-  onSetThinking(level: string): void;
   onClose(): void;
   onNotify(message: string, level?: "info" | "warning" | "error"): void;
   /** One column, as on a phone: the section list first, a page after a tap, and back. */
@@ -145,7 +137,7 @@ export function SettingsScreen({
     return preferences.subscribe(() => void levels.refresh());
   }, [levels, preferences]);
 
-  const { page: requested, anchor } = parseSettingsTarget(target);
+  const { page: parsedPage, anchor } = parseSettingsTarget(target);
   const [answered, setAnswered] = useState(0);
   const sources = useExtensionSources(snapshot?.cwd, answered);
   const loaded = registry.getExtensionSummaries();
@@ -157,11 +149,13 @@ export function SettingsScreen({
     skipped: sources.inspection?.skipped ?? [],
     disabled: disabledExtensions,
   });
-  // Pages extensions own. Core keeps General, Models, Keybindings and the
-  // Inspector, so safe mode still has a model picker and a way to see what is loaded.
+  // Pages extensions own. Core keeps General, Runtimes, Keybindings and
+  // Diagnostics, so safe mode still has a model picker and a way to see what is loaded.
   const contributions = registry.getSettingsPages();
-  // A page about a runtime is a card on Providers, not a page of its own.
-  const providers = inRuntimeOrder(contributions.filter((entry) => entry.runtime), (entry) => entry.runtime, snapshot?.runtimeBackends);
+  // A page about a runtime is that runtime's card on Runtimes, not a page of its own; its old id opens the runtime.
+  const cards = inRuntimeOrder(contributions.filter((entry) => entry.runtime), (entry) => entry.runtime, snapshot?.runtimeBackends);
+  const cardRuntime = cards.find((card) => card.id === parsedPage)?.runtime;
+  const requested = cardRuntime ? runtimePage(cardRuntime) : parsedPage;
   const pages = contributions.filter((entry) => !entry.runtime && !entry.standalone);
   const contributed = contributions.find((entry) => !entry.runtime && entry.id === requested);
   const isCore = requested in CORE_PAGE_TITLES;
@@ -170,28 +164,30 @@ export function SettingsScreen({
   const page = extensionId ? extensionPage(extensionId) : requested;
   const extension = extensionId ? catalog.find((entry) => entry.id === extensionId) : undefined;
   const installer = pages.find((entry) => entry.id === "packages");
-  const onProviders = providers.length > 0 && (page === "providers" || providers.some((card) => card.id === page));
-  const pageLabel = onProviders ? "Providers"
-    : extensionId ? extension?.name ?? "Extension"
-      : CORE_PAGE_TITLES[page as keyof typeof CORE_PAGE_TITLES] ?? contributed?.label ?? "Settings";
+  const runtimeKind = runtimeOfPage(page);
+  const runtimeName = runtimeKind ? snapshot?.runtimeBackends?.find((backend) => backend.kind === runtimeKind)?.label ?? runtimeKind : undefined;
+  const pageLabel = runtimeName ?? (extensionId ? extension?.name ?? "Extension"
+    : CORE_PAGE_TITLES[page as keyof typeof CORE_PAGE_TITLES] ?? contributed?.label ?? "Settings");
   const parent = parentSettingsPage(page);
   // Other machines' own settings: General only, where every row is a setting or says it is not one.
   const environments = usePlatform().environments;
   const environmentList = useSyncExternalStore(environments?.subscribe ?? noSubscription, () => environments?.getSnapshot());
   const machines = page === "general" && !environments?.shownElsewhere ? scopeMachines(environmentList?.environments) : [];
-  const pageDescription = onProviders ? CORE_PAGE_DESCRIPTIONS.providers
-    : extensionId ? undefined
-      : CORE_PAGE_DESCRIPTIONS[page as keyof typeof CORE_PAGE_DESCRIPTIONS] ?? contributed?.description;
+  // A phone's detail of a runtime has its name in the bar; the page's own sentence belongs to the list.
+  const pageDescription = extensionId || (runtimeKind && stacked) ? undefined
+    : CORE_PAGE_DESCRIPTIONS[(runtimeKind ? "runtimes" : page) as keyof typeof CORE_PAGE_DESCRIPTIONS] ?? contributed?.description;
   const parentLabel = parent ? CORE_PAGE_TITLES[parent as keyof typeof CORE_PAGE_TITLES] ?? parent : undefined;
   const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null);
   // An extension's page draws its own title beside its mark.
   const ownTitle = Boolean(extensionId && extension);
-  const crumbs: SettingsCrumb[] = parent ? [
+  const crumbs: SettingsCrumb[] = parent && !runtimeKind ? [
     { label: "Settings", open: () => onSetPage("general") },
     { label: parentLabel!, open: () => onSetPage(parent) },
   ] : [];
   // What a page is applied to is chosen per visit: leaving it puts the scope back on this machine.
-  useEffect(() => { levels.edit("host"); }, [levels, page]);
+  // Choosing another runtime in the list is not leaving Runtimes.
+  const scopePage = runtimeKind ? "runtimes" : page;
+  useEffect(() => { levels.edit("host"); }, [levels, scopePage]);
 
   const [ownShowingPage, setOwnShowingPage] = useState(!stacked);
   const showingPage = view && stacked ? view === "page" : ownShowingPage;
@@ -206,8 +202,8 @@ export function SettingsScreen({
   const [keybindingFilter, setKeybindingFilter] = useState<{ filter: string; seq: number }>({ filter: "", seq: 0 });
   const commands = registry.getCommands();
   const found = search.trim() ? searchSettings(settingsSearchEntries({
-    // A runtime's card is found like a page: its id opens Providers at the card.
-    pages: [...pages, ...providers].map((entry) => ({ id: entry.id, label: entry.label, description: entry.description, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
+    // A runtime's card is found like a page: its id opens that runtime on Runtimes.
+    pages: [...pages, ...cards].map((entry) => ({ id: entry.id, label: entry.label, description: entry.description, keywords: entry.keywords, extensionName: entry.extensionName, rows: entry.rows })),
     sections: (["general", "connections", "extensions", "runtimes"] as const).flatMap((sectionPage) => registry.getSettingsSections(sectionPage)),
     extensions: catalog.map((entry) => ({ id: entry.id, name: entry.name, core: entry.locked, options: entry.summary?.options ?? [] })),
     keybindings: registry.getKeybindings().map((binding) => ({
@@ -230,6 +226,11 @@ export function SettingsScreen({
     setScrollTarget(anchor);
     onSetPage(page);
   }, [anchor, onSetPage, page]);
+  // A page by an older name, or a runtime's card by its kit's id, is shown and kept under the page it became.
+  const renamed = cardRuntime !== undefined || parsedPage !== (target.split("#", 1)[0] || "general");
+  useEffect(() => {
+    if (renamed && !anchor) onSetPage(page);
+  }, [renamed, anchor, onSetPage, page]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // A row a link named scrolls into view once it is drawn. Some rows wait for the host, and what
@@ -273,12 +274,8 @@ export function SettingsScreen({
     };
   }, [page, scrollTarget]);
 
-  // A card's own id opens Providers at that card; every other page starts at the top.
-  useEffect(() => {
-    const card = onProviders && page !== "providers" ? document.getElementById(providerCardId(page)) : null;
-    if (card?.scrollIntoView) card.scrollIntoView({ block: "start" });
-    else scrollRef.current?.scrollTo?.({ top: 0 });
-  }, [onProviders, page]);
+  // Every page starts at the top.
+  useEffect(() => { scrollRef.current?.scrollTo?.({ top: 0 }); }, [page]);
 
   useEffect(() => {
     const mac = isMacPlatform();
@@ -322,15 +319,18 @@ export function SettingsScreen({
   const navItems: NavItem[] = [
     ...CORE_SETTINGS_PAGES
       // A phone has no keys to bind (design 1s).
-      .filter((entry) => (entry.id !== "providers" || providers.length > 0) && !(nav && entry.id === "keybindings"))
+      .filter((entry) => !(nav && entry.id === "keybindings"))
       .map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: CORE_ICONS[entry.id], ...(entry.id === "runtimes" && runtimeLabel ? { useSummary: () => `${runtimeLabel} default` } : {}) })),
     ...pages.map((entry) => ({ id: entry.id, label: entry.label, group: entry.group, order: entry.order, Icon: entry.Icon, useSummary: entry.useSummary })),
   ];
   const attention = catalog.filter(needsAttention).length;
-  const iconOf = (id: string): PanelIconComponent | undefined => CORE_ICONS[id] ?? (extensionOfPage(id) ? Blocks : pages.find((entry) => entry.id === id)?.Icon);
-  const activeNav = onProviders ? "providers" : parent ?? page;
+  const iconOf = (id: string): PanelIconComponent | undefined => CORE_ICONS[id] ?? (extensionOfPage(id) ? Blocks : runtimeOfPage(id) || cards.some((card) => card.id === id) ? Bot : pages.find((entry) => entry.id === id)?.Icon);
+  const activeNav = parent ?? page;
   // A folding group as the user left it, also last time Settings was open; unset, it follows the page on screen.
   const [toggledGroups, setToggledGroups] = useState<Partial<Record<SettingsNavGroup, boolean>>>(navFolds);
+  // The pages of the Diagnostics group stand at the foot, above About Tau.
+  const navGroupList = settingsNavGroups(navItems);
+  const footerItems = navGroupList.find((group) => group.id === "diagnostics")?.items ?? [];
   const navButton = (item: NavItem) => (
     <button
       key={item.id}
@@ -422,16 +422,14 @@ export function SettingsScreen({
                   </button>
                 ))}
               </div> : <p className="settings-search-empty" role="status">No setting matches “{search.trim()}”.</p>}
-            </> : settingsNavGroups(navItems).map((group) => {
+            </> : navGroupList.filter((group) => group.id !== "diagnostics").map((group) => {
               const open = settingsNavGroupOpen(group, activeNav, toggledGroups);
-              const waiting = group.id === "extensions" && !open && attention > 0;
               return (
                 <div key={group.id} className="settings-nav-group" role="group" aria-label={group.label} data-folds={group.folds ? "" : undefined}>
                   {group.folds ? (
                     <h2 className="settings-nav-heading">
                       <button type="button" className="settings-nav-fold" aria-expanded={open} onClick={() => { navFolds = { ...navFolds, [group.id]: !open || undefined }; setToggledGroups((current) => ({ ...current, [group.id]: !open })); }}>
                         <ChevronRight size={12} aria-hidden /><span>{group.label}</span>
-                        {waiting ? <small className="settings-nav-count" aria-label={`${attention} need attention`}>{attention}</small> : null}
                       </button>
                     </h2>
                   ) : <h2 className="settings-nav-heading">{group.label}</h2>}
@@ -441,6 +439,11 @@ export function SettingsScreen({
             })}
           </div>
           <div className="settings-nav-footer">
+            {footerItems.map((item) => (
+              <button key={item.id} type="button" className={`settings-about-link ${activeNav === item.id ? "active" : ""}`} aria-current={activeNav === item.id ? "page" : undefined} onClick={() => openPage(item.id)}>
+                <PanelIcon Icon={item.Icon} size={15} /><span>{item.label}</span>{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
+              </button>
+            ))}
             <button type="button" className={`settings-about-link ${page === "about" ? "active" : ""}`} aria-current={page === "about" ? "page" : undefined} onClick={() => openPage("about")}>
               <Info size={15} /><span>About Tau</span>{version ? <small>{version}</small> : null}{stacked ? <ChevronRight size={14} className="settings-nav-chevron" aria-hidden /> : null}
             </button>
@@ -463,7 +466,7 @@ export function SettingsScreen({
           <div className="settings-scroll" ref={scrollRef}>
             <div className="settings-content" data-page={page}>
               <SettingsPageHead
-                title={stacked || ownTitle ? undefined : page === "about" ? "Tau" : pageLabel}
+                title={stacked || ownTitle ? undefined : page === "about" ? "Tau" : runtimeKind ? CORE_PAGE_TITLES.runtimes : pageLabel}
                 description={page === "about" || page === "general" ? undefined : pageDescription}
                 crumbs={stacked ? [] : crumbs}
                 scope={{ projects: scopeProjects(projects, threads, project), current: project, machines }}
@@ -473,16 +476,21 @@ export function SettingsScreen({
               <SettingsPageActionSlot.Provider value={actionSlot}>
                 {page === "general" ? (
                   <GeneralPage themeHere={!pages.some((entry) => entry.keywords?.includes("theme"))} sections={registry.getSettingsSections("general")} onNotify={onNotify} detailShortcut={registry.keybindingLabel("runtime.transcript-detail")} />
-                ) : page === "models" ? (
-                  <ModelsPage snapshot={snapshot} providersHere={providers.length > 0} onSetModel={onSetModel} onSetThinking={onSetThinking} onOpen={openPage} />
-                ) : page === "runtimes" ? (
-                  <RuntimesPage snapshot={snapshot} cards={providers} sections={registry.getSettingsSections("runtimes")} onOpen={openPage} onNotify={onNotify} />
+                ) : page === "threads" ? (
+                  <ThreadsPage sections={registry.getSettingsSections("general")} onNotify={onNotify} />
+                ) : page === "runtimes" || runtimeKind ? (
+                  <RuntimesPage
+                    snapshot={snapshot}
+                    cards={cards}
+                    sections={registry.getSettingsSections("runtimes")}
+                    selected={runtimeKind}
+                    stacked={stacked}
+                    onSelect={(kind) => openPage(kind ? runtimePage(kind) : "runtimes")}
+                    onOpen={openPage}
+                    onNotify={onNotify}
+                  />
                 ) : page === "keybindings" ? (
                   <KeybindingsPage key={keybindingFilter.seq} registry={registry} initialFilter={keybindingFilter.filter} onNotify={onNotify} onOpen={openPage} />
-                ) : page === "pi" ? (
-                  <PiSettingsPage snapshot={snapshot} onNotify={onNotify} />
-                ) : onProviders ? (
-                  <ProvidersPage cards={providers} backends={snapshot?.runtimeBackends} cwd={snapshot?.cwd} onNotify={onNotify} />
                 ) : contributed ? (
                   <contributed.Component cwd={snapshot?.cwd} onNotify={onNotify} onOpenSettings={openPage} />
                 ) : page === "extensions" ? (

@@ -211,7 +211,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       };
       const cli = async (id: string): Promise<{ path: string; version?: string }> => {
         const path = locate(id);
-        if (!path) throw new Error(`The OpenCode CLI "${openCodeCommand(id)}" was not found on the PATH of your login shell. Install it (curl -fsSL https://opencode.ai/install | bash, or npm install -g ${OPENCODE_NPM_PACKAGE}), set its path under Settings → Providers, or connect to a running OpenCode server there.`);
+        if (!path) throw new Error(`The OpenCode CLI "${openCodeCommand(id)}" was not found on the PATH of your login shell. Install it (curl -fsSL https://opencode.ai/install | bash, or npm install -g ${OPENCODE_NPM_PACKAGE}), set its path under Settings → Runtimes, or connect to a running OpenCode server there.`);
         const entry = state(id);
         const key = await executableFingerprint(path);
         if (entry.installed?.path !== path || entry.installed.key !== key) {

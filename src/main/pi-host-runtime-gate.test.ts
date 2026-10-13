@@ -9,7 +9,7 @@ import { ThreadRuntime } from "./thread-runtime.js";
 const OFF = "/projects/off";
 const ON = "/projects/on";
 /** The refusal every path shows for `codex` in `/projects/off`. */
-const MESSAGE = "Codex is turned off for “off”. Turn it on under Settings → Providers, with Applies to set to the project.";
+const MESSAGE = "Codex is turned off for “off”. Turn it on under Settings → Runtimes, with Applies to set to the project.";
 
 /** A live thread of the `codex` kind that records what reached it. */
 function fakeThread(threadId: string, cwd: string, delivered: string[]): ThreadRuntime {

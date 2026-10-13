@@ -66,12 +66,12 @@ export function assertListenAllowed(address: ListenAddress, policy: ListenPolicy
   if (policy.encrypted || isLoopbackHost(address.host)) return {};
   if (policy.insecure) {
     return {
-      warning: `TAU_HOST_INSECURE=1: listening on ${address.host} without TLS. The host token travels in clear text, `
+      warning: `TAU_HOST_INSECURE=1: listening on ${address.host} without TLS. The access key travels in clear text, `
         + "and whoever reads it controls this host. Set TAU_HOST_TLS=1 instead.",
     };
   }
   throw new Error(
-    `Refusing to listen on ${address.host} without TLS: the host token would travel in clear text. `
+    `Refusing to listen on ${address.host} without TLS: the access key would travel in clear text. `
     + "Set TAU_HOST_TLS=1 (a self-signed certificate clients pin by fingerprint) or TAU_HOST_TLS_CERT and TAU_HOST_TLS_KEY, "
     + "bind 127.0.0.1 and forward the port over SSH, or set TAU_HOST_INSECURE=1 to bind anyway.",
   );

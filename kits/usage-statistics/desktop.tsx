@@ -49,7 +49,7 @@ const extension: DesktopExtension = {
     context.events.on("prompt-accepted", () => statistics.record("human_prompt_accepted"));
     context.registerRegion({ id: "usage-statistics.activity", placement: "composer-above", profiles: ["desktop"], Component: () => <StatisticsActivity statistics={statistics} /> });
     context.registerSettingsPage({
-      id: "usage-statistics.settings", label: "Usage statistics", Icon: BarChart3, group: "general", order: 55, profiles: ["desktop"],
+      id: "usage-statistics.settings", label: "Usage statistics", Icon: BarChart3, group: "app", order: 55, profiles: ["desktop"],
       description: "Choose whether this device helps count active Tau installations.", keywords: ["privacy", "analytics", "telemetry", "Matomo"],
       rows: [{ id: "setting-share-usage-statistics", label: "Share usage statistics", keywords: ["consent", "privacy", "active installations"] }],
       Component: () => <StatisticsSettings statistics={statistics} />,

@@ -148,7 +148,7 @@ describe("HostCompletions", () => {
       const model = pi.getModels("anthropic").find((entry) => /haiku/u.test(entry.id))!;
       const completions = new HostCompletions({ agentDir: dir, cwd: () => dir, createRuntime: async () => pi });
       const failure = await completions.complete({ system: "s", prompt: "p" }, { provider: "anthropic", id: model.id }).catch((error: unknown) => error);
-      expect((failure as Error).message).toBe("Pi's Anthropic login has expired. Sign in again on Pi's card under Settings → Providers.");
+      expect((failure as Error).message).toBe("Pi's Anthropic login has expired. Sign in again on Pi under Settings → Runtimes.");
       expect(isExpectedCommandError(failure)).toBe(true);
       // Only the refresh went out; the request itself was never sent.
       expect(urls).toHaveLength(1);

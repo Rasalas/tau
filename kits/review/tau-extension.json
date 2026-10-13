@@ -1,6 +1,6 @@
 {
   "id": "tau.review",
-  "name": "Review Kit",
+  "name": "Review",
   "description": "Review changes and diffs, comment on lines, and open and merge pull requests.",
   "version": "1.0.0",
   "engines": {

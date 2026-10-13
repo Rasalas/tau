@@ -27,7 +27,7 @@ export const agentsExtension: DesktopExtension = {
     agentsHost.invoke = (command, input) => context.host.invoke(command, input);
     // A reloaded renderer missed every earlier spawn; ask the host what it has.
     void context.host.invoke("state").then(apply).catch((error: unknown) => {
-      if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the spawned threads", error);
+      if (!(error instanceof HostUnavailableError)) console.warn("The Agents extension could not read the spawned threads", error);
     });
 
     // A definition that cannot be used is listed in Settings → Inspector, per file.
@@ -37,7 +37,7 @@ export const agentsExtension: DesktopExtension = {
     });
     const loadDefinitions = (read: Promise<void>) => {
       read.catch((error: unknown) => {
-        if (!(error instanceof HostUnavailableError)) console.warn("Agents Kit could not read the agent definitions", error);
+        if (!(error instanceof HostUnavailableError)) console.warn("The Agents extension could not read the agent definitions", error);
       });
     };
     loadDefinitions(definitionsStore.refresh());
@@ -62,7 +62,7 @@ export const agentsExtension: DesktopExtension = {
       id: AGENTS_SETTINGS_PAGE,
       label: "Agents",
       description: "Where the sub-agents a thread starts do their work: on this machine or on another machine.",
-      group: "threads",
+      group: "agents",
       Icon: Bot,
       order: 45.2,
       profiles: ["desktop", "web"],

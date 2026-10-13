@@ -4,7 +4,7 @@
 // plus heartbeats, the Origin check and the close of a socket that never says hello.
 // Each run then pairs devices over the socket, allowed by the owner after comparing
 // a code (bound to the pinned certificate over TLS), denies one, holds a Read-only
-// device to reads, revokes live connections and rotates the host token (ADR 0023,
+// device to reads, revokes live connections and rotates the access key (ADR 0023,
 // ADR 0024). A last run with kits sends a call into a window and checks that it
 // reaches one connection and only its answer counts, and that a Read-only device
 // runs only the kit commands that just look. A push run sends through a loopback fake

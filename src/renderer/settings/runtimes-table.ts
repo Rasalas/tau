@@ -4,13 +4,14 @@ import { updateAvailable } from "../../shared/runtime-version";
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
 
 /**
- * One row of Settings → Runtimes, from what the host says of a runtime (its
- * backend entry and its catalog) and whether a card on Providers is there to
- * act on it. Pure, so the table's words and buttons are tested without it.
+ * One entry of Settings → Runtimes, from what the host says of a runtime (its
+ * backend entry and its catalog) and whether a card of the runtime's kit is
+ * there to act on it. Pure, so the words and buttons are tested without the page.
  */
 export type RuntimeState = "built-in" | "missing" | "broken" | "unsafe" | "update" | "current" | "installed" | "sign-in" | "unavailable" | "checking" | "unknown";
 
-export type RuntimeAction = "default" | "update" | "install" | "config" | "permissions";
+/** What the page offers beside a runtime; both scroll to the program row on its card and never run anything themselves. */
+export type RuntimeAction = "update" | "install";
 
 export type RuntimeTone = "accent" | "success" | "warn" | "danger" | "muted";
 
@@ -19,7 +20,7 @@ export interface RuntimeRow {
   label: string;
   state: RuntimeState;
   isDefault: boolean;
-  /** Under the name, in order: "Default for new threads", then the state. */
+  /** Under the name: the state, in a word or two. */
   status: Array<{ text: string; tone: RuntimeTone }>;
   /** The version column: the release, or where the program comes from. */
   version: { text: string; tool?: string };
@@ -59,17 +60,12 @@ function runtimeState(backend: UiRuntimeBackend, catalog: RuntimeCatalogEntry | 
 
 export function runtimeRow(backend: UiRuntimeBackend, catalog: RuntimeCatalogEntry | undefined, options: {
   isDefault: boolean;
-  /** Whether more than one runtime is there to choose the default from. */
-  choosable: boolean;
-  /** Whether a card on Providers speaks for it. */
+  /** Whether a card speaks for it. */
   card: boolean;
-  /** Whether the page has a section the Permissions button scrolls to. */
-  permissions: boolean;
 }): RuntimeRow {
   const state = runtimeState(backend, catalog);
   const version = backend.version;
   const status: RuntimeRow["status"] = [];
-  if (options.isDefault) status.push({ text: "Default for new threads", tone: "accent" });
   const words = STATE_WORDS[state];
   if (words) status.push(words);
   const tool = version?.tool;
@@ -81,17 +77,8 @@ export function runtimeRow(backend: UiRuntimeBackend, catalog: RuntimeCatalogEnt
   const models = catalog && catalog.status !== "loading" ? catalog.catalog?.models ?? [] : [];
   const providers = [...new Set(models.map((model) => model.provider))];
   const actions: RuntimeAction[] = [];
-  if (state === "update" || state === "broken" || state === "unsafe") {
-    if (options.card) actions.push("update");
-  }
-  if (state === "missing") {
-    if (options.card) actions.push("install");
-  } else {
-    if (!options.isDefault && options.choosable) actions.push("default");
-    if (state === "built-in" && options.permissions) actions.push("permissions");
-    // Update opens the same card Config would.
-    if (state === "built-in" || (options.card && !actions.includes("update"))) actions.push("config");
-  }
+  if (options.card && (state === "update" || state === "broken" || state === "unsafe")) actions.push("update");
+  if (options.card && state === "missing") actions.push("install");
   return {
     kind: backend.kind,
     label: backend.label,

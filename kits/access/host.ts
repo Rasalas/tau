@@ -24,7 +24,7 @@ import {
 export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_ACCESS_LEVEL): HostExtension {
   return {
     id: ACCESS_HOST_EXTENSION_ID,
-    name: "Access Kit",
+    name: "Access",
     async activate(context: HostExtensionContext) {
       const { services } = context;
       const configured = async (): Promise<AccessLevel | undefined> => {

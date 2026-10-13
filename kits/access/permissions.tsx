@@ -4,7 +4,7 @@ import { hostIsReadOnly, SegmentedControl, SettingsSection, type PreferencesStor
 import type { AccessLevel } from "./protocol.js";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_KEY, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
 
-/** The id the Runtimes page's Permissions button opens (core's `RUNTIME_PERMISSIONS_ROW`). */
+/** The id of the access section on Settings → Runtimes: `runtimes#runtime-permissions` opens at it. */
 export const PERMISSIONS_ROW = "runtime-permissions";
 
 /** The levels as Settings and the composer's menu name them. */

@@ -180,12 +180,9 @@ export const SHOTS = [
   {
     name: "kits",
     device: "desktop",
-    description: "Settings → Extensions: every kit Tau ships, each one a package you can turn off or replace",
+    description: "Settings → Extensions: every extension Tau ships, each one a package you can turn off or replace",
     async run(ctx) {
-      await openSettings(ctx, "Extensions", `!!${byText("button, a", "All extensions")}`);
-      await ctx.click(byText("button, a", "All extensions"));
-      await ctx.waitFor(`/Bundled with Tau/.test(document.body.textContent)`);
-      await ctx.rest();
+      await openSettings(ctx, "Extensions", `/Bundled with Tau/.test(document.body.textContent)`);
       return ctx.screenshot();
     },
   },

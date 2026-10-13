@@ -276,22 +276,7 @@
 .settings-note[data-level="error"] { border-left-color: var(--removed); color: var(--ink-2); }
 .settings-note + .settings-note { margin-top: 8px; }
 
-/* Providers: a card per runtime, its mark, name and state in the head, the kit's rows below. */
-.settings-page > p.lede + .provider-card { margin-top: var(--space-7); }
-.settings-page > .provider-card + .provider-card { margin-top: var(--space-8); }
-.provider-card-head > h2 { display: flex; align-items: center; gap: var(--space-4); min-width: 0; color: var(--ink); font-weight: 500; }
-.provider-card-head > h2 > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.provider-card-mark { display: inline-flex; flex: none; }
-.provider-card-head .provider-card-icon { margin-left: 0; }
-.provider-card-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
-.provider-card-badges:empty { display: none; }
-.provider-card-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-4); min-width: 0; }
-.provider-card-switch { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
-/* Off: the kit's rows stay usable, so a runtime can still be set up before a project turns it on. */
-.provider-card[data-off] > .settings-group { opacity: .62; }
-.provider-card[data-off] > .settings-group:focus-within, .provider-card[data-off] > .settings-group:hover { opacity: 1; }
-
-/* Runtimes (design 1j): a table of runtimes in a card, the kits' sections under it. */
+/* A table in a card (Connections' devices). */
 .settings-table-frame { border-radius: var(--radius-md); background: var(--inset); overflow: hidden; }
 .settings-table-frame:focus { outline: none; }
 .settings-table { width: 100%; border-collapse: collapse; font-size: var(--text-md); }
@@ -307,12 +292,8 @@
 .settings-table [data-tone="warn"] { color: var(--warn); }
 .settings-table [data-tone="danger"] { color: var(--danger); }
 .settings-table [data-tone="muted"] { color: var(--muted); }
-.runtimes-version { font-size: var(--text-sm); line-height: 1.5; }
-.runtimes-version > code { font: var(--text-sm) var(--mono); color: var(--ink-3); }
-.runtimes-version > span + code::before { content: " · "; font-family: var(--sans); color: var(--faint); }
 .runtimes-marks { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .runtimes-marks > small { font: 500 var(--text-xs) var(--sans); color: var(--muted); }
-.runtimes-none { color: var(--faint); }
 .settings-table-actions { text-align: right; white-space: nowrap; padding-right: var(--space-6); }
 .settings-table-actions > .tau-button + .tau-button { margin-left: var(--space-2); }
 /* Connections (design 2h): a device per row, its state, Access and Unpair; the network folded under Advanced. */
@@ -320,11 +301,73 @@
 .settings-table-name > small { font-weight: 400; color: var(--muted); }
 .settings-table .settings-table-mark > svg { display: block; color: var(--muted); }
 .connection-state { width: 150px; font: 600 var(--text-sm) var(--sans); }
-.connections-advanced { margin-top: var(--space-8) !important; }
-.connections-advanced > summary { width: max-content; font: 400 var(--label-size) var(--sans); color: var(--ink-3); cursor: pointer; }
-.connections-advanced[open] > summary { margin-bottom: var(--space-6); }
-.connections-advanced > * + * { margin-top: var(--space-8); }
+.settings-advanced { margin-top: var(--space-8) !important; }
+.settings-advanced > summary { width: max-content; font: 400 var(--label-size) var(--sans); color: var(--ink-3); cursor: pointer; }
+.settings-advanced > summary > small { margin-left: var(--space-4); font: inherit; color: var(--muted-2); }
+.settings-advanced[open] > summary { margin-bottom: var(--space-6); }
+.settings-advanced > * + * { margin-top: var(--space-8); }
 .runtimes-page > * + * { margin-top: var(--space-8); }
+/* Runtimes (design 1j, variant B): the list of programs beside the one chosen; the list alone where the page is narrow. */
+.runtimes-summary { margin: 0; font-size: calc(var(--text-sm) + .5px); line-height: 24px; color: var(--muted); }
+.runtimes-summary b { color: var(--ink); font-weight: 500; }
+.runtimes-summary .provider-icon-stack { vertical-align: middle; margin: 0 var(--space-1); }
+.runtimes-md { --field: var(--stage); display: grid; grid-template-columns: 290px minmax(0, 1fr); border-radius: var(--radius-md); background: var(--inset); overflow: clip; }
+.runtimes-md:focus { outline: none; }
+.runtimes-list { min-width: 0; border-right: 1px solid var(--line); }
+.runtimes-list > ul { margin: 0; padding: 0; list-style: none; }
+.runtimes-list-head { padding: var(--space-4) var(--space-6); font-size: var(--text-sm); color: var(--muted); }
+.runtimes-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-4); padding-right: var(--space-5); border-top: 1px solid var(--line-soft); }
+.runtimes-item:hover { background: var(--wash-2); }
+.runtimes-item[data-selected] { background: var(--stage); box-shadow: inset 2px 0 0 var(--acid); }
+.runtimes-item[data-off] .runtimes-item-open { opacity: .55; }
+.runtimes-item-open { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-width: 0; padding: 9px 0 9px 14px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.runtimes-item-text { min-width: 0; display: flex; flex-direction: column; }
+.runtimes-item-text > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 var(--text-md) var(--sans); color: var(--ink); }
+.runtimes-item-text > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(var(--text-sm) + .5px); color: var(--muted); }
+.runtimes-item-end { display: inline-flex; align-items: center; gap: 6px; }
+.runtimes-default { display: inline-flex; color: var(--acid-text); }
+.runtimes-chevron { display: none; color: var(--muted-2); }
+.runtimes-md [data-tone="accent"] { color: var(--acid-text); }
+.runtimes-md [data-tone="success"] { color: var(--ready); }
+.runtimes-md [data-tone="warn"] { color: var(--warn); }
+.runtimes-md [data-tone="danger"] { color: var(--danger); }
+.runtimes-md [data-tone="muted"] { color: var(--muted); }
+.runtimes-marks { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.runtimes-marks > small { font: 500 var(--text-xs) var(--sans); color: var(--muted); }
+.runtimes-detail { min-width: 0; background: var(--stage); }
+.runtimes-detail-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-5); padding: var(--space-6) var(--space-7); border-bottom: 1px solid var(--line); }
+.runtimes-detail-mark { display: inline-flex; }
+.runtimes-detail-head .runtimes-detail-icon { margin-left: 0; }
+.runtimes-detail-title { min-width: 0; }
+.runtimes-detail-title > h2 { margin: 0; font: 600 var(--text-title) var(--sans); letter-spacing: -.005em; color: var(--ink); }
+.runtimes-detail-title > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(var(--text-sm) + .5px); color: var(--muted); }
+.runtimes-detail-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-4); min-width: 0; }
+.runtime-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
+.runtime-badges:empty { display: none; }
+.runtime-switch { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.runtimes-star { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fainter); cursor: pointer; }
+.runtimes-star:hover:not(:disabled) { background: var(--hover-strong); color: var(--ink-2); }
+.runtimes-star[aria-pressed="true"] { color: var(--acid-text); cursor: default; }
+.runtimes-detail-body { display: flex; flex-direction: column; gap: var(--space-8); padding: var(--space-6) var(--space-7) var(--space-7); }
+.runtimes-detail-body .settings-group { border-color: var(--line-soft); }
+.runtimes-detail-body[data-off] > .settings-section:first-child > .settings-group { opacity: .62; }
+.runtimes-detail-body[data-off] > .settings-section:first-child > .settings-group:focus-within, .runtimes-detail-body[data-off] > .settings-section:first-child > .settings-group:hover { opacity: 1; }
+.runtimes-back { display: none; }
+@container (max-width: 700px) {
+  .runtimes-md { grid-template-columns: minmax(0, 1fr); }
+  .runtimes-list { border-right: 0; }
+  .runtimes-chevron { display: inline-flex; }
+  .runtimes-md[data-view="list"] .runtimes-detail, .runtimes-md[data-view="detail"] .runtimes-list { display: none; }
+  .runtimes-md[data-view="detail"] .runtimes-back { display: inline-flex; grid-column: 1 / -1; justify-self: start; }
+  .runtimes-detail-head { grid-template-columns: auto minmax(0, 1fr); }
+  .runtimes-detail-tools { grid-column: 1 / -1; justify-content: flex-start; }
+}
+/* A phone: the same, by what Settings knows rather than by width. */
+.runtimes-md[data-narrow] { grid-template-columns: minmax(0, 1fr); }
+.runtimes-md[data-narrow] .runtimes-list { border-right: 0; }
+.runtimes-md[data-narrow] .runtimes-chevron { display: inline-flex; }
+.runtimes-md[data-narrow] .runtimes-detail-head { grid-template-columns: auto minmax(0, 1fr); }
+.runtimes-md[data-narrow] .runtimes-detail-tools { grid-column: 1 / -1; justify-content: flex-start; }
 /* Agent tools (K124): a lagging source, the switch it offers, and what ran. */
 .runtime-tools-behind, .runtime-tools-log { margin: var(--space-4) 0 0; font-size: var(--text-sm); color: var(--ink-2); }
 .runtime-tools-behind { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-5); }
@@ -339,7 +382,7 @@
 .runtime-tools-log-head > time { margin-left: auto; color: var(--muted); }
 .runtime-tools-log-entry p { margin: 0; color: var(--muted); }
 .runtime-tools-log-entry pre { max-height: 160px; margin: var(--space-2) 0 0; overflow: auto; font: var(--text-xs) var(--mono); white-space: pre-wrap; color: var(--ink-3); }
-/* A narrow page: each runtime a block of its own, the version and the marks under its name. */
+/* A narrow page: each row a block of its own, the details under its name. */
 @container (max-width: 640px) {
   .settings-table thead { display: none; }
   .settings-table tr { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: var(--space-4); padding: var(--space-5) var(--space-5) var(--space-5) var(--space-6); border-top: 1px solid var(--line); }
@@ -347,8 +390,6 @@
   .settings-table td { padding: 0; border-top: 0; }
   .settings-table .settings-table-mark { grid-row: 1 / span 4; padding: 2px 0 0; }
   .settings-table td:not(.settings-table-mark) { grid-column: 2; }
-  .runtimes-version, .runtimes-talks { margin-top: var(--space-3); }
-  .runtimes-version:empty, .runtimes-talks:has(> .runtimes-none) { display: none; }
   .settings-table-actions { margin-top: var(--space-4); text-align: left; white-space: normal; padding-right: 0; }
 }
 

@@ -571,7 +571,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
       remoteWork.onEvent(THREAD_LINK_EVENT, (link) => store.setRemoteLink(link));
       void host.invoke("continue-targets").then((targets) => store.setTargets(targets), () => undefined);
       void host.invoke("state").then(apply).catch((error: unknown) => {
-        if (!(error instanceof HostUnavailableError)) console.warn("Handoff Kit could not read the thread lineage", error);
+        if (!(error instanceof HostUnavailableError)) console.warn("The Handoff extension could not read the thread lineage", error);
       });
 
       context.registerRegion({ id: "handoff.lineage", placement: "thread-title", order: 60, profiles: PROFILES, Component: LineageTitle });

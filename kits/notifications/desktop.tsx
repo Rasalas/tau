@@ -350,13 +350,12 @@ const notifications: DesktopExtension = {
   activate(context) {
     const coordinator = coordinate(context);
     context.registerRegion({ id: "notifications.toasts", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createActionsRegion(coordinator) });
-    const page = { id: "notifications.settings", label: "Notifications", Icon: Bell, group: "general", order: 45, rows: NOTIFICATION_ROWS } as const;
+    const page = { id: "notifications.settings", label: "Notifications", Icon: Bell, group: "app", order: 45, rows: NOTIFICATION_ROWS } as const;
     context.registerSettingsPage({ ...page,
       description: "How Tau tells you that a thread finished, failed or asks you something while you look elsewhere. The window you used last hears of it.",
       profiles: ["desktop", "web"],
       Component: createSettingsPage(context),
     });
-    context.registerSettingsSection({ id: "notifications.events", page: "general", card: "notify", profiles: ["desktop"], Component: () => <NotifyRows preferences={context.preferences} /> });
     // A phone hears through pushes: which news, and when not; the window's sound and toasts are not its own (design 2n).
     const preferences = context.preferences;
     context.registerSettingsPage({ ...page,

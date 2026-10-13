@@ -1,4 +1,4 @@
-import type { SettingsNavGroup } from "./settings/settings-nav";
+import type { SettingsNavGroup, SettingsNavGroupAlias } from "./settings/settings-nav";
 import type { ToastHandle, ToastOptions } from "../workbench/toast-store";
 import type { ThreadRowMark } from "../workbench/thread-row-status";
 import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
@@ -1030,11 +1030,13 @@ export interface SettingsPageContribution extends ProfileScoped {
   /** Words the Settings search and the palette find this page by, besides its label. */
   keywords?: readonly string[];
   /**
-   * Where the page sits in Settings' navigation: `general`, `threads`,
-   * `projects`, `remote`, `extensions` (the default) or `diagnostics`; within
-   * the group, in `order` (API 1.18.0).
+   * Where the page sits in Settings' navigation: `app` (the default),
+   * `agents`, `projects`, `tools`, `machines` or `diagnostics`; within the
+   * group, in `order` (API 1.18.0). `general`, `threads`, `remote` and
+   * `extensions`, the names before API 1.61.0, still place a page in `app`,
+   * `agents`, `machines` and `app`.
    */
-  group?: SettingsNavGroup;
+  group?: SettingsNavGroup | SettingsNavGroupAlias;
   /**
    * Rows on the page the Settings search finds by name: `id` is the row's
    * element id (a `SettingRow`'s `id`), which a result scrolls to and

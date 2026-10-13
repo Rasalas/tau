@@ -39,12 +39,12 @@ describe("Settings → Connections → Background", () => {
     const notify = renderSection({ serviceStatus: async () => current, installService });
 
     expect(await screen.findByText("Not installed")).toBeTruthy();
-    expect(screen.getByText(/A LaunchAgent starts Tau’s host when you log in/u)).toBeTruthy();
+    expect(screen.getByText(/A LaunchAgent starts Tau when you log in/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Install…" }));
     expect(installService).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
 
-    await waitFor(() => expect(notify).toHaveBeenCalledWith("Tau’s host runs as a service"));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("Tau runs as a service"));
     // The notice goes out before the section draws the new status.
     expect(await screen.findByText("Running · Tau 0.4.0")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Uninstall…" })).toBeTruthy();
@@ -59,7 +59,7 @@ describe("Settings → Connections → Background", () => {
     const notify = renderSection({ serviceStatus: async () => current, installService });
     fireEvent.click(await screen.findByRole("button", { name: "Install…" }));
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
-    await waitFor(() => expect(notify).toHaveBeenCalledWith("Tau’s host runs as a service"));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("Tau runs as a service"));
   });
 
   it("shows what needs fixing with the command that fixes it, and offers a repair", async () => {
@@ -92,7 +92,7 @@ describe("Settings → Connections → Background", () => {
     expect(screen.queryByRole("button", { name: "Install…" })).toBeNull();
     cleanup();
     renderSection({});
-    expect(await screen.findByText("This host does not manage a service of its machine.")).toBeTruthy();
+    expect(await screen.findByText("This machine does not manage a service.")).toBeTruthy();
   });
 
   it("lists the service's files with a copy button each", async () => {

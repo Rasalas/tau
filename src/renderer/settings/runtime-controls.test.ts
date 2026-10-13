@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "../extension-system";
 import { ExtensionRegistry } from "../extension-system";
 import { PreferencesStore } from "../preferences";
@@ -124,8 +125,9 @@ describe("runtime controls slash commands", () => {
     expect(setThinkingLevel).toHaveBeenCalledWith("high");
     expect(notify).toHaveBeenCalledWith("Thinking level set to high.");
 
+    // Without a composer there is only the default Pi starts on.
     await registry.findSlashCommand("/thinking")!.command.run("", actions);
-    expect(openSettings).toHaveBeenCalledWith("models#setting-thinking-level");
+    expect(openSettings).toHaveBeenCalledWith("runtimes/pi#setting-default-thinking");
 
     await registry.findSlashCommand("/new")!.command.run("", actions);
     expect(newSession).toHaveBeenCalled();
@@ -152,6 +154,47 @@ describe("runtime controls slash commands", () => {
 
     await registry.findSlashCommand("/scoped-models")!.command.run("", actions);
     expect(openModelPicker).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("choosing the thinking level of the thread on screen", () => {
+  afterEach(() => { document.body.replaceChildren(); });
+  const chip = (disabled = false) => {
+    const button = document.createElement("button");
+    button.dataset.composerShortcut = "composer.effort";
+    button.disabled = disabled;
+    const clicked = vi.fn();
+    button.addEventListener("click", clicked);
+    document.body.append(button);
+    return clicked;
+  };
+
+  it("opens the composer's thinking menu, the way the chord does, from /thinking and from the palette", async () => {
+    const registry = new ExtensionRegistry();
+    registry.activate(runtimeControls);
+    const clicked = chip();
+    const openSettings = vi.fn();
+    const actions = { openSettings, notify: vi.fn() } as unknown as WorkbenchActions;
+    await registry.findSlashCommand("/thinking")!.command.run("", actions);
+    await registry.getCommands().find((item) => item.id === "runtime.thinking")!.run(actions);
+    expect(clicked).toHaveBeenCalledTimes(2);
+    expect(openSettings).not.toHaveBeenCalled();
+  });
+
+  it("says so when the thread's runtime sets its reasoning itself, and goes to Pi's default where no composer is", async () => {
+    const registry = new ExtensionRegistry();
+    registry.activate(runtimeControls);
+    const openSettings = vi.fn();
+    const notify = vi.fn();
+    const actions = { openSettings, notify } as unknown as WorkbenchActions;
+    const command = registry.getCommands().find((item) => item.id === "runtime.thinking")!;
+    await command.run(actions);
+    expect(openSettings).toHaveBeenCalledWith("runtimes/pi#setting-default-thinking");
+    const clicked = chip(true);
+    await command.run(actions);
+    expect(notify).toHaveBeenCalledWith("This thread's runtime sets its reasoning itself.");
+    expect(clicked).not.toHaveBeenCalled();
+    expect(openSettings).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -4,7 +4,7 @@ import { TerminalPanel } from "./panel.js";
 import { CompactTerminalPanel } from "./compact.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
 import { connectTerminalFont, connectTerminalHost, createTerminalFontService, refreshTerminalSessions, terminalHostReconnected, terminalKit, terminalServices, terminalStore, useTerminalActivity } from "./store.js";
-import { ShellRow, TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
+import { TERMINAL_SETTINGS_ROWS, TerminalSettingsPage } from "./settings.js";
 import { paneIds } from "./layout.js";
 import { closeTerminals, focusNextPane, keyboardShell, moveTerminalToStage, naturalSplit, onStage, openTerminal, runInTerminal, targetShell, toggleTerminal } from "./controller.js";
 import {
@@ -160,8 +160,8 @@ export const terminalExtension: DesktopExtension = {
     const settings = plugin.registerSettingsPage({
       id: "terminal.settings",
       label: "Terminal",
-      description: "Where the terminal opens and the font it draws with.",
-      group: "projects",
+      description: "Where the terminal opens, which shell it starts and the font it draws with.",
+      group: "tools",
       Icon: Terminal,
       order: 30,
       profiles: ["desktop", "web"],
@@ -169,8 +169,6 @@ export const terminalExtension: DesktopExtension = {
       Component: (props) => <TerminalSettingsPage {...props} preferences={plugin.preferences} />,
     });
     const disposers = [
-      plugin.registerSettingsSection({ id: "terminal.shell", page: "connections", card: "this-machine", order: 30, profiles: ["desktop"], Component: ShellRow,
-        rows: [{ id: "setting-shell", label: "Shell", keywords: ["terminal", "zsh", "bash", "login shell"] }] }),
       plugin.registerCommand({ id: "terminal.open", label: "Open terminal panel", group: "Terminal", access: "read", run: (app) => app.openPanel(TERMINAL_PANEL) }),
       // The terminal opens in the app; the external one is Workspace Kit's command (mod+alt+j).
       ...["terminal", "term"].map((name) => plugin.registerSlashCommand({

@@ -31,7 +31,7 @@ Tau updates itself. It checks each download against the release's signature and 
 ## Quick start
 
 1. Install Tau and open it. The welcome wizard finds your agent tools and recent projects.
-2. Connect an agent: sign in to Claude Code or Codex in their own CLI, or add a provider for Pi under Settings → Providers.
+2. Connect an agent: sign in to Claude Code or Codex in their own CLI, or add a provider for Pi under Settings → Runtimes.
 3. Press <kbd>⌘</kbd><kbd>N</kbd> (<kbd>Ctrl</kbd><kbd>N</kbd>), pick a project, and send a prompt.
 4. To pair your phone, open Settings → Connections, turn on Local network, and scan the QR code.
 

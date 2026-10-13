@@ -366,7 +366,7 @@ or an operator: run `sudo tailscale set --operator=$USER` once. Tau never runs
 The client is the same workbench: the same transcript, composer, thread list, Pi dialogs
 and Agents panel, reading the same stores over the same protocol. What differs is what it
 can draw. A browser has no editor and no Electron window, so contributions that need one
-are not registered there; Settings → Inspector lists them under "Not on this client",
+are not registered there; Settings → Diagnostics lists them under "Not on this client",
 with the extension, the contribution and the clients it does claim ([ADR 0016](adr/0016-client-profiles.md)).
 Their host halves keep running: Workspace Kit still records turn checkpoints for a thread
 driven from the browser, and the desktop window shows them.

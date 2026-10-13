@@ -20,7 +20,7 @@ describe("RuntimeGate", () => {
   it("refuses with one message that names the runtime and the project", async () => {
     const off = gate({ "/work/a": { runtimeEnabled: { codex: false } } });
     await expect(off.assert("codex", "/work/a")).rejects.toThrow(RuntimeOffError);
-    await expect(off.assert("codex", "/work/a")).rejects.toThrow("Codex is turned off for “a”. Turn it on under Settings → Providers");
+    await expect(off.assert("codex", "/work/a")).rejects.toThrow("Codex is turned off for “a”. Turn it on under Settings → Runtimes");
     await expect(off.assert("cursor", "/work/a")).resolves.toBeUndefined();
   });
 

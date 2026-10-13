@@ -6,6 +6,10 @@ This glossary defines the product terms used in Tau discussions and documents.
 
 The system that executes an agent loop, selects models, invokes tools, and persists runtime state. Pi is Tau's default agent runtime; Claude Code is the second one, driven through the Agent SDK by its kit.
 
+## Runtimes page
+
+Settings → Runtimes lists the agent runtimes a machine offers as a list, with the one chosen beside it (a page of its own on a phone). A runtime's entry holds its program and update, its sign-in, its models, and its **default model**, the one a new thread of that runtime starts on; only Pi has one yet, the others show "Runtime's choice". The model of a running thread is chosen in the composer, never in Settings. Model providers are what a runtime talks to; Pi's list of them sits on Pi's entry, and Pi's expert values (compaction, retries, sampling) are folded under its Advanced.
+
 ## Runtime backend
 
 The owner of one thread's runtime for that thread's whole life (ADR 0005). Core knows the Pi backend; every other one arrives through `registerRuntimeBackend` and speaks to core in Tau's vocabulary: runtime events, a dialog route, an access level. A thread never changes its backend; the workbench chooses it before the first message, from the list the host publishes (`runtimeBackends`), and `TAU_RUNTIME_ADAPTER` only sets the default. A Codex thread may change its executing account between compatible accounts that share its session, while its backend remains its durable owner. A Pi model reached through a subscription login carries `login: "subscription"`; where the vendor forbids that login outside its own apps, the Subscription Login Warning kit asks once per provider and never blocks it.
@@ -24,8 +28,8 @@ person only shows and steers the thread.
 Every screen calls a computer that runs Tau a **machine**, as Settings → Machines
 does: "This machine", "Back to this machine", "Run on this machine". Neither
 "computer" (Computer Use is a feature's name) nor "host" names one where a person
-reads; "host" stays in Advanced settings, the docs and the code.
-`src/shared/machine-wording.test.ts` guards "this computer".
+reads, in Settings too; "host" stays in the docs and the code.
+`src/shared/machine-wording.test.ts` guards "this computer" and "this host".
 
 ## Workbench
 
@@ -39,7 +43,15 @@ The client-side coordination of a person's threads, drafts, submissions and navi
 
 The process that owns an agent runtime and exposes it to a workbench client. A host may run on the same machine as the client or remotely.
 
-Where a person reads about it on the phone or in the browser's sign-in, a host is a **machine**, as on the desktop's Machines page, and the host token is the **access key**; neither "host" nor "token" nor a file path appears there. The words stay in the docs and in the desktop's Advanced settings.
+Wherever a person reads about it, in Settings, on the phone or in the browser's sign-in, a host is a **machine**, as on the desktop's Machines page, and the host token is the **access key**; neither "host" nor "host token" nor a file path names them there. The words stay in the docs and the code. `src/shared/settings-wording.test.ts` guards them.
+
+## Access key
+
+What the owner of a machine holds: a window with it manages who may connect, rotates the key and signs devices out. The code and the docs call it the host token. A paired device holds a key of its own, which the owner can revoke without changing the access key.
+
+## Device
+
+A phone, tablet or browser paired with a machine, listed under Settings → Connections. A simulator or an emulator is not a device in this sense: Settings → Simulators lists the ones an agent may drive.
 
 ## Project
 
@@ -123,7 +135,7 @@ A thread's finished work as a local merge request, with an intended target branc
 
 ## Extension
 
-An installable module that contributes behavior through a declared interface and can be activated or deactivated without editing Tau core.
+An installable module that contributes behavior through a declared interface and can be activated or deactivated without editing Tau core. Every screen says **extension**; "kit" is a word of the developer docs (`kits/README.md`) for the extensions Tau ships, and no screen uses it. `src/shared/settings-wording.test.ts` guards that.
 
 ## Pi extension
 

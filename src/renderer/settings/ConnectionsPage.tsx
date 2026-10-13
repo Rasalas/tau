@@ -24,7 +24,7 @@ import { Badge, Button, DangerAction, DangerZone, SegmentedControl, Select, Sett
 import { AccessChoice, PairingRequestDialog } from "../pairing/PairingRequestDialog";
 import { DialogClose, submitOnEnter, useFieldValue } from "../pairing/dialog-parts";
 import { requestTitle } from "../pairing/pairing-format";
-import { SettingRow, SettingsCard, SettingsSection } from "./settings-layout";
+import { SettingRow, SettingsAdvanced, SettingsCard, SettingsSection } from "./settings-layout";
 import { SettingsPageAction } from "./page-action";
 import { settingAnchor } from "./settings-search";
 import { LINK_LIFETIMES, describeDevice, describeLastChange, formatAgo, formatExpiresIn, qrEndpoint } from "./connections-format";
@@ -34,6 +34,8 @@ import { NearbyMachinesDialog } from "./NearbyMachines";
 import { ConnectSettings } from "./ConnectSettings";
 import type { SettingsCardId, SettingsSectionProps } from "../extension-system";
 import { HostServiceSection } from "./HostServiceSection";
+import { CommandLineRow } from "./CommandLineRow";
+import { useHostCapabilities } from "../use-host-capabilities";
 
 type PageState =
   | { status: "loading" }
@@ -71,10 +73,10 @@ const NAME_LIMIT = 60;
 const idleLabel = (days: IdleTimeoutDays): string => (days === null ? "Never" : days === 365 ? "1 year unused" : `${days} days unused`);
 
 /**
- * Settings → Connections: where this host listens, devices
- * waiting to be let in, who holds a token for it, single-use pairing links
- * for another device, and the host token's rotation (ADR 0023, ADR 0024).
- * Only a connection with the host token sees it.
+ * Settings → Connections: the devices paired with this machine and those
+ * waiting to be let in, single-use pairing links for another device, the
+ * networks they come in over, and the access key's rotation (ADR 0023,
+ * ADR 0024). Only a connection with the access key sees it.
  */
 export function ConnectionsPage({ onNotify, sections = [] }: {
   onNotify(message: string, level?: "info" | "warning" | "error"): void;
@@ -82,6 +84,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   sections?: ReadonlyArray<{ id: string; card?: SettingsCardId | undefined; order?: number | undefined; Component: ComponentType<SettingsSectionProps> }>;
 }) {
   const client = useHostClient();
+  const { localFiles } = useHostCapabilities();
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [created, setCreated] = useState<UiCreatedPairingLink>();
   const [creating, setCreating] = useState(false);
@@ -139,6 +142,11 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
     }
   };
 
+  const reloadCertificate = () => void act("reload", async () => {
+    const { changed } = await client!.reloadCertificate();
+    onNotify(changed ? "Tau now serves the renewed certificate" : "The certificate on disk is the one Tau serves");
+  });
+
   const copy = (text: string, what: string) => {
     void client?.copyText(text).then(() => onNotify(`${what} copied`), (error: unknown) => onNotify(errorOf(error).message, "error"));
   };
@@ -148,10 +156,10 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   }
   if (state.status === "error") {
     const title = state.code === "forbidden" ? "Connections are managed on your machine"
-      : state.code === "unsupported" || state.code === "unknown-method" ? "This host takes no other clients"
+      : state.code === "unsupported" || state.code === "unknown-method" ? "This machine takes no other clients"
         : "Connections did not load";
     const description = state.code === "forbidden" ? "Pairing links, waiting devices and unpairing are handled in Tau on the machine itself. A paired phone or browser can use Tau there, but cannot change who may reach it."
-      : state.code === "unsupported" || state.code === "unknown-method" ? "It has no socket listener, so there is nobody to pair or revoke. The host a Tau window starts for itself has one."
+      : state.code === "unsupported" || state.code === "unknown-method" ? "It has no socket listener, so there is nobody to pair or revoke. The Tau a window starts for itself has one."
         : state.message;
     return <div className="settings-page">{state.code === "forbidden" || state.code === "unsupported" || state.code === "unknown-method"
       ? <Empty icon={<Link2 size={18} />} title={title} description={description} />
@@ -204,24 +212,48 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
         </table>
       </div>
 
-      {thisMachine.length ? (
+      {thisMachine.length || localFiles ? (
         <SettingsCard title="This machine">
           {thisMachine.map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
+          {localFiles ? <CommandLineRow onNotify={onNotify} /> : null}
         </SettingsCard>
       ) : null}
 
-      {/* The design leaves the network out; it stays, folded. */}
-      <details className="connections-advanced">
-        <summary>Advanced</summary>
-        <SettingsSection title="This host">
+      <HostServiceSection onNotify={onNotify} />
+
+      {data.network ? (
+        <NetworkAccessSection
+          part="network"
+          network={data.network}
+          busy={busy === "network" || busy === "reload"}
+          onChange={changeNetwork}
+          onReload={reloadCertificate}
+        />
+      ) : null}
+
+      {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
+
+      <ConnectSettings onNotify={onNotify} />
+
+      <SettingsSection title="Other machines">
+        <SettingRow
+          id={settingAnchor("Other machines")}
+          title="Other machines"
+          description="Tau machines nearby that announce themselves. macOS may ask about local network access the first time."
+          control={<Button onClick={() => setFindingMachines(true)}>Find machines…</Button>}
+        />
+      </SettingsSection>
+
+      <SettingsAdvanced hint="address, port, certificate, access key">
+        <SettingsSection title="Addresses">
           <SettingRow
             id={settingAnchor("Address")}
             title="Address"
             description={data.endpoints.some((endpoint) => endpoint.reachability === "network")
-              ? "Other devices on these networks can open the host in a browser. A device picks whichever it reaches."
+              ? "Other devices on these networks can open this machine in a browser. A device picks whichever it reaches."
               : data.network
-                ? "Reachable from this machine only. Turn on Local network or Tailscale below to pair another device."
-                : "Reachable from this machine only. To pair another device, start the host with TAU_HOST_LISTEN=0.0.0.0:<port> and TAU_HOST_TLS=1."}
+                ? "Reachable from this machine only. Turn on Local network or Tailscale above to pair another device."
+                : "Reachable from this machine only. To pair another device, start Tau on this machine with TAU_HOST_LISTEN=0.0.0.0:<port> and TAU_HOST_TLS=1."}
             status={<ul className="connection-endpoints">
               {data.endpoints.map((endpoint) => (
                 <li key={endpoint.url} data-kind={endpoint.kind}><code>{endpoint.url}</code><small>{endpoint.label}</small></li>
@@ -230,66 +262,53 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           />
           {data.fingerprint ? (
             <SettingRow
-              // Network access has its own Certificate row, which the search finds.
+              // Port and certificate have their own Certificate row, which the search finds.
               {...(data.network ? {} : { id: settingAnchor("Certificate") })}
               title="Certificate"
               description="A self-signed certificate is met with a browser warning. Trust it only if the browser shows this SHA-256 fingerprint. Pairing links carry it, so the Tau app pins it without asking."
               status={<code className="connection-fingerprint">{data.fingerprint}</code>}
             />
           ) : null}
-          <SettingRow
-            id={settingAnchor("Other machines")}
-            title="Other machines"
-            description="Tau hosts nearby that announce themselves. macOS may ask about local network access the first time."
-            control={<Button onClick={() => setFindingMachines(true)}>Find machines…</Button>}
-          />
         </SettingsSection>
 
         {data.network ? (
           <NetworkAccessSection
+            part="advanced"
             network={data.network}
             busy={busy === "network" || busy === "reload"}
             onChange={changeNetwork}
-            onReload={() => void act("reload", async () => {
-              const { changed } = await client!.reloadCertificate();
-              onNotify(changed ? "Tau now serves the renewed certificate" : "The certificate on disk is the one Tau serves");
-            })}
+            onReload={reloadCertificate}
           />
         ) : null}
-
-        {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
-
-        <HostServiceSection onNotify={onNotify} />
 
         <DangerZone>
           <DangerAction
             id={settingAnchor("Sign out every other device")}
             title="Sign out every other device"
-            description="Every paired device loses its token at once; each needs a new pairing to come back. Windows with the host token stay."
+            description="Every paired device loses its key at once; each needs a new pairing to come back. Windows with the access key stay."
             actionLabel="Revoke others…"
             disabled={others === 0}
             disabledReason="No other device is paired."
             busy={busy === "revoke-others"}
             confirmTitle="Revoke every other device?"
-            confirmMessage="Every paired device is signed out at once and its open connections close. Each needs a new pairing to come back. Windows with the host token are not affected."
+            confirmMessage="Every paired device is signed out at once and its open connections close. Each needs a new pairing to come back. Windows with the access key are not affected."
             onConfirm={() => void act("revoke-others", async () => {
               const { revoked } = await client!.revokeOtherClients();
               onNotify(revoked === 1 ? "1 device signed out" : `${revoked} devices signed out`);
             })}
           />
           <DangerAction
-            id={settingAnchor("Rotate the host token")}
-            title="Rotate the host token"
-            description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Every other connection that uses it closes; paired devices keep their own tokens.</>}
+            id={settingAnchor("Rotate the access key")}
+            title="Rotate the access key"
+            description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Every other connection that uses it closes; paired devices keep their own keys.</>}
             actionLabel="Rotate…"
             busy={busy === "rotate"}
-            confirmTitle="Rotate the host token?"
-            confirmMessage="Every other connection that uses the host token closes at once: other windows at this host, and any browser the token was pasted into. This window carries on with the new token."
-            onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Host token rotated")}
+            confirmTitle="Rotate the access key?"
+            confirmMessage="Every other connection that uses the access key closes at once: other windows on this machine, and any browser the key was pasted into. This window carries on with the new key."
+            onConfirm={() => void act("rotate", () => client!.rotateHostToken(), "Access key rotated")}
           />
         </DangerZone>
-        <ConnectSettings onNotify={onNotify} />
-      </details>
+      </SettingsAdvanced>
 
       {creating ? (
         <CreateLinkDialog
@@ -439,7 +458,7 @@ function DeviceDialog({ paired, busy, onSave, onCancel }: { paired: UiPairedClie
 
 function OwnerRow({ owner, now }: { owner: UiOwnerConnection; now: number }) {
   const browser = owner.profile === "web" || owner.profile === "compact";
-  const details = [describeDevice(owner.device), owner.address, owner.proxyUser ? `as ${owner.proxyUser}` : undefined, `connected ${formatAgo(owner.since, now)}`, "host token"].filter(Boolean);
+  const details = [describeDevice(owner.device), owner.address, owner.proxyUser ? `as ${owner.proxyUser}` : undefined, `connected ${formatAgo(owner.since, now)}`, "access key"].filter(Boolean);
   return (
     <tr>
       <DeviceMark kind={browser ? "browser" : "desktop"} />
@@ -480,7 +499,7 @@ function CreatedLink({ created, now, onCopy, onDismiss }: {
             <code title={shown.url}>{shown.url}</code>
             <Button onClick={() => onCopy(shown.url, "Pairing link")}>Copy link</Button>
           </div>
-        ) : <p>This host listens nowhere another device could reach.</p>}
+        ) : <p>This machine listens nowhere another device could reach.</p>}
         <Button variant="ghost" className="connection-copy-code" onClick={() => onCopy(created.code, "Pairing code")}>Copy the code only</Button>
       </div>
       {shown && shown.reachability === "network" ? <PairingQrCode value={shown.url} /> : (
@@ -498,7 +517,7 @@ function CreateLinkDialog({ busy, onCreate, onCancel }: { busy: boolean; onCreat
   return (
     <Dialog className="confirm-dialog connection-create-dialog" label="Create pairing link" onClose={onCancel}>
       <h2>Create pairing link</h2>
-      <p>A one-time link another device opens to ask for a token of its own. You allow it here when it asks. It never sees the host token.</p>
+      <p>A one-time link another device opens to ask for a key of its own. You allow it here when it asks. It never sees the access key.</p>
       <div className="dialog-fields" onKeyDown={submitOnEnter(submit)}>
         <label className="dialog-field">
           <span>Client label (optional)</span>

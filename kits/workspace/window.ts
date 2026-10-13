@@ -14,7 +14,7 @@ function workbenchWindow(): BrowserWindow | undefined {
 export default function activate(_context: WindowExtensionContext): WindowExtension {
   return {
     handle(command) {
-      if (command !== "focus") throw new Error(`Workspace Kit's window half has no command "${command}".`);
+      if (command !== "focus") throw new Error(`The Workspace extension's window half has no command "${command}".`);
       const window = workbenchWindow();
       if (!window) return false;
       if (window.isMinimized()) window.restore();

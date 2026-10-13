@@ -23,7 +23,7 @@ The first builds of Tau set out to prove that Pi can stay the agent runtime whil
 - prompt history that survives a restart, plus a search over it
 - open the workspace in the user's own editor (`Cmd/Ctrl+O`) or terminal (`Cmd/Ctrl+J`), and the draft prompt in the editor (`Cmd/Ctrl+E`)
 - a runtime per thread, with Pi as the default ([Which runtime a thread gets](runtimes.md#which-runtime-a-thread-gets))
-- a runtime can be turned off for one project, or on for one while the machine has it off, with a switch on its Providers card ([Turning a runtime off for a project](runtimes.md#turning-a-runtime-off-for-a-project)); the app refuses every start on it there, the pickers leave it out, and update checks skip a runtime no project uses
+- a runtime can be turned off for one project, or on for one while the machine has it off, with a switch on its entry in Settings → Runtimes ([Turning a runtime off for a project](runtimes.md#turning-a-runtime-off-for-a-project)); the app refuses every start on it there, the pickers leave it out, and update checks skip a runtime no project uses
 - model picker with provider tabs, cross-provider search and favourites
 - the branch in the thread's head is a menu: switch or create a branch, open, add or remove a worktree; "New thread" asks for the project first (the one in context selected, ↵ confirms), and the new thread's page (T3 Code's layout) offers project and machine ("Run on") as pills under its heading, and checkout (current or new worktree) and branch (any name, or one from the prompt; the same field fuzzy-searches the base, `origin/main` by default) above the composer; the first thread of a project made from "New project" starts in its folder whatever the default for new threads is
 - enforced access levels: Tau's inline Pi extension gates workspace mutations and computer-control actions, and tools from other sources (extensions, packages, MCP) unless they declare themselves read-only; read-only threads retain inspection tools, while ask-before-edits requires approval before clicks, typing, launches, shell commands, and file changes
@@ -105,7 +105,7 @@ address, with no cookies and at most 32 MiB.
 
 ## The `tau` command from Settings
 
-Settings → General → **Terminal command** puts `tau` on your terminal's `PATH`
+Settings → Connections → This machine → **Command line** puts `tau` on your terminal's `PATH`
 after asking which folder it links into, shows where it is installed and
 whether a new terminal finds it, and **Remove** undoes it. An existing `tau`
 is never replaced. See [Install](install.md#the-tau-command).

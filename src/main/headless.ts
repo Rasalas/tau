@@ -475,7 +475,7 @@ async function main(): Promise<void> {
   // Not part of the client protocol: the supervisor that started this process
   // asks for a clean stop here before it reaches for a signal (ADR 0021).
   methods["host.shutdown"] = async (_params, context) => {
-    if (!isHostOwner(context.principal)) throw Object.assign(new Error("Only the host token, on this machine, may stop the host."), { code: HOST_ERROR.forbidden });
+    if (!isHostOwner(context.principal)) throw Object.assign(new Error("Only the access key, on this machine, may stop Tau."), { code: HOST_ERROR.forbidden });
     hostLog.info("host.shutdown.requested");
     // Answer first, leave afterwards.
     setTimeout(shutdown, 50).unref();

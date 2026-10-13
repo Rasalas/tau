@@ -216,7 +216,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
       const askBackend = async (source: BackendUsageSource): Promise<BackendScan> => {
         try {
           const answer = readBackendAnswer(await context.invokeHostExtension(source.extensionId, BACKEND_USAGE_COMMAND));
-          return answer ? { source, answer } : { source, error: `${source.label} answered in a shape this kit does not read` };
+          return answer ? { source, answer } : { source, error: `${source.label} answered in a shape this extension does not read` };
         } catch (error) {
           return { source, error: reason(error) };
         }
@@ -229,7 +229,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         await Promise.all(logSources.map(async (source) => {
           try {
             const folders = readLogsAnswer(await context.invokeHostExtension(source.extensionId, BACKEND_LOGS_COMMAND));
-            if (!folders) { errors.push({ source, error: `${source.label} answered in a shape this kit does not read` }); return; }
+            if (!folders) { errors.push({ source, error: `${source.label} answered in a shape this extension does not read` }); return; }
             for (const folder of folders) roots.push({ format: folder.format, backend: source.backend, label: source.label, path: folder.path, ...(folder.billing ? { billing: folder.billing } : {}) });
           } catch (error) {
             errors.push({ source, error: reason(error) });
@@ -323,7 +323,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         const answers = await Promise.all(limitSources.map(async (source): Promise<{ source: LimitSource; accounts?: UsageLimitAccount[]; error?: string }> => {
           try {
             const accounts = readLimitsAnswer(await context.invokeHostExtension(source.extensionId, BACKEND_LIMITS_COMMAND, refresh ? { refresh } : {}));
-            return accounts ? { source, accounts } : { source, error: `${source.label} answered in a shape this kit does not read` };
+            return accounts ? { source, accounts } : { source, error: `${source.label} answered in a shape this extension does not read` };
           } catch (error) {
             return { source, error: reason(error) };
           }

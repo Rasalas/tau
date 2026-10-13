@@ -51,7 +51,7 @@ export function buildCommitPrompt(input: {
 export function createReviewHostExtension(options: RequestCommandOptions & SourceControlOptions & { guides?: GuideOptions } = {}): HostExtension {
   return {
     id: REVIEW_HOST_EXTENSION_ID,
-    name: "Review Kit",
+    name: "Review",
     permissions: ["sessions", "process", "network", "runtime:extend", "machines"],
     async activate(original: HostExtensionContext) {
       const context = workspaceCommandContext(original);

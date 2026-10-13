@@ -7,7 +7,7 @@ const INITIAL = [here("./tokens.css"), here("./styles.css"), here("./profile-com
 /** Stylesheets that load with a lazy chunk, the module that imports each, and selectors only it may hold. */
 const LAZY = [
   { sheet: "./components/review-layout.css", module: "./components/ReviewMode.tsx", owns: [".review-shell", ".review-list", ".review-tree", ".review-file-header"] },
-  { sheet: "./settings/settings.css", module: "./settings/SettingsScreen.tsx", owns: [".settings-nav", ".settings-row-main", ".setting-origin", ".provider-card", ".keybinding-row", ".extension-row"] },
+  { sheet: "./settings/settings.css", module: "./settings/SettingsScreen.tsx", owns: [".settings-nav", ".settings-row-main", ".setting-origin", ".runtimes-md", ".keybinding-row", ".extension-row"] },
   { sheet: "./settings/controls.css", module: "./settings/controls.tsx", owns: [".switch", ".tau-segmented", ".tau-select", ".tau-field", ".tau-button", ".tau-badge", ".tau-danger-zone"] },
   { sheet: "./components/model-picker.css", module: "./components/ModelPicker.tsx", owns: [".model-picker", ".model-rail", ".model-row", ".model-star"] },
   { sheet: "./components/command-palette.css", module: "./components/CommandPalette.tsx", owns: [".command-palette", ".palette-results"] },

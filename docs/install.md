@@ -139,8 +139,8 @@ speaks to it with the host's own token;
 a running Tau it starts the app on that folder. The command is `bin/tau.mjs`
 (`bin` in `package.json`) and needs Node 22 or newer. The `.deb` puts it on
 your `PATH` as `tau` and runs it on Tau's own binary, so it needs no Node.
-On macOS and on Linux builds without the `.deb`, **Settings → General →
-Terminal command** installs it without a console: Install names the folder
+On macOS and on Linux builds without the `.deb`, **Settings → Connections →
+This machine → Command line** installs it without a console: Install names the folder
 first (`~/.local/bin`, then `~/bin`, and on a Mac Homebrew's and `/usr/local/bin`;
 one already on your `PATH` wins), writes a small launcher into Tau's data folder
 that runs the command on the app's own binary, so Node is not needed, and links
@@ -182,7 +182,7 @@ later. It has three steps:
    every other runtime Tau has (the Agent SDK runtime, Codex, Antigravity, and
    any instance of them): installed or not, which version, signed in or not,
    with the vendor's install or sign-in command, or a link to its card
-   under Settings → Providers. A runtime whose own sign-in can fetch the
+   under Settings → Runtimes. A runtime whose own sign-in can fetch the
    program, Codex with Continue with ChatGPT, signs in right there, the same
    sign-in as its card; the vendor's installer stays a hint to copy. Each
    runtime answers through its own kit, so a path set there counts. Below

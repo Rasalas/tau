@@ -235,7 +235,7 @@ export class RepoTransfers {
 
   private async start(machine: string, command: string, input: unknown): Promise<string> {
     const started = await this.machines().call(machine, REMOTE_WORK_EXTENSION_ID, command, input) as { operation?: unknown; protocol?: unknown };
-    if (typeof started?.operation !== "string") throw new Error("The other machine's Remote Work Kit answered in a way this one does not read; update Tau there.");
+    if (typeof started?.operation !== "string") throw new Error("The other machine's Remote Work extension answered in a way this one does not read; update Tau there.");
     if (typeof started.protocol === "number" && started.protocol !== REMOTE_WORK_PROTOCOL) {
       throw new HostCommandError(`The other machine speaks Remote Work protocol ${started.protocol}, this one ${REMOTE_WORK_PROTOCOL}; update Tau on both to the same version.`);
     }

@@ -181,7 +181,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   // No server of its own: every listener hands its upgrades over with the trust it has.
   const server = new WebSocketServer({ noServer: true, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES, perMessageDeflate: SOCKET_PER_MESSAGE_DEFLATE });
   const timers = new ConnectionTimers();
-  if (!options.access && !options.token) throw new Error("A socket listener needs a host token or an access model.");
+  if (!options.access && !options.token) throw new Error("A socket listener needs an access key or an access model.");
   const access = options.access ?? tokenOnlyAccess(options.token!);
   /** Every authenticated socket, with the principal its requests run as. */
   const authenticated = new Map<WebSocket, Session>();

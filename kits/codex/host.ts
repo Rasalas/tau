@@ -353,7 +353,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           void fetchManaged().catch(() => undefined);
           throw new Error(`Tau is fetching Codex ${MANAGED_CODEX_VERSION}; this instance uses it once it is ready.`);
         }
-        if (!path) throw new Error(`The Codex CLI "${codexCommand(id)}" was not found on the PATH of your login shell. Continue with ChatGPT to let Tau fetch Codex, install it (brew install --cask codex, or npm install -g ${CODEX_NPM_PACKAGE}), or set its path under Settings → Providers.`);
+        if (!path) throw new Error(`The Codex CLI "${codexCommand(id)}" was not found on the PATH of your login shell. Continue with ChatGPT to let Tau fetch Codex, install it (brew install --cask codex, or npm install -g ${CODEX_NPM_PACKAGE}), or set its path under Settings → Runtimes.`);
         const entry = state(id);
         const key = await executableFingerprint(path);
         if (entry.installed?.path !== path || entry.installed.key !== key) {
@@ -689,10 +689,10 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           // The account's models, starting where config.toml points; the host keeps the answer and asks again now and then.
           newThreadCatalog: async () => {
             await managedReady;
-            if (!managedPath && await plan.read(id) && await usesManaged(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: fetching ? `Tau is fetching Codex ${MANAGED_CODEX_VERSION}; its progress is on this account’s Providers card.` : "Install the Codex version managed by Tau on this account’s Providers card." };
+            if (!managedPath && await plan.read(id) && await usesManaged(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: fetching ? `Tau is fetching Codex ${MANAGED_CODEX_VERSION}; its progress is in this account’s entry under Settings → Runtimes.` : "Install the Codex version managed by Tau in this account’s entry under Settings → Runtimes." };
             if (!locate(id)) return { models: [], thinkingLevels: {}, status: "not-installed", note: `The Codex CLI "${codexCommand(id)}" is not installed.` };
             const probe = await runProbe(id);
-            if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
+            if (!probe.account) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its entry under Settings → Runtimes.` };
             const models = probe.models.map(storedModel);
             await store.setModels(models, id).catch(() => undefined);
             return codexNewThreadCatalog(models, await readCodexConfiguredModel(await home()), codexBilling(probe.account));
@@ -810,7 +810,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
             else {
               const saved = currentManaged ? await plan.read(entry.id) : undefined;
               const probe = currentManaged ? undefined : await runProbe(entry.id).catch(() => undefined);
-              if (currentManaged ? !saved?.tokens?.scopes.includes(PLAN_SCOPE) : !probe?.account) reason = "Sign in to this account on its Providers card first.";
+              if (currentManaged ? !saved?.tokens?.scopes.includes(PLAN_SCOPE) : !probe?.account) reason = "Sign in to this account under Settings → Runtimes first.";
             }
           }
           return { id: entry.id, label: settings.label(entry.id), ...(reason ? { reason } : {}) };

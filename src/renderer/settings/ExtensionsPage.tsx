@@ -114,7 +114,7 @@ export function ExtensionsPage({ entries, registry, loading, error, sections = [
       {error ? <SettingsState kind="error" title="The package folders could not be read" description={`${error} The list shows what this window runs.`} onRetry={onRetry} /> : null}
       {entries.length === 0 && loading ? <SettingsState kind="loading" rows={6} title="Loading extensions" /> : null}
       {entries.length === 0 && !loading && !error ? (
-        <SettingsState kind="empty" title="No extension runs here" description="Safe mode starts Tau without its kits and packages. Start Tau normally to bring them back." />
+        <SettingsState kind="empty" title="No extension runs here" description="Safe mode starts Tau without its extensions and packages. Start Tau normally to bring them back." />
       ) : null}
       {entries.length > 0 && shown.length === 0 ? (
         <SettingsState

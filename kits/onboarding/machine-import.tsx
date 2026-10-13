@@ -8,7 +8,7 @@ import { age } from "./wizard.js";
 function machineKitClient(environments: PlatformEnvironments, machine: string): HostExtensionClient {
   return {
     invoke: (command, input) => {
-      if (!environments.invokeExtension) throw new Error("This window cannot reach kits of other machines.");
+      if (!environments.invokeExtension) throw new Error("This window cannot reach extensions of other machines.");
       return environments.invokeExtension(machine, ONBOARDING_EXTENSION_ID, command, input, { timeoutMs: 600_000 });
     },
     onEvent: (name, listener) => environments.onExtensionEvent?.(machine, ONBOARDING_EXTENSION_ID, (eventName, payload) => {

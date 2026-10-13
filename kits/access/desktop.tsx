@@ -80,14 +80,14 @@ function chooser(host: HostExtensionClient, preferences: PreferencesStore): (lev
     if (hostIsReadOnly()) return;
     void host.invoke("set-level", { level }).catch((error: unknown) => {
       if (error instanceof HostUnavailableError) return;
-      console.warn("Access Kit could not apply the access level", error);
+      console.warn("The Access extension could not apply the access level", error);
     });
   };
 }
 
 export const accessKitExtension: DesktopExtension = {
   id: ACCESS_HOST_EXTENSION_ID,
-  name: "Access Kit",
+  name: "Access",
   activate(plugin) {
     const choose = chooser(plugin.host, plugin.preferences);
     plugin.registerComposerControl({ id: "access.level", placement: "menu", shortcuts: ["composer.mode"], order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences, choose) });

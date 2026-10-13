@@ -23,7 +23,7 @@ function setup(initial: CommandLineState | Error, onNotify = vi.fn()) {
   return { windowAction, onNotify };
 }
 
-describe("Settings → General → Terminal command", () => {
+describe("Settings → General → Command line", () => {
   it("asks which folder before it links, then offers Remove", async () => {
     const { windowAction } = setup(FRESH);
     fireEvent.click(await screen.findByRole("button", { name: "Install" }));
@@ -56,13 +56,13 @@ describe("Settings → General → Terminal command", () => {
   it("shows nothing where the window cannot link a command", async () => {
     const { windowAction } = setup({ ...FRESH, supported: false });
     await waitFor(() => expect(windowAction).toHaveBeenCalled());
-    expect(screen.queryByText("Terminal command")).toBeNull();
+    expect(screen.queryByText("Command line")).toBeNull();
   });
 
   it("shows nothing where there is no window process, as in a browser tab", async () => {
     const { windowAction } = setup(Object.assign(new Error("No window"), { code: "unsupported" }));
     await waitFor(() => expect(windowAction).toHaveBeenCalled());
-    expect(screen.queryByText("Terminal command")).toBeNull();
+    expect(screen.queryByText("Command line")).toBeNull();
   });
 
   it("tells the person when linking fails", async () => {

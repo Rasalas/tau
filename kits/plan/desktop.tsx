@@ -238,7 +238,7 @@ function PlanReady({ host, actions, plan }: { host: HostExtensionClient; actions
 
 export const planKitExtension: DesktopExtension = {
   id: PLAN_HOST_EXTENSION_ID,
-  name: "Plan Kit",
+  name: "Plan",
   activate(plugin) {
     plugin.registerComposerControl({ id: "plan.mode", placement: "menu", order: 40, profiles: [...PROFILES], Component: PlanModeControl });
     plugin.registerComposerControl({ id: "plan.planning", order: 40, profiles: [...PROFILES], Component: PlanningChip });

@@ -57,7 +57,7 @@ describe("Composer Context host", () => {
     const second = await invoke("store-attachment", { scope: "session:t", name: "big.bin", mimeType: "", data: Buffer.from("def").toString("base64"), into: first.path });
     expect(second).toEqual({ path: first.path, size: 6 });
     expect(await readFile(first.path, "utf8")).toBe("abcdef");
-    await expect(invoke("store-attachment", { scope: "s", name: "x", mimeType: "", data: "eA==", into: join(project, "README.md") })).rejects.toThrow(/not this kit's/u);
+    await expect(invoke("store-attachment", { scope: "s", name: "x", mimeType: "", data: "eA==", into: join(project, "README.md") })).rejects.toThrow(/not this extension's/u);
     expect(await readFile(join(project, "README.md"), "utf8")).toBe("Banana split\n");
   });
 

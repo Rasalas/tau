@@ -27,5 +27,5 @@ export function readRuntimeEnabled(value: unknown): Record<string, boolean> | un
 
 /** What a refused start says; the same text on every path. */
 export function runtimeOffMessage(runtimeLabel: string, projectName: string | undefined): string {
-  return `${runtimeLabel} is turned off for ${projectName ? `“${projectName}”` : "this project"}. Turn it on under Settings → Providers, with Applies to set to the project.`;
+  return `${runtimeLabel} is turned off for ${projectName ? `“${projectName}”` : "this project"}. Turn it on under Settings → Runtimes, with Applies to set to the project.`;
 }

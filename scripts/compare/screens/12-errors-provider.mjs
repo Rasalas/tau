@@ -19,7 +19,7 @@ async function run(ctx, { shot }) {
   await shot("thread", { probes: PROBES });
   await ctx.click("button[aria-label=Settings]");
   await ctx.wait(1_000);
-  await ctx.clickText("a, button", /^Providers$/u);
+  await ctx.clickText("a, button", ctx.id === "tau" ? /^Runtimes$/u : /^Providers$/u);
   await ctx.wait(2_500);
   await ctx.moveMouse(1300, 860);
   await shot("providers", { probes: PROBES });

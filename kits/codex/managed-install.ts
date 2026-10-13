@@ -76,7 +76,7 @@ export function createManagedCodex(options: ManagedCodexOptions) {
     input.signal?.throwIfAborted();
     const existing = await resolveInstalled();
     if (existing) return existing;
-    if (!asset) throw new Error(`Tau does not include a managed Codex release for ${platform}-${arch}. Set an installed Codex path in Settings → Providers.`);
+    if (!asset) throw new Error(`Tau does not include a managed Codex release for ${platform}-${arch}. Set an installed Codex path in Settings → Runtimes.`);
     await mkdir(root, { recursive: true, mode: 0o700 });
     const staging = await mkdtemp(join(root, ".install-"));
     try {

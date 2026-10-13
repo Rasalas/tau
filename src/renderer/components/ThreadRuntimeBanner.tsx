@@ -17,6 +17,6 @@ export function ThreadRuntimeBanner({ sessionId, onRetry, onOpenProviders }: {
       <span>The thread is read-only until it starts.</span>
     </div>
     <button type="button" className="mini-button" onClick={() => onRetry(shell.path)}>Try again</button>
-    <button type="button" className="mini-button" onClick={onOpenProviders}>Providers</button>
+    <button type="button" className="mini-button" onClick={onOpenProviders}>Runtimes</button>
   </div>;
 }

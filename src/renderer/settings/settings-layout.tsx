@@ -103,6 +103,19 @@ export function SettingsSection({ title, id, headerAction, children, plain = fal
   );
 }
 
+/**
+ * Expert values folded away at the foot of a page, in a fold of their own. A
+ * search result or a link to a row inside opens it.
+ */
+export function SettingsAdvanced({ id, hint, children }: { id?: string; hint?: string; children: ReactNode }) {
+  return (
+    <details className="settings-advanced" id={id}>
+      <summary>Advanced{hint ? <small>{hint}</small> : null}</summary>
+      {children}
+    </details>
+  );
+}
+
 /** A card of rows with its heading inside (design 2i, 2h), as General's grid and Connections' This machine draw them. */
 export function SettingsCard({ title, id, wide = false, children }: { title: string; id?: string; wide?: boolean; children: ReactNode }) {
   return (

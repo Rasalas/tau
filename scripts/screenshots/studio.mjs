@@ -76,8 +76,9 @@ export async function startStudio({ root, tauRoot, base, baseUrl, now = Date.now
 export async function pairStudio(ctx, studio) {
   const byText = (text) => `[...document.querySelectorAll("button, a")].find((el) => el.textContent.trim() === ${JSON.stringify(text)})`;
   await ctx.click(`[...document.querySelectorAll("button[aria-label]")].find((button) => button.getAttribute("aria-label") === "Settings")`);
-  await ctx.click(byText("Remote"));
+  // The Machines group is folded until it is opened; its heading comes before its page of the same name.
   await ctx.click(byText("Machines"));
+  await ctx.click(`[...document.querySelectorAll("button, a")].filter((el) => el.textContent.trim() === "Machines").at(-1)`);
   await ctx.click(`document.querySelector('input[aria-label="Pairing link or address"]')`);
   await ctx.insertText(studio.link);
   await ctx.click(byText("Add machine"));

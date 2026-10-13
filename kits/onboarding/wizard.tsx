@@ -306,7 +306,7 @@ function useAgentRows(state: FlowState, flow: WelcomeFlow): AgentRow[] {
 
 function AgentsStep({ state, rows, flow, actions, aside, onContinue }: { state: FlowState; rows: readonly AgentRow[]; flow: WelcomeFlow; actions: WorkbenchActions; aside?: RunAside; onContinue(): void }) {
   return (
-    <StepShell title="Your agents" description="Agents available on this machine. Install or sign in to the ones you want to use; add more later under Settings › Providers.">
+    <StepShell title="Your agents" description="Agents available on this machine. Install or sign in to the ones you want to use; add more later under Settings › Runtimes.">
       <div className="onboarding-list">{rows.map((row) => <AgentCard key={row.id} row={row} actions={actions} flow={flow} {...(aside ? { aside } : {})} recheck={() => flow.recheckAgent(row.id)} />)}</div>
       {state.toolsError ? <CheckFailed message="Could not check the tools on this machine." reason={state.toolsError} onRetry={() => flow.checkTools()} /> : null}
       <section className="onboarding-optional" aria-labelledby="onboarding-pr-tools">
@@ -498,7 +498,7 @@ function ReadyStep({ rows, flow, actions, aside, onStart, onLeave }: { rows: rea
     return <StepShell title="Checking your agents…" description="This takes a moment."><div className="onboarding-looking"><span className="spinner" /> Asking each agent whether it can start a thread…</div></StepShell>;
   }
   return (
-    <StepShell title="No agent is ready yet" description="Sign in to one under Your agents, or later under Settings › Providers. Setup comes back on the next start until you have a thread.">
+    <StepShell title="No agent is ready yet" description="Sign in to one under Your agents, or later under Settings › Runtimes. Setup comes back on the next start until you have a thread.">
       <div className="onboarding-actions">
         <button type="button" className="onboarding-button ghost" onClick={onLeave}>Close</button>
         <button type="button" className="onboarding-button primary" onClick={() => flow.goTo(0)}>Back to your agents</button>

@@ -8,20 +8,32 @@ import { SettingRow } from "./settings-layout";
 afterEach(cleanup);
 
 describe("Settings → General", () => {
-  it("draws the design's cards, a kit's rows in the card they name, and Tau's own settings in cards of their own", () => {
+  it("draws the composer and the transcript in cards, and a kit's rows in the cards they name", () => {
     render(<TestProviders><GeneralPage themeHere={false} sections={[
       { id: "kit.trace", card: "threads", order: 30, Component: () => <SettingRow title="Trace tabs" /> },
-      { id: "kit.settle", card: "threads", order: 10, Component: () => <SettingRow title="Settle automatically" /> },
       { id: "kit.density", card: "appearance", order: 20, Component: () => <SettingRow title="Density" /> },
+      { id: "kit.notify", card: "notify", order: 20, Component: () => <SettingRow title="A thread is done" /> },
+      { id: "kit.loose", Component: () => <p>A section of its own</p> },
     ]} /></TestProviders>);
     const cards = screen.getAllByRole("region").map((card) => card.getAttribute("aria-label"));
-    // Notify me when and New threads have no rows here, so they are left out.
-    expect(cards).toEqual(["Appearance", "Threads", "Composer", "Window"]);
+    // The Threads card is drawn on Threads, and Quitting needs this machine's window.
+    expect(cards).toEqual(["Appearance", "Notify me when", "Composer", "Transcript"]);
     const titles = (name: string) => within(screen.getByRole("region", { name })).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
-    expect(titles("Appearance")).toEqual(["Theme", "Density", "Show costs"]);
-    expect(titles("Threads")).toEqual(["Settle automatically", "Trace tabs"]);
-    expect(within(screen.getByRole("radiogroup", { name: "Theme" })).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Light", "Dark", "System"]);
+    expect(titles("Appearance")).toEqual(["Density"]);
+    expect(titles("Transcript")).toEqual(["Transcript detail", "Show costs"]);
     expect(titles("Composer")).toContain("Send with");
+    expect(screen.queryByRole("heading", { level: 3, name: "Trace tabs" })).toBeNull();
+    expect(screen.getByText("A section of its own")).toBeTruthy();
+    expect(screen.queryByRole("radiogroup", { name: "Theme" })).toBeNull();
+  });
+
+  it("folds Reload files under Advanced and offers the theme only where Appearance is not there", () => {
+    render(<TestProviders><GeneralPage themeHere /></TestProviders>);
+    const fold = document.querySelector<HTMLDetailsElement>("details.settings-advanced")!;
+    expect(fold.open).toBe(false);
+    expect(within(fold).getByRole("heading", { level: 3, name: "Reload files when they change" })).toBeTruthy();
+    expect(within(screen.getByRole("radiogroup", { name: "Theme" })).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Light", "Dark", "System"]);
+    expect(within(screen.getByRole("region", { name: "Appearance" })).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Theme"]);
   });
 
   it("names the chord that cycles the transcript detail as it is bound, and none when it is not", () => {

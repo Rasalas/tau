@@ -86,7 +86,7 @@ export class ChatGPTPlan {
   async credentials(instance: string): Promise<ChatGPTRegistration> {
     return this.store.lock(instance, async () => {
       let saved = await this.store.read(instance);
-      if (!saved?.tokens) throw new Error("Continue with ChatGPT in Settings → Providers to sign in to this account.");
+      if (!saved?.tokens) throw new Error("Continue with ChatGPT in Settings → Runtimes to sign in to this account.");
       if (!saved.tokens.scopes.includes(PLAN_SCOPE)) throw new Error("ChatGPT plan use is not enabled. Continue with ChatGPT again to authorize it.");
       if (saved.tokens.expiresAt <= Date.now() + 60_000) {
         if (!saved.tokens.refreshToken) throw new Error("Your ChatGPT session expired. Continue with ChatGPT to sign in again.");
@@ -105,7 +105,7 @@ export class ChatGPTPlan {
         }
         saved = { ...saved, tokens: tokens(response, saved.tokens) };
         await this.store.write(instance, saved);
-        if (!saved.tokens!.scopes.includes(PLAN_SCOPE)) throw new Error("ChatGPT plan permission was removed. Authorize it again in Settings → Providers.");
+        if (!saved.tokens!.scopes.includes(PLAN_SCOPE)) throw new Error("ChatGPT plan permission was removed. Authorize it again in Settings → Runtimes.");
       }
       return saved;
     });

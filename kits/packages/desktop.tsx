@@ -258,7 +258,7 @@ export function PackagesPage({ cwd, onNotify, onOpenSettings, host, inspect }: S
       <DevelopSection host={host} nameOf={(id) => packages?.find((entry) => entry.id === id)?.name ?? summaryOf(id)?.name} onNotify={onNotify} />
 
       <p className="settings-footnote">
-        The kits Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} kits)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off and see what it may do.
+        The extensions Tau ships{inspection?.distribution ? ` (${inspection.distribution.name} ${inspection.distribution.version}, ${bundled.length} extensions)` : ""} are listed under Settings → Extensions with every installed package; each has a page there to turn it off and see what it may do.
       </p>
 
       {removing ? (
@@ -389,10 +389,10 @@ export const packagesExtension: DesktopExtension = {
       id: PACKAGES_SETTINGS_PAGE,
       label: "Packages",
       description: "Install, update and remove extension packages the way Pi does. An install never starts a package until you approve it in Settings → Extensions.",
-      group: "extensions",
+      group: "app",
       profiles: ["desktop", "web"],
       Icon: Package,
-      order: 30,
+      order: 91,
       rows: PACKAGES_ROWS,
       Component: (props: SettingsPageProps) => (
         <PackagesPage {...props} host={plugin.host} inspect={(cwd) => plugin.inspectPackages(cwd)} />

@@ -54,10 +54,13 @@ function formatDate(iso: string): string {
 }
 
 /**
- * Settings → Connections → Network access. Tau's listeners open and close in
- * the running host, so a switch asks once and applies at once; nothing restarts.
+ * Settings → Connections. Tau's listeners open and close in the running host,
+ * so a switch asks once and applies at once; nothing restarts. `network` is
+ * the switches (the local network, its announcement, Tailscale); `advanced`
+ * the port and the certificate, which sit folded away.
  */
-export function NetworkAccessSection({ network, busy, onChange, onReload }: {
+export function NetworkAccessSection({ part, network, busy, onChange, onReload }: {
+  part: "network" | "advanced";
   network: UiNetworkAccess;
   busy: boolean;
   onChange(input: UiNetworkSettingsInput, done: string): Promise<boolean>;
@@ -75,46 +78,8 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
   const listening = settings.lan || settings.tailscale;
   const question = asking ? QUESTIONS[asking.key][asking.on ? "on" : "off"] : undefined;
 
-  return (
-    <SettingsSection title="Network access">
-      {network.problems.length ? (
-        <SettingRow
-          title="Needs attention"
-          status={<ul className="network-problems" role="status">{network.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
-        />
-      ) : null}
-      <SettingRow
-        id={settingAnchor("Local network")}
-        title="Local network"
-        description={settings.lan
-          ? `Devices on the same network reach Tau over HTTPS on port ${settings.port}.${lanListening ? "" : " Not listening yet."}`
-          : "Only this machine can connect."}
-        control={<Switch label="Local network" checked={settings.lan} disabled={busy} onChange={(on) => setAsking({ key: "lan", on })} />}
-      />
-      {settings.lan ? (
-        <SettingRow
-          id={settingAnchor("Announce on this network")}
-          title="Announce on this network"
-          description={settings.announce
-            ? "Lets devices here find Tau. It shares only the host id and certificate fingerprint; a device still needs your approval."
-            : "Only a pairing link or QR code leads here."}
-          status={settings.announce ? announcementText(network.announcement, lanListening) : undefined}
-          control={<Switch label="Announce on this network" checked={settings.announce} disabled={busy} onChange={(on) => void onChange({ announce: on }, on ? "Announcing Tau on this network" : "No longer announced on this network")} />}
-        />
-      ) : null}
-      <SettingRow
-        id={settingAnchor("Tailscale")}
-        title="Tailscale"
-        description={settings.tailscale
-          ? tailscaleListening || settings.lan
-            ? `Devices in your tailnet reach Tau at its Tailscale address and MagicDNS name on port ${settings.port}.`
-            : "Waiting for Tailscale: Tau listens on it once this machine has a Tailscale address."
-          : network.tailscaleUp
-            ? "Tailscale runs on this machine. Turn this on to let your tailnet’s devices connect."
-            : "Tailscale has no address on this machine."}
-        status={settings.tailscale && proxy ? <>A proxy on this machine, such as <code>tailscale serve</code>, forwards to <code>http://127.0.0.1:{proxy.port}</code>; everything through it counts as a remote device.</> : undefined}
-        control={<Switch label="Tailscale" checked={settings.tailscale} disabled={busy} onChange={(on) => setAsking({ key: "tailscale", on })} />}
-      />
+  if (part === "advanced") return (
+    <SettingsSection title="Port and certificate">
       <SettingRow
         id={settingAnchor("Port")}
         title="Port"
@@ -159,6 +124,56 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
           </div>
         )}
       />
+      {ownCertificate ? (
+        <OwnCertificateDialog
+          busy={busy}
+          onCancel={() => setOwnCertificate(false)}
+          onUse={(certificate) => void onChange({ certificate }, listening ? "Tau now serves your certificate" : "Tau will serve your certificate once a listener is on").then((ok) => { if (ok) setOwnCertificate(false); })}
+        />
+      ) : null}
+    </SettingsSection>
+  );
+
+  return (
+    <SettingsSection title="Network">
+      {network.problems.length ? (
+        <SettingRow
+          title="Needs attention"
+          status={<ul className="network-problems" role="status">{network.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
+        />
+      ) : null}
+      <SettingRow
+        id={settingAnchor("Local network")}
+        title="Local network"
+        description={settings.lan
+          ? `Devices on the same network reach Tau over HTTPS on port ${settings.port}.${lanListening ? "" : " Not listening yet."}`
+          : "Only this machine can connect."}
+        control={<Switch label="Local network" checked={settings.lan} disabled={busy} onChange={(on) => setAsking({ key: "lan", on })} />}
+      />
+      {settings.lan ? (
+        <SettingRow
+          id={settingAnchor("Announce on this network")}
+          title="Announce on this network"
+          description={settings.announce
+            ? "Lets devices here find Tau. It shares only this machine’s id and certificate fingerprint; a device still needs your approval."
+            : "Only a pairing link or QR code leads here."}
+          status={settings.announce ? announcementText(network.announcement, lanListening) : undefined}
+          control={<Switch label="Announce on this network" checked={settings.announce} disabled={busy} onChange={(on) => void onChange({ announce: on }, on ? "Announcing Tau on this network" : "No longer announced on this network")} />}
+        />
+      ) : null}
+      <SettingRow
+        id={settingAnchor("Tailscale")}
+        title="Tailscale"
+        description={settings.tailscale
+          ? tailscaleListening || settings.lan
+            ? `Devices in your tailnet reach Tau at its Tailscale address and MagicDNS name on port ${settings.port}.`
+            : "Waiting for Tailscale: Tau listens on it once this machine has a Tailscale address."
+          : network.tailscaleUp
+            ? "Tailscale runs on this machine. Turn this on to let your tailnet’s devices connect."
+            : "Tailscale has no address on this machine."}
+        status={settings.tailscale && proxy ? <>A proxy on this machine, such as <code>tailscale serve</code>, forwards to <code>http://127.0.0.1:{proxy.port}</code>; everything through it counts as a remote device.</> : undefined}
+        control={<Switch label="Tailscale" checked={settings.tailscale} disabled={busy} onChange={(on) => setAsking({ key: "tailscale", on })} />}
+      />
       {asking && question ? (
         <ConfirmDialog
           title={question.title}
@@ -171,13 +186,6 @@ export function NetworkAccessSection({ network, busy, onChange, onReload }: {
             setAsking(undefined);
             void onChange({ [key]: on }, `${key === "lan" ? "Local network" : "Tailscale"} ${on ? "on" : "off"}`);
           }}
-        />
-      ) : null}
-      {ownCertificate ? (
-        <OwnCertificateDialog
-          busy={busy}
-          onCancel={() => setOwnCertificate(false)}
-          onUse={(certificate) => void onChange({ certificate }, listening ? "Tau now serves your certificate" : "Tau will serve your certificate once a listener is on").then((ok) => { if (ok) setOwnCertificate(false); })}
         />
       ) : null}
     </SettingsSection>

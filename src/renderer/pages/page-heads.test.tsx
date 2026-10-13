@@ -65,7 +65,7 @@ describe("page heads and bars draw no list markers", () => {
     cleanup();
     for (const stacked of [false, true]) {
       const { container } = render(<HostClientProvider client={undefined}><TestProviders>
-        <SettingsScreen page="extensions" stacked={stacked} view="page" registry={new ExtensionRegistry(undefined, { preferences: new PreferencesStore() })} onSetPage={vi.fn()} onSetModel={vi.fn()} onSetThinking={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
+        <SettingsScreen page="extensions" stacked={stacked} view="page" registry={new ExtensionRegistry(undefined, { preferences: new PreferencesStore() })} onSetPage={vi.fn()} onClose={vi.fn()} onNotify={vi.fn()} />
       </TestProviders></HostClientProvider>);
       expect(text(markedLists(container, rules))).toEqual([]);
       cleanup();

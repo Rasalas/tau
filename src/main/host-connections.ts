@@ -114,7 +114,7 @@ async function allEndpoints(connections: HostConnectionsService, info: HostListe
 }
 
 function forbidden(): never {
-  throw Object.assign(new Error("Only a connection with the host token, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
+  throw Object.assign(new Error("Only a connection with the access key, on this machine, manages who may connect."), { code: HOST_ERROR.forbidden });
 }
 
 function unavailable(message = "This host has no socket listener, so no other client can connect to it."): never {

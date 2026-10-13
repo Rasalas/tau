@@ -1956,7 +1956,7 @@ export class HostExtensionRegistry {
     const stopped = !context && principal.kind === "host-extension" ? this.retiredContexts.get(principal.contextId) : undefined;
     const reason = context
       ? "the host-issued context has no grant for this target command"
-      : stopped ? "the calling kit instance was stopped" : "the host-issued context is unknown or expired";
+      : stopped ? "the calling extension instance was stopped" : "the host-issued context is unknown or expired";
     const details = {
       caller: caller ?? stopped ?? "unknown",
       target: extensionId,

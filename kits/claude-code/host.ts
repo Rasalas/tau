@@ -122,7 +122,7 @@ export const CLAUDE_SIGN_IN_METHODS: readonly SignInMethod[] = [
 /** A missing CLI fails with an explanation instead of a bare ENOENT from the first turn. */
 export function assertCommandInstalled(findCommand: (name: string) => string | undefined, command = process.env[CLAUDE_COMMAND_VARIABLE] ?? "claude"): void {
   if (findCommand(command)) return;
-  throw new Error(`The Claude Code CLI "${command}" was not found on the PATH of your login shell. Install it (https://claude.ai/code) or set its path under Settings → Providers.`);
+  throw new Error(`The Claude Code CLI "${command}" was not found on the PATH of your login shell. Install it (https://claude.ai/code) or set its path under Settings → Runtimes.`);
 }
 
 function instanceInput(input: unknown): string {
@@ -347,7 +347,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
             catalogKeys.set(id, key);
             // The probe lists models signed out too; the CLI's own login state decides.
             const auth = await authOf(id);
-            if (auth && !auth.loggedIn) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its card under Settings → Providers.` };
+            if (auth && !auth.loggedIn) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: `${settings.label(id)} is not signed in. Sign in on its entry under Settings → Runtimes.` };
             const catalog = probeNewThreadCatalog(noteProbe(id, await adapter.probe(fresh ? { fresh: true } : undefined)));
             const billing = authBilling(auth);
             if (!billing) return catalog;

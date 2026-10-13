@@ -26,7 +26,7 @@ const POSIX_BODY = `{
 }`;
 
 /** Read by zsh first; hands every later startup file back to the user's own, then defines \`pi\` at the first prompt. */
-export const ZSHENV = `# Tau's terminal (Terminal Kit). Generated; changes are overwritten.
+export const ZSHENV = `# Tau's terminal (the Terminal extension). Generated; changes are overwritten.
 if [[ -n "\${${USER_ZDOTDIR}+x}" ]]; then ZDOTDIR="\${${USER_ZDOTDIR}}"; else unset ZDOTDIR; fi
 unset ${USER_ZDOTDIR}
 if [[ -r "\${ZDOTDIR:-$HOME}/.zshenv" ]]; then source "\${ZDOTDIR:-$HOME}/.zshenv"; fi
@@ -44,7 +44,7 @@ fi
 `;
 
 /** Autoloaded by fish from \`$XDG_DATA_DIRS/fish/vendor_functions.d\`; the user's own functions come first. */
-export const FISH_FUNCTION = `# Tau's terminal (Terminal Kit). Generated; changes are overwritten.
+export const FISH_FUNCTION = `# Tau's terminal (the Terminal extension). Generated; changes are overwritten.
 function pi --description 'Pi, holding the session lock Tau hosts use'
     if not set -q ${PI_SESSION_LOCK_ENV}; or not test -r "$${PI_SESSION_LOCK_ENV}"; or contains -- "$argv[1]" ${PI_SUBCOMMANDS.join(" ")}
         command pi $argv

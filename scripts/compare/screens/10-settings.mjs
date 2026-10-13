@@ -4,7 +4,7 @@ import { probes } from "./probes.mjs";
 const PROBES = probes({
   tau: {
     nav: ".settings-nav",
-    navItem: ".settings-nav-list button@^Pi$",
+    navItem: ".settings-nav-list button@^Keybindings$",
     navActive: ".settings-nav-list [aria-current=page], .settings-nav-list .active",
     navHeading: ".settings-nav-heading",
     breadcrumb: ".settings-topbar",
@@ -29,18 +29,19 @@ const PROBES = probes({
   },
 });
 
-const PAGES = { tau: ["Appearance", "Providers", "Keybindings"], reference: ["Appearance", "Providers", "Keybindings"] };
+// Tau's Providers are the Runtimes page; the picture keeps the name the reference has.
+const PAGES = { tau: [["Appearance"], ["Runtimes", "providers"], ["Keybindings"]], reference: [["Appearance"], ["Providers"], ["Keybindings"]] };
 
 async function run(ctx, { shot }) {
   await ctx.click("button[aria-label=Settings]");
   await ctx.wait(1_500);
   await ctx.moveMouse(1300, 860);
   await shot("general", { probes: PROBES, tabs: 6 });
-  for (const page of PAGES[ctx.id]) {
+  for (const [page, name = page.toLowerCase()] of PAGES[ctx.id]) {
     await ctx.clickText("a, button", new RegExp(`^${page}$`, "u"));
     await ctx.wait(1_200);
     await ctx.moveMouse(1300, 860);
-    await shot(page.toLowerCase(), { probes: PROBES });
+    await shot(name, { probes: PROBES });
   }
   await ctx.click("input", /./u).catch(() => undefined);
   await ctx.eval(`(() => { const input = [...document.querySelectorAll("input")].find((el) => /search/i.test((el.getAttribute("aria-label") ?? "") + (el.placeholder ?? ""))); input?.focus(); return !!input; })()`);

@@ -5,7 +5,6 @@ import { createKitHarness } from "../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../src/renderer/test-support/test-providers.js";
 import type { DesktopExtension } from "tau";
 import { resumeCompactionExtension } from "./resume-compaction/desktop.js";
-import { terminalExtension } from "./terminal/desktop.js";
 import { workspaceExtension } from "./workspace/desktop.js";
 
 afterEach(cleanup);
@@ -15,9 +14,8 @@ const PAGES = ["general", "connections"] as const;
 /** General and Connections rows of the kits: each is found by the search and has the element it scrolls to. */
 describe("Settings search finds the kits' rows", () => {
   const cases: Array<[string, DesktopExtension, string[]]> = [
-    ["Workspace Kit", workspaceExtension, ["Branch name", "Trace tabs", "Editor", "Worktrees under"]],
+    ["Workspace", workspaceExtension, ["Branch name", "Trace tabs", "Editor"]],
     ["Resume Compaction", resumeCompactionExtension, ["Compact context"]],
-    ["Terminal Kit", terminalExtension, ["Shell"]],
   ];
   for (const [name, extension, labels] of cases) {
     it(`${name}: ${labels.join(", ")}`, async () => {

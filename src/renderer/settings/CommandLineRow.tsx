@@ -21,7 +21,7 @@ function describe(state: CommandLineState): ReactNode {
 }
 
 /**
- * Settings → General → Terminal command: links the `tau` command into a
+ * Settings → Connections → This machine → Command line: links the `tau` command into a
  * folder on PATH after asking, shows where it stands and removes it again
  * (T3 #16683). Only this machine's window can do it, and only an installed app.
  */
@@ -55,8 +55,8 @@ export function CommandLineRow({ onNotify }: { onNotify(message: string, level?:
   return (
     <>
       <SettingRow
-        id={settingAnchor("Terminal command")}
-        title="Terminal command"
+        id={settingAnchor("Command line")}
+        title="Command line"
         description={describe(state)}
         control={installed
           ? <Button busy={busy} onClick={() => change("remove")}>Remove</Button>

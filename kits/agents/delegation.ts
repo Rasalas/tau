@@ -30,7 +30,7 @@ export async function delegationModel(services: HostExtensionServices, cwd: stri
     throw new Error(`${reason} Available runtimes and models: ${describe(available)}.`);
   };
   if (!choice) return fail(`Unknown runtime "${runtime}".`);
-  if (!choice.enabled) return fail(`Runtime "${runtime}" is turned off for this project. Enable it under Settings → Providers.`);
+  if (!choice.enabled) return fail(`Runtime "${runtime}" is turned off for this project. Enable it under Settings → Runtimes.`);
   if (choice.readiness.state !== "ready") return fail(`Runtime "${runtime}" is ${choice.readiness.state}. ${choice.readiness.note ?? ""}`);
   if (model === undefined) return undefined;
   const matches = choice.catalog?.models.filter((candidate) => model === `${candidate.provider}/${candidate.id}` || model === candidate.id) ?? [];
