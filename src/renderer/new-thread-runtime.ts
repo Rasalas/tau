@@ -42,6 +42,19 @@ function startOf(kind: ThreadBackendKind, snapshot: HostSnapshot | undefined, ca
   return runtimeStart(kind, catalogs.get(kind));
 }
 
+/**
+ * The runtimes a new thread can start on, for a screen that says what is set up
+ * (API 1.61.0). Nothing before every runtime the project offers has answered,
+ * so "none is ready" is never claimed on a half-filled list.
+ */
+export function readyRuntimes(snapshot: HostSnapshot | undefined, catalogs: RuntimeCatalogs): UiRuntimeBackend[] | undefined {
+  // A host that lists no backends has Pi alone.
+  const offered = snapshot?.runtimeBackends?.length ? offeredBackends(snapshot.runtimeBackends) : [{ kind: "pi", label: "Pi" }];
+  const ready = offered.filter((backend) => startOf(backend.kind, snapshot, catalogs) === "ready");
+  const answered = offered.every((backend) => { const entry = catalogs.get(backend.kind); return entry !== undefined && entry.status !== "loading"; });
+  return ready.length > 0 || answered ? ready : undefined;
+}
+
 /** The first runtime a project offers that is known to start a thread, when the host's default is known not to. */
 function readyStandIn(snapshot: HostSnapshot | undefined, catalogs: RuntimeCatalogs | undefined): ThreadBackendKind | undefined {
   if (!catalogs) return undefined;

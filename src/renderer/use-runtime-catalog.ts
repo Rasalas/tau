@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { HostSnapshot, ThreadBackendKind, UiComposerCommand } from "../shared/contracts";
+import type { HostSnapshot, ThreadBackendKind, UiComposerCommand, UiRuntimeBackend } from "../shared/contracts";
 import type { NewThreadDraft } from "../workbench/draft-store";
 import type { HostClient } from "../workbench/host-client";
 import { RuntimeAvailabilityStore, withDisabledRuntimes } from "../workbench/runtime-availability-store";
 import { RuntimeCatalogStore, type RuntimeCatalogEntry } from "../workbench/runtime-catalog-store";
 import { useHostClient } from "./host-client-context";
+import { readyRuntimes } from "./new-thread-runtime";
 
 const stores = new WeakMap<HostClient, RuntimeCatalogStore>();
 const idle = () => () => undefined;
@@ -40,6 +41,16 @@ export function useRuntimeCatalogs(open: boolean, revalidate = true): ReadonlyMa
   const store = open ? runtimeCatalogStore(client) : undefined;
   useEffect(() => { void store?.refresh(revalidate); }, [revalidate, store]);
   return useSyncExternalStore(store?.subscribe ?? idle, () => store?.all() ?? NONE);
+}
+
+/**
+ * The runtimes a new thread can start on, from what the host holds (API 1.61.0):
+ * no program is started, and `open: false` asks for nothing. Undefined until
+ * one is ready or every runtime the project offers has answered.
+ */
+export function useReadyRuntimes(snapshot: HostSnapshot | undefined, open = true): UiRuntimeBackend[] | undefined {
+  const catalogs = useRuntimeCatalogs(open, false);
+  return useMemo(() => open ? readyRuntimes(snapshot, catalogs) : undefined, [catalogs, open, snapshot]);
 }
 
 /**

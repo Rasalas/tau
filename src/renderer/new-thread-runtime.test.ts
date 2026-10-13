@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HostSnapshot, UiModel, UiRuntimeCatalog } from "../shared/contracts";
 import { catalogEntry, type RuntimeCatalogEntry } from "../workbench/runtime-catalog-store";
-import { chosenNewThreadRuntime, effectiveNewThreadRuntime, newThreadSetup, offeredBackends, rememberedNewThreadSelection, runtimeStart } from "./new-thread-runtime";
+import { chosenNewThreadRuntime, effectiveNewThreadRuntime, newThreadSetup, offeredBackends, readyRuntimes, rememberedNewThreadSelection, runtimeStart } from "./new-thread-runtime";
 
 const snapshot = {
   runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme" }],
@@ -125,6 +125,24 @@ describe("the runtime of a new thread by what is ready", () => {
     expect(newThreadSetup("other", host, catalogs)).toBeUndefined();
     expect(newThreadSetup("pi", host, held())).toBeUndefined();
     expect(newThreadSetup("pi", host, undefined)).toBeUndefined();
+  });
+
+  it("lists the runtimes that can start a thread once every offered runtime has answered", () => {
+    const kinds = (catalogs: ReturnType<typeof held>) => readyRuntimes(host, catalogs)?.map((backend) => backend.kind);
+    expect(kinds(held(noProvider, signedOut("acme"), ready("other")))).toEqual(["other"]);
+    expect(kinds(held(noProvider, signedOut("acme"), { kind: "other", models: [], thinkingLevels: {}, status: "not-installed" }))).toEqual([]);
+    // A runtime that is ready is named at once; "none" waits for the rest.
+    expect(kinds(held(noProvider, ready("acme")))).toEqual(["acme"]);
+    expect(kinds(held(noProvider, signedOut("acme")))).toBeUndefined();
+    expect(kinds(held())).toBeUndefined();
+    expect(kinds(new Map([["pi", { status: "loading" }], ["acme", catalogEntry(signedOut("acme"))], ["other", catalogEntry(signedOut("other"))]]))).toBeUndefined();
+  });
+
+  it("leaves out a runtime the project turned off, and takes a host without a backend list for Pi alone", () => {
+    const off = { runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme", disabled: true }] } as HostSnapshot;
+    expect(readyRuntimes(off, held(noProvider, ready("acme")))).toEqual([]);
+    expect(readyRuntimes({} as HostSnapshot, held(ready("pi")))?.map((backend) => backend.kind)).toEqual(["pi"]);
+    expect(readyRuntimes(undefined, held(noProvider))).toEqual([]);
   });
 
   it("trusts the models of the thread on screen over a catalog that says its runtime has none", () => {
