@@ -338,6 +338,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       // own visible projection has been persisted.
       && (record.runtime.state.hasMessages || (record.runtime.adapterMessages?.length ?? 0) > 0),
     dispose: (record) => runtimes.dispose(record.runtime),
+    onDisposeTimeout: (record) => {
+      runtimes.discard(record.runtime);
+      deps.logForThread(record.runtime, "runtime.dispose.timeout", "30 s");
+    },
   });
   /** Owns both queue admission and the epoch that guards visible activation. */
   const lifecycle = new HostLifecycleCoordinator({
@@ -633,6 +637,12 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     logForThread: (thread, label, detail) => deps.logForThread(thread, label, detail),
     fail: (error, sessionId, thread) => deps.fail(error, sessionId, thread),
     errorMessage: (error) => deps.errorMessage(error),
+    discard: (thread) => {
+      runtimes.discard(thread);
+      if (threads.get(thread.threadId)?.runtime === thread) {
+        void threads.release(thread.threadId).catch((error: unknown) => deps.logForThread(thread, "runtime.dispose.failed", deps.errorMessage(error)));
+      }
+    },
   });
   const runtimes: ThreadRuntimeLifecycle = new ThreadRuntimeLifecycle({
     safeMode,

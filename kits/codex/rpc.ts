@@ -14,6 +14,8 @@ export interface RpcProcess {
   readonly stderr: Readable;
   kill(signal?: NodeJS.Signals): boolean;
   readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  /** Process exit without waiting for inherited pipes to close. */
+  readonly terminated?: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
   /** After the exit: whether the process ran out of memory (its systemd scope says so). */
   oomKilled?(): Promise<boolean>;
 }
@@ -41,6 +43,10 @@ export function spawnRpcProcess(input: RpcSpawnInput): RpcProcess {
     child.once("close", (code, signal) => resolve({ code, signal }));
     child.once("error", () => resolve({ code: null, signal: null }));
   });
+  const terminated = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+    child.once("error", () => resolve({ code: null, signal: null }));
+  });
   return {
     get pid() { return child.pid; },
     stdin: child.stdin!,
@@ -48,6 +54,7 @@ export function spawnRpcProcess(input: RpcSpawnInput): RpcProcess {
     stderr: child.stderr!,
     kill: (signal) => child.kill(signal),
     exited,
+    terminated,
     ...(launch.scope ? { oomKilled: () => launch.scope!.oomKilled() } : {}),
   };
 }
@@ -151,12 +158,21 @@ export class RpcConnection {
     this.closing = true;
     try { this.options.process.stdin.end(); } catch { /* already gone */ }
     const exited = this.options.process.exited.then(() => true);
-    const wait = (ms: number) => new Promise<false>((resolve) => setTimeout(() => resolve(false), ms).unref?.());
-    if (await Promise.race([exited, wait(graceMs)])) return;
+    const wait = async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([exited, new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), graceMs); timer.unref?.(); })]);
+      } finally { if (timer) clearTimeout(timer); }
+    };
+    if (await wait()) return;
     this.options.process.kill("SIGTERM");
-    if (await Promise.race([exited, wait(graceMs)])) return;
+    if (await wait()) return;
     this.options.process.kill("SIGKILL");
-    await exited;
+    await (this.options.process.terminated ?? exited);
+    this.options.process.stdin.destroy();
+    this.options.process.stdout.destroy();
+    this.options.process.stderr.destroy();
+    this.finish(undefined);
   }
 
   private write(message: object): void {

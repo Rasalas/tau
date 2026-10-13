@@ -130,6 +130,12 @@ carries it, including a remote host's. `registerRuntimeExtension` is one of the
 members a **worker cannot reach** (§6), so a package that wants a Pi tool needs
 `"isolation": "in-process"`.
 
+Binding, including `session_start` handlers, must finish within 30 seconds.
+On timeout the host reports a thread error, refuses its pending prompts and
+discards the runtime. Late UI callbacks from that binding are ignored.
+Close observers and runtime disposal each get 10 seconds before the host
+continues cleanup; the registry gives the whole teardown at most 30 seconds.
+
 **Tools that are rarely needed** can stay out of the request. Register them with
 `exposure: "deferred"` and a `namespace: { name, description }` (both fields of Pi's
 `ToolDefinition`): Pi does not declare them to the model, and the `tool_search` tool

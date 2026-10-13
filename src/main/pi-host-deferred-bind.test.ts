@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionUiAnswer, HostEvent } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { PiHost } from "./pi-host.js";
@@ -18,12 +18,12 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 /** A Pi-shaped thread whose extension binding the test drives by hand. */
-function bindableThread(bind: (bindings: RuntimeExtensionBindings) => Promise<void>, prompts: string[]) {
+function bindableThread(bind: (bindings: RuntimeExtensionBindings) => Promise<void>, prompts: string[], threadId = "session") {
   const backend = {
     kind: "pi" as const,
     runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
-    threadId: "session",
-    providerSessionId: "session",
+    threadId,
+    providerSessionId: threadId,
     cwd: "/repo",
     turnReporting: "streamed" as const,
     capabilities: {
@@ -38,9 +38,9 @@ function bindableThread(bind: (bindings: RuntimeExtensionBindings) => Promise<vo
       },
     },
     preparePrompt: async (text: string) => ({
-      tauThreadId: "session",
-      providerSessionId: "session",
-      sessionId: "session",
+      tauThreadId: threadId,
+      providerSessionId: threadId,
+      sessionId: threadId,
       backendKind: "pi" as const,
       runtimeCapabilities: PI_AGENT_RUNTIME_ADAPTER.capabilities,
       visibleText: text,
@@ -76,7 +76,7 @@ async function hostWithBindingThread(bind: (bindings: RuntimeExtensionBindings) 
   const thread = bindableThread(bind, prompts);
   await internals.threads.adopt({ threadId: "session", cwd: "/repo", runtime: thread, isolation: "in-process" });
   const bound = internals.binding.bind(thread, true);
-  return { host, events, prompts, bound };
+  return { host, internals, thread, events, prompts, bound };
 }
 
 /** Lets every already-scheduled microtask and timer run. */
@@ -85,6 +85,25 @@ function settleQueue(): Promise<void> {
 }
 
 describe("deferred extension binding", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("reports a hung start binding after the deadline while another thread can prompt", async () => {
+    vi.useFakeTimers();
+    const { host, internals, events, prompts, bound } = await hostWithBindingThread(() => new Promise(() => undefined));
+    const otherPrompts: string[] = [];
+    const other = bindableThread(async () => undefined, otherPrompts, "other");
+    await internals.threads.adopt({ threadId: "other", cwd: "/repo", runtime: other, isolation: "in-process" });
+    const prompt = host.prompt("hello", [], "session").catch((error: unknown) => error);
+    await host.prompt("still works", [], "other");
+    expect(otherPrompts).toEqual(["still works"]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await bound;
+    expect(await prompt).toEqual(expect.objectContaining({ message: expect.stringContaining("30 s") }));
+    expect(prompts).toEqual([]);
+    expect(events).toContainEqual(expect.objectContaining({ type: "error", sessionId: "session", message: expect.stringContaining("30 s") }));
+    await host.prompt("works afterwards", [], "other");
+    expect(otherPrompts).toEqual(["still works", "works afterwards"]);
+  });
   it("holds a prompt until the pending binding finishes", async () => {
     const gate = deferred<void>();
     const { host, prompts } = await hostWithBindingThread(() => gate.promise);
