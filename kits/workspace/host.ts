@@ -567,7 +567,12 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
         const root = (await readThreadBranch(path).catch(() => undefined))?.root ?? path;
         return gitWrite(root, async () => {
-          const removed = await git.write(root, () => removeThreadBranch(path, { target: optionalString(input, "target"), expectedTip: optionalString(input, "tip"), integratedTip: optionalString(input, "integratedTip") }));
+          const removed = await git.write(root, async () => {
+            const preview = await worktrees.storage.previewRemoval(root, path);
+            if (preview.openThreads > 0) throw new Error("A thread is still open in this worktree.");
+            if (preview.ignoredFiles > 0) throw new Error("This worktree holds ignored files; nothing was removed.");
+            return removeThreadBranch(path, { target: optionalString(input, "target"), expectedTip: optionalString(input, "tip"), integratedTip: optionalString(input, "integratedTip") });
+          });
           await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
           git.invalidate(root, ["branch", "status", "workspace"]);
           return removed;
