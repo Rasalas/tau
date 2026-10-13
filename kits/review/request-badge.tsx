@@ -145,7 +145,7 @@ export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
           close();
           event.currentTarget.click();
         }}>{body}</span>
-        {open ? <Popover anchor={anchor} side="bottom" align="start" label="Thread pull requests" className="request-popover" onClose={close}>
+        {open ? <Popover anchor={anchor} side="bottom" align="start" label="Thread pull requests" className="request-popover" takeFocus={false} onClose={close}>
           <div onPointerEnter={cancel} onPointerLeave={leave} onFocus={cancel} onBlur={leave} onClick={(event) => { cancel(); event.stopPropagation(); }}>
             <CompactRequests nodes={threadRequestTree(entries)} threadId={session.id} workspace={session.projectPath} branchUrl={request ? first.url : undefined} />
           </div>

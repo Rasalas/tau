@@ -105,7 +105,7 @@ export const TaskPill = memo(function TaskPill({ progress }: { progress: UiTaskP
       <ProgressSegments progress={progress} />
       <span className="task-progress-count">{progress.completed}/{progress.total}</span>
     </button>
-    {open ? <Popover anchor={anchor} side="top" align="center" label="Tasks" className="task-progress-popover" onClose={close}>
+    {open ? <Popover anchor={anchor} side="top" align="center" label="Tasks" className="task-progress-popover" takeFocus={false} onClose={close}>
       <div onPointerEnter={hover(true)} onPointerLeave={hover(false)}>
         <header className="task-progress-head"><strong>Tasks</strong><span>{summary}</span></header>
         <TaskList progress={progress} />

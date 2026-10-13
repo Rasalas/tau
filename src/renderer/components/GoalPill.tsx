@@ -158,7 +158,7 @@ export const GoalPill = memo(function GoalPill({ goal, runtime, readOnly, onActi
       <span>{LABEL[goal.status]}</span>
       {goal.status === "active" && tokens ? <span className="goal-pill-tokens">{tokens}</span> : null}
     </button>
-    {open ? <Popover anchor={anchor} side="top" align="center" label="Goal" className="goal-popover" onClose={close}>
+    {open ? <Popover anchor={anchor} side="top" align="center" label="Goal" className="goal-popover" takeFocus={false} onClose={close}>
       <div ref={body} className={`goal-popover-body ${tone}`} onPointerEnter={hover(true)} onPointerLeave={hover(false)} tabIndex={-1}>
         <header className="goal-popover-head"><GoalIcon status={goal.status} /><strong>{TITLE[goal.status]}</strong></header>
         <p className="goal-objective">{goal.objective}</p>
