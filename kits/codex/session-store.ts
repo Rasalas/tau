@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { SessionStorePersistence } from "../_shared/session-store-persistence.js";
 
 /**
  * App-data persistence for Codex threads: the Tau thread → Codex thread
@@ -235,9 +236,23 @@ export class CodexSessionStore {
   /** The account's models per instance; the default instance under its id. */
   private models = new Map<string, CodexStoredModel[]>();
   private loading?: Promise<void>;
+  private readonly persistence: SessionStorePersistence<CodexSessionRecord, CodexStoredModel>;
 
   constructor(private readonly options: { filePath: string; now?(): number; logger?: PersistedJsonLogger }) {
     this.now = options.now ?? Date.now;
+    this.persistence = new SessionStorePersistence({
+      filePath: options.filePath,
+      version: CURRENT_VERSION,
+      logger: options.logger,
+      decode: (value) => {
+        const data = decodeFile(value);
+        return data ? { sessions: data.sessions, models: { [DEFAULT_INSTANCE_ID]: data.models, ...data.instanceModels } } : undefined;
+      },
+      encode: (data) => {
+        const { [DEFAULT_INSTANCE_ID]: models = [], ...instanceModels } = data.models ?? {};
+        return { sessions: data.sessions, models, ...(Object.keys(instanceModels).length ? { instanceModels } : {}) };
+      },
+    });
   }
 
   /** Beside the Pi session directory, like the other backends' stores, so a dev instance never writes into the user's own. */
@@ -246,10 +261,10 @@ export class CodexSessionStore {
   }
 
   private load(): Promise<void> {
-    this.loading ??= readPersistedJson(this.options.filePath, { expectedVersion: CURRENT_VERSION, decode: decodeFile, ...(this.options.logger ? { logger: this.options.logger } : {}) })
-      .then((result) => {
-        for (const record of result?.data.sessions ?? []) this.records.set(record.tauThreadId, record);
-        this.models = new Map([[DEFAULT_INSTANCE_ID, result?.data.models ?? []], ...Object.entries(result?.data.instanceModels ?? {})]);
+    this.loading ??= this.persistence.load()
+      .then((data) => {
+        for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record);
+        this.models = new Map(Object.entries(data?.models ?? {}));
       })
       .catch(() => undefined);
     return this.loading;
@@ -449,11 +464,6 @@ export class CodexSessionStore {
   }
 
   private persist(): Promise<void> {
-    const { [DEFAULT_INSTANCE_ID]: models = [], ...instanceModels } = Object.fromEntries(this.models);
-    return writePersistedJson(this.options.filePath, CURRENT_VERSION, {
-      sessions: [...this.records.values()],
-      models,
-      ...(Object.keys(instanceModels).length ? { instanceModels } : {}),
-    }, this.options.logger ? { logger: this.options.logger } : {});
+    return this.persistence.write({ sessions: [...this.records.values()], models: Object.fromEntries(this.models) });
   }
 }
