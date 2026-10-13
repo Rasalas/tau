@@ -4,15 +4,31 @@ import { mkdir, mkdtemp, rm, writeFile as writeTextFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
-import { evaluateHostBudgets } from "./host-budget.mjs";
+import { evaluateHostBudgets, medianMs } from "./host-budget.mjs";
 
 const root = process.cwd();
 const mode = process.argv.includes("--full") ? "full" : "safe";
 const check = process.argv.includes("--check");
 const outputIndex = process.argv.indexOf("--output");
 const output = outputIndex >= 0 ? process.argv[outputIndex + 1] : join(root, "reports", `host-${mode}-report.json`);
+const distImport = (...parts) => import(pathToFileURL(join(root, "dist-electron", ...parts)).href);
+const coldSampleIndex = process.argv.indexOf("--cold-sample");
+if (coldSampleIndex >= 0) {
+  // Internal child of measureColdStarts: the first host start of this fresh process, then exit.
+  const [{ PiHost }, { ProjectHistory }] = await Promise.all([distImport("main", "pi-host.js"), distImport("main", "project-history.js")]);
+  const history = new ProjectHistory(process.argv[coldSampleIndex + 1]);
+  await history.load();
+  const host = new PiHost(root, () => {}, history, mode === "safe", false);
+  const started = performance.now();
+  await host.start();
+  const coldBootstrapMs = performance.now() - started;
+  await host.dispose();
+  await history.flush();
+  await new Promise((resolvePromise) => process.stdout.write(`${JSON.stringify({ coldBootstrapMs })}\n`, resolvePromise));
+  process.exit(0);
+}
 const alternate = await mkdtemp(join(tmpdir(), "tau-host-benchmark-"));
 const historyPath = join(alternate, "projects.json");
 
@@ -29,13 +45,31 @@ function summarize(samples) {
   return { median: at(0.5), p95: at(0.95), maximum: sorted.at(-1) ?? 0 };
 }
 
-/** Cold starts per report; one start is a single sample, not a distribution. */
+/** Hosts per report, and fresh processes for the cold bootstrap; one start is a single sample, not a distribution. */
 const HOST_RUNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_RUNS ?? 3));
 /** User turns in the long thread fixtures; each adds a tool call, its result and an answer. */
 const LONG_THREAD_TURNS = Math.max(1, Number(process.env.TAU_HOST_BENCH_LONG_TURNS ?? 5_000));
 const METADATA_SAMPLES = 20;
 /** Turns of the thread whose every turn left a Workspace Kit checkpoint. */
 const CHECKPOINTED_TURNS = 60;
+
+/**
+ * The first host start of a process is the only cold one: later hosts reuse the
+ * SDK's resource cache. Each sample is therefore a child process of its own,
+ * run one after the other, and the report keeps their median.
+ */
+function measureColdStarts() {
+  return Array.from({ length: HOST_RUNS }, (_, index) => {
+    const stdout = execFileSync(
+      process.execPath,
+      [fileURLToPath(import.meta.url), "--cold-sample", join(alternate, `cold-projects-${index}.json`), ...(mode === "full" ? ["--full"] : [])],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], timeout: 120_000 },
+    );
+    const { coldBootstrapMs } = JSON.parse(stdout.trim().split("\n").at(-1) ?? "");
+    if (!Number.isFinite(coldBootstrapMs)) throw new Error(`cold bootstrap sample ${index} was not a number`);
+    return coldBootstrapMs;
+  });
+}
 
 /**
  * One thread of `turns` user turns, each with a tool call, its result and an
@@ -269,12 +303,12 @@ try {
   execFileSync("git", ["-C", alternate, "add", "README.md"], { stdio: "ignore" });
   execFileSync("git", ["-C", alternate, "-c", "user.name=Tau Benchmark", "-c", "user.email=tau@example.invalid", "commit", "-m", "fixture"], { stdio: "ignore" });
   const [{ PiHost }, { ProjectHistory }, { SessionManager, VERSION: PI_VERSION }, { compactHeap }, kits, { EXTENSION_API_VERSION }] = await Promise.all([
-    import(pathToFileURL(join(root, "dist-electron", "main", "pi-host.js")).href),
-    import(pathToFileURL(join(root, "dist-electron", "main", "project-history.js")).href),
+    distImport("main", "pi-host.js"),
+    distImport("main", "project-history.js"),
     import("@earendil-works/pi-coding-agent"),
-    import(pathToFileURL(join(root, "dist-electron", "main", "host-idle-compaction.js")).href),
-    import(pathToFileURL(join(root, "dist-electron", "main", "bundled-kits.js")).href),
-    import(pathToFileURL(join(root, "dist-electron", "shared", "extension-compat.js")).href),
+    distImport("main", "host-idle-compaction.js"),
+    distImport("main", "bundled-kits.js"),
+    distImport("shared", "extension-compat.js"),
   ]);
   const sessionDir = join(alternate, "sessions");
   const sessionPaths = ["First fixture", "Second fixture"].map((name, index) => {
@@ -283,6 +317,7 @@ try {
     return manager.getSessionFile();
   });
   if (sessionPaths.some((path) => !path)) throw new Error("Could not create persisted benchmark sessions");
+  const coldSamples = measureColdStarts();
   const wallClock = [];
   let phases = [];
   let background = [];
@@ -335,8 +370,8 @@ try {
     wallClock,
     summaries: Object.fromEntries([...new Set(wallClock.map((sample) => sample.scenario))].map((scenario) => {
       const samples = wallClock.filter((sample) => sample.scenario === scenario).map((sample) => sample.durationMs);
-      // The first start of a process is the only cold one; later hosts reuse the SDK's resource cache.
-      return [scenario, scenario === "bootstrap" ? { ...summarize(samples), cold: samples[0] } : summarize(samples)];
+      // `cold` is the gate: the median of first starts in fresh processes, not of this process's hosts.
+      return [scenario, scenario === "bootstrap" ? { ...summarize(samples), cold: medianMs(coldSamples), coldSamples } : summarize(samples)];
     })),
     hostRuns: HOST_RUNS,
     idleHeapMiB,
