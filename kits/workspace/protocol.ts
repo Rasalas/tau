@@ -832,7 +832,7 @@ export interface WorkspaceStoreApi {
    * the new-thread gate creates one: named by the naming kit when there is one.
    * Answers nothing when the project is no repository or the draft runs in
    * the checkout. When the worktree could not be made it asks the user whether
-   * the checkout will do and rejects if not (API 1.60.0); a request with `force`
+   * the checkout will do and rejects if not (API 1.61.0); a request with `force`
    * gets nothing and a notice instead.
    */
   prepareThreadWorktree(request: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string } }>;

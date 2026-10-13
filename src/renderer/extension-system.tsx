@@ -1377,7 +1377,7 @@ export interface NewThreadPromptEvent {
  */
 export interface NewThreadPromptGate {
   workspace?: { workspaceId: string; displayPath: string; name?: string };
-  /** Sends nothing: the prompt returns to the composer and this line says why (API 1.60.0). */
+  /** Sends nothing: the prompt returns to the composer and this line says why (API 1.61.0). */
   stop?: string;
 }
 

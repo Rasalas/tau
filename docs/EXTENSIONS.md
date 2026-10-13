@@ -2134,7 +2134,7 @@ gate does and named by the same naming kit; `force` makes one although the
 draft runs in the current checkout, and `branchSuffix` keeps several worktrees
 for one prompt apart. It answers `{}` for a project that is no repository or a
 draft that runs in the checkout. When the worktree could not be made it stops
-and asks (API 1.60.0): an error toast that stays offers "Use the checkout" and
+and asks (API 1.61.0): an error toast that stays offers "Use the checkout" and
 "Don't send", and the call rejects unless the checkout was chosen, so the
 agent never edits a checkout the user meant to keep clear; the new-thread gate
 turns that into `{ stop }`, the background start (⌘↵) lets the rejection keep
@@ -2310,7 +2310,7 @@ pending draft's first prompt is sent, while the thread still does not exist. It
 receives the draft's project (`projectPath`, `workspaceId`), the prompt, and
 `preparing(message)` — a line the transcript shows while the hook works — and
 may answer with `{ workspace: { workspaceId, displayPath, name? } }` to move the
-thread to another project, or with `{ stop }` (API 1.60.0), a line saying why,
+thread to another project, or with `{ stop }` (API 1.61.0), a line saying why,
 to send nothing: the prompt returns to the composer and the line shows under it.
 The first hook that names a workspace or stops wins; a hook that throws is
 reported and the draft stays where it was, so a prompt is never lost to a

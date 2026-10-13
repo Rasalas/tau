@@ -181,6 +181,6 @@ error toast. That is the one place the user chose a worktree to keep an agent ou
 of. The prompt now waits: an error toast that stays offers "Use the checkout"
 and "Don't send". Only the first sends it, for that prompt; the second, or closing
 the toast, returns the prompt to the composer. The gate says so with `stop` on
-`NewThreadPromptGate` (API 1.60.0), because a gate that throws is still skipped
+`NewThreadPromptGate` (API 1.61.0), because a gate that throws is still skipped
 and the prompt still goes to the draft's project. Several models at once
 (`force`) never fall back: each failed model is reported and kept for retry.
