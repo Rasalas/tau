@@ -34,8 +34,8 @@ function harness(options: {
   };
   const port: TurnReconciliationPort = {
     markers: () => held,
-    forget: vi.fn((sessionId: string) => {
-      const at = held.findIndex((entry) => entry.sessionId === sessionId);
+    forget: vi.fn((sessionId: string, turnId: string) => {
+      const at = held.findIndex((entry) => entry.sessionId === sessionId && entry.turnId === turnId);
       if (at >= 0) held.splice(at, 1);
     }),
     continueAfterRestart: () => options.continueAfterRestart ?? false,
@@ -99,6 +99,7 @@ describe("reconcileInFlightTurns", () => {
   it("drops the marker before continuing, so a second pass continues nothing twice", async () => {
     const { port, thread, held } = harness({ continueAfterRestart: true });
     await reconcileInFlightTurns(port);
+    expect(port.forget).toHaveBeenCalledWith("thread-1", "turn-1");
     expect(held).toEqual([]);
 
     const second = await reconcileInFlightTurns(port);

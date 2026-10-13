@@ -65,6 +65,8 @@ async function host(dir?: string) {
   const thread = streamedThread("thread-1", delivered);
   internals.threads.adopt({ threadId: "thread-1", cwd: "/repo", runtime: thread.runtime, isolation: "in-process" });
   internals.threads.setActive("thread-1");
+  await piHost.queue.restore();
+  await piHost.queue.flush();
   /** The runtime reports the end of its turn the way a streamed backend does. */
   const settle = (error?: string, limit?: { resetsAt?: number }) => {
     thread.stop();
@@ -172,9 +174,8 @@ describe("PiHost queue and limits", () => {
     await first.host.queue.flush();
 
     const second = await host(first.userData);
-    const setQueue = vi.spyOn(second.internals.index, "setQueue");
     await second.internals.reconcileInterruptedTurns();
-    expect(setQueue).toHaveBeenCalledWith("thread-1", { held: true, messages: [{ id: expect.any(String), text: "after the restart", attachments: 0 }] });
+    expect(second.host.queue.view("thread-1")).toEqual({ held: true, messages: [{ id: expect.any(String), text: "after the restart", attachments: 0 }] });
     second.settle();
     await new Promise((resolve) => setImmediate(resolve));
     expect(second.delivered).toEqual([]);

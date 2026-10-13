@@ -783,9 +783,8 @@ export class PiHost {
       const activationEpoch = activation.epoch;
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
-        // Recovery belongs to the previous run. Capture its markers before
-        // startup returns and clients can record newly accepted turns.
-        const interruptedTurns = await this.turnsInFlight.load();
+        // Load durable state before extensions or recovery can start a turn.
+        const [interruptedTurns] = await Promise.all([this.turnsInFlight.load(), this.queue.restore(), this.limits.load()]);
         await this.activateHostExtensions();
         // A default backend nobody registered is a configuration error; say so now, not at the first thread.
         if (this.defaultBackendKind !== "pi") this.requireBackend(this.defaultBackendKind);
@@ -811,20 +810,16 @@ export class PiHost {
         this.projects.label(this.cwd);
         const indexStartedAt = performance.now();
         this.log("bootstrap.first-content");
-        // The global index is independent of the active detail. Publish it when
-        // ready rather than making first content wait for every session file.
-        void this.index.refresh("index").then(async () => {
-          this.recordBackgroundLifecycle("session-index", indexStartedAt);
-          this.log("bootstrap.full-ready");
-          this.index.startRecovery();
-          this.trash.start();
-          // Before anything else is opened for this run: the index is the only
-          // way back to a marked thread's session file.
-          await this.reconcileInterruptedTurns(interruptedTurns);
-          this.prewarm.scheduleThreads();
-          this.catalogs.start();
-          this.toolUpdates.start();
-        }).catch((error) => this.fail(error));
+        // Client commands wait for start; recovery must finish before it returns.
+        await this.index.refresh("index");
+        this.recordBackgroundLifecycle("session-index", indexStartedAt);
+        await this.reconcileInterruptedTurns(interruptedTurns);
+        this.log("bootstrap.full-ready");
+        this.index.startRecovery();
+        this.trash.start();
+        this.prewarm.scheduleThreads();
+        this.catalogs.start();
+        this.toolUpdates.start();
         const result = await this.bootstrap();
         this.lifecycleMetrics.end();
         return result;
@@ -1119,9 +1114,9 @@ export class PiHost {
    */
   private async reconcileInterruptedTurns(previousTurns?: readonly InFlightTurn[]): Promise<void> {
     const markers = previousTurns ?? await this.turnsInFlight.load();
-    const { continued } = markers.length === 0 ? { continued: [] } : await reconcileInFlightTurns({
+    const { continued } = await reconcileInFlightTurns({
       markers: () => markers,
-      forget: (sessionId) => this.turnsInFlight.clear(sessionId),
+      forget: (sessionId, turnId) => this.turnsInFlight.clear(sessionId, turnId),
       continueAfterRestart: this.continueThreadsAfterRestart,
       markInterrupted: (sessionId) => this.index.setInterrupted(sessionId, true),
       log: (label, detail) => this.log(label, detail),
@@ -1145,8 +1140,8 @@ export class PiHost {
         } satisfies ReconcilableThread;
       },
     });
-    // A restored queue follows a continuation and waits for the user otherwise.
-    await this.queue.restore(continued);
+    // Accepted continuations release their queue through settlement.started.
+    for (const marker of markers) if (!continued.includes(marker.sessionId)) this.queue.hold(marker.sessionId);
     await this.limits.restore();
   }
 

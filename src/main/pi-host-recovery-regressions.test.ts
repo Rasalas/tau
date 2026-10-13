@@ -1,14 +1,17 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import type { HostBackendOpenContext, HostExtension } from "./host-extensions.js";
+import { HostStart } from "./host-start.js";
 import { PiHost } from "./pi-host.js";
 import { ProjectHistory } from "./project-history.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { ThreadRuntimeBackend } from "./runtime-types.js";
 import { LIMIT_CONTINUATION_PROMPT, RESUME_MARGIN_MS } from "./thread-limits.js";
 import { RESTART_CONTINUATION_PROMPT } from "./turn-reconciliation.js";
+import type { TurnsInFlight } from "./turns-in-flight.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -26,10 +29,11 @@ async function fixture() {
   for (const [key, path] of Object.entries({ PI_CODING_AGENT_DIR: "agent", PI_CODING_AGENT_SESSION_DIR: "sessions", TAU_CONFIG_FILE: "config.json", TAU_THEMES_DIR: "themes", TAU_PACKAGES_HOME: "packages" })) vi.stubEnv(key, join(root, path));
   vi.stubEnv("TAU_NO_WATCH", "1");
   vi.stubEnv("TAU_NO_RUNTIME_UPDATES", "1");
-  const start = async () => {
+  const start = async (options: { beforeIndex?: () => Promise<void>; beforeNotice?: () => Promise<void>; journal?: boolean } = {}) => {
     const delivered: Array<{ text: string; hidden: boolean }> = [];
     let streaming = false;
     const attempts: string[] = [];
+    const aborts: string[] = [];
     let admissionGate: Promise<void> | undefined;
     let rejectAdmission: (() => void) | undefined;
     const blockNextAdmission = () => {
@@ -47,11 +51,14 @@ async function fixture() {
             events = context;
             return {
               kind: adapter.id, runtimeAdapter: adapter, threadId, providerSessionId: threadId, cwd: workspace, turnReporting: "streamed",
-              capabilities: { resume: { hiddenPrompt: true } },
+              capabilities: {
+                resume: { hiddenPrompt: true, notice: options.beforeNotice },
+                ...(options.journal ? { journal: { entries: () => [], appendCustomEntry: () => undefined, appendMessage: () => undefined } } : {}),
+              },
               start: async () => undefined, dispose: async () => undefined,
               waitForIdle: async () => { if (streaming) await new Promise<void>((resolve) => idleWaiters.add(resolve)); },
               state: () => ({ streaming, idle: !streaming, hasMessages: true, title: "Saved", activeTools: [], supportsImageInput: true, extensionCount: 0 }),
-              preparePrompt: async (text) => ({ tauThreadId: threadId, providerSessionId: threadId, sessionId: threadId, backendKind: adapter.id, runtimeCapabilities: adapter.capabilities, visibleText: text, runtimeText: text, sourceFingerprint: text }),
+              preparePrompt: async (text) => ({ tauThreadId: threadId, providerSessionId: threadId, sessionId: threadId, backendKind: adapter.id, runtimeCapabilities: adapter.capabilities, visibleText: text, runtimeText: text, sourceFingerprint: clientMessageFingerprint(text, []) }),
               prompt: async (input) => {
                 attempts.push(input.text);
                 if (admissionGate) { const gate = admissionGate; admissionGate = undefined; await gate; }
@@ -61,7 +68,7 @@ async function fixture() {
                 await new Promise<void>((resolve) => idleWaiters.add(resolve));
                 return {};
               },
-              abort: async () => { rejectAdmission?.(); streaming = false; for (const resolve of idleWaiters) resolve(); idleWaiters.clear(); },
+              abort: async () => { aborts.push(threadId); rejectAdmission?.(); streaming = false; for (const resolve of idleWaiters) resolve(); idleWaiters.clear(); },
               transcript: async () => [], persist: async () => undefined, setTitle: async () => undefined,
               catalogView: () => ({ thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] }), models: async () => [], composerCommands: () => [],
             };
@@ -76,22 +83,65 @@ async function fixture() {
       queuedMessagesPath: join(root, "queue.json"), threadLimitsPath: join(root, "limits.json"), turnsInFlightPath: join(root, "turns.json"),
       createModelRuntime: async () => ({ getAvailable: async () => [], getModels: () => [], getModel: () => undefined, isUsingSubscription: () => false }) as never,
     });
+    const { turnsInFlight } = host as unknown as { turnsInFlight: TurnsInFlight };
     let disposed = false;
-    const dispose = async () => { if (!disposed) { disposed = true; await host.dispose(); } };
+    const dispose = async () => {
+      if (disposed) return;
+      disposed = true;
+      await host.dispose();
+      await Promise.all([turnsInFlight.flush(), host.queue.flush(), host.limits.flush()]);
+    };
     cleanups.push(dispose);
-    await host.start();
+    const beforeIndex = options.beforeIndex;
+    if (beforeIndex) {
+      const { index } = host as unknown as { index: { refresh(reason: "index"): Promise<unknown> } };
+      const refresh = index.refresh.bind(index);
+      vi.spyOn(index, "refresh").mockImplementationOnce(async (reason) => { await beforeIndex(); return refresh(reason); });
+    }
+    const bootstrap = vi.spyOn(host, "bootstrap");
+    const startup = new HostStart(() => host);
+    const ready = startup.require();
+    if (!options.beforeIndex && !options.beforeNotice) await ready;
     const settle = (error?: string, resetsAt?: number) => {
       streaming = false;
       events.onEvent({ type: "turn-settled", status: error ? "error" : "completed", ...(error ? { error, limit: { resetsAt } } : {}) });
       for (const resolve of idleWaiters) resolve();
       idleWaiters.clear();
     };
-    return { host, delivered, attempts, blockNextAdmission, settle, dispose, texts: () => delivered.map((entry) => entry.text) };
+    return { host, startup, ready, bootstrap, aborts, delivered, attempts, blockNextAdmission, settle, dispose, texts: () => delivered.map((entry) => entry.text) };
   };
   return { root, cwd, start };
 }
 
 describe("host durable recovery through public operations", () => {
+  it.each(["index", "recovery"] as const)("holds client sends during %s and retains old and new follow-ups exactly once", async (phase) => {
+    const f = await fixture();
+    await writeFile(join(f.root, "turns.json"), JSON.stringify({ version: 1, turns: [{ sessionId: "saved", cwd: f.cwd, turnId: "interrupted-turn", backend: adapter.id, startedAt: 1, prompt: { text: "unfinished" } }] }));
+    await writeFile(join(f.root, "queue.json"), JSON.stringify({ version: 1, threads: { saved: [{ id: "retained", text: "older follow-up", attachments: [], queuedAt: 1 }] } }));
+    let entered!: () => void;
+    const indexing = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void;
+    const listing = new Promise<void>((resolve) => { release = resolve; });
+    const gate = async () => { entered(); await listing; };
+    const b = await f.start({ journal: true, ...(phase === "index" ? { beforeIndex: gate } : { beforeNotice: gate }) });
+    await indexing;
+    const sent = b.startup.require().then((host) => host.prompt("new work", [], "saved"));
+    const queued = sent.then(() => b.startup.require()).then((host) => host.queue.submit("saved", { text: "new follow-up", attachments: [] }));
+    try {
+      expect(b.bootstrap).not.toHaveBeenCalled();
+      expect(b.texts()).toEqual([]);
+    } finally { release(); await Promise.all([b.ready, sent, queued]); }
+    expect(b.texts()).toEqual(["new work"]);
+    expect(b.aborts).toEqual([]);
+    expect(b.host.queue.list("saved").map((message) => message.text)).toEqual(["older follow-up", "new follow-up"]);
+    await b.host.queue.flush();
+    expect(JSON.parse(await readFile(join(f.root, "queue.json"), "utf8")).threads.saved.map((message: { text: string }) => message.text)).toEqual(["older follow-up", "new follow-up"]);
+    await b.dispose();
+    const turns = JSON.parse(await readFile(join(f.root, "turns.json"), "utf8")).turns;
+    expect(turns).toEqual([expect.objectContaining({ sessionId: "saved", prompt: { text: "new work" } })]);
+    expect(turns[0].turnId).not.toBe("interrupted-turn");
+  });
+
   it("retains the queue head across restart when a later add persists during blocked admission", async () => {
     const f = await fixture();
     const first = await f.start();

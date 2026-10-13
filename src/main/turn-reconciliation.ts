@@ -29,7 +29,7 @@ export interface ReconcilableThread {
 export interface TurnReconciliationPort {
   markers(): readonly InFlightTurn[];
   /** Drops the marker. Called before continuing, so a second start continues nothing twice. */
-  forget(sessionId: string): void;
+  forget(sessionId: string, turnId: string): void;
   /** Settings → Defaults; off unless the user asked for it. */
   continueAfterRestart(): boolean;
   /** Reopens the marked thread off screen; `undefined` when its session is gone. */
@@ -59,7 +59,7 @@ export async function reconcileInFlightTurns(port: TurnReconciliationPort): Prom
   const shouldContinue = port.continueAfterRestart();
   port.log("turns.in-flight", `${markers.length} · ${shouldContinue ? "continuing" : "marking interrupted"}`);
   for (const marker of markers) {
-    port.forget(marker.sessionId);
+    port.forget(marker.sessionId, marker.turnId);
     try {
       const thread = await port.open(marker);
       if (!thread) {
