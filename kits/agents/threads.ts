@@ -15,6 +15,7 @@ import {
 
 /** What Agents Kit reads from a tool call. The model may send anything. */
 export interface SpawnRequest {
+  runtime?: string;
   prompt: string;
   title?: string;
   model?: string;
@@ -68,6 +69,7 @@ export function decodeSpawnRequest(input: unknown): SpawnRequest {
   if (fields.prompt.length > 64_000) throw new Error("prompt must be 64000 characters or fewer.");
   const title = optionalText(fields.title, "title", 120);
   const model = optionalText(fields.model, "model", 200);
+  const runtime = optionalText(fields.runtime, "runtime", 128);
   const projectPath = optionalText(fields.projectPath, "projectPath", 4_096);
   const workspace = optionalText(fields.workspace, "workspace", 16);
   const agent = optionalText(fields.agent, "agent", 64);
@@ -79,6 +81,7 @@ export function decodeSpawnRequest(input: unknown): SpawnRequest {
     prompt: fields.prompt.trim(),
     ...(title ? { title } : {}),
     ...(model ? { model } : {}),
+    ...(runtime ? { runtime } : {}),
     ...(projectPath ? { projectPath } : {}),
     ...(workspace ? { workspace: workspace as AgentWorkspaceMode } : {}),
     ...(agent ? { agent } : {}),

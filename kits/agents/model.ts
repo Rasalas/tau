@@ -13,6 +13,7 @@ import type { NativeAgentEntry } from "./native-events.js";
 
 /** One row of the Agents panel: a spawned thread plus what the index knows about it. */
 export interface AgentRow {
+  runtime?: string;
   /** A runtime-owned child has no independently selectable Tau thread. */
   native?: { transcript: string; runtime: string; entries: readonly NativeAgentEntry[] };
   id: string;
@@ -103,6 +104,7 @@ export function rowOf(link: AgentThreadLink, sessions: ReadonlyMap<string, UiSes
     status: link.status,
     ...(link.agent ? { agent: link.agent } : {}),
     ...(link.model ? { model: link.model } : {}),
+    ...((link.runtime ?? session?.backendKind) ? { runtime: link.runtime ?? session?.backendKind } : {}),
     ...(link.effort ? { effort: link.effort } : {}),
     stoppable: true,
     ...(link.turn ? { turn: link.turn } : {}),
@@ -135,6 +137,7 @@ function indexRow(session: UiSession): AgentRow {
   return {
     id: session.id,
     threadId: session.id,
+    ...(session.backendKind ? { runtime: session.backendKind } : {}),
     ...(session.path ? { path: session.path } : {}),
     title: session.title,
     status: "idle",

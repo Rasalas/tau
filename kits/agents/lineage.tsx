@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
 import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, CircleHelp, CircleSlash, CircleX, Clock, CornerUpLeft, Ellipsis, Plus, Square } from "lucide-react";
-import { Popover, ProviderIconStack, tooltipProps, useHostCapabilities, useThreadStore, useWorkbench, type RegionProps, type WorkbenchActions } from "tau";
+import { Popover, tooltipProps, useHostCapabilities, useThreadStore, useWorkbench, type RegionProps, type WorkbenchActions } from "tau";
 import { agentHoverText, agentsPanelModel, canStopRow, lineageSections, nativeAgentRow, nativeAgentTools, formatElapsed, type AgentRow } from "./model.js";
 import { openAgent, subagentKey, useOpenedSubagent } from "./subagent-view.js";
 import { DefinitionsSection } from "./definitions-panel.js";
@@ -30,7 +30,6 @@ function Elapsed({ row }: { row: AgentRow }) {
 /** The same compact row in the project card and in a spawn's inline list. */
 export function AgentLineageRow({ row, actions, current = false, transcript = false }: { row: AgentRow; actions: WorkbenchActions; current?: boolean; transcript?: boolean }) {
   const shown = useOpenedSubagent() === subagentKey(row);
-  const provider = row.model?.includes("/") ? row.model.slice(0, row.model.indexOf("/")) : undefined;
   const status = STATUS[row.status];
   const icon = row.status === "running" ? <span className="spinner small" />
     : row.status === "waiting" ? <CircleHelp /> : row.status === "pending" ? <Clock />
@@ -42,7 +41,7 @@ export function AgentLineageRow({ row, actions, current = false, transcript = fa
   const stop = () => { setStopping(true); void stopAgent(row, actions).finally(() => setStopping(false)); };
   const button = <button type="button" className={`${transcript ? "agent-transcript-row" : "workspace-card-row agent-lineage-row"} status-${row.status}`} disabled={row.native ? !actions.openConversationView : !row.threadId && !row.machine?.thread} aria-current={current || shown ? "page" : undefined} aria-label={`${row.title}, ${status}`} {...tooltipProps(agentHoverText(row), { variant: "lines", side: "left" })} onClick={open}>
     {transcript ? <span className="agent-transcript-avatar"><AgentProviderMark row={row} /><span className="agent-transcript-dot" aria-hidden /></span>
-      : <span className="workspace-card-icon agent-lineage-provider" aria-hidden>{provider ? <ProviderIconStack modelProvider={provider} runtimeMark={false} hint={false} /> : <Bot />}</span>}
+      : <span className="workspace-card-icon agent-lineage-provider" aria-hidden><AgentProviderMark row={row} /></span>}
     {transcript ? <span className="agent-transcript-main"><strong>{row.title}</strong><span className="agent-transcript-status">{status}</span></span> : <span className="workspace-card-label">{row.title}</span>}
     {transcript ? <AgentTranscriptElapsed rows={[row]} /> : <Elapsed row={row} />}
     {transcript ? <ChevronRight className="agent-transcript-chevron" size={16} aria-hidden /> : <span className="workspace-card-tail agent-lineage-status" {...tooltipProps(status)} aria-hidden>{icon}</span>}

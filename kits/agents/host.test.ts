@@ -10,6 +10,8 @@ import {
   type GlobalHostEvent,
   type HostExtensionServices,
   type HostMcpToolProvider,
+  type HostMcpInstructionsProvider,
+  type HostRuntimeChoice,
   type HostThread,
   type HostThreadLifecycle,
   type HostThreadStartOptions,
@@ -60,6 +62,11 @@ function harness() {
   const lifecycles: HostThreadLifecycle[] = [];
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
   const mcpProviders: HostMcpToolProvider[] = [];
+  const instructions: HostMcpInstructionsProvider[] = [];
+  const choices: HostRuntimeChoice[] = ["pi", "opencode", "codex"].map((kind) => ({
+    backend: { kind, label: kind }, enabled: true, readiness: { kind, label: kind, state: "ready" },
+    catalog: { kind, models: ["openai/test-model", "openai/reviewer-model", "anthropic/parent-model", "anthropic/small-model", "openai/parent-model"].map(parseModel).map((model) => ({ ...model, name: model.id })), thinkingLevels: {} },
+  }));
   /** What `sessions.send` and `sessions.abort` were asked to do, in order. */
   const sent: Array<{ sessionId: string; text: string; delivery: string; from?: string }> = [];
   const aborted: string[] = [];
@@ -129,6 +136,7 @@ function harness() {
     pickDirectory: async () => undefined,
     runtimeOwner: () => "tau" as const,
     thread: (sessionId) => hostThread(sessionId ?? "parent"),
+    runtimeChoices: async (_cwd, kind) => choices.filter((choice) => !kind || choice.backend.kind === kind),
     setThreadTitle: async () => undefined,
     attachedRuntime: () => undefined,
     describeProjects: () => () => undefined,
@@ -190,6 +198,7 @@ function harness() {
     loadDependency: async () => { throw new Error("no dependencies in this test"); },
     mcp: {
       registerTools: (provider) => { mcpProviders.push(provider); return () => { mcpProviders.splice(mcpProviders.indexOf(provider), 1); }; },
+      registerInstructions: (provider) => { instructions.push(provider); return () => undefined; },
       gate: () => () => undefined,
       connect: async () => undefined,
     },
@@ -228,7 +237,7 @@ function harness() {
     } as never, { sessionId, cwd });
     return {
       call: async (name: string, params: unknown = {}, signal?: AbortSignal) =>
-        (await tools.get(name)!.execute("call-1", params, signal, undefined, { model: { provider: "anthropic", id: "sonnet" } })).details,
+        (await tools.get(name)!.execute("call-1", params, signal, undefined, { model: { provider: "anthropic", id: "parent-model" } })).details,
       fire: (event: string, payload: unknown, ctx?: unknown) => piEvents.get(event)?.(payload, ctx),
       names: () => [...tools.keys()],
       active: () => active ?? all(),
@@ -259,7 +268,7 @@ function harness() {
 
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
 
-  return { backends, models, thinking, activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  return { backends, models, thinking, choices, instructions, activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -301,7 +310,7 @@ describe("Agents Kit tool arguments", () => {
 
   it("reads a model as provider/model-id", () => {
     expect(parseModel("anthropic/claude-sonnet-4-5")).toEqual({ provider: "anthropic", id: "claude-sonnet-4-5" });
-    expect(() => parseModel("sonnet")).toThrow("provider/model-id");
+    expect(() => parseModel("parent-model")).toThrow("provider/model-id");
   });
 
   it("derives a title from the prompt when none is given", () => {
@@ -405,7 +414,7 @@ describe("Agents Kit priority", () => {
 });
 
 describe("Agents Kit", () => {
-  it("registers its five tools on every runtime", async () => {
+  it("registers delegation tools on every runtime", async () => {
     const bench = await activated();
     expect(bench.runtime("parent").names()).toEqual([
       "tau_spawn_thread",
@@ -441,17 +450,50 @@ describe("Agents Kit", () => {
     expect(bench.mcpProviders).toEqual([]);
   });
 
-  it.each(["codex", "codex@work", "claude-code"])("offers native delegation on %s and creates an independent thread only on explicit request", async (backend) => {
+  it.each(["codex", "codex@work", "claude-code"])("delegates other runtimes and models on %s and creates an independent thread only on explicit request", async (backend) => {
     const bench = await activated();
     bench.backends.set("parent", backend);
     bench.models.set("parent", { provider: "openai", id: "parent-model" });
     const parent = await bench.mcpThread("parent");
-    expect(parent.names()).toEqual(["tau_create_thread"]);
+    expect(parent.names()).toEqual(["tau_create_thread", ...bench.runtime("parent").names().filter((name) => name !== "tau_create_thread")]);
+    expect(parent.names()).toContain("tau_spawn_thread");
+    expect(bench.instructions[0]!({ sessionId: "parent", cwd: "/project" })).toContain("tau_spawn_thread with runtime/model");
+    await expect(parent.call("tau_spawn_thread", { prompt: "Delegate" })).rejects.toThrow("native subagents");
+    await expect(parent.call("tau_spawn_thread", { prompt: "Delegate", runtime: backend, model: "parent-model" })).rejects.toThrow("native subagents");
+    bench.noJournal.add("parent");
+    const target = backend === "codex" ? "pi" : "codex";
+    const alternate = { provider: "test", id: "alternate" };
+    bench.choices.splice(0, bench.choices.length, { backend: { kind: target, label: "Target" }, enabled: true, readiness: { kind: target, label: "Target", state: "ready" }, catalog: { kind: target, models: [{ ...alternate, name: "Alternate" }], thinkingLevels: {} } });
+    const child = await parent.call("tau_spawn_thread", { prompt: "Delegate", runtime: target, model: alternate.id, clientRequestId: "cross-runtime" }) as { threadId: string };
+    await parent.call("tau_spawn_thread", { prompt: "Delegate", runtime: target, model: alternate.id, clientRequestId: "cross-runtime" });
+    expect(bench.started).toHaveLength(1);
+    expect(bench.started[0]).toMatchObject({ backend: target, model: alternate, parent: { threadId: "parent" } });
+    expect(await parent.call("tau_list_threads")).toMatchObject({ threads: [expect.objectContaining({ threadId: child.threadId, runtime: target, model: "test/alternate" })] });
+    for (const observer of bench.observers) expect(observer.stopped?.("parent")).toMatchObject({ continues: expect.any(Array) });
+    expect(bench.threads.get(child.threadId)!.streaming).toBe(true);
+    bench.threads.get(child.threadId)!.streaming = false;
+    bench.threads.get(child.threadId)!.messages.push({ id: "delegated-answer", role: "assistant", text: "Delegated answer", timestamp: 2 });
+    await bench.notify("ended", child.threadId, "completed");
+    await vi.waitFor(() => expect(bench.sent.filter((entry) => entry.sessionId === "parent")).toEqual([expect.objectContaining({ text: expect.stringContaining("Delegated answer") })]));
+    bench.choices.push({ backend: { kind: backend, label: "Parent runtime" }, enabled: true, readiness: { kind: backend, label: "Parent runtime", state: "ready" }, catalog: { kind: backend, models: [{ ...alternate, name: "Alternate" }], thinkingLevels: {} } });
+    await parent.call("tau_spawn_thread", { prompt: "Another model", model: "test/alternate" });
+    expect(bench.started[1]).toMatchObject({ backend, model: alternate });
+    await expect(parent.call("tau_spawn_thread", { prompt: "Unknown runtime", runtime: "missing" })).rejects.toThrow("Available runtimes and models");
+    await expect(parent.call("tau_spawn_thread", { prompt: "Unknown model", runtime: target, model: "missing" })).rejects.toThrow("test/alternate");
+    bench.choices[0]!.enabled = false;
+    await expect(parent.call("tau_spawn_thread", { prompt: "Off", runtime: target })).rejects.toThrow("turned off for this project");
+    bench.choices[0]!.enabled = true;
+    bench.choices[0]!.readiness.state = "sign-in-required";
+    await expect(parent.call("tau_spawn_thread", { prompt: "Sign in", runtime: target })).rejects.toThrow("sign-in-required");
+    bench.choices[0]!.readiness.state = "not-installed";
+    await expect(parent.call("tau_spawn_thread", { prompt: "Install", runtime: target })).rejects.toThrow("not-installed");
+    bench.started.length = 0;
     expect(bench.started).toEqual([]);
     await expect(parent.call("tau_create_thread", { prompt: "New conversation" })).rejects.toThrow("userRequest");
     await parent.call("tau_create_thread", { prompt: "New conversation", userRequest: "Open another Tau thread" });
     expect(bench.started[0]).toMatchObject({ backend, model: { provider: "openai", id: "parent-model" } });
     expect(bench.started[0]).not.toHaveProperty("parent");
+    await bench.registry().dispose();
   });
 
   it.each(["opencode", "opencode@work", "grok"])("inherits the %s parent's runtime and model over MCP", async (backend) => {
@@ -500,7 +542,7 @@ describe("Agents Kit", () => {
       backend: "pi",
       prompt: "Reply with ALPHA",
       title: "Reply with ALPHA",
-      model: { provider: "anthropic", id: "sonnet" },
+      model: { provider: "anthropic", id: "parent-model" },
       parent: { threadId: "parent", details: expect.objectContaining({ depth: 1, spawnedBy: "tau_spawn_thread", title: "Reply with ALPHA" }) },
     }]);
     expect(bench.threads.get("child-1")!.entries).toEqual([
@@ -726,8 +768,8 @@ describe("Agents Kit", () => {
   it("takes the model the caller names and refuses a project the host does not have", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
-    await parent.call("tau_spawn_thread", { prompt: "go", model: "openai/gpt-5", projectPath: "/other" });
-    expect(bench.started[0]).toMatchObject({ cwd: "/other", model: { provider: "openai", id: "gpt-5" } });
+    await parent.call("tau_spawn_thread", { prompt: "go", model: "openai/test-model", projectPath: "/other" });
+    expect(bench.started[0]).toMatchObject({ cwd: "/other", model: { provider: "openai", id: "test-model" } });
     await expect(parent.call("tau_spawn_thread", { prompt: "go", projectPath: "/nowhere" })).rejects.toThrow("not a project this host has open");
   });
 
@@ -828,8 +870,8 @@ describe("Agents Kit", () => {
   it("records the parent's turn a spawn came from, in the links file and both session files", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-agents-turn-"));
     const linksPath = join(directory, "agents-links.json");
+    const bench = await activated({ linksPath });
     try {
-      const bench = await activated({ linksPath });
       const prompt = (text: string) => ({ type: "message", message: { role: "user", content: text } });
       // The fake journal holds custom entries only; a real one holds the prompts too.
       (bench.threads.get("parent")!.entries as unknown[]).push(prompt("Split it"), { type: "message", message: { role: "assistant" } }, prompt("And the rest"));
@@ -840,6 +882,7 @@ describe("Agents Kit", () => {
       expect(linksFromEntries("parent", [bench.threads.get("parent")!.entries.at(-1)])[0]).toMatchObject({ turn: 2 });
       await vi.waitFor(async () => expect((await readAgentLinks(linksPath))[0]).toMatchObject({ threadId: handle, turn: 2 }));
     } finally {
+      await bench.registry().dispose();
       await rm(directory, { recursive: true, force: true });
     }
   });
@@ -1007,7 +1050,7 @@ describe("Agents Kit", () => {
       const bench = await activated({ linksPath });
       await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Reply with ALPHA" });
       await vi.waitFor(async () => expect(await readAgentLinks(linksPath)).toEqual([
-        { threadId: "child-1", id: expect.any(String), model: "anthropic/sonnet", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread", startedAt: expect.any(Number), pendingTurns: 1 },
+        { threadId: "child-1", id: expect.any(String), runtime: "pi", model: "anthropic/parent-model", parentThreadId: "parent", depth: 1, spawnedAt: expect.any(Number), projectPath: "/project", title: "Reply with ALPHA", spawnedBy: "tau_spawn_thread", startedAt: expect.any(Number), pendingTurns: 1 },
       ]));
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -1045,8 +1088,8 @@ describe("Agents Kit", () => {
 
   it("keeps its links in the state folder the host gave it", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tau-agents-state-"));
+    const bench = await activated({ stateDir });
     try {
-      const bench = await activated({ stateDir });
       const parent = bench.runtime("parent");
       await parent.call("tau_spawn_thread", { prompt: "go", title: "Index 1" });
       // The registry gives every extension its own folder under the root.
@@ -1054,6 +1097,7 @@ describe("Agents Kit", () => {
         expect.objectContaining({ parentThreadId: "parent", title: "Index 1" }),
       ]));
     } finally {
+      await bench.registry().dispose();
       await rm(stateDir, { recursive: true, force: true });
     }
   });
@@ -1149,7 +1193,7 @@ describe("Agents Kit definitions", () => {
   const REVIEWER = [
     "---",
     "description: Reviews the change and answers in one word",
-    "model: openai/gpt-5.6-luna",
+    "model: openai/reviewer-model",
     "tools: [read, grep]",
     "access: read-only",
     "workspace: shared",
@@ -1169,21 +1213,36 @@ describe("Agents Kit definitions", () => {
     return { dir, bench, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
   };
 
-  it.each(["codex", "claude-code"])("delegates panel definitions natively on %s and refuses unenforceable thread restrictions", async (backend) => {
+  it.each(["codex", "claude-code"])("routes panel definitions by runtime and model on %s and refuses native thread restrictions", async (backend) => {
     const { bench, cleanup } = await withProject({
-      "simple.md": "---\ndescription: Reviews natively\nmodel: openai/gpt-5.6-luna\n---\nReport concrete findings.",
+      "simple.md": "---\ndescription: Reviews natively\nmodel: openai/reviewer-model\n---\nReport concrete findings.",
       "restricted.md": REVIEWER,
+      "elsewhere.md": "---\ndescription: Different runtime\nruntime: pi\n---\nRead carefully.",
+      "different-model.md": "---\ndescription: Different model\nmodel: test/alternate\n---\nRead carefully.",
     });
     try {
       bench.backends.set("parent", backend);
+      bench.models.set("parent", parseModel(REVIEWER.match(/model: (.+)/u)![1]!));
       await bench.invoke("start", { parentThreadId: "parent", agent: "simple", prompt: "Check the diff" });
       expect(bench.started).toEqual([]);
       expect(bench.sent).toEqual([expect.objectContaining({ sessionId: "parent", text: expect.stringContaining("Delegate this task to a native subagent.") })]);
-      expect(bench.sent[0]?.text).toContain("Use model openai/gpt-5.6-luna.");
+      expect(bench.sent[0]?.text).toContain("Use model openai/reviewer-model.");
       await expect(bench.invoke("start", { parentThreadId: "parent", agent: "restricted", prompt: "Check it" })).rejects.toThrow("native agent configuration");
       expect(bench.started).toEqual([]);
       expect(bench.sent).toHaveLength(1);
-    } finally { await cleanup(); }
+      const existing = bench.choices.findIndex((choice) => choice.backend.kind === backend);
+      if (existing >= 0) bench.choices.splice(existing, 1);
+      bench.choices.push({ backend: { kind: backend, label: "Parent" }, enabled: true, readiness: { kind: backend, label: "Parent", state: "ready" }, catalog: { kind: backend, models: [{ provider: "test", id: "alternate", name: "Alternate" }], thinkingLevels: {} } });
+      await bench.invoke("start", { parentThreadId: "parent", agent: "elsewhere", prompt: "Check it" });
+      expect(bench.started[0]).toMatchObject({ backend: "pi", parent: { threadId: "parent" } });
+      await bench.invoke("start", { parentThreadId: "parent", agent: "different-model", prompt: "Check it" });
+      expect(bench.started[1]).toMatchObject({ backend, model: { provider: "test", id: "alternate" } });
+      const tools = await bench.mcpThread("parent", bench.services.cwd());
+      await tools.call("tau_spawn_thread", { prompt: "Check it", agent: "elsewhere" });
+      expect(bench.started[2]).toMatchObject({ backend: "pi" });
+      await tools.call("tau_spawn_thread", { prompt: "Check it", agent: "elsewhere", runtime: backend, model: "test/alternate" });
+      expect(bench.started[3]).toMatchObject({ backend, model: { provider: "test", id: "alternate" } });
+    } finally { await bench.registry().dispose(); await cleanup(); }
   });
 
   /** What Pi hands an extension handler: the session's own entries, and a cwd. */
@@ -1198,7 +1257,7 @@ describe("Agents Kit definitions", () => {
         cwd: dir,
         prompt: "Look at the diff",
         // The definition's model wins over the parent's.
-        model: { provider: "openai", id: "gpt-5.6-luna" },
+        model: { provider: "openai", id: "reviewer-model" },
         parent: {
           threadId: "parent",
           details: expect.objectContaining({
@@ -1417,12 +1476,12 @@ describe("Agents Kit spawn for another kit", () => {
     const bench = await activated({ runGit });
     bench.setProject(project);
     try {
-      const spawned = await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", title: "Guide", startAt: "abc1234", model: "anthropic/haiku", source: "tau.review", definition }) as { threadId: string; branch: string; agent: string };
+      const spawned = await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", title: "Guide", startAt: "abc1234", model: "anthropic/small-model", source: "tau.review", definition }) as { threadId: string; branch: string; agent: string };
       expect(spawned).toMatchObject({ threadId: "child-1", agent: "pr-guide" });
       // The worktree starts from that commit, not from the parent's HEAD and uncommitted work.
       expect(calls.some(([, ...args]) => args.join(" ").startsWith(`worktree add -b ${spawned.branch}`) && args.at(-1) === "abc1234full")).toBe(true);
       expect(calls.some(([, ...args]) => args.join(" ").startsWith("commit-tree"))).toBe(false);
-      expect(bench.started[0]).toMatchObject({ title: "Guide", model: { provider: "anthropic", id: "haiku" }, parent: { threadId: "parent", details: expect.objectContaining({ spawnedBy: "tau.review", agent: "pr-guide", persona: expect.objectContaining({ name: "pr-guide", access: "read-only", tools: ["read", "submit_pull_request_guide"] }) }) } });
+      expect(bench.started[0]).toMatchObject({ title: "Guide", model: { provider: "anthropic", id: "small-model" }, parent: { threadId: "parent", details: expect.objectContaining({ spawnedBy: "tau.review", agent: "pr-guide", persona: expect.objectContaining({ name: "pr-guide", access: "read-only", tools: ["read", "submit_pull_request_guide"] }) }) } });
       // No wake is owed to a parent that did not use its own tool.
       expect((await bench.state()).links[0]).toMatchObject({ spawnedBy: "tau.review" });
     } finally {
@@ -1762,7 +1821,7 @@ describe("Agents Kit orchestration", () => {
     await mkdir(definitionsDir, { recursive: true });
     await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
     const definition = join(definitionsDir, "reader.md");
-    await writeFile(definition, "---\ndescription: Saved persona\nruntime: opencode\nmodel: openai/gpt-5.6-luna\nworkspace: shared\n---\nUse the original saved persona.");
+    await writeFile(definition, "---\ndescription: Saved persona\nruntime: opencode\nmodel: openai/reviewer-model\nworkspace: shared\n---\nUse the original saved persona.");
     const first = await activated({ linksPath, settingsPath });
     first.setProject(directory);
     let second: Awaited<ReturnType<typeof activated>> | undefined;
@@ -1780,7 +1839,7 @@ describe("Agents Kit orchestration", () => {
       await first.registry().dispose();
       await recovered.call("tau_send_to_thread", { threadId: queued, message: "Release original intent", mode: "queue" });
       expect(second.started).toHaveLength(1);
-      expect(second.started[0]).toMatchObject({ cwd: directory, backend: "opencode", model: { provider: "openai", id: "gpt-5.6-luna" }, prompt: expect.stringContaining("Full original task\n\nRelease original intent") });
+      expect(second.started[0]).toMatchObject({ cwd: directory, backend: "opencode", model: { provider: "openai", id: "reviewer-model" }, prompt: expect.stringContaining("Full original task\n\nRelease original intent") });
       expect(second.started[0]!.prompt).toContain("Use the original saved persona.");
       expect(second.started[0]!.prompt).not.toContain("Do not use this replacement.");
     } finally {

@@ -97,6 +97,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   thread: "sessions",
   complete: "sessions",
   completionModels: "sessions",
+  runtimeChoices: "runtime:extend",
   setThreadTitle: "sessions",
   attachedRuntime: "sessions",
   sessions: "sessions",

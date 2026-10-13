@@ -117,6 +117,7 @@ export interface AttachedSessionPort {
 /** What the host extension seam may ask of the host. */
 export interface ExtensionServicesPort {
   readonly background?: HostExtensionServices["background"];
+  runtimeChoices?: HostExtensionServices["runtimeChoices"];
   runtimeTools?(action: "state" | "update", input?: { kind: string }): Promise<UiRuntimeToolsState>;
   readonly safeMode: boolean;
   readonly platform: HostPlatform;
@@ -349,6 +350,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     thread: (sessionId) => port.thread(sessionId),
     complete: (request, model) => port.complete(request, model),
     completionModels: () => port.completionModels(),
+    runtimeChoices: port.runtimeChoices,
     priceUsage: (tallies) => port.priceUsage(tallies),
     modelAuth: port.modelAuth,
     setThreadTitle: (sessionId, title, source) => port.setThreadTitle(sessionId, title, source),

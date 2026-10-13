@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +21,7 @@ const adapter: AgentRuntimeAdapter = { id: "fixture", capabilities: { skillInvoc
 const image: UiPromptAttachment = { kind: "image", name: "x.png", mimeType: "image/png", data: "AA==", size: 1 };
 
 /** A released thread of a fixture runtime; `opens` counts how often the host reopened it. */
-async function bench(options: { catalogWrite?: boolean; images?: boolean } = {}) {
+async function bench(options: { catalogWrite?: boolean; images?: boolean; runtimeEnabled?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-thread-services-"));
   cleanups.push(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const [local, agent, sessions] = ["local", "agent", "sessions"].map((name) => join(root, name));
@@ -31,6 +31,10 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean } = {})
   vi.stubEnv("TAU_CONFIG_FILE", join(root, "config.json"));
   vi.stubEnv("TAU_THEMES_DIR", join(root, "themes"));
   vi.stubEnv("TAU_PACKAGES_HOME", join(root, "packages"));
+  if (options.runtimeEnabled !== undefined) {
+    await mkdir(join(local!, ".tau"));
+    await writeFile(join(local!, ".tau", "config.json"), JSON.stringify({ runtimeEnabled: { fixture: options.runtimeEnabled } }));
+  }
   const calls = { opens: 0, model: [] as string[], titles: [] as string[], prompts: [] as Array<{ text: string; attachments: number }> };
   const open = (threadId: string, cwd: string): ThreadRuntimeBackend => {
     calls.opens += 1;
@@ -54,7 +58,7 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean } = {})
       services = context.services;
       const record = { threadId: "saved", cwd: local!, title: "Saved", updatedAt: 1, messages: [{ role: "user" as const, text: "hello" }] };
       return context.services.registerRuntimeBackend({
-        kind: "fixture", adapter, listThreads: async () => [record],
+        kind: "fixture", adapter, newThreadCatalog: async () => ({ models: [{ provider: "test", id: "available", name: "Available" }], thinkingLevels: {} }), listThreads: async () => [record],
         lookup: async (threadId) => threadId === "saved" ? record : undefined, composerCommands: () => [], open: async (threadId, cwd) => open(threadId, cwd),
       });
     },
@@ -68,10 +72,19 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean } = {})
   cleanups.push(() => host.dispose());
   await host.start();
   await expect.poll(() => host.threadPath("saved")).toBe(externalThreadPath("fixture", "saved"));
-  return { calls, services: () => services, host };
+  return { calls, services: () => services, host, cwd: local! };
 }
 
 describe("services that name a thread by id", () => {
+  it("exposes the composer catalog and effective project gate to extensions", async () => {
+    const b = await bench({ runtimeEnabled: false });
+    const services = b.services();
+    const choices = await services.runtimeChoices!(b.cwd, "fixture");
+    expect(choices).toMatchObject([{ backend: { kind: "fixture" }, enabled: false, readiness: { state: "ready" } }]);
+    expect(choices[0]!.catalog).toEqual(await b.host.runtimeCatalog("fixture"));
+    expect(choices[0]!.catalog!.models).toMatchObject([{ provider: "test", id: "available" }]);
+  });
+
   it("reopens a released thread when the composer prepares and sends a message", async () => {
     const b = await bench();
     const active = (await b.host.snapshot()).sessionId;

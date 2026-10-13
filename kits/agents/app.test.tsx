@@ -139,8 +139,10 @@ describe("agents in the project card", () => {
     expect(within(child).getByText("Parser checked")).toBeTruthy();
   });
   it("keeps running rows visible and completed rows collapsed, without an Agents stage entry", async () => {
-    renderApp(appWith(state, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent"), { extensions: [workspaceExtension, agentsExtension] });
+    const delegated: AgentsState = { ...state, links: state.links.map((entry) => entry.id === "alpha" ? { ...entry, runtime: "pi" } : entry) };
+    renderApp(appWith(delegated, [session("parent", "Parent thread", 3), session("alpha", "Alpha reply", 2), session("beta", "Beta reply", 1)], "parent"), { extensions: [workspaceExtension, agentsExtension] });
     const row = await screen.findByRole("button", { name: "Alpha reply, Running" });
+    await waitFor(() => expect(row.querySelector(".provider-icon-stack")?.getAttribute("aria-label")).toContain("Pi"));
     const section = row.closest(".agent-lineage") as HTMLElement;
     expect(within(section).queryByRole("button", { name: "Beta reply, Completed" })).toBeNull();
     fireEvent.click(within(section).getByRole("button", { name: "Previous agents (1)" }));

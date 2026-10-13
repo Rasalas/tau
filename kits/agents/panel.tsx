@@ -167,7 +167,7 @@ const AgentPanelRow = memo(function AgentPanelRow({ row, onOpen, onSettle, onSto
       </span>
       <RowStatus row={row} {...(canStopRow(row) && !readOnly ? { onStop } : {})} />
       <span className="agent-row-model">
-        {provider ? <ProviderIconStack modelProvider={provider} runtimeMark={false} name={shortModel(row.model)} hint={{}} /> : null}
+        {provider || row.runtime || row.native?.runtime ? <ProviderIconStack modelProvider={provider} runtimeProvider={row.runtime ?? row.native?.runtime} modelName={shortModel(row.model)} hint={{}} /> : null}
       </span>
       <span className="agent-row-cost">{formatCost(row.costUsd)}</span>
     </button>

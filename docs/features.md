@@ -222,3 +222,14 @@ secret store and kept out of agent messages. A tool's pending request appears
 above the composer without taking an unsent draft. Stop or Decline ends it.
 Automation management and private-key entry use the host's own window; paired
 devices can inspect jobs and open their threads. See [Scheduling](scheduling.md).
+
+## Delegate on another runtime or model
+
+Every thread can start a child with `tau_spawn_thread`, choosing `runtime`
+and `model` from the composer catalog or an agent definition. A runtime with
+native subagents uses them for its own runtime and model; the server asks for
+native delegation when those settings match. A different runtime or model
+starts a Tau child, shown in the Agents panel with its runtime icon. Git
+projects use an isolated worktree by default. Results wake the parent; changes
+are applied separately. An independent conversation requires an explicit user
+request through `tau_create_thread`.

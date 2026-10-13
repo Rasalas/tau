@@ -22,6 +22,7 @@ import { defaultHostConfigManager } from "./host-config.js";
 import { HostCompletions } from "./host-completion.js";
 import {
   HostExtensionRegistry,
+  runtimeBackendOwner,
   HostThreadLifecycleSet,
   HostTurnObserverSet,
   runtimeExtensionModes,
@@ -85,6 +86,7 @@ import { createModelAuth } from "./model-auth.js";
 import { modelReleaseDate, useModelCatalog } from "./pi-model-runtime.js";
 import { SignedModelCatalog, modelCatalogKeys } from "./model-catalog.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
+import { runtimeChoices } from "./host-resources.js";
 import { RuntimeCatalogs, type RuntimeCatalogSource } from "./runtime-catalogs.js";
 import { RuntimeGate } from "./runtime-gate.js";
 import { RuntimeToolUpdates } from "./runtime-tool-updates.js";
@@ -466,6 +468,13 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     thread: (sessionId) => deps.hostThread(sessionId),
     complete: (request, model) => completions.complete(request, model),
     completionModels: () => completions.models(),
+    runtimeChoices: (cwd, kind) => runtimeChoices({
+      runtimeBackends: () => publication.runtimeBackends(),
+      runtimeCatalogs: () => catalogs.list(),
+      runtimeCatalog: (backend) => catalogs.get(backend),
+      runtimeBackendOwner: (backend) => { const provider = seam.backends.get(backend); return provider && runtimeBackendOwner(provider); },
+      invokeHostExtension: (id, command, input) => hostExtensions.invoke(id, command, input),
+    }, (backend) => runtimeGate.enabled(backend, cwd), kind),
     priceUsage: async (tallies) => {
       await pricing.ready();
       return tallies.map((tally) => pricing.price(tally));
