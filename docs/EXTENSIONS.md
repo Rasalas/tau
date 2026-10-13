@@ -3506,6 +3506,11 @@ only then runs `threadDeleted`. Keep what belongs to a thread until that hook:
 Thread Rail keeps its meta, so a restored thread comes back where it was;
 Composer Context drops the thread's attachments; Workspace Kit's
 "last thread deleted" rule counts a thread in the trash as still there.
+Workspace Kit retains checkpoint refs while a thread is in the trash. Its
+sweep reconciles only sessions this host lists or holds live; absence from
+that index does not prove deletion, since another session store can use the
+same repository. Confirmed deletions still release their refs through
+`threadDeleted` or the sweep's `deleted` records.
 
 A Pi session another process on this machine writes — another Tau host with
 its own data folder, or a Pi CLI that loaded Tau's lock extension — is guarded

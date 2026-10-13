@@ -3,7 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { findExecutable, gitExecutable } from "tau/host-extension";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, relative as relativePath, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
@@ -1658,17 +1658,14 @@ export async function cleanupCheckpointRefsForLiveSessions(
   // Git linked worktrees share one ref namespace but intentionally do not
   // share a mutation lease. Restrict this sweep to sessions belonging to the
   // current canonical checkout; otherwise a quiet worktree could delete a
-  // live writer's provisional ref in its sibling. Older callers without cwd
-  // retain the legacy all-session behavior for compatibility.
+  // live writer's provisional ref in its sibling. A known session without cwd
+  // remains eligible in any checkout for compatibility.
   const scopedSessions = await Promise.all(sessions.map(async (session) => {
     if (!session.cwd) return session;
     const sessionCwd = await realpath(session.cwd).catch(() => resolve(session.cwd!));
     return sessionCwd === canonicalCwd ? session : undefined;
   })).then((items) => items.filter((session): session is LiveCheckpointSession => Boolean(session)));
   const scopedSessionIds = new Set(scopedSessions.flatMap((session) => {
-    try { return [sanitizeTurnSnapshotComponent(session.sessionId)]; } catch { return []; }
-  }));
-  const knownSessionIds = new Set(sessions.flatMap((session) => {
     try { return [sanitizeTurnSnapshotComponent(session.sessionId)]; } catch { return []; }
   }));
   const prefix = "refs/tau/checkpoints/";
@@ -1678,18 +1675,13 @@ export async function cleanupCheckpointRefsForLiveSessions(
   for (const sessionId of liveSessionIds(await listLiveWorkspaceLeaseSessions())) protectedSessionIds.add(sessionId);
   const refsForWorkspace = refs.filter((ref) => {
     const sessionId = ref.split("/")[3];
-    // If every caller supplied a workspace identity, retain known sessions in
-    // sibling linked worktrees but reclaim refs for sessions absent from the
-    // persisted index. The latter is the startup/pruning path for an offline
-    // deletion; leaving them forever would leak immutable trees. A missing cwd
-    // in any legacy record falls back to the conservative all-session behavior.
+    // An absent session may belong to the trash or another host's session store.
+    // Only the caller's known sessions in this checkout are eligible for GC.
     // Keep every ref in a live writer's session namespace out of this sweep.
     // The writer may have published one phase but not its durable entry yet;
     // a later pass after lease release can reclaim it safely.
     if (protectedSessionIds.has(sessionId)) return false;
-    return sessions.some((session) => !session.cwd)
-      || scopedSessionIds.has(sessionId)
-      || !knownSessionIds.has(sessionId);
+    return scopedSessionIds.has(sessionId);
   });
   const refSet = new Set(refsForWorkspace);
   const valid = new Set<string>();
@@ -1749,10 +1741,8 @@ export async function cleanupCheckpointRefsForLiveSessions(
   // refs appeared in the earlier enumeration.
   for (const sessionId of liveSessionIds(await listLiveWorkspaceLeaseSessions())) protectedSessionIds.add(sessionId);
   const doomed = refsForWorkspace.filter((ref) => !valid.has(ref) && !protectedSessionIds.has(ref.split("/")[3]));
-  // A session the caller listed is one whose journal is meant to root these
-  // refs. When it does not, the entry may simply not have landed yet, so age
-  // decides. A session nobody listed was deleted offline; reclaim it at once.
-  const recent = await recentSnapshotRefs(cwd, doomed.filter((ref) => knownSessionIds.has(ref.split("/")[3]!)), runGit, options);
+  // A known session's entry may not have landed yet, so age decides.
+  const recent = await recentSnapshotRefs(cwd, doomed, runGit, options);
   await Promise.all(doomed.filter((ref) => !recent.has(ref)).map((ref) =>
     runGit(cwd, ["update-ref", "-d", ref]).catch(() => undefined)));
   const checkpointRoot = join(FILESYSTEM_SNAPSHOT_ROOT, filesystemWorkspaceKey(canonicalCwd), "checkpoints");
@@ -1796,11 +1786,9 @@ export async function cleanupCheckpointRefsForLiveSessions(
   }
   const protectedBeforeFilesystemGc = liveSessionIds(await listLiveWorkspaceLeaseSessions());
   const doomedManifests = filesystemRefs.filter((path) => !validFilesystem.has(path)
+    && scopedSessionIds.has(relativePath(checkpointRoot, path).split(sep)[0]!)
     && ![...protectedBeforeFilesystemGc].some((sessionId) => path.split(sep).includes(sessionId)));
-  const recentManifestPaths = await recentManifests(
-    doomedManifests.filter((path) => [...knownSessionIds].some((sessionId) => path.split(sep).includes(sessionId))),
-    options,
-  );
+  const recentManifestPaths = await recentManifests(doomedManifests, options);
   await Promise.all(doomedManifests.filter((path) => !recentManifestPaths.has(path)).map((path) => rm(path, { force: true })));
   await gcFilesystemSnapshotBlobs(cwd);
 }

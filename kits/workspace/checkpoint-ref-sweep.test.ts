@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,16 +11,20 @@ import {
   turnSnapshotRef,
 } from "./turn-checkpoint-codec.js";
 import type { StoredTurnCheckpoint } from "./turn-checkpoint-types.js";
-import { createTurnWorkspaceSnapshot } from "./workspace-git.js";
+import { createTurnWorkspaceSnapshot, getSnapshotFileDiff, validateWorkspaceSnapshotRefs } from "./workspace-git.js";
 
 const directories: string[] = [];
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function repository(prefix: string): Promise<string> {
+async function repository(prefix: string, git = true): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), prefix));
   directories.push(cwd);
+  if (!git) {
+    await writeFile(join(cwd, "tracked.txt"), "base\n");
+    return cwd;
+  }
   execFileSync("git", ["init", "-q"], { cwd });
   execFileSync("git", ["config", "user.email", "tau@example.test"], { cwd });
   execFileSync("git", ["config", "user.name", "Tau Test"], { cwd });
@@ -279,7 +283,58 @@ describe("checkpoint refs of a live thread whose session file lags", () => {
     expect(listRefs(cwd)).toHaveLength(2);
   }, 30_000);
 
-  it("still reclaims the refs of a session that is neither persisted nor live", async () => {
+  it.each(["git", "filesystem"])("keeps %s checkpoints through trash, sweep and restore", async (backend) => {
+    const cwd = await repository("tau-ref-sweep-trash-", backend === "git");
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-ref-sweep-trash-sessions-"));
+    const trashDir = await mkdtemp(join(tmpdir(), "tau-ref-sweep-trash-store-"));
+    directories.push(sessionsDir, trashDir);
+    const checkpoint = await captureTurn(cwd, "trashed-session", "turn-1", "saved\n");
+    const fixture = await laggingSession(cwd, sessionsDir, checkpoint.sessionId, checkpoint);
+    const host = services(cwd, sessionsDir);
+    host.sessions.open(fixture.path).appendEntry(TURN_CHECKPOINT_CUSTOM_TYPE, checkpoint);
+    const summary = { sessionId: fixture.sessionId, path: fixture.path, cwd };
+    const trashedPath = join(trashDir, "session.jsonl");
+    let trashed = false;
+    host.sessions.remove = async () => { await rename(fixture.path, trashedPath); trashed = true; };
+    host.sessions.restore = async () => { await rename(trashedPath, fixture.path); trashed = false; };
+    host.sessions.trash = async () => trashed ? [{
+      sessionId: fixture.sessionId, cwd, title: "backup", backendKind: "pi", deletedAt: 1, purgeAt: 2,
+    }] : [];
+    const kit = createWorkspaceKitLifecycle(host, { emit: () => undefined });
+    await kit.lifecycle.sweep!({ sessions: [summary], liveThreads: [], projectPaths: [cwd], deleted: [] });
+
+    await host.sessions.remove(fixture.sessionId);
+    await kit.lifecycle.sweep!({ sessions: [], liveThreads: [], projectPaths: [cwd], deleted: [summary] });
+    await host.sessions.restore(fixture.sessionId);
+    await kit.lifecycle.beforeOpen!(host.sessions.open(fixture.path));
+
+    await expect(validateWorkspaceSnapshotRefs(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId,
+      { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId })).resolves.toBeDefined();
+    const diff = await getSnapshotFileDiff(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, "tracked.txt");
+    expect(diff.hunks.flatMap((hunk) => hunk.lines).map((line) => `${line.kind}:${line.text}`))
+      .toEqual(expect.arrayContaining(["removed:base", "added:saved"]));
+  }, 30_000);
+
+  it.each(["git", "filesystem"])("keeps %s refs belonging to a session in another host's session directory", async (backend) => {
+    const cwd = await repository("tau-ref-sweep-other-host-", backend === "git");
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-ref-sweep-local-sessions-"));
+    const otherSessionsDir = await mkdtemp(join(tmpdir(), "tau-ref-sweep-other-sessions-"));
+    directories.push(sessionsDir, otherSessionsDir);
+    const checkpoint = await captureTurn(cwd, "other-session", "turn-1", "other\n");
+    const fixture = await laggingSession(cwd, otherSessionsDir, checkpoint.sessionId, checkpoint);
+    services(cwd, otherSessionsDir).sessions.open(fixture.path).appendEntry(TURN_CHECKPOINT_CUSTOM_TYPE, checkpoint);
+    const kit = createWorkspaceKitLifecycle(services(cwd, sessionsDir), { emit: () => undefined });
+
+    await kit.lifecycle.sweep!({ sessions: [], liveThreads: [], projectPaths: [cwd], deleted: [] });
+
+    await expect(validateWorkspaceSnapshotRefs(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId,
+      { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId })).resolves.toBeDefined();
+    const diff = await getSnapshotFileDiff(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, "tracked.txt");
+    expect(diff.hunks.flatMap((hunk) => hunk.lines).map((line) => `${line.kind}:${line.text}`))
+      .toEqual(expect.arrayContaining(["removed:base", "added:other"]));
+  }, 30_000);
+
+  it("still reclaims the refs of a session the host knows was deleted", async () => {
     const cwd = await repository("tau-ref-sweep-gone-");
     const sessionsDir = await mkdtemp(join(tmpdir(), "tau-ref-sweep-gone-sessions-"));
     directories.push(sessionsDir);
@@ -287,7 +342,7 @@ describe("checkpoint refs of a live thread whose session file lags", () => {
     expect(listRefs(cwd)).toHaveLength(2);
 
     const kit = createWorkspaceKitLifecycle(services(cwd, sessionsDir), { emit: () => undefined });
-    await kit.lifecycle.sweep!({ sessions: [], liveThreads: [], projectPaths: [cwd], deleted: [] });
+    await kit.lifecycle.sweep!({ sessions: [], liveThreads: [], projectPaths: [cwd], deleted: [{ sessionId: "gone-session", cwd }] });
 
     expect(listRefs(cwd)).toEqual([]);
   }, 30_000);
