@@ -51,19 +51,19 @@ function createSettingsClient(initial: TauConfig, { failing = false, completionM
   return { client, calls, heal: () => { failing = false; } };
 }
 
+/** Pi's entry on Runtimes: its default model and thinking, and its other settings folded under Advanced. */
 async function openPiPage(ready = "Write Pi settings to"): Promise<HTMLElement> {
   await runPaletteCommand("Open Settings");
   const modal = await screen.findByRole("dialog", { name: "Settings" });
-  // Pi's page sits in the Threads group, folded unless an earlier test opened it: Settings keeps an opened group open.
-  const threads = within(modal).getByRole("button", { name: "Threads" });
-  if (threads.getAttribute("aria-expanded") !== "true") fireEvent.click(threads);
-  fireEvent.click(within(modal).getByRole("button", { name: "Pi" }));
+  fireEvent.click(within(within(modal).getByRole("navigation", { name: "Settings sections" })).getByRole("button", { name: "Runtimes" }));
+  // Pi is the only runtime here, so it is the one chosen; choosing it from the list is the same.
+  fireEvent.click(await within(modal).findByRole("button", { name: /^Pi/u }));
   // The page reads Pi's file over the host, so its fields arrive a tick later.
   await within(modal).findByText(ready);
   return modal;
 }
 
-describe("Settings → Pi", () => {
+describe("Settings → Runtimes → Pi", () => {
   it("shows what Pi's own settings file holds and writes a change back to it", async () => {
     const { client, calls } = createSettingsClient({
       models: { default: "openai/gpt-5", thinkingLevel: "medium" },
@@ -75,9 +75,11 @@ describe("Settings → Pi", () => {
     await screen.findByRole("button", { name: "Send" });
     const modal = await openPiPage();
 
-    // Without Pi's models on hand the startup model is typed.
-    expect((within(modal).getByRole("textbox", { name: "Startup model" }) as HTMLInputElement).value).toBe("openai/gpt-5");
-    expect((within(modal).getByRole("combobox", { name: "Startup thinking level" }) as HTMLSelectElement).value).toBe("medium");
+    // Without Pi's models on hand the default model is typed.
+    expect((within(modal).getByRole("textbox", { name: "Default model" }) as HTMLInputElement).value).toBe("openai/gpt-5");
+    expect((within(modal).getByRole("combobox", { name: "Default thinking" }) as HTMLSelectElement).value).toBe("medium");
+    // The expert values wait under Advanced.
+    expect(modal.querySelector("details.settings-advanced")!.contains(within(modal).getByRole("radiogroup", { name: "Steering messages" }))).toBe(true);
 
     // A choice writes straight through, at global scope by default.
     fireEvent.click(within(within(modal).getByRole("radiogroup", { name: "Steering messages" })).getByRole("radio", { name: "All at once" }));
@@ -86,7 +88,7 @@ describe("Settings → Pi", () => {
     expect(calls[0].scope).toBe("global");
 
     // The thinking level is one of Pi's levels, not free text.
-    fireEvent.change(within(modal).getByRole("combobox", { name: "Startup thinking level" }), { target: { value: "high" } });
+    fireEvent.change(within(modal).getByRole("combobox", { name: "Default thinking" }), { target: { value: "high" } });
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1].patch).toEqual({ models: { default: "openai/gpt-5", thinkingLevel: "high" } });
   });
@@ -97,7 +99,7 @@ describe("Settings → Pi", () => {
     await screen.findByRole("button", { name: "Send" });
     const modal = await openPiPage();
 
-    const model = within(modal).getByRole("textbox", { name: "Startup model" });
+    const model = within(modal).getByRole("textbox", { name: "Default model" });
     fireEvent.change(model, { target: { value: "openai/gpt 5" } });
     fireEvent.blur(model);
     expect(within(modal).getByRole("alert").textContent).toBe("A model id has no spaces.");
@@ -108,13 +110,13 @@ describe("Settings → Pi", () => {
     expect(calls[0].patch).toEqual({ models: { default: "openai/gpt-5" } });
   });
 
-  it("picks the startup model from Pi's models when the host names them", async () => {
+  it("picks the default model from Pi's models when the host names them", async () => {
     const { client } = createSettingsClient({ models: { default: "openai/gpt-5" } }, { completionModels: [{ provider: "openai", id: "gpt-5", name: "GPT-5" }] });
     renderApp(client);
     await screen.findByRole("button", { name: "Send" });
     const modal = await openPiPage();
-    expect(within(modal).getByRole("button", { name: "Startup model: GPT-5" })).toBeTruthy();
-    expect(within(modal).queryByRole("textbox", { name: "Startup model" })).toBeNull();
+    expect(within(modal).getByRole("button", { name: "Default model: GPT-5" })).toBeTruthy();
+    expect(within(modal).queryByRole("textbox", { name: "Default model" })).toBeNull();
   });
 
   it("keeps a number out of range from the file and clears one back to Pi's default", async () => {
@@ -123,7 +125,7 @@ describe("Settings → Pi", () => {
     await screen.findByRole("button", { name: "Send" });
     const modal = await openPiPage();
 
-    const retries = within(modal).getByRole("spinbutton", { name: "Max retries" });
+    const retries = within(modal).getByRole("spinbutton", { name: "Retries" });
     fireEvent.change(retries, { target: { value: "50" } });
     fireEvent.blur(retries);
     expect(within(modal).getByRole("alert").textContent).toBe("Enter a number from 0 to 20.");
@@ -185,7 +187,7 @@ describe("Settings → Pi", () => {
     renderApp(client);
     await screen.findByRole("button", { name: "Send" });
     const modal = await openPiPage();
-    const rows = settingsSearchEntries({ pages: [], extensions: [] }).filter((entry) => entry.page === "pi" && entry.target);
+    const rows = settingsSearchEntries({ pages: [], extensions: [] }).filter((entry) => entry.page === "runtimes/pi" && entry.target);
     expect(rows.length).toBeGreaterThan(10);
     for (const row of rows) expect(modal.querySelector(`#${row.target}`), row.label).not.toBeNull();
   });

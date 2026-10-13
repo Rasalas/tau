@@ -139,8 +139,8 @@ speaks to it with the host's own token;
 a running Tau it starts the app on that folder. The command is `bin/tau.mjs`
 (`bin` in `package.json`) and needs Node 22 or newer. The `.deb` puts it on
 your `PATH` as `tau` and runs it on Tau's own binary, so it needs no Node.
-On macOS and on Linux builds without the `.deb`, **Settings → General →
-Terminal command** installs it without a console: Install names the folder
+On macOS and on Linux builds without the `.deb`, **Settings → Connections →
+This machine → Command line** installs it without a console: Install names the folder
 first (`~/.local/bin`, then `~/bin`, and on a Mac Homebrew's and `/usr/local/bin`;
 one already on your `PATH` wins), writes a small launcher into Tau's data folder
 that runs the command on the app's own binary, so Node is not needed, and links

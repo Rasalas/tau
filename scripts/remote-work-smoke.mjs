@@ -200,7 +200,7 @@ export const STEPS = [
   },
   {
     // The smoke is A's window process here: it pairs for itself and A's agents, and hands their key to A's host (ADR 0027).
-    title: "A pairs with rex for itself and its agents; rex's owner allows both at once over its loopback host token",
+    title: "A pairs with rex for itself and its agents; rex's owner allows both at once over its loopback access key",
     async run(ctx) {
       let asked;
       const result = await pairWithHost({
@@ -240,7 +240,7 @@ export const STEPS = [
       const stat = await device.request("host-extension", ["tau.files", "stat", { path: "README.md" }]);
       if (!stat || typeof stat !== "object") throw new Error(`tau.files/stat answered ${JSON.stringify(stat)}`);
       const refused = await device.request("connections-list").then(() => "answered", (error) => String(error.message));
-      if (!/forbidden|owner|host token/iu.test(refused)) throw new Error(`a paired device managed rex's connections: ${refused}`);
+      if (!/forbidden|owner|access key/iu.test(refused)) throw new Error(`a paired device managed rex's connections: ${refused}`);
       return "tau.files/stat README.md answered; connections-list refused";
     },
   },

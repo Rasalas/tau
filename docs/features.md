@@ -105,7 +105,7 @@ address, with no cookies and at most 32 MiB.
 
 ## The `tau` command from Settings
 
-Settings → General → **Terminal command** puts `tau` on your terminal's `PATH`
+Settings → Connections → This machine → **Command line** puts `tau` on your terminal's `PATH`
 after asking which folder it links into, shows where it is installed and
 whether a new terminal finds it, and **Remove** undoes it. An existing `tau`
 is never replaced. See [Install](install.md#the-tau-command).
