@@ -304,6 +304,8 @@ export interface HostSessionSummary {
 export interface HostThreadStartOptions {
   /** Project the thread runs in. */
   cwd: string;
+  /** Before first prompt admission; in-process only. Rejection cleans up the thread. API 1.61.0. */
+  beforePrompt?: (thread: HostThread) => Promise<void>;
   /** First prompt, delivered as soon as the thread exists. */
   prompt: string;
   attachments?: readonly UiPromptAttachment[];
@@ -1267,7 +1269,7 @@ export interface HostExtensionServices {
    */
   decorateUiPrompt(decorator: (prompt: ExtensionUiPrompt) => void | (() => void)): () => void;
   /** What the user lets external runtimes do; `undefined` restores full access. */
-  setPermissionLevel(provider: (() => RuntimePermissionLevel) | undefined): void;
+  setPermissionLevel(provider: ((sessionId?: string) => RuntimePermissionLevel) | undefined): void;
   /** Adds a runtime backend threads can be created with (ADR 0005); its kind names the backend. */
   registerRuntimeBackend(provider: HostRuntimeBackendProvider): () => void;
   /** Draws what Pi extensions put on terminal surfaces (status, widgets, working message). */

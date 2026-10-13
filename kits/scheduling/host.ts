@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { HostCommandError, tryProcessLock, writePersistedJson, type HostExtension, type SecretStore } from "tau/host-extension";
 import { SCHEDULING_ID, type Job, type JobConfig, type SchedulingState } from "./protocol.js";
-import { decodeConfig, object, text } from "./validation.js";
+import { decodeAccessLevel, decodeConfig, object, text } from "./validation.js";
 import { assertStateBudget, readState } from "./store.js";
 import { DELIVERY_WINDOW_MS, SECRET_SERVICE, WebhookListener, verifyDelivery, webhookSecretStore, type WebhookDelivery } from "./webhooks.js";
 import { WebhookSecrets } from "./secrets.js";
@@ -52,12 +52,21 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
         const timers = new Set<ReturnType<typeof setTimeout>>();
         const snapshot = () => structuredClone(state);
         const clearTimers = () => { for (const timer of timers) clearTimeout(timer); timers.clear(); };
+        const expiring = new Set<string>();
         const arm = () => {
           clearTimers();
           void webhook.reconcile(!stopped && state.enabled && state.jobs.some((j) => j.enabled && j.config.schedule.kind === "webhook" && j.secretRef)).catch(() => { webhookProblem = "The webhook endpoint could not open. Check its saved port or restart Tau."; services.log("scheduling.webhook", webhookProblem); context.emit("webhook-endpoint", { problem: webhookProblem }); });
-          if (stopped || !state.enabled) return;
+          if (stopped) return;
           for (const job of state.jobs) {
-            if (!job.enabled || !job.nextAt || !["ready", "completed"].includes(job.status)) continue;
+            if (job.status === "running" && job.lastRun?.threadId && !expiring.has(job.lastRun.threadId)) {
+              const delay = Math.max(0, Date.parse(job.lastRun.at) + job.config.maxDurationMinutes * 60_000 - Date.now());
+              const timer = setTimeout(() => {
+                timers.delete(timer);
+                void expire(job.id, job.lastRun!.threadId!).catch((error: unknown) => services.log("scheduling.timeout", String(error)));
+              }, delay);
+              timers.add(timer);
+            }
+            if (!state.enabled || !job.enabled || !job.nextAt || !["ready", "completed"].includes(job.status)) continue;
             const delay = Math.max(0, Date.parse(job.nextAt) - Date.now());
             const timer = setTimeout(() => {
               timers.delete(timer);
@@ -82,14 +91,15 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
         };
         context.registerCommand("list", snapshot, { access: "read" });
         let busy = false;
-        const outcomes = new Map<string, "completed" | "failed">();
+        const outcomes = new Map<string, { status: "completed" | "failed"; detail?: string }>();
         const flushOutcomes = async () => {
           const next = snapshot();
           let changed = false;
           for (const job of next.jobs) {
             const outcome = job.lastRun?.threadId ? outcomes.get(job.lastRun.threadId) : undefined;
             if (job.status === "running" && outcome) {
-              job.status = outcome; job.lastRun!.outcome = outcome; changed = true;
+              expiring.delete(job.lastRun!.threadId!);
+              job.status = outcome.status; job.lastRun!.outcome = outcome.status; job.lastRun!.detail = outcome.detail; changed = true;
               if (job.nextAt && Date.parse(job.nextAt) <= Date.now()) job.status = "held";
             }
           }
@@ -102,6 +112,18 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           try { return await work(); }
           finally { try { await flushOutcomes(); } finally { busy = false; arm(); } }
         };
+        const expire = async (id: string, threadId: string) => {
+          if (stopped || state.jobs.find((job) => job.id === id)?.status !== "running" || expiring.has(threadId)) return;
+          expiring.add(threadId);
+          const outcome = { status: "failed" as const, detail: "Maximum duration exceeded. The scheduled turn was stopped." };
+          outcomes.set(threadId, outcome);
+          try {
+            if (!services.sessions.abort) throw new HostCommandError("This machine cannot stop threads.");
+            await services.sessions.abort(threadId);
+          }
+          catch { outcome.detail = "Maximum duration exceeded, but the thread could not be stopped. Inspect it before retrying."; }
+          if (!busy && !stopped) await mutate(async () => { await flushOutcomes(); });
+        };
         const lookup = (input: unknown, keys = ["id"]): Job => {
           const v = object(input, keys);
           const id = text(v.id, "Job ID", 36);
@@ -109,9 +131,11 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           if (!job) throw new HostCommandError("Unknown job.");
           return job;
         };
+        const defaultAccessLevel = async () => decodeAccessLevel(await context.invokeHostExtension("tau.access", "level"));
         const validate = async (input: unknown) => {
           const config = decodeConfig(input);
           config.workspace = await services.knownWorkspacePath(config.workspace);
+          config.accessLevel ??= await defaultAccessLevel();
           return config;
         };
         context.registerCommand("create", (input) => mutate(async () => {
@@ -182,7 +206,19 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           await replace(job);
           if (stopped) throw new HostCommandError("Scheduling stopped before admission.");
           try {
-            const thread = await services.sessions.start({ cwd: job.config.workspace, backend: job.config.backend, title: `Scheduled: ${job.config.name}`, prompt: job.config.prompt });
+            job.config.accessLevel ??= await defaultAccessLevel();
+            const cwd = job.config.workspaceStrategy === "worktree"
+              ? (await context.invokeHostExtension("tau.workspace", "create-worktree", { workspace: job.workspaceId, branch: `scheduled/${job.lastRun.intentId}`, startFromOrigin: false }) as { path: string }).path
+              : job.config.workspace;
+            if (typeof cwd !== "string" || !cwd || (job.config.workspaceStrategy === "worktree" && cwd === job.config.workspace)) throw new HostCommandError("A separate worktree could not be created.");
+            const thread = await services.sessions.start({ cwd, backend: job.config.backend, title: `Scheduled: ${job.config.name}`, prompt: job.config.prompt,
+              beforePrompt: async (created) => {
+                await context.invokeHostExtension("tau.access", "thread-level", { threadId: created.sessionId, level: job.config.accessLevel });
+                created.appendEntry("tau.scheduling/access", { level: job.config.accessLevel });
+                job.lastRun!.threadId = created.sessionId;
+                await replace(job);
+              },
+            });
             job.status = "running"; job.lastRun.threadId = thread.sessionId; job.lastRun.outcome = "running";
           } catch (error) {
             job.status = "failed"; job.lastRun.outcome = "failed"; job.lastRun.detail = String(error).slice(0, 500);
@@ -238,7 +274,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
         });
         const secrets = new WebhookSecrets(context, secretStore, (id) => lookup({ id }), bindSecret);
         secrets.register();
-        context.registerCommand("manage", (_input, call) => ({ ...snapshot(), canManage: call.owner, secretRequests: secrets.list(), secretStore: secretStore?.name, webhookUrl: webhook.url, webhookProblem }), { access: "read" });
+        context.registerCommand("manage", async (_input, call) => ({ ...snapshot(), defaultAccessLevel: await defaultAccessLevel().catch(() => undefined), canManage: call.owner, secretRequests: secrets.list(), secretStore: secretStore?.name, webhookUrl: webhook.url, webhookProblem }), { access: "read" });
         context.registerCommand("set-webhook-secret", async (input) => {
           const v = object(input, ["id", "value"]);
           const id = text(v.id, "Automation ID", 36);
@@ -251,19 +287,27 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           return { saved: true };
         }, { access: "owner" });
         const stopObserver = services.registerTurnObserver({
+          prepare: async (threadId) => {
+            const thread = services.thread(threadId);
+            const entry = thread?.entries().find((candidate) => {
+              const value = candidate as { type?: string; customType?: string };
+              return value.type === "custom" && value.customType === "tau.scheduling/access";
+            }) as { data: { level: unknown } } | undefined;
+            if (entry) await context.invokeHostExtension("tau.access", "thread-level", { threadId, level: entry.data.level });
+          },
           stopped: (threadId) => {
             const pending = secrets.list().some((request) => request.threadId === threadId && request.status === "pending");
             secrets.end(threadId);
             return pending ? ["ended the private secret request"] : [];
           },
           ended: async (threadId, _turnId, outcome) => {
-            if (stopped) return;
+            if (stopped || expiring.has(threadId)) return;
             const current = state.jobs.find((j) => j.lastRun?.threadId === threadId && j.status === "running");
             // A fast turn can finish before start returns its thread id. Do not
             // wait here: a backend may be awaiting this observer itself.
-            if (busy) { if (outcomes.size < 100) outcomes.set(threadId, outcome); return; }
+            if (busy) { if (outcomes.size < 100) outcomes.set(threadId, { status: outcome }); return; }
             if (!current) return;
-            outcomes.set(threadId, outcome);
+            outcomes.set(threadId, { status: outcome });
             await mutate(async () => { await flushOutcomes(); });
           },
         });

@@ -3046,7 +3046,12 @@ an `instances` event from the host half keeps every client's cards in step.
 
 `services.sessions.start(options)` (`sessions`) creates a thread off screen:
 `cwd`, the first `prompt`, and optionally `title`, `model`, `parent`,
-`backend`, `attachments`, `skillDraft`, `thinkingLevel` and `mode`. The call
+`backend`, `attachments`, `skillDraft`, `thinkingLevel` and `mode`.
+`beforePrompt(thread)` is an in-process callback, API 1.61.0, awaited on the
+new `HostThread` before preparing or admitting its first prompt. Rejection
+uses the same unused-thread cleanup as a rejected prompt. A kit may write its
+own durable entry and apply another kit's policy through an authorized host
+command here. It is unavailable over the worker or client transport. The call
 returns after the runtime admits the first prompt. Rejected starts throw and
 remove their unused thread, so a kit can preserve the draft and clean up a
 worktree. Images use each backend's usual prompt path. Files stay native on backends
@@ -3064,6 +3069,19 @@ written into a Pi thread's session file; a thread of another backend has no
 such file, so the host keeps its link in the index for as long as it runs and
 the extension that asked for it is the durable record. Agents Kit starts a
 thread whose agent definition names a runtime this way.
+
+Scheduling reads Access Kit's existing `level` command through an authorized
+host invocation to show the new-thread default in its dialog. Creating or
+updating an automation without an explicit access level resolves and saves
+that current default, usually Full access. An explicit selection remains saved.
+The run applies its saved level through `thread-level`; the machine's stricter
+level still wins. Worktree and 60 minutes remain the defaults.
+
+`services.setPermissionLevel(provider)` accepts an optional thread ID on its
+provider, API 1.61.0. External runtime contexts and prompt permission checks
+pass their thread ID, so the provider can narrow one thread while preserving
+the machine's stricter policy. A provider without an argument keeps its
+existing machine-wide behavior.
 
 `services.sessions.send(sessionId, text, { delivery, from })` (new in API
 1.11.0, `sessions`, in-process only; absent on an older host) sends a message

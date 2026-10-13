@@ -122,3 +122,29 @@ declares no dependencies: the kits reach core through the three API modules,
 which both bundlers resolve by alias, and take React and the icons from the
 renderer at runtime. A workspace would add a `node_modules` root with nothing
 in it and another thing for electron-builder to prune.
+
+## Scheduled execution
+
+Scheduling stores each automation's workspace strategy, access level and maximum
+duration. New jobs use a new worktree and 60 minutes. Without an explicit
+access choice,
+Scheduling reads Access Kit's existing `level` host command and saves the same
+level new threads use, usually Full access. The dialog displays that default;
+an explicit selection is saved instead. Older records without an access level
+resolve and save that default before their next run. The editor offers the
+current checkout as an explicit choice, the four access levels and a limit of 1 to 1440 minutes.
+
+Each worktree run asks Workspace's authorized `create-worktree` command for a
+fresh branch from local HEAD. Worktree creation failure stops the run; a folder
+without Git requires choosing the current checkout. Worktrees remain available
+with their threads for inspection and Workspace's existing cleanup rules.
+Before first prompt admission, Scheduling applies Access's `thread-level`
+command and records the chosen level in the thread journal. Its turn observer
+reapplies that level on subsequent turns, including after reopening a thread.
+An unavailable Access kit stops admission. The machine's stricter level wins.
+
+The duration starts with the persisted run intent. An admitted run is aborted
+when it exceeds that duration, even after automations or the job were turned
+off. Timeout is a failed run requiring explicit recovery, and never starts an
+automatic replacement. Restarted in-flight runs retain the existing uncertain
+state and require inspection. Normal completion cancels the deadline.

@@ -383,7 +383,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   /** The runtime spelling of a prompt, and the proof that a caller may execute it. */
   const prompts = new PromptPreparation({
     requireBackend: (kind) => deps.requireBackend(kind),
-    permissionLevel: () => seam.permissionLevel(),
+    permissionLevel: (sessionId) => seam.permissionLevel(sessionId),
     runtimeGate,
     ownedByPi: (thread) => deps.ownedByPi(thread),
   });
@@ -641,7 +641,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     activeSessionFile: () => deps.getActive()?.sessionFile,
     adapterFor: (kind) => deps.adapterFor(kind),
     requireBackend: (kind) => deps.requireBackend(kind),
-    permissionLevel: () => seam.permissionLevel(),
+    permissionLevel: (sessionId) => seam.permissionLevel(sessionId),
     sessionFile: (manager) => seam.sessionFile(manager),
     runtimeExtensions: (settingsManager, session) => deps.runtimeExtensionsFor(settingsManager, session),
     runtimeExtensionNames: () => seam.runtimeExtensions.map((entry) => entry.name),

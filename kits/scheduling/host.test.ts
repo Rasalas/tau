@@ -13,18 +13,30 @@ async function harness(root?: string, start?: HostSessionServices["start"], host
   if (!root) cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   const threads: HostThreadStartOptions[] = [];
   const busyThreads = new Set<string>();
+  const abort = vi.fn(async (id: string) => { busyThreads.delete(id); await observer?.ended?.(id, "turn", "completed"); });
+  const access = vi.fn(() => "read-only");
+  const defaultAccess = vi.fn(() => "full");
+  const createWorktree = vi.fn(() => ({ path: "/worktree" }));
+  const records = new Map<string, unknown[]>();
   let observer: HostTurnObserver | undefined;
   const registry = await activateHostKit(createSchedulingHostExtension(), {
     stateDir,
     findCommand: () => undefined,
-    thread: (id) => id && busyThreads.has(id) ? { isIdle: () => false } as HostThread : undefined,
-    sessions: { start: start ?? (async (options) => { threads.push(options); return { sessionId: `thread-${threads.length}`, cwd: options.cwd }; }) } as HostSessionServices,
+    thread: (id) => id ? { isIdle: () => !busyThreads.has(id), entries: () => records.get(id) ?? [] } as unknown as HostThread : undefined,
+    sessions: { abort, start: start ?? (async (options: HostThreadStartOptions) => {
+      const sessionId = `thread-${threads.length + 1}`;
+      await options.beforePrompt?.({ sessionId, appendEntry: (customType: string, data: unknown) => records.set(sessionId, [{ type: "custom", customType, data }]) } as unknown as HostThread);
+      threads.push(options);
+      return { sessionId, cwd: options.cwd };
+    }) } as unknown as HostSessionServices,
     registerTurnObserver: (value) => { observer = value; return () => { observer = undefined; }; },
     knownWorkspacePath: async (path) => { if (path !== "/project" && path !== `${host}:/project`) throw new Error("Unknown local workspace"); return "/project"; },
     workspaceRef: (path) => ({ workspaceId: `${host}:${path}`, displayPath: path }),
   });
+  await registry.activate({ id: "tau.workspace", name: "Workspace", activate(context) { context.registerCommand("create-worktree", createWorktree, { callers: ["tau.scheduling"] }); } });
+  await registry.activate({ id: "tau.access", name: "Access", activate(context) { context.registerCommand("thread-level", access, { callers: ["tau.scheduling"] }); context.registerCommand("level", defaultAccess, { access: "read", callers: ["tau.scheduling"] }); } });
   cleanups.push(() => registry.deactivate("tau.scheduling"));
-  return { stateDir, registry, threads, busyThreads, end: (id: string, outcome: "completed" | "failed" = "completed") => observer?.ended?.(id, "turn", outcome), call: (command: string, input?: unknown) => registry.invoke("tau.scheduling", command, input) };
+  return { stateDir, registry, threads, busyThreads, abort, access, defaultAccess, createWorktree, prepare: (id: string) => observer?.prepare?.(id, "turn"), end: (id: string, outcome: "completed" | "failed" = "completed") => observer?.ended?.(id, "turn", outcome), call: (command: string, input?: unknown) => registry.invoke("tau.scheduling", command, input) };
 }
 const config = { name: "Daily check", workspace: "/project", backend: "pi", prompt: "Inspect changes and report. Do not merge or deploy.", schedule: { kind: "daily", time: "09:00", timezone: "UTC" } };
 it("starts off and preserves explicit, disabled job configuration across activation", async () => {
@@ -40,6 +52,8 @@ it("starts off and preserves explicit, disabled job configuration across activat
 it("validates local configuration, replaces it explicitly, and supports enable/disable/delete", async () => {
   const h = await harness();
   for (const invalid of [
+    { ...config, workspaceStrategy: "shared" }, { ...config, accessLevel: "unknown" },
+    ...[0, -1, 1.5, 1441, "60"].map((maxDurationMinutes) => ({ ...config, maxDurationMinutes })),
     { ...config, prompt: "" }, { ...config, prompt: "x".repeat(16_385) },
     { ...config, backend: "machine" }, { ...config, workspace: "/unknown" },
     { ...config, machine: "remote" },
@@ -66,7 +80,7 @@ it("runs one-off prompts as ordinary threads only after explicit opt-in and hold
   await h.call("set-enabled", { enabled: true });
   await vi.advanceTimersByTimeAsync(30_000);
   await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "running", lastRun: { threadId: "thread-1", outcome: "running" } }] }));
-  expect(h.threads).toEqual([{ cwd: "/project", backend: "codex@work", title: "Scheduled: Daily check", prompt: config.prompt }]);
+  expect(h.threads).toEqual([expect.objectContaining({ cwd: "/worktree", backend: "codex@work", title: "Scheduled: Daily check", prompt: config.prompt })]);
   await expect(h.call("run", { id: job.id })).rejects.toThrow("already running");
   await h.end("thread-1");
   expect(await h.call("list")).toMatchObject({ jobs: [{ enabled: false, status: "completed", lastRun: { outcome: "completed" } }] });
@@ -234,4 +248,105 @@ it("bounds the persisted file size before accepting more configuration", async (
   await h.registry.deactivate("tau.scheduling");
   const restored = await harness(h.stateDir);
   expect(restored.registry.isActive("tau.scheduling")).toBe(true);
+});
+
+
+it("defaults to an isolated worktree and applies persisted new-thread access before admission", async () => {
+  const h = await harness();
+  const job = await h.call("create", config) as { id: string };
+  expect(job).toMatchObject({ config: { workspaceStrategy: "worktree", accessLevel: "full", maxDurationMinutes: 60 } });
+  await h.call("set-enabled", { enabled: true });
+  await h.call("run", { id: job.id });
+  expect(h.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ workspace: "host-a:/project", branch: expect.stringMatching(/^scheduled\//u), startFromOrigin: false }), expect.anything());
+  expect(h.threads[0]?.cwd).toBe("/worktree");
+  expect(h.access).toHaveBeenCalledWith({ threadId: "thread-1", level: "full" }, expect.anything());
+  h.access.mockClear();
+  await h.prepare("thread-1");
+  expect(h.access).toHaveBeenCalledWith({ threadId: "thread-1", level: "full" }, expect.anything());
+});
+
+it("persists explicit checkout, access and duration choices", async () => {
+  const h = await harness();
+  const custom = { ...config, workspaceStrategy: "current", accessLevel: "ask", maxDurationMinutes: 5 };
+  const job = await h.call("create", custom) as { id: string };
+  await h.call("set-enabled", { enabled: true });
+  await h.call("run", { id: job.id });
+  expect(h.createWorktree).not.toHaveBeenCalled();
+  expect(h.threads[0]?.cwd).toBe("/project");
+  expect(h.access).toHaveBeenCalledWith({ threadId: "thread-1", level: "ask" }, expect.anything());
+  await h.registry.deactivate("tau.scheduling");
+  const restored = await harness(h.stateDir);
+  expect(await restored.call("list")).toMatchObject({ jobs: [{ config: custom }] });
+});
+
+it.each(["tau.workspace", "tau.access"])("refuses admission when %s is unavailable", async (kit) => {
+  const h = await harness();
+  const job = await h.call("create", config) as { id: string };
+  await h.call("set-enabled", { enabled: true });
+  await h.registry.deactivate(kit);
+  expect(await h.call("run", { id: job.id })).toMatchObject({ status: "failed" });
+  expect(h.threads).toEqual([]);
+});
+
+it("stops an overdue run even with automations off, preserves the timeout through abort events and permits explicit recovery", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-03T08:00:00Z"));
+  const h = await harness();
+  const job = await h.call("create", { ...config, maxDurationMinutes: 1 }) as { id: string };
+  await h.call("set-enabled", { enabled: true }); await h.call("run", { id: job.id });
+  h.busyThreads.add("thread-1");
+  await h.call("set-enabled", { enabled: false });
+  await vi.advanceTimersByTimeAsync(59_999);
+  expect(h.abort).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "failed", lastRun: { outcome: "failed", detail: expect.stringContaining("Maximum duration") } }] }));
+  expect(h.abort).toHaveBeenCalledExactlyOnceWith("thread-1");
+  await h.call("resolve", { id: job.id, decision: "skip" });
+  await h.call("set-enabled", { enabled: true }); await h.call("run", { id: job.id });
+  await h.end("thread-2");
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(h.abort).toHaveBeenCalledTimes(1);
+});
+
+
+it.each(["full", "ask", "auto", "read-only"])("reads and saves the new-thread default %s when no access level was chosen", async (level) => {
+  const h = await harness();
+  h.defaultAccess.mockReturnValue(level);
+  expect(await h.call("manage")).toMatchObject({ defaultAccessLevel: level });
+  const job = await h.call("create", config) as { id: string };
+  expect(job).toMatchObject({ config: { accessLevel: level, workspaceStrategy: "worktree", maxDurationMinutes: 60 } });
+  expect(h.defaultAccess).toHaveBeenCalled();
+  h.defaultAccess.mockReturnValue(level === "full" ? "ask" : "full");
+  await h.call("set-enabled", { enabled: true });
+  await h.call("run", { id: job.id });
+  expect(h.access).toHaveBeenCalledWith({ threadId: "thread-1", level }, expect.anything());
+});
+
+it("keeps an explicit access choice instead of reading the default", async () => {
+  const h = await harness();
+  h.defaultAccess.mockReturnValue("ask");
+  const job = await h.call("create", { ...config, accessLevel: "read-only" }) as { id: string };
+  expect(h.defaultAccess).not.toHaveBeenCalled();
+  expect(job).toMatchObject({ config: { accessLevel: "read-only" } });
+  await h.call("update", { id: job.id, config });
+  expect(await h.call("list")).toMatchObject({ jobs: [{ config: { accessLevel: "ask" } }] });
+});
+
+it("does not invent a default if the Access kit cannot be read", async () => {
+  const h = await harness();
+  await h.registry.deactivate("tau.access");
+  expect(await h.call("manage")).toMatchObject({ defaultAccessLevel: undefined });
+  await expect(h.call("create", config)).rejects.toThrow();
+  expect(await h.call("list")).toEqual({ enabled: false, jobs: [] });
+});
+
+it("resolves missing access on older records through the Access kit before admission", async () => {
+  const first = await harness();
+  const job = await first.call("create", config) as { id: string };
+  await first.registry.deactivate("tau.scheduling");
+  await writeFile(join(first.stateDir, "tau.scheduling", "jobs.json"), JSON.stringify({ version: 1, enabled: true, jobs: [{ ...job, config }] }));
+  const h = await harness(first.stateDir);
+  h.defaultAccess.mockReturnValue("auto");
+  await h.call("run", { id: job.id });
+  expect(h.access).toHaveBeenCalledWith({ threadId: "thread-1", level: "auto" }, expect.anything());
+  expect(await h.call("list")).toMatchObject({ jobs: [{ config: { accessLevel: "auto" } }] });
 });

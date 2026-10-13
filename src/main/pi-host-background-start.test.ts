@@ -214,3 +214,35 @@ describe("PiHost background starts on another runtime backend", () => {
     expect(bench.inFlight()).toBe(0);
   });
 });
+
+
+describe("background start preparation", () => {
+  it("awaits preparation on the new thread before delivering its first prompt", async () => {
+    const bench = hostWithHeldStarts();
+    bench.internals.seam.backends.set("fake", { kind: "fake" });
+    bench.internals.runtimes.openExternal = async (_kind: string, id: string) => fakeThread(id, bench.delivered);
+    let release!: () => void;
+    const beforePrompt = vi.fn(async (thread) => {
+      expect(thread.cwd).toBe("/repo");
+      expect(thread.entries()).toEqual([]);
+      await new Promise<void>((resolve) => { release = resolve; });
+    });
+    const pending = bench.host.startThread({ cwd: "/repo", backend: "fake", prompt: "inspect", beforePrompt });
+    await vi.waitFor(() => expect(beforePrompt).toHaveBeenCalledTimes(1));
+    expect(bench.delivered).toEqual([]);
+    release();
+    const started = await pending;
+    await vi.waitFor(() => expect(bench.delivered).toEqual([`${started.sessionId}:inspect`]));
+  });
+
+  it("removes the unused thread when preparation rejects", async () => {
+    const bench = hostWithHeldStarts();
+    let created = "";
+    bench.internals.seam.backends.set("fake", { kind: "fake" });
+    bench.internals.runtimes.openExternal = async (_kind: string, id: string) => { created = id; return fakeThread(id, bench.delivered); };
+    await expect(bench.host.startThread({ cwd: "/repo", backend: "fake", prompt: "inspect", beforePrompt: async () => { throw new Error("Preparation refused"); } })).rejects.toThrow("Preparation refused");
+    expect(bench.delivered).toEqual([]);
+    expect(created).not.toBe("");
+    expect(bench.internals.threads.get(created)).toBeUndefined();
+  });
+});

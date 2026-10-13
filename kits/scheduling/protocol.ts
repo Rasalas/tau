@@ -1,6 +1,11 @@
 export const SCHEDULING_ID = "tau.scheduling";
 export type Schedule = { kind: "once"; at: string } | { kind: "daily"; time: string; timezone: "UTC" } | { kind: "webhook" };
+export type AccessLevel = "read-only" | "ask" | "auto" | "full";
 export interface JobConfig {
+  workspaceStrategy: "worktree" | "current";
+  /** Omitted input adopts the new-thread default; saved jobs keep the resolved level. */
+  accessLevel?: AccessLevel;
+  maxDurationMinutes: number;
   name: string;
   workspace: string;
   backend: string;
@@ -33,6 +38,7 @@ export interface SecretRequest {
 }
 export interface ManagementState extends SchedulingState {
   canManage: boolean;
+  defaultAccessLevel?: AccessLevel;
   webhookUrl?: string;
   webhookProblem?: string;
   secretStore?: string;

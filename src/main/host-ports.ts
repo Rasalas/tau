@@ -232,7 +232,7 @@ export interface HostExtensionSeam {
   /** Tells every subscriber that a watched file moved; the host is the only caller. */
   notifyConfigChange(change: HostConfigChange): void;
   /** What the user lets external runtimes do. */
-  permissionLevel(): RuntimePermissionLevel;
+  permissionLevel(sessionId?: string): RuntimePermissionLevel;
   /** Wraps a session manager for extensions; a runtime prepared for the file shares the manager. */
   sessionFile(manager: SessionManager): HostSessionFile;
   /** The local MCP endpoint the `mcp` services front; the host closes it when it stops. */
@@ -260,7 +260,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   const entryPins = new Set<(thread: HostThread) => Iterable<string>>();
   const configObservers = new Set<(change: HostConfigChange) => void>();
   const sessionFileManagers = new WeakMap<HostSessionFile, SessionManager>();
-  let permissionLevelProvider: (() => RuntimePermissionLevel) | undefined;
+  let permissionLevelProvider: ((sessionId?: string) => RuntimePermissionLevel) | undefined;
   const mcpProviders = new Set<HostMcpToolProvider>();
   const mcpGates: HostMcpToolGate[] = [];
   const mcpInstructions: HostMcpInstructionsProvider[] = [];
@@ -506,7 +506,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       }
     },
     // Without an access extension everything is allowed.
-    permissionLevel: () => permissionLevelProvider?.() ?? "full",
+    permissionLevel: (sessionId) => permissionLevelProvider?.(sessionId) ?? "full",
     sessionFile,
     mcp,
     executionPolicy: (cwd) => executionPolicy.for(cwd),

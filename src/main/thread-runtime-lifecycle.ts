@@ -73,7 +73,7 @@ export interface ThreadRuntimeLifecyclePort {
   activeSessionFile(): string | undefined;
   adapterFor(kind: ThreadBackendKind): AgentRuntimeAdapter;
   requireBackend(kind: ThreadBackendKind): HostRuntimeBackendProvider;
-  permissionLevel(): RuntimePermissionLevel;
+  permissionLevel(sessionId?: string): RuntimePermissionLevel;
   sessionFile(manager: SessionManager): HostSessionFile;
   /** Runtime extensions host extensions contribute, filtered by the session's settings. */
   runtimeExtensions(settingsManager: SettingsManager, session: RuntimeSessionInfo): SessionRuntimeExtension[];
@@ -253,7 +253,7 @@ export class ThreadRuntimeLifecycle {
     const backend = await provider.open(threadId, cwd, { resume: options.resume !== false, ...(options.tools ? { tools: options.tools } : {}) }, {
       projectName: this.port.projects.name(cwd),
       projectLabel: this.port.projects.knownLabel(cwd),
-      permissionLevel: () => this.port.permissionLevel(),
+      permissionLevel: () => this.port.permissionLevel(threadId),
       onMessage: (message) => {
         const thread = this.port.currentRuntime(threadId);
         if (thread && (!owned || !this.discarded.has(owned))) {

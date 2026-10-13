@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostExtensionServices, HostThread, HostTurnObserver } from "tau/host-extension";
+import type { HostExtensionContext, HostExtensionServices, HostThread, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { WORKSPACE_HEAD_TOPIC, createWorkspaceHostClient } from "./protocol.js";
 import { createWorkspaceHostExtension } from "./host.js";
@@ -674,4 +674,23 @@ it("streams linked video from its named workspace with seek ranges", async () =>
   expect(response.status).toBe(206);
   expect(await response.text()).toBe("2345");
   await expect(registry.invoke("tau.workspace", "publish-linked-media", { path: "clip.mp4", workspace: "unknown" })).rejects.toThrow("Unknown workspace");
+});
+
+
+it("allows Scheduling to create a separate worktree through its host authority", async () => {
+  const root = await workspace();
+  const repo = join(root, "repo");
+  await mkdir(repo);
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args], { encoding: "utf8", stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  git("commit", "-qm", "initial", "--allow-empty");
+  const registry = await activated(repo, { stateDir: join(root, "state") });
+  let caller: HostExtensionContext | undefined;
+  await registry.activate({ id: "tau.scheduling", name: "Scheduling", activate(context) { caller = context; } });
+  try {
+    const created = await caller!.invokeHostExtension("tau.workspace", "create-worktree", { workspace: repo, branch: "scheduled/test", startFromOrigin: false }) as { path: string };
+    expect(created.path).not.toBe(repo);
+    expect(existsSync(join(created.path, ".git"))).toBe(true);
+    expect(git("branch", "--show-current").trim()).toBe("main");
+  } finally { await registry.deactivate("tau.workspace"); }
 });
