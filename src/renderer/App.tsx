@@ -47,7 +47,7 @@ import { stageOwner } from "../workbench/thread-stages";
 import { usePanelLayout } from "./use-panel-layout";
 import type { SubmissionControllerPorts } from "./submission-controller";
 import { deferredSubmission } from "./deferred-submission";
-import { followTurnActivity } from "../workbench/turn-activity";
+import { useTurnActivityCache } from "./use-turn-activity-cache";
 import { followWorkbenchBootstrap } from "../workbench/workbench-bootstrap";
 import { followOpenPrompts } from "../workbench/open-prompts";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
@@ -540,7 +540,7 @@ export default function App() {
 
   useAppKeybindings(registry, actions, setNotice);
 
-  useEffect(() => followTurnActivity(viewStore, clientStorage), [clientStorage, viewStore]);
+  useTurnActivityCache(viewStore, clientStorage, threadStore);
 
   const liveSnapshot = useMemo(
     () => snapshot ? { ...snapshot, isStreaming: visibleStreaming } : undefined,

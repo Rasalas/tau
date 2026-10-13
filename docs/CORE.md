@@ -18,6 +18,12 @@ Transcript
 - **a thread whose runtime does not start still opens**: when a backend's `open` fails (its CLI is missing, say), the thread opens read-only from what its provider keeps (`src/main/unavailable-thread-backend.ts`), its index entry carries `runtimeError`, and a banner above the transcript says why, with Try again (the next switch tries the runtime again) and Providers
 - **a failed turn says so where it happened**: the host keeps why a thread's last turn failed (`turnError` on its index entry, from Pi's error stop or a backend's `turn-settled` error) until the next prompt; the transcript ends with that error line and the rail row reads "Failed", beside the toast
 
+The workbench caches the last turn in memory per client store. Its twelve most
+recent threads have separate storage keys, each capped at 200 tools and 8,192
+output characters per tool. Tool updates write at most once a second; leaving
+a thread, ending its run, hiding the page or closing the view flushes pending
+state immediately. The older shared cache is migrated once when first read.
+
 What a turn's rows are is derived, not decided in a component:
 `src/workbench/transcript-folding.ts` turns one turn's tool records into fold,
 live, group and card rows and holds every rule about them — the fold's label
