@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { WORKSPACE_ID_PREFIX, isWorkspaceId, type WorkspaceRef } from "../shared/workspace-identity.js";
@@ -8,7 +8,7 @@ import { WORKSPACE_ID_PREFIX, isWorkspaceId, type WorkspaceRef } from "../shared
  * The host's own id, kept next to its other state. It survives restarts, so a
  * client's stored workspace ids keep pointing at the same directories, and it
  * is random, so an id says nothing about the machine that minted it.
- * A saved id must be 32 hexadecimal characters; invalid ids are never replaced.
+ * Invalid saved ids are quarantined before a replacement is written.
  */
 export function readOrCreateHostId(path: string): string {
   let existing: string | undefined;
@@ -18,10 +18,8 @@ export function readOrCreateHostId(path: string): string {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   if (existing !== undefined) {
-    if (!/^[0-9a-f]{32}$/iu.test(existing)) {
-      throw new Error(`Invalid host id in ${path}: must contain exactly 32 hexadecimal characters. The saved id was not replaced.`);
-    }
-    return existing;
+    if (/^[0-9a-f]{32}$/iu.test(existing)) return existing;
+    renameSync(path, `${path}.corrupt-${randomBytes(16).toString("hex")}`);
   }
   const hostId = randomBytes(16).toString("hex");
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });

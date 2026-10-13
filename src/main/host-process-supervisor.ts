@@ -533,6 +533,13 @@ export class HostProcessSupervisor {
     pruneHostLogs(logDirectory);
     this.logPath = join(logDirectory, `host-out-${new Date().toISOString().replace(/[:.]/gu, "-")}.log`);
     const logStream = createWriteStream(this.logPath, { flags: "a", mode: 0o600 });
+    const logPath = this.logPath;
+    let logFailed = false;
+    logStream.on("error", (error) => {
+      if (logFailed) return;
+      logFailed = true;
+      this.options.logger?.warn("host-process.log-write-failed", { path: logPath, error: error.message });
+    });
 
     const env: NodeJS.ProcessEnv = {
       ...(this.options.env ?? process.env),
@@ -566,7 +573,7 @@ export class HostProcessSupervisor {
       const timer = setTimeout(() => reject(new Error(`The host did not report a socket within ${this.startTimeout()}ms.`)), this.startTimeout());
       const read = (chunk: Buffer | string): void => {
         const text = String(chunk);
-        logStream.write(text);
+        if (!logFailed) logStream.write(text);
         output += text.slice(0, 4_000);
         const announced = parseHostAnnouncement(output);
         if (announced) {
@@ -576,7 +583,7 @@ export class HostProcessSupervisor {
       };
       child.stdout?.on("data", read);
       child.stderr?.on("data", (chunk: Buffer) => {
-        logStream.write(String(chunk));
+        if (!logFailed) logStream.write(String(chunk));
         errors = `${errors}${String(chunk)}`.slice(-4_000);
       });
       child.once("error", (error) => { clearTimeout(timer); reject(error); });
