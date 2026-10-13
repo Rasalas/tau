@@ -45,6 +45,7 @@ import {
   type TurnStat,
   type WorkspaceStoreApi,
   type WorktreeNamer,
+  type WorktreeRemovalOptions,
   type WorktreeSubmodules,
   type BranchNaming,
   type DraftMachineSource,
@@ -749,11 +750,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   /** Removes a worktree the user no longer wants, after they saw what it holds. */
-  async removeWorktree(path: string, branch?: string): Promise<boolean> {
+  async removeWorktree(path: string, branch?: string, options: WorktreeRemovalOptions = {}): Promise<boolean> {
     if (!this.requireHost("Worktrees")) return false;
     this.update({ workspaceBusy: true });
     try {
-      await this.host.removeWorktree(path, branch, this.workspace());
+      await this.host.removeWorktree(path, branch, this.workspace(), options);
       await this.refreshWorkspace();
       this.notify(`Removed ${path}.`);
       return true;

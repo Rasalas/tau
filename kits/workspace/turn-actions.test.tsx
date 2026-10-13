@@ -130,7 +130,7 @@ describe("forking from a turn (design 2d)", () => {
     render(view(turn));
     fireEvent.click(screen.getByRole("button", { name: /Fork here/u }));
     fireEvent.click(await screen.findByRole("button", { name: "Fork" }));
-    await waitFor(() => expect(host.removeWorktree).toHaveBeenCalledWith("/wt/fix-pairing-flake-2", "fix/pairing-flake-2", "ws-source"));
+    await waitFor(() => expect(host.removeWorktree).toHaveBeenCalledWith("/wt/fix-pairing-flake-2", "fix/pairing-flake-2", "ws-source", { force: true, forceBranch: true }));
     expect(screen.getByRole("dialog", { name: "Fork from turn 3?" })).toBeTruthy();
   });
 

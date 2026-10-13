@@ -687,7 +687,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const info = await git.getWorkspaceInfo(project);
         const tree = info.worktrees.find((candidate) => candidate.path === path);
         if (!tree) throw new Error(`${path} is not a worktree of this project.`);
-        return workspaceGit.previewWorktreeRemoval(project, path, tree.branch);
+        return worktrees.storage.previewRemoval(project, path);
       }, { access: "read" });
       context.registerCommand("remove-worktree", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
@@ -698,8 +698,15 @@ export function createWorkspaceHostExtension(): HostExtension {
         const sessions = await services.sessions.list();
         const used = sessions.filter((session) => resolve(session.cwd) === resolve(path)).length;
         if (used > 0) throw new Error(`${used} thread${used === 1 ? "" : "s"} still run in this worktree.`);
-        const branch = optionalString(input, "branch") ?? tree.branch;
-        await workspaceGit.removeWorktree(project, path, branch ? { branch } : {});
+        const preview = await worktrees.storage.previewRemoval(project, path);
+        if (preview.openThreads > 0) throw new Error("A thread is still open in this worktree.");
+        const force = record(input).force === true;
+        const forceBranch = record(input).forceBranch === true;
+        if ((preview.dirtyFiles > 0 || preview.ignoredFiles > 0) && !force) throw new Error("Confirm discarding uncommitted and ignored files before removing this worktree.");
+        if (!preview.branch && preview.unpushedCommits > 0 && !forceBranch) throw new Error("Confirm discarding the detached worktree's unpushed commits before removing it.");
+        const requestedBranch = optionalString(input, "branch");
+        if (requestedBranch && requestedBranch !== preview.branch) throw new Error("The worktree's branch changed; read its removal preview again.");
+        await workspaceGit.removeWorktree(project, path, { ...(preview.branch ? { branch: preview.branch } : {}), force, forceBranch });
         await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
         git.invalidate(project, ["branch", "status", "workspace"]);
         services.log("git.worktree.removed", path);
@@ -883,7 +890,8 @@ export function createWorkspaceHostExtension(): HostExtension {
               await workspaceGit.runGitCommand(destination, ["read-tree", "--reset", "-u", from.tree]);
               await workspaceGit.runGitCommand(destination, ["reset", "-q"]);
             } catch (error) {
-              await workspaceGit.removeWorktree(project, destination, { branch }).catch(() => undefined);
+              // Made just now for this fork; nothing in it is the user's yet.
+              await workspaceGit.removeWorktree(project, destination, { branch, force: true, forceBranch: true }).catch(() => undefined);
               throw error;
             }
           },

@@ -2893,46 +2893,21 @@ export async function createWorktree(
   return destination;
 }
 
-/** Uncommitted work in a worktree, as the removal confirm names it. */
-export interface WorktreeRemovalPreview {
-  path: string;
-  branch?: string;
-  dirtyFiles: number;
-  /** Commits the branch carries beyond the base it started from. */
-  ahead: number;
-}
-
-export async function previewWorktreeRemoval(
-  cwd: string,
-  worktreePath: string,
-  branch: string | undefined,
-  runGit: GitRunner = git,
-): Promise<WorktreeRemovalPreview> {
-  const status = await runGit(worktreePath, ["status", "--porcelain", "-z"]).catch(() => "");
-  const dirtyFiles = status.split("\0").filter((line) => line.trim().length > 0).length;
-  const base = branch ? await readBranchBase(worktreePath, branch, runGit) : undefined;
-  const revList = base ? await runGit(worktreePath, ["rev-list", "--count", `${base}..HEAD`]).catch(() => "") : "";
-  return { path: worktreePath, ...(branch ? { branch } : {}), dirtyFiles, ahead: Number(revList.trim()) || 0 };
-}
-
-/**
- * Removes a linked worktree and, when asked, the branch it held. `--force`
- * because the caller already showed what would be lost; git's own refusal to
- * remove a dirty worktree would only turn that decision into an error.
- */
+/** Removes a linked worktree; destructive flags require the caller's confirmation. */
 export async function removeWorktree(
   cwd: string,
   worktreePath: string,
-  options: { branch?: string } = {},
+  options: { branch?: string; force?: boolean; forceBranch?: boolean } = {},
   runGit: GitRunner = git,
 ): Promise<void> {
-  await runGit(cwd, ["worktree", "remove", "--force", worktreePath]).catch(async (error: unknown) => {
+  await runGit(cwd, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]).catch(async (error: unknown) => {
     // A worktree whose directory is already gone is removed by pruning it.
     await runGit(cwd, ["worktree", "prune"]);
-    const still = await runGit(cwd, ["worktree", "list", "--porcelain"]).catch(() => "");
+    const still = await runGit(cwd, ["worktree", "list", "--porcelain"]);
     if (still.includes(`worktree ${worktreePath}\n`)) throw error;
   });
-  if (options.branch) await runGit(cwd, ["branch", "-D", options.branch]).catch(() => "");
+  // Git keeps an unmerged branch when deletion was not explicitly forced.
+  if (options.branch) await runGit(cwd, ["branch", options.forceBranch ? "-D" : "-d", "--", options.branch]).catch(() => "");
 }
 
 /**
