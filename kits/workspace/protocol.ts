@@ -532,6 +532,8 @@ export interface WorkspaceKitState {
   draftMachine?: DraftMachineSource;
   /** Sections other kits add to the Changes panel. */
   changesSections: ReadonlyArray<ComponentType<ChangesSectionProps>>;
+  /** The request another kit can open for this checkout; the header's Git button leads with it once the work is committed. */
+  requestStep?: RequestStep;
   /** Feature-owned sections of the compact workspace card. */
   workspaceSummarySections?: readonly ComponentType<RegionProps>[];
   workspaceSummaryFooterSections?: readonly ComponentType<RegionProps>[];
@@ -572,6 +574,14 @@ export interface WorktreeNameRequest {
 }
 
 export type WorktreeNamer = (request: WorktreeNameRequest) => Promise<string>;
+
+/** A pull or merge request another kit can open for the checkout (API 1.61.0). */
+export interface RequestStep {
+  /** The request's short name in the Git button: "PR" or "MR". */
+  noun: string;
+  /** Opens that kit's one form for the branch; `commit` says the working tree's changes go in first, behind a card to confirm. */
+  open(options?: { commit?: boolean }): void;
+}
 
 /** What the Changes panel hands a section another kit contributes. */
 export interface ChangesSectionProps {
@@ -813,6 +823,11 @@ export interface WorkspaceStoreApi {
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
   registerWorkspaceSummarySection?(section: ComponentType<RegionProps>, position?: "footer"): () => void;
   registerWorkspaceMachine?(control: ComponentType<RegionProps>): () => void;
+  /**
+   * Offers a request for the checkout until the returned function takes it back: the header's Git
+   * button leads with it once the work is committed, and its menu lists it (API 1.61.0).
+   */
+  offerRequestStep?(step: RequestStep): () => void;
   /** An extension draws the review overlay: the Changes rail entry opens the review instead of its panel. */
   registerReviewView(): () => void;
   stageFile(path: string): Promise<void>;

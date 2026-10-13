@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, GitBranch, ImagePlus, Sparkles } from "lucide-react";
 import { Button, errorMessage, Markdown, READ_ONLY_REASON, tooltipProps, useCommandAllowed, type PreferencesStore, type WorkbenchActions } from "tau";
 import { chosenWritingModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
@@ -28,7 +28,7 @@ const count = (n: number) => `${n} ${n === 1 ? "picture" : "pictures"}`;
  * has seen which pictures go where — created as the request, or sent to an
  * open one as a comment.
  */
-export function LocalRequestWriter({ form, onForm, status, branch, root, selected, frames, client, requests, actions, preferences, onCreated }: {
+export function LocalRequestWriter({ form, onForm, status, branch, root, selected, frames, client, requests, actions, preferences, autoWrite, onCreated }: {
   form: LocalForm;
   onForm(update: Partial<LocalForm>): void;
   status: ReviewRequestStatus | undefined;
@@ -42,25 +42,30 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
   requests: RequestClient;
   actions: WorkbenchActions;
   preferences: PreferencesStore;
+  /** The branch has commits to write about and the draft is read: an empty form writes itself once. */
+  autoWrite: boolean;
   onCreated(request: ReviewRequestStatus): void;
 }) {
   const [step, setStep] = useState<Step>({ kind: "edit" });
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState<string>();
-  const [error, setError] = useState<string>();
   const [writtenBy, setWrittenBy] = useState<string>();
   const { short, sign, capabilities } = providerInfo(status?.service ?? "github");
   const request = status?.request;
   const open: ReviewRequest | undefined = request && (request.state === undefined || request.state === "open") ? request : undefined;
   const media = selected.map((frame): EvidenceMedia => ({ threadId: frame.threadId, source: frame.source, id: frame.id, caption: frame.caption }));
 
+  // A failure stays on screen as an error toast until dismissed; the form keeps what was typed.
   const run = async (label: string, work: () => Promise<void>) => {
     setBusy(label);
-    setError(undefined);
-    try { await work(); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(undefined); }
+    try { await work(); } catch (reason) { actions.notify(errorMessage(reason), "error"); } finally { setBusy(undefined); }
   };
 
-  const write = () => run("Writing the description…", async () => {
+  const formNow = useRef(form);
+  formNow.current = form;
+  const written = useRef<string | undefined>(undefined);
+
+  const write = (automatic = false) => run("Writing the description…", async () => {
     const thread = actions.activeThread();
     const chosen = chosenWritingModel(preferences);
     const instructions = writingInstructions(preferences);
@@ -72,6 +77,8 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
       ...(followRequestTemplate(preferences) ? {} : { template: false }),
       evidence: media.map((entry) => entry.caption),
     });
+    // An automatic draft gives way to whatever was typed while the model wrote.
+    if (automatic && (formNow.current.title.trim() || formNow.current.body.trim())) return;
     onForm({ title: draft.title, body: insertEvidence(draft.body, media), ...(form.base.trim() ? {} : { base: draft.base }) });
     setWrittenBy(draft.model ?? "the default model");
     setPreview(false);
@@ -111,6 +118,14 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
   const blocked = status?.problem;
   const inBody = findEvidenceTokens(form.body);
 
+  // Once per checkout and branch, when the form opens empty, as the review's old inline form did.
+  const branchKey = `${root}\n${branch ?? ""}`;
+  useEffect(() => {
+    if (!autoWrite || written.current === branchKey) return;
+    written.current = branchKey;
+    if (!open && capabilities.create && mayWrite && !blocked && !form.title.trim() && !form.body.trim()) void write(true);
+  }, [autoWrite, branchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (step.kind === "confirm") {
     const { plan } = step;
     const going = plan && plan.kind !== "none";
@@ -132,7 +147,6 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
             return frame ? <EvidenceThumb key={evidenceKey(entry)} frame={frame} client={client} /> : <span key={evidenceKey(entry)} className="lpr-missing" title={entry.caption}>Gone</span>;
           })}
         </div>
-        {error ? <p className="pr-error" role="alert">{error}</p> : null}
         {busy ? <p className="request-busy">{busy}</p> : null}
         <div className="commit-actions">
           {step.action === "create" ? (
@@ -142,7 +156,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
           ) : (
             <Button variant="primary" disabled={!going || Boolean(busy) || !open} onClick={() => { if (open) void attach(open); }}>Upload and comment</Button>
           )}
-          <button disabled={Boolean(busy)} onClick={() => { setStep({ kind: "edit" }); setError(undefined); }}>Back</button>
+          <button disabled={Boolean(busy)} onClick={() => setStep({ kind: "edit" })}>Back</button>
         </div>
       </div>
     );
@@ -200,7 +214,6 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
         ) : null}
       </div>
       {blocked && !open ? <p className="request-problem" role="note">{blocked}</p> : null}
-      {error ? <p className="pr-error" role="alert">{error}</p> : null}
       {busy ? <p className="request-busy">{busy}</p> : null}
     </div>
   );

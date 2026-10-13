@@ -3,7 +3,7 @@ import { attachmentReader, embedMedia, planUpload } from "./evidence-upload.js";
 import { findEvidenceTokens, type LocalBranch, type LocalEvidence, type UploadPlan } from "./local-request.js";
 import type { ReviewRequestContext, ReviewRequestDraft } from "./protocol.js";
 import type { SourceControl } from "./provider-registry.js";
-import { buildDraftPrompt, draftSystemPrompt, fallbackDraft, parseDraft } from "./requests-host.js";
+import { buildDraftPrompt, draftSystemPrompt, fallbackDraft, parseDraft, withPendingCommit } from "./requests-host.js";
 import { withInstructions } from "./writing.js";
 
 /** Threads one view reads pictures of, at most; the rest are the oldest. */
@@ -88,7 +88,8 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
     const fields = record(input);
     const base = text(fields.base);
     const found = await workspace<ReviewRequestContext>("review-request-context", { detail: true, ...(base ? { base } : {}) });
-    const git = fields.template === false ? { ...found, template: undefined } : found;
+    // `pending`: the commit the user is about to make with this request, which the branch does not hold yet.
+    const git = withPendingCommit(fields.template === false ? { ...found, template: undefined } : found, fields.pending);
     const { info } = sources.get(await sources.detect(git.remote?.url));
     const captions = (Array.isArray(fields.evidence) ? fields.evidence : []).filter((caption): caption is string => typeof caption === "string" && caption.trim().length > 0).slice(0, 30);
     if (services.runtimeOwner() === "pi") return { ...fallbackDraft(git), base: git.base, generated: false };

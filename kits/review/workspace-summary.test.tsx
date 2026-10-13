@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type { WorkbenchActions } from "tau";
@@ -8,25 +8,30 @@ import { LOCAL_PULL_REQUEST_TAB } from "./local-request.js";
 import { PULL_REQUEST_TAB, type ReviewRequest, type ThreadPullRequestLink, type WorkspaceStoreApi } from "./protocol.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
+import type { RequestPublishing } from "./publish-card.js";
 import { createWorkspaceRequestSummary } from "./workspace-summary.js";
 
 const request: ReviewRequest = { provider: "github", number: 12, title: "Fix previews", url: "https://github.com/acme/app/pull/12", headRef: "fix/preview", baseRef: "main", state: "open" };
 
-function setup(readOnly = false, own: ReviewRequest | null = request, linked: ThreadPullRequestLink[] = []) {
-  let state = { cwd: "/work", workspaceId: "ws-a", workspace: { branch: "fix/preview" }, changes: { files: [], added: 0, removed: 0 }, committing: false };
+function setup(readOnly = false, own: ReviewRequest | null = request, linked: ThreadPullRequestLink[] = [], answered = true, changed = 0) {
+  const files = Array.from({ length: changed }, (_, index) => ({ path: `f${index}.ts`, name: `f${index}.ts`, directory: "", status: "modified" as const, added: 1, removed: 0 }));
+  let state = { cwd: "/work", workspaceId: "ws-a", workspace: { branch: "fix/preview" }, changes: { files, added: 0, removed: 0 }, committing: false };
   let thread = "t1";
   const listeners = new Set<() => void>();
-  const store = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } } as unknown as WorkspaceStoreApi;
+  const withdraw = vi.fn();
+  const offerRequestStep = vi.fn((_step: { noun: string; open(options?: { commit?: boolean }): void }) => withdraw);
+  const store = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, offerRequestStep } as unknown as WorkspaceStoreApi;
   const load = vi.fn(async () => own ?? undefined);
   const rows = new RowRequests(load);
-  rows.set("ws-a", own ?? undefined);
+  if (answered) rows.set("ws-a", own ?? undefined);
   const links = new ThreadLinkRows({ links: async () => linked, onLinksChanged: () => () => undefined });
   links.set("t1", linked);
-  const Summary = createWorkspaceRequestSummary(store, rows, links);
+  const publishing = { show: vi.fn() };
+  const Summary = createWorkspaceRequestSummary(store, rows, links, undefined, publishing as unknown as RequestPublishing);
   const actions = { activeThread: () => ({ sessionId: thread }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
   const client = { onConnectionState: () => () => undefined, hasCapability: () => false, isReadOnly: () => readOnly } as unknown as ComponentProps<typeof HostClientProvider>["client"];
   const view = render(<HostClientProvider client={client}><Summary actions={actions} /></HostClientProvider>);
-  return { actions, load, rows, view, switchWorkspace: () => act(() => { thread = "t2"; state = { ...state, workspaceId: "ws-b", workspace: { branch: "other" } }; listeners.forEach((listener) => listener()); }) };
+  return { actions, load, rows, view, offerRequestStep, withdraw, publishing, switchWorkspace: () => act(() => { thread = "t2"; state = { ...state, workspaceId: "ws-b", workspace: { branch: "other" } }; listeners.forEach((listener) => listener()); }) };
 }
 
 it("opens the current request from its title with explicit workspace scope", () => {
@@ -34,7 +39,6 @@ it("opens the current request from its title with explicit workspace scope", () 
   fireEvent.click(screen.getByRole("button", { name: "Open PR #12 · Fix previews" }));
   expect(actions.openStageTab).toHaveBeenCalledWith(PULL_REQUEST_TAB, { url: request.url, number: 12, service: "github", workspace: "ws-a" }, { key: request.url });
   expect(screen.queryByRole("button", { name: /Show .* more/ })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Create PR…" })).toBeNull();
 });
 
 it("discloses additional linked requests and opens the selected URL", () => {
@@ -46,24 +50,60 @@ it("discloses additional linked requests and opens the selected URL", () => {
   expect(actions.openStageTab).toHaveBeenCalledWith(PULL_REQUEST_TAB, { url, number: 9, service: "github", workspace: "ws-a" }, { key: url });
 });
 
-it("creates by opening the existing local PR review, without publishing", () => {
-  const { actions } = setup(false, null);
-  fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
+it("offers the local PR form to the Git button instead of drawing a row of its own", () => {
+  const { actions, offerRequestStep } = setup(false, null);
+  expect(screen.queryByRole("button", { name: /Create PR/ })).toBeNull();
+  expect(offerRequestStep).toHaveBeenCalledOnce();
+  const step = offerRequestStep.mock.calls[0]![0];
+  expect(step.noun).toBe("PR");
+  expect(actions.openStageTab).not.toHaveBeenCalled();
+  step.open();
   expect(actions.openStageTab).toHaveBeenCalledWith(LOCAL_PULL_REQUEST_TAB, {}, { key: LOCAL_PULL_REQUEST_TAB });
 });
 
-it("keeps request navigation available on read-only connections and hides creation", () => {
-  const { actions } = setup(true, { ...request, state: "merged" });
-  expect(screen.queryByRole("button", { name: "Create PR…" })).toBeNull();
+it("opens the commit card for changed files and the one form for committed work", () => {
+  const changed = setup(false, null, [], true, 2);
+  changed.offerRequestStep.mock.calls[0]![0].open({ commit: true });
+  expect(changed.publishing.show).toHaveBeenCalledOnce();
+  expect(changed.actions.openStageTab).not.toHaveBeenCalled();
+  changed.offerRequestStep.mock.calls[0]![0].open();
+  expect(changed.actions.openStageTab).toHaveBeenCalledWith(LOCAL_PULL_REQUEST_TAB, {}, { key: LOCAL_PULL_REQUEST_TAB });
+  cleanup();
+  // Nothing to commit: the card has nothing to do.
+  const clean = setup(false, null);
+  clean.offerRequestStep.mock.calls[0]![0].open({ commit: true });
+  expect(clean.publishing.show).not.toHaveBeenCalled();
+  expect(clean.actions.openStageTab).toHaveBeenCalledOnce();
+});
+
+it("offers no new PR while one is open, and takes the offer back when one opens", () => {
+  const open = setup();
+  expect(open.offerRequestStep).not.toHaveBeenCalled();
+  cleanup();
+  const { rows, offerRequestStep, withdraw } = setup(false, null);
+  expect(offerRequestStep).toHaveBeenCalledOnce();
+  act(() => rows.set("ws-a", request));
+  expect(withdraw).toHaveBeenCalledOnce();
+});
+
+it("waits for the first answer about the checkout before offering a PR", async () => {
+  const { offerRequestStep, load } = setup(false, null, [], false);
+  expect(offerRequestStep).not.toHaveBeenCalled();
+  await waitFor(() => expect(load).toHaveBeenCalledWith("ws-a"));
+  await waitFor(() => expect(offerRequestStep).toHaveBeenCalledOnce());
+});
+
+it("keeps request navigation available on read-only connections and offers no creation", () => {
+  const { actions, offerRequestStep } = setup(true, { ...request, state: "merged" });
+  expect(offerRequestStep).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Merged PR #12 · Fix previews" }));
   expect(actions.openStageTab).toHaveBeenCalledOnce();
 });
 
-it("keeps a merged request visible while allowing a new PR editor on the checkout", () => {
-  const { actions } = setup(false, { ...request, state: "merged" });
+it("keeps a merged request visible while allowing a new PR on the checkout", () => {
+  const { offerRequestStep } = setup(false, { ...request, state: "merged" });
   expect(screen.getByRole("button", { name: "Merged PR #12 · Fix previews" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Create PR…" }));
-  expect(actions.openStageTab).toHaveBeenCalledWith(LOCAL_PULL_REQUEST_TAB, {}, { key: LOCAL_PULL_REQUEST_TAB });
+  expect(offerRequestStep).toHaveBeenCalledWith(expect.objectContaining({ noun: "PR" }));
 });
 
 it("clears the previous workspace's request and menu on a workspace switch", async () => {

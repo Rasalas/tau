@@ -80,6 +80,11 @@ export class RowRequests {
     return this.entries.get(workspace)?.request;
   }
 
+  /** The checkout was asked about: an empty `get` then means no request, not "not yet". */
+  known(workspace: string): boolean {
+    return this.entries.has(workspace);
+  }
+
   ensure(workspace: string, fresh = false): void {
     const entry = this.entries.get(workspace);
     if (this.pending.has(workspace)) { if (fresh) this.reread.add(workspace); return; }

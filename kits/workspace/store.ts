@@ -41,6 +41,7 @@ import {
   type ThreadRowAccessoryProps,
   type ThreadRowStatusMark,
   type RailThreadSource,
+  type RequestStep,
   type ThreadWorktreeRequest,
   type TurnStat,
   type WorkspaceStoreApi,
@@ -807,6 +808,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   registerWorkspaceMachine(control: ComponentType<RegionProps>): () => void {
     this.update({ workspaceMachine: control });
     return () => { if (this.state.workspaceMachine === control) this.update({ workspaceMachine: undefined }); };
+  }
+
+  offerRequestStep(step: RequestStep): () => void {
+    this.update({ requestStep: step });
+    return () => { if (this.state.requestStep === step) this.update({ requestStep: undefined }); };
   }
 
   registerReviewView(): () => void {
