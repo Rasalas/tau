@@ -367,9 +367,18 @@ command timeout), and the client asks with `job-methods`. Core lists the
 workbench rebuild and the calls that can wait on a runtime starting or
 reopening (`new-session`, `prompt`, `steer`, `follow-up`): on a busy host they
 outlast the socket's 30-second request timeout, and the client gave up on a
-thread the host still created. A job also survives a reconnect whose replay
-holds its `job-done`; after a resync the client fails the jobs it waits for,
-since their result may be among the pushes it skipped.
+thread the host still created. The client rejects jobs on a dropped or closed
+link and on resync, including ones whose `start-job` response has not arrived. A late start response cannot
+restore that wait. This does not cancel work the host already accepted.
+
+Each socket's accumulated send buffer is limited to 8 MiB. A single larger
+frame may use the existing 112 MiB frame allowance in addition to that buffer,
+so large bootstrap and package replies still travel. Every reply, push, topic
+relay and client call checks the budget before writing. A slow client is
+detached and closed with 1013, `resync required`; the socket client keeps its
+token, reconnects without a replay cursor or subscription, and refetches the
+bootstrap. Queued requests rejected on a drop are discarded, never sent after
+reconnect.
 
 Two transports implement this. Electron IPC uses two channels, `tau:request` and
 `tau:host-event`; `src/main/ipc-contract.test.ts` checks that the client and the

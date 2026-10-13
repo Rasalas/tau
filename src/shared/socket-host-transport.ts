@@ -101,6 +101,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
   let socket: HostSocket | undefined;
   let counter = 0;
   let needsRecovery = false;
+  let needsResync = false;
   let closed = false;
   let delayMs = RECONNECT_MIN_MS;
   let offline = false;
@@ -204,6 +205,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     stopTimers();
     socket = undefined;
     needsRecovery = true;
+    if (code === 1013 && reason === "resync required") needsResync = true;
     failPending("The connection to the machine dropped.");
     for (const listener of closeListeners) listener();
     if (closed) return;
@@ -342,6 +344,10 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       return;
     }
     if (frame.type === "hello-reply") {
+      if (needsResync) {
+        frame.reply = { ...frame.reply, resync: true };
+        needsResync = false;
+      }
       timers.cancel(helloTimer);
       options?.onHello?.(frame.reply);
       // Not at open: a host that closes every hello (a protocol error) must meet a growing backoff.
@@ -445,7 +451,12 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       pending.set(id, { resolve, reject, timer });
       // Hello carries the token and is answered before any method runs.
       if (method === "hello") {
-        const hello = (params[0] ?? {}) as Record<string, unknown>;
+        const hello = { ...((params[0] ?? {}) as Record<string, unknown>) };
+        if (needsResync) {
+          delete hello.lastSeq;
+          delete hello.bootId;
+          delete hello.subscription;
+        }
         write(id, JSON.stringify({ type: "hello", id, hello: { ...hello, ...(token ? { token } : {}) } }), true);
         return;
       }

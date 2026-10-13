@@ -28,6 +28,7 @@ afterEach(async () => {
   await transport?.close();
   transport = undefined;
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   bootIds.clear();
 });
 
@@ -93,6 +94,79 @@ async function hello(port: number, token: string, lastSeq?: number, profile?: st
 }
 
 describe("socket host transport", () => {
+  it.each(["push", "response", "call", "relay", "subscribe"] as const)("drops only the slow client when a %s would overflow its send buffer", async (route) => {
+    const pushLog = new HostPushLog();
+    let relay!: (event: HostPushEvent) => void;
+    let connection!: string;
+    const follow = vi.fn((_id: string, topics: readonly string[], emit: (event: HostPushEvent) => void) => { if (topics.length) relay = emit; });
+    transport = await startSocketHostTransport({
+      listen: "127.0.0.1:0", methods, pushLog, hostVersion: "test", capabilities: [], token: TOKEN,
+      calls: { attach: (id) => { connection = id; }, detach: () => undefined },
+      onTopicsSubscribed: follow,
+    });
+    const writes = vi.spyOn(WebSocket.prototype, "send");
+    const slow = await hello(transport.port, TOKEN);
+    await slow.frame;
+    const index = writes.mock.calls.findIndex(([data]) => String(data).includes('"hello-reply"'));
+    const peer = writes.mock.contexts[index] as WebSocket;
+    const slowConnection = connection;
+    const healthy = await hello(transport.port, TOKEN);
+    await healthy.frame;
+    const subscribed = nextFrame(slow.socket);
+    slow.socket.send(JSON.stringify({ type: "request", request: { id: "s", method: "subscribe", params: [{ threads: [], topics: ["test/data"] }] } }));
+    await subscribed;
+    const buffered = vi.spyOn(WebSocket.prototype, "bufferedAmount", "get").mockImplementation(function (this: WebSocket) {
+      return this === peer ? 8 * 1024 * 1024 - 1 : 0;
+    });
+    const ending = closedWith(slow.socket);
+    const event: HostPushEvent = { type: "event-log", label: "data", timestamp: 0 };
+    const firstHealthyPush = route === "push" ? nextFrame(healthy.socket) : undefined;
+    const before = writes.mock.calls.length;
+    if (route === "push") transport.deliver(pushLog.record(event));
+    else if (route === "relay") relay(event);
+    else if (route === "call") expect(transport.sendCall(slowConnection, { callId: "c", extensionId: "test", command: "run" })).toBe(false);
+    else if (route === "subscribe") slow.socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "subscribe", params: [{ threads: [], topics: ["test/new"] }] } }));
+    else slow.socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "ping", params: [] } }));
+    expect(await ending).toEqual({ code: 1013, reason: "resync required" });
+    expect(follow).toHaveBeenCalledTimes(3);
+    expect(writes.mock.calls.slice(before).filter((_call, offset) => writes.mock.contexts[before + offset] === peer)).toEqual([]);
+    buffered.mockRestore();
+    writes.mockRestore();
+    if (firstHealthyPush) expect(await firstHealthyPush).toMatchObject({ type: "push", push: { seq: 1 } });
+    const delivered = nextFrame(healthy.socket);
+    const latest = pushLog.record(event);
+    transport.deliver(latest);
+    expect(await delivered).toMatchObject({ type: "push", push: { seq: latest.seq } });
+  });
+
+  it("allows one large reply without letting later writes grow its buffer", async () => {
+    const { transport: started, pushLog } = await listen();
+    const send = WebSocket.prototype.send;
+    const writes = vi.spyOn(WebSocket.prototype, "send");
+    const client = await hello(started.port, TOKEN);
+    await client.frame;
+    const index = writes.mock.calls.findIndex(([data]) => String(data).includes('"hello-reply"'));
+    const peer = writes.mock.contexts[index] as WebSocket;
+    let bufferedBytes = 1024;
+    vi.spyOn(WebSocket.prototype, "bufferedAmount", "get").mockImplementation(function (this: WebSocket) {
+      return this === peer ? bufferedBytes : 0;
+    });
+    let reportSent!: () => void;
+    const sent = new Promise<void>((resolve) => { reportSent = resolve; });
+    writes.mockImplementation(function (this: WebSocket, data: unknown) {
+      if (this !== peer) { Reflect.apply(send, this, [data]); return; }
+      bufferedBytes += Buffer.byteLength(String(data));
+      reportSent();
+    });
+    client.socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "ping", params: ["x".repeat(9 * 1024 * 1024)] } }));
+    await sent;
+    expect(peer.readyState).toBe(WebSocket.OPEN);
+    writes.mockRestore();
+    const ending = closedWith(client.socket);
+    started.deliver(pushLog.record({ type: "event-log", label: "next", timestamp: 0 }));
+    expect(await ending).toEqual({ code: 1013, reason: "resync required" });
+  });
+
   it.each(["primary", "attached"] as const)("terminates a half-open authenticated client on the %s listener", async (listener) => {
     const clients = new HostClientRegistry();
     const { transport: started } = await listen(new HostPushLog(), "127.0.0.1:0", false, clients);
