@@ -601,7 +601,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   if (tab === "remote") {
     body = (
       <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading pull requests" /></div>}>
-        <PullRequestsPage params={params} navigate={(next, options) => navigate({ ...next, tab: "remote" }, options)} actions={actions} close={close} parts={parts.remote} />
+        <PullRequestsPage key={typeof params.threadId === "string" ? params.threadId : "remote"} params={params} navigate={(next, options) => navigate({ ...next, tab: "remote" }, options)} actions={actions} close={close} parts={parts.remote} />
       </Suspense>
     );
   } else if (detailKey) {

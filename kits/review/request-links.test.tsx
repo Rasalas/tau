@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { RegionProps } from "tau";
 import { RequestLinks } from "./request-links.js";
-import { PULL_REQUEST_TAB } from "./protocol.js";
+import { PULL_REQUEST_TAB, THREAD_PULL_REQUESTS_TAB } from "./protocol.js";
 
 afterEach(cleanup);
 const url = "https://github.com/acme/tau/pull/42";
@@ -49,4 +49,14 @@ it("removes its routing listener on unmount", () => {
   fireEvent.click(message.querySelector("a")!);
   expect(openStageTab).not.toHaveBeenCalled();
   message.remove();
+});
+
+it("opens a multi-request badge's own thread overview without selecting the rail row", () => {
+  const openStageTab = vi.fn();
+  const selectThread = vi.fn();
+  const actions = { openStageTab } as unknown as RegionProps["actions"];
+  render(<><RequestLinks actions={actions} /><div className="thread-row" onClick={selectThread}><span role="button" tabIndex={0} className="request-badge" data-request-thread="other-thread" data-request-workspace="/other" data-request-branch={url}><span>+3</span></span></div></>);
+  fireEvent.click(screen.getByRole("button", { name: "+3" }));
+  expect(openStageTab).toHaveBeenCalledWith(THREAD_PULL_REQUESTS_TAB, { threadId: "other-thread", workspace: "/other", branchUrl: url }, { key: "thread-pull-requests:other-thread" });
+  expect(selectThread).not.toHaveBeenCalled();
 });
