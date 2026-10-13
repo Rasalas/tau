@@ -169,7 +169,7 @@ export class PhoneMachines implements PlatformEnvironments {
           host,
           token,
           status: token ? kept?.status ?? "connecting" : "refused",
-          ...(token ? kept?.detail ? { detail: kept.detail } : {} : { detail: `${host.name} no longer accepts this phone. Open it to pair again.` }),
+          ...(token ? kept?.detail ? { detail: kept.detail } : {} : { detail: `${host.name} no longer lets this phone in. Open it to pair again.` }),
           ...(kept?.lastSeenAt !== undefined ? { lastSeenAt: kept.lastSeenAt } : {}),
           ...(host.access === "read-only" ? { readOnly: true } : {}),
           ...(kept?.index ? { index: kept.index } : {}),
@@ -315,11 +315,11 @@ export class PhoneMachines implements PlatformEnvironments {
     if (end.kind === "refused") {
       machine.token = undefined;
       void this.options.forgetToken(machine.host.id);
-      this.set(machine, { status: "refused", detail: `${machine.host.name} no longer accepts this phone: its access was revoked, or it ran out unused. Open it to pair again.` });
+      this.set(machine, { status: "refused", detail: `${machine.host.name} no longer lets this phone in: it was unpaired there, or went unused for too long. Open it to pair again.` });
       return;
     }
     if (end.kind === "certificate") {
-      this.set(machine, { status: "refused", detail: end.refusal.reason === "certificate-mismatch" ? `${machine.host.name} answered with another key than the one this phone pinned.` : `${machine.host.name} showed a certificate this phone does not trust.` });
+      this.set(machine, { status: "refused", detail: end.refusal.reason === "certificate-mismatch" ? `${machine.host.name} answered, but not as the computer this phone paired with.` : `${machine.host.name} could not show that it is the computer this phone paired with.` });
     }
     // A link that closed after its visit leaves the machine as it was.
   }
@@ -464,7 +464,7 @@ export class PhoneMachines implements PlatformEnvironments {
     await this.load();
     const found = this.resolve(machine);
     if (!found) throw new Error("This phone has not paired with that machine.");
-    if (!found.token) throw new Error(`${found.host.name} no longer accepts this phone.`);
+    if (!found.token) throw new Error(`${found.host.name} no longer lets this phone in.`);
     const link = this.linkOf(found);
     if (!await this.onlyReads(found, link, extensionId, command)) {
       throw new Error(`${found.host.name} has no command ${extensionId}/${command} that only reads.`);

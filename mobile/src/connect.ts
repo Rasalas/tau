@@ -36,8 +36,8 @@ export interface ConnectCallbacks {
 export function certificateRefusalNotice(hostName: string, refusal: CertificateRefusal): string {
   const addresses = listAddresses(refusal.addresses);
   return refusal.reason === "certificate-mismatch"
-    ? `${addresses} answered for ${hostName} with another key than the one this phone pinned, so the phone sent it nothing. A renewed certificate keeps the key; if the host's key was replaced on purpose, remove it here and scan a new pairing code.`
-    : `${addresses} showed a certificate this phone does not trust, so the phone did not connect to ${hostName}. Something on this network may be in between; try another network.`;
+    ? `${addresses} answered for ${hostName}, but not as the computer this phone paired with, so the phone sent it nothing. If ${hostName} was set up again on purpose, remove it here and pair it again.`
+    : `${addresses} could not show that it is ${hostName}, so the phone did not connect. Something on this network may be in between; try another network.`;
 }
 
 /** A pinned native socket for one candidate address. */

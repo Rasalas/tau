@@ -49,7 +49,7 @@
 		<string>_tau-test._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Tau scans the pairing code a computer running Tau shows in Settings → Connections.</string>
+	<string>Tau scans the QR code a computer running Tau shows in Settings → Connections.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Tau finds the computers running Tau on your network and connects to them directly.</string>
 	<key>NSMicrophoneUsageDescription</key>

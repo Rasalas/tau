@@ -74,7 +74,7 @@ export function payloadTarget(payload: MobilePairingPayload): PairTarget {
   }
   return {
     hostId: payload.hostId ?? fallbackHostId(payload.fingerprint ?? payload.publicKey, payload.endpoints),
-    name: name || "Tau host",
+    name: name || "Computer",
     ...targetPins(payload),
     endpoints: payload.endpoints,
     code: payload.code,
@@ -82,12 +82,16 @@ export function payloadTarget(payload: MobilePairingPayload): PairTarget {
   };
 }
 
+/** The system's own wording of a failed look never reaches the screen; it names no next step. */
 function nearbyState(services: NativeService[], error: string | undefined, virtual: boolean): NearbyState {
   if (!error) return { state: "searching", hosts: nearbyHosts(services, virtual) };
   if (error === "denied") return { state: "denied" };
   if (error === "unavailable") return { state: "unavailable" };
-  return { state: "failed", message: error };
+  return { state: "failed" };
 }
+
+/** An error nobody planned for: the phone says what to do, not what the system threw. */
+const PAIRING_FAILED = "Pairing did not work. Try again, or create a new link on your computer.";
 
 const scanProblem: Record<Exclude<ScanResult, { text: string }>["error"], string | undefined> = {
   cancelled: undefined,
@@ -106,6 +110,8 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   const [view, setView] = useState<View>({ name: "loading" });
   const [hosts, setHosts] = useState<Array<{ host: SavedHost; signedOut: boolean }>>([]);
   const [nearby, setNearby] = useState<NearbyState>({ state: "searching", hosts: [] });
+  /** Bumped by Try again: the look for computers starts over. */
+  const [lookRound, setLookRound] = useState(0);
   const [remoteStatus, setRemoteStatus] = useState<Record<string, import("./activity-start").RemoteActivityStatus>>({});
   const [remoteNotice, setRemoteNotice] = useState<string>();
   const activityFollow = useRef<ReturnType<typeof followActivities>>(undefined);
@@ -155,7 +161,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       },
       onUnauthorized: () => {
         void activityFollow.current?.revoke();
-        void book.forgetToken(host.id).finally(() => leaveTo("?view=hosts", `${host.name} no longer accepts this phone: its access was revoked, or it ran out unused. Open the host to ask again.`));
+        void book.forgetToken(host.id).finally(() => leaveTo("?view=hosts", `${host.name} no longer lets this phone in: it was unpaired there, or went unused for too long. Open it to ask again.`));
       },
       // After every hello: an old certificate pin moves to the key, and the host's addresses are taken as it names them.
       onHello: (address, reply) => {
@@ -207,7 +213,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     const environment: ClientEnvironment = {
       ...context.environment,
       createPlatform: (ports) => ({ ...context.environment.createPlatform(ports), environments: machines }),
-      shell: { hostLabel: host.name, actions: [{ id: "hosts", label: "Hosts", Icon: Server, run: () => leaveTo("?view=hosts") }] },
+      shell: { hostLabel: host.name, actions: [{ id: "hosts", label: "Computers", Icon: Server, run: () => leaveTo("?view=hosts") }] },
     };
     setView({ name: "workbench", host, client, storage: scoped, services: createRendererServices(), environment });
   }, [book, context, device, leaveTo, storage]);
@@ -226,7 +232,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       signal: abort.signal,
       onAddress: (candidate) => update({ address: candidate.connect ? "Tau Connect" : ADDRESS_LABEL[candidate.kind ?? ""] ?? new URL(candidate.url).hostname }),
       onWaiting: ({ verification }) => update({ verification }),
-    }).catch((error: unknown) => ({ state: "failed" as const, message: error instanceof Error ? error.message : String(error) })).then(async (outcome) => {
+    }).catch(() => ({ state: "failed" as const, message: PAIRING_FAILED })).then(async (outcome) => {
       if (pairingRef.current !== abort) return;
       pairingRef.current = undefined;
       if (outcome.state === "approved") {
@@ -253,7 +259,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     if ("text" in result) {
       const payload = parseMobilePairingPayload(result.text);
       if (payload && payload.endpoints.length > 0) { startPairing(payloadTarget(payload), from); return; }
-      setView({ name: "add", error: "This QR code is not a Tau pairing code. Scan the one in Settings → Connections." });
+      setView({ name: "add", error: "This is not a Tau QR code. Scan the one in Settings → Connections on your computer." });
       return;
     }
     const problem = scanProblem[result.error];
@@ -270,7 +276,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       if (initial.view === "workbench") {
         const saved = list.find((entry) => entry.host.id === initial.hostId);
         if (saved) { await openHost(saved.host, initial.threadId, initial.page); return; }
-        setView({ name: "hosts", notice: "That link names a host this phone has not paired with." });
+        setView({ name: "hosts", notice: "That link is for a computer this phone is not paired with." });
         return;
       }
       if (initial.view === "add") {
@@ -322,7 +328,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         await refresh();
       });
     });
-  }, [book, context, device.virtual, refresh, view.name]);
+  }, [book, context, device.virtual, refresh, view.name, lookRound]);
 
   switch (view.name) {
     case "loading": return null;
@@ -355,7 +361,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         {...(remoteNotice || view.notice ? { notice: remoteNotice ?? view.notice } : {})}
         {...(context.remoteActivities ? { onRemoteActivity: (host: SavedHost, enabled: boolean) => {
           setRemoteNotice(undefined);
-          void context.remoteActivities!.setEnabled(host, enabled).then(() => refresh()).catch((error: unknown) => setRemoteNotice(error instanceof Error ? error.message : "Live Activity settings could not be saved."));
+          void context.remoteActivities!.setEnabled(host, enabled).then(() => refresh()).catch(() => setRemoteNotice("Live Activities could not be changed just now. Try again."));
         } } : {})}
         now={now().getTime()}
         onOpen={(host) => void openHost(host)}
@@ -373,6 +379,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
           } });
         }}
         onScan={() => void scan("hosts")}
+        onRetry={() => { setNearby({ state: "searching", hosts: [] }); setLookRound((round) => round + 1); }}
         onAsk={(found: DiscoveredHost) => startPairing({ hostId: found.hostId, name: found.name, ...targetPins(found), endpoints: found.endpoints }, "hosts")}
       />;
     }

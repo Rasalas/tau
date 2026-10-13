@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMemoryStorage } from "../../../src/workbench/client-storage";
 import { webClientEnvironment } from "../../../src/web/WebWorkbench";
+import type { NativeService } from "../discovery";
 import { HostBook, type SavedHost, type SecureStore } from "../hosts";
 import type { NativeSocketEvent, SocketBridge } from "../native-socket";
 import { Shell, type AppContext } from "../Shell";
 import { AddHostScreen } from "./AddHostScreen";
 import { HostsScreen, hostMeta } from "./HostsScreen";
+import { PairingScreen } from "./PairingScreen";
 
 afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); });
 
@@ -18,15 +20,43 @@ const host = (extra: Partial<SavedHost> = {}): SavedHost => ({
   addedAt: "2026-09-01T00:00:00.000Z", lastUsedAt: "2026-09-24T11:55:00.000Z", lastEndpoint: { url: "https://192.168.1.2:7788/", kind: "lan" }, ...extra,
 });
 
+/** Everything a person can read or hear on a screen: its text and its labels. */
+function spoken(root: HTMLElement): string {
+  const labels = [...root.querySelectorAll("[aria-label], [title], [placeholder]")]
+    .flatMap((element) => ["aria-label", "title", "placeholder"].map((name) => element.getAttribute(name) ?? ""));
+  return [root.textContent ?? "", ...labels].join("\n");
+}
+
 describe("HostsScreen", () => {
-  it("starts empty with the way in, and the floating Add host button", () => {
+  it("starts empty with the way in, and the floating Add computer button", () => {
     const scanned: string[] = [];
     render(<HostsScreen rows={[]} nearby={{ state: "searching", hosts: [] }} onOpen={() => {}} onRemove={() => {}} onAdd={() => {}} onScan={() => scanned.push("scan")} onAsk={() => {}} now={NOW} />);
-    expect(screen.getByText("No hosts yet")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Scan a pairing code/u }));
+    expect(screen.getByRole("heading", { name: "Computers" })).toBeTruthy();
+    expect(screen.getByText("No computers yet")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Scan a QR code/u }));
     expect(scanned).toEqual(["scan"]);
-    expect(screen.getByRole("button", { name: "Add host" }).className).toBe("shell-fab");
-    expect(screen.getByRole("status").textContent).toMatch(/Looking for Tau hosts/u);
+    expect(screen.getByRole("button", { name: "Add computer" }).className).toBe("shell-fab");
+    expect(screen.getByRole("status").textContent).toMatch(/Looking for computers running Tau/u);
+  });
+
+  it("names no host, token or file path on any of its states", () => {
+    const states = [{ state: "searching" as const, hosts: [] }, { state: "denied" as const }, { state: "failed" as const }, { state: "unavailable" as const }];
+    for (const nearby of states) {
+      const view = render(<HostsScreen rows={[{ host: host(), signedOut: false, nearby: false }, { host: host({ id: "h-2", name: "Old Mac" }), signedOut: true, nearby: false }]} nearby={nearby} onOpen={() => {}} onRemove={() => {}} onAdd={() => {}} onDemo={() => {}} onScan={() => {}} onAsk={() => {}} onRetry={() => {}} now={NOW} />);
+      fireEvent.click(screen.getByRole("button", { name: "Remove Studio Mac" }));
+      expect(spoken(view.container)).not.toMatch(/\bhosts?\b|token|pairing code|~\/|\.tau/iu);
+      view.unmount();
+    }
+    const empty = render(<HostsScreen rows={[]} nearby={{ state: "searching", hosts: [] }} onOpen={() => {}} onRemove={() => {}} onAdd={() => {}} onScan={() => {}} onAsk={() => {}} now={NOW} />);
+    expect(spoken(empty.container)).not.toMatch(/\bhosts?\b|token|pairing code|~\/|\.tau/iu);
+  });
+
+  it("says a failed look at the network in one sentence, never in the system's words, and can try again", () => {
+    const retried: string[] = [];
+    render(<HostsScreen rows={[]} nearby={{ state: "failed" }} onOpen={() => {}} onRemove={() => {}} onAdd={() => {}} onScan={() => {}} onAsk={() => {}} onRetry={() => retried.push("retry")} now={NOW} />);
+    expect(screen.getByRole("status").textContent).toBe("Tau could not look for computers on this network just now. Try again, or scan a QR code instead.");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(retried).toEqual(["retry"]);
   });
 
   it("says how a host was reached and when, and that its access ended", () => {
@@ -38,10 +68,10 @@ describe("HostsScreen", () => {
   it("removes a host only after saying what stays on the host", () => {
     const removed: string[] = [];
     render(<HostsScreen rows={[{ host: host(), signedOut: false, nearby: false }]} nearby={{ state: "denied" }} onOpen={() => {}} onRemove={(entry) => removed.push(entry.id)} onAdd={() => {}} onScan={() => {}} onAsk={() => {}} now={NOW} />);
-    expect(screen.getByText(/may not look for hosts/u)).toBeTruthy();
+    expect(screen.getByText(/may not look for computers/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove Studio Mac" }));
     const dialog = screen.getByRole("alertdialog", { name: "Remove Studio Mac?" });
-    expect(dialog.textContent).toMatch(/still lists this phone until you revoke it/u);
+    expect(dialog.textContent).toMatch(/still lists this phone until you unpair it there/u);
     fireEvent.click(within(dialog).getByRole("button", { name: "Keep" }));
     expect(removed).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "Remove Studio Mac" }));
@@ -66,7 +96,7 @@ describe("HostsScreen", () => {
     const asked: string[] = [];
     const nearby = { hostId: "h-2", name: "Laptop", fingerprint: FP, port: 7788, addresses: ["10.0.0.3"], endpoints: [{ url: "https://10.0.0.3:7788/" }] };
     render(<HostsScreen rows={[{ host: host(), signedOut: false, nearby: false }]} nearby={{ state: "searching", hosts: [nearby, { ...nearby, hostId: "h-1" }] }} onOpen={() => {}} onRemove={() => {}} onAdd={() => {}} onScan={() => {}} onAsk={(found) => asked.push(found.hostId)} now={NOW} />);
-    const list = screen.getByRole("list", { name: "Hosts on this network" });
+    const list = screen.getByRole("list", { name: "Computers on this network" });
     expect(within(list).getAllByRole("button")).toHaveLength(1);
     fireEvent.click(within(list).getByRole("button", { name: "Ask Laptop to connect" }));
     expect(asked).toEqual(["h-2"]);
@@ -74,6 +104,14 @@ describe("HostsScreen", () => {
 });
 
 describe("AddHostScreen", () => {
+  it("names no host, token or file path, and the problems tell what to do on the computer", () => {
+    const view = render(<AddHostScreen onBack={() => {}} onScan={() => {}} onSubmit={() => {}} />);
+    expect(screen.getByRole("heading", { name: "Add computer" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "https://example.com/" } });
+    expect(spoken(view.container)).not.toMatch(/\bhosts?\b|token|pairing code|~\/|\.tau/iu);
+    expect(screen.getByText(/not a pairing link\. Copy the whole link from Settings → Connections on your computer/u)).toBeTruthy();
+  });
+
   it("says what is wrong with a pasted text and connects only with a pairing link", () => {
     const submitted: string[] = [];
     render(<AddHostScreen onBack={() => {}} onScan={() => {}} onSubmit={(payload) => submitted.push(payload.code)} />);
@@ -85,6 +123,17 @@ describe("AddHostScreen", () => {
     expect(connect.disabled).toBe(false);
     fireEvent.click(connect);
     expect(submitted).toEqual(["abc"]);
+  });
+});
+
+describe("PairingScreen", () => {
+  it("shows the digits to compare and names no host", () => {
+    const view = render(<PairingScreen hostName="Studio Mac" verification="123456" address="Tailscale" onCancel={() => {}} />);
+    expect(screen.getByRole("heading", { name: "Waiting for Studio Mac" })).toBeTruthy();
+    expect(screen.getByLabelText("Code to compare").textContent).toBe("123 456");
+    expect(spoken(view.container)).not.toMatch(/\bhosts?\b|token|pairing code/iu);
+    view.rerender(<PairingScreen hostName="Studio Mac" onCancel={() => {}} />);
+    expect(screen.getByText("Trying every way to reach it, best first.")).toBeTruthy();
   });
 });
 
@@ -123,15 +172,15 @@ describe("Shell", () => {
     fireEvent.change(await screen.findByRole("textbox"), { target: { value: link } });
     await waitFor(() => expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    expect(await screen.findByText(/did not answer on any of its addresses/u)).toBeTruthy();
+    expect(await screen.findByText(/Your computer did not answer\./u)).toBeTruthy();
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link);
   });
 
   it("says a scan cannot happen without a camera and offers the link instead", async () => {
     render(<Shell context={context()} initial={{ view: "hosts", explicit: true }} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Scan a pairing code/u }));
+    fireEvent.click(await screen.findByRole("button", { name: /Scan a QR code/u }));
     expect(await screen.findByText(/no camera to scan with/u)).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Add host" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Add computer" })).toBeTruthy();
   });
 
   it("asks the owner again for a saved host whose access ended", async () => {
@@ -146,6 +195,21 @@ describe("Shell", () => {
 
   it("refuses a link to a host this phone never paired with", async () => {
     render(<Shell context={context()} initial={{ view: "workbench", hostId: "stranger" }} />);
-    expect(await screen.findByText(/has not paired with/u)).toBeTruthy();
+    expect(await screen.findByText(/is for a computer this phone is not paired with/u)).toBeTruthy();
+  });
+
+  it("hides the system's words when looking for computers fails, and looks again on Try again", async () => {
+    let looks = 0;
+    let report: (services: NativeService[], error?: string) => void = () => {};
+    const browse = (listener: typeof report) => { looks++; report = listener; return () => {}; };
+    render(<Shell context={context({ browse })} initial={{ view: "hosts", explicit: true }} />);
+    await screen.findByRole("heading", { name: "Computers" });
+    await waitFor(() => expect(looks).toBe(1));
+    act(() => report([], "The operation couldn’t be completed. (NWError error 0.)"));
+    expect(await screen.findByText(/could not look for computers on this network just now/u)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/NWError|operation couldn/u);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(looks).toBe(2));
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });

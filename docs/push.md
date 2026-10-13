@@ -291,7 +291,7 @@ flow below.
 
 ### Starting iOS Live Activities remotely
 
-On iOS 17.2 or later, the phone's Hosts screen has a **Live Activities** switch
+On iOS 17.2 or later, the phone's Computers screen has a **Live Activities** switch
 for each paired host. It starts off disabled. Enabling it lets that host start a
 Live Activity for a new turn while the phone app is closed. Safari and the web
 workbench do not offer this switch. Android keeps its existing ongoing cards.

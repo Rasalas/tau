@@ -40,16 +40,16 @@ real account changes or reset-credit consumption.
 2. [ ] The endpoint list shows `LAN (en0)` (or `en1`) with the Mac's Wi-Fi address, and
        `.local`.
 3. [ ] **Create link**, access **Full**. A QR code appears.
-4. [ ] In the app: **Scan a pairing code**. iOS asks for the camera: allow it. Scan the code.
+4. [ ] In the app: **Scan a QR code**. iOS asks for the camera: allow it. Scan the code.
 5. [ ] iOS asks whether Tau may find devices on the local network: allow it.
-6. [ ] The app shows "Waiting for the host" with six digits. The Mac shows "<your phone>
+6. [ ] The app shows "Waiting for <the Mac's name>" with six digits. The Mac shows "<your phone>
        wants to connect" with the **same** six digits.
 7. [ ] **Allow** on the Mac. The app opens the Mac's threads.
 8. [ ] Connections lists the phone, with its address on the Wi-Fi and one connection.
 
 ## 2. Bonjour, without a link
 
-1. [ ] In the app, go back to the host list and remove the Mac (trash icon, confirm).
+1. [ ] In the app, go back to the computer list and remove the Mac (trash icon, confirm).
 2. [ ] Under **On this network** the Mac appears within a few seconds, by its computer name.
 3. [ ] Tap it, then **Ask to connect**. The Mac shows a request "without a pairing link",
        and both sides show the same digits. **Allow**.
@@ -233,7 +233,7 @@ Keychain entitlement. APNs setup and a deployed relay that accepts
 simulator build do not complete this checklist.
 
 - [ ] Confirm the host's **Live Activities** switch starts off in the phone's
-      Hosts screen. A turn from the Mac does not remotely create an activity.
+      Computers screen. A turn from the Mac does not remotely create an activity.
 - [ ] Enable the switch on the phone, then close Tau. Start a new turn on the Mac.
       A Live Activity appears with the matching title and running status. Tap it
       and verify the correct paired host and thread open.

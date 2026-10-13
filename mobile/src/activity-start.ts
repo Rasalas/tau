@@ -30,7 +30,7 @@ export function remoteActivities(book: HostBook, keys: PushKeys, native: RemoteA
   async function configure(host: SavedHost, enabled?: true): Promise<void> {
     const revision = revisions.get(host.id) ?? 0;
     const token = await book.token(host.id);
-    if (!token) { await native.disable(host.id); throw new Error("Pair this host before enabling Live Activities."); }
+    if (!token) { await native.disable(host.id); throw new Error("Pair this computer before enabling Live Activities."); }
     const pins = { ...(host.publicKey ? { publicKey: host.publicKey } : {}), ...(host.fingerprint ? { fingerprint: host.fingerprint } : {}) };
     const candidates = socketCandidates(host.endpoints, pins, { platform: "ios", virtual }).filter((candidate) => candidate.trust !== "plain");
     const connect = await book.connect(host.id);

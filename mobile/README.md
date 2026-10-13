@@ -6,7 +6,7 @@ package adds the shell around it and the native plugin.
 
 | Where | What |
 |---|---|
-| `src/Shell.tsx` | host list, adding a host, pairing, a host's workbench |
+| `src/Shell.tsx` | the computer list (a host in code), adding a computer, pairing, a computer's workbench |
 | `src/endpoints.ts` | which addresses to try and the race between them (`RacingSocket`) |
 | `src/pairing.ts` | pairing over the best address, digits bound to the pinned key |
 | `src/native-socket.ts` | a `WebSocket`-shaped socket over the plugin |
@@ -53,7 +53,7 @@ xcrun simctl boot <udid>                             # headless; no Simulator wi
 xcrun simctl install <udid> .build/ios/Build/Products/Debug-iphonesimulator/App.app
 xcrun simctl launch --console-pty <udid> de.tbuck.tau   # the console shows every bridge call
 node scripts/sim.mjs eval "text()"
-node scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add host\"]'))"
+node scripts/sim.mjs eval "tap(document.querySelector('[aria-label=\"Add computer\"]'))"
 node scripts/sim.mjs eval "type(document.querySelector('textarea'), '<pairing link>')"
 xcrun simctl io <udid> screenshot shot.png
 xcrun simctl shutdown <udid>
