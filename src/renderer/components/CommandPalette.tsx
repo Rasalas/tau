@@ -5,7 +5,7 @@ import { menuRows, PALETTE_SCOPES, PALETTE_SOURCE_LIMIT, paletteRows, paletteSco
 import { searchSettings, settingsSearchEntries } from "../settings/settings-search";
 import { settingsTarget } from "../settings/settings-nav";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
-import { isMacPlatform } from "../keybindings";
+import { isImeComposing, isMacPlatform } from "../keybindings";
 import { ThreadStoreContext } from "../workbench-context";
 import { errorMessage } from "../../workbench/error-message";
 import { VirtualList } from "./VirtualList";
@@ -220,6 +220,7 @@ export function CommandPalette({
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
+    if (isImeComposing(event.nativeEvent)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (current >= 0) setCursor(stepRow(rows.length, current, event.key === "ArrowDown" ? 1 : -1, usable));

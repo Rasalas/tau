@@ -48,6 +48,26 @@ function renderComposer(options: { streaming?: boolean; extend?: (context: Deskt
 }
 
 describe("composer keys an extension and the preferences decide", () => {
+  it.each([
+    { isComposing: true },
+    { keyCode: 229 },
+  ])("leaves IME Enter to the input method (%j)", async (composition) => {
+    const inlineKey = vi.fn(() => false);
+    const { onSubmit, textarea } = renderComposer({
+      extend: (context) => context.registerComposerInline({ id: "probe", keyDown: inlineKey }),
+    });
+    fireEvent.change(textarea, { target: { value: "日本語" } });
+    expect(fireEvent.keyDown(textarea, { key: "Enter", ...composition })).toBe(true);
+    expect(fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, ...composition })).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(inlineKey).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("日本語");
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit).toHaveBeenCalledWith("日本語", []);
+  });
+
   it("offers a key to an inline contribution first and lets it replace the text", () => {
     const seen: string[] = [];
     const { textarea } = renderComposer({

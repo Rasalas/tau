@@ -92,6 +92,10 @@ describe("Composer command menu", () => {
     expect(screen.getByRole("listbox", { name: "Skills" })).toBeTruthy();
     expect(screen.getByRole("option", { name: /tdd/u })).toBeTruthy();
 
+    expect(fireEvent.keyDown(textarea, { key: "Enter", isComposing: true })).toBe(true);
+    expect(fireEvent.keyDown(textarea, { key: "Enter", keyCode: 229 })).toBe(true);
+    expect(textarea.value).toBe("$td");
+    expect(onSubmit).not.toHaveBeenCalled();
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("$tdd ");
     expect(onSubmit).not.toHaveBeenCalled();

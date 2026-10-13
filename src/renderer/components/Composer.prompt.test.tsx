@@ -152,7 +152,7 @@ describe("prompt controls in the composer", () => {
     await waitFor(() => expect(onAnswerPrompt).toHaveBeenCalledWith("Here", true, [expect.objectContaining({ name: "late.png" })]));
   });
 
-  it("keeps a question the agent asks mid-typing closed until the typing stops, then sets the draft aside until the answer", async () => {
+  it.each([{}, { isComposing: true }, { keyCode: 229 }])("keeps a question the agent asks mid-typing closed until the typing stops, then sets the draft aside until the answer (%j)", async (composition) => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const onAnswerPrompt = vi.fn();
@@ -180,7 +180,7 @@ describe("prompt controls in the composer", () => {
       );
       const { rerender } = render(view());
       const field = screen.getByRole("textbox") as HTMLTextAreaElement;
-      fireEvent.keyDown(field, { key: "x" });
+      fireEvent.keyDown(field, { key: "x", ...composition });
       fireEvent.change(field, { target: { value: "half a thought" } });
 
       rerender(view({ id: "pick", sessionId: "session", kind: "select", title: "Which one?", options: ["A", "B"] }));
@@ -269,6 +269,9 @@ describe("prompt controls in the composer", () => {
     expect(send.disabled).toBe(true);
     const textarea = screen.getByPlaceholderText(/Answer in text/u);
     fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onAnswerPrompt).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, isComposing: true })).toBe(true);
+    expect(fireEvent.keyDown(textarea, { key: "Enter", metaKey: true, keyCode: 229 })).toBe(true);
     expect(onAnswerPrompt).not.toHaveBeenCalled();
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
     expect(onAnswerPrompt).toHaveBeenCalledWith(true, undefined);
