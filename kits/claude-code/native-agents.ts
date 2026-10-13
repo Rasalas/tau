@@ -26,7 +26,11 @@ export class ClaudeNativeAgents {
   private readonly resumedBy = new Map<string, string>();
   private readonly background = new Set<string>();
   private readonly streamingMessage = new Map<string, string>();
+  /** SendMessage calls: after a restart one can name a resumed agent's row, but its result is the main loop's. */
+  private readonly sends = new Set<string>();
   owns(id: string): boolean { return this.tracker.has(id); }
+  /** Whether a tool result is an agent's own answer rather than the main loop's. */
+  ownsResult(id: string): boolean { return this.owns(id) && !this.sends.has(id); }
   private row(toolUseId: string | undefined): string | undefined { return toolUseId ? this.resumedBy.get(toolUseId) ?? toolUseId : undefined; }
 
   push(raw: unknown): ThreadRuntimeEvent[] {
@@ -36,6 +40,7 @@ export class ClaudeNativeAgents {
     const events: ThreadRuntimeEvent[] = [];
     if (frame.type === "assistant") {
       for (const block of content) {
+        if (block.type === "tool_use" && block.name === "SendMessage" && typeof block.id === "string") this.sends.add(block.id);
         if (block.type !== "tool_use" || (block.name !== "Agent" && block.name !== "Task")) continue;
         const id = string(block.id);
         const input = object(block.input);
@@ -45,7 +50,11 @@ export class ClaudeNativeAgents {
         events.push(...this.tracker.update(id, { title: string(input.description) ?? string(input.subagent_type) ?? "Subagent", ...(string(input.model) ? { model: string(input.model) } : {}), ...(effort ? { effort } : {}) }));
       }
     }
-    const parent = this.row(string(frame.parent_tool_use_id));
+    // A resumed agent's frames still name its first launch; after a restart only `agent_id` ties them to the resume's row.
+    const launch = string(frame.parent_tool_use_id);
+    const resumed = this.tasks.get(string(frame.agent_id) ?? "");
+    if (launch && resumed && launch !== resumed && !this.resumedBy.has(launch)) this.resumedBy.set(launch, resumed);
+    const parent = this.row(launch);
     if (frame.type === "tool_progress") {
       // A foreground command past 30 s sends heartbeats under its own id; only an agent's tools count.
       if (parent && this.owns(parent) && frame.heartbeat !== true) events.push(...this.tracker.update(parent, { lastTool: string(frame.tool_name) }));
@@ -89,7 +98,7 @@ export class ClaudeNativeAgents {
       } else if (id && this.owns(id)) {
         if (frame.subtype === "task_notification") {
           this.background.delete(id);
-          events.push(...this.tracker.update(id, { status: frame.status === "failed" ? "failed" : frame.status === "stopped" ? "cancelled" : "completed" }));
+          events.push(...this.tracker.update(id, { status: frame.status === "failed" ? "failed" : frame.status === "stopped" || frame.status === "killed" ? "cancelled" : "completed" }));
           if (string(frame.summary)) events.push(...this.tracker.text(id, "result", String(frame.summary)));
         } else if (frame.subtype === "task_progress") events.push(...this.tracker.update(id, { lastTool: string(frame.summary) ?? string(frame.last_tool_name) ?? string(frame.description) }));
         else if (frame.subtype === "task_updated" && object(frame.patch).is_backgrounded === true) this.background.add(id);
@@ -98,7 +107,7 @@ export class ClaudeNativeAgents {
     if (frame.type === "user") {
       for (const block of content) {
         const id = string(block.tool_use_id);
-        if (block.type !== "tool_result" || !id || !this.owns(id)) continue;
+        if (block.type !== "tool_result" || !id || !this.ownsResult(id)) continue;
         const text = contentText(block.content);
         if (text) events.push(...this.tracker.text(id, "result", text));
         if (!this.background.has(id)) events.push(...this.tracker.update(id, { status: block.is_error ? "failed" : "completed" }));
