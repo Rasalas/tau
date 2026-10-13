@@ -258,6 +258,7 @@ struct Gallery: View {
             expanded(display("waiting"))
             expanded(display("done"))
             expanded(display("bundle"))
+            expanded(display("running"), stale: true)
         default:
             Text("pages: usage, states, large-states, threads, threads-marks, lock, live, live2, island, island2")
         }
@@ -282,14 +283,14 @@ struct Gallery: View {
             minimal(display("running")); minimal(display("waiting")); minimal(display("done")); minimal(display("failed"))
         }
     }
-    func expanded(_ display: ActivityDisplay) -> some View {
+    func expanded(_ display: ActivityDisplay, stale: Bool = false) -> some View {
         VStack(spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
                 TauPlate(size: 36).padding(.leading, 4).padding(.top, 4)
                 ExpandedTitle(display: display).padding(.top, 4)
-                ExpandedTrailing(display: display).padding(.trailing, 4).padding(.top, 4)
+                ExpandedTrailing(display: display, stale: stale).padding(.trailing, 4).padding(.top, 4)
             }
-            ExpandedBottom(display: display, stale: false).padding(.horizontal, 4)
+            ExpandedBottom(display: display, stale: stale).padding(.horizontal, 4)
         }
         .padding(.horizontal, 16).padding(.vertical, 14).frame(width: 380)
         .background(.black, in: RoundedRectangle(cornerRadius: 44, style: .continuous)).environment(\.colorScheme, .dark)

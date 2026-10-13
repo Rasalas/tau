@@ -45,7 +45,8 @@ export function apnsSender(client: Pick<ApnsClient, "send">, topic = APNS_TOPIC)
       token,
       topic: activity ? `${topic}.push-type.liveactivity` : topic,
       ...(activity ? { pushType: "liveactivity" as const, expiration: activity.event === "start" ? Math.min(activity.expiresAt, activity.timestamp + 60) : activity.expiresAt } : {}),
-      payload: activity ? { aps: { timestamp: activity.timestamp, event: activity.event, "content-state": { sealed }, "stale-date": activity.expiresAt, ...(activity.event === "start" ? { "attributes-type": "TauActivityAttributes", attributes: { activityId: activity.activityId, bootstrap: activity.bootstrap }, alert: { title: "Tau", body: "Agent work started" }, ...(activity.inputPushToken ? { "input-push-token": 1 } : {}) } : {}), ...(activity.event === "end" ? { "dismissal-date": activity.expiresAt } : {}) } } : {
+      // Match MobileActivityStore.staleAfter even when an activity can live for eight hours.
+      payload: activity ? { aps: { timestamp: activity.timestamp, event: activity.event, "content-state": { sealed }, "stale-date": Math.min(activity.expiresAt, activity.timestamp + 20 * 60), ...(activity.event === "start" ? { "attributes-type": "TauActivityAttributes", attributes: { activityId: activity.activityId, bootstrap: activity.bootstrap }, alert: { title: "Tau", body: "Agent work started" }, ...(activity.inputPushToken ? { "input-push-token": 1 } : {}) } : {}), ...(activity.event === "end" ? { "dismissal-date": activity.expiresAt } : {}) } } : {
         aps: { alert: GENERIC_ALERT, sound: "default", "mutable-content": 1, ...(collapseId ? { "thread-id": collapseId } : {}) },
         sealed,
       },

@@ -12,6 +12,15 @@ describe("ActivityKit device registration", () => {
     const registration = readActivityRegistration({ hostId: "host", threadId: "thread", token: "ab".repeat(32), topic: "de.tbuck.tau" }, "phone", 1000);
     expect(activityRequest(registration, { version: 1, hostId: "host", threadId: "thread", title: "Build", state: "completed", updatedAt: 5000, expiresAt: 905000 })).toMatchObject({ pushType: "liveactivity", topic: "de.tbuck.tau.push-type.liveactivity", expiration: 905, payload: { aps: { timestamp: 5, event: "end", "dismissal-date": 905, "content-state": { title: "Build", state: "completed" } } } });
   });
+  it("marks running content stale after twenty minutes without an update, and renews that deadline on an update", () => {
+    const at = 1_700_000_000_000;
+    const registration = readActivityRegistration({ hostId: "host", threadId: "thread", token: "ab".repeat(32), topic: "de.tbuck.tau" }, "phone", at);
+    for (const updatedAt of [at, at + 10 * 60_000]) {
+      const request = activityRequest(registration, { version: 1, hostId: "host", threadId: "thread", title: "Build", state: "running", updatedAt, expiresAt: registration.expiresAt });
+      expect(request.payload).toMatchObject({ aps: { "stale-date": updatedAt / 1000 + 20 * 60, "content-state": { updatedAt } } });
+      expect(request.expiration).toBe(registration.expiresAt / 1000);
+    }
+  });
 });
 
 import { mkdtemp, rm } from "node:fs/promises";

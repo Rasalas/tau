@@ -274,6 +274,11 @@ that ended within fifteen minutes), each with id, title, state, start, end and
 the question or failure, kept under 1.7 KB inside the sealed payload. The first
 thread at work starts the activity; the last one to end ends it.
 
+Running threads show their last reported state without a live elapsed-time counter.
+After twenty minutes without new running content, the activity shows "No update".
+Each update renews that freshness deadline; the eight-hour activity/token lifetime
+and the dismissal time of finished content remain separate.
+
 Each iOS Live Activity has its own APNs update token. The phone registers that
 token with the relay using `purpose: "activity"`, installs its content key in
 the shared app/widget Keychain, and gives the host an opaque handle. Activity

@@ -61,3 +61,15 @@ it("constructs push-to-start with only opaque attributes and a generic alert", a
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ topic: "de.tbuck.tau.push-type.liveactivity", pushType: "liveactivity", expiration: 1700000060,
     payload: { aps: { timestamp: 1700000000, event: "start", "content-state": { sealed: "2.key.cipher" }, "stale-date": 1700000900, "attributes-type": "TauActivityAttributes", attributes: { activityId: "a".repeat(22), bootstrap: "2.key.cipher" }, alert: { title: "Tau", body: "Agent work started" }, "input-push-token": 1 } } }), "production");
 });
+
+it.each(["start", "update"] as const)("marks a remote activity %s stale twenty minutes after the last content, independently of its eight-hour lifetime", async (event) => {
+  const send = vi.fn(async () => ({ ok: true as const }));
+  const sender = apnsSender({ send });
+  const timestamp = 1_700_000_000;
+  const expiresAt = timestamp + 8 * 60 * 60;
+  for (const at of [timestamp, timestamp + 10 * 60]) {
+    await sender("activity-token", { sealed: SEALED, activity: { event, timestamp: at, expiresAt, ...(event === "start" ? { activityId: "a".repeat(22), bootstrap: SEALED } : {}) } });
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ expiration: event === "start" ? at + 60 : expiresAt,
+      payload: { aps: expect.objectContaining({ "stale-date": at + 20 * 60 }) } }), "production");
+  }
+});

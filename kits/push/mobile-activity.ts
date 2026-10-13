@@ -38,8 +38,9 @@ export function activityRequest(registration: ActivityRegistration, update: Acti
     token: registration.token ?? "", topic: `${registration.topic}.push-type.liveactivity`, pushType: "liveactivity",
     expiration: Math.floor(update.expiresAt / 1000),
     payload: { aps: { timestamp: Math.floor(update.updatedAt / 1000), event: ended ? "end" : "update",
-      "content-state": { title: update.title.slice(0, 100), state: update.state, expiresAt: update.expiresAt, ...(update.threads ? { threads: update.threads } : {}) },
-      "stale-date": Math.floor(update.expiresAt / 1000), ...(ended ? { "dismissal-date": Math.floor(update.expiresAt / 1000) } : {}) } },
+      "content-state": { title: update.title.slice(0, 100), state: update.state, updatedAt: update.updatedAt, expiresAt: update.expiresAt, ...(update.threads ? { threads: update.threads } : {}) },
+      // Match the app's MobileActivityStore.staleAfter; token lifetime is not freshness.
+      "stale-date": Math.floor(Math.min(update.expiresAt, update.updatedAt + 20 * 60_000) / 1000), ...(ended ? { "dismissal-date": Math.floor(update.expiresAt / 1000) } : {}) } },
   };
 }
 
