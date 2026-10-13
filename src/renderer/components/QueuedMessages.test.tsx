@@ -74,4 +74,14 @@ describe("QueuedMessages", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Send this wake now" }));
     expect(onSteer).toHaveBeenCalledWith("w1");
   });
+
+  it("says an idle wake sends next instead of waiting for a turn", () => {
+    const wake: UiQueuedMessage = { id: "w1", text: "Tests passed.", attachments: 0, wake: { source: "background", label: "Background command ended" } };
+    const { rerender } = render(<QueuedMessages queue={[wake]} streaming={false} onSteer={vi.fn()} onReturn={vi.fn()} onReorder={vi.fn()} />);
+    const row = screen.getByRole("listitem", { name: "Wake waiting: Background command ended" });
+    expect(row.textContent).toContain("Sends next");
+    expect(row.textContent).not.toContain("Waits for the turn");
+    rerender(<QueuedMessages queue={[wake]} streaming={false} held onSteer={vi.fn()} onReturn={vi.fn()} onReorder={vi.fn()} />);
+    expect(row.textContent).toContain("Held");
+  });
 });

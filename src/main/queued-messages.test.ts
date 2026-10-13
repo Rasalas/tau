@@ -77,6 +77,29 @@ describe("QueuedMessages", () => {
     expect(delivered).toEqual([{ sessionId: "idle", text: "now" }]);
   });
 
+  it("continues draining when the turn settles before delivery resolves", async () => {
+    let busy = true;
+    const delivered: string[] = [];
+    const queue = new QueuedMessages({
+      busy: () => busy,
+      waitForIdle: async () => undefined,
+      deliver: async (sessionId, message) => {
+        delivered.push(message.text);
+        queue.settled(sessionId);
+        await Promise.resolve();
+      },
+      publish: () => undefined,
+      log: () => undefined,
+    });
+    queue.add("t", text("first"));
+    queue.add("t", text("second"));
+    busy = false;
+    queue.settled("t");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(delivered).toEqual(["first", "second"]);
+    expect(queue.list("t")).toEqual([]);
+  });
+
   it("reorders, takes back and holds what waits", async () => {
     const { queue, busy, delivered, published, settle } = bench();
     busy.add("t");

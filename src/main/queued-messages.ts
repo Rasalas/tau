@@ -279,6 +279,9 @@ export class QueuedMessages {
     } finally {
       this.delivering.delete(sessionId);
       this.port.delivered?.(sessionId);
+      // A fast turn can settle while its delivery still owns the pump. Retry
+      // after releasing it; busy/held/frozen still decide whether the head leaves.
+      void this.pump(sessionId);
     }
   }
 
