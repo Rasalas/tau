@@ -93,6 +93,116 @@ async function hello(port: number, token: string, lastSeq?: number, profile?: st
   }) };
 }
 
+describe("socket admission limits", () => {
+  it.each([
+    ["loopback", false, false], ["network", false, false], ["proxy", false, false],
+    ["loopback", true, false], ["loopback", false, true], ["loopback", true, true],
+  ] as const)("rejects an oversized hello on %s, compressed=%s, fragmented=%s", async (trust, compress, fragmented) => {
+    const { transport: started } = await listen();
+    const extra = trust === "loopback" ? undefined : createProtocolServer();
+    const detach = extra ? started.attach(extra, trust) : undefined;
+    if (extra) await new Promise<void>((resolve) => extra.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = extra ? (extra.address() as { port: number }).port : started.port;
+      const socket = connect(port, { perMessageDeflate: compress });
+      await opened(socket);
+      const result = new Promise<number | string>((resolve) => {
+        socket.once("close", (code) => resolve(code));
+        socket.once("message", () => resolve("message"));
+      });
+      const data = JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN }, padding: "x".repeat(64 * 1024) });
+      if (fragmented) {
+        socket.send(data.slice(0, 32 * 1024), { fin: false, compress });
+        socket.send(data.slice(32 * 1024), { fin: true, compress });
+      } else socket.send(data, { compress });
+      expect(await result).toBe(1009);
+    } finally {
+      detach?.();
+      if (extra) await new Promise<void>((resolve) => extra.close(() => resolve()));
+    }
+  });
+
+  it("rejects an oversized frame from its header before any payload arrives", async () => {
+    const { transport: started } = await listen();
+    let raw: Socket | undefined;
+    const socket = connect(started.port, {
+      perMessageDeflate: false,
+      createConnection: ((options: { port?: number }) => (raw = netConnect({ host: "127.0.0.1", port: Number(options.port) }))) as unknown as typeof netConnect,
+    });
+    await opened(socket);
+    const result = closed(socket);
+    const header = Buffer.alloc(14);
+    header[0] = 0x81;
+    header[1] = 0x80 | 127;
+    header.writeBigUInt64BE(65_537n, 2);
+    raw!.write(header);
+    expect(await result).toBe(1009);
+  });
+
+  it.each([false, true])("accepts exactly 64 KiB before hello and larger requests after authentication, compressed=%s", async (compress) => {
+    const { transport: started } = await listen();
+    const socket = connect(started.port, { perMessageDeflate: compress });
+    await opened(socket);
+    const base = JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN }, padding: "" });
+    const reply = nextFrame(socket);
+    socket.send(base.replace('"padding":""', `"padding":"${"x".repeat(64 * 1024 - Buffer.byteLength(base))}"`), { compress });
+    expect((await reply).type).toBe("hello-reply");
+    const response = nextFrame(socket);
+    const large = "x".repeat(128 * 1024);
+    socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "ping", params: [large] } }), { compress });
+    expect(await response).toMatchObject({ type: "response", response: { id: "r", result: { echo: large } } });
+  });
+
+  it("shares an address budget across listeners, ignores forwarded addresses, and releases closed slots", async () => {
+    const { transport: started } = await listen();
+    const first = createProtocolServer();
+    const second = createProtocolServer();
+    const detachFirst = started.attach(first, "proxy");
+    const detachSecond = started.attach(second, "proxy");
+    await new Promise<void>((resolve) => first.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => second.listen(0, "127.0.0.1", resolve));
+    const firstPort = (first.address() as { port: number }).port;
+    const secondPort = (second.address() as { port: number }).port;
+    let firstPeer: Socket | undefined;
+    second.once("upgrade", (_request, stream: Socket) => { firstPeer = stream; });
+    try {
+      const admitted: WebSocket[] = [];
+      for (let i = 0; i < 32; i += 1) {
+        const socket = connect(i % 2 ? firstPort : secondPort, { headers: { "x-forwarded-for": `192.0.2.${i + 1}` } });
+        await opened(socket);
+        admitted.push(socket);
+        if (i === 0) {
+          const reply = nextFrame(socket);
+          socket.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+          expect((await reply).type).toBe("hello-reply");
+        }
+      }
+      const overflow = connect(secondPort, { headers: { "x-forwarded-for": "198.51.100.1" } });
+      const status = await new Promise<number>((resolve) => {
+        overflow.once("open", () => resolve(101));
+        overflow.once("unexpected-response", (_request, response) => { response.resume(); overflow.terminate(); resolve(response.statusCode!); });
+        overflow.on("error", () => undefined);
+      });
+      expect(status).toBe(429);
+      const local = await hello(started.port, TOKEN);
+      expect((await local.frame).type).toBe("hello-reply");
+      const gone = closed(admitted[0]!);
+      const released = new Promise<void>((resolve) => firstPeer!.once("close", () => resolve()));
+      admitted[0]!.close();
+      await Promise.all([gone, released]);
+      const replacement = connect(firstPort);
+      await opened(replacement);
+      const reply = nextFrame(replacement);
+      replacement.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+      expect((await reply).type).toBe("hello-reply");
+    } finally {
+      detachFirst();
+      detachSecond();
+      await Promise.all([new Promise<void>((resolve) => first.close(() => resolve())), new Promise<void>((resolve) => second.close(() => resolve()))]);
+    }
+  });
+});
+
 describe("socket host transport", () => {
   it.each(["push", "response", "call", "relay", "subscribe"] as const)("drops only the slow client when a %s would overflow its send buffer", async (route) => {
     const pushLog = new HostPushLog();

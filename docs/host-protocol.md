@@ -390,6 +390,20 @@ the token is unencrypted on the wire, so a plaintext listener refuses a
 non-loopback address unless `TAU_HOST_INSECURE=1` says otherwise; with TLS
 (below) any interface is fine.
 
+Before an authenticated hello, the socket accepts messages of at most 64 KiB,
+including accumulated fragments and decompressed bytes. Oversized messages
+close with WebSocket code 1009 before JSON parsing. Pairing keeps this limit;
+only a valid hello raises it to 112 MiB for requests with images or file data.
+Compression remains available.
+
+Upgrades are limited to 32 simultaneous connections per TCP peer address and
+256 in total per listener trust (`loopback`, `network`, `proxy`), across all
+listeners of that trust. Authenticated and pairing connections still count
+until the TCP socket closes. Excess upgrades receive HTTP 429. Forwarded
+addresses do not change this budget, so all clients behind one reverse proxy
+share its address limit. Separate trust budgets preserve local access during
+a network or proxy flood.
+
 ## Tokens and pairing
 
 Two kinds of token open a socket ([ADR 0023](adr/0023-client-tokens-and-pairing.md),
