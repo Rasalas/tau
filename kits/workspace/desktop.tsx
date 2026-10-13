@@ -153,7 +153,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsSection({ id: "workspace.new-threads", page: "general", card: "new-threads", order: 20, profiles: ["desktop"], Component: bind(NewThreadRows),
       rows: [{ id: "setting-new-thread-workspace", label: "New threads run in" }, { id: "setting-branch-name", label: "Branch name", keywords: ["worktree", "from prompt", "random"] }] });
     context.registerSettingsSection({ id: "workspace.this-machine", page: "connections", card: "this-machine", order: 10, profiles: ["desktop"], Component: bind(ThisMachineRows),
-      rows: [{ id: "setting-editor", label: "Editor", keywords: ["open in editor", "vscode", "zed"] }, { id: "setting-worktrees-under", label: "Worktrees under", keywords: ["git", "folder", "directory", "worktree"] }] });
+      rows: [{ id: "setting-editor", label: "Editor", keywords: ["open in editor", "vscode", "zed"] }] });
     context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "threads", profiles: ["desktop"], Component: TraceTabsRow,
       rows: [{ id: "setting-trace-tabs", label: "Trace tabs", keywords: ["files the agent touches", "tabs"] }] });
     // The design's Editor button at the stage strip's right end.
@@ -258,7 +258,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerSettingsPage({
       id: "workspace.source-control",
       label: "Source control",
-      description: "How a new worktree fills its submodules, whether the default branch keeps itself current, and where new projects start.",
+      description: "Where a new worktree is made and how it fills its submodules, whether the default branch keeps itself current, and where new projects start.",
       group: "projects",
       Icon: GitBranch,
       order: 35,

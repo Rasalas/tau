@@ -5,6 +5,7 @@ import { TERMINAL_HOST_EXTENSION_ID, TERMINAL_PLACEMENT_SETTING, type TerminalPl
 /** What the Settings search finds on the page; each id is a row's anchor. */
 export const TERMINAL_SETTINGS_ROWS = [
   { id: "setting-terminal-placement", label: "Show the terminal in", keywords: ["dock", "drawer", "panel", "bottom", "layout", "placement"] },
+  { id: "setting-shell", label: "Shell", keywords: ["terminal", "zsh", "bash", "login shell"] },
   { id: "setting-terminal-font", label: "Font", keywords: ["terminal font", "font size", "ghostty", "monospace"] },
 ];
 
@@ -40,10 +41,13 @@ export function TerminalSettingsPage({ preferences, onOpenSettings }: SettingsPa
         control={onOpenSettings ? <Button onClick={() => onOpenSettings("appearance#setting-appearance-terminal-font")}>Open in Appearance</Button> : undefined}
       />
     </SettingsSection>
+    <SettingsSection title="Shell">
+      <ShellRow />
+    </SettingsSection>
   </div>;
 }
 
-/** Connections' This machine card (design 2h): the shell a terminal starts, the user's own unless set. */
+/** The shell a terminal starts, the user's own unless set. */
 export function ShellRow() {
     const shell = useSetting<string>(`values.${TERMINAL_HOST_EXTENSION_ID}.shell`, { defaultValue: "", read: (raw) => (typeof raw === "string" ? raw : undefined) });
     return (

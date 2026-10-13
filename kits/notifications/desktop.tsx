@@ -356,7 +356,6 @@ const notifications: DesktopExtension = {
       profiles: ["desktop", "web"],
       Component: createSettingsPage(context),
     });
-    context.registerSettingsSection({ id: "notifications.events", page: "general", card: "notify", profiles: ["desktop"], Component: () => <NotifyRows preferences={context.preferences} /> });
     // A phone hears through pushes: which news, and when not; the window's sound and toasts are not its own (design 2n).
     const preferences = context.preferences;
     context.registerSettingsPage({ ...page,
