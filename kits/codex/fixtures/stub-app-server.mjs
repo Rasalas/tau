@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app-server-frames.json"), "utf8"));
 const log = process.env.STUB_LOG;
+const config = process.env.STUB_CONFIG ? JSON.parse(readFileSync(process.env.STUB_CONFIG, "utf8")) : {};
 const threadsFile = process.env.STUB_THREADS;
 const threads = new Set(threadsFile && existsSync(threadsFile) ? JSON.parse(readFileSync(threadsFile, "utf8")) : []);
 const pending = new Map();
@@ -204,8 +205,19 @@ async function handle(message) {
       if (!/^[a-zA-Z0-9_-]{1,64}$/.test(params.idempotencyKey)) return send({ id, error: { code: -32602, message: "Missing idempotency key" } });
       return send({ id, result: { outcome: "reset" } });
     case "model/list": return send({ id, result: { data: process.env.STUB_MODELS ? JSON.parse(readFileSync(process.env.STUB_MODELS, "utf8")) : fixture.models, nextCursor: null } });
+    case "config/read":
+      if (process.env.STUB_CONFIG_ERROR) return send({ id, error: { code: -32603, message: "Cannot read configuration" } });
+      return send({ id, result: { config } });
     case "thread/settings/update": return send({ id, result: {} });
     case "thread/start": {
+      if (log && process.env.STUB_CONFIG) {
+        // Empty tables merge with configured servers; only enabled=false prevents startup.
+        for (const [name, server] of Object.entries(config.mcp_servers ?? {})) {
+          if (server.enabled !== false && params.config?.mcp_servers?.[name]?.enabled !== false) appendFileSync(log, `${JSON.stringify({ startedMcp: name })}\n`);
+        }
+        if (config.features?.plugins && params.config?.["features.plugins"] !== false) appendFileSync(log, `${JSON.stringify({ startedPlugin: "fixture" })}\n`);
+        if (config.features?.apps && params.config?.["features.apps"] !== false) appendFileSync(log, `${JSON.stringify({ startedApps: true })}\n`);
+      }
       const thread = `thread-${process.pid}-${threads.size + 1}`;
       remember(thread);
       cwds.set(thread, params.cwd);
