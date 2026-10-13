@@ -197,6 +197,10 @@ describe("client profiles", () => {
     expect(press("1", ["modelPickerOpen"])).toBeUndefined();
     expect(press("j", ["terminalFocus"])).toBe("terminal.toggle");
     expect(press("b", [])).toBe("workbench.toggle-sidebar");
+    // Plan mode takes ⇧⌘L, not ⇧Tab (the thinking cycle); a terminal and Files Kit's editor keep it.
+    expect(press("L", [], true)).toBe("plan.toggle");
+    expect(press("L", ["terminalFocus"], true)).toBeUndefined();
+    expect(press("L", ["editorFocus"], true)).toBeUndefined();
     // ⇧ turns ] into }; the physical key still names the chord.
     expect(press("}", [], true, "BracketRight")).toBe("thread.next");
     for (const extension of kits) registry.deactivate(extension.id);

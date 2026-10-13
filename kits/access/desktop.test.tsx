@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
-import { createKitHarness, RendererServicesProvider } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, KitShell, RendererServicesProvider } from "../../src/renderer/test-support/kit-harness.js";
 import { accessKitExtension } from "./desktop.js";
 import { ACCESS_HOST_EXTENSION_ID } from "./protocol.js";
 
@@ -67,23 +67,34 @@ describe("Access Kit desktop extension", () => {
     expect(openSettings).toHaveBeenCalledWith("runtimes#runtime-permissions");
   });
 
-  it("keeps restricted access visible and opens its choices without duplicating the shortcut", () => {
+  it("shows the level in force at every level, the default included, and opens its choices without duplicating the shortcut", () => {
     const { registry, preferences } = activate();
     const control = registry.getComposerControls().find((entry) => entry.id === "access.status")!;
+    expect(control.placement).toBe("lead");
     const opened = vi.fn();
-    render(<><button type="button" data-composer-menu="" onClick={() => { throw new Error("Unrelated composer opened"); }}>Other composer</button><div className="composer-chips"><button type="button" data-composer-menu="" onClick={opened}>More</button><control.Component /></div></>);
-    expect(screen.queryByLabelText(/^Access:/u)).toBeNull();
-    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "read-only"); });
-    const status = screen.getByRole("button", { name: "Access: Read only" });
-    expect(status.hasAttribute("data-composer-shortcut")).toBe(false);
-    fireEvent.click(status);
+    render(
+      <KitShell registry={registry}>
+        <button type="button" data-composer-menu="" onClick={() => { throw new Error("Unrelated composer opened"); }}>Other composer</button>
+        <div className="composer-chips"><button type="button" data-composer-menu="" onClick={opened}>More</button><control.Component /></div>
+      </KitShell>,
+    );
+    // Full access is what a fresh workbench runs at, so it is the level that most needs saying.
+    const full = screen.getByRole("button", { name: "Access: Full access" });
+    expect(full.textContent).toBe("Full access");
+    expect(full.getAttribute("data-tooltip")).toContain("allowed without asking");
+    expect(full.getAttribute("data-tooltip-shortcut")).toBe(registry.keybindingLabel("composer.mode"));
+    expect(full.getAttribute("data-tooltip-shortcut")).toBeTruthy();
+    expect(full.hasAttribute("data-composer-shortcut")).toBe(false);
+    fireEvent.click(full);
     expect(opened).toHaveBeenCalledOnce();
-    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "ask"); });
-    expect(screen.getByRole("button", { name: "Access: Ask before edits" })).toBeTruthy();
-    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "auto"); });
-    expect(screen.getByRole("button", { name: "Access: Auto review" })).toBeTruthy();
-    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "full"); });
-    expect(screen.queryByLabelText(/^Access:/u)).toBeNull();
+    const names: Array<[string, string]> = [["read-only", "Read only"], ["ask", "Ask before edits"], ["auto", "Auto review"], ["full", "Full access"]];
+    for (const [level, name] of names) {
+      act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", level); });
+      expect(screen.getByRole("button", { name: `Access: ${name}` }).textContent).toBe(name);
+    }
+    // A value this client does not know shows the default rather than nothing.
+    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "everything"); });
+    expect(screen.getByRole("button", { name: "Access: Full access" })).toBeTruthy();
   });
 
   it("offers one palette command per level", () => {

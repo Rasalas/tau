@@ -88,6 +88,7 @@ composite widget. The ring shows for the keyboard only (`:focus-visible`).
 | `mod+shift+enter` | `!terminalFocus` | `thread.steerQueuedMessage` | Send the oldest queued message now | core |
 | `mod+shift+e` | `!terminalFocus` | `composer.effort` | Reasoning menu | core |
 | `mod+shift+a` | `!terminalFocus` | `composer.mode` | Access menu | Access |
+| `mod+shift+l` | `!terminalFocus && !editorFocus` | `plan.toggle` | Switch between plan and build mode | Plan |
 | `mod+shift+x` | `!terminalFocus` | `composer.workspace` | Where the thread runs | Workspace |
 | `mod+shift+g` | `!terminalFocus` | `composer.branch` | Branch picker | Workspace |
 | `mod+alt+t` | | `runtime.transcript-detail` | Cycle transcript detail | core |
@@ -141,7 +142,8 @@ picker handles those keys itself. Without Thread Rail, Workspace Kit binds
 
 Inside Files Kit's editor, CodeMirror's own chords come first: `mod+f` opens
 search and replace, `mod+g` / `mod+shift+g` step through matches, `mod+d`
-selects the next occurrence (not the review), `mod+alt+arrowup` /
+selects the next occurrence (not the review), `mod+shift+l` selects every
+occurrence of the selection (not plan mode), `mod+alt+arrowup` /
 `arrowdown` add a cursor (not thread navigation), `mod+i` selects the
 enclosing syntax node, `mod+[` / `mod+]` indent, and the fold chords are
 `mod+alt+[` / `mod+alt+]` on macOS and `ctrl+shift+[` / `]` elsewhere. `mod+s`
@@ -197,8 +199,9 @@ latest", beside Copy and Paste.
   Shift. It opens the panel in front as a stage tab beside the chat, or moves
   it back.
 - `composer.mode` opens Access Kit's menu, since a runtime's mode is Tau's
-  access level. Plan mode is Plan Kit's `plan.toggle`, without a chord: ⇧Tab
-  in the composer is Pi's thinking-level cycle.
+  access level; the access chip before the model, shown at every level, opens
+  the same menu. Plan mode is Plan Kit's `plan.toggle` on `mod+shift+l`, not on
+  T3 Code's ⇧Tab: here ⇧Tab is Pi's thinking-level cycle.
 - `composer.*` commands click the composer control that carries their id in
   `data-composer-shortcut`; a control another kit draws can answer the same way.
   The attribute is a space-separated list, matched with `~=`: when a narrow

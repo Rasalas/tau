@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { Lock, LockOpen, Settings2, Sparkles } from "lucide-react";
-import { ComposerMenuItem, ComposerMenuSection, HostUnavailableError, hostIsReadOnly, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
+import { ComposerMenuItem, ComposerMenuSection, HostUnavailableError, hostIsReadOnly, tooltipProps, useWorkbenchShell, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
 import type { AccessLevel } from "./protocol.js";
 import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_KEY as LEVEL_KEY, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
 import { createPermissionsSection, LEVEL_CHOICES, levelSummary, PERMISSIONS_ROW } from "./permissions.js";
@@ -8,6 +8,10 @@ import { createPermissionsSection, LEVEL_CHOICES, levelSummary, PERMISSIONS_ROW 
 function storedLevel(preferences: PreferencesStore): AccessLevel {
   const value = preferences.value(ACCESS_HOST_EXTENSION_ID, LEVEL_KEY);
   return isAccessLevel(value) ? value : DEFAULT_ACCESS_LEVEL;
+}
+
+function levelIcon(level: AccessLevel, size: number) {
+  return level === "full" ? <LockOpen size={size} aria-hidden="true" /> : level === "auto" ? <Sparkles size={size} aria-hidden="true" /> : <Lock size={size} aria-hidden="true" />;
 }
 
 /** The level as the Access section of the composer's "…" menu. */
@@ -21,7 +25,7 @@ function createControl(preferences: PreferencesStore, choose: (level: string) =>
         {LEVEL_CHOICES.map((entry) => (
           <ComposerMenuItem
             key={entry.value}
-            icon={entry.value === "full" ? <LockOpen size={13} /> : entry.value === "auto" ? <Sparkles size={13} /> : <Lock size={13} />}
+            icon={levelIcon(entry.value, 13)}
             label={entry.label}
             detail={levelSummary(entry.value)}
             selected={entry.value === level}
@@ -36,20 +40,27 @@ function createControl(preferences: PreferencesStore, choose: (level: string) =>
   };
 }
 
-const STATUS_LABELS: Record<Exclude<AccessLevel, "full">, string> = { "read-only": "Read only", ask: "Ask before edits", auto: "Auto review" };
+const STATUS_LABELS: Record<AccessLevel, string> = { "read-only": "Read only", ask: "Ask before edits", auto: "Auto review", full: "Full access" };
 
-/** Restricted access stays visible while its choices remain in the menu. */
+/** The level in force, at every level: full access is the default, so it needs saying most. */
 function createAccessStatus(preferences: PreferencesStore) {
   return function AccessStatus() {
+    const { registry } = useWorkbenchShell();
     const readLevel = () => storedLevel(preferences);
     const level = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
-    if (level === "full") return null;
+    const label = STATUS_LABELS[level];
     return (
-      <button type="button" className="runtime-chip composer-access-status" aria-label={`Access: ${STATUS_LABELS[level]}`} onClick={(event) => {
-        event.currentTarget.closest(".composer-chips")?.querySelector<HTMLElement>('[data-composer-menu]')?.click();
-      }}>
-        {level === "auto" ? <Sparkles size={16} aria-hidden="true" /> : <Lock size={16} aria-hidden="true" />}
-        {STATUS_LABELS[level]}
+      <button
+        type="button"
+        className={`runtime-chip composer-access-status${level === "full" ? " access-full" : ""}`}
+        aria-label={`Access: ${label}`}
+        {...tooltipProps(`Access: ${label}. ${levelSummary(level)}`, { shortcut: registry.keybindingLabel("composer.mode") })}
+        onClick={(event) => {
+          event.currentTarget.closest(".composer-chips")?.querySelector<HTMLElement>('[data-composer-menu]')?.click();
+        }}
+      >
+        {levelIcon(level, 16)}
+        <span className="composer-access-label">{label}</span>
       </button>
     );
   };

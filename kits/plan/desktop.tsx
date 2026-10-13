@@ -50,6 +50,7 @@ function PlanModeControl({ snapshot, actions }: ComposerControlProps) {
 
 /** While a thread plans, the footer says so beside the model; a click goes back to building. */
 function PlanningChip({ snapshot, actions }: ComposerControlProps) {
+  const { registry } = useWorkbenchShell();
   if (snapshot?.mode !== PLAN_MODE || !actions?.setMode) return null;
   const label = "Plan mode — click to return to build mode";
   return (
@@ -58,7 +59,7 @@ function PlanningChip({ snapshot, actions }: ComposerControlProps) {
       className="runtime-chip plan-mode-chip active"
       aria-pressed
       aria-label={label}
-      {...tooltipProps(label)}
+      {...tooltipProps(label, { shortcut: registry.keybindingLabel("plan.toggle") })}
       onClick={() => { void actions.setMode?.(DEFAULT_MODE); }}
     >
       <PencilRuler size={13} />
@@ -248,6 +249,8 @@ export const planKitExtension: DesktopExtension = {
         await actions.setMode(active.mode === PLAN_MODE ? DEFAULT_MODE : PLAN_MODE);
       },
     });
+    // Not ⇧Tab, which cycles the thinking level (Pi's chord). A terminal and Files Kit's editor ("select all matches") keep ⇧⌘L.
+    plugin.registerKeybinding({ keys: "mod+shift+l", commandId: "plan.toggle", when: "!terminalFocus && !editorFocus" });
   },
 };
 
