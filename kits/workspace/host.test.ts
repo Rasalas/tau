@@ -179,6 +179,19 @@ describe("Workspace Kit host extension", () => {
     } finally { await registry.deactivate("tau.workspace"); }
   });
 
+  it("says a private No project folder is projectless in its workspace info", async () => {
+    const stateDir = await workspace();
+    const folder = await workspace();
+    const registry = await activated(folder, { stateDir, knownWorkspacePath: async (id) => id.replace(/^ws1_/u, "") });
+    try {
+      const info = (workspaceId: string) => registry.invoke("tau.workspace", "workspace-info", { workspace: workspaceId });
+      const scratch = await registry.invoke("tau.workspace", "create-scratch") as { workspaceId: string };
+      await expect(info(scratch.workspaceId)).resolves.toMatchObject({ isRepo: false, projectless: true });
+      await expect(info(folder)).resolves.toMatchObject({ isRepo: false });
+      await expect(info(folder)).resolves.not.toHaveProperty("projectless");
+    } finally { await registry.deactivate("tau.workspace"); }
+  });
+
   it("protects home secrets when the active workspace changes between authorization and reading", async () => {
     const home = await workspace();
     vi.mocked(homedir).mockReturnValue(home);

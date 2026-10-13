@@ -8,6 +8,7 @@ const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 interface WorkspaceHostClient {
   listDirectories(path?: string): Promise<unknown>;
   pickFolder(): Promise<unknown>;
+  createScratch(): Promise<unknown>;
   startClone(repositoryUrl: string, parentPath?: string): Promise<unknown>;
   cancelClone(id: string): Promise<unknown>;
   listClones(): Promise<unknown>;
@@ -67,6 +68,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
   const client: WorkspaceHostStubOverrides & Required<WorkspaceHostStubOverrides> = {
     listDirectories: unsupported("listDirectories"),
     pickFolder: unsupported("pickFolder"),
+    createScratch: unsupported("createScratch"),
     startClone: unsupported("startClone"),
     cancelClone: async () => false,
     listClones: async () => [],
@@ -127,6 +129,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     switch (command) {
       case "list-directories": return client.listDirectories(...optional(field<string>(input, "path")));
       case "pick-folder": return client.pickFolder();
+      case "create-scratch": return client.createScratch();
       case "clone-start": return client.startClone(field(input, "repositoryUrl")!, ...optional(field<string>(input, "parentPath")));
       case "clone-cancel": return client.cancelClone(field(input, "id")!);
       case "clone-jobs": return client.listClones();
