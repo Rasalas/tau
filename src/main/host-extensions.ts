@@ -1557,12 +1557,16 @@ export interface HostExtensionRegistryOptions {
 /** A crashed extension starts again on its next call; again after a crash soon after, only once this has passed, doubling. */
 const RESTART_BACKOFF_MS = 10_000;
 const RESTART_BACKOFF_MAX_MS = 5 * 60_000;
+/** Stopped kit instances whose context is remembered for the denial log. */
+const RETIRED_CONTEXTS_KEPT = 64;
 
 export class HostExtensionRegistry {
   private readonly active = new Map<string, ActiveHostExtension>();
   private readonly known = new Map<string, HostExtension>();
   /** Host-issued contexts are valid only while their activation is alive. */
   private readonly invocationContexts = new Map<string, { extensionId: string; record?: ActiveHostExtension }>();
+  /** Contexts of stopped kit instances, newest last: a leftover call they make is still refused, but names its kit. */
+  private readonly retiredContexts = new Map<string, string>();
   private readonly failures = new Map<string, string>();
   private readonly consecutiveFailures = new Map<string, number>();
   /** Halves the list of turned-off extensions kept from running; `followChoices` starts them when it lets go. */
@@ -1681,7 +1685,7 @@ export class HostExtensionRegistry {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.failures.set(extension.id, message);
-      this.invocationContexts.delete(invocationContextId);
+      this.retireContext(invocationContextId);
       activating = false;
       await this.disposeAll(record.disposers).catch(() => undefined);
       await this.disposeAll(registrations).catch(() => undefined);
@@ -1760,12 +1764,20 @@ export class HostExtensionRegistry {
     }
   }
 
+  private retireContext(contextId: string): void {
+    const context = this.invocationContexts.get(contextId);
+    this.invocationContexts.delete(contextId);
+    if (!context) return;
+    this.retiredContexts.set(contextId, context.extensionId);
+    if (this.retiredContexts.size > RETIRED_CONTEXTS_KEPT) this.retiredContexts.delete(this.retiredContexts.keys().next().value!);
+  }
+
   async deactivate(id: string): Promise<void> {
     const record = this.active.get(id);
     if (!record) return;
     this.active.delete(id);
     (this.services.browserResources as (HostBrowserResources & { [REMOVE_BROWSER_RESOURCES]?: (id: string) => void }) | undefined)?.[REMOVE_BROWSER_RESOURCES]?.(id);
-    this.invocationContexts.delete(record.invocationContextId);
+    this.retireContext(record.invocationContextId);
     await this.disposeAll(record.disposers);
   }
 
@@ -1936,11 +1948,13 @@ export class HostExtensionRegistry {
     const caller = context?.extensionId;
     const allowed = caller === extensionId || Boolean(caller && record.commandCallers.get(command)?.has(caller));
     if (allowed) return;
+    // Work a stopped instance left running (a restart after a timeout) still calls with its old context.
+    const stopped = !context && principal.kind === "host-extension" ? this.retiredContexts.get(principal.contextId) : undefined;
     const reason = context
       ? "the host-issued context has no grant for this target command"
-      : "the host-issued context is unknown or expired";
+      : stopped ? "the calling kit instance was stopped" : "the host-issued context is unknown or expired";
     const details = {
-      caller: caller ?? "unknown",
+      caller: caller ?? stopped ?? "unknown",
       target: extensionId,
       command,
       capability: `${extensionId}/${command}`,

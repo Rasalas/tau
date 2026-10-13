@@ -551,10 +551,11 @@ describe("HostExtensionRegistry", () => {
     const expiredInvoke = invokeFromReview;
     const expiredContextId = reviewContextId;
     await r.deactivate("tau.review");
+    // Still refused, but the log names the kit whose stopped instance called.
     await expect(expiredInvoke("tau.workspace", "changes")).rejects.toMatchObject({
       name: "HostAuthorizationError",
       code: "unauthorized",
-      details: { caller: "unknown", target: "tau.workspace", command: "changes" },
+      details: { caller: "tau.review", target: "tau.workspace", command: "changes", reason: "the calling kit instance was stopped" },
     });
     await expect(r.activateKnown("tau.review")).resolves.toBe(true);
     expect(reviewContextId).toMatch(/^[0-9a-f-]{36}$/u);
