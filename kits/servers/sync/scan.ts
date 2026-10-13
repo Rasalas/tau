@@ -41,6 +41,13 @@ export interface ScanOptions {
   onProgress?(listed: number): void;
 }
 
+export class LocalScanError extends Error {
+  constructor(root: string, cause: unknown) {
+    super(`Local sync folder is missing: ${root}`, { cause });
+    this.name = "LocalScanError";
+  }
+}
+
 const below = (path: string, folders: ReadonlySet<string>) => ancestors(path).some((folder) => folders.has(folder));
 
 /** One flat listing (the shell's `find`) through the ignore rules. */
@@ -148,7 +155,7 @@ export async function scanLocal(root: string, ignore: SyncIgnore, options: { sig
       try {
         entries = await readdir(dir ? localPath(root, dir) : root, { withFileTypes: true });
       } catch (error) {
-        if (!dir && (error as NodeJS.ErrnoException).code === "ENOENT") return listing;
+        if (!dir && (error as NodeJS.ErrnoException).code === "ENOENT") throw new LocalScanError(root, error);
         if (!dir) throw error;
         listing.unreadable.push(dir);
         continue;

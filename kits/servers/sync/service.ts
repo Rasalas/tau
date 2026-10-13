@@ -15,7 +15,7 @@ import {
   SYNC_PROGRESS_EVENT, SYNC_PROGRESS_TOPIC,
   type CompareResult, type DownloadResult, type ScanSummary, type SyncOperation, type SyncPhase, type SyncProgress,
 } from "./protocol.js";
-import { scanLocal, scanServer, summarize } from "./scan.js";
+import { LocalScanError, scanLocal, scanServer, summarize } from "./scan.js";
 import { TarError } from "./tar.js";
 
 export interface SyncServiceOptions {
@@ -73,7 +73,7 @@ const flag = (value: unknown, key: string, fallback: boolean) => {
 
 /** What the server or the local Git said is an answer, not a broken command. */
 export function answerError(error: unknown): unknown {
-  if (error instanceof ServerPathError || error instanceof SftpError || error instanceof GitError || error instanceof TarError) return new HostCommandError(error.message);
+  if (error instanceof ServerPathError || error instanceof SftpError || error instanceof GitError || error instanceof TarError || error instanceof LocalScanError) return new HostCommandError(error.message);
   return error;
 }
 

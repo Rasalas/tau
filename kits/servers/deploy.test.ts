@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { HostCommandCall, HostExtensionCommandHandler, HostExtensionContext, HostExtensionServices } from "tau/host-extension";
+import { HostCommandError, type HostCommandCall, type HostExtensionCommandHandler, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
 import { DeployService } from "./deploy";
 import type { DeployPreview, DeployResolveResult, DeployResult, DeploymentRecord } from "./deploy-protocol";
 import { DRIFT_FILE, DriftService } from "./drift";
@@ -128,6 +128,41 @@ describe.skipIf(!posix)("deployments", () => {
   let w: World;
   beforeEach(() => { w = world(); });
   afterEach(async () => { await w.status.idle(); w.status.dispose(); rmSync(w.dir, { recursive: true, force: true }); });
+
+  it.each(["", "site"])("refuses deletion proposals when the local sync root is missing (context %j)", async (context) => {
+    w.target.context = context;
+    await downloaded(w);
+    const localDir = context ? join(w.local, context) : w.local;
+    unlinkSync(join(localDir, "contact.php"));
+    expect((await pendingOf(w)).pending).toContainEqual({ path: "contact.php", change: "deleted", selected: true });
+    await w.status.idle();
+    rmSync(localDir, { recursive: true });
+    w.fs.calls.length = 0;
+
+    const files = [{ path: "contact.php", op: "delete" }];
+    const expected = { message: expect.stringContaining("Local sync folder is missing:"), expected: true };
+    await expect(w.call("compare", { ...ref(w), drift: false })).rejects.toMatchObject(expected);
+    await expect(w.call("deploy-preview", { ...ref(w), files })).rejects.toMatchObject(expected);
+    await expect(w.call("deploy", { ...ref(w), files })).rejects.toBeInstanceOf(HostCommandError);
+    const status = await pendingOf(w);
+    expect(status.error).toContain("Local sync folder is missing:");
+    expect(status.pending).toEqual([]);
+    expect(status.pendingTotal).toBe(0);
+    expect(w.fs.calls).toEqual([]);
+    expect(read(w.server, "contact.php")).toBe("<?php echo 'contact';\n");
+    expect(await readDeployments(w.store, KEY)).toEqual([]);
+  });
+
+  it("still proposes intentional deletions when the local sync root exists but is empty", async () => {
+    await downloaded(w);
+    rmSync(w.local, { recursive: true });
+    mkdirSync(w.local);
+
+    const compared = await w.call<CompareResult>("compare", { ...ref(w), drift: false });
+    expect(compared.pending?.rows.map((row) => row.change)).toEqual(Array(5).fill("deleted"));
+    const preview = await w.call<DeployPreview>("deploy-preview", { ...ref(w), files: [{ path: "contact.php", op: "delete" }] });
+    expect(preview.files).toMatchObject([{ path: "contact.php", outcome: "delete" }]);
+  });
 
   it("uploads chosen changes with the old mode, deletes with a backup, journals it and records the new mirror state", async () => {
     await downloaded(w);
