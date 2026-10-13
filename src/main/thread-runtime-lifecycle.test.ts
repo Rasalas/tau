@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
+import type { HostBackendOpenContext } from "./host-extensions.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -571,4 +573,34 @@ describe("a Pi session two hosts on one machine both reach", () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+it("cancels every backend question only for its thread and ignores a discarded runtime", async () => {
+  const contexts: HostBackendOpenContext[] = [];
+  const ui = new ExtensionUiCoordinator(() => undefined, () => undefined);
+  const provider = {
+    open: async (_id: string, _cwd: string, _options: unknown, context: HostBackendOpenContext) => {
+      contexts.push(context);
+      return externalBackend("thread");
+    },
+  };
+  const { lifecycle } = makeLifecycle({ extensionUi: ui }, { test: provider });
+  const thread = await lifecycle.openExternal("test", "thread", "/repo");
+  const first = contexts[0]!.ask({ kind: "confirm", title: "First approval" });
+  const second = contexts[0]!.ask({ kind: "input", title: "Question" });
+  const other = ui.ask({ id: "other", sessionId: "other-thread", kind: "confirm", title: "Other approval" });
+  contexts[0]!.cancelPrompts!();
+  await expect(first).resolves.toEqual({ cancelled: true });
+  await expect(second).resolves.toEqual({ cancelled: true });
+  expect(ui.hasOpen("thread")).toBe(false);
+  expect(ui.hasOpen("other-thread")).toBe(true);
+  lifecycle.discard(thread);
+  await lifecycle.openExternal("test", "thread", "/repo");
+  const replacement = contexts[1]!.ask({ kind: "confirm", title: "Replacement approval" });
+  contexts[0]!.cancelPrompts!();
+  expect(ui.hasOpen("thread")).toBe(true);
+  contexts[1]!.cancelPrompts!();
+  await expect(replacement).resolves.toEqual({ cancelled: true });
+  ui.cancelFor("other-thread");
+  await other;
 });

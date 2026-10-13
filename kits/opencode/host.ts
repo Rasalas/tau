@@ -378,6 +378,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
               onEvent: thread.onEvent,
               onBackgroundEnded: (text) => { void services.sessions.send?.(threadId, text, { delivery: "queue", wake: { source: "background", label: "Native background task ended" } }).catch((error: unknown) => services.log("background.wake-failed", error instanceof Error ? error.message : String(error))); },
               ask: thread.ask,
+              cancelPrompts: thread.cancelPrompts,
             });
             await backend.start(resume ? "resume" : "create");
             return backend;

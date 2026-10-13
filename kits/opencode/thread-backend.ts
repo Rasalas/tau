@@ -64,6 +64,7 @@ export interface OpenCodeThreadBackendOptions {
   onMessage?(message: UiMessage): void;
   onEvent?(event: ThreadRuntimeEvent): void;
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
+  cancelPrompts?(): void;
   permissionLevel?: () => RuntimePermissionLevel;
   /**
    * What the thread's project lets its commands reach (API 1.14.0). OpenCode
@@ -657,6 +658,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** The event stream ended while the server may still run: the running turn cannot be followed any more. */
   private onStreamEnd(server: OpenCodeServerHandle | undefined, error: Error): void {
     if (!server || this.live?.server !== server) return;
+    this.options.cancelPrompts?.();
     this.live = undefined;
     void server.close().catch(() => undefined);
     this.failRunning(`Lost the connection to OpenCode: ${error.message}`);
@@ -664,11 +666,11 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
 
   private onExit(server: OpenCodeServerHandle | undefined, error: Error | undefined): void {
     if (!server || this.live?.server !== server) return;
+    this.options.cancelPrompts?.();
     this.live.close();
     this.live = undefined;
-    if (!error) return;
-    this.report({ type: "notice", message: error.message, level: "error" });
-    this.failRunning(error.message);
+    if (error) this.report({ type: "notice", message: error.message, level: "error" });
+    this.failRunning(error?.message ?? "OpenCode's server exited.");
   }
 
   private failRunning(message: string): void {

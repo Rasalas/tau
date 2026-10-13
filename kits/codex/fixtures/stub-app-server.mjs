@@ -50,6 +50,10 @@ function threadInfo(id, cwd) {
 }
 
 async function play(name, ids) {
+  if (name === "optionalform") {
+    await ask("mcpServer/elicitation/request", { mode: "form", message: "Details", requestedSchema: { type: "object", properties: { first: { type: "string" }, second: { type: "string" } } } });
+    return;
+  }
   if (name === "title") {
     send({ method: "thread/name/updated", params: { threadId: "other-thread", threadName: "Wrong thread" } });
     send({ method: "thread/name/updated", params: { threadId: ids.thread, threadName: "Bildvorschau im Chat" } });

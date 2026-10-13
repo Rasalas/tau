@@ -1,3 +1,4 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -140,9 +141,10 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBackendOptions["onBackgroundEnded"]; level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean>; onMcpApp?: CodexThreadBackendOptions["onMcpApp"]; appContext?: CodexThreadBackendOptions["appContext"] } = {}) {
+async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBackendOptions["onBackgroundEnded"]; level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean>; onMcpApp?: CodexThreadBackendOptions["onMcpApp"]; appContext?: CodexThreadBackendOptions["appContext"]; cancelPrompts?: () => void } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
+  const processes: ReturnType<typeof spawnRpcProcess>[] = [];
   const backend = new CodexThreadRuntimeBackend("tau-1", space.dir, {
     adapter: createCodexRuntimeAdapter(),
     store: space.store,
@@ -151,7 +153,7 @@ async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBa
       cwd: input.cwd,
       env: { ...process.env, STUB_LOG: space.log, STUB_THREADS: space.threads, CODEX_HOME: join(space.dir, "home") },
       clientVersion: "test",
-      spawn: (spawn) => spawnRpcProcess({ ...spawn, args: options.script ?? [STUB, ...spawn.args] }),
+      spawn: (spawn) => { const child = spawnRpcProcess({ ...spawn, args: options.script ?? [STUB, ...spawn.args] }); processes.push(child); return child; },
       onNotification: input.onNotification,
       onRequest: input.onRequest,
       onExit: input.onExit,
@@ -159,6 +161,7 @@ async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBa
     ...(options.sessionCurrent ? { sessionCurrent: options.sessionCurrent } : {}),
     models: async () => frames.models.map(storedModel),
     onEvent: (event) => events.push(event),
+    cancelPrompts: options.cancelPrompts,
     ask: async (prompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true }; },
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),
@@ -171,7 +174,7 @@ async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBa
   });
   backends.push(backend);
   await backend.start(options.resume ? "resume" : "create");
-  return { backend, events, asked };
+  return { backend, events, asked, processes };
 }
 
 async function sent(space: Scratch): Promise<Array<{ method?: string; params?: Record<string, unknown>; answered?: string; result?: unknown }>> {
@@ -546,4 +549,23 @@ it("receives native children on the app-server without creating indexed Tau thre
   const native = events.flatMap((event) => event.type === "tool-end" && event.tool.kind === "subagent" ? [event.tool] : []);
   expect(native.at(-1)).toMatchObject({ status: "done", args: { agentId: "native-child", title: "Reviewer", agentStatus: "idle" }, output: "Child answer" });
   expect(await space.store.list()).toHaveLength(1);
+});
+
+it.each(["interrupt", "optionalform"])("withdraws an open %s request after process exit and permits session restart", async (scenario) => {
+  const space = await scratch();
+  const dialogs = backendPrompts("tau-1");
+  const { backend, processes } = await open(space, { level: "ask", answer: dialogs.ask, cancelPrompts: dialogs.cancelPrompts });
+  const running = backend.prompt({ text: `Run [scenario:${scenario}]`, delivery: "prompt" });
+  await dialogs.opened;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(true);
+  processes[0]!.kill("SIGKILL");
+  await running;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(false);
+  expect(dialogs.ui.replay()).toEqual([]);
+  expect(dialogs.events).toContainEqual({ type: "extension-ui-resolved", id: "prompt-1", sessionId: "tau-1" });
+  expect(dialogs.answers).toEqual([{ cancelled: true }]);
+  expect(backend.state().idle).toBe(true);
+  await backend.capabilities.restart!.restart();
+  await expect(backend.prompt({ text: "Continue", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "hello" });
 });

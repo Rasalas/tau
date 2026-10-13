@@ -1,3 +1,4 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,7 +33,7 @@ async function scratch(script?: FakeScript) {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => ExtensionUiAnswer; resume?: boolean; tools?: string[]; activity?: TurnActivityStore; threadId?: string; policy?: () => Promise<HostExecutionPolicy> } = {}) {
+async function open(space: Scratch, options: { level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => ExtensionUiAnswer | Promise<ExtensionUiAnswer>; resume?: boolean; tools?: string[]; activity?: TurnActivityStore; threadId?: string; policy?: () => Promise<HostExecutionPolicy>; cancelPrompts?: () => void } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const backend = new OpenCodeThreadRuntimeBackend(options.threadId ?? "tau-1", space.dir, {
@@ -44,6 +45,7 @@ async function open(space: Scratch, options: { level?: RuntimePermissionLevel; a
     },
     storedModels: async () => storedModels(FAKE_PROVIDERS as unknown as OpenCodeProviderList),
     onEvent: (event) => events.push(event),
+    cancelPrompts: options.cancelPrompts,
     ask: async (prompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true }; },
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),
@@ -285,4 +287,29 @@ describe("a prompt's parts", () => {
       { type: "file", mime: "image/png", url: "data:image/png;base64,AAAA", filename: "shot.png" },
     ]);
   });
+});
+
+it.each(["exit", "clean", "stream"])("withdraws an open approval after %s loss and reconnects", async (loss) => {
+  const space = await scratch(replay("tool"));
+  const dialogs = backendPrompts("tau-1");
+  const { backend } = await open(space, { level: "ask", answer: dialogs.ask, cancelPrompts: dialogs.cancelPrompts });
+  const running = backend.prompt({ text: "Run echo hi", delivery: "prompt" });
+  await dialogs.opened;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(true);
+  if (loss === "exit") space.connects[0]!.onExit(new Error("server exited"));
+  else if (loss === "clean") space.connects[0]!.onExit(undefined);
+  else await space.fake.close();
+  await running;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(false);
+  expect(dialogs.ui.replay()).toEqual([]);
+  expect(dialogs.answers).toEqual([{ cancelled: true }]);
+  expect(backend.state().idle).toBe(true);
+  if (loss === "stream") return;
+  await backend.dispose();
+  await backend.start("resume");
+  const next = backend.prompt({ text: "Continue", delivery: "prompt" });
+  await expect.poll(() => dialogs.ui.replay().length).toBe(1);
+  dialogs.cancelPrompts();
+  await next;
+  expect(space.connects).toHaveLength(2);
 });

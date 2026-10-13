@@ -1,3 +1,4 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +43,8 @@ type Scratch = Awaited<ReturnType<typeof scratch>>;
 
 interface OpenOptions {
   level?: RuntimePermissionLevel;
-  answer?: (prompt: BackendPrompt) => ExtensionUiAnswer;
+  answer?: (prompt: BackendPrompt) => ExtensionUiAnswer | Promise<ExtensionUiAnswer>;
+  cancelPrompts?: () => void;
   /** `false`: the host cannot ask. */
   ask?: boolean;
   resume?: boolean;
@@ -87,6 +89,7 @@ async function open(space: Scratch, options: OpenOptions = {}) {
       return space.models;
     },
     onEvent: (event) => events.push(event),
+    cancelPrompts: options.cancelPrompts,
     ...(options.ask === false ? {} : { ask: async (prompt: BackendPrompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true } as ExtensionUiAnswer; } }),
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),
@@ -784,4 +787,19 @@ describe("the same backend on an OpenCode 1 server", () => {
     expect(handles[0]!.api.generation).toBe(1);
     expect(fake.requests.some((request) => request.method === "POST" && request.path === "/session")).toBe(true);
   });
+});
+
+it("withdraws a version 2 approval when its server exits", async () => {
+  const space = await scratch({ script: replay2("permission") });
+  const dialogs = backendPrompts("tau-1");
+  const { backend } = await open(space, { level: "ask", answer: dialogs.ask, cancelPrompts: dialogs.cancelPrompts });
+  const running = backend.prompt({ text: "Run command", delivery: "prompt" });
+  await dialogs.opened;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(true);
+  space.connects[0]!.onExit(new Error("server exited"));
+  await running;
+  expect(dialogs.ui.hasOpen("tau-1")).toBe(false);
+  expect(dialogs.ui.replay()).toEqual([]);
+  expect(dialogs.answers).toEqual([{ cancelled: true }]);
+  expect(backend.state().idle).toBe(true);
 });

@@ -64,6 +64,7 @@ export interface AcpThreadBackendOptions {
   onMessage?(message: UiMessage): void;
   onEvent?(event: ThreadRuntimeEvent): void;
   ask?(prompt: BackendPrompt): Promise<ExtensionUiAnswer>;
+  cancelPrompts?(): void;
   permissionLevel?: () => RuntimePermissionLevel;
   /**
    * What the thread's project lets its commands reach (API 1.14.0). An ACP
@@ -415,8 +416,18 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
     for (const event of events) this.handleEvent(event);
   }
 
+  /** A form may advance past a skipped optional field after its process exits. */
+  protected sessionAsk(session: S | undefined): AcpThreadBackendOptions["ask"] {
+    const ask = this.base.ask;
+    if (!ask) return undefined;
+    return (prompt) => session && !session.closed && this.live === session
+      ? ask(prompt)
+      : Promise.resolve({ cancelled: true });
+  }
+
   protected onExit(session: S | undefined, error: Error | undefined): void {
     if (!session || this.live !== session) return;
+    this.base.cancelPrompts?.();
     this.live = undefined;
     this.clearBackground();
     if (error) this.report({ type: "notice", message: error.message, level: "error" });

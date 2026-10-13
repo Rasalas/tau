@@ -1,3 +1,4 @@
+import { backendPrompts } from "../../src/main/test-support/backend-prompts.js";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1007,4 +1008,30 @@ describe("a turn Claude starts on its own once a background agent finishes", () 
     expect(backend.state()).toMatchObject({ streaming: false, idle: true });
     await backend.dispose();
   });
+});
+
+it("withdraws an open approval after process exit and permits session restart", async () => {
+  const { filePath, store } = await scratchStore();
+  const dialogs = backendPrompts("tau-thread");
+  let turns = 0;
+  const { adapter, opened, sessions } = scriptedAdapter(filePath, async (_content, _priority, input) => {
+    if (turns++ === 0) await input.hooks!.canUseTool!("Bash", { command: "ls" }, { signal: new AbortController().signal, toolUseID: "tool", requestId: "request" });
+    return turn("ok");
+  });
+  const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", permissionLevel: () => "ask", ask: dialogs.ask, cancelPrompts: dialogs.cancelPrompts, onEvent: () => undefined });
+  await backend.start("create");
+  try {
+    const running = backend.prompt({ text: "List files", delivery: "prompt" });
+    await dialogs.opened;
+    expect(dialogs.ui.hasOpen("tau-thread")).toBe(true);
+    await sessions[0]!.close();
+    await running.catch(() => undefined);
+    expect(dialogs.ui.hasOpen("tau-thread")).toBe(false);
+    expect(dialogs.ui.replay()).toEqual([]);
+    expect(dialogs.answers).toEqual([{ cancelled: true }]);
+    expect(backend.state().idle).toBe(true);
+    await backend.capabilities.restart!.restart();
+    await expect(backend.prompt({ text: "Continue", delivery: "prompt" })).resolves.toEqual({ assistantText: "ok" });
+    expect(opened).toHaveLength(2);
+  } finally { await backend.dispose(); }
 });
