@@ -1661,8 +1661,9 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 /* Part of the card: the composer's frame tucks 9 px under whatever sits above it. */
 .prompt-arrival-note { max-width: var(--content-max); margin: 0 auto; padding: 0 14px 14px; background: var(--field); color: var(--muted); font: 12px/1.4 var(--sans); }
 /* The question and the composer under it read as one filled card, a hairline between them (design 1c/1n). */
+/* Leave 5 px below the footer after the composer's 9 px overlap. */
 .extension-prompt {
-  max-width: var(--content-max); margin: 0 auto; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 6px;
+  max-width: var(--content-max); margin: 0 auto; padding: 10px 10px 14px; display: flex; flex-direction: column; gap: 6px;
   border: 1px solid transparent; border-bottom: 0;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-md);
 }
