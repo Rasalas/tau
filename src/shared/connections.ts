@@ -68,6 +68,8 @@ export interface UiPairedClient {
  */
 export interface UiPairingRequest {
   id: string;
+  /** The browser's upgrade Origin; absent for native clients. */
+  origin?: string;
   /** What the device calls itself, if it said; nothing is decided on it. */
   name?: string;
   device: UiClientDevice;

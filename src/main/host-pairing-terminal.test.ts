@@ -44,6 +44,12 @@ describe("pairing on a hand-started host's terminal", () => {
     await expect.poll(written).toMatch(/Allowed \(read only\)/u);
   });
 
+  it("shows a browser's origin in the approval prompt", async () => {
+    const { access, written } = await setup();
+    access.requestPairing({ name: "Tau" }, { address: "127.0.0.1", origin: "http://localhost:7788" }, { settle: () => true });
+    expect(written()).toContain("website http://localhost:7788");
+  });
+
   it("denies on anything but an explicit yes", async () => {
     const { access, input } = await setup();
     const replies: HostPairReply[] = [];

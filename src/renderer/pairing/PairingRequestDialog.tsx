@@ -37,6 +37,7 @@ export function PairingRequestDialog({ request, busy, onAllow, onDeny, onClose }
     <Dialog className="confirm-dialog pairing-request" label={`${requestTitle(request)} wants to connect`} onClose={onClose}>
       <h2>{requestTitle(request)} wants to connect</h2>
       <p>{details.join(" · ")}</p>
+      {request.origin ? <p>Website: {request.origin}</p> : null}
       <output className="pairing-code" aria-label="Pairing code">{formatVerification(request.verification)}</output>
       <p>Allow it only if the device shows this code. A device you let in can use this machine as you can, within what you pick below.</p>
       {request.companion ? (

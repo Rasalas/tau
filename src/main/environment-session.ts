@@ -11,7 +11,7 @@ export interface EnvironmentSessionPolicy {
 /**
  * Lets the workbench page reach saved machines from Chromium (ADR 0025): their
  * pinned keys are accepted for their host names, and the page's own
- * sockets to them carry no `Origin`, which a host lets in over loopback only.
+ * sockets to them and to its own host carry no `Origin`.
  */
 export function installEnvironmentSession(session: Session, policy: EnvironmentSessionPolicy, pageId: () => number | undefined): void {
   session.setCertificateVerifyProc((request, callback) => {
@@ -21,7 +21,8 @@ export function installEnvironmentSession(session: Session, policy: EnvironmentS
     callback(policy.certificateVerdict(request.hostname, presented));
   });
   session.webRequest.onBeforeSendHeaders({ urls: ["ws://*/*", "wss://*/*"] }, (details, callback) => {
-    if (details.webContentsId === undefined || details.webContentsId !== pageId() || !policy.isSavedSocket(details.url)) {
+    if (details.webContentsId === undefined || details.webContentsId !== pageId()
+      || !details.frame || details.frame !== details.webContents?.mainFrame || !policy.isSavedSocket(details.url)) {
       callback({});
       return;
     }

@@ -171,7 +171,9 @@ describe("the machines of a window", () => {
     expect(environments.certificateVerdict("example.com", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_DEFAULT);
     expect(environments.isSavedSocket("wss://100.64.0.9:7788/")).toBe(true);
     expect(environments.isSavedSocket("wss://100.64.0.9:7789/")).toBe(false);
-    expect(environments.isSavedSocket("ws://127.0.0.1:5000/")).toBe(false);
+    expect(environments.isSavedSocket("ws://127.0.0.1:5000/")).toBe(true);
+    expect(environments.isSavedSocket("ws://127.0.0.1:5001/")).toBe(false);
+    expect(environments.isSavedSocket("wss://127.0.0.1:5000/")).toBe(false);
   });
 
   it("moves a certificate pin to the key on the next hello that pin let in, and refuses a changed key from then on", async () => {

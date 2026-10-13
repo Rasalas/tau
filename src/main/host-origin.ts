@@ -1,4 +1,4 @@
-import { isLoopbackPeer } from "./host-local-files.js";
+import { isLoopbackHost } from "./host-listen.js";
 
 /** Extra page origins a host accepts sockets from, comma-separated (a native shell's, a proxy's public name). */
 export const ALLOWED_ORIGINS_ENV = "TAU_HOST_ALLOWED_ORIGINS";
@@ -9,28 +9,46 @@ export interface SocketOrigin {
   origin?: string;
   /** The `Host` header: the name the page used to reach this listener. */
   host?: string;
-  peerAddress?: string;
+  /** The address and port this connection actually reached, including attached listeners. */
+  listenerAddress?: string;
+  listenerPort?: number;
   /** Behind a proxy, the host the page reached the proxy at (`X-Forwarded-Host`); only a proxy listener sets it. */
   forwardedHost?: string;
 }
 
-/**
- * Whether a socket may talk to this host at all. The token in the hello is the
- * real gate; this keeps a page on another site from even trying one. No
- * `Origin` is a client that is not a browser page. A page is let in when it
- * came from this listener, is named in `allowed`, or is Electron's `file://`
- * window on this machine.
- */
+/** Checks the listener authority before an Origin or any unauthenticated pairing frame. */
 export function originAllowed(request: SocketOrigin, allowed: readonly string[] = []): boolean {
+  if (!hostAllowed(request, allowed)) return false;
   const origin = request.origin?.trim();
   if (!origin) return true;
+  if (/^file:/iu.test(origin)) return false;
   const normalized = normalizeOrigin(origin);
   if (normalized && allowed.some((entry) => normalizeOrigin(entry) === normalized)) return true;
-  if (origin === "file://") return isLoopbackPeer(request.peerAddress);
   if (!normalized || !/^https?:/u.test(normalized)) return false;
   const host = new URL(normalized).host;
   if (request.forwardedHost && host === request.forwardedHost.trim().toLowerCase()) return true;
-  return request.host !== undefined && host === request.host.trim().toLowerCase();
+  return host === request.host?.trim().toLowerCase();
+}
+
+function hostAllowed(request: SocketOrigin, allowed: readonly string[]): boolean {
+  const host = request.host?.trim().toLowerCase();
+  if (!host || !/^[^\s/@?#\\]+$/u.test(host)) return false;
+  try {
+    const url = new URL(`http://${host}`);
+    const port = /:(\d+)$/u.exec(host)?.[1];
+    const listenerPort = request.listenerPort;
+    const samePort = port ? Number(port) === listenerPort : listenerPort === 80 || listenerPort === 443;
+    const address = request.listenerAddress?.replace(/^::ffff:/u, "").replace(/^\[|\]$/gu, "");
+    const hostname = url.hostname.replace(/^\[|\]$/gu, "");
+    if (samePort && (isLoopbackHost(hostname) || hostname === address)) return true;
+    return allowed.some((entry) => {
+      const normalized = normalizeOrigin(entry);
+      if (!normalized || !/^https?:/u.test(normalized)) return false;
+      return new URL(`http://${new URL(normalized).host}`).host === url.host;
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** The last `X-Forwarded-Host` hop, the one the proxy itself added. */

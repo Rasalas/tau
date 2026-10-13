@@ -615,7 +615,7 @@ describe("socket host transport on a network that drops peers", () => {
       page.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
       expect((await nextFrame(page)).type).toBe("hello-reply");
       expect(await closed(connect(port, { origin: "https://evil.example", headers: { "x-forwarded-host": "mac.tailnet.ts.net" } }))).toBe(4403);
-      // Electron's file:// counts as this machine only on the loopback listener, never behind a proxy.
+      // File origins are refused on every listener.
       expect(await closed(connect(port, { origin: "file://" }))).toBe(4403);
       // The loopback listener takes no forwarded host from anyone.
       expect(await closed(connect(started.port, served))).toBe(4403);
