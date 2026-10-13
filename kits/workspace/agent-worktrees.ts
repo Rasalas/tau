@@ -357,15 +357,33 @@ export async function applyAgentWorktree(options: {
   const base = await readBranchBase(worktree.path, worktree.branch, runGit);
   const tree = await captureWorktreeTree(worktree.path, runGit);
   const patch = await runGit(worktree.path, ["diff", "--binary", base ?? "HEAD", tree]);
+  const parentRoot = (await runGit(parentCwd, ["rev-parse", "--show-toplevel"])).trim();
   try {
-    await runGit(parentCwd, ["apply", "--check", "--binary", "-"], { stdin: patch });
+    await runGit(parentRoot, ["apply", "--check", "--binary", "-"], { stdin: patch });
   } catch (error) {
     throw new Error(
       `The changes of ${worktree.branch} do not apply to this checkout: ${error instanceof Error ? error.message.split("\n").slice(0, 3).join(" ") : String(error)}`,
       { cause: error },
     );
   }
-  await runGit(parentCwd, ["apply", "--binary", "-"], { stdin: patch });
+  const directory = await mkdtemp(join(tmpdir(), "tau-agent-apply-"));
+  const indexFile = join(directory, "index");
+  try {
+    // Predict the complete result in a private index before touching the checkout.
+    const before = await captureWorktreeTree(parentRoot, runGit);
+    await runGit(parentRoot, ["read-tree", before], { indexFile });
+    await runGit(parentRoot, ["apply", "--cached", "--binary", "-"], { indexFile, stdin: patch });
+    const expected = (await runGit(parentRoot, ["write-tree"], { indexFile })).trim();
+    const affected = await changedPaths(parentRoot, before, expected, runGit);
+    await runGit(parentRoot, ["apply", "--binary", "-"], { stdin: patch });
+    const actual = await captureWorktreeTree(parentRoot, runGit);
+    const missing = [...(await changedPaths(parentRoot, expected, actual, runGit)).keys()].filter((path) => affected.has(path));
+    if (missing.length > 0) {
+      throw new Error(`The changes of ${worktree.branch} were not fully applied: ${missing.join(", ")}. The child's worktree and branch were kept.`);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
   return { branch: worktree.branch, strategy: "patch", files: changes.files, added: changes.added, removed: changes.removed, detail: `Applied ${summary} from ${worktree.branch}.` };
 }
 

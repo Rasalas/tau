@@ -525,6 +525,7 @@ describe("Agents Kit", () => {
       if (command.startsWith("rev-parse --is-inside-work-tree")) return "true\n";
       if (command.startsWith("rev-parse --verify HEAD")) return "headcommit\n";
       if (command.startsWith("rev-parse --path-format=absolute")) return `${project}/.git\n`;
+      if (command === "rev-parse --show-toplevel") return `${project}\n`;
       if (command === "rev-parse headcommit^{tree}") return "headtree\n";
       if (command.startsWith("commit-tree")) return "snapshotcommit\n";
       if (command.startsWith("config --get")) return "snapshotcommit\n";
@@ -564,6 +565,65 @@ describe("Agents Kit", () => {
     // Its worktree is gone, so there is nothing left to take.
     await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId })).rejects.toThrow(/already applied/u);
     await rm(root, { recursive: true, force: true });
+  });
+
+  it.each([false, true])("verifies a whole-repo apply before removing a child's worktree (skipped paths: %s)", async (skipOutside) => {
+    const root = await mkdtemp(join(tmpdir(), "tau-agent-subdirectory-"));
+    try {
+      const repo = join(root, "project");
+      const project = join(repo, "packages", "app");
+      await mkdir(project, { recursive: true });
+      const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "config", "user.name", "Tau");
+      git(repo, "config", "user.email", "tau@example.invalid");
+      await writeFile(join(project, "app.txt"), "original app\n");
+      await writeFile(join(repo, "library.txt"), "original library\n");
+      await writeFile(join(repo, "obsolete.txt"), "obsolete\n");
+      await writeFile(join(repo, "bytes.bin"), Buffer.from([0, 1, 2]));
+      await writeFile(join(repo, "move-from.txt"), "move this\n");
+      git(repo, "add", "-A");
+      git(repo, "commit", "-qm", "initial");
+      const runGit: AgentGitRunner = (cwd, args, options) =>
+        runAgentGit(skipOutside && args[0] === "apply" && !args.includes("--check") && !args.includes("--cached") ? project : cwd, args, options);
+      const bench = await activated({ runGit, settingsPath: join(root, "settings.json") });
+      bench.setProject(project);
+      const parent = bench.runtime("parent", project);
+      const spawned = await parent.call("tau_spawn_thread", { prompt: "Update app and library" }) as { threadId: string; branch: string };
+      const child = bench.started[0]!.cwd;
+      await writeFile(join(child, "packages", "app", "app.txt"), "updated app\n");
+      await writeFile(join(child, "library.txt"), "updated library\n");
+      await writeFile(join(child, "new-library.txt"), "new library\n");
+      await rm(join(child, "obsolete.txt"));
+      await writeFile(join(child, "bytes.bin"), Buffer.from([0, 3, 4]));
+      await rename(join(child, "move-from.txt"), join(child, "move-to.txt"));
+      await writeFile(join(repo, "parent-draft.txt"), "parent work\n");
+      bench.threads.get(spawned.threadId)!.streaming = false;
+      await bench.notify("ended", spawned.threadId);
+
+      if (skipOutside) {
+        await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId })).rejects.toThrow(/not fully applied/u);
+        expect(await readFile(join(child, "library.txt"), "utf8")).toBe("updated library\n");
+        expect(await readFile(join(child, "new-library.txt"), "utf8")).toBe("new library\n");
+        expect(git(repo, "worktree", "list")).toContain(child);
+        expect(git(repo, "branch", "--list", spawned.branch)).toContain(spawned.branch);
+        expect((await bench.state()).links[0]?.workspace?.settled).toBeUndefined();
+        return;
+      }
+      await parent.call("tau_apply_thread_changes", { threadId: spawned.threadId });
+      expect(await readFile(join(project, "app.txt"), "utf8")).toBe("updated app\n");
+      expect(await readFile(join(repo, "library.txt"), "utf8")).toBe("updated library\n");
+      expect(await readFile(join(repo, "new-library.txt"), "utf8")).toBe("new library\n");
+      await expect(readFile(join(repo, "obsolete.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(join(repo, "bytes.bin"))).toEqual(Buffer.from([0, 3, 4]));
+      await expect(readFile(join(repo, "move-from.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(join(repo, "move-to.txt"), "utf8")).toBe("move this\n");
+      expect(await readFile(join(repo, "parent-draft.txt"), "utf8")).toBe("parent work\n");
+      expect(git(repo, "worktree", "list")).not.toContain(child);
+      expect(git(repo, "branch", "--list", spawned.branch)).toBe("");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("starts a child from HEAD and the uncommitted work, so a commit made after the parent's last turn survives the merge", async () => {
