@@ -94,9 +94,8 @@ interface Session {
 
 /**
  * The session table. Keyed by session id; every record carries the workspace
- * id it belongs to and, when one asked for it, the thread id. A session dies
- * with its workspace (closeWorkspace) or with the kit (dispose), never with
- * the window or client that opened it.
+ * id it belongs to and, when one asked for it, the thread id. Sessions survive
+ * navigation and end on explicit close, thread deletion or host shutdown.
  */
 export class TerminalSessions {
   private readonly sessions = new Map<string, Session>();
@@ -387,8 +386,8 @@ export async function loadNodePty(loadDependency: (name: string) => Promise<unkn
 
 /**
  * Terminal Kit's host entry: pty sessions per workspace, the commands the
- * panel calls, and the pushes the panel renders from. The shell dies with the
- * workspace or the kit, never with the window.
+ * panel calls, and the pushes the panel renders from. Shells survive project
+ * switches and end with their thread or the kit.
  */
 export function createTerminalHostExtension(
   spawn?: PtyFactory,
@@ -485,11 +484,10 @@ export function createTerminalHostExtension(
         return process ? { process } : {};
       }, { access: "read" });
 
-      // Terminals die with the workspace they belong to, and with the thread
-      // that opened them — both are the host's own word, not a guess from the
-      // root of the workspace that opened next.
+      // Leaving a project is navigation; its shells may still be doing work.
       const unhook = context.services.registerThreadLifecycle({
         afterWorkspaceClose: async (cwd, reason) => {
+          if (reason === "switch") return;
           const closed = sessions.closeWorkspace(cwd);
           if (closed > 0) context.services.log("terminal.workspace-closed", `${closed} terminal(s) closed with ${cwd} (${reason})`);
         },

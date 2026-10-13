@@ -3525,7 +3525,7 @@ optional; the host awaits them in registration order.
 | `HostThreadLifecycle` | Runs when |
 |---|---|
 | `beforeWorkspace(cwd)` | before a workspace's first thread opens — startup, project switch. Repair what you keep beside its sessions here. |
-| `afterWorkspaceClose(cwd, reason)` | after the host left a workspace and before `beforeWorkspace` of the next one; `reason` is `"switch"` or `"shutdown"`, and at shutdown every open workspace gets one. Release what belonged to it: shells, watchers, caches. |
+| `afterWorkspaceClose(cwd, reason)` | after the host left a workspace and before `beforeWorkspace` of the next one; `reason` is `"switch"` or `"shutdown"`, and at shutdown every open workspace gets one. Release navigation-scoped watchers and caches on a switch. Keep thread-owned work until `threadDeleted` or shutdown; Terminal Kit retains shells across switches. |
 | `beforeOpen(session)` | before a runtime is built for a session file. |
 | `afterFork(source, target)` | after a fork wrote its session file, before that file's runtime opens. |
 | `beforeActivate(thread)` | before a thread goes on screen; may answer with a `{ commit, rollback }` transaction (in-process only). |
