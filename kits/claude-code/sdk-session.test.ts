@@ -50,6 +50,48 @@ function open(query: ClaudeQuery) {
 }
 
 describe("ClaudeSdkSession", () => {
+  it("reports a thrown authentication failure with a login hint and aborts the session", async () => {
+    const { query, aborted } = sessionQuery(() => { throw new Error("Failed to authenticate: OAuth session expired and could not be refreshed"); });
+    const { session, exits } = open(query);
+    await expect(session.send("hello", "next")).rejects.toThrow("claude auth login");
+    expect(session.closed).toBe(true);
+    expect(aborted()).toBe(true);
+    expect(exits[0]).toMatchObject({ name: "ClaudeAuthenticationError" });
+  });
+
+  it("keeps the session available when ordinary replies or tool errors discuss an expired login", async () => {
+    const { query, aborted } = sessionQuery((message) => [
+      assistant("Failed to authenticate: OAuth session expired and could not be refreshed"),
+      frame({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "shell", is_error: true, content: "Not logged in. Please run /login" }] } }),
+      result([message.uuid!]),
+    ]);
+    const { session } = open(query);
+    await session.send("Check the service's login", "next");
+    expect(session.closed).toBe(false);
+    expect(aborted()).toBe(false);
+    await session.close();
+  });
+
+  it.each([null, "agent-call"])("ends the entire session on an authentication failure from %s without waiting for a result", async (parent) => {
+    const { query, aborted, received } = sessionQuery(() => [
+      frame({ type: "assistant", parent_tool_use_id: parent, error: "authentication_failed", message: { role: "assistant", content: [{ type: "text", text: "Failed to authenticate: OAuth session expired and could not be refreshed" }] } }),
+      assistant("Must never run"),
+    ]);
+    const { session, exits, seen } = open(query);
+    const pending = session.send("Delegate", "next");
+    const queued = session.send("Queued", "later");
+    try {
+      await expect(pending).rejects.toThrow(/sign in|log in|login/iu);
+      await expect(queued).rejects.toThrow(/sign in|log in|login/iu);
+      expect(session.closed).toBe(true);
+      expect(session.busy).toBe(false);
+      expect(aborted()).toBe(true);
+      expect(received).toHaveLength(1);
+      expect(seen).toEqual(["system", "assistant"]);
+      expect(exits).toHaveLength(1);
+    } finally { await session.close(); }
+  }, 2_000);
+
   it("settles each send with the result that consumed it, in order", async () => {
     const { query, received } = sessionQuery((message) => [assistant(`re: ${JSON.stringify(message.message.content)}`), result([message.uuid!])]);
     const { session, seen } = open(query);

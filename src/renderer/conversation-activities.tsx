@@ -7,6 +7,7 @@ import { WorkDisclosures } from "./components/work-disclosures";
 import { completedWorkMetadata, type TranscriptActivity } from "./components/transcript-activity";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
+import { toolCardTranscriptRows } from "./tool-card-transcript-rows";
 
 export interface ConversationActivityInput {
   pendingNewThread: boolean;
@@ -75,7 +76,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
       // The answer tells a tool that belonged to the turn from work that
       // started after it, which is the one thing the fold treats differently.
       const answerAt = answerTimestampAfter(messages ?? [], entry.anchorMessageId);
-      return splitActivityTools(entry.tools.filter(isActivityTool), messages ?? [], entry.anchorMessageId).map((segment, index) => ({
+      return splitActivityTools(entry.tools.filter(isActivityTool), messages ?? [], entry.anchorMessageId, (tool) => Boolean(registry.toolCardFor(tool))).map((segment, index) => ({
         id: index === 0 ? entry.id : `${entry.id}:${segment.tools[0].id}`,
         afterMessageId: segment.anchorMessageId,
         ...completedWorkMetadata(segment.tools, entry.status, (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(entry.tools[0]!.id)),
@@ -130,7 +131,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
     }))),
     ...(liveTaskProgress ? [{ id: "live-task-progress", afterMessageId: visibleToolAnchorId, fallbackToTail: true, content: liveTaskProgress }] : []),
     ...extensionRows,
-    ...splitActivityTools(conversationActivityTools, messages ?? [], visibleToolAnchorId).map((segment, index, segments) => ({
+    ...splitActivityTools(conversationActivityTools, messages ?? [], visibleToolAnchorId, (tool) => Boolean(registry.toolCardFor(tool))).map((segment, index, segments) => ({
       id: index === 0 ? "turn-activity" : `turn-activity:${segment.tools[0].id}`,
       afterMessageId: segment.anchorMessageId,
       ...completedWorkMetadata(segment.tools, !conversationSnapshot?.isStreaming && prompts.length === 0 ? "completed" : "running", (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(conversationActivityTools[0]!.id)),
@@ -153,13 +154,14 @@ export function useConversationActivities(input: ConversationActivityInput) {
         onLoadOutput={loadToolOutput}
       />,
     })),
+    ...toolCardTranscriptRows([...conversationActivityHistory.flatMap((entry) => entry.tools), ...conversationActivityTools], messages ?? [], registry, actions),
   ], [abort, abortSessionId, actions, conversationActivityTools, prompts.length, replied, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId, messages]);
 
   return { thinking, liveStatusLabel, transcriptActivities };
 }
 
 /** Keep calls in message order, including work after a steering prompt and its reply. */
-function splitActivityTools(tools: readonly UiToolRun[], messages: readonly UiMessage[], anchorMessageId?: string) {
+function splitActivityTools(tools: readonly UiToolRun[], messages: readonly UiMessage[], anchorMessageId?: string, persistent: (tool: UiToolRun) => boolean = () => false) {
   const anchorIndex = anchorMessageId === undefined ? -1 : messages.findIndex((message) => message.id === anchorMessageId || message.sourceEntryId === anchorMessageId);
   const following = anchorIndex < 0 ? [] : messages.slice(anchorIndex + 1);
   const segments: { anchorMessageId?: string; tools: UiToolRun[] }[] = [];
@@ -167,7 +169,8 @@ function splitActivityTools(tools: readonly UiToolRun[], messages: readonly UiMe
     let anchor = anchorMessageId;
     for (const message of following) {
       if (message.role === "user") {
-        if (tool.status !== "running" && message.timestamp > tool.startedAt) break;
+        // Persistent cards keep their call position while the work they started continues.
+        if ((tool.status !== "running" || persistent(tool)) && message.timestamp > tool.startedAt) break;
         anchor = message.id;
         continue;
       }

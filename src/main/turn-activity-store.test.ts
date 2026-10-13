@@ -144,11 +144,12 @@ it("keeps tool images after restarting", async () => {
 it("persists native activity metadata and equal-length result updates, restoring detached agents as idle", async () => {
   const store = new TurnActivityStore({ directory });
   await store.load("parent");
-  const agent = run("native", "running", { kind: "subagent", args: { agentId: "child", title: "Alpha", agentStatus: "running" }, output: "one" });
+  const reports = [{ id: "1", timestamp: 2, status: "completed" }];
+  const agent = run("native", "running", { kind: "subagent", args: { agentId: "child", title: "Alpha", agentStatus: "running", reports }, output: "one" });
   await store.save("parent", turn("first", "completed", [agent]));
   await store.save("parent", turn("second", "completed", [run("ordinary", "done")]));
   await store.save("parent", turn("first", "completed", [{ ...agent, args: { ...agent.args, title: "Bravo" }, output: "two" }]));
   const restored = await new TurnActivityStore({ directory }).load("parent");
-  expect(restored[0]?.tools[0]).toMatchObject({ kind: "subagent", status: "done", args: { title: "Bravo", agentStatus: "idle" }, output: "two" });
+  expect(restored[0]?.tools[0]).toMatchObject({ kind: "subagent", status: "done", args: { title: "Bravo", agentStatus: "idle", reports }, output: "two" });
   expect(restored[1]?.tools[0]?.id).toBe("ordinary");
 });

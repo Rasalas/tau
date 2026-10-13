@@ -20,6 +20,7 @@ export interface ClaudeStoredMessage {
   /** A `notice` is a compaction's divider with `compaction`, or a line Tau wrote itself (a stop, a goal's end). */
   role: "user" | "assistant" | "notice";
   text: string;
+  error?: string;
   timestamp: number;
   clientMessageId?: string;
   skill?: UiSkillInvocation;
@@ -99,6 +100,7 @@ interface StoredMessageOnDisk {
   role: "user" | "assistant" | "notice";
   text?: string;
   textChunks?: string[];
+  error?: string;
   timestamp: number;
   clientMessageId?: string;
   skill?: UiSkillInvocation;
@@ -133,6 +135,7 @@ function serializeMessage(message: ClaudeStoredMessage): StoredMessageOnDisk {
     role: message.role,
     ...(chunks.length === 1 ? { text: chunks[0] } : { textChunks: chunks }),
     timestamp: message.timestamp,
+    ...(message.error ? { error: message.error } : {}),
     ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
     ...(message.skill ? { skill: { ...message.skill } } : {}),
     ...(message.compaction ? { compaction: { ...message.compaction } } : {}),
@@ -244,6 +247,7 @@ function storedMessage(value: unknown): ClaudeStoredMessage | undefined {
   return {
     role: item.role,
     text,
+    ...(item.role === "assistant" && typeof item.error === "string" ? { error: item.error } : {}),
     timestamp,
     ...(clientMessageId ? { clientMessageId } : {}),
     ...(skill ? { skill } : {}),
@@ -668,6 +672,7 @@ export class ClaudeRuntimeSessionStore {
         role: message.role,
         text: visibleText,
         timestamp: message.timestamp,
+        ...(message.role === "assistant" && message.error ? { error: message.error } : {}),
         ...(compaction ? { compaction } : {}),
         ...(clientMessageId ? { clientMessageId } : {}),
         ...(parsedSkill && knownSkills.has(parsedSkill.name)

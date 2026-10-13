@@ -61,13 +61,15 @@ async function processGuardian(): Promise<void> {
     windowsVerbatimArguments: input.windowsVerbatimArguments,
   });
   child.stdin.on("error", () => undefined);
-  process.stdin.pipe(child.stdin);
+  // Capture descendants before EOF can make the CLI exit and orphan them.
+  process.stdin.pipe(child.stdin, { end: false });
   child.stdout.pipe(process.stdout);
   child.stderr.pipe(process.stderr);
   let stopping = false;
+  const observed = new Map<number, string>();
 
   // No command lines or environments leave this process.
-  function owned(): Map<number, string> {
+  function owned(includeEnvironment = true): Map<number, string> {
     const found = new Map<number, string>();
     if (process.platform === "linux") {
       for (const name of readdirSync("/proc")) {
@@ -79,11 +81,26 @@ async function processGuardian(): Promise<void> {
         } catch { /* exited or inaccessible */ }
       }
     } else if (process.platform === "darwin") {
-      const output = execFileSync("/bin/ps", ["axeww", "-o", "pid=,lstart=,command="], { encoding: "utf8", timeout: 2_000, maxBuffer: 64 * 1024 * 1024 });
+      const fields = includeEnvironment ? ["axeww", "-o", "pid=,ppid=,lstart=,command="] : ["axo", "pid=,ppid=,lstart="];
+      const output = execFileSync("/bin/ps", fields, { encoding: "utf8", timeout: 2_000, maxBuffer: 64 * 1024 * 1024 });
+      const rows = new Map<number, { parent: number; identity: string; marked: boolean }>();
       for (const row of output.split("\n")) {
-        const match = /^\s*(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s/u.exec(row);
-        if (match && row.split(/\s+/u).includes(`${variable}=${input.token}`)) found.set(Number(match[1]), match[2]!);
+        const match = /^\s*(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)(?:\s|$)/u.exec(row);
+        if (match) rows.set(Number(match[1]), { parent: Number(match[2]), identity: match[3]!.replace(/\s+/gu, " "), marked: includeEnvironment && row.split(/\s+/u).includes(`${variable}=${input.token}`) });
       }
+      // macOS hides environments of protected binaries such as /bin/sh.
+      // Remember proven descendants while their parent exists, then retain
+      // only the same PID and creation time when they become orphans.
+      for (const [pid, row] of rows) {
+        if (row.marked || observed.get(pid) === row.identity || (pid === child.pid && child.exitCode === null && child.signalCode === null)) found.set(pid, row.identity);
+      }
+      let added = true;
+      while (added) {
+        added = false;
+        for (const [pid, row] of rows) if (!found.has(pid) && found.has(row.parent)) { found.set(pid, row.identity); added = true; }
+      }
+      observed.clear();
+      for (const [pid, identity] of found) observed.set(pid, identity);
     }
     return found;
   }
@@ -91,6 +108,8 @@ async function processGuardian(): Promise<void> {
   async function stop(code: number | null, signal: NodeJS.Signals | null): Promise<void> {
     if (stopping) return;
     stopping = true;
+    clearTimeout(observation);
+    try { owned(); } catch { /* still signal the process group */ }
     process.stdin.unpipe(child.stdin);
     child.stdin.destroy();
     const send = (termination: NodeJS.Signals) => {
@@ -130,6 +149,20 @@ async function processGuardian(): Promise<void> {
     } else process.exit(code ?? 1);
   }
 
+  // A CLI can exit before cleanup reads its children. Capture the ancestry
+  // too; environment ownership remains sufficient on Linux.
+  const observingSince = Date.now();
+  let observation: ReturnType<typeof setTimeout> | undefined;
+  const observe = () => {
+    if (stopping) return;
+    try { owned(false); } catch { /* a stop still takes its own snapshot */ }
+    // The first tools can fork and exit during CLI startup. Sample that
+    // brief window more often, then reduce the steady-state overhead.
+    observation = setTimeout(observe, Date.now() - observingSince < 1_000 ? 25 : 250);
+    observation.unref();
+  };
+  if (process.platform === "darwin") { observation = setTimeout(observe, 25); observation.unref(); }
+
   child.once("error", (error) => { process.stderr.write(`${error.message}\n`); void stop(1, null); });
   // An owner that dies also closes stdout/stderr. EPIPE must not kill the
   // guardian before it has finished stopping SIGTERM-resistant descendants.
@@ -138,6 +171,12 @@ async function processGuardian(): Promise<void> {
   }
   // Inherited stdout must not postpone cleanup until `close`.
   child.once("exit", (code, signal) => { void stop(code, signal); });
+  process.stdin.once("end", () => {
+    try { owned(); } catch { /* cleanup still takes its own snapshot */ }
+    // One-shot requests close input before their answer. Preserve graceful
+    // EOF while recording the descendants before the CLI can exit.
+    child.stdin.end();
+  });
   process.once("disconnect", () => { void stop(null, "SIGTERM"); });
   process.on("message", (message) => {
     const command = message as { stop?: NodeJS.Signals };

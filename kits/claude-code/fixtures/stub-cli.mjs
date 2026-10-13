@@ -124,6 +124,23 @@ function streamTurns() {
 
   async function play(prompt) {
     callContext = /\blong\b/iu.test(prompt) ? 150_000 : 0;
+    if (/\[scenario:(?:auth-(parent|child)|agents)\]/u.test(prompt)) {
+      const agents = prompt.includes("[scenario:agents]");
+      const child = agents || prompt.includes("[scenario:auth-child]");
+      for (let index = 1; index <= 3; index += 1) {
+        assistant([{ type: "tool_use", id: `auth-call-${index}`, name: "Agent", input: { description: `Review ${index}`, run_in_background: true } }]);
+        send({ type: "system", subtype: "task_started", task_id: `auth-task-${index}`, tool_use_id: `auth-call-${index}`, task_type: "local_agent", is_backgrounded: true, description: `Review ${index}` });
+      }
+      if (child) {
+        assistant([{ type: "text", text: "Delegated." }]);
+        send({ type: "result", subtype: "success", is_error: false, num_turns: 1, result: "Delegated.", total_cost_usd: 0, usage: {}, modelUsage: {} });
+      }
+      if (agents) return;
+      await sleep(100);
+      send({ type: "assistant", error: "authentication_failed", parent_tool_use_id: child ? "auth-call-1" : null, message: { id: randomUUID(), type: "message", role: "assistant", model, content: [{ type: "text", text: "Failed to authenticate: OAuth session expired and could not be refreshed" }], usage: {} } });
+      // No result or task notifications follow: Tau must stop the session.
+      return;
+    }
     if (/\[scenario:(background|service|reported)\]/u.test(prompt)) {
       const service = prompt.includes("[scenario:service]");
       if (prompt.includes("[scenario:reported]")) {
