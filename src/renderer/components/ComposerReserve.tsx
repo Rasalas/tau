@@ -54,7 +54,7 @@ export function ComposerReserve() {
       const next = resolveComposerReserve(state, {
         dock,
         host: host.getBoundingClientRect().height,
-        folded: host.querySelector(".composer-zone.collapsed") !== null,
+        folded: host.querySelector(".composer-zone.collapsed, .composer-zone.folding") !== null,
       });
       if (next.reserve !== state.reserve) column.style.setProperty(COMPOSER_RESERVE_PROPERTY, `${next.reserve}px`);
       state = next;

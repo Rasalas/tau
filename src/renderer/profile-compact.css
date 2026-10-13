@@ -211,10 +211,15 @@ body[data-profile="compact"] .conversation-start .composer-frame { border-radius
 body[data-profile="compact"] .composer-frame textarea { min-height: var(--touch-target); }
 /* Fold the controls while reading history; the text line remains a full touch target. */
 body[data-profile="compact"] .composer-toolbar {
-  max-height: calc(var(--touch-target) + var(--space-2) + var(--space-3));
+  max-height: calc((var(--touch-target) + var(--space-2) + var(--space-3)) * (1 - var(--composer-fold, 0)));
+  padding-block: calc(var(--space-2) * (1 - var(--composer-fold, 0))) calc(var(--space-3) * (1 - var(--composer-fold, 0)));
+  /* Fade the controls before the shrinking row clips their glyphs. */
+  opacity: max(0, calc(1 - var(--composer-fold, 0) * 2));
   overflow: hidden;
   transition: max-height 160ms cubic-bezier(.2, .8, .2, 1), padding-block 160ms cubic-bezier(.2, .8, .2, 1), opacity 100ms ease;
 }
+/* Direct manipulation follows the finger; only opening by tap uses the transition. */
+body[data-profile="compact"] .composer-zone.fold-following .composer-toolbar { transition: none; }
 body[data-profile="compact"] .composer-zone.collapsed .composer-toolbar {
   display: flex; max-height: 0; padding-block: 0; opacity: 0; overflow: hidden; visibility: hidden;
 }

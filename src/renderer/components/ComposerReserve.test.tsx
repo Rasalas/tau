@@ -93,6 +93,19 @@ describe("ComposerReserve", () => {
     expect(dock.column.style.getPropertyValue(COMPOSER_RESERVE_PROPERTY)).toBe("");
     expect(dock.column.style.getPropertyValue(COMPOSER_DOCK_PROPERTY)).toBe("");
   });
+
+  it("keeps the unfolded reservation during a partial mobile fold", () => {
+    const dock = mount();
+    heights.set(dock.probe, 138);
+    heights.set(dock.host, 138);
+    dock.resize();
+    dock.zone.classList.add("folding");
+    heights.set(dock.probe, 109);
+    heights.set(dock.host, 109);
+    dock.resize();
+    expect(dock.reserve()).toBe("138px");
+    expect(dock.column.style.getPropertyValue(COMPOSER_DOCK_PROPERTY)).toBe("109px");
+  });
 });
 
 describe("the thread's layout", () => {
