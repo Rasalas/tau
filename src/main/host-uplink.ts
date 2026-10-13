@@ -13,7 +13,7 @@ export interface HostUplinkOptions {
   token: string;
   onPush?(push: HostPush): void;
   onCall?(call: HostClientCall): void;
-  helloFields?(): Pick<HostHello, "windowId" | "windowHalves" | "subscription">;
+  helloFields?(): Pick<HostHello, "windowId" | "windowHalves" | "subscription" | "nativeGrants">;
   onHello?(reply: HostHelloReply, certificate?: ReachedCertificate): void;
   logger?: HostLogger;
   requestTimeoutMs?: number;
@@ -110,8 +110,11 @@ export class HostUplink {
         const { trust } = this.options;
         const createConnection = url.startsWith("wss:") && trust
           ? hostTlsConnect(trust, (presented, via) => { this.certificate = { presented, via }; }) : undefined;
-        const socket = new WebSocket(url, createConnection
-          ? { createConnection: createConnection as unknown as ClientOptions["createConnection"] } : {});
+        const socket = new WebSocket(url, {
+          // Browser WebSockets cannot set this upgrade header, even when Origin is stripped.
+          headers: { "Sec-WebSocket-Tau-Native": "1" },
+          ...(createConnection ? { createConnection: createConnection as unknown as ClientOptions["createConnection"] } : {}),
+        });
         socket.on("error", (error) => {
           if (this.transport !== transport || this.closed || !(error instanceof HostCertificateRefusedError)) return;
           this.closed = true;

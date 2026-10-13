@@ -17,6 +17,31 @@ const PREVIEW = "tau.preview";
 const hostWindow = { local: true, windowId: "w-host", windowHalves: [PREVIEW, "window"] };
 
 describe("calls from the host into a client's process", () => {
+  it("does not borrow consent from another window or credential", async () => {
+    const { calls: pending, sent } = calls();
+    const pkg = { id: "test.package", name: "Package", directory: "/package", scope: "global" as const, desktop: true, host: true };
+    pending.attach("page", { local: false, windowId: "own", pairedClient: "device" });
+    pending.attach("other-window", { local: false, windowId: "other", pairedClient: "device", nativeGrants: true });
+    pending.attach("other-credential", { local: false, windowId: "own", nativeGrants: true });
+    await expect(pending.confirmExtensionGrant(pkg, "page")).resolves.toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
+  it.each(["disconnect", "dialog-error", "timeout"])("refuses native consent on %s without an absent-window fallback", async (failure) => {
+    vi.useFakeTimers();
+    const { calls: pending, sent } = calls();
+    const pkg = { id: "test.package", name: "Package", directory: "/package", scope: "global" as const, desktop: true, host: true };
+    pending.attach("page", { local: false, windowId: "own" });
+    pending.attach("native", { local: false, windowId: "own", nativeGrants: true });
+    try {
+      const answer = pending.confirmExtensionGrant(pkg, "page");
+      if (failure === "disconnect") pending.detach("native");
+      if (failure === "dialog-error") pending.settle(sent[0]!.callId, undefined, "dialog unavailable", "native");
+      if (failure === "timeout") await vi.advanceTimersByTimeAsync(10 * 60_000);
+      await expect(answer).resolves.toBe(false);
+    } finally { pending.dispose(); vi.useRealTimers(); }
+  });
+
   it("sends one call to the window on this machine and resolves with its answer", async () => {
     const { calls: pending, sent } = calls();
     pending.attach("win", hostWindow);

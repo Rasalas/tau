@@ -6,6 +6,12 @@ import { ClientCalls } from "./client-calls.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import { NativeExtensionGrants } from "./native-extension-grants.js";
+import { WebSocket } from "ws";
+import { createSocketHostTransport, type HostSocket } from "../shared/socket-host-transport.js";
+import { WindowHost } from "./window-host.js";
+import { HostPushLog } from "./host-push-log.js";
+import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import type { HostClientCall } from "../shared/host-transport.js";
 
 const pkg = { id: "acme.pending", name: "Pending", permissions: ["native"], isolation: "in-process" as const, scope: "global" as const, directory: "/packages/pending", desktop: true, host: true };
 
@@ -30,6 +36,44 @@ function fixture(extra: Partial<HostMethodPlatform> = {}, clientCalls?: ClientCa
 }
 
 describe("extension grant confirmation", () => {
+  it.each([true, false])("approves on the remote window's uplink and ignores renderer and stale replies, browser Origin: %s", async (origin) => {
+    let server!: SocketHostTransport;
+    const received: HostClientCall[] = [];
+    const calls = new ClientCalls((connection, call) => { received.push(call); return server.sendCall(connection, call); });
+    const { table, grantExtension } = fixture({ confirmExtensionGrant: async () => undefined }, calls);
+    server = await startSocketHostTransport({ listen: "127.0.0.1:0", trust: "network", token: "secret", methods: table,
+      pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], calls });
+    const url = `ws://127.0.0.1:${server.port}`;
+    const renderer = createSocketHostTransport(url, "secret", {
+      createSocket: (address) => new WebSocket(address, origin ? { origin: `http://127.0.0.1:${server.port}` } : {}) as unknown as HostSocket,
+    });
+    let answerDialog!: (accepted: boolean) => void;
+    const confirm = vi.fn(() => new Promise<boolean>((resolve) => { answerDialog = resolve; }));
+    const native = new WindowHost({ userData: "/unused", version: "test", mainDirectory: "/unused", execPath: "/unused", service: null,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never,
+      onFatal: vi.fn(), onUrlChanged: vi.fn(), confirmExtensionGrant: confirm });
+    native.attach(url, "secret");
+    try {
+      await native.announceHalves();
+      await renderer.request("hello", [{ protocol: 1, windowId: native.windowId, auxiliary: true, nativeGrants: true, windowHalves: ["window"] }]);
+      const first = renderer.request("extension-grant", [pkg.id, true]);
+      await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+      await renderer.request("client-call-result", [received[0]!.callId, true]);
+      expect(grantExtension).not.toHaveBeenCalled();
+      answerDialog(false);
+      expect((await first).error?.code).toBe(HOST_ERROR.unauthorized);
+      const second = renderer.request("extension-grant", [pkg.id, true]);
+      await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
+      expect(received[1]!.callId).not.toBe(received[0]!.callId);
+      expect(received[1]!.input).toEqual(pkg);
+      await native.request("client-call-result", [received[0]!.callId, true]);
+      expect(grantExtension).not.toHaveBeenCalled();
+      answerDialog(true);
+      expect((await second).error).toBeUndefined();
+      expect(grantExtension).toHaveBeenCalledWith(pkg.id, true);
+    } finally { renderer.close?.(); await native.stop(true); calls.dispose(); await server.close(); }
+  });
+
   it("refuses a protocol grant when a native window requires confirmation, even with a forged answer", async () => {
     const { table, grantExtension } = fixture();
     await expect(invokeHostMethod(table, "extension-grant", [pkg.id, true, { confirmed: true }])).rejects.toThrow(/confirmation/iu);

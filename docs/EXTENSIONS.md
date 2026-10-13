@@ -25,8 +25,9 @@ you use is short; [the tutorial](kit-tutorial.md) walks it with a real kit:
    the running Tau to do it. The folder is loaded where it lies.
 3. **Approve it**: the install toast's **Review** opens it in Settings →
    Extensions, where it waits under *Needs attention*; **Allow and turn on**.
-   Confirm the native dialog when the host machine has a native window. Without
-   one, only an Owner connection can approve the package. It starts at once; no `/reload`.
+   Confirm the native dialog in the window, including for another machine.
+   Without a native window, only an Owner connection can approve the package.
+   It starts on that machine at once; no `/reload`.
 4. **Edit and save.** The package reloads by itself, host half included, and
    a toast says *Reloaded &lt;name&gt;* ([the development loop](#the-development-loop)).
    A save that does not compile keeps the running version: the toast names the
@@ -4676,13 +4677,17 @@ restarting itself.
 **Approval.** Installing never activates a package — see §5. A package Tau has
 not seen before, or whose permission list or isolation changed, shows in
 Settings → Extensions as *waiting for approval* with the list it asks for;
-**Allow** requires native confirmation when a window on the host machine is
-available, either in-process or through its local native channel. Without a
+**Allow** asks the requesting window's main process through its native uplink,
+including when the package lives on another machine. Only that connection's
+answer to the fresh request id counts; a renderer cannot opt in through a
+browser WebSocket or answer in its place. A window on the host machine can
+also confirm in-process or through its local native channel. Without a
 native window, `extension-grant` accepts only an Owner connection as defined
 in [ADR 0024](adr/0024-pairing-allowed-on-the-host.md); paired Write and Read-only
 devices cannot approve. Cancellation, a failed dialog or a native window that
 disconnects during confirmation refuses that grant and never falls back to Owner approval. Approval writes
-the grant and starts both halves; **Deny** leaves it off. Until approved, neither
+the grant and starts the host half on that machine; the client's existing remote
+code restrictions still apply to its desktop half. **Deny** leaves it off. Until approved, neither
 half is imported, in either scope, and the desktop contributes metadata only.
 
 **`/reload`** applies changes to Tau itself: it runs Tau's build from its

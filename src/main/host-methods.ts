@@ -163,7 +163,7 @@ export function createClientHostMethods(platform: ClientHostPlatform): HostMetho
 export interface HostMethodDeps {
   /** Answers to the calls this host made into a client's process, when it makes any; `from` is the answering connection. */
   clientCalls?: { settle(callId: string, result: unknown, error: string | undefined, from: string | undefined): void }
-    & Partial<Pick<ClientCalls, "call" | "hasLocalWindow">>;
+    & Partial<Pick<ClientCalls, "call" | "hasLocalWindow" | "confirmExtensionGrant">>;
   /** Starts the host on the first call; later calls read what is already running. */
   bootstrap(): Promise<HostBootstrap>;
   /** Resolves once the host finished starting; it never asks for a bootstrap first. */
@@ -445,11 +445,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
         const cwd = instance.activeWorkspacePath();
         const pkg = (await platform.inspectExtensions(cwd)).packages.find((entry) => entry.id === id && entry.scope !== "bundled");
         if (!pkg) throw new Error(`Extension ${id} is not installed`);
-        const confirmed = await platform.confirmExtensionGrant?.(pkg);
+        const caller = context.principal.kind === "workbench-client" ? context.principal.connection : undefined;
+        const confirmed = await deps.clientCalls?.confirmExtensionGrant?.(pkg, caller) ?? await platform.confirmExtensionGrant?.(pkg);
         if (confirmed === undefined) {
           if (!isHostOwner(context.principal)) throw ownerRefusal();
         } else if (confirmed !== true) {
-          throw Object.assign(new Error("Extension grant requires native confirmation on the host machine."), { code: HOST_ERROR.unauthorized });
+          throw Object.assign(new Error("Extension grant requires native confirmation."), { code: HOST_ERROR.unauthorized });
         }
         const current = (await platform.inspectExtensions(cwd)).packages.find((entry) => entry.id === id);
         if (instance.activeWorkspacePath() !== cwd || JSON.stringify(current) !== JSON.stringify(pkg)) throw new Error("The package changed during confirmation. Review it again.");

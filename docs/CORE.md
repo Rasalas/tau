@@ -179,6 +179,12 @@ Once the supervised host and window halves are ready, the window reloads with
 the host's socket address. Saved machines wake independently in the background.
 Reopening the last shown machine may then reload the page again.
 
+Package consent also reaches the requesting window's main-process uplink when
+the host runs on another machine. The transport verifies its non-browser upgrade
+before accepting the native-dialog opt-in, and binds the reply to that connection
+and a fresh request id. This core dialog grants no local kit command rights to
+an attached host ([ADR 0036](adr/0036-package-consent-stays-in-native-processes.md)).
+
 Host shutdown disposes the threads before closing the listeners and their
 sockets. Sockets are terminated without waiting for a peer's close frame;
 repeated shutdown requests share the first shutdown and its exit code.

@@ -13,6 +13,9 @@ vi.mock("./host-process-supervisor.js", () => ({ HostProcessSupervisor: class {
 } }));
 
 import { WindowHost } from "./window-host.js";
+import { confirmUplinkExtensionGrant } from "./native-extension-grants.js";
+
+vi.mock("./native-extension-grants.js", () => ({ confirmUplinkExtensionGrant: vi.fn(async () => true) }));
 
 const shipped: DesktopExtensionBundle = { id: "test.kit", manifestId: "test.kit", path: "/local/kit.js", code: "export default {};", scope: "bundled", permissions: [] };
 const result = (bundles: DesktopExtensionBundle[]): DesktopExtensionLoadResult => ({ bundles, errors: [], skipped: [] });
@@ -20,6 +23,26 @@ const create = () => new WindowHost({ userData: "/unused", version: "1", mainDir
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never, onFatal: vi.fn(), onUrlChanged: vi.fn(), desktopKits: async () => result([shipped]) });
 
 describe("window host trust", () => {
+  it.each([true, false])("answers the attached machine's package dialog in this process: %s", async (accepted) => {
+    vi.mocked(confirmUplinkExtensionGrant).mockResolvedValueOnce(accepted);
+    const host = create();
+    host.attach("ws://remote.test", "remote");
+    const request = vi.spyOn(host, "request").mockResolvedValue(undefined);
+    const pkg = { id: "test.package", name: "Package", directory: "/remote/package", scope: "global", desktop: true, host: true };
+    uplinks.at(-1)!.onCall({ callId: "consent", extensionId: "window", command: "confirm-extension-grant", input: pkg });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith("client-call-result", ["consent", accepted]));
+    expect(confirmUplinkExtensionGrant).toHaveBeenLastCalledWith(pkg);
+  });
+
+  it("reports a failed native dialog as a failed call", async () => {
+    vi.mocked(confirmUplinkExtensionGrant).mockRejectedValueOnce(new Error("dialog unavailable"));
+    const host = create();
+    host.attach("ws://remote.test", "remote");
+    const request = vi.spyOn(host, "request").mockResolvedValue(undefined);
+    uplinks.at(-1)!.onCall({ callId: "consent", extensionId: "window", command: "confirm-extension-grant", input: {} });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith("client-call-result", ["consent", undefined, "dialog unavailable"]));
+  });
+
   it("filters attached machine bundles before serving executable URLs", async () => {
     const host = create();
     host.attach("ws://remote.test", "remote");
