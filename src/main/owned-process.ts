@@ -55,8 +55,8 @@ function spawnGuarded(input: OwnedProcessInput, retainAfterExit: boolean): Child
   return guardian;
 }
 
-/** Self-contained Node program, serialized in both the host and bundled kit workers. */
-async function processGuardian(): Promise<void> {
+/** Self-contained Node program, serialized in both the host and bundled kit workers. Exported for the observation test. */
+export async function processGuardian(): Promise<void> {
   // Built-ins keep this function independent of bundler import rewrites.
   const { spawn, execFileSync } = process.getBuiltinModule("child_process") as typeof import("node:child_process");
   const { readdirSync, readFileSync } = process.getBuiltinModule("fs") as typeof import("node:fs");
@@ -80,7 +80,7 @@ async function processGuardian(): Promise<void> {
   process.stdin.pipe(child.stdin, { end: false });
   child.stdout.pipe(process.stdout);
   child.stderr.pipe(process.stderr);
-  interface Row { parent: number; group: number; identity: string; zombie: boolean; marked?: boolean }
+  interface Row { parent: number; group: number; identity: string; zombie: boolean; marked?: boolean; threads?: number }
   interface View { live: [pid: number, identity: string, group: number][]; group: boolean }
   let stopping = false;
   let retaining = false;
@@ -95,17 +95,49 @@ async function processGuardian(): Promise<void> {
   const rootRunning = () => child.exitCode === null && child.signalCode === null;
   child.once("exit", () => { exitedAt = Date.now(); });
 
+  function readStat(pid: number): Row | undefined {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      return { zombie: fields[0] === "Z" || fields[0] === "X", parent: Number(fields[1]), group: Number(fields[2]), identity: fields[19]!, threads: Number(fields[17]) };
+    } catch { return undefined; /* exited or inaccessible */ }
+  }
+
+  // Linux only: the known processes and what they started, without reading every process.
+  // Kernels without CONFIG_PROC_CHILDREN have no children files; then every read is a full scan.
+  let childrenFiles: boolean | undefined;
+  function tree(): Map<number, Row> | undefined {
+    if (childrenFiles === undefined) {
+      try { readFileSync(`/proc/self/task/${process.pid}/children`, "utf8"); childrenFiles = true; } catch { childrenFiles = false; }
+    }
+    if (!childrenFiles) return undefined;
+    const rows = new Map<number, Row>();
+    const queue = [...tracked.keys()];
+    if (rootRunning() && child.pid !== undefined) queue.push(child.pid);
+    for (let pid = queue.pop(); pid !== undefined; pid = queue.pop()) {
+      if (rows.has(pid)) continue;
+      const row = readStat(pid);
+      if (!row) continue;
+      rows.set(pid, row);
+      // A reused PID is a stranger; so are its children.
+      if (row.zombie || (tracked.has(pid) && tracked.get(pid) !== row.identity)) continue;
+      let tasks = [pid];
+      if (row.threads! > 1) { try { tasks = readdirSync(`/proc/${pid}/task`).map(Number); } catch { /* exited */ } }
+      for (const task of tasks) {
+        try { for (const text of readFileSync(`/proc/${pid}/task/${task}/children`, "utf8").split(" ")) if (text) queue.push(Number(text)); } catch { /* exited */ }
+      }
+    }
+    return rows;
+  }
+
   // No command lines or environments leave this process.
   function table(withEnvironment: boolean): Map<number, Row> {
     const rows = new Map<number, Row>();
     if (process.platform === "linux") {
       for (const name of readdirSync("/proc")) {
         if (!/^\d+$/u.test(name)) continue;
-        try {
-          const stat = readFileSync(`/proc/${name}/stat`, "utf8");
-          const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-          rows.set(Number(name), { zombie: fields[0] === "Z" || fields[0] === "X", parent: Number(fields[1]), group: Number(fields[2]), identity: fields[19]! });
-        } catch { /* exited or inaccessible */ }
+        const row = readStat(Number(name));
+        if (row) rows.set(Number(name), row);
       }
     } else if (process.platform === "darwin") {
       // A fixed locale keeps the start time in one format.
@@ -132,9 +164,11 @@ async function processGuardian(): Promise<void> {
   }
 
   /** Our processes by ancestry, marker and process group, parents before their children. */
-  function refresh(withEnvironment: boolean): View {
-    const rows = table(withEnvironment);
-    for (const [pid, identity] of unmarked) if (rows.get(pid)?.identity !== identity) unmarked.delete(pid);
+  function refresh(withEnvironment: boolean, full = true): View {
+    // Steady-state observation on Linux follows known parents only; a stop reads everything.
+    const sampled = full ? undefined : tree();
+    const rows = sampled ?? table(withEnvironment);
+    if (!sampled) for (const [pid, identity] of unmarked) if (rows.get(pid)?.identity !== identity) unmarked.delete(pid);
     const found = new Map<number, string>();
     const root = rootRunning() ? child.pid : undefined;
     // Remembered processes keep their descendants even after the parent in between exited.
@@ -255,15 +289,16 @@ async function processGuardian(): Promise<void> {
 
   // A CLI can exit before cleanup reads its children, so ancestry is recorded as it grows.
   const observingSince = Date.now();
+  const early = () => Date.now() - observingSince < 1_000;
   let observation: ReturnType<typeof setTimeout> | undefined;
   const observe = () => {
     if (stopping) return;
     try {
-      if (refresh(retaining).live.length === 0 && retaining) { process.exit(0); return; }
+      if (refresh(retaining, early()).live.length === 0 && retaining) { process.exit(0); return; }
     } catch { /* a stop still takes its own snapshot */ }
     // The first tools can fork and exit during CLI startup. Sample that
-    // brief window more often, then reduce the steady-state overhead.
-    observation = setTimeout(observe, Date.now() - observingSince < 1_000 ? 25 : 250);
+    // brief window densely and completely, then only the known tree each second.
+    observation = setTimeout(observe, early() ? 25 : 1_000);
     observation.unref();
   };
   if (listable || input.retainAfterExit) { observation = setTimeout(observe, 25); observation.unref(); }

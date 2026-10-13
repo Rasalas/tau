@@ -2544,13 +2544,16 @@ child's PID belongs to the guardian. Ending stdin lets the CLI shut down;
 `kill()` asks the guardian to terminate the work. CLI exit or loss of the
 owner's private IPC connection triggers cleanup too, including an owner killed
 with SIGKILL. On macOS and Linux the guardian samples the CLI's descendants by
-parent links (every 25 ms in the first second, then every 250 ms) and remembers
-each by PID and start time, so a descendant that cleared its environment, opened
-its own process group or lost its parent is still found; an inherited
-`TAU_PROCESS_OWNER` marker finds more. A stop takes a fresh snapshot while the
-parents still live, sends SIGTERM, escalates to SIGKILL after 500 ms and ends
-only once none of them runs. A process that is started, orphaned and loses its
-marker between two samples while leaving the group is outside this cleanup
+parent links and remembers each by PID and start time, so a descendant that
+cleared its environment, opened its own process group or lost its parent is
+still found; an inherited `TAU_PROCESS_OWNER` marker finds more. It reads the
+whole process table every 25 ms in the first second. After that it samples once
+a second, on Linux only the remembered processes and their children through
+`/proc/<pid>/task/<tid>/children` (the whole of `/proc` again where the kernel
+has no such files). A stop reads the whole table, takes a fresh snapshot while
+the parents still live, sends SIGTERM, escalates to SIGKILL after 500 ms and
+ends only once none of them runs. A process that is started, orphaned and loses
+its marker between two samples while leaving the group is outside this cleanup
 contract. Windows uses `taskkill /T` while the CLI is still alive. Background
 work survives turn boundaries while the CLI and its owner remain alive),
 `assertAllowedCloneSource`, `tauHomeDir` (new in API 1.34.0: `~/.tau`, or
