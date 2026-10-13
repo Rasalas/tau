@@ -372,6 +372,8 @@ export class RemoteThreads {
     const report = await this.machines().call(link.machine, REMOTE_WORK_EXTENSION_ID, HOSTED_COMMANDS.send, {
       protocol: REMOTE_WORK_PROTOCOL, thread: link.thread, text: message, delivery,
     }) as HostedThreadReport;
+    delete link.result;
+    delete link.applied;
     await this.apply(id, report);
     return this.get(id);
   }
@@ -447,7 +449,7 @@ export class RemoteThreads {
   }
 
   /**
-   * `apply`: brings the result back if it is not here yet and merges it when
+   * `apply`: brings the latest result back and merges it when
    * that is clean; then the worktree and branch there go. A conflict or work
    * in the way leaves everything as it was and says so in `applied`.
    * `discard`: stops a running turn and lets the worktree there go at once.
@@ -460,7 +462,7 @@ export class RemoteThreads {
     if (how === "apply") {
       this.assertQuiet(link, "apply its work");
       if (!link.transfer) throw new HostCommandError(`Nothing reached ${link.machineName} for that thread, so there is nothing to apply.`);
-      if (link.result?.state !== "branch") await this.fetchResult(id);
+      await this.fetchResult(id);
       link = this.link(id);
       if (link.result?.state === "branch") {
         const applied = await this.options.transfers.apply(link.transfer!);
