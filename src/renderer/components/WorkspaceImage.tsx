@@ -18,7 +18,15 @@ function UnavailableImage({ name, reason }: { name: string; reason: string }) {
   return <span role="img" aria-label={`${name}: ${reason}`}>{name}: {reason}</span>;
 }
 
-function PreviewImage({ src, alt, title, width, height, onError }: { src: string; alt: string; title?: string; width?: number | string; height?: number | string; onError(): void }) {
+interface ImageProps {
+  src: string;
+  alt: string;
+  title?: string;
+  width?: number | string;
+  height?: number | string;
+}
+
+function PreviewImage({ src, alt, title, width, height, onError }: ImageProps & { onError(): void }) {
   const [open, setOpen] = useState(false);
   const linked = useContext(MediaLinkContext);
   const images = [{ key: src, src, alt, label: title || alt || "Image" }];
@@ -26,6 +34,21 @@ function PreviewImage({ src, alt, title, width, height, onError }: { src: string
   if (linked) return <img src={src} alt={alt} title={title} width={width} height={height} onError={onError} />;
   return <span ref={gallery.ref}><button type="button" className="md-image-link" aria-label={`Open ${alt || "image"}`} onClick={() => gallery.open ? gallery.open(0) : setOpen(true)}><img src={src} alt={alt} title={title} width={width} height={height} onError={onError} /></button>
     {open ? <AttachmentLightbox images={[{ key: src, src, alt, label: title || alt || "Image" }]} index={0} onClose={() => setOpen(false)} /> : null}</span>;
+}
+
+function RemoteImage(props: ImageProps) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  let domain: string;
+  try { domain = new URL(props.src).host; }
+  catch { return <UnavailableImage name={props.alt || "Image"} reason="The image URL is invalid." />; }
+  if (failed) return <UnavailableImage name={props.alt || "Image"} reason="The image could not be displayed." />;
+  if (loaded) return <PreviewImage {...props} onError={() => setFailed(true)} />;
+  return <button type="button" className="md-remote-image" aria-label={`Load image from ${domain}`} onClick={(event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setLoaded(true);
+  }}>{props.alt ? `${props.alt} · ` : ""}Load image from {domain}</button>;
 }
 
 /** Relative Markdown images are files of the transcript's origin, not this device. */
@@ -61,6 +84,8 @@ export function WorkspaceImage({ src = "", alt = "", title, width, height }: { s
   }, [path, resources]);
 
   const name = alt || path?.split("/").pop() || "Image";
+  // A changed URL, including its query, must not inherit a previous image's consent.
+  if (/^https?:\/\//iu.test(src)) return <RemoteImage key={src} src={src} alt={alt} title={title} width={width} height={height} />;
   if (external) {
     if (failedSource === src) return <UnavailableImage name={name} reason="The image could not be displayed." />;
     return <PreviewImage src={src} alt={alt} title={title} width={width} height={height} onError={() => setFailedSource(src)} />;

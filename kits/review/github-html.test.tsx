@@ -14,6 +14,28 @@ function html(source: string): HTMLElement {
   return render(<Markdown html={githubHtml}>{source}</Markdown>).container;
 }
 
+/** Handler-shaped text is fine; attributes and tags are what must not survive. */
+function expectSafe(root: HTMLElement): void {
+  expect(root.innerHTML).not.toMatch(/javascript:|data:|<script|<svg|<math|<iframe|<form|<input|<button(?! type="button" class="md-(image-link|remote-image)")|<style|<object|<embed|<meta|style="position/iu);
+  for (const element of root.querySelectorAll("*")) {
+    if (element.tagName === "BUTTON") {
+      expect(element.getAttribute("type")).toBe("button");
+      if (element.className === "md-remote-image") expect(element.children).toHaveLength(0);
+      else {
+        expect(element.className).toBe("md-image-link");
+        expect(element.querySelector(":scope > img")).not.toBeNull();
+      }
+    }
+    for (const attribute of element.attributes) {
+      if (attribute.name === "type" && element.matches("button.md-image-link, button.md-remote-image")) continue;
+      expect(attribute.name).toMatch(/^(href|target|rel|src|alt|title|width|height|class|style|colspan|rowspan|start|aria-[a-z]+|data-[a-z-]+|id)$/u);
+    }
+  }
+  for (const link of root.querySelectorAll("a")) expect(link.getAttribute("href")).toMatch(/^https?:\/\//u);
+  for (const image of root.querySelectorAll("img")) expect(image.getAttribute("src")).toMatch(/^https:\/\//u);
+  expect((window as { xss?: number }).xss).toBeUndefined();
+}
+
 describe("Markdown with GitHub's HTML", () => {
   it("renders a Dependabot description's details, links, quotes and lists", () => {
     const root = html(DEPENDABOT);
@@ -59,6 +81,8 @@ describe("Markdown with GitHub's HTML", () => {
     expect(paragraph.getAttribute("style")).toBeNull();
     expect(root.querySelector("kbd")?.textContent).toBe("⌘K");
     expect(root.querySelector(".md-code pre code")?.textContent).toBe("let a = 1;");
+    expect(root.querySelector("img")).toBeNull();
+    fireEvent.click(root.querySelector("button.md-remote-image")!);
     const image = root.querySelector("img")!;
     expect(image.getAttribute("src")).toBe("https://example.com/a.png");
     expect(image.width).toBe(20);
@@ -89,22 +113,10 @@ describe("Markdown with GitHub's HTML", () => {
   for (const [name, source] of Object.entries(HOSTILE)) {
     it(`renders ${name} without script, handlers or unsafe URLs`, () => {
       const root = html(`before\n\n${source}\n\ntrailing`);
-      // Handler-shaped text is fine; attributes and tags are what must not survive.
-      expect(root.innerHTML).not.toMatch(/javascript:|data:|<script|<svg|<math|<iframe|<form|<input|<button(?! type="button" class="md-image-link")|<style|<object|<embed|<meta|style="position/iu);
-      for (const element of root.querySelectorAll("*")) {
-        if (element.tagName === "BUTTON") {
-          expect(element.className).toBe("md-image-link");
-          expect(element.getAttribute("type")).toBe("button");
-          expect(element.querySelector(":scope > img")).not.toBeNull();
-        }
-        for (const attribute of element.attributes) {
-          if (attribute.name === "type" && element.matches("button.md-image-link")) continue;
-          expect(attribute.name).toMatch(/^(href|target|rel|src|alt|title|width|height|class|style|colspan|rowspan|start|aria-[a-z]+|data-[a-z-]+|id)$/u);
-        }
-      }
-      for (const link of root.querySelectorAll("a")) expect(link.getAttribute("href")).toMatch(/^https?:\/\//u);
-      for (const image of root.querySelectorAll("img")) expect(image.getAttribute("src")).toMatch(/^https:\/\//u);
-      expect((window as { xss?: number }).xss).toBeUndefined();
+      expectSafe(root);
+      // A loaded remote image is held to the same rules as before the click.
+      for (const placeholder of root.querySelectorAll("button.md-remote-image")) fireEvent.click(placeholder);
+      expectSafe(root);
       expect(root.textContent).toContain("before");
     });
   }

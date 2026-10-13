@@ -36,11 +36,13 @@ async function hasImage(container: HTMLElement, expected = dataUrl) {
 
 describe("workspace Markdown images", () => {
   for (const protocol of ["http", "https"]) {
-    it(`preserves sanitized dimensions on ${protocol} images`, () => {
+    it(`preserves sanitized dimensions on ${protocol} images after consent`, async () => {
       const src = `${protocol}://example.com/image.png`;
       const html: MarkdownHtml = () => ({ type: "root", children: [{ type: "element", tagName: "img", properties: { src, alt: "Sized image", width: 20, height: 30 }, children: [] }] });
       const { draw, load } = fixture();
-      const { container } = render(draw("policy image", "ws-A", false, undefined, html));
+      const { container, findByRole } = render(draw("policy image", "ws-A", false, undefined, html));
+      fireEvent.click(await findByRole("button", { name: "Load image from example.com" }));
+      await hasImage(container, src);
       const rendered = container.querySelector("img")!;
       expect(rendered.getAttribute("src")).toBe(src);
       expect(rendered.width).toBe(20);
@@ -177,10 +179,16 @@ describe("workspace Markdown images", () => {
     });
   }
 
-  it("preserves external HTTPS and inert HTML without workspace reads", () => {
+  it("loads external HTTPS only after consent and keeps raw HTML inert", async () => {
     const { draw, load } = fixture();
-    const { container } = render(draw('![External](https://example.com/image.png "Title")\n\n<img src="file:///secret">'));
-    expect(container.querySelector("img")?.outerHTML).toBe('<img alt="External" title="Title" src="https://example.com/image.png">');
+    const { container, findByRole } = render(draw('![External](https://example.com/image.png "Title")\n\n<img src="file:///secret">'));
+    const placeholder = await findByRole("button", { name: "Load image from example.com" });
+    expect(placeholder.textContent).toContain("example.com");
+    expect(container.querySelector("img")).toBeNull();
+    fireEvent.click(placeholder);
+    await hasImage(container, "https://example.com/image.png");
+    expect(container.querySelector("img")?.getAttribute("alt")).toBe("External");
+    expect(container.querySelector("img")?.getAttribute("title")).toBe("Title");
     expect(container.textContent).toContain('<img src="file:///secret">');
     expect(load).not.toHaveBeenCalled();
   });
@@ -192,11 +200,68 @@ describe("workspace Markdown images", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
-  it("preserves legacy HTTP images", () => {
+  it("requires consent for legacy HTTP images", async () => {
     const { draw, load } = fixture();
-    const { container } = render(draw("![External](http://example.com/image.png)"));
-    expect(container.querySelector("img")?.getAttribute("src")).toBe("http://example.com/image.png");
+    const { container, findByRole } = render(draw("![External](http://example.com/image.png)"));
+    const placeholder = await findByRole("button", { name: "Load image from example.com" });
+    expect(container.querySelector("img")).toBeNull();
+    fireEvent.click(placeholder);
+    await hasImage(container, "http://example.com/image.png");
     expect(load).not.toHaveBeenCalled();
+  });
+
+  it("requires fresh consent when a remote query changes, including when returning to an earlier URL", async () => {
+    const first = "https://example.com/image.png?d=first";
+    const next = "https://example.com/image.png?d=next";
+    const { draw, load } = fixture();
+    const { container, rerender, findByRole } = render(draw(`![](${first})`, "ws-A", true));
+    const consent = () => findByRole("button", { name: "Load image from example.com" });
+    await consent();
+    expect(container.querySelector("img")).toBeNull();
+    fireEvent.click(await consent());
+    await hasImage(container, first);
+    rerender(draw(`![](${first})\n\nMore text`, "ws-A", true));
+    await hasImage(container, first);
+    const approveChangedUrl = async (src: string) => {
+      rerender(draw(`![](${src})`, "ws-A", true));
+      const placeholder = await consent();
+      expect(container.querySelector("img")).toBeNull();
+      fireEvent.click(placeholder);
+      await hasImage(container, src);
+    };
+    await approveChangedUrl(next);
+    await approveChangedUrl(first);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate a linked remote thumbnail when granting consent", async () => {
+    const { draw, workbench } = fixture();
+    const { container, findByRole } = render(draw("[![External](https://example.com/image.png)](a.png)"));
+    fireEvent.click(await findByRole("button", { name: "Load image from example.com" }));
+    await hasImage(container, "https://example.com/image.png");
+    expect(workbench.openWorkspaceFile).not.toHaveBeenCalled();
+    expect(container.querySelector("a button")).toBeNull();
+  });
+
+  it("keeps blocked remote images out of a workspace image's gallery", async () => {
+    const { draw } = fixture();
+    const { container, findByRole } = render(draw("![Screenshot](a.png)\n\n![](https://example.com/image.png?d=secret)"));
+    await findByRole("button", { name: "Load image from example.com" });
+    fireEvent.click(await findByRole("button", { name: "Open Screenshot" }));
+    const dialog = await findByRole("dialog");
+    await waitFor(() => expect(dialog.querySelector("img")?.getAttribute("src")).toBe(dataUrl));
+    expect(container.querySelector('img[src^="https:"]')).toBeNull();
+    expect(dialog.querySelector('[aria-label="Next media"]')).toBeNull();
+  });
+
+  it("shows guidance if a consented remote image fails to load", async () => {
+    const { draw } = fixture();
+    const { container, findByRole } = render(draw("![External](https://example.com/image.png)"));
+    fireEvent.click(await findByRole("button", { name: "Load image from example.com" }));
+    await hasImage(container, "https://example.com/image.png");
+    fireEvent.error(container.querySelector("img")!);
+    await findByRole("img", { name: /External: .*could not be displayed/ });
+    expect(container.querySelector("img")).toBeNull();
   });
 
   it("names a missing-alt image by its filename without a resource provider", () => {
