@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +8,26 @@ import { HostCommandError, gitExecutable, tauHomeDir } from "tau/host-extension"
 
 const execFileAsync = promisify(execFile);
 const PATCH_BUFFER = 64 * 1024 * 1024;
+
+// Kits bundle their own copy of this leaf; every copy in the host must share the queue.
+const repositoryApplyQueueKey = Symbol.for("tau.workspace.repository-apply-queue");
+const hostScope = globalThis as typeof globalThis & { [repositoryApplyQueueKey]?: Map<string, Promise<void>> };
+const repositoryApplies = hostScope[repositoryApplyQueueKey] ??= new Map<string, Promise<void>>();
+
+async function withRepositoryApply<T>(cwd: string, runGit: AgentGitRunner, apply: () => Promise<T>): Promise<T> {
+  const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+  const absolute = resolve(cwd, commonDir);
+  const key = await realpath(absolute).catch(() => absolute);
+  const previous = repositoryApplies.get(key) ?? Promise.resolve();
+  const result = previous.then(apply);
+  const settled = result.then(() => undefined, () => undefined);
+  repositoryApplies.set(key, settled);
+  try {
+    return await result;
+  } finally {
+    if (repositoryApplies.get(key) === settled) repositoryApplies.delete(key);
+  }
+}
 
 /**
  * Worktrees for the threads an agent spawns. It is Workspace Kit's, because
@@ -332,7 +352,25 @@ export async function applyAgentWorktree(options: {
   runGit?: AgentGitRunner;
 }): Promise<AgentApplyResult> {
   const runGit = options.runGit ?? runAgentGit;
+  return withRepositoryApply(options.parentCwd, runGit, () => applyAgentWorktreeUnlocked(options));
+}
+
+async function applyAgentWorktreeUnlocked(options: Parameters<typeof applyAgentWorktree>[0]): Promise<AgentApplyResult> {
+  const runGit = options.runGit ?? runAgentGit;
   const { parentCwd, worktree } = options;
+  const current = (await runGit(worktree.path, ["symbolic-ref", "--quiet", "HEAD"]).catch(() => "")).trim();
+  const head = (await runGit(worktree.path, ["rev-parse", "--verify", "HEAD"])).trim();
+  const tip = (await runGit(worktree.path, ["rev-parse", "--verify", `refs/heads/${worktree.branch}`])).trim();
+  if (current !== `refs/heads/${worktree.branch}` || head !== tip) {
+    throw new Error(`This thread is no longer on its recorded branch ${worktree.branch}. Switch its worktree back before applying; its worktree and branches were kept.`);
+  }
+  const target = (await runGit(worktree.path, ["config", "--get", branchReviewTargetConfigKey(worktree.branch)]).catch(() => "")).trim();
+  if (target) {
+    const parentBranch = (await runGit(parentCwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+    if (parentBranch !== target) {
+      throw new Error(`These changes are intended for ${target}, but this checkout is on ${parentBranch || "a detached HEAD"}. Switch to ${target} before applying; the child's worktree and branch were kept.`);
+    }
+  }
   const changes = await readAgentWorktreeChanges(worktree, runGit);
   if (changes.files === 0) {
     return { branch: worktree.branch, strategy: "nothing", files: 0, added: 0, removed: 0, detail: "This thread changed nothing." };
@@ -343,7 +381,7 @@ export async function applyAgentWorktree(options: {
     const parentDirty = (await runGit(parentCwd, ["status", "--porcelain"])).trim().length > 0;
     const base = parentDirty ? await readBranchBase(worktree.path, worktree.branch, runGit) : undefined;
     if (base) {
-      const outcome = await mergeBranchIntoCheckout({ cwd: parentCwd, branch: worktree.branch, base, runGit });
+      const outcome = await mergeBranchIntoCheckoutUnlocked({ cwd: parentCwd, branch: worktree.branch, base, runGit });
       if (outcome.state !== "merged" && outcome.state !== "already-merged") throw new Error(`${worktree.branch} does not merge cleanly: ${outcome.detail}`);
       return { branch: worktree.branch, strategy: "merge", files: changes.files, added: changes.added, removed: changes.removed, detail: `Merged ${worktree.branch} (${summary}).` };
     }
@@ -513,6 +551,11 @@ export async function mergeBranchIntoCheckout(options: {
   resolve?: (tree: string, conflicts: readonly string[]) => Promise<string>;
   runGit?: AgentGitRunner;
 }): Promise<BranchMergeOutcome> {
+  const runGit = options.runGit ?? runAgentGit;
+  return withRepositoryApply(options.cwd, runGit, () => mergeBranchIntoCheckoutUnlocked(options));
+}
+
+async function mergeBranchIntoCheckoutUnlocked(options: Parameters<typeof mergeBranchIntoCheckout>[0]): Promise<BranchMergeOutcome> {
   const runGit = options.runGit ?? runAgentGit;
   const { cwd, branch } = options;
   const verify = (ref: string) => runGit(cwd, ["rev-parse", "-q", "--verify", ref]).then((out) => out.trim(), () => "");

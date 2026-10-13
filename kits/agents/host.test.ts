@@ -565,6 +565,9 @@ describe("Agents Kit", () => {
     const runGit: AgentGitRunner = async (cwd, args) => {
       calls.push([cwd, ...args]);
       const command = args.join(" ");
+      if (command === "symbolic-ref --quiet HEAD") return `refs/heads/${calls.find((call) => call[1] === "worktree" && call[2] === "add")?.[4]}\n`;
+      if (command.startsWith("rev-parse --verify refs/heads/")) return "headcommit\n";
+      if (command.startsWith("config --get branch.") && command.endsWith(".tau-review-target")) return "";
       if (command.startsWith("rev-parse --is-inside-work-tree")) return "true\n";
       if (command.startsWith("rev-parse --verify HEAD")) return "headcommit\n";
       if (command.startsWith("rev-parse --path-format=absolute")) return `${project}/.git\n`;
@@ -608,6 +611,55 @@ describe("Agents Kit", () => {
     // Its worktree is gone, so there is nothing left to take.
     await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId })).rejects.toThrow(/already applied/u);
     await rm(root, { recursive: true, force: true });
+  });
+
+  it.each(["child branch", "detached child", "parent branch", "parent branch with patch"])("keeps the child's work when Apply refuses a changed %s", async (scenario) => {
+    const root = await mkdtemp(join(tmpdir(), "tau-agent-apply-branch-"));
+    try {
+      const project = join(root, "project");
+      await mkdir(project);
+      const git = (cwd: string, ...args: string[]) =>
+        execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" }).toString().trim();
+      git(project, "init", "-q", "-b", "main");
+      git(project, "config", "user.name", "Tau");
+      git(project, "config", "user.email", "tau@example.invalid");
+      await writeFile(join(project, "original.txt"), "original\n");
+      git(project, "add", "-A");
+      git(project, "commit", "-qm", "initial");
+      const bench = await activated({ runGit: runAgentGit, settingsPath: join(root, "settings.json") });
+      bench.setProject(project);
+      const parent = bench.runtime("parent", project);
+      const spawned = await parent.call("tau_spawn_thread", { prompt: "Write a result" }) as { threadId: string; branch: string };
+      const child = bench.started[0]!.cwd;
+      if (scenario === "child branch") git(child, "switch", "-c", "other-work");
+      if (scenario === "detached child") git(child, "switch", "--detach");
+      await writeFile(join(child, "result.txt"), "child work\n");
+      if (scenario !== "parent branch with patch") {
+        git(child, "add", "-A");
+        git(child, "commit", "-qm", "result");
+      }
+      if (scenario.startsWith("parent branch")) git(project, "switch", "-c", "other-target");
+      bench.threads.get(spawned.threadId)!.streaming = false;
+      await bench.notify("ended", spawned.threadId);
+      const head = git(project, "rev-parse", "HEAD");
+      const childHead = git(child, "rev-parse", "HEAD");
+      const index = git(project, "write-tree");
+      const status = git(project, "status", "--porcelain");
+
+      await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId }))
+        .rejects.toThrow(scenario.startsWith("parent branch") ? /main.*other-target/u : /recorded branch/u);
+      expect(git(project, "rev-parse", "HEAD")).toBe(head);
+      expect(git(project, "write-tree")).toBe(index);
+      expect(git(project, "status", "--porcelain")).toBe(status);
+      await expect(readFile(join(project, "result.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(git(project, "worktree", "list")).toContain(child);
+      expect(git(project, "branch", "--list", spawned.branch)).toContain(spawned.branch);
+      expect(git(child, "rev-parse", "HEAD")).toBe(childHead);
+      expect(await readFile(join(child, "result.txt"), "utf8")).toBe("child work\n");
+      expect((await bench.state()).links[0]?.workspace?.settled).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it.each([false, true])("verifies a whole-repo apply before removing a child's worktree (skipped paths: %s)", async (skipOutside) => {
