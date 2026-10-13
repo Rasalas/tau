@@ -15,10 +15,11 @@ function setup(writeText = vi.fn(async () => undefined), touch = false) {
   const timers: Array<{ run: () => void; cancelled: boolean }> = [];
   const store = new ToastStore({ schedule: (run) => { const timer = { run, cancelled: false }; timers.push(timer); return () => { timer.cancelled = true; }; } });
   const platform: Platform = { clipboard: { writeText }, openExternal: () => undefined, storage: createMemoryStorage(), importModule: async () => ({}) };
-  render(<PlatformProvider platform={platform}><ToastViewport store={store} touch={touch} /></PlatformProvider>);
+  const view = render(<PlatformProvider platform={platform}><ToastViewport store={store} touch={touch} /></PlatformProvider>);
   /** Runs every clock that is still set, as if its time ran out. */
   const expire = () => act(() => { for (const timer of timers.splice(0)) if (!timer.cancelled) timer.run(); });
-  return { store, writeText, expire };
+  const setTouch = (next: boolean) => view.rerender(<PlatformProvider platform={platform}><ToastViewport store={store} touch={next} /></PlatformProvider>);
+  return { store, writeText, expire, setTouch };
 }
 
 describe("ToastViewport", () => {
@@ -114,6 +115,7 @@ describe("ToastViewport's place", () => {
   it("hangs under the workspace card, its edge and width", () => {
     window1920();
     const { center, remove } = workbench();
+    center.querySelector<HTMLElement>(".thread-header")!.getBoundingClientRect = box(248, 0, 248, 0);
     const area = element("workspace-area", [1572, 0, 1912, 1000], center);
     element("workbench-region region-workspace-summary", [1584, 52, 1908, 196], area);
     try {
@@ -126,6 +128,7 @@ describe("ToastViewport's place", () => {
   it("hangs under an open stage's tabs, inside its right edge", () => {
     window1920();
     const { center, remove } = workbench();
+    center.querySelector<HTMLElement>(".thread-header")!.getBoundingClientRect = box(248, 0, 248, 0);
     const area = element("workspace-area has-stage", [1000, 0, 1912, 1000], center);
     const stage = element("stage", [1012, 12, 1908, 988], area);
     element("stage-strip", [1013, 13, 1907, 53], stage);
@@ -146,7 +149,7 @@ describe("ToastViewport's place", () => {
     } finally { remove(); }
   });
 
-  it("moves to the new anchor when the right side opens", async () => {
+  it("stays under the chat title when the right side opens", async () => {
     window1920();
     const { center, remove } = workbench();
     try {
@@ -156,13 +159,14 @@ describe("ToastViewport's place", () => {
       const area = element("workspace-area", [1572, 0, 1912, 1000], center);
       element("workbench-region region-workspace-summary", [1584, 52, 1908, 196], area);
       await act(async () => { await Promise.resolve(); });
-      expect(place()).toEqual(["208px", "12px", "324px"]);
+      expect(place()).toEqual(["64px", "372px", "360px"]);
     } finally { remove(); }
   });
 
   it("keeps room for a toast under a card as tall as the window", () => {
     window1920();
     const { center, remove } = workbench();
+    center.querySelector<HTMLElement>(".thread-header")!.getBoundingClientRect = box(248, 0, 248, 0);
     const area = element("workspace-area", [1572, 0, 1912, 1000], center);
     element("workbench-region region-workspace-summary", [1584, 52, 1908, 960], area);
     try {
@@ -196,6 +200,78 @@ describe("ToastViewport's place", () => {
       expect(stackStyle().getPropertyValue("--toast-available-height")).toBe("304px");
     } finally { header.remove(); host.remove(); }
   });
+
+  it("follows a new thread header and composer while the same notification stays open", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    vi.stubGlobal("innerHeight", 844);
+    const screen = element("workbench", [0, 0, 390, 844]);
+    const header = element("thread-header", [0, 44, 390, 100], screen);
+    const host = element("conversation-composer-host", [0, 746, 390, 844], screen);
+    try {
+      const { store } = setup(undefined, true);
+      act(() => { store.show({ type: "error", description: "Saved" }); });
+      expect(stackStyle().top).toBe("108px");
+      header.remove();
+      host.remove();
+      element("thread-header", [0, 44, 390, 120], screen);
+      element("conversation-composer-host", [0, 420, 390, 472], screen);
+      await act(async () => { await Promise.resolve(); });
+      expect(stackStyle().top).toBe("128px");
+      expect(stackStyle().getPropertyValue("--toast-available-height")).toBe("284px");
+    } finally { screen.remove(); }
+  });
+
+  it("places notifications beside the overview's floating button, then under the chat title", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    vi.stubGlobal("innerHeight", 844);
+    const overview = element("touch-browser screen home", [0, 0, 390, 844]);
+    element("touch-home-head", [0, 44, 390, 148], overview);
+    element("touch-fab", [310, 696, 374, 760], overview);
+    try {
+      const { store } = setup(undefined, true);
+      act(() => { store.show({ type: "error", description: "Saved" }); });
+      expect([stackStyle().top, stackStyle().bottom, stackStyle().right]).toEqual(["auto", "84px", "88px"]);
+      expect(screen.getByRole("region", { name: "Notifications" }).dataset.anchor).toBe("bottom");
+      overview.replaceChildren();
+      overview.className = "workbench";
+      element("thread-header", [0, 44, 390, 100], overview);
+      element("conversation-composer-host", [0, 746, 390, 844], overview);
+      await act(async () => { await Promise.resolve(); });
+      expect([stackStyle().top, stackStyle().bottom, stackStyle().right]).toEqual(["108px", "", ""]);
+      expect(screen.getByRole("region", { name: "Notifications" }).dataset.anchor).toBe("top");
+    } finally { overview.remove(); }
+  });
+
+  it("on a tablet, keeps notifications inside the chat column and above the keyboard", () => {
+    vi.stubGlobal("innerWidth", 1180);
+    vi.stubGlobal("innerHeight", 820);
+    vi.stubGlobal("visualViewport", new EventTarget());
+    Object.assign(window.visualViewport!, { height: 520, offsetTop: 0 });
+    const sidebar = element("touch-browser sidebar", [0, 24, 280, 820]);
+    const header = element("thread-header", [280, 24, 1180, 80]);
+    const host = element("conversation-composer-host", [280, 746, 1180, 820]);
+    try {
+      const { store } = setup(undefined, true);
+      act(() => { store.show({ description: "Saved" }); });
+      expect([stackStyle().top, stackStyle().left, stackStyle().right]).toEqual(["88px", "292px", "12px"]);
+      expect(stackStyle().getPropertyValue("--toast-available-height")).toBe("424px");
+    } finally { sidebar.remove(); header.remove(); host.remove(); }
+  });
+
+  it("clears touch offsets when a narrow desktop window widens again", () => {
+    window1920();
+    const { remove } = workbench();
+    const sidebar = element("touch-browser sidebar", [0, 0, 248, 1000]);
+    try {
+      const { store, setTouch } = setup(undefined, true);
+      act(() => { store.show({ description: "Saved" }); });
+      expect(stackStyle().left).toBe("260px");
+      setTouch(false);
+      expect(place()).toEqual(["64px", "372px", "360px"]);
+      expect(stackStyle().left).toBe("");
+      expect(stackStyle().getPropertyValue("--toast-available-height")).toBe("");
+    } finally { sidebar.remove(); remove(); }
+  });
 });
 
 describe("ToastViewport's stacking", () => {
@@ -213,6 +289,14 @@ describe("ToastViewport's stacking", () => {
 });
 
 describe("ToastViewport on a touch layout", () => {
+  it("opens upward beside the overview's floating button", () => {
+    const toasts = [{ id: "new", type: "info" as const }, { id: "old", type: "info" as const }];
+    const heights = new Map([["new", 60], ["old", 80]]);
+    expect(layoutToasts(toasts, heights, true, "bottom").map((item) => item.style.transform)).toEqual([
+      "translateX(var(--toast-swipe-x, 0px)) translateY(0px) scale(1)",
+      "translateX(var(--toast-swipe-x, 0px)) translateY(-68px) scale(1)",
+    ]);
+  });
   it("stacks from the top on touch, with older notifications opening downward", () => {
     const toasts = [{ id: "new", type: "info" as const }, { id: "old", type: "info" as const }];
     const heights = new Map([["new", 60], ["old", 80]]);

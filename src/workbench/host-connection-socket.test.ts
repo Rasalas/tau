@@ -83,6 +83,21 @@ afterEach(() => {
 });
 
 describe("socket host client", () => {
+  it("identifies a request timeout so background reads can recover quietly", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    vi.useFakeTimers();
+    const transport = createSocketHostTransport("ws://host.test:7788", undefined, { requestTimeoutMs: 3_000 });
+    const socket = FakeSocket.opened[0]!;
+    socket.accept();
+    const started = transport.request("hello", [{ protocol: 1 }]);
+    answerHello(socket, helloReply(1));
+    await started;
+    const failed = transport.request("bootstrap", []).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await failed).toMatchObject({ code: "timeout", message: "timeout: request timed out after 3000ms" });
+    transport.close?.();
+  });
+
   it("never delivers a queued command after the caller already saw its timeout", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     vi.useFakeTimers();

@@ -445,7 +445,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
           const queued = outbox.findIndex((entry) => entry.id === id);
           if (queued >= 0) outbox.splice(queued, 1);
           options?.onDiagnostic?.("request-timeout");
-          request.reject(new Error(`${HOST_ERROR.timeout}: request timed out after ${(options?.requestTimeoutMs ?? REQUEST_TIMEOUT_MS)}ms`));
+          request.reject(Object.assign(new Error(`${HOST_ERROR.timeout}: request timed out after ${(options?.requestTimeoutMs ?? REQUEST_TIMEOUT_MS)}ms`), { code: HOST_ERROR.timeout }));
         }
       }, options?.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
       pending.set(id, { resolve, reject, timer });

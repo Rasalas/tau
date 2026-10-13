@@ -1,6 +1,6 @@
 /*
- * The toast stack, top right under the workspace card, the stage's tabs or the
- * conversation's header: the newest in front, the others peeking below it
+ * The toast stack under the conversation's header, or the stage's tabs or
+ * workspace card when it is folded: the newest in front, the others peeking below it
  * until the pointer or focus opens the stack.
  * Place and positions come from `ToastViewport`; these rules draw the frame.
  * Loaded with the stack's own chunk on the first toast, so it costs the first
@@ -19,6 +19,7 @@
   animation: toast-enter var(--motion) var(--ease);
 }
 .toast-item:focus-visible { border-color: var(--focus); }
+.toast-stack[data-anchor="bottom"] .toast-item { top: auto; bottom: 0; transform-origin: bottom center; }
 @keyframes toast-enter { from { opacity: 0; translate: 0 -8px; } }
 @media (prefers-reduced-motion: reduce) { .toast-item { animation: none; transition: none; } }
 /* One row, as in the design: icon, text, action, dismiss, all on the first line's 28px. */
@@ -49,7 +50,8 @@
 
 /*
  * A touch layout: the stack sits below the title (`ToastViewport` measures
- * its bottom edge), fans downward, and stays above the composer and under
+ * its bottom edge), fans downward, and stays above the composer. In the
+ * overview it sits beside the floating button and fans upward. It stays under
  * every sheet, dialog and Settings (z-index 50 and up), so a toast never
  * takes a tap meant for one. Swiped sideways, it goes.
  */
