@@ -196,7 +196,26 @@ describe("runtime controls keybindings", () => {
     // The command stays in the palette; ⇧Tab is Plan Kit's now and ⌘⇧E opens the thinking menu.
     expect(registry.getCommands().map((command) => command.id)).toContain("runtime.cycle-thinking");
     const scoped = Object.fromEntries(registry.getKeybindings().filter((binding) => binding.when).map((binding) => [binding.keys, binding.when]));
-    expect(scoped).toEqual({ "mod+f": "!terminalFocus && !previewFocus && !editorFocus && !overlayOpen", "mod+[": "!terminalFocus", "mod+]": "!terminalFocus", "mod+n": "!terminalFocus", "mod+shift+t": "!terminalFocus", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus", "mod+shift+n": "!terminalFocus", "mod+shift+o": "!terminalFocus", "ctrl+p": "composerFocus", escape: "chatFocus", f2: "!terminalFocus" });
+    expect(scoped).toEqual({
+      "mod+f": "!terminalFocus && !previewFocus && !editorFocus && !overlayOpen", "mod+[": "!terminalFocus", "mod+]": "!terminalFocus",
+      "mod+n": "!terminalFocus && isDesktop", "mod+shift+t": "!terminalFocus && isDesktop", "mod+shift+enter": "!terminalFocus", "mod+shift+e": "!terminalFocus",
+      "mod+shift+n": "!terminalFocus && isDesktop", "mod+shift+o": "!terminalFocus", "mod+w": "isDesktop", "ctrl+tab": "isDesktop", "ctrl+shift+tab": "isDesktop",
+      "ctrl+p": "composerFocus", escape: "chatFocus", f2: "!terminalFocus",
+    });
+  });
+
+  // A browser keeps ⌘W, ⌘N, ⇧⌘N, ⇧⌘T and Ctrl+Tab; a tab closes, opens, reopens and switches with ⌥ variants.
+  it.each(["web", "compact"] as const)("binds a %s client's own chords where a browser keeps the usual ones", (profile) => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile });
+    registry.activate(runtimeControls);
+    const keys: Record<string, string[]> = {};
+    for (const binding of registry.getKeybindings()) (keys[binding.commandId] ??= []).push(binding.keys);
+    expect(keys["runtime.new-session"]).toEqual(["mod+alt+n"]);
+    expect(keys["workbench.close-stage-tab"]).toEqual(["mod+alt+w"]);
+    expect(keys["workbench.reopen-stage-tab"]).toEqual(["mod+alt+shift+w"]);
+    expect(keys["workbench.next-stage-tab"]).toEqual(["mod+alt+]"]);
+    expect(keys["workbench.prev-stage-tab"]).toEqual(["mod+alt+["]);
+    expect(registry.getKeybindingConflicts()).toEqual([]);
   });
 });
 

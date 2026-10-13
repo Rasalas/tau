@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps } from "./keybinding-when";
+import { clientClause, evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps } from "./keybinding-when";
 
 const holds = (source: string, ...names: string[]) => evaluateWhen(parseWhen(source)!, (name) => names.includes(name));
 
@@ -28,6 +28,23 @@ describe("when clauses", () => {
     expect(isSpecificWhen(parseWhen("true"))).toBe(false);
     expect(isSpecificWhen(parseWhen("terminalFocus && !stageFocus"))).toBe(true);
     expect(isSpecificWhen(parseWhen("modelPickerOpen"))).toBe(true);
+  });
+
+  it("takes isDesktop for the client's, not for a focus a key needs", () => {
+    expect(isSpecificWhen(parseWhen("isDesktop"), true)).toBe(false);
+    expect(isSpecificWhen(parseWhen("!terminalFocus && isDesktop"), true)).toBe(false);
+    expect(isSpecificWhen(parseWhen("terminalFocus && isDesktop"), true)).toBe(true);
+    expect(isSpecificWhen(parseWhen("!isDesktop"), false)).toBe(false);
+  });
+
+  it("keeps a clause for the other kind of client from ever holding here", () => {
+    const desktop = clientClause(true);
+    const browser = clientClause(false);
+    expect(whenOverlaps(parseWhen("!terminalFocus && isDesktop"), desktop)).toBe(true);
+    expect(whenOverlaps(parseWhen("!terminalFocus && isDesktop"), browser)).toBe(false);
+    expect(whenOverlaps(parseWhen("terminalFocus && !isDesktop"), browser)).toBe(true);
+    expect(whenOverlaps(parseWhen("terminalFocus && !isDesktop"), desktop)).toBe(false);
+    expect(whenOverlaps(parseWhen("terminalFocus"), browser)).toBe(true);
   });
 
   it("knows when two clauses can hold together", () => {

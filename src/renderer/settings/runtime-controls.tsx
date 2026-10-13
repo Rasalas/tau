@@ -255,16 +255,19 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+,", commandId: "runtime.settings" });
     // In a terminal these chords are the terminal's (Terminal Kit binds them under `terminalFocus`).
     // `mod+n` and `mod+shift+n` in the project on screen, `mod+shift+o` asks which project.
-    plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus" });
-    plugin.registerKeybinding({ keys: "mod+shift+n", commandId: "runtime.new-session", when: "!terminalFocus" });
+    // A browser keeps ⌘N and ⇧⌘N for its windows (the page never sees them), so a tab binds ⌥⌘N.
+    plugin.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session", when: "!terminalFocus && isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+shift+n", commandId: "runtime.new-session", when: "!terminalFocus && isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+n", commandId: "runtime.new-session", when: "!terminalFocus && !isDesktop" });
     plugin.registerKeybinding({ keys: "mod+shift+o", commandId: "runtime.new-session-in", when: "!terminalFocus" });
     // Only from the chat: Escape elsewhere is a panel's, and an open overlay's always.
     plugin.registerKeybinding({ keys: "escape", commandId: "runtime.abort", when: "chatFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+enter", commandId: "thread.steerQueuedMessage", when: "!terminalFocus" });
     plugin.registerKeybinding({ keys: "mod+shift+e", commandId: "composer.effort", when: "!terminalFocus" });
-    // Reopen takes ⇧⌘T as browsers, editors and T3 Code do; transcript detail moved to ⌥⌘T.
+    // Reopen takes ⇧⌘T as browsers, editors and T3 Code do; transcript detail moved to ⌥⌘T. In a browser ⇧⌘T is its own.
     plugin.registerKeybinding({ keys: "mod+alt+t", commandId: "runtime.transcript-detail" });
-    plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "workbench.reopen-stage-tab", when: "!terminalFocus" });
+    plugin.registerKeybinding({ keys: "mod+shift+t", commandId: "workbench.reopen-stage-tab", when: "!terminalFocus && isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+shift+w", commandId: "workbench.reopen-stage-tab", when: "!terminalFocus && !isDesktop" });
     plugin.registerKeybinding({ keys: "mod+shift+m", commandId: "runtime.model" });
     // Pi's chord, in the composer only: elsewhere Ctrl+P is `mod+p` off macOS, the file picker.
     plugin.registerKeybinding({ keys: "ctrl+p", commandId: "runtime.cycle-model", when: "composerFocus" });
@@ -283,9 +286,13 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerKeybinding({ keys: "mod+alt+b", commandId: "workbench.toggle-dock" });
     // The dock's chord with Shift.
     plugin.registerKeybinding({ keys: "mod+alt+shift+b", commandId: "rightPanel.toggleMaximized" });
-    plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab" });
-    plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab" });
-    plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab" });
+    // ⌘W and Ctrl+Tab close and switch a browser's own tabs before the page hears them; a tab binds ⌥⌘W and ⌥⌘]/[ (VS Code's web chord for close).
+    plugin.registerKeybinding({ keys: "mod+w", commandId: "workbench.close-stage-tab", when: "isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+w", commandId: "workbench.close-stage-tab", when: "!isDesktop" });
+    plugin.registerKeybinding({ keys: "ctrl+tab", commandId: "workbench.next-stage-tab", when: "isDesktop" });
+    plugin.registerKeybinding({ keys: "ctrl+shift+tab", commandId: "workbench.prev-stage-tab", when: "isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+]", commandId: "workbench.next-stage-tab", when: "!isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+alt+[", commandId: "workbench.prev-stage-tab", when: "!isDesktop" });
     // ⌘\ splits as it does in VS Code; the spine takes the design's ⇧ variant.
     plugin.registerKeybinding({ keys: "mod+\\", commandId: "workbench.split-stage" });
     plugin.registerKeybinding({ keys: "mod+shift+\\", commandId: "workbench.toggle-spine" });

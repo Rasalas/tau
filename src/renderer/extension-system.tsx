@@ -2,7 +2,7 @@ import type { SettingsNavGroup } from "./settings/settings-nav";
 import type { ToastHandle, ToastOptions } from "../workbench/toast-store";
 import type { ThreadRowMark } from "../workbench/thread-row-status";
 import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
-import { evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
+import { clientClause, DESKTOP_CONTEXT, evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
 import { domKeybindingContext } from "./keybinding-context";
 import type { ComponentType, ReactNode } from "react";
 import type { PanelIconComponent } from "./components/PanelIcon";
@@ -1857,6 +1857,8 @@ export class ExtensionRegistry {
 
   /** Which client is drawing. Every renderable contribution is filtered against it. */
   private readonly profile: ClientProfile;
+  /** What a binding's `when` must be able to hold beside; see `registerKeybinding`. */
+  private readonly clientWhen: WhenNode;
 
   // `services` defaults to a private store so the many tests that build a
   // registry without a workbench keep working; real activation passes the
@@ -1869,6 +1871,7 @@ export class ExtensionRegistry {
   ) {
     this.services = services ?? { preferences: new PreferencesStore() };
     this.profile = services?.profile ?? "desktop";
+    this.clientWhen = clientClause(this.profile === "desktop");
     this.services.preferences.subscribe(() => {
       this.applyKeybindingOverrides(this.services.preferences.getSnapshot().keybindings);
     });
@@ -2272,6 +2275,8 @@ export class ExtensionRegistry {
         const when = binding.when?.trim() || undefined;
         const ast = when ? parseWhen(when) : undefined;
         if (when && !ast) throw new Error(`Keybinding "${binding.keys}" from ${extension.id} has a when clause Tau cannot read: ${when}`);
+        // A chord for the other kind of client (`isDesktop` here, `!isDesktop` in a browser) is not bound, so hints and the keymap list only what works.
+        if (ast && !whenOverlaps(ast, this.clientWhen)) return noContribution;
         note("keybindings");
         const { when: _when, ...rest } = binding;
         const resolved: ResolvedKeybinding = { ...rest, ...(when ? { when } : {}), keys: id, chord, label: formatKeyChord(chord), ...owner };
@@ -2711,7 +2716,7 @@ export class ExtensionRegistry {
       const inherited = !entry.binding.when && entry.binding.replaces ? defaults.get(entry.binding.replaces) : undefined;
       const whenAst = entry.ast ?? inherited?.ast;
       const effective = inherited?.binding.when ? { ...entry.binding, when: inherited.binding.when } : entry.binding;
-      const candidate: LiveKeybinding = { ...entry, effective, whenAst, specific: isSpecificWhen(whenAst) };
+      const candidate: LiveKeybinding = { ...entry, effective, whenAst, specific: isSpecificWhen(whenAst, this.profile === "desktop") };
       const chord = platformChordId(entry.binding.chord, mac);
       const holder = live.find((other) => platformChordId(other.binding.chord, mac) === chord
         && other.tier === entry.tier
@@ -2764,7 +2769,7 @@ export class ExtensionRegistry {
     const when = candidate.when?.trim() || undefined;
     const ast = when ? parseWhen(when) : this.keybindingEntries.find((entry) => entry.tier === 0 && entry.binding.commandId === candidate.commandId)?.ast;
     if (!chord || (when && !ast)) return [];
-    const specific = isSpecificWhen(ast);
+    const specific = isSpecificWhen(ast, this.profile === "desktop");
     const keys = platformChordId(chord, mac);
     return this.resolveKeybindings(mac).live
       .filter((other) => other.binding.commandId !== candidate.commandId && platformChordId(other.binding.chord, mac) === keys && whenOverlaps(other.whenAst, ast))
@@ -2789,7 +2794,9 @@ export class ExtensionRegistry {
    * `specific` says the winner's clause needs a context, so it runs before
    * the focused element sees the key.
    */
-  matchKeybinding(event: KeyboardEvent, context: (name: string) => boolean = domKeybindingContext()): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean; specific: boolean } | undefined {
+  matchKeybinding(event: KeyboardEvent, page: (name: string) => boolean = domKeybindingContext()): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean; specific: boolean } | undefined {
+    const desktop = this.profile === "desktop";
+    const context = (name: string) => name === DESKTOP_CONTEXT ? desktop : page(name);
     let best: LiveKeybinding | undefined;
     for (const entry of this.resolveKeybindings().live) {
       if (!chordMatchesEvent(entry.binding.chord, event)) continue;
