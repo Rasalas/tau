@@ -2,12 +2,12 @@ import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { getAgentDir, type FileEntry, type SessionHeader, type SessionInfo } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SessionManager, type FileEntry, type SessionHeader, type SessionInfo } from "@earendil-works/pi-coding-agent";
 import { readSessionModel, type SessionModel } from "./session-model-provider.js";
 import { readSessionFileStamp, type SessionFileStamp } from "./session-usage.js";
 
 interface CachedInfo {
-  stamp: SessionFileStamp;
+  stamp?: SessionFileStamp;
   info?: SessionInfo;
   model?: SessionModel;
 }
@@ -78,24 +78,27 @@ export class SessionInfoIndex {
 
   constructor(private readonly sessionsDir?: string) {}
 
-  async list(): Promise<{
+  async list(readFiles = false): Promise<{
     infos: SessionInfo[];
     stamps: Map<string, SessionFileStamp>;
     models: Map<string, SessionModel | undefined>;
   }> {
     const root = this.sessionsDir ?? join(getAgentDir(), "sessions");
-    const files = await this.files(root);
+    const direct = readFiles ? await SessionManager.listAll(this.sessionsDir) : undefined;
+    const byPath = new Map(direct?.map((info) => [info.path, { ...info, allMessagesText: "" }]));
+    const files = direct ? [...byPath.keys()] : await this.files(root);
     const retained = new Set(files);
     for (const path of this.cache.keys()) if (!retained.has(path)) this.cache.delete(path);
-    const entries = await mapBounded(files, async (path) => {
+    const entries = await mapBounded(files, async (path): Promise<CachedInfo | undefined> => {
       const stamp = await readSessionFileStamp(path);
-      if (!stamp) { this.cache.delete(path); return undefined; }
+      if (!stamp) { this.cache.delete(path); return { info: byPath.get(path) }; }
       const cached = this.cache.get(path);
-      if (cached?.stamp.size === stamp.size && cached.stamp.mtimeMs === stamp.mtimeMs) return cached;
-      const info = await readInfo(path, stamp);
+      if (!readFiles && cached?.stamp?.size === stamp.size && cached.stamp.mtimeMs === stamp.mtimeMs) return cached;
+      const read = await readInfo(path, stamp);
+      const info = read ?? byPath.get(path);
       const model = info ? await readSessionModel(path) : undefined;
       const entry = { stamp, info, model };
-      if (info) this.cache.set(path, entry);
+      if (read) this.cache.set(path, entry);
       else this.cache.delete(path);
       return entry;
     });
@@ -105,7 +108,7 @@ export class SessionInfoIndex {
     for (const entry of entries) {
       if (!entry?.info) continue;
       infos.push(entry.info);
-      stamps.set(entry.info.path, entry.stamp);
+      if (entry.stamp) stamps.set(entry.info.path, entry.stamp);
       models.set(entry.info.id, entry.model);
     }
     infos.sort((a, b) => b.modified.getTime() - a.modified.getTime());

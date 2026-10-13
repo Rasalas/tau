@@ -142,11 +142,13 @@ export class ThreadIndex {
     return this.firstScan.promise;
   }
 
-  /** `byId`, but a thread not indexed yet is looked up again once the first scan is done. */
+  /** A cache miss waits for indexing, then reads the session files directly. */
   async find(sessionId: string): Promise<UiSession | undefined> {
     const known = this.byId(sessionId);
     if (known) return known;
     await this.ready();
+    while (this.scan) await this.scan;
+    if (!this.byId(sessionId)) await this.refresh("changes", true);
     return this.byId(sessionId);
   }
 
@@ -182,9 +184,9 @@ export class ThreadIndex {
    * share it, so the recovery timer can never run a second sweep into the
    * lifecycle hooks while one is still in flight.
    */
-  async refresh(publish: "none" | "index" | "changes" | "changed-index"): Promise<ThreadIndexSnapshot> {
+  async refresh(publish: "none" | "index" | "changes" | "changed-index", readFiles = false): Promise<ThreadIndexSnapshot> {
     if (!this.scan) {
-      this.scan = this.scanSessions().finally(() => { this.scan = undefined; });
+      this.scan = this.scanSessions(readFiles).finally(() => { this.scan = undefined; });
       this.scan.then(() => this.firstScan.resolve(), (error: unknown) => this.firstScan.reject(error));
     }
     const { previous, next, projectsChanged } = await this.scan;
@@ -201,12 +203,12 @@ export class ThreadIndex {
     this.recoveryTimer.unref?.();
   }
 
-  private async scanSessions(): Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }> {
+  private async scanSessions(readFiles: boolean): Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }> {
     const scanStartedAt = Date.now();
     this.usageCacheLoaded ??= this.usage.load().catch(() => undefined);
     this.lineageCacheLoaded ??= this.lineage.load().catch(() => undefined);
     const [{ infos: sessionInfos, stamps, models }] = await Promise.all([
-      this.sessionInfos.list(), this.usageCacheLoaded, this.lineageCacheLoaded,
+      this.sessionInfos.list(readFiles), this.usageCacheLoaded, this.lineageCacheLoaded,
     ]);
     this.usage.retain(sessionInfos.map((info) => info.path));
     // Two lines per session file the cache has not answered yet, so the rail

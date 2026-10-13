@@ -1796,6 +1796,12 @@ this cache. The 30-second reconciliation remains for externally created,
 renamed or deleted sessions and the other runtime backends. No directory
 watcher or extension API was added.
 
+A thread lookup that still misses after indexing reads the runtime's listing
+without the cache and reconciles the index before reopening or deleting the
+thread. A missing file stamp alone does not discard a directly listed session.
+This also recovers a replaced session whose size and mtime were preserved.
+Cache entries are written only from reads made after their stamp was captured.
+
 The focused host-index benchmark uses 1000 temporary sessions, each with 40
 messages, about 40 MB altogether. A synthetic token producer runs every 5 ms
 while ten unchanged refreshes and ten refreshes of a growing session run. The
@@ -1817,7 +1823,8 @@ focused run verified the final code. The table includes both after runs.
 The measured p99 remains within budget; this run demonstrates the reduction in
 history scanning cost, not a reduction in streaming latency. Cold startup still
 reads the history. A changed large session still costs a full asynchronous read,
-and a rewrite that preserves both size and mtime cannot invalidate this cache.
+and ordinary refreshes do not detect rewrites that preserve both size and mtime.
+An unknown thread ID takes the direct lookup recovery path described above.
 
 ```sh
 TAU_SESSION_INDEX_BENCHMARK=1 npm test -- src/main/thread-index.test.ts --maxWorkers=2

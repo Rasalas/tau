@@ -104,6 +104,25 @@ function piThread(threadId: string, title?: string) {
 }
 
 describe("ThreadIndex", () => {
+  it("finds and indexes a session created after the first scan through a direct read", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-index-late-"));
+    const { index } = makeIndex({ sessionsDir });
+    const listing = vi.spyOn(SessionManager, "listAll");
+    try {
+      await index.refresh("none");
+      const path = join(sessionsDir, "later.jsonl");
+      await writeFile(path, JSON.stringify({ type: "session", version: 3, id: "later", timestamp: "2026-10-12T10:00:00Z", cwd: "/repo" }) + "\n");
+      expect(index.byId("later")).toBeUndefined();
+      await expect(index.find("later")).resolves.toMatchObject({ id: "later", path });
+      expect(index.byId("later")?.path).toBe(path);
+      expect(listing).toHaveBeenCalledTimes(1);
+    } finally {
+      listing.mockRestore();
+      await index.dispose();
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(process.env.TAU_SESSION_INDEX_BENCHMARK !== "1")("benchmarks 1000 sessions during a synthetic token stream", async () => {
     const sessionsDir = await mkdtemp(join(tmpdir(), "tau-index-benchmark-"));
     const { index } = makeIndex({ sessionsDir });

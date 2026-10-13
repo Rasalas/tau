@@ -31,6 +31,38 @@ function message(id: string, timestamp: number): string {
 }
 
 describe("SessionInfoIndex", () => {
+  it("reads past a stamp collision and replaces the stale cache entry", async () => {
+    const root = await directory();
+    const path = join(root, "one.jsonl");
+    const at = new Date("2026-10-12T10:00:00Z");
+    await writeFile(path, session("one"));
+    await utimes(path, at, at);
+    const before = await stat(path);
+    const index = new SessionInfoIndex(root);
+    expect((await index.list()).infos[0]?.id).toBe("one");
+    await writeFile(path, session("two"));
+    await utimes(path, at, at);
+    const after = await stat(path);
+    expect([after.size, after.mtimeMs]).toEqual([before.size, before.mtimeMs]);
+    expect((await index.list()).infos[0]?.id).toBe("one");
+    expect((await index.list(true)).infos[0]?.id).toBe("two");
+    expect((await index.list()).infos[0]?.id).toBe("two");
+  });
+
+  it("keeps a directly listed session when no file stamp is available", async () => {
+    const root = await directory();
+    const info = {
+      path: join(root, "saved.jsonl"), id: "saved", cwd: "/repo", created: new Date(1), modified: new Date(2),
+      messageCount: 2, firstMessage: "earlier", allMessagesText: "earlier",
+    };
+    const listing = vi.spyOn(SessionManager, "listAll").mockResolvedValue([info]);
+    try {
+      const result = await new SessionInfoIndex(root).list(true);
+      expect(result.infos).toEqual([{ ...info, allMessagesText: "" }]);
+      expect(result.stamps.has(info.path)).toBe(false);
+    } finally { listing.mockRestore(); }
+  });
+
   it("reuses unchanged files, including a cached absence of model, and rereads only changed files", async () => {
     const root = await directory();
     const a = join(root, "a.jsonl");
