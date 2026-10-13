@@ -1672,7 +1672,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt-message { color: var(--ink-3); max-height: min(240px, 40dvh); overflow-y: auto; overscroll-behavior: contain; }
 .extension-prompt-subject {
   display: block; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
-  font: calc(var(--text-xs) - .5px)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto;
+  font: calc(var(--text-xs) - .5px)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; overscroll-behavior: contain;
 }
 .extension-prompt > header > .extension-prompt-subject { flex: 1; min-width: 0; padding: 0; background: none; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -1719,8 +1719,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 }
 .extension-prompt > footer > button.extension-prompt-send:hover:not(:disabled) { background: var(--acid-strong); color: var(--acid-ink); }
 .extension-prompt > footer > button.extension-prompt-send:disabled { background: var(--raised); color: var(--faint); cursor: default; }
-.extension-prompt-send > kbd { font-family: var(--mono); font-weight: 400; opacity: .8; }
-@media (pointer: coarse) { .is-approval .extension-prompt-send > kbd { display: none; } }
+.extension-prompt > footer > button > kbd { font-family: var(--mono); font-weight: 400; opacity: .8; }
+@media (pointer: coarse) { .is-approval > footer > button > kbd { display: none; } }
 
 /* The composer becomes the answer field while a question is open. */
 .composer-frame.answering { border-top-color: var(--line); }

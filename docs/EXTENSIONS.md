@@ -323,7 +323,9 @@ Escape belongs to the topmost overlay. `Dialog`, `Popover` and `Menu` close
 the newest open one on Escape and consume the key; an overlay of your own
 joins them with `useEscapeLayer`, or closes itself in its own key handler. Either way no chord without a modifier
 runs while an overlay was open when the key went down, so core's Escape
-(`runtime.abort`, under `chatFocus`) never stops a turn behind a picker.
+(`runtime.abort`, under `chatFocus`) never stops a turn behind a picker. Over
+an open tool approval in the chat (the card core draws for a `confirm` or an
+Allow / Deny `select`) Escape presses its Deny first and the run goes on.
 
 A clause that needs a context — false when nothing is focused or open, like
 `terminalFocus` but unlike `!terminalFocus` — makes the binding *specific*. On
@@ -1718,9 +1720,10 @@ Since API 1.27.0 the frame draws the workbench design's card (1n). Its head
 says what it is — `kind` `"question"` (the default) or `"approval"` — then
 `from`, who asks, and `pick` (`"one"` or `"any"`) at the right; `title` is the
 question under it, and an approval's `message` is its subject in mono (a path,
-a command). `hint` opens the foot ("Or type an answer below"), `footer` sits
-before the primary action, and `submit` (`{ label, disabled?, enter?,
-onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
+a command; core's card puts one of 48 characters or fewer in the head and
+a longer or multi-line one in a scrolling body). `hint` opens the foot ("Or
+type an answer below"), `footer` sits before the primary action, and
+`submit` (`{ label, disabled?, enter?, onSubmit }`) is that action, "✓ Send 2 ⏎" with `enter` when an empty
 composer's Enter does the same (register it with `usePromptSubmit` too);
 `enter: "mod"` draws ⌘⏎ for an action only ⌘Enter may run, registered with
 `usePromptSubmit(label, disabled, submit, true)`: plain Enter and the

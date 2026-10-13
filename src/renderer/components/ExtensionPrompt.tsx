@@ -1,9 +1,10 @@
 import { Check, CircleHelp, Pencil, SquareTerminal, X } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ExtensionUiPrompt } from "../../shared/contracts";
 import { choiceOptions, splitInputTitle, splitOption, splitPromptTitle } from "../../shared/extension-prompt-options";
 
 import { isMacPlatform } from "../keybindings";
+import { domKeybindingContext } from "../keybinding-context";
 import { usePromptSubmit } from "./prompt-submit";
 
 // Its own module, so the composer and the `tau` module reach it without loading the dialogs.
@@ -11,6 +12,36 @@ export { PromptSubmitContext, usePromptSubmit, type PromptSubmitAction } from ".
 
 /** The words runtimes offer a tool approval in; such a select is drawn as one. */
 const PERMISSION_WORDS = /^(Allow|Deny|Allow for this (session|thread))$/u;
+
+/** A longer subject is read whole in the body: ⌘↵ allows what the card shows. */
+const HEAD_SUBJECT_MAX = 48;
+
+/** Escape over an approval presses Deny and the run goes on; decided on keydown like the window's chords. */
+function useEscapeDeny(deny: RefObject<HTMLButtonElement | null>, active: boolean): void {
+  useEffect(() => {
+    if (!active) return undefined;
+    const taken = new WeakSet<Event>();
+    const down = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.repeat || event.isComposing) return;
+      const context = domKeybindingContext();
+      if (context("chatFocus") && !context("overlayOpen")) taken.add(event);
+    };
+    const up = (event: KeyboardEvent) => {
+      const button = deny.current;
+      // A card still waiting out the user's typing is inert: its question was never seen.
+      if (!taken.has(event) || event.defaultPrevented || !button || button.closest("[inert]")) return;
+      event.preventDefault();
+      button.click();
+    };
+    window.addEventListener("keydown", down, true);
+    // `document` precedes `window` in the bubble, where Escape stops the run.
+    document.addEventListener("keydown", up);
+    return () => {
+      window.removeEventListener("keydown", down, true);
+      document.removeEventListener("keydown", up);
+    };
+  }, [active, deny]);
+}
 
 export function OptionRow({
   label,
@@ -97,8 +128,8 @@ export function ExtensionPromptFrame({
   submit?: PromptFrameSubmit;
 }) {
   const approval = kind === "approval";
-  // An approval names its action in the head, its path or command beside it (design 1a/1f).
-  const inline = approval && message && !message.includes("\n") ? message : undefined;
+  // An approval names its action in the head, a short path or command beside it (design 1a/1f); a long one is read in the body.
+  const inline = approval && message && !message.includes("\n") && message.length <= HEAD_SUBJECT_MAX ? message : undefined;
   const kindLabel = approval ? title : "Question";
   return (
     <section className={`extension-prompt is-${kind}`} aria-label={from ? `${kindLabel} from ${from}` : kindLabel}>
@@ -184,6 +215,8 @@ export function ExtensionPrompt({
   // What the tool folded into an input title is shown as message text.
   const message = prompt.message ?? input?.detail;
   const always = options.find((option) => option.startsWith("Allow for"));
+  const deny = useRef<HTMLButtonElement>(null);
+  useEscapeDeny(deny, approval);
   // The thread's own model heads a question; an approval names only a sub-agent (design 1a).
   const from = agent ?? (approval ? undefined : asker);
 
@@ -202,7 +235,9 @@ export function ExtensionPrompt({
             : prompt.kind === "input" || prompt.kind === "editor" ? "Type your answer below; attached files go with it" : "Answer below"}
       footer={elsewhere ? null : approval
         ? <>
-          <button type="button" onClick={() => onAnswer(permission ? "Deny" : false)}><X size={11} aria-hidden="true" />Deny</button>
+          <button ref={deny} type="button" onClick={() => onAnswer(permission ? "Deny" : false)}>
+            <X size={11} aria-hidden="true" />Deny<kbd className="keyboard-hint" aria-hidden="true">Esc</kbd>
+          </button>
           {always ? <button type="button" onClick={() => onAnswer(always)}>Always for this thread</button> : null}
         </>
         : <button type="button" onClick={onCancel}>Skip</button>}
