@@ -35,6 +35,9 @@ import type { HostLogger } from "./host-log.js";
 import { ConnectionTimers } from "../shared/connection-timers.js";
 
 const UNAUTHORIZED = HOST_CLOSE_CODE.unauthorized;
+const PRE_AUTH_MAX_FRAME_BYTES = 64 * 1024;
+const MAX_SOCKETS_PER_ADDRESS = 32;
+const MAX_SOCKETS_PER_TRUST = 256;
 /** A socket that has not said hello by then is closed. */
 export const SOCKET_HELLO_TIMEOUT_MS = 10_000;
 /**
@@ -179,8 +182,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const { host, port } = bind;
   const http = options.attachTo ?? (options.tls ? createTlsUpgradeServer(options.tls) : createUpgradeServer());
   // No server of its own: every listener hands its upgrades over with the trust it has.
-  const server = new WebSocketServer({ noServer: true, maxPayload: HOST_TRANSPORT_MAX_FRAME_BYTES, perMessageDeflate: SOCKET_PER_MESSAGE_DEFLATE });
+  const server = new WebSocketServer({ noServer: true, maxPayload: PRE_AUTH_MAX_FRAME_BYTES, perMessageDeflate: SOCKET_PER_MESSAGE_DEFLATE });
   const timers = new ConnectionTimers();
+  const addressCounts = new Map<string, number>();
+  const trustCounts = new Map<ListenerTrust, number>();
   if (!options.access && !options.token) throw new Error("A socket listener needs an access key or an access model.");
   const access = options.access ?? tokenOnlyAccess(options.token!);
   /** Every authenticated socket, with the principal its requests run as. */
@@ -317,6 +322,9 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   const alive = new WeakSet<WebSocket>();
 
   const accept = (socket: WebSocket, request: IncomingMessage, trust: ListenerTrust): void => {
+    let helloTimer: ReturnType<ConnectionTimers["after"]> | undefined;
+    socket.on("close", () => { timers.cancel(helloTimer); origins.delete(socket); forget(socket); });
+    socket.on("error", () => { timers.cancel(helloTimer); forget(socket); });
     const origin = request.headers.origin;
     const allowed = typeof options.allowedOrigins === "function" ? options.allowedOrigins() : options.allowedOrigins;
     if (!originAllowed({
@@ -336,7 +344,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     // Bytes of a frame still arriving count too: an 11 MB file piece over a slow link takes longer than a ping round.
     request.socket.on("data", () => alive.add(socket));
     // A device waiting for its owner has until its request expires; once let in, a new deadline for its hello.
-    const helloTimer = timers.after(options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS, () => {
+    helloTimer = timers.after(options.helloTimeoutMs ?? SOCKET_HELLO_TIMEOUT_MS, () => {
       if (!authenticated.has(socket) && !pairing.has(socket)) socket.close(HOST_CLOSE_CODE.helloTimeout, "no hello");
     });
     // Only a peer on this machine may be told that the host's files are local.
@@ -416,6 +424,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           lastSent: options.pushLog.nextSeq - 1,
         };
         authenticated.set(socket, session);
+        setSocketPayloadLimit(socket, HOST_TRANSPORT_MAX_FRAME_BYTES);
         // The reply first: it carries the sequence this client starts from, and
         // the push that announces its own arrival must come after that number.
         const identity = options.host ? helloIdentity(options.host) : undefined;
@@ -462,8 +471,6 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
           respond(socket, { type: "response", response: { id, error: hostErrorInfo(error, code) } });
         });
     });
-    socket.on("close", () => { timers.cancel(helloTimer); origins.delete(socket); forget(socket); });
-    socket.on("error", () => { timers.cancel(helloTimer); forget(socket); });
   };
 
   const attach = (target: Server, trust: ListenerTrust): (() => void) => {
@@ -475,6 +482,23 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     };
     if (options.browserResources) { target.removeAllListeners("request"); target.on("request", dispatch); }
     const onUpgrade = (request: IncomingMessage, stream: Parameters<WebSocketServer["handleUpgrade"]>[1], head: Buffer): void => {
+      // Count the actual TCP peer; forwarded headers must not bypass the budget.
+      const address = request.socket.remoteAddress?.replace(/^::ffff:/u, "") ?? "unknown";
+      const key = `${trust}:${address}`;
+      const addressCount = addressCounts.get(key) ?? 0;
+      const trustCount = trustCounts.get(trust) ?? 0;
+      if (addressCount >= MAX_SOCKETS_PER_ADDRESS || trustCount >= MAX_SOCKETS_PER_TRUST) {
+        stream.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", () => stream.destroy());
+        return;
+      }
+      addressCounts.set(key, addressCount + 1);
+      trustCounts.set(trust, trustCount + 1);
+      stream.once("close", () => {
+        const remaining = addressCounts.get(key)! - 1;
+        if (remaining === 0) addressCounts.delete(key); else addressCounts.set(key, remaining);
+        const total = trustCounts.get(trust)! - 1;
+        if (total === 0) trustCounts.delete(trust); else trustCounts.set(trust, total);
+      });
       server.handleUpgrade(request, stream, head, (socket) => {
         origins.set(socket, target);
         accept(socket, request, trust);
@@ -554,6 +578,20 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       await new Promise<void>((resolve) => http.close(() => resolve()));
     },
   };
+}
+
+// ws has no public per-socket setter. Both checks must change before the next frame is read.
+function setSocketPayloadLimit(socket: WebSocket, bytes: number): void {
+  const internals = socket as WebSocket & {
+    _receiver: { _maxPayload: number };
+    _extensions: { "permessage-deflate"?: { _maxPayload: number } };
+  };
+  // eslint-disable-next-line no-underscore-dangle
+  internals._receiver._maxPayload = bytes;
+  // eslint-disable-next-line no-underscore-dangle
+  const compression = internals._extensions["permessage-deflate"];
+  // eslint-disable-next-line no-underscore-dangle
+  if (compression) compression._maxPayload = bytes;
 }
 
 function helloIdentity(host: NonNullable<SocketHostTransportOptions["host"]>): HostIdentity {
