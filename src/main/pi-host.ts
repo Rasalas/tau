@@ -1645,16 +1645,6 @@ export class PiHost {
     const isExtensionCommand = this.projection.isExtensionCommand(thread, prompt);
     const preparedTurnId = isExtensionCommand ? undefined : randomUUID();
     const wasStreaming = thread.state.streaming;
-    if (preparedTurnId) {
-      this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: wasStreaming });
-      this.turnsInFlight.record({
-        sessionId: thread.threadId, cwd: thread.cwd, turnId: preparedTurnId, backend: thread.backend.kind,
-        startedAt: Date.now(), prompt: { text, ...(attachments.length ? { images: attachments.length } : {}) },
-      });
-      // Idle prompts prepare before Pi starts; queued prompts are prepared at
-      // their actual delivery boundary, after earlier tool work has settled.
-      if (!wasStreaming) await this.turnObservers.prepare(thread.threadId, preparedTurnId);
-    }
     let markerActive = false;
     let preflightState: PromptPreflightState = "pending";
     let resolvePreflight!: () => void;
@@ -1682,6 +1672,15 @@ export class PiHost {
       }
     };
     try {
+      if (preparedTurnId) {
+        this.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: wasStreaming });
+        if (!wasStreaming) this.turnsInFlight.record({
+          sessionId: thread.threadId, cwd: thread.cwd, turnId: preparedTurnId, backend: thread.backend.kind,
+          startedAt: Date.now(), prompt: { text, ...(attachments.length ? { images: attachments.length } : {}) },
+        });
+        // Queued prompts prepare at delivery, after earlier tool work settles.
+        if (!wasStreaming) await this.turnObservers.prepare(thread.threadId, preparedTurnId);
+      }
       if (identity) this.clientTurns.enqueue(thread.threadId, identity, resolvedPrepared.sourceFingerprint);
       markerActive = this.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
       const run = thread.backend.prompt({
