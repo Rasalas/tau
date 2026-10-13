@@ -152,6 +152,7 @@ function context(extra: Partial<AppContext> = {}): AppContext {
   const data = new Map<string, string>();
   const store: SecureStore = { get: async (key) => data.get(key), set: async (key, value) => { data.set(key, value); }, remove: async (key) => { data.delete(key); } };
   return {
+    desktopKits: async () => [],
     storage: createMemoryStorage(),
     book: new HostBook(store),
     bridge: unreachableBridge(),

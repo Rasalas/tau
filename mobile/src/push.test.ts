@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { sealPush } from "../../kits/push/relay";
 import type { SavedHost, SecureStore } from "./hosts";
 import { createPushRegistrar, createRelayPort, sealedTapRoute, tapRoute, type PushPort } from "./push";
-import { PushKeys, pushKeyStoreKey } from "./push-keys";
+import { PushKeys } from "./push-keys";
+import { hostSecureStore } from "./host-secure-store";
 
 const HOST: SavedHost = { id: "host-1", name: "Mac mini", endpoints: [], access: "full", addedAt: "2026-09-24T10:00:00.000Z" };
 
@@ -104,7 +105,7 @@ describe("push through Tau's relay", () => {
     expect(sent[1]!.keyId).not.toBe(sent[0]!.keyId);
     expect(JSON.stringify(invokeHostExtension.mock.calls)).not.toContain("ab".repeat(32));
     // The Android service finds the key under this name.
-    expect(store.values.get(pushKeyStoreKey(sent[0]!.keyId))).toBe(sent[0]!.key);
+    expect(await hostSecureStore(store, HOST.id).get("push-key")).toContain(sent[0]!.key);
   });
 
   it("renews a host's handle after 30 days, for a new token, and when the host says the relay refused it", async () => {

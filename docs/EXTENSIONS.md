@@ -4286,8 +4286,10 @@ The window's process answers all of it through client-side methods
 (`environments-list`, `-pair`, `-cancel-pairing`, `-rename`, `-remove`, `-retry`,
 `-open`, `-take-arrival`, `-discover`, `-set-preferences`, `-set-agents`, `-watch-thread`,
 `-transcript-page`) and the `environments` and `environment-thread` window events; a host refuses the
-methods with `unsupported`. Every kit a page loads comes from the machine it shows,
-so a kit needs nothing of its own to work on another machine; what needs *this*
+methods with `unsupported`. In native clients, a remote kit's code and styles
+must match a kit shipped with the client; the client loads its own copy and
+reports unknown or changed interfaces as not loaded ([ADR 0040](adr/0040-remote-code-stays-out-of-native-clients.md)).
+Its host calls still address the machine it shows; what needs *this*
 window's machine — a window half, `local-files` — is not offered there.
 
 A browser has no `context.environments`. The phone app has its own
@@ -4439,6 +4441,11 @@ the host process can; that is what granting `in-process` means, and the
 approval box says so in that many words.
 
 ### The window half
+
+Attached hosts have no `client-call` rights in the local window, including
+`TAU_HOST_URL` on loopback. Only the supervised machine can invoke its
+registered window halves. Remote desktop code matching a shipped kit does
+not change that allowlist ([ADR 0040](adr/0040-remote-code-stays-out-of-native-clients.md)).
 
 The host runs in its own process ([ADR 0021](adr/0021-host-runs-in-its-own-process.md)),
 so it has no window: anything that needs one — a native view over a panel, a

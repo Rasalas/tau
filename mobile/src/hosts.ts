@@ -4,6 +4,7 @@ import type { HostIdentity } from "../../src/shared/host-transport";
 import type { SocketCandidate } from "./endpoints";
 import type { MobileConnect } from "./relay-connect";
 import { validConnectRoute } from "../../src/shared/managed-connections";
+import { hostSecureStore, migrateHostSecret } from "./host-secure-store";
 
 /** The Keychain on iOS, the Keystore-backed store on Android. */
 export interface SecureStore {
@@ -12,7 +13,7 @@ export interface SecureStore {
   remove(key: string): Promise<void>;
 }
 
-/** A host this phone paired with. Its token is kept apart, under `token:<id>`. */
+/** A host this phone paired with. Its credentials use its secure-store namespace. */
 export interface SavedHost {
   /** The host's own id (`<userData>/host-id`), the same in a pairing link and a Bonjour record. */
   id: string;
@@ -75,11 +76,11 @@ export class HostBook {
   }
 
   async token(id: string): Promise<string | undefined> {
-    return this.store.get(tokenKey(id));
+    return this.serial(() => migrateHostSecret(this.store, id, "token", tokenKey(id)));
   }
 
   async connect(id: string): Promise<MobileConnect | undefined> {
-    const text = await this.store.get(connectKey(id));
+    const text = await this.serial(() => migrateHostSecret(this.store, id, "connect", connectKey(id)));
     if (!text) return undefined;
     try {
       const route = JSON.parse(text) as MobileConnect;
@@ -98,9 +99,12 @@ export class HostBook {
   /** Adds a host or replaces the one with its id, with the token pairing just gave. */
   save(host: SavedHost, token: string, connect?: MobileConnect): Promise<void> {
     return this.serial(async () => {
-      if (connect) await this.store.set(connectKey(host.id), JSON.stringify(connect));
-      else await this.store.remove(connectKey(host.id));
-      await this.store.set(tokenKey(host.id), token);
+      const secrets = hostSecureStore(this.store, host.id);
+      if (connect) await secrets.set("connect", JSON.stringify(connect));
+      else await secrets.remove("connect");
+      await secrets.set("token", token);
+      await this.store.remove(tokenKey(host.id));
+      await this.store.remove(connectKey(host.id));
       const others = (await this.list()).filter((entry) => entry.id !== host.id);
       await this.write([...others, host]);
     });
@@ -122,13 +126,18 @@ export class HostBook {
     return this.serial(async () => {
       await this.store.remove(tokenKey(id));
       await this.store.remove(connectKey(id));
+      await hostSecureStore(this.store, id).remove("token");
+      await hostSecureStore(this.store, id).remove("connect");
       await this.write((await this.list()).filter((host) => host.id !== id));
     });
   }
 
   /** The token no longer works (revoked, expired): keep the host, drop the token. */
   async forgetToken(id: string): Promise<void> {
-    await this.store.remove(tokenKey(id));
+    await this.serial(async () => {
+      await this.store.remove(tokenKey(id));
+      await hostSecureStore(this.store, id).remove("token");
+    });
   }
 
   private async write(hosts: SavedHost[]): Promise<void> {

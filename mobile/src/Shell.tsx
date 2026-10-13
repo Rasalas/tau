@@ -10,6 +10,7 @@ import type { HostClient } from "../../src/workbench/host-client";
 import type { HostWakeSource } from "../../src/workbench/host-link";
 import { pairingNotice } from "../../src/web/host-token";
 import { WebWorkbench } from "../../src/web/WebWorkbench";
+import { withTrustedExtensions } from "./trusted-extensions";
 import { certificateRefusalNotice, connectHost, openCandidate } from "./connect";
 import { nearbyHosts, withDiscoveredEndpoints, type DiscoveredHost, type NativeService } from "./discovery";
 import { RacingSocket, socketCandidates, type SocketCandidate } from "./endpoints";
@@ -28,6 +29,7 @@ import { createDemoHost } from "./demo-host";
 
 /** Everything the shell needs from the platform, so a test can hand it fakes. */
 export interface AppContext {
+  desktopKits(): Promise<import("../../src/shared/contracts").DesktopExtensionBundle[]>;
   activities?: ActivityPort;
   remoteActivities?: import("./activity-start").RemoteActivities;
   storage: ClientStorage;
@@ -215,7 +217,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       createPlatform: (ports) => ({ ...context.environment.createPlatform(ports), environments: machines }),
       shell: { hostLabel: host.name, actions: [{ id: "hosts", label: "Machines", Icon: Server, run: () => leaveTo("?view=hosts") }] },
     };
-    setView({ name: "workbench", host, client, storage: scoped, services: createRendererServices(), environment });
+    setView({ name: "workbench", host, client: withTrustedExtensions(client, context.desktopKits), storage: scoped, services: createRendererServices(), environment });
   }, [book, context, device, leaveTo, storage]);
 
   const startPairing = useCallback((target: PairTarget, from: "hosts" | "add", text?: string) => {

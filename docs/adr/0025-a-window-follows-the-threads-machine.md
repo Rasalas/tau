@@ -3,6 +3,10 @@
 ## Status
 
 Accepted, 2026-09-24. Partly superseded by
+[ADR 0040](0040-remote-code-stays-out-of-native-clients.md) (2026-10-13):
+native clients accept only remote bundles matching their own shipped kits,
+execute their local copies and refuse remote calls into local window halves.
+Partly superseded by
 [ADR 0030](0030-the-workbench-controls-every-machine.md) (2026-10-01): a
 workbench keeps threads of connected agents machines in one list and stays on
 its own host. This ADR's catalog, pairing, address selection and window

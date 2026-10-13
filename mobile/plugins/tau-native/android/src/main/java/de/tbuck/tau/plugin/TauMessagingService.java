@@ -59,7 +59,24 @@ public class TauMessagingService extends MessagingService {
         if (!match.matches() || !"1".equals(match.group(1))) return null;
         String keyId = match.group(2);
         try {
-            String key = new SecureStore(context).get("push-key.v1:" + keyId);
+            SecureStore store = new SecureStore(context);
+            String key = null;
+            String indexText = store.get("push-keys.v1");
+            JSONObject index = new JSONObject(indexText == null ? "{}" : indexText);
+            java.util.Iterator<String> hosts = index.keys();
+            while (hosts.hasNext()) {
+                String host = hosts.next();
+                if (!keyId.equals(index.optString(host))) continue;
+                String scoped = "host.v2:" + secureKeyPart(host) + ":" + secureKeyPart("push-key");
+                String saved = store.get(scoped);
+                if (saved != null) {
+                    JSONObject record = new JSONObject(saved);
+                    if (keyId.equals(record.optString("keyId"))) key = record.optString("key", null);
+                }
+                break;
+            }
+            // A phone upgraded before its next registration still opens existing pushes.
+            if (key == null) key = store.get("push-key.v1:" + keyId);
             if (key == null) return null;
             byte[] bytes = Base64.decode(match.group(3), BASE64URL);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
@@ -71,6 +88,15 @@ public class TauMessagingService extends MessagingService {
         } catch (Exception unreadable) {
             return null;
         }
+    }
+
+    private static String secureKeyPart(String value) {
+        StringBuilder hex = new StringBuilder();
+        for (byte part : value.getBytes(StandardCharsets.UTF_8)) {
+            hex.append(Character.forDigit((part & 0xff) >> 4, 16));
+            hex.append(Character.forDigit(part & 15, 16));
+        }
+        return hex.toString();
     }
 
     private static void show(Context context, JSONObject content) {
