@@ -1,6 +1,6 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { Server as TlsServer, type TLSSocket } from "node:tls";
+import { Server as TlsServer, TLSSocket } from "node:tls";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   HOST_CAPABILITY,
@@ -332,6 +332,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       host: request.headers.host,
       listenerAddress: request.socket.localAddress,
       listenerPort: request.socket.localPort,
+      encrypted: request.socket instanceof TLSSocket && request.socket.encrypted,
       // Behind a proxy the page's host is the one the proxy was reached at.
       ...(trust === "proxy" ? { forwardedHost: forwardedHost(request.headers["x-forwarded-host"]) } : {}),
     }, allowed)) {

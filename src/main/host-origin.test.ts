@@ -8,12 +8,15 @@ const originAllowed = (request: SocketOrigin, allowed: readonly string[] = []) =
 describe("socket origin check", () => {
   it("lets a client without an Origin header through: it is not a browser page", () => {
     expect(originAllowed({ host: "127.0.0.1:7788" })).toBe(true);
+    expect(originAllowed({ host: "rex.local:7788" })).toBe(true);
+    expect(originAllowed({ host: "mac.tailnet.ts.net:7788" })).toBe(true);
+    expect(originAllowed({})).toBe(true);
   });
 
   it("accepts the page this listener served, with or without its default port", () => {
     expect(originAllowed({ origin: "http://127.0.0.1:7788", host: "127.0.0.1:7788" })).toBe(true);
-    expect(originAllowed({ origin: "https://Mac.tailnet.ts.net", host: "mac.tailnet.ts.net" }, ["https://mac.tailnet.ts.net"])).toBe(true);
-    expect(originAllowed({ origin: "https://mac.local:7788", host: "mac.local:7788" }, ["https://mac.local:7788"])).toBe(true);
+    expect(originAllowed({ origin: "https://Mac.tailnet.ts.net", host: "mac.tailnet.ts.net", encrypted: true })).toBe(true);
+    expect(originAllowed({ origin: "https://mac.local:7788", host: "mac.local:7788", encrypted: true })).toBe(true);
   });
 
   it("refuses a page on another site, another port, or an opaque origin", () => {
@@ -40,16 +43,25 @@ describe("socket origin check", () => {
     expect(originAllowed({ origin: "https://mac.tailnet.ts.net", host: "127.0.0.1:7789", listenerPort: 7789, forwardedHost: "mac.tailnet.ts.net" })).toBe(true);
     expect(originAllowed({ origin: "https://mac.tailnet.ts.net:8443", host: "127.0.0.1:7789", listenerPort: 7789, forwardedHost: "Mac.tailnet.ts.net:8443" })).toBe(true);
     expect(originAllowed({ origin: "https://evil.example", host: "127.0.0.1:7789", listenerPort: 7789, forwardedHost: "mac.tailnet.ts.net" })).toBe(false);
+    expect(originAllowed({ origin: "https://mac.tailnet.ts.net", host: "mac.tailnet.ts.net", forwardedHost: "Mac.tailnet.ts.net" })).toBe(true);
     expect(forwardedHost("evil.example, mac.tailnet.ts.net")).toBe("mac.tailnet.ts.net");
     expect(forwardedHost(undefined)).toBeUndefined();
   });
 
   it("refuses a rebound Host even when the Origin matches or was allowed", () => {
     expect(originAllowed({ host: "evil.example:7788", origin: "http://evil.example:7788" })).toBe(false);
-    expect(originAllowed({ host: "evil.example:7788" })).toBe(false);
     expect(originAllowed({ host: "evil.example:7788", origin: "http://localhost:5173" }, ["http://localhost:5173"])).toBe(false);
     expect(originAllowed({ host: "localhost:7789", origin: "http://localhost:7789" })).toBe(false);
-    expect(originAllowed({})).toBe(false);
+    expect(originAllowed({ origin: "http://localhost:7788" })).toBe(false);
+  });
+
+  it("accepts allowed phone and web origins on TLS listeners reached by name", () => {
+    for (const origin of ["capacitor://localhost", "https://localhost"]) {
+      expect(originAllowed({ origin, host: "rex.local:7788", encrypted: true }, [origin])).toBe(true);
+      expect(originAllowed({ origin, host: "rex.local:7788", encrypted: true })).toBe(false);
+    }
+    expect(originAllowed({ origin: "https://elsewhere.example", host: "rex.local:7788", encrypted: true })).toBe(false);
+    expect(originAllowed({ origin: "file://", host: "rex.local:7788", encrypted: true }, ["file://"])).toBe(false);
   });
 
   it("accepts loopback names and the actual listener address, including IPv6", () => {

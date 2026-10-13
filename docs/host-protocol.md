@@ -191,17 +191,29 @@ calls `reconnectNow()`.
 
 ### Which pages may open a socket
 
-The host checks `Host` and `Origin` before a hello or a pairing request and
-closes a refused socket with 4403 (`src/main/host-origin.ts`). `Host` must name
-a loopback address or the address the connection actually reached, on that
-listener's port, or an HTTP(S) endpoint explicitly allowed by the host. A
-foreign name is refused even if `Origin` matches it, preventing DNS rebinding.
-Published endpoints and `TAU_HOST_ALLOWED_ORIGINS` supply the allowed names.
+The host checks browser origins before a hello or a pairing request and closes
+a refused socket with 4403 (`src/main/host-origin.ts`). A client without an
+`Origin` is not a browser page and passes without a `Host` check: native
+clients, the desktop and smokes may reach the host by any name. The token in
+the hello still gates methods.
 
-With a valid `Host`, no `Origin` passes for native clients. A page passes
-when its origin matches the validated listener authority or is listed in
-`TAU_HOST_ALLOWED_ORIGINS`; a development window's `TAU_DEV_SERVER_URL` is
-added automatically. `file://` and opaque `null` origins are refused.
+On a TLS listener, browser certificate verification binds the name, so the
+page passes when its Origin host matches `Host` or its origin is explicitly
+allowed. On a plaintext listener, a rebound domain could reach the same port
+without that certificate check. `Host` must therefore name a loopback address
+or the actual listener address, on that listener's port, or an HTTP(S) endpoint
+explicitly allowed by the host. A foreign name is refused even if `Origin`
+matches it. Only a proxy listener also accepts `Host` matching the proxy's last
+`X-Forwarded-Host` hop; a browser cannot set that header on a WebSocket upgrade.
+This covers both proxies that rewrite `Host` and those that keep the public name.
+TLS is taken from the actual socket, never a forwarded protocol header.
+
+With a valid plaintext authority, the Origin must still match `Host`, the
+trusted forwarded host, or an allowed origin. Published endpoints and
+`TAU_HOST_ALLOWED_ORIGINS` supply allowed origins, including native shells;
+a development window's `TAU_DEV_SERVER_URL` is added automatically.
+`file://` and opaque `null` origins are refused on every listener.
+
 The desktop removes `Origin` only on its current workbench main frame's
 sockets to its exact local host address or saved machines. Subframes and
 requests without a current frame keep their origin. The token in the hello gates methods;

@@ -12,16 +12,18 @@ export interface SocketOrigin {
   /** The address and port this connection actually reached, including attached listeners. */
   listenerAddress?: string;
   listenerPort?: number;
+  /** TLS on the actual listener, not a forwarded protocol header. */
+  encrypted?: boolean;
   /** Behind a proxy, the host the page reached the proxy at (`X-Forwarded-Host`); only a proxy listener sets it. */
   forwardedHost?: string;
 }
 
-/** Checks the listener authority before an Origin or any unauthenticated pairing frame. */
+/** Browser origins are checked before a hello or an unauthenticated pairing frame. */
 export function originAllowed(request: SocketOrigin, allowed: readonly string[] = []): boolean {
-  if (!hostAllowed(request, allowed)) return false;
   const origin = request.origin?.trim();
   if (!origin) return true;
   if (/^file:/iu.test(origin)) return false;
+  if (!request.encrypted && !hostAllowed(request, allowed)) return false;
   const normalized = normalizeOrigin(origin);
   if (normalized && allowed.some((entry) => normalizeOrigin(entry) === normalized)) return true;
   if (!normalized || !/^https?:/u.test(normalized)) return false;
@@ -41,6 +43,7 @@ function hostAllowed(request: SocketOrigin, allowed: readonly string[]): boolean
     const address = request.listenerAddress?.replace(/^::ffff:/u, "").replace(/^\[|\]$/gu, "");
     const hostname = url.hostname.replace(/^\[|\]$/gu, "");
     if (samePort && (isLoopbackHost(hostname) || hostname === address)) return true;
+    if (host === request.forwardedHost?.trim().toLowerCase()) return true;
     return allowed.some((entry) => {
       const normalized = normalizeOrigin(entry);
       if (!normalized || !/^https?:/u.test(normalized)) return false;

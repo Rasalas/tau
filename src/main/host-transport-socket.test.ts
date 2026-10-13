@@ -10,6 +10,7 @@ import { HostPushCoalescer } from "./host-push-coalescer.js";
 import { clientHostToken, hostTokenMatches, readHostToken, readOrCreateHostToken } from "./host-token.js";
 import { HostClientRegistry } from "./host-clients.js";
 import { SOCKET_PING_INTERVAL_MS, createProtocolServer, startSocketHostTransport, type SocketHostTransport, type SocketHostTransportOptions } from "./host-transport-socket.js";
+import { createSelfSignedCertificate } from "./self-signed-certificate.js";
 import { isLoopbackHost, parseListen } from "./host-listen.js";
 import type { HostMethodTable } from "./host-methods.js";
 
@@ -589,6 +590,10 @@ describe("socket host transport on a network that drops peers", () => {
     const foreign = connect(started.port, { origin: "https://evil.example" });
     expect(await closed(foreign)).toBe(4403);
 
+    expect(await closed(connect(started.port, {
+      origin: "https://evil.example", headers: { Host: "evil.example", "x-forwarded-proto": "https" },
+    }))).toBe(4403);
+
     const own = connect(started.port, { origin: `http://127.0.0.1:${started.port}` });
     await opened(own);
     own.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
@@ -598,6 +603,21 @@ describe("socket host transport on a network that drops peers", () => {
     await opened(shell);
     shell.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
     expect((await nextFrame(shell)).type).toBe("hello-reply");
+  });
+
+  it("accepts same-origin and allowed phone pages on a TLS listener reached by name", async () => {
+    const tls = createSelfSignedCertificate({ commonName: "rex.local", dnsNames: ["rex.local"], ipAddresses: ["127.0.0.1"], days: 1 });
+    const started = await listenWith({ tls, allowedOrigins: ["capacitor://localhost", "https://localhost"] });
+    for (const origin of [`https://rex.local:${started.port}`, "capacitor://localhost", "https://localhost"]) {
+      const socket = new WebSocket(`wss://rex.local:${started.port}`, {
+        ca: tls.cert, family: 4, lookup: (_hostname, _options, callback) => callback(null, "127.0.0.1", 4), origin,
+      });
+      sockets.push(socket);
+      const reply = nextFrame(socket);
+      await opened(socket);
+      socket.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+      expect((await reply).type).toBe("hello-reply");
+    }
   });
 
   it("lets a page behind a proxy in at the host the proxy was reached at, and nothing else there", async () => {
@@ -615,6 +635,12 @@ describe("socket host transport on a network that drops peers", () => {
       page.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
       expect((await nextFrame(page)).type).toBe("hello-reply");
       expect(await closed(connect(port, { origin: "https://evil.example", headers: { "x-forwarded-host": "mac.tailnet.ts.net" } }))).toBe(4403);
+      const publicHost = connect(port, { ...served, headers: { ...served.headers, Host: "mac.tailnet.ts.net" } });
+      const publicReply = nextFrame(publicHost);
+      await opened(publicHost);
+      publicHost.send(JSON.stringify({ type: "hello", id: "h", hello: { protocol: HOST_TRANSPORT_VERSION, token: TOKEN } }));
+      expect((await publicReply).type).toBe("hello-reply");
+      expect(await closed(connect(started.port, { ...served, headers: { ...served.headers, Host: "mac.tailnet.ts.net" } }))).toBe(4403);
       // File origins are refused on every listener.
       expect(await closed(connect(port, { origin: "file://" }))).toBe(4403);
       // The loopback listener takes no forwarded host from anyone.

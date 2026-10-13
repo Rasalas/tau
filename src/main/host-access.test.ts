@@ -534,7 +534,6 @@ const connectionsOf = (access: HostAccess) => createConnectionsMethods(() => ({
 describe("pairing over the socket", () => {
   it.each<Record<string, string>>([
     { Host: "evil.example:7788", Origin: "http://evil.example:7788" },
-    { Host: "evil.example:7788" },
     { Origin: "file://" },
   ])("refuses pairing before a prompt for unsafe upgrade headers %j", async (headers) => {
     const { access } = await openAccess();
@@ -545,6 +544,16 @@ describe("pairing over the socket", () => {
     expect(outcome).toMatchObject({ code: 4403 });
     expect(access.overview().requests).toEqual([]);
     expect(access.overview().clients).toEqual([]);
+  });
+
+  it("accepts a native pairing client using a hostname without an Origin", async () => {
+    const { access } = await openAccess();
+    const port = await listen(access);
+    const device = await connect(port, { Host: "rex.local:7788" });
+    device.send({ type: "pair", id: "p", pair: { name: "Desktop" } });
+    expect(await Promise.race([device.next("pair-reply"), device.closed])).toMatchObject({ reply: { state: "waiting" } });
+    expect(access.overview().requests).toMatchObject([{ name: "Desktop" }]);
+    expect(access.overview().requests[0]).not.toHaveProperty("origin");
   });
 
   it("shows the upgrade origin to the owner rather than a name from the pairing frame", async () => {
