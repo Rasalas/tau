@@ -922,12 +922,8 @@ export function createAgentsHostExtension(options: {
         };
       };
 
-      /**
-       * The parent's decision about a child's worktree: take the work or throw
-       * it away. Either way the worktree goes, because the child is done with
-       * it; a failed apply keeps both, so nothing is lost to a collision.
-       */
-      const settleWorkspace = async (id: string, outcome: "applied" | "discarded"): Promise<{ detail: string; branch?: string }> => {
+      /** Apply or discard a finished child's work; failed checks keep its checkout. */
+      const settleWorkspace = async (id: string, outcome: "applied" | "discarded", force = false): Promise<{ detail: string; branch?: string }> => {
         const link = book.linkFor(id);
         const workspace = link?.workspace;
         if (link?.machine) {
@@ -947,7 +943,8 @@ export function createAgentsHostExtension(options: {
           const applied = await applyAgentWorktree({ parentCwd: link.projectPath, worktree, runGit });
           detail = applied.detail;
         }
-        await removeAgentWorktree({ parentCwd: link.projectPath, worktree, runGit });
+        const retained = await removeAgentWorktree({ parentCwd: link.projectPath, worktree, runGit, ...(outcome === "discarded" ? { discard: { force } } : {}) });
+        if (retained) detail += ` Work retained at ${retained}.`;
         changed(id, book.noteWorkspace(id, { ...workspace, settled: outcome }));
         save();
         services.log(`agents.${outcome}`, `${workspace.branch} · ${detail}`);
@@ -1408,16 +1405,17 @@ export function createAgentsHostExtension(options: {
           {
             name: "tau_apply_thread_changes",
             label: "Apply thread changes",
-            description: "Integrate a delegated task's changes into this checkout, or discard them. Removes the worktree on success; conflicts leave it intact. Discard deletes the work and branch.",
+            description: "Integrate a delegated task's changes into this checkout, or discard them. Removes the worktree on success; conflicts leave it intact. Discard refuses changes unless force is true and retains a recovery ref before removing the worktree and branch.",
             promptSnippet: "tau_apply_thread_changes: integrate or discard delegated changes",
             parameters: Type.Object({
               threadId: Type.String({ description: "Thread id returned by tau_spawn_thread." }),
-              discard: Type.Optional(Type.Boolean({ description: "Throw the work away instead of applying it; the worktree and its branch go too." })),
+              discard: Type.Optional(Type.Boolean({ description: "Discard instead of applying. Refuses changes unless force is true; retains a recovery ref before removal." })),
+              force: Type.Optional(Type.Boolean({ description: "Explicitly allow discarding local changes after saving them under a recovery ref." })),
             }),
             execute: async (_toolCallId, params) => {
               const link = requireChild(threadId, decodeThreadId(params));
               const discard = (params as { discard?: unknown }).discard === true;
-              return toolResult(await settleWorkspace(link.id, discard ? "discarded" : "applied"));
+              return toolResult(await settleWorkspace(link.id, discard ? "discarded" : "applied", (params as { force?: unknown }).force === true));
             },
           },
           {
@@ -1663,7 +1661,7 @@ export function createAgentsHostExtension(options: {
         context.registerCommand("state", state, { access: "read" }),
         // The panel's two row actions; the tools do the same from a turn.
         context.registerCommand("apply-changes", (input) => settleWorkspace(requireThreadId(input), "applied"), { long: true }),
-        context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded"), { long: true, callers: [REVIEW_KIT_ID] }),
+        context.registerCommand("discard-changes", (input) => settleWorkspace(requireThreadId(input), "discarded", (input as { force?: unknown }).force === true), { long: true, callers: [REVIEW_KIT_ID] }),
         // The row's Stop: the agent and everything it started.
         context.registerCommand("stop-agent", async (input) => {
           const link = book.linkFor(requireThreadId(input));

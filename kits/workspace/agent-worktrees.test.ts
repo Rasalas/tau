@@ -9,6 +9,8 @@ import {
   createAgentWorktree,
   readAgentWorktreeChanges,
   removeAgentWorktree,
+  runAgentGit,
+  type AgentGitRunner,
   worktreeSetupCommand,
 } from "./agent-worktrees.js";
 
@@ -34,6 +36,47 @@ afterEach(async () => {
 });
 
 describe("a spawned thread's worktree", () => {
+  it("retains a clean child before an unforced discard", async () => {
+    const parent = await repository();
+    const child = await createAgentWorktree({ parentCwd: parent, agentId: "discard-clean" });
+    const ref = await removeAgentWorktree({ parentCwd: parent, worktree: child, discard: {} });
+    expect(ref).toMatch(/^refs\/tau\/discarded\//u);
+    expect(execFileSync("git", ["show", `${ref}:README.md`], { cwd: parent }).toString()).toBe("start\n");
+    await expect(readFile(join(child.path, "README.md"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps a discarded child's commits when its folder is already gone", async () => {
+    const parent = await repository();
+    const child = await createAgentWorktree({ parentCwd: parent, agentId: "discard-vanished" });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: child.path, stdio: "pipe" });
+    await writeFile(join(child.path, "done.txt"), "committed work\n");
+    git("add", "-A");
+    git("commit", "-qm", "child work");
+    await rm(child.path, { recursive: true, force: true });
+    const ref = await removeAgentWorktree({ parentCwd: parent, worktree: child, discard: {} });
+    expect(ref).toMatch(/^refs\/tau\/discarded\//u);
+    expect(execFileSync("git", ["show", `${ref}:done.txt`], { cwd: parent }).toString()).toBe("committed work\n");
+    expect(execFileSync("git", ["branch", "--list", child.branch], { cwd: parent }).toString()).toBe("");
+  });
+
+  it.each(["diff", "rev-list", "status", "write-tree", "commit-tree", "update-ref", "worktree"])("keeps a child's work when discard fails at %s", async (command) => {
+    const parent = await repository();
+    const child = await createAgentWorktree({ parentCwd: parent, agentId: "discard-failure" });
+    await writeFile(join(child.path, "draft.txt"), "work to keep\n");
+    const calls: string[][] = [];
+    const runGit: AgentGitRunner = (cwd, args, options) => {
+      calls.push(args);
+      if (args[0] === command) return Promise.reject(new Error(`Failed ${command}`));
+      return runAgentGit(cwd, args, options);
+    };
+    await expect(removeAgentWorktree({ parentCwd: parent, worktree: child, runGit, discard: { force: true } })).rejects.toThrow(`Failed ${command}`);
+    expect(await readFile(join(child.path, "draft.txt"), "utf8")).toBe("work to keep\n");
+    expect(execFileSync("git", ["branch", "--list", child.branch], { cwd: parent }).toString()).toContain(child.branch);
+    expect(calls.some((args) => args[0] === "branch")).toBe(false);
+    if (command !== "worktree") expect(calls.some((args) => args[0] === "worktree")).toBe(false);
+    else expect(calls.findIndex((args) => args[0] === "update-ref")).toBeLessThan(calls.findIndex((args) => args[0] === "worktree"));
+  });
+
   it("starts from HEAD and the parent's uncommitted work, and from HEAD alone when there is none", async () => {
     const parent = await repository();
     const git = (...args: string[]) => execFileSync("git", args, { cwd: parent, stdio: "pipe" }).toString();

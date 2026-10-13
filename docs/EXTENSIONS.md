@@ -3443,7 +3443,13 @@ Review Kit's guided reviews (ADR 0034) are the first caller; the commands name
 | Command | What it does |
 |---|---|
 | `spawn { parentThreadId, prompt, definition, title?, model?, startAt?, source? }` | Starts a child of an open thread in a worktree. `definition` is `{ name, description?, systemPrompt, tools?, access?, runtime?, model? }`, the fields of a `.tau/agents/` file carried by the caller instead of read from the project (`access` only narrows, `tools` is the thread's allowlist, Pi names). `startAt` is a commit the worktree starts from instead of the parent's HEAD and uncommitted work; it must be in the repository already (fetch it first) and a queued spawn keeps it across a restart. `source` becomes the link's `spawnedBy`, so the panel and the thread index know who started it; unlike `tau_spawn_thread` it does not make the parent wait for the child's result. Answers like `tau_spawn_thread`. |
-| `stop-agent { threadId }`, `discard-changes { threadId }` | The panel's two row actions; the caller that started an agent may stop it and let its worktree go once it is done. |
+| `stop-agent { threadId }`, `discard-changes { threadId, force? }` | The panel's two row actions. Local discard rereads the child's changes and refuses files, commits or index changes unless `force: true` is explicit. Before removing the worktree and branch, it retains the working tree, index and HEAD history under `refs/tau/discarded/<id>`; the returned `detail` names that ref. Inspection, retention and removal failures propagate. |
+
+Since API 1.61.0, `tau_apply_thread_changes` uses the same local discard policy with
+`{ threadId, discard: true }` and optional `force: true`. Recovery refs have no automatic
+expiry. Their tip contains tracked and non-ignored untracked working files;
+its parent holds the index, and the next parent is the child's original HEAD.
+Recover the files with `git worktree add -b recovered <path> <ref>`.
 
 A kit's own tools for such an agent register as a Pi runtime extension for
 sub-agents whose persona is its definition (read from the thread's

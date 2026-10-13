@@ -669,6 +669,59 @@ describe("Agents Kit", () => {
     }
   });
 
+  it.each(["uncommitted", "committed", "empty commit", "staged"])("refuses to discard a child with %s work without force", async (kind) => {
+    const root = await mkdtemp(join(tmpdir(), "tau-agent-discard-"));
+    try {
+      const project = join(root, "project");
+      await mkdir(project);
+      const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" }).toString().trim();
+      git(project, "init", "-q", "-b", "main");
+      git(project, "config", "user.name", "Tau");
+      git(project, "config", "user.email", "tau@example.invalid");
+      await writeFile(join(project, "answer.txt"), "initial\n");
+      git(project, "add", "-A");
+      git(project, "commit", "-qm", "initial");
+      const bench = await activated({ runGit: runAgentGit, settingsPath: join(root, "settings.json") });
+      bench.setProject(project);
+      const parent = bench.runtime("parent", project);
+      const spawned = await parent.call("tau_spawn_thread", { prompt: "Write the answer" }) as { threadId: string; branch: string };
+      const child = bench.started[0]!.cwd;
+      bench.threads.get(spawned.threadId)!.streaming = false;
+      await bench.notify("ended", spawned.threadId);
+      // Change it after the status was read, so a cached clean result cannot authorize deletion.
+      if (kind !== "empty commit") await writeFile(join(child, "answer.txt"), "child work\n");
+      if (kind === "committed" || kind === "staged") git(child, "add", "-A");
+      if (kind === "committed" || kind === "empty commit") git(child, "commit", "--allow-empty", "-qm", "child work");
+      if (kind === "staged") await writeFile(join(child, "answer.txt"), "initial\n");
+      const tip = git(child, "rev-parse", "HEAD");
+      const index = git(child, "write-tree");
+      const contents = await readFile(join(child, "answer.txt"), "utf8");
+
+      await expect(parent.call("tau_apply_thread_changes", { threadId: spawned.threadId, discard: true })).rejects.toThrow(/force/u);
+      await expect(bench.invoke("discard-changes", { threadId: spawned.threadId })).rejects.toThrow(/force/u);
+      expect(await readFile(join(child, "answer.txt"), "utf8")).toBe(contents);
+      expect(git(project, "worktree", "list")).toContain(child);
+      expect(git(project, "rev-parse", spawned.branch)).toBe(tip);
+      expect(git(child, "write-tree")).toBe(index);
+      expect((await bench.state()).links[0]?.workspace?.settled).toBeUndefined();
+
+      const input = { threadId: spawned.threadId, discard: true, force: true };
+      const discarded = await (kind === "staged"
+        ? bench.invoke("discard-changes", input)
+        : parent.call("tau_apply_thread_changes", input)) as { detail: string };
+      const ref = /refs\/tau\/discarded\/[a-f0-9-]+/u.exec(discarded.detail)?.[0];
+      expect(ref).toBeTruthy();
+      expect(git(project, "show", `${ref}:answer.txt`)).toBe(contents.trim());
+      expect(git(project, "rev-parse", `${ref}^^`)).toBe(tip);
+      expect(git(project, "rev-parse", `${ref}^^{tree}`)).toBe(index);
+      expect(git(project, "worktree", "list")).not.toContain(child);
+      expect(git(project, "branch", "--list", spawned.branch)).toBe("");
+      expect((await bench.state()).links[0]?.workspace?.settled).toBe("discarded");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("starts a child from HEAD and the uncommitted work, so a commit made after the parent's last turn survives the merge", async () => {
     const root = await mkdtemp(join(tmpdir(), "tau-agent-base-"));
     const project = join(root, "project");

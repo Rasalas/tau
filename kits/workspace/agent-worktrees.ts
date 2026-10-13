@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { gitExecutable, tauHomeDir } from "tau/host-extension";
+import { HostCommandError, gitExecutable, tauHomeDir } from "tau/host-extension";
 
 const execFileAsync = promisify(execFile);
 const PATCH_BUFFER = 64 * 1024 * 1024;
@@ -302,8 +303,8 @@ export async function readAgentWorktreeChanges(
   if (!base) throw new Error(`${worktree.branch} does not record the state it started from.`);
   const tree = await captureWorktreeTree(worktree.path, runGit);
   const numstat = parseNumstat(await runGit(worktree.path, ["diff", "--numstat", base, tree]));
-  const commits = Number((await runGit(worktree.path, ["rev-list", "--count", `${base}..HEAD`]).catch(() => "0")).trim()) || 0;
-  const uncommitted = (await runGit(worktree.path, ["status", "--porcelain"]).catch(() => ""))
+  const commits = Number((await runGit(worktree.path, ["rev-list", "--count", `${base}..HEAD`])).trim()) || 0;
+  const uncommitted = (await runGit(worktree.path, ["status", "--porcelain"]))
     .split("\n").filter((line) => line.trim().length > 0).length;
   return { branch: worktree.branch, ...numstat, commits, uncommitted };
 }
@@ -387,18 +388,42 @@ export async function applyAgentWorktree(options: {
   return { branch: worktree.branch, strategy: "patch", files: changes.files, added: changes.added, removed: changes.removed, detail: `Applied ${summary} from ${worktree.branch}.` };
 }
 
-/** Removes a child's checkout and the branch it held; a folder already gone is pruned. */
+/** Discard checks and retains the work first; other cleanup also prunes a folder already gone. */
 export async function removeAgentWorktree(options: {
   parentCwd: string;
   worktree: Pick<AgentWorktree, "path" | "branch">;
   runGit?: AgentGitRunner;
-}): Promise<void> {
+  discard?: { force?: boolean };
+}): Promise<string | undefined> {
   const runGit = options.runGit ?? runAgentGit;
   const { parentCwd, worktree } = options;
   const exists = await stat(worktree.path).then((entry) => entry.isDirectory()).catch(() => false);
+  // A folder already gone has nothing left to retain; it is only pruned.
+  if (options.discard && exists) {
+    const changes = await readAgentWorktreeChanges(worktree, runGit);
+    if (!options.discard.force && (changes.files > 0 || changes.commits > 0 || changes.uncommitted > 0)) {
+      throw new HostCommandError(`${worktree.branch} still holds work. Apply it or explicitly set force: true to discard it; its worktree and branch were kept.`);
+    }
+    const head = (await runGit(worktree.path, ["rev-parse", "--verify", "HEAD"])).trim();
+    const index = (await runGit(worktree.path, ["write-tree"])).trim();
+    const tree = await captureWorktreeTree(worktree.path, runGit);
+    // Keep staged content even when the working copy has since reverted it.
+    const staged = (await runGit(worktree.path, ["commit-tree", index, "-p", head, "-m", `Retained index of ${worktree.branch}`])).trim();
+    const snapshot = (await runGit(worktree.path, ["commit-tree", tree, "-p", staged, "-m", `Retained working copy of ${worktree.branch}`])).trim();
+    const ref = `refs/tau/discarded/${randomUUID()}`;
+    await runGit(worktree.path, ["update-ref", ref, snapshot]);
+    await runGit(parentCwd, ["worktree", "remove", ...(options.discard.force ? ["--force"] : []), worktree.path]);
+    await runGit(parentCwd, ["branch", "-D", worktree.branch]);
+    return ref;
+  }
   if (exists) await runGit(parentCwd, ["worktree", "remove", "--force", worktree.path]).catch(() => "");
   await runGit(parentCwd, ["worktree", "prune"]).catch(() => "");
+  // Without its folder only the branch's commits are left to retain.
+  const tip = options.discard ? (await runGit(parentCwd, ["rev-parse", "--verify", "--quiet", `refs/heads/${worktree.branch}`]).catch(() => "")).trim() : "";
+  const ref = tip ? `refs/tau/discarded/${randomUUID()}` : undefined;
+  if (ref) await runGit(parentCwd, ["update-ref", ref, tip]);
   await runGit(parentCwd, ["branch", "-D", worktree.branch]).catch(() => "");
+  return ref;
 }
 
 /** What merging a branch into a checkout would do, read without touching the checkout. */

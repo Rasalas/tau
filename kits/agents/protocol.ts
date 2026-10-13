@@ -37,8 +37,8 @@ export interface AgentsHostCommands {
   "state": { input: undefined; output: AgentsState };
   /** Takes a child's work into the parent's checkout and removes the child's worktree. */
   "apply-changes": { input: { threadId: string }; output: { detail: string } };
-  /** Throws the child's worktree away, work and branch included. */
-  "discard-changes": { input: { threadId: string }; output: { detail: string } };
+  /** Refuses work unless forced; retains a recovery ref before removing the worktree and branch. */
+  "discard-changes": { input: { threadId: string; force?: boolean }; output: { detail: string } };
   /** The agent definitions of a thread's checkout, or of the open workspace without one. */
   "definitions": { input: { sessionId?: string }; output: AgentDefinitionsState };
   /** The user starts an agent from a definition, as a child of the thread they are reading. */
