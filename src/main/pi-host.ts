@@ -1,4 +1,5 @@
 import { AgentSessionControl } from "./agent-session-control.js";
+import { compactThreadContext } from "./host-compaction.js";
 import { rm } from "node:fs/promises";
 import { promptFiles } from "./prompt-attachments.js";
 import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
@@ -1849,36 +1850,7 @@ export class PiHost {
 
   async compactContext(expectedSessionId?: string, prompt?: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<HostActionResult> {
     const thread = this.requireThread(expectedSessionId);
-    const capability = requireCapability(thread.backend, "compaction");
-    if (thread.compactionPending) throw new Error("This thread is already compacting its context.");
-    thread.compactionPending = true;
-    try {
-      if (prompt) await this.queue.submit(thread.threadId, { ...prompt, attachments: this.prompts.checked(thread, prompt.attachments) });
-    } catch (error) {
-      thread.compactionPending = false;
-      throw error;
-    }
-    this.emit({ type: "context-compaction", sessionId: thread.threadId, running: true });
-    const compact = async () => {
-      let completed = false;
-      try {
-        await capability.compact();
-        completed = true;
-        this.log("context.compacted");
-      } catch (error) {
-        if (!prompt) throw error;
-        this.queue.hold(thread.threadId);
-        this.emit({ type: "notice", sessionId: thread.threadId, level: "error", message: `Compaction failed. Your message is waiting in the queue: ${error instanceof Error ? error.message : String(error)}` });
-      } finally {
-        thread.compactionPending = false;
-        this.emit({ type: "context-compaction", sessionId: thread.threadId, running: false });
-      }
-      if (completed && prompt) await this.queue.pump(thread.threadId);
-    };
-    // A queued message is accepted as soon as the host owns it. Long compactions
-    // must not time out the request and resurrect an already accepted draft.
-    if (prompt) void compact().catch((error) => this.fail(error, thread.threadId));
-    else await compact();
+    await compactThreadContext(thread, prompt, { queue: this.queue, prompts: this.prompts, emit: this.emit, report: this.report });
     return this.publication.actionResult(thread === this.active ? [await this.publication.publishDetail()] : []);
   }
 
