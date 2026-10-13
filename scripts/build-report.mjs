@@ -65,7 +65,7 @@ export async function collectKitReport(kitsDirectory = DEFAULT_KITS) {
   return { desktop };
 }
 
-export async function collectBuildReport(distDirectory = DEFAULT_DIST, { buildTimeMs, referenceSamplesMs, kitsDirectory } = {}) {
+export async function collectBuildReport(distDirectory = DEFAULT_DIST, { buildTimeMs, referenceSamplesMs, buildTimeAttempts, kitsDirectory } = {}) {
   const html = await readFile(join(distDirectory, "index.html"), "utf8");
   const initialAssets = initialAssetsFromHtml(html);
   const totals = {
@@ -96,6 +96,7 @@ export async function collectBuildReport(distDirectory = DEFAULT_DIST, { buildTi
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     buildTimeMs: buildTimeMs ?? null,
+    ...(buildTimeAttempts?.length ? { buildTimeAttempts } : {}),
     ...(referenceSamplesMs?.length ? { buildTime: { referenceSamplesMs, referenceMs: Math.round(median(referenceSamplesMs)) } } : {}),
     sourcemaps: assets.filter((asset) => asset.kind === "sourcemaps").length > 0,
     initial: totals.initial,
@@ -143,27 +144,32 @@ export function evaluateBuildBudgets(report, budgets, history = []) {
 export function describeBuildTime(report) {
   const time = report.buildTime;
   if (report.buildTimeMs == null) return "Build time: not measured";
-  if (!time?.normalizedMs) return `Build time: ${report.buildTimeMs} ms (no reference measured, raw budget)`;
+  const attempts = report.buildTimeAttempts?.length
+    ? `; measurements: ${report.buildTimeAttempts.map((attempt, index) => `#${index + 1} ${attempt.buildTimeMs} ms raw, reference samples ${attempt.referenceSamplesMs?.join("/") || "none"} ms`).join("; ")}`
+    : "";
+  if (!time?.normalizedMs) return `Build time: ${report.buildTimeMs} ms (no reference measured, raw budget)${attempts}`;
   const trend = time.history
     ? `, median of the last ${time.history.runs} main runs ${time.history.medianMs} ms (limit ${time.history.limitMs} ms), raw median ${time.history.rawMedianMs} ms (limit ${time.history.rawLimitMs} ms)`
     : ", no history";
-  return `Build time: ${report.buildTimeMs} ms raw, reference ${time.referenceMs} ms (speed ${time.speedFactor}), ${time.normalizedMs} ms at reference speed (cap ${time.capMs} ms)${trend}`;
+  return `Build time: ${report.buildTimeMs} ms raw, reference ${time.referenceMs} ms (speed ${time.speedFactor}), ${time.normalizedMs} ms at reference speed (cap ${time.capMs} ms)${trend}${attempts}`;
 }
 
 async function main() {
   const dist = process.env.TAU_DIST ? join(ROOT, process.env.TAU_DIST) : DEFAULT_DIST;
   let buildTimeMs = process.env.TAU_BUILD_TIME_MS ? Number(process.env.TAU_BUILD_TIME_MS) : undefined;
   let referenceSamplesMs = process.env.TAU_BUILD_REFERENCE_MS ? [Number(process.env.TAU_BUILD_REFERENCE_MS)] : undefined;
+  let buildTimeAttempts;
   if (process.argv.includes("--check")) {
     try {
       const previous = JSON.parse(await readFile(REPORT_PATH, "utf8"));
       buildTimeMs ??= previous.buildTimeMs ?? undefined;
       referenceSamplesMs ??= previous.buildTime?.referenceSamplesMs;
+      if (!process.env.TAU_BUILD_TIME_MS && !process.env.TAU_BUILD_REFERENCE_MS) buildTimeAttempts = previous.buildTimeAttempts;
     } catch {
       // The evaluator below rejects a missing measurement.
     }
   }
-  const report = await collectBuildReport(dist, { buildTimeMs, referenceSamplesMs, kitsDirectory: DEFAULT_KITS });
+  const report = await collectBuildReport(dist, { buildTimeMs, referenceSamplesMs, buildTimeAttempts, kitsDirectory: DEFAULT_KITS });
   await mkdir(join(ROOT, "reports"), { recursive: true });
   await writeFile(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
   if (process.argv.includes("--check")) {

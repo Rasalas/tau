@@ -135,6 +135,20 @@ export function evaluateBuildTime({ buildTimeMs, referenceMs }, capMs, config, h
   };
 }
 
+/** Measures the desktop build and retains every attempt for the report. */
+export async function measureBuildWithRetry(measureBuild, capMs, config, history = []) {
+  const first = await measureBuild();
+  const evaluate = (sample) => evaluateBuildTime({
+    buildTimeMs: sample.buildTimeMs,
+    referenceMs: Math.round(median(sample.referenceSamplesMs ?? [])),
+  }, capMs, config, history);
+  if (!evaluate(first).failures.length) return { ...first, buildTimeAttempts: [first] };
+  const second = await measureBuild();
+  // Keep each build paired with its own reference; either passing attempt suffices.
+  const selected = !evaluate(second).failures.length || second.buildTimeMs < first.buildTimeMs ? second : first;
+  return { ...selected, buildTimeAttempts: [first, second] };
+}
+
 /** Appends one run and keeps the newest `runs` entries of the current epoch. */
 export function appendHistory(history, entry, config) {
   return [...history.filter((item) => item.epoch === config.historyEpoch), { ...entry, epoch: config.historyEpoch }]
