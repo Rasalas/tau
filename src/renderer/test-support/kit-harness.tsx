@@ -75,7 +75,7 @@ export async function expectKitActivatesCleanly(
     ...registry.getPanels(), ...registry.getSidebarContributions(), ...registry.getProjectSources(), ...registry.getCommands(),
     ...registry.getSlashCommands(), ...registry.getKeybindings(), ...registry.getComposerControls(), ...registry.getStatusItems(),
     ...registry.getSettingsPages(), ...registry.getPages(), ...registry.getStageTabKinds(), ...registry.getMessageActions(), ...registry.getMessageBlocks(), ...registry.getComposerInlines(), ...registry.getComposerGates(), ...registry.getModelBadges(),
-    ...registry.getPaletteSources(),
+    ...registry.getPaletteSources(), ...registry.getThreadListAccessories(),
     ...KIT_REGION_PLACEMENTS.flatMap((placement) => registry.getRegions(placement)),
   ];
   if (leftovers.length > 0) throw new Error(`${extension.id} left ${leftovers.length} contributions behind`);

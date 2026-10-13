@@ -170,6 +170,7 @@ export type {
   RegionPlacement,
   RegionProps,
   RegionContribution,
+  ThreadListAccessoryContribution,
   ThreadListEntry,
   ThreadListPlace,
   ThreadListSource,
