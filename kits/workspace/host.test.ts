@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionContext, HostExtensionServices, HostThread, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
@@ -79,7 +79,7 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
-  async function manualWorktree(detached = false) {
+  async function manualWorktree(detached = false, overrides: (tree: string) => Partial<HostExtensionServices> = () => ({})) {
     const repo = await workspace();
     const tree = await workspace();
     const stateDir = await workspace();
@@ -88,9 +88,56 @@ describe("Workspace Kit host extension", () => {
     git(repo, ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "base"]);
     git(repo, ["worktree", "add", ...(detached ? ["--detach"] : ["-b", "manual"]), tree, "HEAD"]);
     git(tree, ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-qm", "unpublished work"]);
-    const registry = await activated(repo, { stateDir });
+    const registry = await activated(repo, { stateDir, ...overrides(tree) });
     return { repo, tree, git, registry, input: { path: tree, workspace: repo } };
   }
+
+  it.each([".env", "data/local.txt"])("keeps a merged review's worktree and branch when it holds ignored %s", async (file) => {
+    const { repo, tree, git, registry } = await manualWorktree();
+    git(repo, ["merge", "--ff-only", "manual"]);
+    await writeFile(join(repo, ".git", "info", "exclude"), ".env\ndata/\n");
+    await mkdir(dirname(join(tree, file)), { recursive: true });
+    await writeFile(join(tree, file), "local fixture\n");
+    const tip = git(tree, ["rev-parse", "HEAD"]);
+    try {
+      expect(git(tree, ["status", "--porcelain"])).toBe("");
+      await expect(registry.invoke("tau.workspace", "remove-thread-branch", { workspace: tree, tip, integratedTip: tip }))
+        .rejects.toThrow(/ignored files/u);
+      expect(await readFile(join(tree, file), "utf8")).toBe("local fixture\n");
+      expect(git(repo, ["rev-parse", "refs/heads/manual"])).toBe(tip);
+    } finally { await registry.dispose(); }
+  });
+
+  it("keeps a merged review's worktree while a thread is open, then removes it once closed", async () => {
+    let open = true;
+    const { repo, tree, git, registry } = await manualWorktree(false, (cwd) => ({
+      thread: (id) => open && id === "review-thread" ? { sessionId: id, cwd } as HostThread : undefined,
+      sessions: {
+        list: async () => [{ sessionId: "review-thread", path: join(cwd, "session.jsonl"), cwd }],
+        open: () => { throw new Error("not used in this test"); },
+        prepare: async () => { throw new Error("not used in this test"); },
+        start: async () => { throw new Error("not used in this test"); },
+        exclusive: (work) => work(),
+        remove: async () => undefined,
+        restore: async () => undefined,
+        trash: async () => [],
+        purge: async () => undefined,
+        refreshIndex: async () => ({ version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [] } }),
+      },
+    }));
+    git(repo, ["merge", "--ff-only", "manual"]);
+    const tip = git(tree, ["rev-parse", "HEAD"]);
+    try {
+      const input = { workspace: tree, tip };
+      await expect(registry.invoke("tau.workspace", "remove-thread-branch", input)).rejects.toThrow(/thread is still open/u);
+      expect(existsSync(tree)).toBe(true);
+      expect(git(repo, ["rev-parse", "refs/heads/manual"])).toBe(tip);
+      open = false;
+      await expect(registry.invoke("tau.workspace", "remove-thread-branch", input)).resolves.toMatchObject({ branch: "manual", root: repo });
+      expect(existsSync(tree)).toBe(false);
+      expect(git(repo, ["branch", "--list", "manual"])).toBe("");
+    } finally { await registry.dispose(); }
+  });
 
   it("previews unpublished commits in a worktree created outside Tau", async () => {
     const { registry, input } = await manualWorktree();
