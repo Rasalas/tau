@@ -45,6 +45,7 @@ async function boot(): Promise<void> {
   setPushRegistrar(createPushRegistrar(push, { relay: createRelayPort(), keys: pushKeys, onRoute: (id, route) => pushRoutes.set(id, route) }));
   const appInfo = await App.getInfo().catch(() => undefined);
   const context: AppContext = {
+    desktopKits: () => import("virtual:tau-trusted-kits").then((module) => module.default),
     ...(remoteControl ? { remoteActivities: remoteControl } : {}),
     activities: !isNative ? undefined : device.platform === "ios" ? relayActivities(activityPort, { url: PUSH_RELAY_URL, keys: pushKeys, installKey: installActivityKey, authorized: async (id) => Boolean(await book.token(id)), direct: (id) => pushRoutes.get(id) === "direct" }) : nativeActivities,
     storage: createLocalStorageAdapter(),

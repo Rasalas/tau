@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { DesktopExtensionLoadResult, HostEvent } from "../shared/contracts.js";
@@ -11,6 +11,7 @@ import { HostUplink } from "./host-uplink.js";
 import { readHostToken } from "./host-token.js";
 import type { EndpointTrust, HostCertificateRefusedError, ReachedCertificate } from "./host-tls-trust.js";
 import { WindowExtensionRegistry, type WindowExtensionPorts } from "./window-extensions.js";
+import { trustedDesktopBundles } from "../shared/trusted-desktop-bundles.js";
 
 /** Compiling every kit on a cold cache takes longer than a click does. */
 const UPLINK_TIMEOUT_MS = 180_000;
@@ -39,6 +40,8 @@ export interface WindowHostOptions {
   service?: HostServiceControl | null;
   /** The window's native menu, lent to the window halves of kits. */
   showContextMenu?: WindowExtensionPorts["showContextMenu"];
+  /** Bundles from this installation, never from the attached host. */
+  desktopKits?(sharedExports: Record<string, string[]>): Promise<DesktopExtensionLoadResult>;
 }
 
 /**
@@ -59,6 +62,7 @@ export class WindowHost {
   private workspace: string;
   /** Once the halves are loaded, a new uplink says hello at once so the host can reach them. */
   private announced = false;
+  private local = false;
   /** The halves of the kits that need this process; the host calls into them. */
   readonly extensions: WindowExtensionRegistry;
   /** Said in this process's hello and the renderer's, so the host sends a renderer's calls here. */
@@ -105,6 +109,7 @@ export class WindowHost {
     this.url = running.url;
     this.token = running.token;
     this.tokenPath = running.tokenPath || undefined;
+    this.local = true;
     this.connect();
     return running;
   }
@@ -114,6 +119,8 @@ export class WindowHost {
    * machine). Nothing is supervised. `trust` is read at every reconnect.
    */
   attach(url: string, token: string | undefined, trust?: EndpointTrust): void {
+    this.local = false;
+    this.tokenPath = undefined;
     this.url = url;
     this.token = token ?? "";
     this.trust = trust;
@@ -138,7 +145,9 @@ export class WindowHost {
     serve: (result: DesktopExtensionLoadResult) => DesktopExtensionLoadResult,
   ): Promise<DesktopExtensionLoadResult> {
     const result = await this.request<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only]);
-    return serve(result);
+    if (this.local) return serve(result);
+    const shipped = await this.options.desktopKits?.(sharedExports);
+    return serve(await trustedDesktopBundles(result, shipped?.bundles ?? [], async (source) => createHash("sha256").update(source).digest("hex")));
   }
 
   /**
@@ -167,6 +176,7 @@ export class WindowHost {
   /** Runs one call the host made into this process and reports back. */
   private async answer(callId: string, extensionId: string, command: string, input: unknown): Promise<void> {
     try {
+      if (!this.local || !this.extensions.ids.includes(extensionId)) throw new Error("This machine may not call this window's commands.");
       const result = await this.extensions.invoke(extensionId, command, input);
       await this.request("client-call-result", [callId, result]);
     } catch (error: unknown) {
@@ -186,7 +196,7 @@ export class WindowHost {
       onPush: (push) => this.receive(push),
       onCall: (call) => void this.answer(call.callId, call.extensionId, call.command, call.input),
       // The page shows threads and terminals; this process reads only what every client gets.
-      helloFields: () => ({ windowId: this.windowId, windowHalves: this.extensions.ids, subscription: { threads: [], topics: [] } }),
+      helloFields: () => ({ windowId: this.windowId, windowHalves: this.local ? this.extensions.ids : [], subscription: { threads: [], topics: [] } }),
       ...(this.trust ? { trust: this.trust } : {}),
       ...(this.options.onHello ? { onHello: (_reply: unknown, certificate?: ReachedCertificate) => this.options.onHello?.(certificate) } : {}),
       ...(this.options.onCertificateRefused ? { onCertificateRefused: this.options.onCertificateRefused } : {}),

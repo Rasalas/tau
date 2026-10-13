@@ -5,6 +5,7 @@ import { dedupeLegalComments } from "../vite/legal-comments";
 import { stripIconKeys } from "../vite/icon-keys";
 import { rendererBuild } from "../vite/renderer-build";
 import { thirdPartyLicenses } from "../vite/third-party-licenses";
+import { trustedKits } from "../vite/trusted-kits";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const repository = fileURLToPath(new URL("..", import.meta.url));
@@ -18,7 +19,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, here, "TAU_");
   return {
     root: here,
-    plugins: [react(), stripIconKeys(), dedupeLegalComments(), thirdPartyLicenses(repository, { app: "mobile" })],
+    plugins: [react(), stripIconKeys(), dedupeLegalComments(), trustedKits(repository), thirdPartyLicenses(repository, { app: "mobile" })],
     base: "./",
     // The browser client's favicon and manifest.
     publicDir: fileURLToPath(new URL("../src/web/public", import.meta.url)),

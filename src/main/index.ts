@@ -550,6 +550,7 @@ function startLocalHost(): void {
  */
 async function startHostProcess(): Promise<void> {
   windowHost = new WindowHost({
+    desktopKits: (sharedExports) => safeMode ? Promise.resolve(EMPTY_DESKTOP_EXTENSIONS) : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
     userData: app.getPath("userData"),
     version: app.getVersion(),
     mainDirectory: currentDir,
@@ -587,7 +588,6 @@ async function startHostProcess(): Promise<void> {
     });
     if (!remoteTrust) return;
     windowHost.attach(remoteHostUrl, clientHostToken(), remoteTrust.endpoint);
-    await loadWindowHalves();
     return;
   }
   try {
@@ -675,6 +675,7 @@ async function showEnvironment(connection: EnvironmentConnection | undefined): P
   if (connection) {
     // No window halves: a folder picked here or a view over this window means nothing to another machine.
     const remote = new WindowHost({
+      desktopKits: (sharedExports) => safeMode ? Promise.resolve(EMPTY_DESKTOP_EXTENSIONS) : loadBundledKitDesktopHalves({ ...kitOptions, sharedExports }),
       userData: app.getPath("userData"),
       version: app.getVersion(),
       mainDirectory: currentDir,
