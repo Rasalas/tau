@@ -1961,7 +1961,7 @@ pick itself. Its `jump(target, actions)`
 the Preview panel with the page, `{ kind: "app", threadId }` the window that
 thread's Computer Use driver steers, raised by the driver itself; a handover
 that asks the user to take over uses it. On a client away from the host's
-machine (a phone, a browser, a window on another computer) `jump` opens the
+machine (a phone, a browser, a window on another machine) `jump` opens the
 Preview there instead, where the user drives the page or window by tapping and
 typing, and `remote()` (new in API 1.13.0) says so. `watch(target, maxWidth, onFrame)`
 (new in API 1.13.0) delivers a small live picture of the page or of a thread's
@@ -4029,7 +4029,7 @@ machine's trash once its work is applied or let go.
 
 Agents Kit is the first caller: `tau_spawn_thread` and an agent definition take
 `machine` (a name, a host id, `local` or `auto`), and without one the setting
-`values.tau.agents.machine` (Settings → Agents) decides, this computer by
+`values.tau.agents.machine` (Settings → Agents) decides, this machine by
 default. A child on another machine is followed through that service into the
 same book as one here, so waiting, status, messages, cancelling, the parent's
 wake-up and `tau_apply_thread_changes` behave alike; its work comes back as
@@ -4049,18 +4049,18 @@ a machine how busy it is and what it could run (its commands `resources` and
 `readiness`, `{ machine }`), only when the page shows it or on "Check again".
 Its `choose-machine` (`{ purpose: "sub-agent" | "thread", cwd?, backend?, model?,
 machines? }` → `{ machine: hostId | null, reason, machines }`, `read`, caller
-`tau.agents`) picks where new work goes: this computer or a machine its agents
+`tau.agents`) picks where new work goes: this machine or a machine its agents
 reach with Full access (only those in `machines` when given), by weight × cores
 × idle CPU share × free memory share. A machine is left out while its reading,
 timed from when it arrived here, is older than 15 s, its CPU is at 95 % or its
 free memory at 5 %, it runs as many turns as it has cores, the runtime
 (`backend`, Pi by default) is not `ready` there, or that runtime lists its models
 and `model` is not among them. The weights (0–100, 0 = never automatically; this
-computer 5, every other machine 50 unless set) are `values.tau.environments.weights`,
+machine 5, every other machine 50 unless set) are `values.tau.environments.weights`,
 a JSON object keyed by host id, set in Settings → Machines → Automatic. `reason`
 is one line with the scores and why each other machine was left out;
 `machines` has the same per machine. The "Run on" chip offers **Automatic**
-while the window shows this computer: the choice is made when the first prompt
+while the window shows this machine: the choice is made when the first prompt
 is sent (a prompt hook's `claimNewThread`), among the connected machines that
 have a project of the same name; another machine gets the prompt with
 `open(id, { newThread: { draft, workspaceId, send: true, model } })` and sends
@@ -4137,7 +4137,7 @@ show no other machines. Like `attention`, hold the context, not the value.
 | `takeArrival()` | What this page was sent to show, once. |
 | `pair({ text, deviceName? })` or `pair({ nearby })` | Adds a machine from a pairing link, its QR code's text, or an address; or (new in API 1.13.0) one the last `discover()` found, by its host id: it asks without a link, pinned to the fingerprint the record carried. Resolves `added`, `denied`, `expired`, `cancelled` or `failed` once the other owner decided. `cancelPairing()` stops waiting. |
 | `discover()` | New in API 1.13.0. `UiDiscoveredHosts`: the machines that announce themselves on this network, looked for a few seconds by the window's own host, whichever machine the page shows. A saved machine found with its pinned fingerprint takes the addresses it has now. Look only when the user asks: looking makes macOS ask about local network access. `NearbyMachineList` draws the result with an action slot per host. |
-| `shownElsewhere`, `showLocal()` | New in API 1.13.0. The id of the machine the page shows when it is not the window's own (from the page's address, so known before the list loads), and the way back. Core offers "Back to this computer" in the palette whenever `shownElsewhere` is set, whatever kits that machine serves. |
+| `shownElsewhere`, `showLocal()` | New in API 1.13.0. The id of the machine the page shows when it is not the window's own (from the page's address, so known before the list loads), and the way back. Core offers "Back to this machine" in the palette whenever `shownElsewhere` is set, whatever kits that machine serves. |
 | `pair({ …, agents })`, `setAgents?(id, on)` | New in API 1.15.0 ([ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)). A pairing asks for this machine's agents as a second device under the same approval unless `agents` is `false`, and the result's `agents` says whether their key reached this machine's host (`{ added: false, message }` when the other Tau issues none). `setAgents` turns the agents on for a saved machine (a pairing for them alone, with the digits as `pairing`) or off; it answers `{ state: "on" \| "off" \| "denied" \| "expired" \| "cancelled" }` or `{ state: "failed", message }`. |
 | `threads[]` | Each machine's threads, newest first: `id`, `path`, `title`, `projectName`, `workspaceId`, `modifiedAt`, `running`, and (new in API 1.17.0) `projectLabel`, `usage`, `backendKind`, `modelProvider` and `createdAt` as that machine's index lists them, so a rail row of that machine reads like one of this machine's. A session nobody wrote in yet is left out, as in this machine's rail. |
 | `open(id, { threadId })` | New in API 1.15.0. Names a thread there by its id instead of its path; the window finds it in that machine's index, and rejects when it does not list it. |
@@ -4357,7 +4357,7 @@ requests caused.
 
 Two options narrow that (new in API 1.13.0). `callClient(command, input, { window: "host" })`
 asks only a Tau window on the host's own machine — the caller's, when it is
-one, else the newest — never a window on another computer: use it for work on
+one, else the newest — never a window on another machine: use it for work on
 what lives on the host, like a window an agent drives. `services.clientWindow()`
 names the window such a call would reach now; pass that id as
 `{ window: id }` and every later call goes to exactly that window, whichever

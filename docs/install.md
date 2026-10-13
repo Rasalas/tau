@@ -85,7 +85,7 @@ update keeps this setting enabled; switching it off follows only stable releases
 
 From a terminal, `tau update` updates this machine (`--check` only looks,
 `--status` tells where it stands), and `tau machines update <name>` updates
-another machine this computer keeps, over the same connection Settings →
+another machine this machine keeps, over the same connection Settings →
 Machines uses. The owner of a machine can stop paired devices from starting
 updates there (Settings → About → Paired devices may update this machine).
 [Host updates](host-updates.md) has the design, the helper and

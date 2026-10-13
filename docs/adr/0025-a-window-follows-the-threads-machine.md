@@ -6,7 +6,7 @@ Accepted, 2026-09-24. Partly superseded by
 [ADR 0030](0030-the-workbench-controls-every-machine.md) (2026-10-01): a
 workbench keeps threads of connected agents machines in one list and stays on
 its own host. This ADR's catalog, pairing, address selection and window
-navigation remain for machines this computer's agents may not reach, and for
+navigation remain for machines this machine's agents may not reach, and for
 explicit `tau machines open` commands. Amends [ADR 0021](0021-host-runs-in-its-own-process.md),
 where a window is the client of exactly one host for its whole life. Builds on
 [ADR 0024](0024-pairing-allowed-on-the-host.md) for pairing.
@@ -184,7 +184,7 @@ stays the gate, as ADR 0023 has it.
 - A window started with `TAU_HOST_URL` or `TAU_HOST_INPROCESS=1` shows its
   one host as before. The catalog works beside the supervised host only.
 - The way back does not depend on the shown machine's kits: while the page
-  shows another machine, core offers "Back to this computer" in the palette
+  shows another machine, core offers "Back to this machine" in the palette
   (the page's address says so before any list loads). The Machines Kit adds
   the same step to its title-bar chip.
 - Addresses follow the machine without pairing again: its hello names the

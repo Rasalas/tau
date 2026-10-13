@@ -121,7 +121,7 @@ Now:
   other connection are dropped the same way as an answer to an unknown id.
   When the addressee disconnects, its open calls fail.
 - A kit may narrow the addressee (API 1.13.0, wave F): `{ window: "host" }`
-  skips a caller's window on another computer, and a window id from
+  skips a caller's window on another machine, and a window id from
   `clientWindow()` pins every later call to that one window on the host's
   machine, whoever asks — the window that holds a view. A pin can only name a
   loopback window with the host token, never a paired client's, and a call to
