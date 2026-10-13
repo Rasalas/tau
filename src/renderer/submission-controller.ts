@@ -164,7 +164,7 @@ export class SubmissionController {
     }
   };
 
-  private prepareNewThreadWorkspace = async (pending: NewThreadDraft, prompt: string): Promise<NewThreadDraft> => {
+  private prepareNewThreadWorkspace = async (pending: NewThreadDraft, prompt: string, optimisticId: string): Promise<NewThreadDraft> => {
     const { registry, newThread } = this.ports;
     const actions = this.ports.actions();
     const scope = draftKey(undefined, pending);
@@ -184,8 +184,10 @@ export class SubmissionController {
         projectPath: moved.displayPath,
         ...(moved.name ? { projectName: moved.name } : {}),
       };
-      this.ports.scopes.moveScope(createDraftKey(scope), createDraftKey(draftKey(undefined, next)));
+      const nextScope = draftKey(undefined, next);
+      this.ports.scopes.moveScope(createDraftKey(scope), createDraftKey(nextScope));
       if (newThread.current()?.draftId === pending.draftId) newThread.set(next);
+      if (nextScope) retargetOptimisticMessage(this.ports.view, optimisticId, nextScope);
       return next;
     } finally {
       clear();
@@ -276,11 +278,6 @@ export class SubmissionController {
         return { accepted: false, message: errorMessage(error) };
       }
     }
-    // A draft may move to another project before its thread exists: this is
-    // where Workspace Kit creates the worktree a new thread runs in (ADR 0017).
-    if (pendingNewThread && !pendingNewThread.sessionId) {
-      pendingNewThread = await this.prepareNewThreadWorkspace(pendingNewThread, text);
-    }
     const {
       optimistic,
       clientTurn,
@@ -295,6 +292,21 @@ export class SubmissionController {
       sequence: this.turnSequence++,
       newThreadRequestId,
     });
+    // A draft may move to another project before its thread exists: this is
+    // where Workspace Kit creates the worktree a new thread runs in (ADR 0017).
+    // The prompt shows while the gate works and follows the draft if it moves.
+    let shownBeforeGate = false;
+    if (pendingNewThread && !pendingNewThread.sessionId) {
+      const gateScope = draftKey(undefined, pendingNewThread);
+      if (gateScope) addOptimisticMessage(view, gateScope, optimistic);
+      shownBeforeGate = gateScope !== undefined;
+      try {
+        pendingNewThread = await this.prepareNewThreadWorkspace(pendingNewThread, text, optimistic.id);
+      } catch (error) {
+        removeOptimisticMessage(view, optimistic.id);
+        throw error;
+      }
+    }
     const submissionScopeKey = transcriptNavigationScopeKey(snapshot, pendingNewThread);
     const submissionScope = transcriptNavigationScope(snapshot, pendingNewThread);
     const submissionIdentity: TranscriptSubmissionIdentity = {
@@ -383,7 +395,7 @@ export class SubmissionController {
         this.ports.delivery.register(clientMessageId, recovery);
       }
       startTranscriptTurn(pending.sessionId, false, true);
-      addOptimisticMessage(view, optimisticScope, optimistic);
+      if (!shownBeforeGate) addOptimisticMessage(view, optimisticScope, optimistic);
       try {
         if (!client) throw new Error("New thread requires the Electron host.");
         if (pending.sessionId) {

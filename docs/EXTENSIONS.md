@@ -2301,6 +2301,11 @@ thread to another project. The first hook that names one wins; a hook that
 throws is reported and the draft stays where it was, so a prompt is never lost
 to a workspace that could not be prepared. Workspace Kit uses it to create the
 worktree a new thread runs in ([ADR 0017](adr/0017-worktrees-for-threads-and-agents.md)).
+Meanwhile the prompt already shows in the draft's transcript as the user's
+message, above the `preparing` line, and stays the thread's first message when
+it starts; if sending fails before the runtime has it, the row goes and the
+composer gets the prompt back. A `claimNewThread` hook takes the prompt before
+any of this and shows no row.
 
 The draft moves to the named workspace before its thread exists, and its panels
 ask about it right away. A host half that made the folder itself (a worktree)
