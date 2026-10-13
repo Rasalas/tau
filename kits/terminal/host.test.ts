@@ -1,4 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { spawn as spawnProcess } from "node:child_process";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -247,7 +249,59 @@ describe("terminal host commands", () => {
     }
   });
 
-  it("closes a workspace's terminals when the host leaves that workspace", async () => {
+  it.each([undefined, "thread-one"])("keeps a running process when the host switches projects and returns (thread %s)", async (sessionId) => {
+    const child = spawnProcess(process.execPath, ["-e", "process.stdin.on('data', (data) => process.stdout.write(data));"], {
+      cwd: tmpdir(), env: {}, stdio: ["pipe", "pipe", "pipe"],
+    });
+    const exited = once(child, "exit");
+    const kill = vi.fn(() => { child.kill(); });
+    let hook: HostThreadLifecycle | undefined;
+    let cwd = "/project";
+    let registry: Awaited<ReturnType<typeof activateHostKit>> | undefined;
+    try {
+      await once(child, "spawn");
+      registry = await activateHostKit(createTerminalHostExtension(() => ({
+        write: (data) => { child.stdin.write(data); },
+        resize: () => undefined,
+        kill,
+        onData: (listener) => { child.stdout.on("data", (data: Buffer) => listener(data.toString())); },
+        onExit: (listener) => { child.on("exit", (code) => listener(code ?? 0)); },
+        foreground: () => "node",
+      })), services({
+        cwd: () => cwd,
+        thread: (id) => ({ sessionId: id, cwd: "/project", isStreaming: () => true, isIdle: () => false }) as never,
+        registerThreadLifecycle: (lifecycle) => { hook = lifecycle; return () => { hook = undefined; }; },
+      }));
+      const activeRegistry = registry;
+      const client = createTerminalHostClient((command, input) => activeRegistry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
+      const session = await client.open({ workspaceId: "workspace-one", sessionId });
+      const before = once(child.stdout, "data");
+      await client.input({ id: session.id, data: "before switch\n" });
+      await before;
+      expect(await client.foreground({ id: session.id })).toEqual({ process: "node" });
+
+      // Opening a cold thread in another project closes the previous workspace.
+      await hook?.afterWorkspaceClose?.(cwd, "switch");
+      cwd = "/elsewhere";
+      await hook?.beforeWorkspace?.(cwd);
+      expect(kill).not.toHaveBeenCalled();
+      await hook?.afterWorkspaceClose?.(cwd, "switch");
+      cwd = "/project";
+      await hook?.beforeWorkspace?.(cwd);
+
+      const after = once(child.stdout, "data");
+      await client.input({ id: session.id, data: "after return\n" });
+      await after;
+      expect(await client.replay({ id: session.id })).toMatchObject({ data: "before switch\nafter return\n" });
+      expect(await client.list()).toEqual([session]);
+      expect(child.exitCode).toBeNull();
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      try { await registry?.dispose(); } finally { child.kill(); await exited; }
+    }
+  });
+
+  it("closes a workspace's terminals when the host shuts down", async () => {
     const { spawn, processes } = fakePtys();
     let hook: HostThreadLifecycle | undefined;
     const events: PublishedKitEvent[] = [];
@@ -259,11 +313,11 @@ describe("terminal host commands", () => {
       await client.open({ workspaceId: "workspace-one", sessionId: "thread-one" });
       await client.open({ workspaceId: "workspace-one" });
       // Another workspace closing says nothing about this one's shells.
-      await hook?.afterWorkspaceClose?.("/elsewhere", "switch");
+      await hook?.afterWorkspaceClose?.("/elsewhere", "shutdown");
       expect(processes.map((process) => process.kill.mock.calls.length)).toEqual([0, 0]);
       expect(await client.list()).toHaveLength(2);
       // This one closing takes them with it.
-      await hook?.afterWorkspaceClose?.("/project", "switch");
+      await hook?.afterWorkspaceClose?.("/project", "shutdown");
       expect(processes.map((process) => process.kill.mock.calls.length)).toEqual([1, 1]);
       expect(await client.list()).toEqual([]);
       expect(events.at(-1)).toMatchObject({ name: TERMINAL_LIST_EVENT, payload: [] });
@@ -294,12 +348,17 @@ describe("terminal host commands", () => {
     }
   });
 
-  it("caps the terminals of one workspace", async () => {
+  it("caps the terminals of one workspace across project switches", async () => {
     const { spawn } = fakePtys();
-    const registry = await activateHostKit(createTerminalHostExtension(spawn), services());
+    let hook: HostThreadLifecycle | undefined;
+    const registry = await activateHostKit(createTerminalHostExtension(spawn), services({
+      registerThreadLifecycle: (lifecycle) => { hook = lifecycle; return () => { hook = undefined; }; },
+    }));
     const client = createTerminalHostClient((command, input) => registry.invoke(TERMINAL_HOST_EXTENSION_ID, command, input));
     try {
       for (let index = 0; index < MAX_SESSIONS_PER_WORKSPACE; index += 1) await client.open({ workspaceId: "workspace-one" });
+      await hook?.afterWorkspaceClose?.("/project", "switch");
+      await hook?.afterWorkspaceClose?.("/elsewhere", "switch");
       await expect(client.open({ workspaceId: "workspace-one" })).rejects.toThrow(/close one first/);
       await expect(client.open({})).rejects.toThrow(/close one first/);
     } finally {
@@ -438,7 +497,7 @@ describe("terminal home workspace", () => {
       const restarted = await client.restart({ id: first.id });
       expect(restarted).toMatchObject({ workspaceId: "rex-workspace", sessionId: "remote-thread", cwd: "/rex/project" });
       expect(processes[2].options.cwd).toBe("/rex/project");
-      await hook?.afterWorkspaceClose?.("/rex/project", "switch");
+      await hook?.afterWorkspaceClose?.("/rex/project", "shutdown");
       expect(processes.map((process) => process.kill.mock.calls.length)).toEqual([0, 1, 1]);
       expect(await client.list()).toEqual([]);
     } finally {
