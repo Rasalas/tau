@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import "./mobile-composer-fold.css";
 
 const FOLD_START_PX = 24;
 const FOLD_END_PX = 120;
@@ -62,8 +63,8 @@ export function useMobileComposerFold({ enabled, idle, zoneRef }: {
     const onScroll = (event: Event) => {
       const scroller = transcriptFor(event.target);
       if (!scroller || event.target !== scroller) return;
-      const distance = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-      if (reading !== scroller && distance > FOLD_START_PX) return;
+      const atEnd = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= FOLD_START_PX;
+      if (reading !== scroller && !atEnd) return;
       cancelFrame();
       frame = window.requestAnimationFrame(() => {
         frame = undefined;
