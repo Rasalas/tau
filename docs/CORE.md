@@ -184,8 +184,10 @@ host exits with code 1, so its supervisor can restart it.
 After a host exits, the supervisor kills its old process group before scheduling
 another host; forced shutdown signals that group too. Detached runtime processes
 use `spawnOwnedProcess` and its private IPC guardian, so cleanup also works when
-there is no supervising window. The guardian escalates against the process group
-even after its leader exits. Local Bash operations use the same ownership:
+there is no supervising window. The guardian remembers descendants by PID and
+start time, also those in other process groups, and signals the group even after
+its leader exits. A stop ends only once none of them runs. Local Bash operations
+use the same ownership:
 a successful shell may leave background work running until the host exits,
 while abort and timeout end the shell's work. The tool retains its configured
 shell, command prefix and output formatting.
