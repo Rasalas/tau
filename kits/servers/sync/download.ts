@@ -82,7 +82,7 @@ class LocalCopy {
     } else if (!info.isFile()) {
       return "kept";
     } else {
-      const worthReading = info.size === data.length || info.size === previous?.size;
+      const worthReading = !previous || info.size === data.length || info.size === previous.size;
       const localOid = worthReading ? blobId(await readFile(file)) : undefined;
       if (localOid === entry.oid) {
         // Same content: the server's mtime lets the next compare skip the hash.
