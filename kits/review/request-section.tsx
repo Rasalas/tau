@@ -6,7 +6,7 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 import { providerInfo, type ChangesSectionProps, type MergeMethod, type ReviewRequest, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
 import { RequestStateIcon } from "./request-state-icon.js";
-import { checksLabel, checksTone, requestShort, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
+import { checksLabel, checksTone, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
 import { openLocalPullRequest } from "./local-request-tab.js";
 import type { RequestPublishing } from "./publish-card.js";
