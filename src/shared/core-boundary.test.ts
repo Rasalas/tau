@@ -58,6 +58,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-preparation-queue.js", // Shared host admission for optional background preparation.
   "./persisted-transcript-reader-session.js", // SDK parsing isolated from live runtime initialization.
   "./linux-startup.js", // Chromium workarounds applied before asynchronous desktop startup.
+  "./desktop-links.js",
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
   // The `tau` command linked from Settings → General.
   "./command-line.js",

@@ -1,4 +1,6 @@
 import { linkedFileLocation } from "../../shared/linked-file-path";
+import { parsePromptLink } from "../../shared/prompt-links";
+import { openPromptLink } from "../PromptLinkHandler";
 import { Fragment, createContext, memo, useContext, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import type { HLJSApi, LanguageFn } from "highlight.js";
 import { Check, Copy, WrapText } from "lucide-react";
@@ -389,6 +391,7 @@ const COMPONENTS: MarkdownComponents = {
     return <FileChip path={children as string} name={name} />;
   },
   a({ href, children }) {
+    if (href && parsePromptLink(href)) return <button type="button" className="text-button" onClick={() => openPromptLink(href)}>{children}</button>;
     const thread = href ? parseThreadLink(href) : undefined;
     return thread ? <ThreadLink target={thread}>{children}</ThreadLink> : <FileLink href={href}>{children}</FileLink>;
   },

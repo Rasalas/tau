@@ -1,5 +1,8 @@
 appId: de.tbuck.tau
 productName: Tau
+protocols:
+  - name: Tau links
+    schemes: [tau]
 copyright: Copyright © Torben Buck
 directories:
   output: release
