@@ -260,7 +260,7 @@ export function Composer({
   // Extensions contribute slash commands and the rest of the toolbar; outside
   // the workbench shell (tests, previews) there are none.
   const registry = useContext(WorkbenchShellContext)?.registry;
-  useSyncExternalStore(registry?.subscribe ?? noSubscribe, registry?.getVersion ?? noVersion, noVersion);
+  useSyncExternalStore(registry?.subscribeRegistrations ?? noSubscribe, registry?.getRegistrationVersion ?? noVersion, noVersion);
   const runtimeCommands = snapshot?.composerCommands;
   const desktopCommands = registry?.getSlashCommands();
   const commands = useMemo<UiComposerCommand[]>(() => {

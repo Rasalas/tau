@@ -174,7 +174,7 @@ describe("PiHost queue and limits", () => {
     await first.host.queue.flush();
 
     const second = await host(first.userData);
-    await second.internals.reconcileInterruptedTurns();
+    await second.internals.sessionControl.reconcile();
     expect(second.host.queue.view("thread-1")).toEqual({ held: true, messages: [{ id: expect.any(String), text: "after the restart", attachments: 0 }] });
     second.settle();
     await new Promise((resolve) => setImmediate(resolve));

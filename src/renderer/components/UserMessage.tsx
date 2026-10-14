@@ -53,7 +53,7 @@ const unversioned = () => 0;
  */
 export function useMessageBlocks(role: "user" | "assistant", active: boolean) {
   const registry = useContext(WorkbenchShellContext)?.registry;
-  useSyncExternalStore(active && registry ? registry.subscribe : idle, active && registry ? registry.getVersion : unversioned);
+  useSyncExternalStore(active && registry ? registry.subscribeRegistrations : idle, active && registry ? registry.getRegistrationVersion : unversioned);
   return { registry, blocks: active && registry ? registry.getMessageBlocks().filter((block) => drawsBlocksFor(block, role)) : [] };
 }
 

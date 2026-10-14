@@ -33,7 +33,7 @@ export function useThreadListSources(registry: ExtensionRegistry): OutsideThread
       stops = registry.getThreadListSources().map((source) => source.subscribe(listener));
     };
     follow();
-    const stopRegistry = registry.subscribe(() => { follow(); listener(); });
+    const stopRegistry = registry.subscribeRegistrations(() => { follow(); listener(); });
     return () => { stopRegistry(); for (const stop of stops) stop(); };
   }, [registry]);
   const read = () => {

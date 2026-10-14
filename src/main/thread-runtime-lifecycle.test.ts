@@ -80,8 +80,9 @@ function makeLifecycle(overrides: Partial<ThreadRuntimeLifecyclePort> = {}, back
     lifecycleMetrics: { isActive: () => false, begin: vi.fn(), end: vi.fn() } as never,
     adopt: async (thread) => { adopted.push(thread); },
     currentRuntime: () => undefined,
-    liveThreadForPath: () => undefined,
+    liveThreads: () => [],
     indexedSession: () => undefined,
+    findSession: async () => undefined,
     presentUi: () => true,
     releaseTool: (id) => { released.push(id); },
     emitMessage: (threadId) => { emitted.push({ threadId }); },
@@ -302,8 +303,10 @@ describe("ThreadRuntimeLifecycle", () => {
   });
 
   it("hands a live thread back instead of opening its session file twice", async () => {
-    const existing = new ThreadRuntime(externalBackend("thread") as never);
-    const { lifecycle } = makeLifecycle({ liveThreadForPath: () => existing });
+    const backend = externalBackend("thread");
+    const state = backend.state;
+    const existing = new ThreadRuntime({ ...backend, state: () => ({ ...state(), sessionFile: "/a.jsonl" }) } as never);
+    const { lifecycle } = makeLifecycle({ liveThreads: () => [existing] });
     await expect(lifecycle.openForPath("/a.jsonl", "resume")).resolves.toBe(existing);
     expect(lifecycle.isOpening("/a.jsonl")).toBe(false);
   });
@@ -730,4 +733,44 @@ it("passes the external thread's identity to its permission policy on every read
   expect(permissionLevel).toHaveBeenLastCalledWith("scheduled");
   narrowed = false;
   expect(readPolicy?.()).toBe("full");
+});
+
+
+describe("durable thread reopening", () => {
+  it("returns a registered runtime without loading the index", async () => {
+    const thread = new ThreadRuntime(externalBackend("live") as never);
+    const findSession = vi.fn();
+    const { lifecycle } = makeLifecycle({ currentRuntime: () => thread, findSession });
+    expect(await lifecycle.reopen("live")).toBe(thread);
+    expect(findSession).not.toHaveBeenCalled();
+  });
+
+  it("shares concurrent offscreen opens and retains the persisted backend", async () => {
+    const threadId = "released";
+    const backend = externalBackend(threadId);
+    const open = vi.fn(async () => backend);
+    const { lifecycle } = makeLifecycle({
+      findSession: async () => ({ id: threadId, path: "tau-thread:test:released", backendKind: "test" }) as never,
+      indexedSession: () => ({ id: threadId, backendKind: "test" }) as never,
+    }, { test: { lookup: async () => ({ threadId, cwd: "/repo" }), open } });
+    const [first, second] = await Promise.all([lifecycle.reopen(threadId), lifecycle.reopen(threadId)]);
+    expect(first).toBe(second);
+    expect(first.backend.kind).toBe("test");
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an external restart marker routable before indexing", async () => {
+    const findSession = vi.fn();
+    const backend = externalBackend("marked");
+    const { lifecycle } = makeLifecycle({ findSession }, {
+      test: { lookup: async () => ({ threadId: "marked", cwd: "/repo" }), open: async () => backend },
+    });
+    expect((await lifecycle.openMarked({ sessionId: "marked", backend: "test" }))?.backend).toBe(backend);
+    expect(findSession).not.toHaveBeenCalled();
+  });
+
+  it("refuses a released Pi thread whose durable session is gone", async () => {
+    const { lifecycle } = makeLifecycle();
+    await expect(lifecycle.reopen("gone")).rejects.toThrow("That thread no longer exists.");
+  });
 });

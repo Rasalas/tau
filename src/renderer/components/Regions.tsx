@@ -19,7 +19,7 @@ interface RegionHostProps {
  * `lead` and `children` are core's own controls, drawn before and after the contributions.
  */
 export function Region({ registry, placement, snapshot, actions, lookIn, turn, workspacePreviewAvailable, workspaceSummary, lead, children, bare }: RegionHostProps & { lead?: ReactNode; children?: ReactNode; bare?: boolean }) {
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const regions = registry.getRegions(placement);
   if (regions.length === 0 && children === undefined && !lead) return null;
   const drawn = <>
@@ -46,13 +46,13 @@ export function Region({ registry, placement, snapshot, actions, lookIn, turn, w
 
 /** A placement kits may take over from core: their contributions while any is registered, else `fallback`. */
 export function RegionOr({ fallback, ...props }: RegionHostProps & { fallback: ReactNode; bare?: boolean }) {
-  useSyncExternalStore(props.registry.subscribe, props.registry.getVersion);
+  useSyncExternalStore(props.registry.subscribeRegistrations, props.registry.getRegistrationVersion);
   return props.registry.getRegions(props.placement).length > 0 ? <Region {...props} /> : fallback;
 }
 
 /** Pi's footer, assembled from status items; hidden until an extension contributes one. */
 export function StatusLine({ registry, snapshot, actions }: Omit<RegionHostProps, "placement">) {
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const items = registry.getStatusItems();
   if (items.length === 0) return null;
   const side = (align: "left" | "right") => items

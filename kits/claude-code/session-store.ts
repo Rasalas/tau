@@ -532,7 +532,7 @@ export class ClaudeRuntimeSessionStore {
       updatedAt: this.now(),
     };
     this.records.set(tauThreadId, record);
-    await this.persist();
+    await this.persist(tauThreadId);
     return cloneRecord(record);
   }
 
@@ -544,7 +544,7 @@ export class ClaudeRuntimeSessionStore {
     current.attempted = true;
     current.lastAttemptOutcome = "started";
     current.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   /** Records the attempt before a child process is created. */
@@ -557,7 +557,7 @@ export class ClaudeRuntimeSessionStore {
     record.lastAttemptAt = this.now();
     record.lastAttemptOutcome = "pending";
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
     return cloneRecord(record);
   }
 
@@ -572,7 +572,7 @@ export class ClaudeRuntimeSessionStore {
     record.attempted = true;
     record.lastAttemptOutcome = outcome;
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   /** The user's model and effort for the thread; `undefined` returns a field to the CLI's default. */
@@ -593,7 +593,7 @@ export class ClaudeRuntimeSessionStore {
       else delete record.mode;
     }
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   /** Restricts a new thread to these tools for good. */
@@ -603,7 +603,7 @@ export class ClaudeRuntimeSessionStore {
     if (!record) return;
     record.tools = [...tools];
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   /** What the CLI reported running, so a resumed thread can name its model before the next turn. */
@@ -613,7 +613,7 @@ export class ClaudeRuntimeSessionStore {
     if (!record || record.observedModel === model) return;
     record.observedModel = model;
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   /** Replaces the thread's running total; the backend sums turns itself. */
@@ -624,7 +624,7 @@ export class ClaudeRuntimeSessionStore {
     record.usage = { ...usage };
     for (const turn of turns) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   /** The context the thread's last turn left; `undefined` forgets it, after a compaction nobody measured yet. */
@@ -635,7 +635,7 @@ export class ClaudeRuntimeSessionStore {
     if (contextUsage) record.contextUsage = { ...contextUsage };
     else delete record.contextUsage;
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   async setGoal(tauThreadId: string, cwd: string, goal: ClaudeStoredGoal | undefined): Promise<void> {
@@ -645,7 +645,7 @@ export class ClaudeRuntimeSessionStore {
     if (goal) record.goal = { ...goal };
     else delete record.goal;
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   async markCreateFallbackUsed(tauThreadId: string, cwd: string): Promise<void> {
@@ -654,7 +654,7 @@ export class ClaudeRuntimeSessionStore {
     if (!record || record.createFallbackUsed) return;
     record.createFallbackUsed = true;
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   async appendExchange(
@@ -703,7 +703,7 @@ export class ClaudeRuntimeSessionStore {
     }
     record.messages.push(...additions);
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   /** The CLI's session ids Tau already holds, whether started here or imported. */
@@ -744,7 +744,7 @@ export class ClaudeRuntimeSessionStore {
       });
       return tauThreadId;
     });
-    if (ids.some(Boolean)) await this.persist();
+    if (ids.some(Boolean)) await this.persistence.write({ sessions: ids.flatMap((id) => id ? [{ id, record: this.records.get(id)! }] : []) });
     return ids;
   }
 
@@ -757,7 +757,7 @@ export class ClaudeRuntimeSessionStore {
     else delete record.title;
     record.titleSource = source;
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   /** Takes a thread's record out for the host's trash; the CLI's own history stays where it is. */
@@ -766,7 +766,7 @@ export class ClaudeRuntimeSessionStore {
     const record = this.records.get(tauThreadId);
     if (!record) return undefined;
     this.records.delete(tauThreadId);
-    await this.persist();
+    await this.persist(tauThreadId);
     return cloneRecord(record);
   }
 
@@ -777,10 +777,10 @@ export class ClaudeRuntimeSessionStore {
     if (!record || record.tauThreadId !== tauThreadId) throw new Error("This is not the Agent SDK thread that was deleted.");
     if (this.records.has(tauThreadId)) throw new Error("A Agent SDK thread with this id exists again; it was not restored.");
     this.records.set(tauThreadId, record);
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
-  private persist(): Promise<void> {
-    return this.persistence.write({ sessions: [...this.records.values()] });
+  private persist(tauThreadId: string): Promise<void> {
+    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId) }] });
   }
 }

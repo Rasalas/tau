@@ -24,7 +24,7 @@ function usePageProps(store: AppPageStore, actions: WorkbenchActions, sidebar: b
  * to thread above and at the foot, the page's own navigation between.
  */
 export function PageSidebar({ registry, store, actions }: { registry: ExtensionRegistry; store: AppPageStore; actions: WorkbenchActions }) {
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const page = registry.getPage(state?.id);
   const props = usePageProps(store, actions, true);
@@ -67,7 +67,7 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
   /** A phone's bottom navigation: the page is a main page, with no Back of its own until it steps into a view. */
   nav?: ReactNode;
 }) {
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const page = registry.getPage(state?.id);
   const views = state?.views ?? [];

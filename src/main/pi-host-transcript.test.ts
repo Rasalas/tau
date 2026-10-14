@@ -1,14 +1,21 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { UiSession } from "../shared/contracts.js";
+import { testPersistedTranscriptWorker } from "./test-support/persisted-transcript-worker.js";
+import { PersistedTranscriptReader } from "./persisted-transcript-reader.js";
 import { PiHost } from "./pi-host.js";
 
 const SESSION_ID = "released-thread";
 
 const directories: string[] = [];
+const readers: PersistedTranscriptReader[] = [];
+let workerFixture: Awaited<ReturnType<typeof testPersistedTranscriptWorker>>;
+beforeAll(async () => { workerFixture = await testPersistedTranscriptWorker(); });
+afterAll(async () => { await workerFixture.dispose(); });
 afterEach(async () => {
+  await Promise.all(readers.splice(0).map((reader) => reader.dispose()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -36,6 +43,9 @@ async function sessionFile(): Promise<string> {
 function hostWithIndex(sessions: UiSession[]): PiHost {
   const projectHistory = { list: () => [], isHidden: () => false, iconFor: async () => undefined, remember: async () => undefined };
   const host = new PiHost("/repo", () => undefined, projectHistory as never, false, false);
+  const reader = new PersistedTranscriptReader(workerFixture.url);
+  readers.push(reader);
+  (host as unknown as { persistedTranscripts: PersistedTranscriptReader }).persistedTranscripts = reader;
   const index = (host as unknown as { index: { byId(id: string): UiSession | undefined; ready(): Promise<void> } }).index;
   index.byId = (id) => sessions.find((session) => session.id === id);
   // A host past its first scan.

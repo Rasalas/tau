@@ -26,7 +26,7 @@ import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { mapMessage } from "./host-messages.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
-import { beforeRuntimeDeadline, PhaseTimer, externalThreadFromPath } from "./pi-host-support.js";
+import { beforeRuntimeDeadline, PhaseTimer, externalThreadFromPath, externalThreadPath, samePath } from "./pi-host-support.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import { parentThreadIdFromEntries } from "./session-lineage.js";
 import { cachedResourceOptions, captureResourceDiscovery, type ResourceDiscoverySnapshot } from "./resource-discovery-cache.js";
@@ -93,8 +93,9 @@ export interface ThreadRuntimeLifecyclePort {
   adopt(thread: ThreadRuntime): Promise<void>;
   /** The runtime the registry holds for a thread id, if any. */
   currentRuntime(threadId: string): ThreadRuntime | undefined;
-  liveThreadForPath(path: string): ThreadRuntime | undefined;
+  liveThreads(): readonly ThreadRuntime[];
   indexedSession(path: string): UiSession | undefined;
+  findSession(sessionId: string): Promise<UiSession | undefined>;
   presentUi<K extends keyof HostUiPresenter>(method: K, ...args: Parameters<NonNullable<HostUiPresenter[K]>>): boolean;
   releaseTool(toolCallId: string): void;
   /** A message an external backend produced, on its way to the transcript. */
@@ -404,7 +405,7 @@ export class ThreadRuntimeLifecycle {
     background = false,
     backendKind?: ThreadBackendKind,
   ): Promise<ThreadRuntime> {
-    const live = this.port.liveThreadForPath(path);
+    const live = this.liveForPath(path);
     if (live) return Promise.resolve(live);
     let pending = this.opening.get(path);
     if (!pending) {
@@ -477,6 +478,36 @@ export class ThreadRuntimeLifecycle {
     this.port.runtimeUnavailable(threadId, why);
     await this.port.adopt(thread);
     return thread;
+  }
+
+  /** Resolves both virtual backend paths and Pi session files against the registry. */
+  liveForPath(path: string | undefined): ThreadRuntime | undefined {
+    if (!path) return undefined;
+    const external = externalThreadFromPath(path);
+    if (external) return this.port.currentRuntime(external.threadId);
+    const indexed = this.port.indexedSession(path);
+    if (indexed?.backendKind && indexed.backendKind !== "pi") return this.port.currentRuntime(indexed.id);
+    return this.port.liveThreads().find((thread) => samePath(thread.sessionFile, path));
+  }
+
+  /** Reopens a durable thread off screen, sharing concurrent opens by its path. */
+  async reopen(sessionId: string): Promise<ThreadRuntime> {
+    const live = this.port.currentRuntime(sessionId);
+    if (live) return live;
+    const session = await this.port.findSession(sessionId);
+    const thread = await this.openMarked({ sessionId, backend: session?.backendKind ?? "pi" }, session);
+    if (!thread) throw new Error("That thread no longer exists.");
+    return thread;
+  }
+
+  /** A restart marker carries its durable backend even if the index has not loaded it. */
+  async openMarked(marker: { sessionId: string; backend: ThreadBackendKind }, session?: UiSession): Promise<ThreadRuntime | undefined> {
+    const live = this.port.currentRuntime(marker.sessionId);
+    if (live) return live;
+    const path = marker.backend === "pi"
+      ? (session ?? await this.port.findSession(marker.sessionId))?.path
+      : externalThreadPath(marker.backend, marker.sessionId);
+    return path ? this.openForPath(path, "resume", true, marker.backend) : undefined;
   }
 
   /** Waits for the opens in flight; shutdown may not leave a half-built runtime. */

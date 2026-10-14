@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,9 +79,9 @@ describe("CodexSessionStore", () => {
     await first.appendMessages("tau-1", "/repo", [{ id: "u", role: "user", text: "Hi", timestamp: 9 }]);
     expect((await make().list()).map((record) => [record.createdAt, record.updatedAt])).toEqual([[5, 9]]);
 
-    const stored = JSON.parse(await readFile(filePath, "utf8"));
+    const stored = JSON.parse(await readFile(recordPath(filePath, "tau-1"), "utf8"));
     delete stored.sessions[0].createdAt;
-    await writeFile(filePath, JSON.stringify(stored));
+    await writeFile(recordPath(filePath, "tau-1"), JSON.stringify(stored));
     expect((await make().list())[0]?.createdAt).toBe(9);
   });
 
@@ -108,7 +109,7 @@ describe("CodexSessionStore", () => {
     expect(await second.listModels()).toEqual([{ id: "gpt-5.6-luna", name: "GPT-5.6-Luna", efforts: ["low"], defaultEffort: "low" }]);
     await expect(second.ensure("tau-1", "/elsewhere")).rejects.toThrow("another workspace");
     await expect(second.appendMessages("tau-1", "/repo", [{ id: "x", role: "user", text: "Different", timestamp: 3, clientMessageId: "m1" }])).rejects.toThrow("different message");
-    expect(JSON.parse(await readFile(filePath, "utf8")).version).toBe(1);
+    expect(JSON.parse(await readFile(filePath, "utf8")).version).toBe(2);
   });
 
   it("hands a thread's record to the trash and takes the same record back", async () => {
@@ -139,11 +140,9 @@ describe("CodexSessionStore", () => {
     await expect(again.list()).resolves.toHaveLength(2);
     await expect(again.listModels()).resolves.toEqual([{ id: "gpt-5.5", name: "GPT-5.5", efforts: [] }]);
     await expect(again.listModels("work")).resolves.toEqual([{ id: "gpt-5.6-luna", name: "GPT-5.6 Luna", efforts: ["low"] }]);
-    // A file from before instances reads the same: the default instance's models stay under `models`.
-    const saved = JSON.parse(await readFile(filePath, "utf8")) as { models: unknown[]; instanceModels: Record<string, unknown[]>; sessions: Array<{ instance?: string }> };
-    expect(saved.models).toHaveLength(1);
+    const saved = JSON.parse(await readFile(recordPath(filePath, "work", "models"), "utf8"));
     expect(Object.keys(saved.instanceModels)).toEqual(["work"]);
-    expect(saved.sessions.map((session) => session.instance)).toEqual([undefined, "work"]);
+
   });
 
   it("answers what a thread was billed for, and a new turn counts at once", async () => {
@@ -159,3 +158,7 @@ describe("CodexSessionStore", () => {
     expect(codex.talliesOf("missing")).toEqual([]);
   });
 });
+
+function recordPath(filePath: string, id: string, kind = "session"): string {
+  return join(`${filePath}.records`, `${kind}-${createHash("sha256").update(id).digest("hex")}.json`);
+}

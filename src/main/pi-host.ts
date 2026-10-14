@@ -1,5 +1,5 @@
 import { RequestReceipts } from "./request-receipts.js";
-import { AgentSessionControl } from "./agent-session-control.js";
+import type { AgentSessionControl } from "./agent-session-control.js";
 import { compactThreadContext } from "./host-compaction.js";
 import { rm } from "node:fs/promises";
 import { promptFiles } from "./prompt-attachments.js";
@@ -59,9 +59,7 @@ import { HOST_CORE_PRINCIPAL, type HostInvocationPrincipal } from "./host-invoca
 import type { HostPublication } from "./host-publication.js";
 import type { ExtensionPackageActivator } from "./extension-package-activation.js";
 import type { WorkspaceWatch } from "./workspace-watch.js";
-import { findDanglingToolCalls } from "./dangling-tool-calls.js";
-import { reconcileInFlightTurns, type ReconcilableThread } from "./turn-reconciliation.js";
-import type { InFlightTurn, TurnsInFlight } from "./turns-in-flight.js";
+import type { TurnsInFlight } from "./turns-in-flight.js";
 import { markWake, type QueuedMessage, type QueuedMessages } from "./queued-messages.js";
 import type { ThreadLimits } from "./thread-limits.js";
 import type { TurnSettlement } from "./turn-settlement.js";
@@ -100,7 +98,8 @@ import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from 
 import { requireCapability } from "./runtime-types.js";
 import { exportThreadMarkdown, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
 import { clientTranscript } from "./client-tool-output.js";
-import { PersistedThreadTranscript, shellTranscriptPage } from "./persisted-transcript.js";
+import { shellTranscriptPage, type PersistedThreadInfo, type PersistedTranscriptOptions } from "./persisted-transcript.js";
+import { PersistedTranscriptReader } from "./persisted-transcript-reader.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
 import { isUnavailableBackend } from "./unavailable-thread-backend.js";
@@ -111,7 +110,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
 import { buildPiHostComponents, type PiHostComponents } from "./pi-host-components.js";
-import { finishHostShutdown, PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { finishHostShutdown, PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -157,6 +156,7 @@ export class PiHost {
   private readonly promptReceipts = new RequestReceipts<void>();
   private readonly newThreadReceipts = new RequestReceipts<HostActionResult>();
   private readonly projection: ThreadProjection;
+  private readonly persistedTranscripts = new PersistedTranscriptReader();
   private readonly extensionUi: ExtensionUiCoordinator;
   /**
    * The thread a Pi terminal owns while Tau follows it, and its runtime record.
@@ -225,7 +225,7 @@ export class PiHost {
   readonly limits: ThreadLimits;
   private readonly settlement: TurnSettlement;
 
-  private readonly continueThreadsAfterRestart: () => boolean;
+  private readonly sessionControl: AgentSessionControl;
   /** The last title a Pi extension gave the window, for a client that attaches later. */
   private windowTitle?: string;
   private readonly toolOwners: Map<string, string>;
@@ -259,9 +259,10 @@ export class PiHost {
       recordBackground: (name, startedAt) => this.recordBackgroundLifecycle(name, startedAt),
       setWindowTitle: (title) => this.publishWindowTitle(title),
       windowTitle: () => this.windowTitle,
-      abortThread: (thread) => this.abortThread(thread),
-      promptThread: (threadId, text) => this.prompt(text, [], threadId),
-      adoptThread: (thread) => this.adoptThread(thread),
+      activateThread: (thread, epoch) => this.activateThread(thread, false, epoch),
+      staleActivationResult: () => this.staleActivationResult(),
+      setExtensionCount: (count) => { this.extensionCount = count; },
+      promptThread: (threadId, text, hidden) => this.prompt(text, [], threadId, undefined, undefined, { hidden }),
       applyThreadTitle: (thread, title, source) => this.applyThreadTitle(thread, title, source),
       prewarmSession: (path) => this.prewarmSession(path),
       handleSessionEvent: (event, thread, sessionId, eventCwd) => this.handleSessionEvent(event, thread, sessionId, eventCwd),
@@ -277,8 +278,6 @@ export class PiHost {
       getActive: () => this.active,
       hasLocalActive: () => Boolean(this.localActive),
       ownedByPi: (thread) => this.ownedByPi(thread),
-      liveThreadForPath: (path) => this.liveThreadForPath(path),
-      liveThreadIds: () => this.liveThreadIds(),
       extensionCount: () => this.extensionCount,
       refreshActiveThreadShell: () => this.refreshActiveThreadIndex(false),
       setWorkspace: (path) => this.setWorkspace(path),
@@ -292,8 +291,6 @@ export class PiHost {
       pendingHostExtensions: () => this.pendingHostExtensions,
       deliverQueued: (sessionId, message) => this.deliverQueued(sessionId, message),
       sendToThread: (sessionId, text, delivery, from, attachments, wake) => this.sendToThread(sessionId, text, delivery, from, attachments, wake),
-      reopenThread: (sessionId) => this.reopenThread(sessionId),
-      continueThread: async (sessionId, text) => this.reopenThread(sessionId).then((thread) => this.prompt(text, [], thread.threadId, undefined, undefined, { hidden: thread.backend.capabilities.resume?.hiddenPrompt === true })),
     });
     this.agentDir = components.agentDir;
     this.sessionsDirOverride = components.sessionsDirOverride;
@@ -329,7 +326,7 @@ export class PiHost {
     this.turns = components.turns;
     this.turnsInFlight = components.turnsInFlight;
     ({ queue: this.queue, limits: this.limits, settlement: this.settlement, catalogs: this.catalogs, toolUpdates: this.toolUpdates, pricing: this.pricing, controls: this.controls } = components);
-    this.continueThreadsAfterRestart = components.continueThreadsAfterRestart;
+    this.sessionControl = components.sessionControl;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
     this.toolOwners = components.toolOwners;
@@ -660,20 +657,6 @@ export class PiHost {
     return this.threads.active?.runtime;
   }
 
-  private readonly sessionControl = new AgentSessionControl({
-    stopped: (thread) => { this.handleBackendEvent(thread.threadId, { type: "turn-settled", status: "interrupted" }); this.turnsInFlight.clear(thread.threadId); },
-    thread: (id) => id ? this.requireThread(id) : this.requireActive(), active: () => this.active,
-    isAttached: (thread) => this.ownedByPi(thread), pending: (id) => this.turnObservers.pending(id),
-    hasQuestion: (id) => this.extensionUi.hasOpen(id), path: (id) => this.index.byId(id)?.path,
-    publication: () => this.publication, runtimes: () => this.runtimes,
-    prewarm: () => this.prewarm, threads: () => this.threads,
-    activate: (thread, epoch) => this.activateThread(thread, false, epoch),
-    staleResult: () => this.staleActivationResult(), cwd: () => this.cwd,
-    extensionCount: (count) => { this.extensionCount = count; },
-    refreshPackages: async () => { await this.packages?.refresh({ force: true }); },
-    log: (event, detail) => this.log(event, detail), errorMessage: (error) => this.errorMessage(error),
-  });
-
   private requireActive(): ThreadRuntime {
     this.sessionControl.assertAvailable(undefined);
     const thread = this.active;
@@ -721,7 +704,7 @@ export class PiHost {
     if (this.index.byId(threadId)) {
       return this.lifecycle.run("reopen-prompt-thread", async () => {
         this.sessionControl.assertAvailable(threadId);
-        return this.reopenThread(threadId);
+        return this.runtimes.reopen(threadId);
       });
     }
     // Only an unknown cached id can belong to the blank thread on screen.
@@ -746,19 +729,6 @@ export class PiHost {
   private async staleNewThreadResult(requestId?: NewThreadRequestId): Promise<NewThreadResult> {
     return this.publication.newThreadResult([], { accepted: false, message: "A newer request replaced this new thread." }, requestId);
   }
-  private liveThreadForPath(path: string | undefined): ThreadRuntime | undefined {
-    if (!path) return undefined;
-    const external = externalThreadFromPath(path);
-    if (external) return this.threads.get(external.threadId)?.runtime;
-    const indexed = this.index.byPath(path);
-    if (indexed?.backendKind && indexed.backendKind !== "pi") return this.threads.get(indexed.id)?.runtime;
-    return this.threads.list().find((record) => samePath(record.runtime.sessionFile, path))?.runtime;
-  }
-
-  private liveThreadIds(): Set<string> {
-    return new Set(this.threads.list().map((record) => record.threadId));
-  }
-
   private async initialSessionManager(cwd: string): Promise<SessionManager> {
     return this.runtimes.openRecent(cwd, this.sessionsDirOverride);
   }
@@ -823,7 +793,7 @@ export class PiHost {
           this.index.startRecovery();
           this.trash.start();
           // The index is the only way back to a marked thread's session file.
-          await this.reconcileInterruptedTurns(interruptedTurns);
+          await this.sessionControl.reconcile(interruptedTurns);
           this.prewarm.scheduleThreads();
           this.catalogs.start();
           this.toolUpdates.start();
@@ -886,7 +856,8 @@ export class PiHost {
     if (!toolCallId) throw new Error("A tool call id is required.");
     const thread = this.threadFor(sessionId);
     if (!thread) {
-      const result = (await this.persistedTranscript(sessionId)).toolOutput(toolCallId);
+      const { thread: persisted, options } = await this.persistedTranscript(sessionId);
+      const result = await this.persistedTranscripts.toolOutput(persisted, options, toolCallId);
       this.lifecycleMetrics.recordIpc(result);
       return result;
     }
@@ -924,31 +895,36 @@ export class PiHost {
   private async releasedTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
     const session = await this.index.find(sessionId);
     const kind = session?.backendKind ?? "pi";
-    if (!session || kind === "pi") return (await this.persistedTranscript(sessionId)).page(cursor);
+    if (!session || kind === "pi") {
+      const { thread, options } = await this.persistedTranscript(sessionId);
+      return this.persistedTranscripts.page(thread, options, cursor);
+    }
     const record = await this.seam.backends.get(kind)?.lookup(sessionId);
     if (!record) this.noRuntimeFor(sessionId);
     return shellTranscriptPage(sessionId, record, cursor);
   }
 
-  private async persistedTranscript(sessionId: string): Promise<PersistedThreadTranscript> {
+  private async persistedTranscript(sessionId: string): Promise<{ thread: PersistedThreadInfo; options: PersistedTranscriptOptions }> {
     const session = await this.index.find(sessionId);
     // Nothing persisted to read: a thread of another backend keeps no session
     // file, and an unknown id was never this host's.
     if (!session || (session.backendKind ?? "pi") !== "pi") this.noRuntimeFor(sessionId);
     const active = this.active;
-    return new PersistedThreadTranscript({
+    return { thread: {
       sessionId,
       cwd: session.projectPath,
       path: session.path,
       ...(session.title ? { title: session.title } : {}),
       ...(session.parentThreadId ? { parentThreadId: session.parentThreadId } : {}),
-    }, {
+    }, options: {
       runtimeAdapter: this.piAdapter,
       // Its own runtime is gone; the skills of the thread on screen are the
       // same host's catalog, and the host's defaults when there is none.
       skillCommands: active && isPiBackend(active) ? this.projection.composerCommands(active) : this.runtimeCommands,
-      pins: (thread) => this.projection.pinsFor(thread),
-    });
+      ...(this.projection.hasPinProviders ? {
+        pins: (thread: HostThread) => this.projection.pinsFor(thread), pinsRevision: this.projection.pinsRevision,
+      } : {}),
+    } };
   }
 
   getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }
@@ -992,7 +968,7 @@ export class PiHost {
       ? await this.openInitialThread(cwd)
       : await (async () => {
         const manager = await this.initialSessionManager(cwd);
-        return this.liveThreadForPath(manager.getSessionFile())
+        return this.runtimes.liveForPath(manager.getSessionFile())
           ?? await this.runtimes.open(manager, { type: "session_start", reason: "resume", previousSessionFile: this.active?.sessionFile });
       })();
     if (!await this.activateThread(thread, false, activationEpoch)) return this.staleActivationResult();
@@ -1073,106 +1049,11 @@ export class PiHost {
     if (takenOver) await this.attached.session.withoutAttaching(() => this.switchSession(takenOver));
 
     const thread = this.requireActive();
-    return this.threads.run(thread.threadId, async () => {
-      const journal = thread.backend.capabilities.journal;
-      if (!journal) {
-        if (thread.adapterPending > 0 || thread.state.streaming) await this.abortThread(thread);
-        thread.adapterMessages = await thread.backend.transcript();
-        return this.publication.actionResult([await this.publication.publishDetail()]);
-      }
-      await this.repairDanglingToolCalls(thread);
-      return this.publication.actionResult([await this.publication.publishDetail()]);
-    });
-  }
-
-  /**
-   * Closes the tool calls a turn left open, so the provider takes the next
-   * request. Zero of them is a success: the session is already consistent.
-   */
-  private async repairDanglingToolCalls(thread: ThreadRuntime): Promise<number> {
-    const journal = thread.backend.capabilities.journal;
-    if (!journal) return 0;
-    // A run that is still in flight owns its tool calls; closing them from
-    // outside would race the runtime. Stop it first, then repair.
-    if (!thread.state.idle || thread.adapterPending > 0) await this.abortThread(thread);
-    const dangling = findDanglingToolCalls(thread.entries
-      .flatMap((entry) => entry && typeof entry === "object" && (entry as { type?: unknown }).type === "message"
-        ? [(entry as { message?: unknown }).message]
-        : []));
-    for (const { toolCallId, toolName } of dangling) {
-      journal.appendMessage({
-        role: "toolResult",
-        toolCallId,
-        toolName,
-        content: [{ type: "text", text: "Interrupted: Tau closed this tool call so the thread could continue." }],
-        isError: true,
-        timestamp: Date.now(),
-      });
-    }
-    thread.tools.clear();
-    this.log("thread.recovered", dangling.length === 0
-      ? "session already consistent"
-      : `${dangling.length} tool ${dangling.length === 1 ? "call" : "calls"}`);
-    return dangling.length;
-  }
-
-  /**
-   * The turns this host had in flight when it stopped. Continuing one is the
-   * user's choice (Settings → Defaults); otherwise the thread is repaired,
-   * told in its own transcript, and marked for the rail.
-   */
-  private async reconcileInterruptedTurns(previousTurns?: readonly InFlightTurn[]): Promise<void> {
-    const markers = previousTurns ?? await this.turnsInFlight.load();
-    const { continued } = await reconcileInFlightTurns({
-      markers: () => markers,
-      forget: (sessionId, turnId) => this.turnsInFlight.clear(sessionId, turnId),
-      continueAfterRestart: this.continueThreadsAfterRestart,
-      markInterrupted: (sessionId) => this.index.setInterrupted(sessionId, true),
-      log: (label, detail) => this.log(label, detail),
-      errorMessage: (error) => this.errorMessage(error),
-      open: async (marker) => {
-        const thread = this.threads.get(marker.sessionId)?.runtime ?? await this.openMarkedThread(marker);
-        if (!thread) return undefined;
-        // A runtime the project turned off is marked interrupted, not continued (ADR 0033).
-        const resume = await this.prompts.runtimeEnabled(thread.backend.kind, thread.cwd) ? thread.backend.capabilities.resume : undefined;
-        return {
-          threadId: thread.threadId,
-          repair: () => this.repairDanglingToolCalls(thread),
-          // The notice lands in a transcript the client has already drawn, and
-          // it has to be there before the continuation starts, not after it.
-          ...(resume ? { resume: { ...resume, notice: async (text: string) => {
-            await resume.notice?.(text);
-            // Only the thread on screen has a transcript drawn to update.
-            if (this.active === thread) await this.publication.publishDetail();
-          } } } : {}),
-          prompt: (text, hidden) => this.prompt(text, [], thread.threadId, undefined, undefined, { hidden }),
-        } satisfies ReconcilableThread;
-      },
-    });
-    // Accepted continuations release their queue through settlement.started.
-    for (const marker of markers) if (!continued.includes(marker.sessionId)) this.queue.hold(marker.sessionId);
-    await this.limits.restore();
-  }
-
-  /** Reopens a marked thread off screen; `undefined` when its session is gone. */
-  private async openMarkedThread(marker: { sessionId: string; backend: ThreadBackendKind }): Promise<ThreadRuntime | undefined> {
-    const path = marker.backend === "pi"
-      ? this.index.byId(marker.sessionId)?.path
-      : externalThreadPath(marker.backend, marker.sessionId);
-    if (!path) return undefined;
-    return this.runtimes.openForPath(path, "resume", true, marker.backend);
-  }
-
-  private async reopenThread(sessionId: string): Promise<ThreadRuntime> {
-    const live = this.threads.get(sessionId)?.runtime;
-    if (live) return live;
-    const thread = await this.openMarkedThread({ sessionId, backend: (await this.index.find(sessionId))?.backendKind ?? "pi" });
-    if (!thread) throw new Error("That thread no longer exists.");
-    return thread;
+    return this.sessionControl.recover(thread);
   }
 
   async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = [], wake?: QueuedMessage["wake"]): Promise<void> {
-    const thread = await this.reopenThread(sessionId);
+    const thread = await this.runtimes.reopen(sessionId);
     if (!thread.runtimeAdapter.capabilities.fileAttachments) {
       const files = promptFiles(attachments);
       if (files.length) text = `${text}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}`;
@@ -1519,7 +1400,7 @@ export class PiHost {
     const backendKind = indexedSession?.backendKind ?? externalThreadFromPath(path)?.kind;
     // A thread whose runtime is already live switches immediately and outside
     // the lifecycle queue: nothing is created, aborted or replaced.
-    const live = this.ownedByPi(this.active) ? undefined : this.liveThreadForPath(path);
+    const live = this.ownedByPi(this.active) ? undefined : this.runtimes.liveForPath(path);
     if (live && !isUnavailableBackend(live.backend)) {
       return this.lifecycle.runActivation("live-switch", async (activation) => {
         const startedAt = performance.now();
@@ -1546,9 +1427,9 @@ export class PiHost {
       await this.leaveWorkspaceFor(indexedSession?.projectPath ?? dirname(path));
       await this.threadLifecycle.beforeWorkspace(this.cwd);
       // A thread that opened read-only tries its runtime again on every switch to it.
-      const unavailable = this.liveThreadForPath(path);
+      const unavailable = this.runtimes.liveForPath(path);
       if (unavailable && isUnavailableBackend(unavailable.backend)) await this.threads.release(unavailable.threadId);
-      const alreadyLive = this.liveThreadForPath(path);
+      const alreadyLive = this.runtimes.liveForPath(path);
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", alreadyLive ? "warm-switch" : "cold-switch");
       try {
         const thread = alreadyLive ?? await this.runtimes.openForPath(path, "resume", false, backendKind);
@@ -1563,7 +1444,7 @@ export class PiHost {
 
   /** Opens a thread's runtime ahead of time so switching to it is immediate. */
   async prewarmSession(path: string): Promise<void> {
-    if (!this.localActive || this.safeMode || this.liveThreadForPath(path)) return;
+    if (!this.localActive || this.safeMode || this.runtimes.liveForPath(path)) return;
     const backendKind = this.index.byPath(path)?.backendKind ?? externalThreadFromPath(path)?.kind;
     const startedAt = performance.now();
     try {
@@ -1786,15 +1667,6 @@ export class PiHost {
 
   threadGoal(sessionId: string, action: GoalAction, objective?: string): Promise<void> { return this.controls.goal(sessionId, action, objective); }
 
-  /** Settles questions before stopping a run whose abort may wait for idle. */
-  private async abortThread(thread: ThreadRuntime): Promise<void> {
-    this.extensionUi.cancelFor(thread.threadId);
-    thread.adapterAbortGeneration += 1;
-    for (const controller of thread.adapterAbortControllers) controller.abort();
-    this.queue.hold(thread.threadId);
-    await this.sessionControl.abort(thread, this.activationEpoch);
-  }
-
   async setModel(provider: string, id: string, expectedSessionId?: string): Promise<HostActionResult> {
     const thread = this.requireThread(expectedSessionId);
     await requireCapability(thread.backend, "catalogWrite").setModel(provider, id);
@@ -1895,6 +1767,7 @@ export class PiHost {
       await finishHostShutdown(teardownErrors, [
         () => this.projectHistory.flush(),
         () => this.index.dispose(),
+        () => this.persistedTranscripts.dispose(),
       ]);
     });
   }

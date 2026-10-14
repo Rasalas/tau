@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -94,7 +95,7 @@ describe("Claude runtime session store", () => {
     const directoryMode = (await stat(join(directory, "tau"))).mode & 0o777;
     expect(fileMode).toBe(0o600);
     expect(directoryMode).toBe(0o700);
-    expect(JSON.parse(await readFile(filePath, "utf8")).sessions).toHaveLength(1);
+    expect((await new ClaudeRuntimeSessionStore({ filePath }).list())).toHaveLength(1);
     expect(await reloaded.list()).toHaveLength(1);
   });
 
@@ -144,11 +145,11 @@ describe("Claude runtime session store", () => {
       updatedAt: 1,
     }] }), { encoding: "utf8", mode: 0o600 });
     const store = new ClaudeRuntimeSessionStore({ filePath });
-    const before = await readFile(filePath, "utf8");
     expect((await store.get("tau-session"))?.messages[0]?.text).toBe(raw);
+    const before = await readFile(recordPath(filePath, "tau-session"), "utf8");
     await store.setKnownSkillNames(["tdd"]);
     expect((await store.get("tau-session"))?.messages[0]?.text).toBe(raw);
-    expect(await readFile(filePath, "utf8")).toBe(before);
+    expect(await readFile(recordPath(filePath, "tau-session"), "utf8")).toBe(before);
     expect((await new ClaudeRuntimeSessionStore({ filePath, knownSkillNames: ["tdd"] }).get("tau-session"))?.messages[0]?.text)
       .toBe(raw);
   });
@@ -263,7 +264,7 @@ describe("Claude runtime session store", () => {
     const store = new ClaudeRuntimeSessionStore({ filePath });
     await store.appendExchange("tau-session", "/repo", [message]);
 
-    const onDisk = JSON.parse(await readFile(filePath, "utf8")) as { sessions: Array<{ messages: Array<{ text?: string; textChunks?: string[] }> }> };
+    const onDisk = JSON.parse(await readFile(recordPath(filePath, "tau-session"), "utf8")) as { sessions: Array<{ messages: Array<{ text?: string; textChunks?: string[] }> }> };
     expect(onDisk.sessions[0]?.messages[0]?.text).toBeUndefined();
     expect(onDisk.sessions[0]?.messages[0]?.textChunks?.length).toBeGreaterThan(1);
     const restored = await new ClaudeRuntimeSessionStore({ filePath }).get("tau-session");
@@ -315,7 +316,7 @@ describe("Claude runtime session store", () => {
 
     const directory = join(filePath, "..");
     const entries = await readdir(directory);
-    expect(entries).not.toContain("sessions.json");
+    expect(JSON.parse(await readFile(filePath, "utf8")).layout).toBe("thread-records");
     expect(entries.some((name) => name.startsWith("sessions.json.corrupt-"))).toBe(true);
   });
 
@@ -386,3 +387,7 @@ describe("the model a thread ran on", () => {
     expect(store.talliesOf("missing")).toEqual([]);
   });
 });
+
+function recordPath(filePath: string, id: string, kind = "session"): string {
+  return join(`${filePath}.records`, `${kind}-${createHash("sha256").update(id).digest("hex")}.json`);
+}

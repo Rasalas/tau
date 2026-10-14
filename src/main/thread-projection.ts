@@ -61,7 +61,9 @@ export function branchRecords(entries: readonly unknown[], skillNames: Iterable<
 }
 
 export class ThreadProjection {
-  private readonly pinnedCache = new WeakMap<ThreadRuntime, { size: number; leaf: unknown; pinned: ReadonlySet<string> }>();
+  private readonly pinnedCache = new WeakMap<ThreadRuntime, { size: number; leaf: unknown; revision: string; pinned: ReadonlySet<string> }>();
+  private readonly pinProviderIds = new WeakMap<object, number>();
+  private nextPinProviderId = 0;
 
   constructor(
     private readonly clientTurns: ClientTurnLedger,
@@ -157,11 +159,23 @@ export class ThreadProjection {
     if (this.entryPinProviders.size === 0 || !isPiBackend(thread)) return EMPTY_PINS;
     const entries = thread.entries;
     const leaf = entries.at(-1);
+    const revision = this.pinsRevision;
     const cached = this.pinnedCache.get(thread);
-    if (cached && cached.size === entries.length && cached.leaf === leaf) return cached.pinned;
+    if (cached && cached.size === entries.length && cached.leaf === leaf && cached.revision === revision) return cached.pinned;
     const pinned = this.pinsFor(this.hostThread(thread));
-    this.pinnedCache.set(thread, { size: entries.length, leaf, pinned });
+    this.pinnedCache.set(thread, { size: entries.length, leaf, revision, pinned });
     return pinned;
+  }
+
+  get hasPinProviders(): boolean { return this.entryPinProviders.size > 0; }
+
+  /** Registration identity changes even when an extension reload leaves the file unchanged. */
+  get pinsRevision(): string {
+    return [...this.entryPinProviders].map((provider) => {
+      let id = this.pinProviderIds.get(provider);
+      if (id === undefined) { id = ++this.nextPinProviderId; this.pinProviderIds.set(provider, id); }
+      return id;
+    }).join(",");
   }
 
   /** What the registered providers pin for one thread, live or read from a file. */

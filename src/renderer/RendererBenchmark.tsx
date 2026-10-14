@@ -486,30 +486,44 @@ export default function RendererBenchmark() {
       requestAnimationFrame(() => {
         updateStartedAt.current = performance.now();
         setLongUserRevision((revision) => revision + 1);
-        requestAnimationFrame(() => {
+        const expectedText = makeLongUserMessage(targetBytes, 1).text;
+        const contentId = "message-content-benchmark-long-user-message";
+        const readContent = () => document.getElementById(contentId);
+        const awaitContent = (mode: "expand" | "prop-update") => {
+          if (stopped) return;
+          const content = readContent();
+          const button = document.querySelector<HTMLButtonElement>(".message-expand");
+          const expanded = button?.getAttribute("aria-expanded") === "true";
+          // Expanding replaces the plain preview with lazy Markdown. Its
+          // loading fallback is a committed DOM node, but is not the payload.
+          // Acknowledge the actual updated message before recording success.
+          if (content?.textContent !== expectedText || (mode === "expand" && !expanded)) {
+            requestAnimationFrame(() => awaitContent(mode));
+            return;
+          }
+          longMessageInteraction.current = {
+            mode,
+            expanded,
+            contentBytes: new TextEncoder().encode(content.textContent).byteLength,
+          };
+          finish();
+        };
+        const awaitUpdatedPreview = () => {
+          if (stopped) return;
+          if (readContent()?.textContent !== expectedText) {
+            requestAnimationFrame(awaitUpdatedPreview);
+            return;
+          }
           const button = document.querySelector<HTMLButtonElement>(".message-expand");
           if (!button) {
-            const content = document.querySelector<HTMLElement>(".message-text-content") ?? document.body;
-            longMessageInteraction.current = {
-              mode: "prop-update",
-              expanded: false,
-              contentBytes: new TextEncoder().encode(content.textContent ?? "").byteLength,
-            };
-            finish();
+            awaitContent("prop-update");
             return;
           }
           updateStartedAt.current = performance.now();
           button.click();
-          requestAnimationFrame(() => {
-            const content = document.querySelector<HTMLElement>(".message-text-content");
-            longMessageInteraction.current = {
-              mode: "expand",
-              expanded: button.getAttribute("aria-expanded") === "true",
-              contentBytes: new TextEncoder().encode(content?.textContent ?? "").byteLength,
-            };
-            finish();
-          });
-        });
+          requestAnimationFrame(() => awaitContent("expand"));
+        };
+        requestAnimationFrame(awaitUpdatedPreview);
       });
     } else if (scenario === "app-tool-output-stream" || scenario === "transcript-activity-stream-2000-turns" || scenario.startsWith("composer-typing") || scenario === "diff-stack-300-files") {
       // The scenario drives itself and calls back; see RendererBenchmarkApp and RendererBenchmarkComposer.

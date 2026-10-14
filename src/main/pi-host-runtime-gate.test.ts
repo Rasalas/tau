@@ -153,12 +153,11 @@ describe("a runtime a project turned off (ADR 0033)", () => {
 
   it("marks a thread a restart cut short as interrupted instead of continuing it", async () => {
     const { internals, delivered } = bench();
-    internals.continueThreadsAfterRestart = () => true;
-    internals.repairDanglingToolCalls = async () => 0;
+    internals.sessionControl.port.continueAfterRestart = () => true;
     const setInterrupted = vi.fn();
     internals.index.setInterrupted = setInterrupted;
     const turn = (sessionId: string, cwd: string) => ({ sessionId, cwd, turnId: `turn-${sessionId}`, backend: "codex", startedAt: 1, prompt: { text: "work" } });
-    await internals.reconcileInterruptedTurns([turn("off", OFF), turn("on", ON)]);
+    await internals.sessionControl.reconcile([turn("off", OFF), turn("on", ON)]);
     expect(setInterrupted).toHaveBeenCalledWith("off", true);
     expect(setInterrupted).not.toHaveBeenCalledWith("on", true);
     expect(delivered.filter((entry) => entry.startsWith("off:"))).toEqual([]);

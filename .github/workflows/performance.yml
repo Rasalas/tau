@@ -57,13 +57,14 @@ jobs:
       # Structural checks plus timings; the tight ones are listed in docs/PERFORMANCE.md.
       - name: Host budgets
         run: npm run benchmark:host:check && npm run benchmark:host:full:check
-      # Frame and start timings from shared hardware are trend data, not a gate.
-      - name: Renderer budget (advisory on shared runners)
-        continue-on-error: true
-        run: xvfb-run -a npm run benchmark:renderer -- --no-build --check
-      - name: Start budget (advisory on shared runners)
-        continue-on-error: true
-        run: xvfb-run -a npm run start:report -- --check
+      - name: Session storage and paging budgets
+        run: npm run benchmark:sessions -- --check
+      # Complete measurements and structural budgets block. Shared-runner timing
+      # violations are still reported, without making an otherwise valid run fail.
+      - name: Start structural budgets
+        run: xvfb-run -a npm run start:report -- --check-structural
+      - name: Renderer structural budgets
+        run: xvfb-run -a npm run benchmark:renderer -- --no-build --check-structural reports/renderer-ci-report.json
       - name: Publish performance measurements
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

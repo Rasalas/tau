@@ -304,7 +304,7 @@ export class CodexSessionStore {
     const owner = instanceOf(instance);
     const record: CodexSessionRecord = { backendKind: "codex", tauThreadId, ...(owner ? { instance: owner } : {}), cwd, messages: [], createdAt: this.now(), updatedAt: this.now() };
     this.records.set(tauThreadId, record);
-    await this.persist();
+    await this.persist(tauThreadId);
     return clone(record);
   }
 
@@ -313,7 +313,7 @@ export class CodexSessionStore {
     const record = this.records.get(tauThreadId)!;
     change(record);
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   setCodexThread(tauThreadId: string, cwd: string, codexThreadId: string | undefined): Promise<void> {
@@ -409,7 +409,7 @@ export class CodexSessionStore {
       });
       return tauThreadId;
     });
-    if (ids.some(Boolean)) await this.persist();
+    if (ids.some(Boolean)) await this.persistence.write({ sessions: ids.flatMap((id) => id ? [{ id, record: this.records.get(id)! }] : []) });
     return ids;
   }
 
@@ -440,7 +440,7 @@ export class CodexSessionStore {
     const next = storedModels(models);
     if (next.length === 0 || JSON.stringify(next) === JSON.stringify(this.models.get(instance) ?? [])) return;
     this.models.set(instance, next);
-    await this.persist();
+    await this.persistence.write({ models: [{ id: instance, models: next }] });
   }
 
   /** Takes a thread's record out for the host's trash; the CLI's own history stays where it is. */
@@ -449,7 +449,7 @@ export class CodexSessionStore {
     const record = this.records.get(tauThreadId);
     if (!record) return undefined;
     this.records.delete(tauThreadId);
-    await this.persist();
+    await this.persist(tauThreadId);
     return clone(record);
   }
 
@@ -460,10 +460,10 @@ export class CodexSessionStore {
     if (!record || record.tauThreadId !== tauThreadId) throw new Error("This is not the Codex thread that was deleted.");
     if (this.records.has(tauThreadId)) throw new Error("A Codex thread with this id exists again; it was not restored.");
     this.records.set(tauThreadId, record);
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
-  private persist(): Promise<void> {
-    return this.persistence.write({ sessions: [...this.records.values()], models: Object.fromEntries(this.models) });
+  private persist(tauThreadId: string): Promise<void> {
+    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId) }] });
   }
 }

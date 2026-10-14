@@ -31,7 +31,7 @@ export function SettingsPageSections({ page, advanced = false, onNotify, onChang
   const provided = useContext(SettingsRegistryContext);
   const shell = useContext(WorkbenchShellContext);
   const registry = provided ?? shell?.registry;
-  useSyncExternalStore(registry?.subscribe ?? noSubscription, registry?.getVersion ?? (() => 0));
+  useSyncExternalStore(registry?.subscribeRegistrations ?? noSubscription, registry?.getRegistrationVersion ?? (() => 0));
   const sections = registry?.getSettingsSections(page).filter((section) => !section.card && Boolean(section.advanced) === advanced) ?? [];
   if (sections.length === 0) return null;
   const drawn = sections.map(({ id, Component }) => <Component key={id} {...(cwd ? { cwd } : {})} {...(onOpenSettings ? { onOpenSettings } : {})} onNotify={onNotify} onChanged={onChanged} />);

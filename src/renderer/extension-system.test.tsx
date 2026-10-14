@@ -847,3 +847,55 @@ describe("ExtensionRegistry prompt tools seams", () => {
     expect(web.getUnrenderedContributions().map((entry) => `${entry.kind}:${entry.id}`)).toEqual(["message action:cite"]);
   });
 });
+
+describe("ExtensionRegistry scoped data", () => {
+  it("preserves legacy notifications while keeping registrations and unrelated selectors stable", () => {
+    const registry = new ExtensionRegistry();
+    let context!: DesktopExtensionContext;
+    let rows!: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>;
+    registry.activate({ id: "data", name: "Data", activate(given) {
+      context = given;
+      rows = given.registerTranscriptRows("rows");
+    } });
+    rows.setRows("own", [{ id: "own", content: null }]);
+    context.setThreadRowStatuses({ own: { label: "Waiting" } });
+    context.setThreadLineage({ parents: { own: "parent" }, workingChildren: {} });
+    const ownRows = registry.getTranscriptRows("own");
+    const marks = registry.getThreadRowMarks();
+    const lineage = registry.getThreadLineage();
+    const problems = registry.getProblems();
+    const registrationVersion = registry.getRegistrationVersion();
+    const legacyVersion = registry.getVersion();
+    const legacy = vi.fn();
+    const registrations = vi.fn();
+    const own = vi.fn();
+    const other = vi.fn();
+    registry.subscribe(legacy);
+    registry.subscribeRegistrations(registrations);
+    registry.subscribeData("thread:own", own);
+    registry.subscribeData("thread:other", other);
+    context.setLiveStatus("other", "Waiting");
+    rows.setRows("other", [{ id: "other", content: null }]);
+    expect(legacy).toHaveBeenCalledTimes(2);
+    expect(registry.getVersion()).toBe(legacyVersion + 2);
+    expect(registry.getRegistrationVersion()).toBe(registrationVersion);
+    expect(registrations).not.toHaveBeenCalled();
+    expect(own).not.toHaveBeenCalled();
+    expect(other).toHaveBeenCalledTimes(2);
+    expect(registry.getTranscriptRows("own")).toBe(ownRows);
+    expect(registry.getThreadRowMarks()).toBe(marks);
+    expect(registry.getThreadLineage()).toBe(lineage);
+    expect(registry.getProblems()).toBe(problems);
+    rows.clear();
+    expect(own).toHaveBeenCalledOnce();
+    expect(registry.getTranscriptRows("own")).toEqual([]);
+    registry.deactivate("data");
+    expect(registry.getLiveStatus("other")).toBeUndefined();
+    expect(registry.getThreadRowMarks()).toEqual({});
+    expect(registry.getThreadLineage().parents).toEqual({});
+    const otherCalls = other.mock.calls.length;
+    rows.setRows("other", [{ id: "stale", content: null }]);
+    rows.clear();
+    expect(other).toHaveBeenCalledTimes(otherCalls);
+  });
+});

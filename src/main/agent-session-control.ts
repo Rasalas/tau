@@ -1,3 +1,10 @@
+import { findDanglingToolCalls } from "./dangling-tool-calls.js";
+import { reconcileInFlightTurns, type ReconcilableThread } from "./turn-reconciliation.js";
+import type { InFlightTurn, TurnsInFlight } from "./turns-in-flight.js";
+import type { QueuedMessages } from "./queued-messages.js";
+import type { ThreadLimits } from "./thread-limits.js";
+import type { PromptPreparation } from "./prompt-preparation.js";
+import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { HostPublication } from "./host-publication.js";
 import type { RuntimePrewarm } from "./runtime-prewarm.js";
@@ -10,6 +17,15 @@ import { UnavailableThreadBackend } from "./unavailable-thread-backend.js";
 
 interface AgentSessionControlPort {
   stopped(thread: ThreadRuntime): void;
+  activationEpoch(): number;
+  extensionUi: ExtensionUiCoordinator;
+  queue: QueuedMessages;
+  turnsInFlight: TurnsInFlight;
+  limits: ThreadLimits;
+  prompts: PromptPreparation;
+  continueAfterRestart(): boolean;
+  markInterrupted(sessionId: string): void;
+  prompt(threadId: string, text: string, hidden: boolean): Promise<void>;
   thread(id?: string): ThreadRuntime;
   active(): ThreadRuntime | undefined;
   isAttached(thread: ThreadRuntime): boolean;
@@ -48,7 +64,12 @@ export class AgentSessionControl {
     if (id && this.restartingThreads.has(id)) throw new Error("The agent session is restarting. Wait before sending another message or changing this thread.");
   }
 
-  abort(thread: ThreadRuntime, epoch: number): Promise<void> {
+  /** Cancels questions and delivery before asking a runtime whose abort can wait for idle. */
+  abort(thread: ThreadRuntime, epoch = this.port.activationEpoch()): Promise<void> {
+    this.port.extensionUi.cancelFor(thread.threadId);
+    thread.adapterAbortGeneration += 1;
+    for (const controller of thread.adapterAbortControllers) controller.abort();
+    this.port.queue.hold(thread.threadId);
     let pending = this.aborts.get(thread);
     if (!pending) {
       pending = this.abortRun(thread, epoch).finally(() => this.aborts.delete(thread));
@@ -95,6 +116,73 @@ export class AgentSessionControl {
       port.publication().invalidateModels();
       if (visible && await port.activate(replacement, epoch)) await port.publication().activeUpdates(epoch);
     } finally { this.restartingThreads.delete(threadId); }
+  }
+
+  /** Repairs a stopped thread or refreshes a backend-owned transcript. */
+  async recover(thread: ThreadRuntime): Promise<HostActionResult> {
+    return this.port.threads().run(thread.threadId, async () => {
+      if (!thread.backend.capabilities.journal) {
+        if (thread.adapterPending > 0 || thread.state.streaming) await this.abort(thread);
+        thread.adapterMessages = await thread.backend.transcript();
+      } else await this.repairDanglingToolCalls(thread);
+      return this.port.publication().actionResult([await this.port.publication().publishDetail()]);
+    });
+  }
+
+  private async repairDanglingToolCalls(thread: ThreadRuntime): Promise<number> {
+    const journal = thread.backend.capabilities.journal;
+    if (!journal) return 0;
+    if (!thread.state.idle || thread.adapterPending > 0) await this.abort(thread);
+    const dangling = findDanglingToolCalls(thread.entries
+      .flatMap((entry) => entry && typeof entry === "object" && (entry as { type?: unknown }).type === "message"
+        ? [(entry as { message?: unknown }).message]
+        : []));
+    for (const { toolCallId, toolName } of dangling) {
+      journal.appendMessage({
+        role: "toolResult", toolCallId, toolName,
+        content: [{ type: "text", text: "Interrupted: Tau closed this tool call so the thread could continue." }],
+        isError: true, timestamp: Date.now(),
+      });
+    }
+    thread.tools.clear();
+    this.port.log("thread.recovered", dangling.length === 0 ? "session already consistent"
+      : `${dangling.length} tool ${dangling.length === 1 ? "call" : "calls"}`);
+    return dangling.length;
+  }
+
+  /** Restores restart markers once, leaving queues held unless their continuation was accepted. */
+  async reconcile(previousTurns?: readonly InFlightTurn[]): Promise<void> {
+    const { port } = this;
+    const markers = previousTurns ?? await port.turnsInFlight.load();
+    const { continued } = await reconcileInFlightTurns({
+      markers: () => markers,
+      forget: (sessionId, turnId) => port.turnsInFlight.clear(sessionId, turnId),
+      continueAfterRestart: () => port.continueAfterRestart(),
+      markInterrupted: (sessionId) => port.markInterrupted(sessionId),
+      log: (label, detail) => port.log(label, detail),
+      errorMessage: (error) => port.errorMessage(error),
+      open: async (marker) => {
+        const thread = await port.runtimes().openMarked(marker);
+        if (!thread) return undefined;
+        const resume = await port.prompts.runtimeEnabled(thread.backend.kind, thread.cwd) ? thread.backend.capabilities.resume : undefined;
+        return {
+          threadId: thread.threadId,
+          repair: () => this.repairDanglingToolCalls(thread),
+          ...(resume ? { resume: { ...resume, notice: async (text: string) => {
+            await resume.notice?.(text);
+            if (port.active() === thread) await port.publication().publishDetail();
+          } } } : {}),
+          prompt: (text, hidden) => port.prompt(thread.threadId, text, hidden),
+        } satisfies ReconcilableThread;
+      },
+    });
+    for (const marker of markers) if (!continued.includes(marker.sessionId)) port.queue.hold(marker.sessionId);
+    await port.limits.restore();
+  }
+
+  async continue(threadId: string, text: string): Promise<void> {
+    const thread = await this.port.runtimes().reopen(threadId);
+    await this.port.prompt(thread.threadId, text, thread.backend.capabilities.resume?.hiddenPrompt === true);
   }
 
   async restart(threadId: string, epoch: number): Promise<HostActionResult> {

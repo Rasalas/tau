@@ -219,7 +219,7 @@ export const WorkGroup = memo(function WorkGroup({
   // tools into "interrupted", and a settled turn is not an interrupted one.
   const stalled = streaming === false && !waiting && tools.some((tool) => tool.status === "running");
   const turn = tools[0]?.id;
-  const registryVersion = registry.getVersion();
+  const registryVersion = registry.getRegistrationVersion();
   const rows = useMemo(() => deriveWorkRows({
     // Read when the turn settles: what the reader opened while it ran stays in view.
     keepOpen: turn !== undefined && disclosures?.openedInTurn(turn) === true,

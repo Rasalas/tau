@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { UiMessage, UiTurnActivityEntry } from "../shared/contracts";
 import { ThreadViewStore } from "../workbench/thread-view-store";
 import { useConversationActivities, type ConversationActivityInput } from "./conversation-activities";
-import { ExtensionRegistry, type WorkbenchActions } from "./extension-system";
+import { ExtensionRegistry, type DesktopExtensionContext, type WorkbenchActions } from "./extension-system";
 import type { WorkGroupProps } from "./components/WorkRows";
 
 function inputFor(messages: UiMessage[], history: UiTurnActivityEntry[]): ConversationActivityInput {
@@ -21,6 +21,37 @@ function inputFor(messages: UiMessage[], history: UiTurnActivityEntry[]): Conver
 }
 
 describe("historical conversation activities", () => {
+  it("keeps historical rows through other-thread publishes and own-thread status and row changes", () => {
+    const input = inputFor([{ id: "u", role: "user", text: "Start", timestamp: 1 }], [{
+      id: "history", anchorMessageId: "u", status: "completed",
+      tools: [{ id: "tool", name: "read", args: {}, status: "done", startedAt: 2, endedAt: 3 }],
+    }]);
+    input.conversationSnapshot = { sessionId: "stream", isStreaming: false } as NonNullable<ConversationActivityInput["conversationSnapshot"]>;
+    let context!: DesktopExtensionContext;
+    let rows!: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>;
+    input.registry.activate({ id: "data", name: "Data", activate(given) {
+      context = given;
+      rows = given.registerTranscriptRows("rows");
+    } });
+    let renders = 0;
+    const { result } = renderHook(() => { renders += 1; return useConversationActivities(input); });
+    const historical = result.current.transcriptActivities[0];
+    const before = renders;
+    act(() => { context.setLiveStatus("other", "Waiting"); rows.setRows("other", [{ id: "other", content: null }]); });
+    expect(renders).toBe(before);
+    expect(result.current.transcriptActivities[0]).toBe(historical);
+    act(() => context.setLiveStatus("stream", "Own waiting"));
+    expect(result.current.liveStatusLabel).toBe("Own waiting");
+    expect(result.current.transcriptActivities[0]).toBe(historical);
+    act(() => rows.setRows("stream", [{ id: "own", content: null }]));
+    expect(result.current.transcriptActivities.some((row) => row.id === "rows:own")).toBe(true);
+    expect(result.current.transcriptActivities[0]).toBe(historical);
+    act(() => rows.clear());
+    expect(result.current.transcriptActivities).toHaveLength(1);
+    act(() => input.registry.deactivate("data"));
+    expect(result.current.liveStatusLabel).toBeUndefined();
+  });
+
   it("keeps 1,000 historical groups unchanged through a 150 KB stream in 2,000 turns", () => {
     const messages: UiMessage[] = Array.from({ length: 4_000 }, (_, index) => ({
       id: `message-${index}`, role: index % 2 === 0 ? "user" : "assistant", text: "Settled text", timestamp: index * 10,

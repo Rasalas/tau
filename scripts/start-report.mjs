@@ -8,16 +8,17 @@ const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
 const REPORT_PATH = join(ROOT, "reports", "start-report.json");
 const BUDGET_PATH = join(ROOT, "scripts", "performance-budgets.json");
 
-export function evaluateStartBudgets(report, budgets) {
+export function evaluateStartBudgets(report, budgets, { timings = true } = {}) {
   const failures = [];
-  if (report.firstPaintMs === null) failures.push("firstPaintMs was not reported by the browser fixture");
-  else if (report.firstPaintMs > budgets.firstPaintMs) failures.push(`firstPaintMs ${report.firstPaintMs} > budget ${budgets.firstPaintMs}`);
-  if (report.externalRequests.length > budgets.externalNetworkRequests) {
+  if (!Number.isFinite(report.firstPaintMs)) failures.push("firstPaintMs was not reported by the browser fixture");
+  else if (timings && report.firstPaintMs > budgets.firstPaintMs) failures.push(`firstPaintMs ${report.firstPaintMs} > budget ${budgets.firstPaintMs}`);
+  if (!Array.isArray(report.externalRequests)) failures.push("externalRequests was not reported by the browser fixture");
+  else if (report.externalRequests.length > budgets.externalNetworkRequests) {
     failures.push(`externalNetworkRequests ${report.externalRequests.length} > budget ${budgets.externalNetworkRequests}`);
   }
   for (const [component, measurement] of Object.entries(report.overlayComposition?.components ?? {})) {
     if (measurement.backdropBlur) failures.push(`${component} uses backdrop blur above the tested fallback`);
-    if (measurement.measuredMs > budgets.overlayCompositionMs) {
+    if (timings && measurement.measuredMs > budgets.overlayCompositionMs) {
       failures.push(`${component} overlay composition ${measurement.measuredMs}ms > budget ${budgets.overlayCompositionMs}`);
     }
   }
@@ -66,9 +67,14 @@ async function main() {
   };
   await mkdir(join(ROOT, "reports"), { recursive: true });
   await writeFile(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
-  if (process.argv.includes("--check")) {
+  const structuralOnly = process.argv.includes("--check-structural") && !process.argv.includes("--check");
+  if (process.argv.includes("--check") || structuralOnly) {
     const budgets = JSON.parse(await readFile(BUDGET_PATH, "utf8"));
-    const failures = evaluateStartBudgets(report, budgets);
+    const failures = evaluateStartBudgets(report, budgets, { timings: !structuralOnly });
+    if (structuralOnly) {
+      const warnings = evaluateStartBudgets(report, budgets).filter((failure) => !failures.includes(failure));
+      if (warnings.length > 0) console.warn(`Start timing budgets (advisory):\n${warnings.map((warning) => `- ${warning}`).join("\n")}`);
+    }
     if (failures.length) {
       console.error(`Start budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
       process.exitCode = 1;

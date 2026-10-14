@@ -1,3 +1,4 @@
+import { useExtensionData } from "../use-extension-data";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ExtensionInspection, HostExtensionSummary } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
@@ -39,7 +40,7 @@ function Finding({ tone, label, children, ...data }: { tone: "danger" | "warn" |
  */
 export function InspectorPage({ registry, cwd, onNotify = () => undefined }: { registry: ExtensionRegistry; cwd?: string; onNotify?(message: string, level?: "info" | "warning" | "error"): void }) {
   const client = useHostClient();
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const [hostHalves, setHostHalves] = useState<HostExtensionSummary[]>([]);
   const [inspection, setInspection] = useState<ExtensionInspection>();
   const [error, setError] = useState<string>();
@@ -60,6 +61,7 @@ export function InspectorPage({ registry, cwd, onNotify = () => undefined }: { r
 
   const desktop = registry.getExtensionSummaries();
   const unrendered = registry.getUnrenderedContributions();
+  useExtensionData(registry, "problems");
   const problems = registry.getProblems();
   const loadFailures = registry.getLoadFailures();
   const ids = [...new Set([...desktop.map((entry) => entry.id), ...hostHalves.map((entry) => entry.id)])].sort();

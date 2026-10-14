@@ -122,6 +122,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-completion.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",
   "./opencode-catalog.js",
   "./editable-json.js", "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
+  "./persisted-transcript-reader.js", // Bounded persisted Pi history reads, owned by the host.
   "./secret-store.js", // OS-store leaf shared by host kits; no runtime access to values.
   "./pi-host-components.js",   "./pi-host-options.js",   "./pi-host-support.js",   "./pi-host.js",
   "./pi-kit-extensions.js",   "./pi-model-runtime.js",   "./pi-session-dir.js",   "./platform-process.js",   "./process-lock.js",

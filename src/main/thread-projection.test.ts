@@ -121,6 +121,25 @@ describe("ThreadProjection catalog", () => {
 });
 
 describe("ThreadProjection transcript", () => {
+  it("recomputes pins after a provider reload while the journal stays unchanged", () => {
+    const original = vi.fn(() => ["old-anchor"]);
+    const replacement = vi.fn(() => ["new-anchor"]);
+    const providers = new Set([original]);
+    const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, providers, () => ({}) as never, () => undefined);
+    const thread = piThread(() => [], {});
+    const revision = projection.pinsRevision;
+    expect([...projection.pinnedEntries(thread)]).toEqual(["old-anchor"]);
+    projection.pinnedEntries(thread);
+    expect(original).toHaveBeenCalledTimes(1);
+    providers.delete(original);
+    providers.add(replacement);
+    expect(projection.pinsRevision).not.toBe(revision);
+    expect([...projection.pinnedEntries(thread)]).toEqual(["new-anchor"]);
+    providers.clear();
+    expect(projection.hasPinProviders).toBe(false);
+    expect([...projection.pinnedEntries(thread)]).toEqual([]);
+  });
+
   it("walks the branch a fixed number of times, however long the thread, when a kit pins entries", () => {
     const reads = (turns: number) => {
       const branch = Array.from({ length: turns }, (_, turn) => [

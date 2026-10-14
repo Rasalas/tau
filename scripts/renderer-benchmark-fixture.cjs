@@ -19,7 +19,18 @@ app.whenReady().then(async () => {
     height: 900,
     webPreferences: { sandbox: true, backgroundThrottling: false },
   });
+  const rendererErrors = [];
+  window.webContents.on("console-message", (details) => {
+    if (details.level === "error") rendererErrors.push(details.message);
+  });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    rendererErrors.push(`renderer process gone: ${details.reason}, exit ${details.exitCode}`);
+  });
   try {
+    // Linux software rendering can stop delivering animation frames to an
+    // unmapped window even with background throttling disabled. Map it on CI's
+    // Xvfb display before loading; local benchmarks still stay out of sight.
+    if (process.env.CI) window.showInactive();
     await window.loadFile(path.join(__dirname, "..", "dist-benchmark", "index.html"), {
       query: { rendererBenchmark: "1", scenario, config: JSON.stringify(scenarioConfig) },
     });
@@ -30,7 +41,15 @@ app.whenReady().then(async () => {
       if (result) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    if (!result) throw new Error(`renderer benchmark timed out: ${scenario}`);
+    if (!result) {
+      const state = await window.webContents.executeJavaScript(`JSON.stringify({
+        readyState: document.readyState,
+        visibilityState: document.visibilityState,
+        domNodes: document.getElementsByTagName("*").length,
+        contentCharacters: document.body.textContent?.length ?? 0,
+      })`).catch((error) => JSON.stringify({ inspectionError: error.message }));
+      throw new Error(`renderer benchmark timed out: ${scenario}; state=${state}; rendererErrors=${JSON.stringify(rendererErrors)}`);
+    }
     result.electronVersion = process.versions.electron;
     result.gpuFeatureStatus = app.getGPUFeatureStatus();
     try {

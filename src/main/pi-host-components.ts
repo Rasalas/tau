@@ -1,3 +1,4 @@
+import { AgentSessionControl } from "./agent-session-control.js";
 import { randomBytes } from "node:crypto";
 import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -130,10 +131,11 @@ export interface PiHostDeps {
   recordBackground(name: string, startedAt: number): void;
   setWindowTitle(title: string): void;
   windowTitle(): string | undefined;
-  abortThread(thread: ThreadRuntime): Promise<void>;
+  activateThread(thread: ThreadRuntime, epoch: number): Promise<boolean>;
+  staleActivationResult(): Promise<HostActionResult>;
+  setExtensionCount(count: number): void;
   /** Sends a turn the way the composer does. */
-  promptThread(threadId: string, text: string): Promise<void>;
-  adoptThread(thread: ThreadRuntime): Promise<void>;
+  promptThread(threadId: string, text: string, hidden?: boolean): Promise<void>;
   applyThreadTitle(thread: ThreadRuntime, title: string, source: "generated" | "renamed"): Promise<HostUpdate>;
   prewarmSession(path: string): Promise<void>;
   handleSessionEvent(event: unknown, thread: LiveTurnState, sessionId: string, cwd: string): void;
@@ -150,8 +152,6 @@ export interface PiHostDeps {
   /** False while Pi's own terminal owns the visible thread. */
   hasLocalActive(): boolean;
   ownedByPi(thread: ThreadRuntime | undefined): boolean;
-  liveThreadForPath(path: string | undefined): ThreadRuntime | undefined;
-  liveThreadIds(): Set<string>;
   /** Extensions of the runtime on screen, as the catalog counts them. */
   extensionCount(): number;
   refreshActiveThreadShell(): Promise<void>;
@@ -168,10 +168,6 @@ export interface PiHostDeps {
   deliverQueued(sessionId: string, message: QueuedMessage): Promise<void>;
   /** An extension's message to a thread; a released runtime is reopened off screen first. */
   sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments?: UiPromptAttachment[], wake?: UiWake): Promise<void>;
-  /** The thread's runtime, reopened off screen when it was released. */
-  reopenThread(sessionId: string): Promise<ThreadRuntime>;
-  /** Continues a thread with a prompt the host writes, hidden where its runtime allows. */
-  continueThread(sessionId: string, text: string): Promise<void>;
 }
 
 /** What PiHost currently assigns in its constructor, as one construction pass. */
@@ -228,8 +224,8 @@ export interface PiHostComponents {
   readonly toolUpdates: RuntimeToolUpdates;
   /** What threads cost: the user's prices, the runtimes', a subscription's value. */
   readonly pricing: UsagePricing;
-  /** Settings → Defaults, read fresh: the answer is wanted once, at start. */
-  readonly continueThreadsAfterRestart: () => boolean;
+  /** Stop, restart, repair and interrupted-turn recovery. */
+  readonly sessionControl: AgentSessionControl;
 }
 
 export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps): PiHostComponents {
@@ -350,7 +346,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const workbenchReload = new WorkbenchReloadCoordinator({
     runs: () => [...threads.list().map((record) => record.runtime), attachedThread]
       .filter((thread) => !thread.state.idle || thread.state.streaming || thread.adapterPending > 0 || thread.adapterStreaming)
-      .map((thread) => ({ waitForIdle: () => thread.backend.waitForIdle(), abort: () => deps.abortThread(thread) })),
+      .map((thread) => ({ waitForIdle: () => thread.backend.waitForIdle(), abort: () => sessionControl.abort(thread) })),
     serialize: (operation) => lifecycle.run("workbench-reload", operation),
   });
   const runtimeIdleMs = options.runtimeIdleReleaseMs ?? RUNTIME_IDLE_RELEASE_MS;
@@ -447,7 +443,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     beginActivation: () => lifecycle.beginActivation(),
     isCurrentActivation: (epoch) => lifecycle.isCurrentActivation(epoch),
     releaseLocalThread: async (sessionFile) => {
-      const local = deps.liveThreadForPath(sessionFile);
+      const local = runtimes.liveForPath(sessionFile);
       if (local) await threads.release(local.threadId);
     },
     clearActiveThread: () => threads.setActive(undefined),
@@ -492,7 +488,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       },
     }),
     // A rename may reach a released thread (another machine renaming); a generated title never reopens one.
-    setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(source === "renamed" ? await deps.reopenThread(sessionId) : deps.requireThread(sessionId), title, source); },
+    setThreadTitle: async (sessionId, title, source) => { await deps.applyThreadTitle(source === "renamed" ? await runtimes.reopen(sessionId) : deps.requireThread(sessionId), title, source); },
     attachedRuntime: (sessionId) => deps.ownedByPi(deps.threadFor(sessionId)) ? attached.hostRuntime : undefined,
     describeProjects: (facts) => projects.add(facts),
     noteSubprocess: () => lifecycleMetrics.countSubprocess(),
@@ -520,7 +516,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       return deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, wake);
     },
     setThreadModel: async (sessionId, provider, id) => {
-      const thread = await deps.reopenThread(sessionId);
+      const thread = await runtimes.reopen(sessionId);
       await requireCapability(thread.backend, "catalogWrite").setModel(provider, id);
       if (threads.get(thread.threadId)?.runtime === thread) await index.publishModelProvider(thread);
       if (thread === deps.getActive()) await publication.publishActiveCatalog();
@@ -667,10 +663,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     projects,
     binding,
     lifecycleMetrics,
-    adopt: (thread) => deps.adoptThread(thread),
+    adopt: (thread) => threads.adopt({ threadId: thread.threadId, cwd: thread.cwd, runtime: thread, isolation: "in-process" }),
     currentRuntime: (threadId) => threads.get(threadId)?.runtime,
-    liveThreadForPath: (path) => deps.liveThreadForPath(path),
+    liveThreads: () => threads.list().map((record) => record.runtime),
     indexedSession: (path) => index.byPath(path),
+    findSession: (sessionId) => index.find(sessionId),
     presentUi: (method, ...args) => deps.presentUi(method, ...args),
     releaseTool: (toolCallId) => { toolOwners.delete(toolCallId); },
     emitMessage: (threadId, message) => emit(message.role === "user"
@@ -761,7 +758,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     sessionsDir: sessionsDirOverride,
     runtimes,
     extensionUi,
-    liveThreadIds: () => deps.liveThreadIds(),
+    liveThreadIds: () => new Set(threads.list().map((record) => record.threadId)),
     hasLocalActive: () => deps.hasLocalActive(),
     indexedSessions: () => index.list(),
     prewarmSession: (path) => deps.prewarmSession(path),
@@ -793,8 +790,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     background: (id) => backgrounds.forThread(id),
     queue,
     turnObservers,
-    abortThread: (thread) => deps.abortThread(thread),
-    reopenThread: (sessionId) => deps.reopenThread(sessionId),
+    abortThread: (thread) => sessionControl.abort(thread),
+    reopenThread: (sessionId) => runtimes.reopen(sessionId),
     prompt: (threadId, text) => deps.promptThread(threadId, text),
     publishDetail: async (thread) => { if (deps.getActive() === thread) await publication.publishDetail(); },
     emitForThread: (thread, event) => deps.emitForThread(thread, event),
@@ -802,9 +799,9 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     setBackground: (threadId, tasks) => { index.setBackground(threadId, tasks); runClock.recheck(threadId); },
     log: (label, detail) => deps.log(label, detail),
   });
-  const limits = new ThreadLimits({
+  const limits: ThreadLimits = new ThreadLimits({
     publish: (sessionId, limit) => index.setLimit(sessionId, limit),
-    resume: (sessionId) => deps.continueThread(sessionId, LIMIT_CONTINUATION_PROMPT),
+    resume: (sessionId): Promise<void> => sessionControl.continue(sessionId, LIMIT_CONTINUATION_PROMPT),
     log: (label, detail) => deps.log(label, detail),
   }, { ...(options.threadLimitsPath ? { filePath: options.threadLimitsPath } : {}), ...persistedLogger });
   const settlement = new TurnSettlement({
@@ -830,6 +827,24 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     requireThread: (sessionId) => deps.requireThread(sessionId),
     emit: (event) => emit(event),
     fail: (error, sessionId) => deps.fail(error, sessionId),
+  });
+  const sessionControl: AgentSessionControl = new AgentSessionControl({
+    stopped: (thread) => { deps.handleBackendEvent(thread.threadId, { type: "turn-settled", status: "interrupted" }); turnsInFlight.clear(thread.threadId); },
+    activationEpoch: () => lifecycle.currentActivationEpoch,
+    extensionUi, queue, turnsInFlight, limits, prompts,
+    continueAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
+    markInterrupted: (sessionId) => index.setInterrupted(sessionId, true),
+    prompt: (threadId, text, hidden) => deps.promptThread(threadId, text, hidden),
+    thread: (id) => deps.requireThread(id), active: () => deps.getActive(),
+    isAttached: (thread) => deps.ownedByPi(thread), pending: (id) => turnObservers.pending(id),
+    hasQuestion: (id) => extensionUi.hasOpen(id), path: (id) => index.byId(id)?.path,
+    publication: () => publication, runtimes: () => runtimes,
+    prewarm: () => prewarm, threads: () => threads,
+    activate: (thread, epoch) => deps.activateThread(thread, epoch),
+    staleResult: () => deps.staleActivationResult(), cwd: () => deps.getCwd(),
+    extensionCount: (count) => deps.setExtensionCount(count),
+    refreshPackages: async () => { await packages?.refresh({ force: true }); },
+    log: (event, detail) => deps.log(event, detail), errorMessage: (error) => deps.errorMessage(error),
   });
   markTauHostRuntime();
   return {
@@ -877,7 +892,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     catalogs,
     toolUpdates,
     pricing,
-    continueThreadsAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
+    sessionControl,
   };
 }
 
