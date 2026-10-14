@@ -11,6 +11,7 @@ import { AgentLineage } from "./lineage.js";
 import { SUBAGENT_VIEW } from "./subagent-view.js";
 import { agentsHost, agentsStore } from "./store.js";
 import type { AgentThreadLink } from "./protocol.js";
+import { AgentThreadBook } from "./threads.js";
 
 const sessions: UiSession[] = [
   { id: "parent", title: "Build the app", path: "/sessions/parent", modifiedAt: 1, projectPath: "/project", projectName: "project", messageCount: 2 },
@@ -160,6 +161,30 @@ it("shows who asks above the composer, however deep, and opens the agent", () =>
   expect(actions.openConversationView).toHaveBeenCalledWith(SUBAGENT_VIEW, { threadId: "grand" });
   act(() => agentsStore.set({ maxRunning: 8, links: [{ ...link, status: "running" }] }));
   expect(screen.queryByText("Sub-agent needs input")).toBeNull();
+});
+
+it("removes the parent banner when a child ends with its question still open", () => {
+  const book = new AgentThreadBook(() => ({ streaming: false, idle: false }));
+  book.add(link);
+  book.noteAccepted("child");
+  book.notePrompt("child", "Which index?");
+  agentsStore.set(book.state());
+  const actions = { activeThread: () => ({ sessionId: "parent" }) } as unknown as WorkbenchActions;
+  render(<AgentQuestionsBanner snapshot={{ sessionId: "parent" } as HostSnapshot} actions={actions} />);
+  expect(screen.getByRole("status", { name: "Sub-agent needs input" })).toBeTruthy();
+
+  act(() => {
+    book.noteEnded("child", "completed", 3000);
+    agentsStore.set(book.state());
+  });
+  expect(screen.queryByRole("status", { name: "Sub-agent needs input" })).toBeNull();
+  expect(book.linkFor("child")?.pendingToolPrompt).toBe("Which index?");
+
+  act(() => {
+    book.noteAccepted("child");
+    agentsStore.set(book.state());
+  });
+  expect(screen.getByRole("status", { name: "Sub-agent needs input" })).toBeTruthy();
 });
 
 const nativeTool = (index: number, agentStatus: string, endedAt?: number) => ({

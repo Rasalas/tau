@@ -313,7 +313,8 @@ export function waitingBelow(state: AgentsState | undefined, threadId: string | 
       if (link.parentThreadId !== parent || seen.has(link.id)) continue;
       seen.add(link.id);
       if (link.threadId) pending.push(link.threadId);
-      if (link.status === "waiting") found.push(link);
+      // A dialog can outlive its run; older state carries only the waiting status.
+      if (link.status === "waiting" && link.runActive !== false) found.push(link);
     }
   }
   return found.sort((left, right) => left.spawnedAt - right.spawnedAt);
