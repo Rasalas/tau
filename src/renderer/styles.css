@@ -1063,6 +1063,8 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .markdown code.md-file-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: -1px; font: 500 var(--text-sm) var(--sans); word-break: normal; white-space: nowrap; }
 .md-file-chip > svg { color: var(--muted); }
 .md-file-link { display: inline; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+/* A long touch opens the link menu, not the system's link preview. */
+.md-file-ref, .md-file-link { -webkit-touch-callout: none; }
 .md-file-link:hover > .md-file-chip { box-shadow: inset 0 -1px var(--info-ink); color: var(--info-ink); }
 .message.user .markdown :not(pre) > code {
   background: color-mix(in srgb, var(--user-bubble-ink) 9%, transparent); border-color: transparent; color: inherit;

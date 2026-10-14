@@ -159,7 +159,7 @@ export function ThreadTranscript({ sessionId, loadThread, registry: given }: {
     ? <LiveStatus label="Waiting for an answer" />
     : streaming && !hasLiveTools ? <LiveStatus startedAt={activity.runningStartedAt[sessionId]} /> : undefined,
   [waiting, streaming, hasLiveTools, activity.runningStartedAt, sessionId]);
-  return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId} displayPath={session?.projectDisplayPath ?? session?.projectPath}>
+  return <WorkspaceResourceProvider sessionId={sessionId} workspace={session?.workspaceId} displayPath={session?.projectDisplayPath ?? session?.projectPath} local={session?.backendKind !== "machine"}>
     {!session
       ? <div className="stage-empty" role="status">This thread is not in the index any more. It may have been deleted or pruned.</div>
       : state.error

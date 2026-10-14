@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import type { WorkbenchActions } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
+import { createKitHarness, HOST_CAPABILITY, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
-import { WORKSPACE_CHANGES_PANEL, WORKSPACE_FILES_PANEL, WORKSPACE_STORE_SERVICE } from "./protocol.js";
+import { FILE_MANAGER_ID, WORKSPACE_CHANGES_PANEL, WORKSPACE_FILES_PANEL, WORKSPACE_STORE_SERVICE } from "./protocol.js";
 import type { WorkspaceStore } from "./store.js";
+
+afterEach(() => setHostClient(undefined));
 
 describe("Workspace Kit desktop extension", () => {
   it.each(["desktop", "web", "compact"] as const)("shows setup commands in a slot available to %s clients", async (profile) => {
@@ -115,5 +118,27 @@ describe("Workspace Kit desktop extension", () => {
     expect(registry.getPanels().map((panel) => panel.id)).not.toContain(WORKSPACE_CHANGES_PANEL);
     expect(registry.getDocumentSource()?.id).toBe("workspace.documents");
     expect(registry.getRegions("composer-above").map((region) => region.id)).toContain("workspace.follower");
+  });
+  it("offers the file manager and opens a named file in a named editor of a named project", async () => {
+    const invoke = vi.fn(async (_extensionId: string, command: string, _input?: unknown) => command === "list-editors" ? [] : undefined);
+    const { registry } = createKitHarness(invoke);
+    registry.activate(workspaceExtension);
+    let store!: WorkspaceStore;
+    registry.activate({ id: "test.consumer", name: "Test Consumer", activate(ctx) { ctx.useService(WORKSPACE_STORE_SERVICE, (value) => { store = value as WorkspaceStore; }); } });
+    const editors = [{ id: "code", name: "VS Code" }, { id: FILE_MANAGER_ID, name: "Finder" }];
+    store.update({ cwd: "/followed", workspaceId: "ws-followed", editors });
+    const source = registry.getDocumentSource()!;
+
+    setHostClient(createFakeHostClient({ hasCapability: (capability) => capability !== HOST_CAPABILITY.localFiles }));
+    expect(source.getState().editor).toBeUndefined();
+    expect(source.getState().fileManager).toBeUndefined();
+
+    setHostClient(createFakeHostClient());
+    expect(source.getState()).toMatchObject({ editor: editors[0], fileManager: editors[1] });
+    source.openInEditor("src/a.ts", { workspace: "ws-other", editorId: FILE_MANAGER_ID });
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("tau.workspace", "open-in-editor", { editorId: FILE_MANAGER_ID, relPath: "src/a.ts", workspace: "ws-other" }));
+    // Without a project or an editor of its own, the followed project and the default editor serve.
+    source.openInEditor("src/b.ts");
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("tau.workspace", "open-in-editor", { editorId: "code", relPath: "src/b.ts", workspace: "ws-followed" }));
   });
 });

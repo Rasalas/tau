@@ -885,7 +885,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 onRetry={(path) => void actions.switchSession(path)}
                 onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
               /> : null}
-              <WorkspaceResourceProvider sessionId={conversationSnapshot?.sessionId} workspace={conversationSnapshot?.workspaceId} displayPath={conversationSnapshot?.cwd}>
+              <WorkspaceResourceProvider sessionId={conversationSnapshot?.sessionId} workspace={conversationSnapshot?.workspaceId} displayPath={conversationSnapshot?.cwd} local={conversationSnapshot?.backendKind !== "machine"}>
                 <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
               </WorkspaceResourceProvider>
               {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}

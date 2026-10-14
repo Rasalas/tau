@@ -18,6 +18,7 @@ import {
   WORKSPACE_CLONE_TOPIC,
   WORKSPACE_CHECKPOINT_TOPIC,
   createWorkspaceHostClient,
+  FILE_MANAGER_ID,
   WORKSPACE_CHANGES_PANEL,
   WORKSPACE_FILES_PANEL,
   WORKSPACE_HOST_EXTENSION_ID,
@@ -51,17 +52,19 @@ import { createProjectApprovalDialog } from "./project-approval-dialog.js";
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
 
 /** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
-function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChanges; editor?: UiEditor } {
-  let last: { changes: UiWorkspaceChanges; editor?: UiEditor } | undefined;
+function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChanges; editor?: UiEditor; fileManager?: UiEditor } {
+  let last: { changes: UiWorkspaceChanges; editor?: UiEditor; fileManager?: UiEditor } | undefined;
   let inputs: [unknown, unknown, string | undefined] | undefined;
   return () => {
     const state = store.getSnapshot();
     // An editor of the host's machine is no use to a client whose files are elsewhere (a phone, a tablet).
-    const editor = hostHasLocalFiles() ? store.activeEditor() : undefined;
+    const local = hostHasLocalFiles();
+    const editor = local ? store.activeEditor() : undefined;
     const next: [unknown, unknown, string | undefined] = [state.changes, state.editors, editor?.id];
     if (!last || !inputs || inputs.some((value, index) => value !== next[index])) {
       inputs = next;
-      last = { changes: state.changes, editor };
+      const fileManager = local ? state.editors.find((entry) => entry.id === FILE_MANAGER_ID) : undefined;
+      last = { changes: state.changes, editor, ...(fileManager ? { fileManager } : {}) };
     }
     return last;
   };
@@ -198,7 +201,7 @@ export const workspaceExtension: DesktopExtension = {
       },
       loadLinkedFile: (path, from) => host.readLinkedFile(path, from.workspace),
       loadDiff: (relPath, options, from) => host.getFileDiff(relPath, options, from?.workspace ?? store.workspace()),
-      openInEditor: (relPath) => void store.openInEditor(relPath),
+      openInEditor: (relPath, options) => void store.openInEditor(relPath, options?.editorId, undefined, options?.workspace),
       getState: documents,
       subscribe: store.subscribe,
       listFiles: async () => {
