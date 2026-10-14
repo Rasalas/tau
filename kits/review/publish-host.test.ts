@@ -19,15 +19,16 @@ interface Fixture {
 async function harness(fixture: Fixture = {}) {
   const remotes: string[] = [];
   const pushes = vi.fn();
+  const workspaceCalls: Array<{ command: string; input: unknown }> = [];
   const workspace = {
     id: "tau.workspace",
     name: "Workspace Kit",
     permissions: [] as string[],
     activate(context: HostExtensionContext) {
       const callers = { callers: [REVIEW_HOST_EXTENSION_ID] };
-      context.registerCommand("review-request-context", () => ({ ...UNPUBLISHED, ...fixture.context }), callers);
-      context.registerCommand("add-remote", (input) => { remotes.push((input as { url: string }).url); return { hasCommits: fixture.hasCommits ?? true }; }, callers);
-      context.registerCommand("push", () => { pushes(); return { detail: "Pushed" }; }, callers);
+      context.registerCommand("review-request-context", (input) => { workspaceCalls.push({ command: "review-request-context", input }); return { ...UNPUBLISHED, ...fixture.context }; }, callers);
+      context.registerCommand("add-remote", (input) => { workspaceCalls.push({ command: "add-remote", input }); remotes.push((input as { url: string }).url); return { hasCommits: fixture.hasCommits ?? true }; }, callers);
+      context.registerCommand("push", (input) => { workspaceCalls.push({ command: "push", input }); pushes(); return { detail: "Pushed" }; }, callers);
     },
   };
   const tools = fixture.tools ?? { gh: "/stub/gh", glab: "/stub/glab" };
@@ -43,10 +44,18 @@ async function harness(fixture: Fixture = {}) {
   const registry = await activateHostKit(workspace, { ...LINK_SEAMS, findCommand: (name: string) => tools[name], noteSubprocess: () => undefined, runtimeOwner: () => "tau" });
   await registry.activate(createReviewHostExtension({ run }));
   const invoke = (command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input);
-  return { invoke, calls, remotes, pushes };
+  return { invoke, calls, remotes, pushes, workspaceCalls };
 }
 
 describe("publishing a repository", () => {
+  it("keeps repository publication reads, remote creation and push in the named workspace", async () => {
+    const { invoke, workspaceCalls } = await harness();
+    await invoke("publish-info", { workspace: "ws1_shown" });
+    await invoke("publish-repository", { workspace: "ws1_shown", service: "github", repository: "octo/app", confirm: true });
+    expect(workspaceCalls.map((call) => call.command)).toEqual(["review-request-context", "review-request-context", "add-remote", "push"]);
+    for (const call of workspaceCalls) expect(call.input).toHaveProperty("workspace", "ws1_shown");
+  });
+
   it("names the CLIs that could publish it, as whom and over which protocol", async () => {
     const { invoke } = await harness({
       tools: { gh: "/stub/gh" },

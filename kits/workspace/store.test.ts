@@ -82,6 +82,18 @@ describe("Workspace Kit worktree creation", () => {
 });
 
 describe("Workspace Kit publishing", () => {
+  it.each([false, true])("commits in the displayed workspace with push=%s", async (push) => {
+    const changes = { files: [], added: 0, removed: 0 };
+    const commit = vi.fn(async () => ({ changes, pushed: push, detail: "Committed 1234567" }));
+    const workspaceStore = storeOver({ commit });
+    workspaceStore.update({ cwd: "/shown-project", workspaceId: "ws1_shown", draftPending: false });
+
+    await expect(workspaceStore.commit("Fix shown changes", push)).resolves.toBe(true);
+
+    expect(commit).toHaveBeenCalledWith("Fix shown changes", push, "ws1_shown");
+    expect(workspaceStore.getSnapshot()).toMatchObject({ changes, committing: false });
+  });
+
   it("refreshes changes and branch status after pulling", async () => {
     const pull = vi.fn(async () => ({ detail: "Pulled def456" }));
     const changes = { files: [], added: 0, removed: 0 };

@@ -389,7 +389,7 @@ export interface WorkspaceHostClient {
   readLinkedFile(path: string, workspace: string): Promise<UiFileContent>;
   statFile(relPath: string): Promise<UiFileStat>;
   writeFile(relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
-  commit(message: string, push: boolean): Promise<CommitResult>;
+  commit(message: string, push: boolean, workspace?: string): Promise<CommitResult>;
   pull(workspace?: string): Promise<PullResult>;
   push(workspace?: string): Promise<PushResult>;
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceReport>;
@@ -448,7 +448,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     readLinkedFile: (path, workspace) => call("read-linked-file", { path, workspace }),
     statFile: (relPath) => call("file-stat", { relPath }),
     writeFile: (relPath, text, expectedMtimeMs) => call("write-file", expectedMtimeMs === undefined ? { relPath, text } : { relPath, text, expectedMtimeMs }),
-    commit: (message, push) => call("commit", { message, push }),
+    commit: (message, push, workspace) => call("commit", workspace ? { message, push, workspace } : { message, push }),
     pull: (workspace) => call("pull", workspace ? { workspace } : undefined),
     push: (workspace) => call("push", workspace ? { workspace } : undefined),
     getWorkspaceInfo: (workspace) => call("workspace-info", workspace === undefined ? undefined : { workspace }),
