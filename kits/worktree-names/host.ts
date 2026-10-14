@@ -8,7 +8,7 @@ const MAX_LENGTH = 60;
 /** Turns whatever the model answered into a branch name Git accepts, distinct from `taken`. */
 export function branchNameFromSuggestion(text: string, taken: readonly string[] = []): string {
   const line = text.split(/\r?\n/u).map((entry) => entry.trim()).find((entry) => entry.length > 0) ?? "";
-  let name = line
+  const name = line
     .replace(/^[`"'*\s]+|[`"'*.\s]+$/gu, "")
     .toLowerCase()
     .replace(/[\s_]+/gu, "-")
@@ -22,12 +22,26 @@ export function branchNameFromSuggestion(text: string, taken: readonly string[] 
     .replace(/[-./]+$/u, "");
   if (!name) return "";
   const used = new Set(taken.map((entry) => entry.toLowerCase()));
-  if (!used.has(name)) return name;
-  for (let suffix = 2; suffix < 100; suffix += 1) {
-    const candidate = `${name}-${suffix}`;
-    if (!used.has(candidate)) return candidate;
+  const occupiedPaths = new Set(used);
+  for (const branch of used) {
+    const path = branch.split("/");
+    for (let depth = 1; depth < path.length; depth += 1) {
+      occupiedPaths.add(path.slice(0, depth).join("/"));
+    }
   }
-  return "";
+  const parts = name.split("/");
+  for (let index = 0; index < parts.length; index += 1) {
+    // A namespace may have children; the final name must have none.
+    const blocked = index === parts.length - 1 ? occupiedPaths : used;
+    const original = parts[index];
+    let suffix = 1;
+    while (blocked.has(parts.slice(0, index + 1).join("/"))) {
+      suffix += 1;
+      if (suffix >= 100) return "";
+      parts[index] = `${original}-${suffix}`;
+    }
+  }
+  return parts.join("/");
 }
 
 /** The prompt the naming model reads: the task, the user's own start on a name, and names to avoid. */

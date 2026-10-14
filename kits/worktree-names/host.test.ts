@@ -17,6 +17,29 @@ describe("branch names from model answers", () => {
     expect(branchNameFromSuggestion("fix/queue", ["Fix/Queue", "fix/queue-2"])).toBe("fix/queue-3");
   });
 
+  it.each([
+    ["fix/login", ["fix"], "fix-2/login"],
+    ["fix", ["fix/login"], "fix-2"],
+    ["fix/login", ["fix/login/child", "fix/login-2/child"], "fix/login-3"],
+    ["team/tools/fix/login", ["team/tools"], "team/tools-2/fix/login"],
+    ["fix/login", ["FIX", "FIX-2", "fix-3/login/child"], "fix-3/login-2"],
+    ["fix/login", ["fix", "fix-2/login"], "fix-2/login-2"],
+    ["team/tools/login", ["team", "team-2/tools"], "team-2/tools-2/login"],
+    ["fix/login", ["fixes", "fix/login-extra/child", "fix/logout"], "fix/login"],
+  ] as const)("resolves %s against occupied branch paths %j", (suggestion, taken, expected) => {
+    expect(branchNameFromSuggestion(suggestion, taken)).toBe(expected);
+  });
+
+  it("returns no suggestion when every namespace suffix is occupied", () => {
+    const taken = Array.from({ length: 99 }, (_, index) => index === 0 ? "fix" : `fix-${index + 1}`);
+    expect(branchNameFromSuggestion("fix/login", taken)).toBe("");
+  });
+
+  it("returns no suggestion when descendants occupy every final suffix", () => {
+    const taken = Array.from({ length: 99 }, (_, index) => `fix/${index === 0 ? "login" : `login-${index + 1}`}/child`);
+    expect(branchNameFromSuggestion("fix/login", taken)).toBe("");
+  });
+
   it("puts the task, the user's start and the taken names into the prompt", () => {
     const prompt = buildNamingPrompt("Steer queued messages into the running turn", "fix/st", ["main", "fix/queue"]);
     expect(prompt).toContain("Steer queued messages");
@@ -30,6 +53,13 @@ describe("Worktree Names host extension", () => {
     activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread, complete, completionModels: async () => models });
 
   const anyThread = (backendKind = "pi") => ({ backendKind }) as unknown as HostThread;
+
+  it("answers with a branch outside an occupied namespace", async () => {
+    const registry = await registryWith(anyThread(), vi.fn(async () => "fix/login"));
+    await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", {
+      description: "Fix login", taken: ["fix"],
+    })).resolves.toEqual({ branch: "fix-2/login" });
+  });
 
   it("asks the chosen model and answers with a usable branch", async () => {
     const complete = vi.fn(async () => "Fix/Steer Queue Messages\n");
