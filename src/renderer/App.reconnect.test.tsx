@@ -13,12 +13,13 @@ it("loads the workbench after its initial bootstrap was lost with the connection
   const listeners = new Set<(state: HostConnectionState) => void>();
   let state: HostConnectionState = "reconnecting";
   const base = createFakeHostClient();
+  let currentText = "Restored after reconnect";
   const bootstrap = vi.fn(async () => {
     const snapshot = await base.bootstrap();
     return { ...snapshot, detail: {
       ...snapshot.detail,
       sessionId: "recovered-thread",
-      messages: [{ id: "recovered-message", role: "user" as const, text: "Restored after reconnect", timestamp: 1 }],
+      messages: [{ id: "recovered-message", role: "user" as const, text: currentText, timestamp: 1 }],
     } };
   });
   bootstrap.mockRejectedValueOnce(new Error("The host connection dropped."));
@@ -34,6 +35,16 @@ it("loads the workbench after its initial bootstrap was lost with the connection
   expect(await screen.findByText("Restored after reconnect")).toBeTruthy();
   await waitFor(() => expect(view.storage.keys().some((key) => key.includes("bootstrap"))).toBe(true));
   act(() => { state = "reconnecting"; for (const listener of listeners) listener(state); });
+  expect(view.container.querySelector("[data-content-freshness]")?.getAttribute("data-content-freshness")).toBe("offline");
+  currentText = "Updated while disconnected";
   act(() => { state = "connected"; for (const listener of listeners) listener(state); });
-  expect(bootstrap).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(bootstrap).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(view.container.querySelector("[data-content-freshness]")?.getAttribute("data-content-freshness")).toBe("current"));
+  expect(await screen.findByText("Updated while disconnected")).toBeTruthy();
+  expect(screen.queryByText("Restored after reconnect")).toBeNull();
+  // Reconnect refreshes saved content; duplicate connected notifications do
+  // not restart that read or mark the confirmed content loading again.
+  act(() => { for (const listener of listeners) listener("connected"); });
+  expect(bootstrap).toHaveBeenCalledTimes(3);
+  expect(view.container.querySelector("[data-content-freshness]")?.getAttribute("data-content-freshness")).toBe("current");
 });

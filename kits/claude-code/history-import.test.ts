@@ -6,9 +6,16 @@ import type { HostRuntimeBackendProvider } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { claudeProjectDirs, parseClaudeSession } from "./history-import.js";
 import createClaudeCodeHostExtension from "./host.js";
+import { ClaudeRuntimeSessionStore } from "./session-store.js";
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+const registries: Awaited<ReturnType<typeof activateHostKit>>[] = [];
+const readers: ClaudeRuntimeSessionStore[] = [];
+afterEach(async () => {
+  await Promise.all(registries.splice(0).map((registry) => registry.dispose()));
+  await Promise.all(readers.splice(0).map((reader) => reader.dispose()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 const ALPHA = "11111111-1111-4111-8111-111111111111";
 const BETA = "22222222-2222-4222-8222-222222222222";
@@ -56,6 +63,7 @@ async function harness(root: string) {
     sessions: { refreshIndex } as never,
     registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
   });
+  registries.push(registry);
   return { registry, provider: backends[0]!, refreshIndex };
 }
 
@@ -96,7 +104,9 @@ describe("Claude Code session import", () => {
     const threads = await provider.listThreads();
     const alpha = threads.find((thread) => thread.title === "Fix the flaky login test");
     expect(alpha).toMatchObject({ cwd: "/work/alpha" });
-    expect(alpha?.messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    // Recovery listings expose a title seed and count, not the full transcript.
+    expect(alpha?.messageCount).toBe(3);
+    expect(alpha?.messages.map((message) => message.role)).toEqual(["user"]);
 
     const second = await registry.invoke("tau.claude-code", "import-sessions", { paths }) as { imported: string[]; skipped: number; update?: unknown };
     expect(second).toMatchObject({ imported: [], skipped: 2 });
@@ -105,6 +115,17 @@ describe("Claude Code session import", () => {
     expect(await provider.listThreads()).toHaveLength(2);
     const rescan = await registry.invoke("tau.claude-code", "import-scan") as { sessions: Array<{ imported: boolean }> };
     expect(rescan.sessions.every((session) => session.imported)).toBe(true);
+
+    // Reopen the durable store after the duplicate import: all conversation
+    // messages must survive even though listThreads returns only metadata.
+    const reader = new ClaudeRuntimeSessionStore({ filePath: ClaudeRuntimeSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    readers.push(reader);
+    const reloaded = await reader.get(alpha!.threadId);
+    expect(reloaded?.messages.map((message) => [message.role, message.text])).toEqual([
+      ["user", "The login test fails on CI.\nCan you look?"],
+      ["assistant", "Reading the test first.\n\nIt waits on a timer; fixed."],
+      ["user", "Thanks!"],
+    ]);
   });
 
   it("imports what the session used, each prompt apart, so the thread shows its cost before it opens", async () => {

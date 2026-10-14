@@ -6,7 +6,7 @@ import { WorkbenchSession } from "../workbench/workbench-session";
 import { ThreadCommands } from "../workbench/thread-commands";
 import { useThreadNavigation, type ShowThreadOptions } from "./use-thread-navigation";
 import { useThreadTree } from "./use-thread-tree";
-import { flushBootstrapCache, readBootstrapCache } from "../workbench/bootstrap-cache";
+import { readBootstrapCache } from "../workbench/bootstrap-cache";
 import { type ComposerAttachmentHandle, type ComposerControlHandle } from "./components/Composer";
 import { visibleUserMessageText } from "./components/MessageText";
 import { useWorkbenchToasts } from "./use-workbench-toasts";
@@ -48,8 +48,7 @@ import { usePanelLayout } from "./use-panel-layout";
 import type { SubmissionControllerPorts } from "./submission-controller";
 import { deferredSubmission } from "./deferred-submission";
 import { useTurnActivityCache } from "./use-turn-activity-cache";
-import { followWorkbenchBootstrap } from "../workbench/workbench-bootstrap";
-import { followOpenPrompts } from "../workbench/open-prompts";
+import { useWorkbenchStartup } from "./use-workbench-startup";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
@@ -74,13 +73,6 @@ export default function App() {
   // What the client claims never moves; how wide it is does.
   const layoutProfile = useLayoutProfile(profile);
   const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
-  const [freshness, setFreshness] = useState<"loading" | "offline" | "current">(client ? "loading" : "current");
-  const bootstrapLoaded = useRef(!client);
-  useEffect(() => {
-    const flush = () => flushBootstrapCache(clientStorage);
-    window.addEventListener("pagehide", flush);
-    return () => { window.removeEventListener("pagehide", flush); flush(); };
-  }, [clientStorage]);
   const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
   const clientRef = useRef(client);
   const [registry] = useState(() => {
@@ -422,43 +414,21 @@ export default function App() {
   ]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
+  const freshness = useWorkbenchStartup(client, workbenchSession, clientStorage, setNotice, openStartDraft);
+
   useEffect(() => {
     let unsubscribe = () => {};
-    let stopBootstrap = () => {};
-    let stopPrompts = () => {};
-    let stopFreshness = () => {};
-    let stopConfirmation = () => {};
     if (client) {
       // A page showing another machine looks as the window's own machine does.
       const personPreferences = getPlatform()?.environments?.shownElsewhere ? client.personPreferences?.bind(client) : undefined;
       preferences.bindHost(client, activeWorkspaceId, personPreferences ? { get: () => personPreferences(), set: (patch) => personPreferences(patch) } : undefined);
       unsubscribe = client.onHostEvent(handleHostEvent);
-      // A question raised while nobody was listening would otherwise stall the
-      // host forever, including during bootstrap itself.
-      stopPrompts = followOpenPrompts(client, viewStore);
-      let connected = true;
-      stopFreshness = client.onConnectionState((state) => {
-        if (state === "connected" && connected) return;
-        connected = state === "connected";
-        setFreshness(connected ? "loading" : "offline");
-      });
-      stopConfirmation = hostSession.onConfirmed(() => {
-        if (!connected) return;
-        bootstrapLoaded.current = true;
-        setFreshness("current");
-      });
-      stopBootstrap = followWorkbenchBootstrap(client, workbenchSession, setNotice, (bootstrap) => {
-        const firstLoad = !bootstrapLoaded.current;
-        bootstrapLoaded.current = true;
-        setFreshness("current");
-        if (firstLoad) openStartDraft(bootstrap);
-      });
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
-    return () => { unsubscribe(); stopBootstrap(); stopPrompts(); stopFreshness(); stopConfirmation(); };
+    return unsubscribe;
   }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, hostSession, openStartDraft, threadStore, transcriptHistory, viewStore, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;

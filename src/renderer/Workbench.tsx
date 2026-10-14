@@ -646,7 +646,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const pageSidebarFrame = (content: React.ReactNode) => <aside className="page-sidebar-frame">{content}</aside>;
   const settingsFrame = (content: React.ReactNode) => <div className="settings-screen loading">{content}</div>;
   const overlays = <>
-    {compact ? <Suspense fallback={null}><LazyTouchLayer
+    {compact && startupReady ? <Suspense fallback={null}><LazyTouchLayer
       syncUrl={clientProfile !== "desktop"}
       openThread={actions.switchSession}
       {...(phone ? { phone: { route: phoneNav.route, onRoute: phoneNav.applyRoute } } : {})}

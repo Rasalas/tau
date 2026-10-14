@@ -229,7 +229,10 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
         // Painting the page settles the history's transition; the host's answer needs one of its own.
         transition = history.beginThreadSwitch(target.id);
         previewed = true;
-        show();
+        // An empty persisted page clears a stale cached preview, but does not
+        // establish that an uncached thread can open. Keep its list visible
+        // until the runtime accepts the switch (or a nonempty page arrives).
+        if (page.messages.length > 0) show();
         view.addEvent("thread.switch.preview", target.title);
       }, () => undefined);
     }

@@ -54,6 +54,9 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./desktop-startup.js", "./compile-cache.js",
+  "./event-loop-stalls.js", // Bounded host scheduling diagnostics, independent of runtime kits.
+  "./host-preparation-queue.js", // Shared host admission for optional background preparation.
+  "./persisted-transcript-reader-session.js", // SDK parsing isolated from live runtime initialization.
   "./linux-startup.js", // Chromium workarounds applied before asynchronous desktop startup.
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
   // The `tau` command linked from Settings → General.

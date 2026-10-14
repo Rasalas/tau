@@ -453,8 +453,13 @@ describe("a seeding step that never comes", () => {
 
 describe("Tau's profile and rail", () => {
   it("counts imported threads for ready, not the workspace's unsent draft", () => {
-    const rows = (count) => ({
-      querySelector: (selector) => (selector === "textarea" ? {} : null),
+    const rows = (count, ready = true, busy = false) => ({
+      querySelector: (selector) => {
+        if (selector === "textarea") return {};
+        if (selector === 'nav[aria-label="Threads"][aria-busy="true"]') return busy ? {} : null;
+        if (selector === '.app-shell[data-startup-ready="true"][data-content-freshness="current"][data-thread-index-current="true"]') return ready ? {} : null;
+        throw new Error(`Unexpected readiness selector: ${selector}`);
+      },
       querySelectorAll: (selector) => {
         expect(selector).toContain(":not(.thread-draft-row)");
         return Array.from({ length: count }, () => ({}));
@@ -462,6 +467,8 @@ describe("Tau's profile and rail", () => {
     });
     expect(runInNewContext(APPS.tau.ready(7), { document: rows(7) })).toBe(true);
     expect(runInNewContext(APPS.tau.ready(7), { document: rows(6) })).toBe(false);
+    expect(runInNewContext(APPS.tau.ready(7), { document: rows(7, false) })).toBe(false);
+    expect(runInNewContext(APPS.tau.ready(7), { document: rows(7, true, true) })).toBe(false);
   });
 
   it("gives Pi an offline provider, so a switch to its threads does not end on a Codex draft", () => {
