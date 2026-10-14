@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType } from "react";
+import { useEffect, useSyncExternalStore, type ComponentType } from "react";
 import { GitMerge, GitPullRequestArrow, GitPullRequestClosed, GitPullRequestDraft, Layers } from "lucide-react";
-import { Popover, tooltipProps, useThreadStore, type UiSession } from "tau";
+import { tooltipProps, useThreadStore, type UiSession } from "tau";
 import { checksLabel, requestShort, requestStateLabel, type RowRequests } from "./requests.js";
 import { providerInfo, requestNumber, type RequestService, type ThreadCardSectionProps } from "./protocol.js";
 import { openPullRequest } from "./pull-request-open.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { threadRequestTree, type ThreadRequestNode } from "./thread-request-tree.js";
+import { useRequestPopover } from "./request-popover.js";
 
 type BadgeState = "open" | "draft" | "merged" | "closed";
 
@@ -98,25 +99,9 @@ function useThreadRequests(rows: RowRequests, links: ThreadLinkRows, session: Ui
 export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
   return function RequestBadge({ session }: { session: UiSession }) {
     const { entries, branch: request } = useThreadRequests(rows, links, session);
-    const anchor = useRef<HTMLSpanElement>(null);
-    const [open, setOpen] = useState(false);
-    const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const cancel = () => { clearTimeout(timer.current); timer.current = undefined; };
-    const close = () => { cancel(); setOpen(false); };
-    const enter = () => { cancel(); timer.current = setTimeout(() => setOpen(true), 350); };
-    const leave = () => { cancel(); timer.current = setTimeout(() => setOpen(false), 180); };
-    useEffect(() => () => clearTimeout(timer.current), []);
-    useEffect(() => {
-      if (!open) return;
-      const stop = () => { setOpen(false); clearTimeout(timer.current); };
-      const clicked = (event: MouseEvent) => { if (!(event.target instanceof Element) || !event.target.closest(".request-popover") || event.target.closest("a.request-compact-row")) stop(); };
-      const scroll = (event: Event) => { if (!(event.target instanceof Element) || !event.target.closest(".request-popover")) stop(); };
-      document.addEventListener("click", clicked, true);
-      window.addEventListener("blur", stop);
-      window.addEventListener("resize", stop);
-      document.addEventListener("scroll", scroll, true);
-      return () => { document.removeEventListener("click", clicked, true); window.removeEventListener("blur", stop); window.removeEventListener("resize", stop); document.removeEventListener("scroll", scroll, true); };
-    }, [open]);
+    const { anchor, close, triggerProps, popover } = useRequestPopover<HTMLSpanElement>(entries, {
+      threadId: session.id, workspace: session.projectPath, branchUrl: request ? entries[0]?.url : undefined,
+    });
     const first = entries[0];
     if (!first) return null;
 
@@ -135,39 +120,18 @@ export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
     const props = { className: `request-badge state-${state}`, "aria-label": label };
     return single && !stack
       ? <a {...props} {...tooltipProps(entries.map(line).join("\n"), { variant: "lines" })} href={first.url} data-request-workspace={session.projectPath}>{body}</a>
-      : <><span {...props} ref={anchor} role="button" tabIndex={0} aria-haspopup="dialog" aria-expanded={open} data-request-thread={session.id} data-request-workspace={session.projectPath} data-request-branch={request ? first.url : undefined}
-        onPointerEnter={(event) => { if (event.pointerType !== "touch") enter(); }} onPointerLeave={leave} onBlur={leave}
+      : <><span {...props} ref={anchor} role="button" tabIndex={0} {...triggerProps} data-request-thread={session.id} data-request-workspace={session.projectPath} data-request-branch={request ? first.url : undefined}
         onKeyDown={(event) => {
-          if (event.key === "ArrowDown") { event.preventDefault(); event.stopPropagation(); cancel(); setOpen(true); return; }
+          triggerProps.onKeyDown(event);
+          if (event.defaultPrevented) return;
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
           event.stopPropagation();
           close();
           event.currentTarget.click();
         }}>{body}</span>
-        {open ? <Popover anchor={anchor} side="bottom" align="start" label="Thread pull requests" className="request-popover" takeFocus={false} onClose={close}>
-          <div onPointerEnter={cancel} onPointerLeave={leave} onFocus={cancel} onBlur={leave} onClick={(event) => { cancel(); event.stopPropagation(); }}>
-            <CompactRequests nodes={threadRequestTree(entries)} threadId={session.id} workspace={session.projectPath} branchUrl={request ? first.url : undefined} />
-          </div>
-        </Popover> : null}</>;
+        {popover}</>;
   };
-}
-
-const groupSize = (nodes: ThreadRequestNode<BadgeEntry>[]): number => nodes.reduce((sum, node) => sum + 1 + groupSize(node.children), 0);
-
-function CompactRequests({ nodes, threadId, workspace, branchUrl, nested = false }: { nodes: ThreadRequestNode<BadgeEntry>[]; threadId: string; workspace?: string; branchUrl?: string; nested?: boolean }) {
-  return <ul className="request-compact-tree" aria-label="Pull requests">
-    {nodes.map(({ request: entry, children }) => {
-      const Icon = ICON[entry.state];
-      const size = !nested && children.length ? 1 + groupSize(children) : undefined;
-      return <li key={entry.url} aria-label={`${entry.label}, ${entry.state}${entry.title ? `: ${entry.title}` : ""}`}>
-        <a className={`request-compact-row state-${entry.state}`} href={entry.url} aria-label={`${entry.label}, ${entry.state}${entry.title ? `: ${entry.title}` : ""}`} data-request-thread={threadId} data-request-workspace={workspace} data-request-branch={branchUrl}>
-          <Icon size={13} aria-hidden="true" /><b>{requestNumber(entry.service, entry.number)}</b><span>{entry.title ?? entry.repo}</span>{size ? <small {...tooltipProps(`${size} requests in this branch stack`)}><Layers size={10} aria-hidden="true" />{size}</small> : null}
-        </a>
-        {children.length ? <CompactRequests nodes={children} threadId={threadId} workspace={workspace} branchUrl={branchUrl} nested /> : null}
-      </li>;
-    })}
-  </ul>;
 }
 
 /**
