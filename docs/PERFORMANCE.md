@@ -2169,3 +2169,6 @@ After integrating main through `f3b16034`, the desktop renderer contains 546,196
 
 
 The first CI run of the integrated PR also checked the separate web client: its total JavaScript gzip output was 557,809 bytes, above the existing 557,000-byte limit. The web total cap is explicitly adjusted to 558,000 bytes for the shared freshness/startup code; its initial asset and build-time limits are unchanged. This web budget check had been omitted from the local landing checks. The later main change #333 independently raises the kit desktop cap to 3,300,000 bytes; integration preserves that main policy rather than lowering it to this branch's earlier 3,202,500-byte cap.
+
+
+Integration through main `0041fcfa` produces 546,625 desktop and 558,135 web total gzip bytes. Both total caps increase by a further 250 bytes, to 546,750 and 558,250 respectively. Initial asset and timing budgets remain unchanged; these are explicit integration allowances, not size improvements.
