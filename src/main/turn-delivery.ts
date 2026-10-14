@@ -93,6 +93,7 @@ export class TurnDelivery {
       let markerActive = this.port.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
       try {
         await thread.backend.prompt({ text, delivery, ...(identity ? { identity } : {}), prepared: resolvedPrepared, attachments });
+        this.port.turnsInFlight.resetContinuations(thread.threadId);
       } catch (error) {
         if (markerActive) {
           this.port.clientMessages.failIfUnpersisted(thread, clientMessageId);
@@ -164,6 +165,7 @@ export class TurnDelivery {
           if (reported) return;
           reported = true;
           admitted = accepted;
+          if (accepted) this.port.turnsInFlight.resetContinuations(thread.threadId);
           if (error === undefined) onAdmitted?.(accepted);
           else onAdmitted?.(accepted, error);
           if (!accepted) rejectRefusal(error ?? new Error("The prompt was rejected before it started."));

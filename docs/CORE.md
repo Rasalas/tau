@@ -78,7 +78,12 @@ Threads
   **Continue threads after restarts** on (Settings → General,
   `threads.continueAfterRestart`, **off** by default) the thread is reopened
   off screen, its dangling tool calls are closed and it is sent "Continue the
-  interrupted work…"; with the setting off it is repaired, told so in its own
+  interrupted work…". The marker keeps a count of consecutive automatic
+  continuations. After three, the thread stays interrupted with a transcript
+  notice asking the user to send a message. A user message resets the count,
+  including steering during a running turn. A marker also remembers an open
+  question: a thread waiting for an answer stays interrupted after restart.
+  With the setting off it is repaired, told so in its own
   transcript, and marked `interrupted` in the index until its next prompt. What
   "continue" means is the runtime's answer: the `resume` capability says
   whether the continuation can be delivered without reading as the user's own
