@@ -999,7 +999,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       ? organizer.sections(matching, {
         ...activityState,
         waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarkIds(rowStatuses)],
-        backgroundThreadIds: matching.filter((session) => markedRowStatus(threadRowStatus(session.id, activityState, session), rowStatuses[session.id]).activity === "background").map((session) => session.id),
+        // Work that wakes a thread, and runs this host does not see (another machine's, through a kit's mark).
+        backgroundThreadIds: matching.filter((session) => ["background", "working"].includes(markedRowStatus(threadRowStatus(session.id, activityState, session), rowStatuses[session.id]).activity)).map((session) => session.id),
       })
       : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf),
     // The organizer's version says when the same threads would land elsewhere.

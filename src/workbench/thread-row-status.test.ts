@@ -63,7 +63,13 @@ describe("a kit's mark on a row", () => {
     }
   });
 
+  it("draws a run this host does not see as Working, only in place of an idle or a ready row", () => {
+    const elsewhere = { label: "Working", hint: "Runs on rex.", tone: "working" as const };
+    expect(markedRowStatus({ activity: "idle", label: "Idle" }, elsewhere)).toMatchObject({ activity: "working", label: "Working", hint: "Runs on rex." });
+    expect(markedRowStatus({ activity: "failed", label: "Failed" }, elsewhere).activity).toBe("failed");
+  });
+
   it("counts only marks that ask for the user", () => {
-    expect(attentionMarkIds({ a: yourTurn, b: watching })).toEqual(["a"]);
+    expect(attentionMarkIds({ a: yourTurn, b: watching, c: { label: "Working", tone: "working" } })).toEqual(["a"]);
   });
 });

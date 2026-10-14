@@ -3898,11 +3898,16 @@ the user, like a question: the row says the label in amber and sorts with the
 questions. `tone: "background"` is work that wakes the thread again: the new
 `ThreadActivity` `background`, drawn grey with the icon (an eye by default),
 only in place of an idle or ready row, so Working, a question or a failure still
-show. The desktop rail, the tablet's list and the phone's list and search all
+show. `tone: "working"` (API 1.64.0) is a run this host does not see, drawn as
+Working and likewise only in place of an idle or ready row; both tones fold the
+row into the Working section. The desktop rail, the tablet's list and the phone's list and search all
 derive a row's state through the same `markedRowStatus`, so a mark looks alike
 everywhere. Takeover Kit marks "Your turn" this way, and Review Kit marks every
 thread with an active pull request watch "Waiting", naming the watched requests
-in the hint. Workspace Kit's older `setThreadRowStatuses(owner, statuses)` still
+in the hint. Machines Kit marks the threads of a paired machine that this host
+lists as its own (`machine~session`) from the window's connection there:
+"Question", "Working" (`tone: "working"`) or "Waiting" for a background task or a
+watched pull request on that machine. Workspace Kit's older `setThreadRowStatuses(owner, statuses)` still
 works and draws the same, on the desktop rail only.
 
 ### Marks on the compact list's rows (new after API 1.59.0)

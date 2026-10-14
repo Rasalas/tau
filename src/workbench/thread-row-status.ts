@@ -23,26 +23,27 @@ export interface ThreadRowStatus {
 /**
  * A state a kit gives a thread's row on every client (API 1.56.0): a takeover's
  * "Your turn" asks for the user; `tone: "background"` is work that wakes the
- * thread again, such as a watched pull request.
+ * thread again, such as a watched pull request; `tone: "working"` (API 1.64.0)
+ * is a run this host does not see, such as one on another machine.
  */
 export interface ThreadRowMark<Icon = unknown> {
   label: string;
   hint?: string;
   icon?: Icon;
-  tone?: "background";
+  tone?: "background" | "working";
 }
 
-/** A row's state under a kit's mark: a mark that asks wins; background work only stands in for an idle or ready row. */
+/** A row's state under a kit's mark: a mark that asks wins; work only stands in for an idle or ready row. */
 export function markedRowStatus(base: ThreadRowStatus, mark: ThreadRowMark | undefined): ThreadRowStatus {
   if (!mark) return base;
   const { tone, ...shown } = mark;
-  if (tone !== "background") return { ...shown, activity: "waiting" };
-  return base.activity === "idle" || base.activity === "ready" ? { ...shown, activity: "background" } : base;
+  if (!tone) return { ...shown, activity: "waiting" };
+  return base.activity === "idle" || base.activity === "ready" ? { ...shown, activity: tone } : base;
 }
 
 /** The threads whose marks ask for the user; lists order them as questions. */
 export function attentionMarkIds(marks: Readonly<Record<string, ThreadRowMark>>): string[] {
-  return Object.entries(marks).filter(([, mark]) => mark.tone !== "background").map(([id]) => id);
+  return Object.entries(marks).filter(([, mark]) => !mark.tone).map(([id]) => id);
 }
 
 export const THREAD_QUESTION_LABEL = "Question";

@@ -205,6 +205,15 @@ describe("the compact list's Working group", () => {
     expect(threadListOrder(threads, activity)).toEqual(["b", "a", "c"]);
   });
 
+  it("folds another machine's run, shown by a kit's working mark, into Working", () => {
+    const marks = { a: { label: "Working", tone: "working" as const } };
+    const groups = threadListGroups([thread("a", 10), thread("b", 20)], idle, { marks, working: createWorkingClock() });
+    expect(groups.map((group) => [group.id, group.rows.map((row) => [row.id, row.state.activity])])).toEqual([
+      ["active", [["b", "idle"]]],
+      ["working", [["a", "working"]]],
+    ]);
+  });
+
   it("stays off without a clock", () => {
     expect(ids(threadListGroups([thread("a", 10)], { ...idle, runningThreadIds: ["a"] }))).toEqual([["active", ["a"]]]);
   });
