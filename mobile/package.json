@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "ios:build": "node scripts/native-build.mjs ios",
     "android:build": "node scripts/native-build.mjs android",
-    "sim": "node scripts/sim.mjs"
+    "sim": "node scripts/sim.mjs",
+    "measure": "node scripts/measure.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",

@@ -1450,6 +1450,47 @@ What guards it, in `npm test`: `kits/usage/scan-memory.test.ts` reads 400,000 re
 
 The code that remembers the navigation's pages lives in the browser client (`src/web/page-catalog.tsx`); a window loads its packages from disk and has only the slot for it. On `fix/0.7.14` with K91, K93 and K94 the desktop build's total gzip is 499,738 of 500,000 bytes (499,507 before K92; initial JavaScript 792,813 of 800,000), the browser client's 505,099 of 510,000 (initial stylesheet 139,554 of 140,000).
 
+### Android emulator cold start and thread opening
+
+On 2026-10-14 the [mobile measurement runbook](mobile-emulator-measurement.md)
+timed the app's cold start and the opening of two synthetic threads (3 and 40
+turns, Markdown and tool records) in the Android emulator, twice, with 5 measured
+rounds and 1 warm-up each. **These are emulator numbers, not device numbers.** The
+emulator is `tau_play_review` (Android 16, API 36, `google_apis_playstore`
+arm64-v8a image, WebView 154.0.8037.106, 4 cores, 2 GB RAM, software-drawn
+graphics) on a Mac16,10 (Apple M4, 16 GB, macOS 27.0.1) that was also running
+other desktop work: the one-minute load was 8.2 and 7.6 before the two runs and
+15.4 and 22.6 after (the emulator adds about four cores itself). The app is a
+development build of `308d2c4af` (0.7.42, build 74200) with the automation bridge;
+the host is an isolated headless instance, reached over `adb reverse`. A real phone
+differs in CPU, memory, storage, graphics and network, and a release build has no
+bridge; the table says nothing about it.
+
+Median in ms, with the fastest and slowest of 5 samples in brackets. "Native start"
+is Android's `TotalTime` for the launch. "List usable" runs from the WebView's
+`timeOrigin` to the first painted, tappable thread row. "Cold open" is the first tap
+on a thread after a force-stop until its newest answer and the composer are painted;
+"warm open" is the second tap in the same process.
+
+| Thread | Run | Native start | List usable | Cold open | Warm open |
+| --- | --- | ---: | ---: | ---: | ---: |
+| short, 3 turns | 1 | 1,078 (1,004–1,406) | 1,140 (929–1,149) | 931 (741–2,369) | 31 (22–46) |
+| short, 3 turns | 2 | 1,184 (922–2,400) | 1,377 (1,139–1,905) | 906 (439–1,535) | 58 (27–139) |
+| long, 40 turns | 1 | 917 (804–1,740) | 1,100 (949–1,632) | 1,004 (969–1,362) | 49 (35–80) |
+| long, 40 turns | 2 | 1,051 (650–1,742) | 1,024 (977–5,925) | 1,031 (670–3,104) | 87 (22–126) |
+
+From the launch command to an observed usable list took 2.1 to 2.4 s at the median
+(an upper bound that includes the bridge's polling). The medians of the two runs agree
+within about 250 ms; single samples vary by up to 5 s while Spotlight and a security
+scan ran on the Mac during the second run. The first open costs about the same for
+3 and for 40 turns, and a repeated open in the same process is 30 to 90 ms. Raw
+samples, warm-ups included, are in `docs/performance/mobile-emulator-2026-10-14T10-04-46Z.json` and
+`docs/performance/mobile-emulator-2026-10-14T10-06-55Z.json`, with the generated tables in
+`docs/performance/mobile-emulator-2026-10-14T10-04-46Z.md` and
+`docs/performance/mobile-emulator-2026-10-14T10-06-55Z.md`. Physical-device
+evidence is still missing, and the desktop Chromium phone approximation above stays a
+separate measurement.
+
 ## Comparison harness
 
 `scripts/compare/` runs Tau and a reference app side by side on the same machine, with the same data and the same agent turn. No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer. The reference app's numbers only calibrate Tau's; the budgets below are Tau's own.
