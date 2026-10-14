@@ -43,6 +43,7 @@ import {
 import { captureWorktreeTree, runAgentGit, type AgentGitRunner } from "../workspace/agent-worktrees.js";
 import { priorityPrefix, readAgentPriority } from "./priority.js";
 import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./threads.js";
+import { waitingBelow } from "./model.js";
 
 interface FakeTool {
   name: string;
@@ -1106,6 +1107,33 @@ describe("Agents Kit", () => {
 
     await expect(parent.call("tau_get_thread_status", { threadId: handle }))
       .resolves.toMatchObject({ status: "waiting", pendingToolPrompt: "Run rm -rf?" });
+  });
+
+  it("counts an unanswered question below the parent only while its child runs", async () => {
+    const bench = await activated();
+    try {
+      const parent = bench.runtime("parent");
+      const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "go" }));
+      const child = bench.threads.get(handle)!;
+      await bench.notify("accepted", handle);
+      bench.runtime(handle).fire("ui_prompt_start", { kind: "input", title: "Which index?" });
+      child.idle = false;
+      expect(waitingBelow(await bench.state(), "parent").map((entry) => entry.threadId)).toEqual([handle]);
+
+      await parent.call("tau_send_to_thread", { threadId: handle, message: "Check the next table", mode: "queue" });
+      expect(waitingBelow(await bench.state(), "parent").map((entry) => entry.threadId)).toEqual([handle]);
+
+      child.streaming = false;
+      await bench.notify("ended", handle, "completed");
+      expect(waitingBelow(await bench.state(), "parent")).toEqual([]);
+      expect((await bench.state()).links[0]).toMatchObject({ pendingToolPrompt: "Which index?" });
+
+      // The queued turn starts with the same dialog still open.
+      await bench.notify("accepted", handle);
+      expect(waitingBelow(await bench.state(), "parent").map((entry) => entry.threadId)).toEqual([handle]);
+      await bench.notify("ended", handle, "failed");
+      expect(waitingBelow(await bench.state(), "parent")).toEqual([]);
+    } finally { await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID); }
   });
 
   it("waits for the agent's turn to end and returns its final answer", async () => {

@@ -41,6 +41,7 @@ export interface AgentThreadFacts {
   spawning: boolean;
   turns: number;
   lastOutcome?: "completed" | "failed";
+  turnActive?: boolean;
   pendingToolPrompt?: string;
   error?: string;
   /** Its parent cancelled it; new work sent to it clears this. */
@@ -213,7 +214,15 @@ export class AgentThreadBook {
   /** An agent's link with its status derived now, or undefined when nothing spawned it. */
   linkFor(idOrThreadId: string): AgentThreadLink | undefined {
     const found = this.recordFor(idOrThreadId);
-    return found ? { ...found.link, status: deriveStatus(this.factsFor(found.link.id)) } : undefined;
+    if (!found) return undefined;
+    const facts = this.factsFor(found.link.id);
+    return {
+      ...found.link,
+      status: deriveStatus(facts),
+      ...(!found.link.machine ? {
+        runActive: facts.spawning || facts.live?.streaming === true || (facts.turnActive ?? found.link.endedAt === undefined),
+      } : {}),
+    };
   }
 
   factsFor(idOrThreadId: string): AgentThreadFacts {
@@ -300,12 +309,16 @@ export class AgentThreadBook {
 
   /** A turn of an agent started; it is no longer merely on its way. */
   noteAccepted(idOrThreadId: string): boolean {
-    return this.update(idOrThreadId, (found) => { found.facts.spawning = false; });
+    return this.update(idOrThreadId, (found) => {
+      found.facts.spawning = false;
+      found.facts.turnActive = true;
+    });
   }
 
   noteEnded(idOrThreadId: string, outcome: "completed" | "failed", at: number): boolean {
     return this.update(idOrThreadId, (found) => {
       found.facts.spawning = false;
+      found.facts.turnActive = false;
       found.facts.turns += 1;
       found.facts.lastOutcome = outcome;
       found.link = { ...found.link, endedAt: at };
@@ -382,6 +395,7 @@ export class AgentThreadBook {
   noteClosed(idOrThreadId: string): boolean {
     return this.update(idOrThreadId, (found) => {
       found.facts.spawning = false;
+      found.facts.turnActive = false;
       delete found.facts.pendingToolPrompt;
       found.link = { ...found.link, pendingToolPrompt: undefined };
     });
