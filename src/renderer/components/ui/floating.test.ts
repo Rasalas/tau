@@ -24,4 +24,21 @@ describe("placeFloating", () => {
     const left = placeFloating(pointRect(2, 300), size, viewport, { side: "bottom", align: "end", padding: 8 });
     expect(left.left).toBe(8);
   });
+
+  it("moves to a side that leaves a region clear, such as the native window controls", () => {
+    const avoid = { left: 0, top: 0, width: 80, height: 40 };
+    const row = { left: 100, top: 45, width: 28, height: 28 };
+    expect(placeFloating(row, { width: 100, height: 28 }, viewport, { side: "top", avoid }).side).toBe("bottom");
+    // Without the region it stays on top, over the same corner.
+    expect(placeFloating(row, { width: 100, height: 28 }, viewport, { side: "top" })).toMatchObject({ side: "top", top: 11 });
+    // A float that already clears it stays where it was.
+    expect(placeFloating({ ...row, left: 300 }, { width: 100, height: 28 }, viewport, { side: "top", avoid }).side).toBe("top");
+  });
+
+  it("tries the sides across when the opposite one has no room either", () => {
+    const avoid = { left: 0, top: 0, width: 80, height: 40 };
+    const anchor = { left: 100, top: 70, width: 28, height: 28 };
+    const placed = placeFloating(anchor, { width: 100, height: 28 }, { width: 800, height: 120 }, { side: "top", avoid });
+    expect(placed).toEqual({ side: "right", left: 134, top: 70 });
+  });
 });

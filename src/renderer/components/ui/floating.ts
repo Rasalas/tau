@@ -15,6 +15,8 @@ export interface FloatingOptions {
   offset?: number;
   /** Closest the float may come to the viewport's edge. */
   padding?: number;
+  /** A region the float must not cover, such as the native window controls drawn over the page. */
+  avoid?: Rect;
 }
 
 export interface FloatingPlacement {
@@ -36,10 +38,14 @@ function clamp(value: number, min: number, max: number): number {
   return max < min ? min : Math.min(Math.max(value, min), max);
 }
 
+const overlaps = (a: Rect, b: Rect): boolean =>
+  a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
+
 /**
  * Where a float of `size` goes beside `anchor`: on the preferred side when it
  * fits, else the opposite side when that has more room, then shifted along the
- * edge so it stays inside the viewport.
+ * edge so it stays inside the viewport. A float that would cover `avoid` moves
+ * to the first other side that has room and leaves it clear.
  */
 export function placeFloating(
   anchor: Rect,
@@ -49,29 +55,42 @@ export function placeFloating(
 ): FloatingPlacement {
   const { align = "center", offset = 6, padding = 8 } = options;
   let side = options.side ?? "bottom";
-  const vertical = side === "top" || side === "bottom";
-  const needed = (vertical ? size.height : size.width) + offset + padding;
-  if (room(side, anchor, viewport) < needed && room(OPPOSITE[side], anchor, viewport) > room(side, anchor, viewport)) {
+  const needed = (of: FloatingSide) => (of === "top" || of === "bottom" ? size.height : size.width) + offset + padding;
+  if (room(side, anchor, viewport) < needed(side) && room(OPPOSITE[side], anchor, viewport) > room(side, anchor, viewport)) {
     side = OPPOSITE[side];
   }
 
   const along = (start: number, length: number, extent: number) =>
     align === "start" ? start : align === "end" ? start + length - extent : start + (length - extent) / 2;
 
-  let left: number;
-  let top: number;
-  if (side === "top" || side === "bottom") {
-    top = side === "top" ? anchor.top - offset - size.height : anchor.top + anchor.height + offset;
-    left = along(anchor.left, anchor.width, size.width);
-  } else {
-    left = side === "left" ? anchor.left - offset - size.width : anchor.left + anchor.width + offset;
-    top = along(anchor.top, anchor.height, size.height);
-  }
-  return {
-    side,
-    left: Math.round(clamp(left, padding, viewport.width - padding - size.width)),
-    top: Math.round(clamp(top, padding, viewport.height - padding - size.height)),
+  const placeOn = (on: FloatingSide): FloatingPlacement => {
+    let left: number;
+    let top: number;
+    if (on === "top" || on === "bottom") {
+      top = on === "top" ? anchor.top - offset - size.height : anchor.top + anchor.height + offset;
+      left = along(anchor.left, anchor.width, size.width);
+    } else {
+      left = on === "left" ? anchor.left - offset - size.width : anchor.left + anchor.width + offset;
+      top = along(anchor.top, anchor.height, size.height);
+    }
+    return {
+      side: on,
+      left: Math.round(clamp(left, padding, viewport.width - padding - size.width)),
+      top: Math.round(clamp(top, padding, viewport.height - padding - size.height)),
+    };
   };
+  const covers = (placed: FloatingPlacement) => options.avoid !== undefined && overlaps({ left: placed.left, top: placed.top, width: size.width, height: size.height }, options.avoid);
+
+  const placed = placeOn(side);
+  if (!covers(placed)) return placed;
+  const vertical = side === "top" || side === "bottom";
+  const others: FloatingSide[] = [OPPOSITE[side], ...(vertical ? ["right", "left"] as const : ["bottom", "top"] as const)];
+  for (const other of others) {
+    if (room(other, anchor, viewport) < needed(other)) continue;
+    const moved = placeOn(other);
+    if (!covers(moved)) return moved;
+  }
+  return placed;
 }
 
 /** A point, such as a right-click, as a zero-sized anchor. */
