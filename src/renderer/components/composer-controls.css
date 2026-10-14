@@ -27,3 +27,8 @@ html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .r
   height: var(--icon-size);
 }
 .composer-chips > .composer-attach-chip + .composer-lead-rule { display: none; }
+/* At the narrowest chat width the model's and the reasoning's chevrons go, so the model keeps the start of its name. */
+html:not([data-device="phone"]):not([data-device="tablet"]) .composer-chips { container: composer-row / inline-size; }
+@container composer-row (max-width: 270px) {
+  .composer-chips :is(.composer-model-chip, .composer-thinking-chip) .chev { display: none; }
+}

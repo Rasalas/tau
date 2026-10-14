@@ -23,7 +23,7 @@ interface Measured extends FooterBlockWidths {
   shortcuts: readonly string[];
 }
 
-const NO_LAYOUT: FooterLayout = { iconOnly: 0, hidden: 0 };
+const NO_LAYOUT: FooterLayout = { leadIcons: false, iconOnly: 0, hidden: 0 };
 const NO_SHORTCUTS: readonly string[] = [];
 
 const px = (value: string) => Number.parseFloat(value) || 0;
@@ -44,8 +44,9 @@ function iconWidth(block: HTMLElement, natural: number): number {
 /**
  * The composer's footer row: the model, then the blocks, then one menu ("…")
  * that holds `menu`, the `menuOnly` blocks and every block the row has no room for. As the
- * composer narrows the blocks first drop their labels and then move into the
- * menu, lowest rank first.
+ * composer narrows the lead controls that mark themselves `data-composer-collapsible`
+ * shrink to their icons (the row says so with `data-lead-icons`), then the blocks
+ * drop their labels and move into the menu, lowest rank first.
  */
 export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = NO_SHORTCUTS, revision = "" }: {
   leading: ReactNode;
@@ -60,6 +61,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   const row = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const measured = useRef(new Map<string, Measured>());
+  const leadMeasured = useRef(new Map<string, FooterBlockWidths>());
   const triggerWidth = useRef(ICON_CHIP);
   const [layout, setLayout] = useState(NO_LAYOUT);
   const [open, setOpen] = useState(false);
@@ -85,10 +87,21 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
     const style = getComputedStyle(element);
     const gap = px(style.columnGap);
     const fixed: number[] = [];
+    const lead: FooterBlockWidths[] = [];
+    const leadCollapsed = element.hasAttribute("data-lead-icons");
     for (const child of element.children) {
       const item = child as HTMLElement;
       const id = item.dataset.composerBlock;
-      if (id !== undefined && item.dataset.composerPinned !== undefined) {
+      if (item.dataset.composerCollapsible !== undefined) {
+        // As with a block: the label width it had, and the width it shows now once it is an icon.
+        const width = item.getBoundingClientRect().width;
+        const key = item.dataset.composerCollapsible || String(lead.length);
+        const previous = leadMeasured.current.get(key);
+        const natural = leadCollapsed && previous ? previous.natural : width;
+        const entry = { natural, icon: Math.min(leadCollapsed ? width : ICON_CHIP, natural) };
+        leadMeasured.current.set(key, entry);
+        lead.push(entry);
+      } else if (id !== undefined && item.dataset.composerPinned !== undefined) {
         fixed.push(item.getBoundingClientRect().width);
       } else if (id !== undefined) {
         const width = item.getBoundingClientRect().width;
@@ -116,16 +129,17 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
         available: element.clientWidth,
         gap,
         fixed,
+        lead,
         blocks: widths,
         // A menu that is there anyway costs nothing more when a block moves into it.
         overflow: menuAlways.current ? 0 : triggerWidth.current,
       }, current);
-      return next.iconOnly === current.iconOnly && next.hidden === current.hidden ? current : next;
+      return next.leadIcons === current.leadIcons && next.iconOnly === current.iconOnly && next.hidden === current.hidden ? current : next;
     });
   }, []);
 
   // Not on every render: a keystroke re-renders the composer, and sizes change only through these or the observer.
-  const shape = `${blocks.map((block) => `${block.id}${block.menuOnly ? "~" : ""}`).join(" ")}|${layout.iconOnly}|${layout.hidden}|${hasMenu}|${revision}`;
+  const shape = `${blocks.map((block) => `${block.id}${block.menuOnly ? "~" : ""}`).join(" ")}|${layout.leadIcons ? "L" : ""}${layout.iconOnly}|${layout.hidden}|${hasMenu}|${revision}`;
   useLayoutEffect(() => {
     measure();
     const element = row.current;
@@ -148,7 +162,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   );
 
   return (
-    <div className="composer-chips" ref={row}>
+    <div className="composer-chips" ref={row} {...(layout.leadIcons ? { "data-lead-icons": "" } : {})}>
       {leading}
       {blocks.filter((block) => !block.end && inRow(block)).map(drawn)}
       {showTrigger ? (

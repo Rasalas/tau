@@ -2508,7 +2508,11 @@ package chips first lose their labels and then move into the menu; the
 model and the reasoning level stay longest. A host older than 1.27.0 draws a `menu` control in the row.
 `placement: "lead"` (API 1.27.0) puts a control before the model chip, then a
 thin rule, then the model. A `lead` control never folds into the menu. An
-older core draws it in the row.
+older core draws it in the row. A `lead` control whose root element carries
+`data-composer-collapsible` is measured by the row: when the row is short of
+room, before anything else folds, the row sets `data-lead-icons` on itself and
+the control's own CSS hides its label (Access Kit's chip keeps its lock; its
+`aria-label` and tooltip still name the level).
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,
