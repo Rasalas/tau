@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
+import { wakeMessageText } from "../../shared/message-turns";
 import { projectCompletedTurnWork } from "./completed-turn-work";
 import { completedWorkMetadata, type TranscriptActivity } from "./transcript-activity";
 
@@ -11,6 +12,33 @@ const messages: UiMessage[] = [
 const tool: TranscriptActivity = { id: "tools", afterMessageId: "progress-entry", foldWithTurn: true, content: "Read parser" };
 
 describe("completed turn projection", () => {
+  it("keeps answers between wakes visible when the thread settles", () => {
+    const history: UiMessage[] = [
+      messages[0]!,
+      { id: "answer-before-wake", role: "assistant", text: "The first PR is merged", timestamp: 1000 },
+      { id: "wake", role: "user", text: wakeMessageText({ source: "pull-request", label: "PR #42 · checks passed" }, "Checks passed."), timestamp: 2000 },
+      { id: "answer-after-wake", role: "assistant", text: "The second PR is merged", timestamp: 3000 },
+    ];
+    for (const streaming of [true, false]) {
+      expect(projectCompletedTurnWork(history, [], streaming).messages.map((message) => message.id)).toEqual(history.map((message) => message.id));
+    }
+  });
+
+  it("folds a wake's work in a history window with no user prompt, leaving consecutive wake lines visible", () => {
+    const history: UiMessage[] = [
+      { id: "wake-one", role: "user", text: wakeMessageText({ source: "pull-request", label: "PR #41 · checks passed" }, ""), timestamp: 0 },
+      { id: "wake-two", role: "user", text: wakeMessageText({ source: "pull-request", label: "PR #42 · checks passed" }, ""), timestamp: 1000 },
+      messages[1]!,
+      messages[2]!,
+    ];
+    const projection = projectCompletedTurnWork(history, [tool], false);
+    expect(projection.messages.map((message) => message.id)).toEqual(["wake-one", "wake-two", "final"]);
+    expect([...projection.work.keys()]).toEqual(["wake-two"]);
+    expect(projection.work.get("wake-two")).toMatchObject({ messages: [messages[1]], activities: [tool] });
+    expect(projection.aliases.get("progress-entry")).toBe("wake-two");
+    expect(projection.activities).toEqual([]);
+  });
+
   it("keeps the final answer and folds commentary, reasoning and tools under one stable prompt", () => {
     const projection = projectCompletedTurnWork(messages, [tool], false);
     expect(projection.messages.map((message) => message.id)).toEqual(["prompt", "final"]);

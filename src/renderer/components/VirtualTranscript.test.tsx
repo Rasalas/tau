@@ -3,6 +3,7 @@ import { createRef, useRef, useState, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
+import { wakeMessageText } from "../../shared/message-turns";
 import { afterEach, vi } from "vitest";
 import { testDomRect } from "./test-dom-geometry";
 import { TranscriptViewport } from "./TranscriptViewport";
@@ -20,9 +21,10 @@ afterEach(async () => {
   await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
 });
 
-function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMessageId, activities, detail, onCopyMessage, onEditMessage, onForkMessage, onFocusComposer }: {
+function Fixture({ messages, sessionKey = "fixture", isStreaming = false, activity, activityAfterMessageId, activities, detail, onCopyMessage, onEditMessage, onForkMessage, onFocusComposer }: {
   messages: UiMessage[];
   sessionKey?: string;
+  isStreaming?: boolean;
   activity?: ReactNode;
   activityAfterMessageId?: string;
   activities?: TranscriptActivity[];
@@ -46,7 +48,7 @@ function Fixture({ messages, sessionKey = "fixture", activity, activityAfterMess
     <VirtualTranscript
       messages={messages}
       scrollRef={ref}
-      isStreaming={false}
+      isStreaming={isStreaming}
       sessionKey={sessionKey}
       activities={allActivities}
       detail={detail}
@@ -188,6 +190,41 @@ function ActivityViewportFixture() {
 }
 
 describe("virtual transcript", () => {
+  it("keeps each wake's answer in place while folding its work when streaming ends and resumes", async () => {
+    const messages: UiMessage[] = [
+      { id: "prompt", role: "user", text: "Merge the PRs", timestamp: 0 },
+      { id: "progress-one", role: "assistant", text: "Checking the first PR", timestamp: 1000 },
+      { id: "answer-one", role: "assistant", text: "The first PR is merged", timestamp: 5000 },
+      { id: "wake", role: "user", text: wakeMessageText({ source: "pull-request", label: "PR #42 · checks passed" }, "Checks passed."), timestamp: 6000 },
+      { id: "progress-two", role: "assistant", text: "Checking the second PR", timestamp: 7000 },
+      { id: "answer-two", role: "assistant", text: "The second PR is merged", timestamp: 9000 },
+    ];
+    const activities = [
+      { id: "tool-one", afterMessageId: "progress-one", foldWithTurn: true, content: <div>Merge first PR</div> },
+      { id: "tool-two", afterMessageId: "progress-two", foldWithTurn: true, content: <div>Merge second PR</div> },
+    ];
+    const view = render(<Fixture messages={messages} activities={activities} isStreaming />);
+    await screen.findByText("The first PR is merged");
+    await screen.findByText("The second PR is merged");
+    view.rerender(<Fixture messages={messages} activities={activities} />);
+    await screen.findByRole("button", { name: "Worked for 3s" });
+    expect(screen.getByText("The first PR is merged")).toBeTruthy();
+    expect(screen.getByText("The second PR is merged")).toBeTruthy();
+    expect(Array.from(view.container.querySelectorAll(".virtual-transcript-row"), (row) => row.getAttribute("data-message-id")))
+      .toEqual(["prompt", "answer-one", "wake", "answer-two"]);
+    expect(screen.queryByText("Checking the first PR")).toBeNull();
+    expect(screen.queryByText("Checking the second PR")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Worked for 3s" }));
+    await screen.findByText("Checking the second PR");
+    await screen.findByText("Merge second PR");
+    expect(screen.queryByText("Checking the first PR")).toBeNull();
+    expect(screen.queryByText("Merge first PR")).toBeNull();
+    view.rerender(<Fixture messages={messages} activities={activities} isStreaming />);
+    await screen.findByText("The first PR is merged");
+    await screen.findByText("The second PR is merged");
+    expect(screen.queryByText("Checking the first PR")).toBeNull();
+  });
+
   it("places completed commentary and tools behind one disclosure, with the final answer prominent", async () => {
     const messages: UiMessage[] = [
       { id: "prompt", role: "user", text: "Check the parser", timestamp: 0 },
