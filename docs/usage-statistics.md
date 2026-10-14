@@ -50,7 +50,11 @@ npm run stats
 
 The command defaults to the SSH alias `vps`. Pass another host with `npm run stats -- other-ssh-alias`. SSH uses the operator's local SSH configuration, private key or agent; none of these credentials are included in the repository or sent to GitHub.
 
-The script finds the running `matomo:5-apache` container and reads the counts through Matomo's internal Reporting API on that server. It prints JSON for `promptActive.last7`, `promptActive.last30`, `workbenchActive.last7` and `workbenchActive.last30`, with UTC and the report time. It needs administrative SSH access; it creates no app token or public reporting endpoint. The Docker image filter must be updated when the server moves to a different Matomo image.
+The script finds the running `matomo:5-apache` container and reads the counts through Matomo's internal Reporting API on that server: prompt and workbench installations over the last 7 and 30 UTC days. It needs administrative SSH access; it creates no app token or public reporting endpoint. The Docker image filter must be updated when the server moves to a different Matomo image.
+
+The same command adds the public download counters of `Rasalas/tau-releases` from the GitHub API, without a token. It splits them into installers (the fixed download links such as `Tau-mac-arm64.dmg`, plus versioned `.dmg` and `.apk`), app updates (the versioned `.zip`, `.exe`, `.AppImage` and `.deb` the update feeds name) and host archives. Feeds, signatures and blockmaps are left out. A table lists the ten newest releases. Because the fixed links always resolve to the newest release, a release's installer count covers the time it was newest. Downloads count files, not people, and the replaced nightly loses its counter.
+
+The output is a readable summary; `npm run stats -- --json` prints the same data as JSON. If one source fails, the other still prints and the command exits with 1.
 
 Matomo also has two saved site-specific segments, **Tau: aktive Prompt-Installationen** and **Tau: aktive Workbench-Installationen**. In the UI select **Tau App**, the appropriate segment, and the desired date range. Use unique visitors rather than visits or event totals.
 
