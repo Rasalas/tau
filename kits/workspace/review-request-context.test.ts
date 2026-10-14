@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { readReviewRequestContext } from "./review-request-context.js";
+import { createWorktree } from "./workspace-git.js";
 
 process.env.GIT_CONFIG_GLOBAL = "/dev/null";
 process.env.GIT_CONFIG_SYSTEM = "/dev/null";
@@ -58,6 +59,41 @@ describe("review request context", () => {
     expect(context.forkedAt).toBeLessThanOrEqual(context.commits![0]!.at!);
     expect(context.diffStat).toContain("feature.txt");
     expect(context.template).toBe("## Summary\n\n## Testing");
+  });
+
+  it.each(["local", "remote"])("uses a worktree's saved %s start branch for a new request and its description", async (location) => {
+    const { work } = await repositoryWithRemote();
+    await git(work, "switch", "-c", "release/v2", "main");
+    await writeFile(join(work, ".github", "pull_request_template.md"), "## Release testing\n");
+    await git(work, "add", "-A");
+    await git(work, "commit", "-m", "chore: prepare release");
+    await git(work, "push", "origin", "release/v2");
+    await git(work, "switch", "main");
+    const tree = await createWorktree(work, "feature/release", { baseRef: "origin/release/v2" }, async () => ({
+      root: work, isRepo: true, isDirty: false, branch: "main", hasRemote: true,
+      worktrees: [], refs: [], worktreeParent: join(work, "..", "worktrees"),
+    }));
+    if (location === "local") await git(work, "update-ref", "-d", "refs/remotes/origin/release/v2");
+    else await git(work, "branch", "-D", "release/v2");
+    await writeFile(join(tree, "fix.txt"), "release fix\n");
+    await git(tree, "add", "-A");
+    await git(tree, "commit", "-m", "fix: repair release");
+
+    expect((await readReviewRequestContext(tree, { base: "" })).base).toBe("release/v2");
+    const context = await readReviewRequestContext(tree, { detail: true });
+    expect(context.base).toBe("release/v2");
+    expect(context.commits?.map(({ subject }) => subject)).toEqual(["fix: repair release"]);
+    expect(context.template).toBe("## Release testing");
+    expect(context.diffStat).toContain("fix.txt");
+    expect(context.diffStat).not.toContain("pull_request_template.md");
+    expect((await readReviewRequestContext(tree, { base: "origin/main" })).base).toBe("main");
+  });
+
+  it.each(["missing", "tag"])("falls back to the default branch when the saved target is a %s", async (kind) => {
+    const { work } = await repositoryWithRemote();
+    await git(work, "config", "branch.feature/pr.tau-review-target", "release/v2");
+    if (kind === "tag") await git(work, "tag", "release/v2");
+    expect((await readReviewRequestContext(work)).base).toBe("main");
   });
 
   it("reads the template folders of Forgejo, Gitea and Azure DevOps", async () => {
