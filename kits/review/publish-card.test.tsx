@@ -32,7 +32,7 @@ function setup(options: Options = {}) {
     suggestCommitMessage: vi.fn(options.suggest ?? (async () => "feat(card): preview")),
     refresh: vi.fn(async () => undefined),
   } as unknown as WorkspaceStoreApi;
-  const workspace = { invoke: vi.fn(async () => ({})), onEvent: () => () => undefined } satisfies HostExtensionClient;
+  const workspace = { invoke: vi.fn<HostExtensionClient["invoke"]>(async () => ({})), onEvent: () => () => undefined } satisfies HostExtensionClient;
   const requests = {
     status: vi.fn(async () => ({ ...STATUS, ...options.status })),
     create: vi.fn(async () => ({ status: { ...STATUS, request: OPEN } })),
@@ -42,16 +42,58 @@ function setup(options: Options = {}) {
   const rows = { set: vi.fn() } as unknown as RowRequests;
   const parts: PublishParts = { store: () => store, workspace, requests, client, changes: reader, rows, preferences };
   const publishing = new RequestPublishing();
-  const actions = { notify: vi.fn(), activeThread: () => ({ sessionId: "t1", cwd: "/work", model: { provider: "openai", id: "gpt" }, draftPending: false }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
+  const dismiss = vi.fn();
+  const actions = { toast: vi.fn(() => ({ id: "publish-error", dismiss, update: vi.fn() })), notify: vi.fn(), activeThread: () => ({ sessionId: "t1", cwd: "/work", model: { provider: "openai", id: "gpt" }, draftPending: false }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
   const Layer = createPublishCardLayer(publishing, parts);
   render(<Layer actions={actions} />);
   act(() => publishing.show(options.message ? { message: options.message } : {}));
-  return { store, workspace, requests, client, reader, actions, publishing };
+  return { store, workspace, requests, client, reader, actions, publishing, dismiss };
 }
 
 const card = () => screen.findByRole("dialog", { name: "Commit, push & PR" });
 
 describe("the Commit, push & PR card", () => {
+  it.each(["fatal", "error"])("shows only the %s reason and keeps the full Git output for copying", async (prefix) => {
+    const { workspace, actions, dismiss } = setup();
+    const output = `Command failed: /usr/bin/git -c core.quotePath=false -c core.fsmonitor=false push --set-upstream origin HEAD:refs/heads/feat/card\n${prefix}: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n`;
+    vi.mocked(workspace.invoke).mockResolvedValueOnce({}).mockRejectedValueOnce(new Error(output)).mockRejectedValueOnce(new Error(output));
+    const dialog = await card();
+    const confirm = within(dialog).getByRole("button", { name: "Commit, push & PR" }) as HTMLButtonElement;
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    fireEvent.click(confirm);
+    const retry = await within(dialog).findByRole("button", { name: "Try again" });
+    expect(actions.toast).toHaveBeenCalledWith(expect.objectContaining({
+      type: "error", title: "Pushing failed: Could not read from remote repository.", copyText: output,
+    }));
+    expect(dismiss).not.toHaveBeenCalled();
+    await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(retry);
+    await waitFor(() => expect(actions.toast).toHaveBeenCalledTimes(2));
+    expect(actions.toast).toHaveBeenLastCalledWith(expect.objectContaining({ id: "publish-error", copyText: output }));
+    expect(dismiss).not.toHaveBeenCalled();
+    await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(dismiss).toHaveBeenCalledOnce();
+    expect(vi.mocked(workspace.invoke).mock.calls.map(([command]) => command)).toEqual(["commit", "push", "push", "push"]);
+  });
+
+  it("dismisses a recovered push error even when request creation then fails", async () => {
+    const { workspace, requests, dismiss } = setup();
+    vi.mocked(workspace.invoke).mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("Push refused."));
+    vi.mocked(requests.create).mockRejectedValue(new Error("Request refused."));
+    const dialog = await card();
+    const confirm = within(dialog).getByRole("button", { name: "Commit, push & PR" }) as HTMLButtonElement;
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    fireEvent.click(confirm);
+    const retry = await within(dialog).findByRole("button", { name: "Try again" });
+    expect(dismiss).not.toHaveBeenCalled();
+    await waitFor(() => expect((retry as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(retry);
+    await within(dialog).findByText("Creating PR failed");
+    expect(dismiss).toHaveBeenCalledOnce();
+  });
+
   it("lists the staged files, else every changed one, with a count of the rest", async () => {
     const many = Array.from({ length: 10 }, (_, index) => file(`f${index}.ts`));
     setup({ files: many });
