@@ -13,7 +13,7 @@ interface EditorDefinition {
   commands: readonly string[];
   launchStyle: EditorLaunchStyle;
   baseArgs?: readonly string[];
-  /** macOS bundles, found when the CLI is not on PATH; `cli` is a launcher inside that takes lines. */
+  /** macOS bundles; `cli` is a launcher inside that takes lines. */
   apps?: ReadonlyArray<{ bundle: string; cli?: string }>;
 }
 
@@ -94,6 +94,11 @@ export function fileManagerName(platform: NodeJS.Platform): string {
 
 function findLaunch(definition: EditorDefinition, probe: EditorProbe): EditorLaunch | undefined {
   const baseArgs = definition.baseArgs ?? [];
+  // OpenZFS also installs `zed` on PATH.
+  if (probe.platform === "darwin" && definition.id === "zed") {
+    const app = findAppLaunch(definition, probe);
+    if (app) return app;
+  }
   for (const name of definition.commands) {
     const command = probe.findCommand(name);
     if (command) return { kind: "command", command, style: definition.launchStyle, baseArgs };
@@ -103,7 +108,12 @@ function findLaunch(definition: EditorDefinition, probe: EditorProbe): EditorLau
     const script = probe.platform === "win32" ? win32.join(scripts, `${definition.id}.cmd`) : posix.join(scripts, definition.id);
     if (probe.exists(script)) return { kind: "command", command: script, style: "line-column", baseArgs };
   }
+  return findAppLaunch(definition, probe);
+}
+
+function findAppLaunch(definition: EditorDefinition, probe: EditorProbe): EditorLaunch | undefined {
   if (probe.platform !== "darwin") return undefined;
+  const baseArgs = definition.baseArgs ?? [];
   for (const app of definition.apps ?? []) {
     for (const folder of ["/Applications", posix.join(probe.home, "Applications")]) {
       const bundle = posix.join(folder, app.bundle);
