@@ -293,13 +293,14 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       };
 
       // OpenCode keeps a total with its own price, unnamed as the open thread shows it.
-      const record = (entry: Awaited<ReturnType<OpenCodeSessionStore["list"]>>[number]): HostBackendThreadRecord => ({
+      const record = (entry: Awaited<ReturnType<OpenCodeSessionStore["list"]>>[number] & { messageCount?: number }): HostBackendThreadRecord => ({
         threadId: entry.tauThreadId,
         cwd: entry.cwd,
         ...(entry.title ? { title: entry.title } : {}),
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
         updatedAt: entry.updatedAt,
         messages: entry.messages,
+        ...(entry.messageCount !== undefined ? { messageCount: entry.messageCount } : {}),
         ...(entry.usage && entry.usage.turns > 0 ? { usage: [legacyUsageTurn(entry.usage, entry.updatedAt)] } : {}),
       });
 
@@ -346,7 +347,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
           order: 40,
           adapter,
           homeProviders: ["opencode-go"],
-          listThreads: async () => (await store.list(id)).map(record),
+          listThreads: async () => (await store.listMetadata(id)).map(record),
           removeThread: async (threadId) => {
             const taken = await store.take(threadId);
             const tools = await activity.take(threadId);
@@ -410,7 +411,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       };
 
       const instancesReport = async (): Promise<OpenCodeInstancesReport> => {
-        const threads = await store.list();
+        const threads = await store.listMetadata();
         return {
           instances: settings.list().map((instance) => {
             const server = servers.get(instance.id);
@@ -535,7 +536,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         return versionOf(id).catch(() => undefined);
       });
       context.registerCommand("usage", async () => ({
-        threads: (await store.list()).map((entry) => {
+        threads: (await store.listMetadata()).map((entry) => {
           const model = entry.model ?? entry.observedModel;
           return { threadId: entry.tauThreadId, ...(entry.sessionId ? { sessionId: entry.sessionId } : {}), cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model: model.id } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),

@@ -244,6 +244,11 @@ export class CodexSessionStore {
       filePath: options.filePath,
       version: CURRENT_VERSION,
       logger: options.logger, immutableUsageTurns: true,
+      publishHydrated: (id, record) => {
+        if (record) this.records.set(id, record);
+        else this.records.delete(id);
+      },
+      summarizeUsage: record => record.usageTurns ? mergeTallies(record.usageTurns) : undefined,
       decode: (value) => {
         const data = decodeFile(value);
         return data ? { sessions: data.sessions, models: { [DEFAULT_INSTANCE_ID]: data.models, ...data.instanceModels } } : undefined;
@@ -265,7 +270,7 @@ export class CodexSessionStore {
   }
 
   private load(): Promise<void> {
-    this.loading ??= this.persistence.load()
+    this.loading ??= this.persistence.loadMetadata()
       .then((data) => {
         for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record);
         this.models = new Map(Object.entries(data?.models ?? {}));
@@ -277,14 +282,40 @@ export class CodexSessionStore {
   /** What a listed thread was billed for, per model, for its row before it opens. */
   talliesOf(tauThreadId: string): UsageTally[] {
     const record = this.records.get(tauThreadId);
+    const summary = this.persistence.isUnloaded(tauThreadId) ? this.persistence.usageTallies(tauThreadId) : undefined;
+    if (summary) return summary as UsageTally[];
     if (!record?.usageTurns) return record ? mergeTallies(usageTurnsOf(record)) : [];
     let merged = this.merged.get(record.usageTurns);
     if (!merged) this.merged.set(record.usageTurns, merged = mergeTallies(record.usageTurns));
     return merged.map((tally) => ({ ...tally }));
   }
 
+  /** Dated usage reports do not need message histories. */
+  async listUsage(): Promise<Array<Omit<CodexSessionRecord, "messages">>> {
+    await this.load();
+    const persisted = await this.persistence.loadUsage();
+    return persisted.map(record => this.persistence.isUnloaded(record.tauThreadId) ? record : this.records.get(record.tauThreadId) ?? record)
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(record => {
+        const { messages: _messages, ...usage } = clone({ ...record, messages: [] });
+        return usage;
+      });
+  }
+
+  private async hydrateMany(threadIds: string[]): Promise<void> {
+    const ids = threadIds.filter(id => this.persistence.isUnloaded(id));
+    if (!ids.length) return;
+    await this.persistence.loadSessions(ids);
+  }
+
+  private async hydrate(tauThreadId: string): Promise<void> {
+    if (!this.persistence.isUnloaded(tauThreadId)) return;
+    await this.persistence.loadSession(tauThreadId);
+  }
+
   async get(tauThreadId: string): Promise<CodexSessionRecord | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     return record ? clone(record) : undefined;
   }
@@ -292,6 +323,8 @@ export class CodexSessionStore {
   /** Every thread, or those of one instance (`default` included). */
   async list(instance?: string): Promise<CodexSessionRecord[]> {
     await this.load();
+    await this.hydrateMany([...this.records.values()]
+      .filter((record) => instance === undefined || sameInstance(record, instance)).map(record => record.tauThreadId));
     return [...this.records.values()]
       .filter((record) => instance === undefined || sameInstance(record, instance))
       .sort((left, right) => right.updatedAt - left.updatedAt)
@@ -306,12 +339,13 @@ export class CodexSessionStore {
       .map((record) => {
         const { messages, usageTurns: _usageTurns, ...metadata } = record;
         const firstUser = sessionMessageIndex(messages).firstUser;
-        return { ...clone({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: messages.length };
+        return { ...clone({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: this.persistence.messageCount(record.tauThreadId) ?? messages.length };
       });
   }
 
   private async ensureRecord(tauThreadId: string, cwd: string): Promise<CodexSessionRecord> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const existing = this.records.get(tauThreadId);
     if (existing) {
       if (existing.cwd !== cwd) throw new Error("This thread belongs to another workspace.");
@@ -324,6 +358,7 @@ export class CodexSessionStore {
   /** The thread's record, created when it has none. */
   async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<CodexSessionRecord> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const existing = this.records.get(tauThreadId);
     if (existing && existing.cwd !== cwd) throw new Error("This Codex thread belongs to another workspace.");
     if (existing && instance !== undefined && !sameInstance(existing, instance)) throw new Error("This Codex thread runs on another instance.");
@@ -473,6 +508,7 @@ export class CodexSessionStore {
   /** Takes a thread's record out for the host's trash; the CLI's own history stays where it is. */
   async take(tauThreadId: string): Promise<CodexSessionRecord | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     if (!record) return undefined;
     this.records.delete(tauThreadId);

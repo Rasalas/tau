@@ -371,7 +371,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       };
 
       const instancesReport = async (): Promise<ClaudeInstancesReport> => {
-        const threads = await store.list();
+        const threads = await store.listMetadata();
         return {
           instances: settings.list().map((instance) => ({
             ...instance,
@@ -472,7 +472,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       });
       // Each thread's running total and its turns, for the Usage kit; read from the store, never from Anthropic.
       context.registerCommand("usage", async () => ({
-        threads: (await store.list()).map((entry) => {
+        threads: (await store.listUsage()).map((entry) => {
           const model = entry.observedModel ?? entry.model;
           return {
             threadId: entry.tauThreadId,

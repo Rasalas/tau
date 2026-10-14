@@ -11,7 +11,9 @@ export interface SqliteSessionChange {
   version: number;
   revision: string;
   expectedRevision?: string;
+  expectedAbsent?: boolean;
   metadata?: string;
+  summary?: string;
   hasMessages: boolean;
   messageCount: number;
   messages: SqliteHistoryChange;
@@ -29,6 +31,10 @@ export interface SqliteSessionRead {
   usageStart: number;
   usageNext: number;
   raw: unknown;
+  messageCount: number;
+  summary?: { version?: number; firstUser?: unknown; tallies?: unknown[] };
+  hydrated: boolean;
+  usageHydrated: boolean;
 }
 export interface SqliteStoreRead {
   sessions: SqliteSessionRead[];
@@ -114,6 +120,12 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
         if (mode !== "wal") throw new Error(`SQLite session database is not in WAL mode: ${path}`);
         db.exec("PRAGMA synchronous = FULL;");
       }
+      // Additive, revision-bound summaries also tolerate an older writer: its
+      // next commit invalidates the summary by changing the session revision.
+      db.exec(`CREATE TABLE IF NOT EXISTS session_summaries (
+        thread_id TEXT PRIMARY KEY REFERENCES sessions(thread_id) ON DELETE CASCADE,
+        revision TEXT NOT NULL, payload TEXT NOT NULL
+      ) WITHOUT ROWID`);
       permissions();
       identity = fs.statSync(path);
       database = db;
@@ -149,6 +161,8 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
         ON CONFLICT(thread_id) DO UPDATE SET record_version=excluded.record_version, metadata=excluded.metadata,
         revision=excluded.revision, has_messages=excluded.has_messages, message_count=excluded.message_count,
         has_usage=excluded.has_usage, usage_start=excluded.usage_start, usage_next=excluded.usage_next`);
+      const saveSummary = db.prepare("INSERT INTO session_summaries VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload");
+      const carrySummary = db.prepare("UPDATE session_summaries SET revision=? WHERE thread_id=? AND revision=?");
       const insertMessage = db.prepare("INSERT INTO messages VALUES (?, ?, ?)");
       const insertUsage = db.prepare("INSERT INTO usage_turns VALUES (?, ?, ?) ON CONFLICT(thread_id,ordinal) DO UPDATE SET payload=excluded.payload");
       const clearMessages = db.prepare("DELETE FROM messages WHERE thread_id = ?");
@@ -159,6 +173,7 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
         if (!importing && previous && Number(previous.record_version) > change.version) {
           throw new Error(`Session '${change.id}' is version ${previous.record_version}; refusing to overwrite it with version ${change.version}`);
         }
+        if (change.expectedAbsent && previous) throw new Error("Session was restored or created by another writer; reload the store");
         if (change.expectedRevision !== undefined && previous?.revision !== change.expectedRevision) {
           throw new Error("Session transcript changed in another writer; reload before appending");
         }
@@ -169,6 +184,8 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
         }
         upsert.run(change.id, change.version, change.metadata, change.revision, Number(change.hasMessages), change.messageCount,
           Number(change.hasUsage), change.usage.start, change.usage.next);
+        if (change.summary !== undefined) saveSummary.run(change.id, change.revision, change.summary);
+        else if (previous) carrySummary.run(change.revision, change.id, previous.revision);
         if (change.messages.replace) clearMessages.run(change.id);
         for (const row of change.messages.rows) insertMessage.run(change.id, row.ordinal, row.payload);
         if (change.usage.replace) clearUsage.run(change.id);
@@ -186,7 +203,7 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
     });
   };
 
-  const load = (): SqliteStoreRead => {
+  const load = (metadataOnly = false, threadId?: string, usageOnly = false, threadIds?: string[]): SqliteStoreRead => {
     const db = open(false);
     const messageRows = db.prepare("SELECT ordinal,payload FROM messages WHERE thread_id = ? ORDER BY ordinal");
     const usageRows = db.prepare("SELECT ordinal,payload FROM usage_turns WHERE thread_id = ? ORDER BY ordinal");
@@ -194,33 +211,42 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
     // from one revision with history from the next.
     db.exec("BEGIN");
     try {
-      const sessions = db.prepare("SELECT * FROM sessions").all().map((row): SqliteSessionRead => {
+      const sql = `SELECT sessions.*, session_summaries.payload AS summary FROM sessions
+        LEFT JOIN session_summaries ON sessions.thread_id = session_summaries.thread_id AND sessions.revision = session_summaries.revision`;
+      const rows = threadId === undefined ? db.prepare(sql).all() : db.prepare(`${sql} WHERE sessions.thread_id = ?`).all(threadId);
+      const selected = threadIds ? new Set(threadIds) : undefined;
+      const sessions = rows.filter(row => !selected || selected.has(String(row.thread_id))).map((row): SqliteSessionRead => {
         const id = String(row.thread_id);
         const raw = JSON.parse(String(row.metadata)) as { sessions: Array<Record<string, unknown>> };
         if (raw.sessions?.length !== 1 || raw.sessions[0]?.tauThreadId !== id) throw new Error(`Session record does not match its storage key: ${id}`);
         const record = raw.sessions[0]!;
-        if (row.has_messages) {
+        let summary = row.summary === null ? undefined : JSON.parse(String(row.summary));
+        if (workerData.summaryVersion !== undefined && summary?.version !== workerData.summaryVersion) summary = undefined;
+        const hydrated = !usageOnly && (!metadataOnly || summary === undefined);
+        const usageHydrated = hydrated || usageOnly;
+        if (hydrated && row.has_messages) {
           const messages = messageRows.all(id);
           if (messages.length !== Number(row.message_count) || messages.some((message, index) => Number(message.ordinal) !== index)) {
             throw new Error(`Incomplete SQLite transcript: ${id}`);
           }
           record.messages = messages.map((message) => JSON.parse(String(message.payload)));
         }
-        if (row.has_usage) {
+        if (usageHydrated && row.has_usage) {
           const usage = usageRows.all(id);
           const start = Number(row.usage_start), next = Number(row.usage_next);
           if (usage.length !== next - start || usage.some((turn, index) => Number(turn.ordinal) !== start + index)) throw new Error(`Incomplete SQLite usage history: ${id}`);
           record.usageTurns = usage.map((turn) => JSON.parse(String(turn.payload)));
         }
-        return { id, version: Number(row.record_version), revision: String(row.revision), usageStart: Number(row.usage_start), usageNext: Number(row.usage_next), raw };
+        if (!hydrated && row.has_messages) record.messages = summary?.firstUser ? [summary.firstUser] : [];
+        return { messageCount: Number(row.message_count), summary, hydrated, usageHydrated, id, version: Number(row.record_version), revision: String(row.revision), usageStart: Number(row.usage_start), usageNext: Number(row.usage_next), raw };
       });
-      const models = db.prepare("SELECT instance_id,payload FROM models").all().map((row) => ({ id: String(row.instance_id), raw: JSON.parse(String(row.payload)) }));
+      const models = threadId !== undefined || threadIds !== undefined || usageOnly ? [] : db.prepare("SELECT instance_id,payload FROM models").all().map((row) => ({ id: String(row.instance_id), raw: JSON.parse(String(row.payload)) }));
       db.exec("COMMIT");
       return { sessions, models };
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   };
 
-  port.on("message", (request: { id: number; operation: string; changes?: SqliteChanges; digest?: string }) => {
+  port.on("message", (request: { id: number; operation: string; changes?: SqliteChanges; digest?: string; threadId?: string; threadIds?: string[]; summaries?: Array<{ id: string; revision: string; payload: string }> }) => {
     try {
       let value: unknown;
       if (request.operation === "initialize") {
@@ -232,6 +258,17 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
           write(request.changes!, true, request.digest!);
         }
       } else if (request.operation === "load") value = load();
+      else if (request.operation === "metadata") value = load(true);
+      else if (request.operation === "histories") value = load(false, undefined, false, request.threadIds);
+      else if (request.operation === "usage") value = load(true, undefined, true);
+      else if (request.operation === "history") value = load(false, request.threadId);
+      else if (request.operation === "summaries") transaction((db) => {
+        const save = db.prepare("INSERT INTO session_summaries VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload");
+        for (const summary of request.summaries!) {
+          if (db.prepare("SELECT revision FROM sessions WHERE thread_id = ?").get(summary.id)?.revision !== summary.revision) throw new Error("Session changed while publishing its metadata summary");
+          save.run(summary.id, summary.revision, summary.payload);
+        }
+      });
       else if (request.operation === "write") write(request.changes!);
       else if (request.operation === "close") { database?.close(); database = undefined; }
       else throw new Error("Unknown SQLite session operation");

@@ -1,4 +1,5 @@
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -790,4 +791,23 @@ it("switches compatible managed registrations using shared rollouts and separate
     expect(await credentials.read("work")).toMatchObject({ subject: "fixture-work", clientId: "oaiapp_fixture_work", tokens: { accessToken: "fixture-access-work" } });
     await expect(registry.invoke("tau.codex", "set-thread-tier", { threadId: "managed-continuity", tier: "fast" })).rejects.toThrow("do not offer service tiers");
   } finally { await thread.dispose(); }
+});
+
+it("keeps instance counts and CLI plan eligibility independent of transcript payloads", async () => {
+  const { registry } = await harness({ before: async root => {
+    const filePath = join(root, "agent", "tau", "codex-runtime-sessions.json");
+    const store = new CodexSessionStore({ filePath });
+    await store.appendMessages("unseen", root, [{ id: "user", role: "user", text: "seed", timestamp: 1 }]);
+    const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 0, turns: 1 };
+    await store.recordUsage("unseen", root, usage, { ...usage, provider: "openai", model: "fixture", at: 2 });
+    await store.dispose();
+    const db = new DatabaseSync(store.databasePath);
+    try {
+      for (const table of ["messages", "usage_turns"]) db.exec(`ALTER TABLE ${table} RENAME TO fixture_${table};
+        CREATE VIEW ${table} AS SELECT thread_id, ordinal, json('poison payload') AS payload FROM fixture_${table}`);
+    } finally { db.close(); }
+  } });
+  await expect(registry.invoke("tau.codex", "instances")).resolves.toMatchObject({ instances: [{ id: "default", threads: 1 }] });
+  const report = await registry.invoke("tau.codex", "sign-in-state") as { methods: Array<{ id: string; unavailable?: string }> };
+  expect(report.methods.find(method => method.id === "chatgpt-plan")?.unavailable).toContain("existing CLI threads");
 });

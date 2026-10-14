@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, rename, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -151,7 +151,7 @@ it("does not resurrect deletions or overwrite untouched threads/catalogs in stal
 it("writes no history rows or old text on metadata changes and exactly one message on append", async () => {
   const { filePath } = await fixture();
   let serializations = 0;
-  const old = { text: "x".repeat(1024 * 1024), toJSON() { serializations++; return { text: this.text }; } };
+  const old = { role: "user", text: "x".repeat(1024 * 1024), toJSON() { serializations++; return { text: this.text }; } };
   const store = makeStore(filePath);
   const record = { tauThreadId: "long", messages: [old] as unknown[], usageTurns: [{ tokens: 1 }] as unknown[], title: "before" };
   await store.write({ sessions: [{ id: "long", record, appendOnly: true }] });
@@ -318,21 +318,83 @@ it("detects changed published chunk text during an interrupted migration with an
   expect(query(filePath, (db) => db.prepare("SELECT payload FROM messages").get()?.payload)).toBe('"original"');
 });
 
-it("persists usage normalization from an existing SQLite record before marking it migrated", async () => {
+it("refuses to persist a metadata projection as a replacement or append, preserving unseen messages and usage", async () => {
+  const { filePath } = await fixture();
+  const writer = makeStore(filePath);
+  await writer.write({ sessions: [{ id: "unseen", record: { tauThreadId: "unseen", messages: ["first", "second"], usageTurns: [{ tokens: 2 }] } }] });
+  const cold = makeStore(filePath);
+  const preview = (await cold.loadMetadata())!.sessions[0]!;
+  expect(preview.messages).toEqual([]);
+  preview.title = "metadata only";
+  for (const appendOnly of [false, true]) await expect(cold.write({ sessions: [{ id: "unseen", record: preview, appendOnly }] })).rejects.toThrow("history is not loaded");
+  expect((await makeStore(filePath).load())?.sessions[0]).toEqual({ tauThreadId: "unseen", messages: ["first", "second"], usageTurns: [{ tokens: 2 }] });
+  const record = (await cold.loadSession("unseen"))!;
+  record.title = "hydrated";
+  const accepted = cold.write({ sessions: [{ id: "unseen", record, appendOnly: true }] });
+  const closing = cold.dispose();
+  await expect(cold.loadSession("unseen")).rejects.toThrow("disposed");
+  await Promise.all([accepted, closing]);
+  expect((await makeStore(filePath).load())?.sessions[0]).toEqual({ ...record });
+});
+
+it("refuses a published database replaced between cold metadata and selected history even after the reader closes", async () => {
+  const { filePath } = await fixture();
+  const store = makeStore(filePath);
+  await store.write({ sessions: [{ id: "selected", record: { tauThreadId: "selected", messages: ["kept"] } }] });
+  await store.dispose();
+  const cold = makeStore(filePath);
+  await cold.loadMetadata();
+  const bytes = await readFile(cold.databasePath);
+  await rename(cold.databasePath, `${cold.databasePath}.replaced`);
+  await writeFile(cold.databasePath, bytes);
+  await expect(cold.loadSession("selected")).rejects.toThrow("replaced");
+  await expect(cold.write({ models: [{ id: "default", models: ["new"] }] })).rejects.toThrow("replaced");
+});
+
+it("hydrates an explicit thousand-thread full listing without expiring individual history locks", async () => {
+  const { filePath } = await fixture();
+  const sessions = Array.from({ length: 1000 }, (_entry, index) => ({ tauThreadId: `thread-${index}`, messages: [`${index}:first`, `${index}:second`] }));
+  await writeFile(filePath, JSON.stringify({ version: 1, sessions }));
+  const store = makeStore(filePath);
+  await store.loadMetadata();
+  expect((await store.load())?.sessions.sort((left, right) => Number(left.tauThreadId.slice(7)) - Number(right.tauThreadId.slice(7)))).toEqual(sessions);
+});
+
+it("keeps a queued complete replacement's history identity through migration and later appends", async () => {
+  const { filePath } = await fixture();
+  await writeFile(filePath, JSON.stringify({ version: 1, sessions: [{ tauThreadId: "queued", messages: ["legacy"] }] }));
+  const store = makeStore(filePath);
+  const replacement = { tauThreadId: "queued", messages: ["accepted"] };
+  await store.write({ sessions: [{ id: "queued", record: replacement }] });
+  const record = (await store.loadSession("queued"))!;
+  expect(record.messages).toEqual(["accepted"]);
+  record.messages!.push("next");
+  await store.write({ sessions: [{ id: "queued", record, appendOnly: true }] });
+  expect((await makeStore(filePath).load())?.sessions[0]?.messages).toEqual(["accepted", "next"]);
+});
+
+it("normalizes usage only on selected hydration and rewrites raw cumulative rows before publishing its marker", async () => {
   const { filePath } = await fixture();
   const original = makeStore(filePath);
-  await original.write({ sessions: [{ id: "thread", record: { tauThreadId: "thread", messages: [], usageTurns: [{ cost: 10 }, { cost: 15 }] } }] });
+  await original.write({ sessions: ["selected", "unseen"].map(id => ({ id, record: { tauThreadId: id, messages: [], usageTurns: [{ cost: 10 }, { cost: 15 }] } })) });
   await original.dispose();
   const migrated = new SessionStorePersistence<Record, string>({ filePath, version: 1, immutableUsageTurns: true,
-    decode: (value) => {
+    decode: value => {
       const data = value as { sessions: Record[] };
-      return { sessions: data.sessions.map((record) => record.title === "migrated" ? record : {
+      return { sessions: data.sessions.map(record => record.title === "migrated" || !record.usageTurns?.length ? record : {
         ...record, title: "migrated", usageTurns: [{ cost: 10 }, { cost: 5 }],
       }) };
     } });
   stores.push(migrated);
-  const record = (await migrated.load())!.sessions[0]!;
-  await migrated.write({ sessions: [{ id: "thread", record, appendOnly: true }] });
+  const metadata = (await migrated.loadMetadata())!.sessions;
+  expect(metadata.every(record => record.title === undefined && record.usageTurns?.length === 0)).toBe(true);
+  await expect(migrated.write({ sessions: [{ id: "unseen", record: metadata.find(record => record.tauThreadId === "unseen")!, appendOnly: true }] })).rejects.toThrow("history is not loaded");
+  const record = (await migrated.loadSession("selected"))!;
+  expect(record.usageTurns).toEqual([{ cost: 10 }, { cost: 5 }]);
+  await migrated.write({ sessions: [{ id: "selected", record, appendOnly: true }] });
+  const persisted = (await makeStore(filePath).load())!.sessions;
+  expect(persisted.find(entry => entry.tauThreadId === "selected")).toMatchObject({ title: "migrated", usageTurns: [{ cost: 10 }, { cost: 5 }] });
+  expect(persisted.find(entry => entry.tauThreadId === "unseen")).toEqual({ tauThreadId: "unseen", messages: [], usageTurns: [{ cost: 10 }, { cost: 15 }] });
   await migrated.dispose();
-  expect((await makeStore(filePath).load())!.sessions[0]!.usageTurns).toEqual([{ cost: 10 }, { cost: 5 }]);
+  expect((await makeStore(filePath).load())!.sessions.find(entry => entry.tauThreadId === "selected")?.usageTurns).toEqual([{ cost: 10 }, { cost: 5 }]);
 });

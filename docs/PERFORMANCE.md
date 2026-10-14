@@ -2172,3 +2172,16 @@ The first CI run of the integrated PR also checked the separate web client: its 
 
 
 Integration through main `0041fcfa` produces 546,625 desktop and 558,135 web total gzip bytes. Both total caps increase by a further 250 bytes, to 546,750 and 558,250 respectively. Initial asset and timing budgets remain unchanged; these are explicit integration allowances, not size improvements.
+
+
+### October 14 deferred external-runtime history loading
+
+External SQLite stores now load session metadata, first-user seeds and versioned usage summaries before reading full histories. Opening or mutating a thread hydrates that thread; explicit transcript search may hydrate multiple threads. After migration or summary backfill, metadata listing reads no message or usage payload rows. Dated usage reports read usage rows without messages. Codex and Claude instance counts and Codex CLI ownership checks use metadata listings.
+
+A local comparison against the initial SQLite implementation used three fresh Node processes per scenario, warm filesystem cache, explicit GC and roughly 1-KiB messages. For 1,000 threads with 200 messages each, median catalog time fell from 1,181.7 to 94.9 ms and retained additional RSS from 274.1 to 15.8 MiB. Opening the selected thread then cost 36.3 ms. A final integrated rerun measured 120.5 ms catalog load and 15.2 MiB additional RSS for the same 1,000-thread fixture, with 44.4 ms selected open. These are fixture measurements, not production latency percentiles.
+
+The work moves to first open: for one 20,000-message thread, catalog time fell from 198.5 to 62.7 ms, but selected open rose from 1.6 to 174.2 ms. Total time to open that long thread increased. Histories still load in full on first open and remain cached; loading only recent messages and paging older messages is not implemented. Existing databases require a one-time summary backfill, and an older writer can invalidate a summary by changing its session revision.
+
+Hydration installs the adapter record synchronously before publishing loaded state. Later promise continuations do not install stale records. Controlled real-SQLite tests cover appends and deletion at that boundary across all six public stores, both selected and bulk readers, subsequent mutations and fresh-store contents. Claude summary versions invalidate summaries created before cumulative usage normalization; metadata reads do not publish the accounting marker, and normalized usage rows and that marker commit together.
+
+`node scripts/session-cold-start-benchmark.mjs <output.json>` measures catalog load, first open, first write and RSS while asserting payload isolation and exact message order. The existing `npm run benchmark:sessions -- --check` retains its row-write gates. This follow-up does not raise timing or bundle budgets.

@@ -716,7 +716,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       };
 
       const instancesReport = async (): Promise<CodexInstancesReport> => {
-        const threads = await store.list();
+        const threads = await store.listMetadata();
         return {
           instances: settings.list().map((instance) => ({
             ...instance,
@@ -902,7 +902,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       });
       // Each thread's running total and its turns, for the Usage kit; read from the store, never from OpenAI.
       context.registerCommand("usage", async () => ({
-        threads: (await store.list()).map((entry) => {
+        threads: (await store.listUsage()).map((entry) => {
           const model = entry.model ?? entry.observedModel;
           return {
             threadId: entry.tauThreadId,
@@ -962,7 +962,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           onExit: () => undefined,
         });
       };
-      const ownsCliThreads = async (id: string) => (await store.list()).some((entry) => (entry.instance ?? DEFAULT_INSTANCE_ID) === id || entry.accountInstance === id);
+      const ownsCliThreads = async (id: string) => (await store.listMetadata()).some((entry) => (entry.instance ?? DEFAULT_INSTANCE_ID) === id || entry.accountInstance === id);
       /** A cancelled sign-in stops waiting; the download goes on for the next attempt. */
       const waitForManaged = async (flow: SignInFlowContext): Promise<void> => {
         const say = (progress: ManagedCodexState) => {

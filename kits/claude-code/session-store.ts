@@ -463,6 +463,13 @@ export class ClaudeRuntimeSessionStore {
       filePath: options.filePath,
       version: CURRENT_VERSION,
       logger: options.logger, immutableUsageTurns: true,
+      // Older summaries tallied SDK cumulative snapshots as independent turns.
+      summaryVersion: 1,
+      publishHydrated: (id, record) => {
+        if (record) this.records.set(id, record);
+        else this.records.delete(id);
+      },
+      summarizeUsage: record => record.usageTurns ? mergeTallies(record.usageTurns) : undefined,
       decode: (value) => {
         const sessions = decodeSessions(value);
         return sessions ? { sessions } : undefined;
@@ -503,7 +510,7 @@ export class ClaudeRuntimeSessionStore {
 
   private async readFromDisk(): Promise<void> {
     try {
-      const data = await this.persistence.load();
+      const data = await this.persistence.loadMetadata();
       if (data) {
         for (const record of data.sessions) this.records.set(record.tauThreadId, record);
         await chmod(this.options.filePath, 0o600).catch(() => undefined);
@@ -519,14 +526,40 @@ export class ClaudeRuntimeSessionStore {
   /** What a listed thread was billed for, per model, for its row before it opens. */
   talliesOf(tauThreadId: string): UsageTally[] {
     const record = this.records.get(tauThreadId);
+    const summary = this.persistence.isUnloaded(tauThreadId) ? this.persistence.usageTallies(tauThreadId) : undefined;
+    if (summary) return summary as UsageTally[];
     if (!record?.usageTurns) return record ? mergeTallies(usageTurnsOf(record)) : [];
     let merged = this.merged.get(record.usageTurns);
     if (!merged) this.merged.set(record.usageTurns, merged = mergeTallies(record.usageTurns));
     return merged.map((tally) => ({ ...tally }));
   }
 
+  /** Dated usage reports do not need message histories. */
+  async listUsage(): Promise<Array<Omit<ClaudeRuntimeSessionRecord, "messages">>> {
+    await this.load();
+    const persisted = await this.persistence.loadUsage();
+    return persisted.map(record => this.persistence.isUnloaded(record.tauThreadId) ? record : this.records.get(record.tauThreadId) ?? record)
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(record => {
+        const { messages: _messages, ...usage } = cloneRecord({ ...record, messages: [] });
+        return usage;
+      });
+  }
+
+  private async hydrateMany(threadIds: string[]): Promise<void> {
+    const ids = threadIds.filter(id => this.persistence.isUnloaded(id));
+    if (!ids.length) return;
+    await this.persistence.loadSessions(ids);
+  }
+
+  private async hydrate(tauThreadId: string): Promise<void> {
+    if (!this.persistence.isUnloaded(tauThreadId)) return;
+    await this.persistence.loadSession(tauThreadId);
+  }
+
   async get(tauThreadId: string): Promise<ClaudeRuntimeSessionRecord | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     return record ? cloneRecord(record) : undefined;
   }
@@ -534,6 +567,8 @@ export class ClaudeRuntimeSessionStore {
   /** Returns the durable adapter sessions for startup/index recovery, of one instance when named (`default` included). */
   async list(cwd?: string, instance?: string): Promise<ClaudeRuntimeSessionRecord[]> {
     await this.load();
+    await this.hydrateMany([...this.records.values()]
+      .filter((record) => (cwd === undefined || record.cwd === cwd) && (instance === undefined || sameInstance(record, instance))).map(record => record.tauThreadId));
     return [...this.records.values()]
       .filter((record) => (cwd === undefined || record.cwd === cwd) && (instance === undefined || sameInstance(record, instance)))
       .sort((left, right) => right.updatedAt - left.updatedAt)
@@ -548,12 +583,13 @@ export class ClaudeRuntimeSessionStore {
       .map((record) => {
         const { messages, usageTurns: _usageTurns, ...metadata } = record;
         const firstUser = sessionMessageIndex(messages).firstUser;
-        return { ...cloneRecord({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: messages.length };
+        return { ...cloneRecord({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: this.persistence.messageCount(record.tauThreadId) ?? messages.length };
       });
   }
 
   private async ensureRecord(tauThreadId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const existing = this.records.get(tauThreadId);
     if (existing) {
       if (existing.cwd !== cwd) throw new Error("This thread belongs to another workspace.");
@@ -566,6 +602,7 @@ export class ClaudeRuntimeSessionStore {
   /** The thread's record, created when it has none. */
   async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<ClaudeRuntimeSessionRecord> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const existing = this.records.get(tauThreadId);
     if (existing && existing.cwd !== cwd) throw new Error("Claude runtime session belongs to another workspace.");
     if (existing && instance !== undefined && !sameInstance(existing, instance)) throw new Error("This thread runs on another instance.");
@@ -821,6 +858,7 @@ export class ClaudeRuntimeSessionStore {
   /** Takes a thread's record out for the host's trash; the CLI's own history stays where it is. */
   async take(tauThreadId: string): Promise<ClaudeRuntimeSessionRecord | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     if (!record) return undefined;
     this.records.delete(tauThreadId);

@@ -267,7 +267,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       context.registerCommand("logout", async () => { await logout(); return { signedOut: true }; }, { long: true });
       // Each thread's running total, for the Usage kit; read from the store, never from Google.
       context.registerCommand("usage", async () => ({
-        threads: (await store.list()).map((entry) => {
+        threads: (await store.listUsage()).map((entry) => {
           const model = entry.observedModel ?? entry.model;
           return {
             threadId: entry.tauThreadId,
