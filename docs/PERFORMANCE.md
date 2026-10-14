@@ -2172,3 +2172,5 @@ The first CI run of the integrated PR also checked the separate web client: its 
 
 
 Integration through main `0041fcfa` produces 546,625 desktop and 558,135 web total gzip bytes. Both total caps increase by a further 250 bytes, to 546,750 and 558,250 respectively. Initial asset and timing budgets remain unchanged; these are explicit integration allowances, not size improvements.
+
+The total gzipped JavaScript budgets rise by 3,000 bytes, to 549,750 on the desktop and 561,250 in the browser, for links that open Tau with a prepared prompt (`tau://new?prompt=…`). The link flow and its confirmation add about 2,400 bytes. Loading them only when a link arrives made the total larger, because the total counts every chunk; the initial JavaScript budget, which a split would protect, has more than 30,000 bytes of room. The initial budgets are unchanged.
