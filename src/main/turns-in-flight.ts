@@ -15,6 +15,9 @@ export interface InFlightTurn {
   prompt: { text: string; images?: number };
   /** The host process that recorded it; markers from before this field have none. */
   writer?: { pid: number };
+  /** Consecutive restart continuations; absent on older markers and user turns. */
+  continuationCount?: number;
+  waitingForAnswer?: boolean;
 }
 
 function processAlive(pid: number): boolean {
@@ -41,6 +44,9 @@ function decodeTurn(value: unknown): InFlightTurn | undefined {
       ...(typeof prompt.images === "number" ? { images: prompt.images } : {}),
     },
     ...(typeof writer?.pid === "number" ? { writer: { pid: writer.pid } } : {}),
+    ...(Number.isSafeInteger(entry.continuationCount) && (entry.continuationCount as number) >= 0
+      ? { continuationCount: entry.continuationCount as number } : {}),
+    ...(entry.waitingForAnswer === true ? { waitingForAnswer: true } : {}),
   };
 }
 
@@ -63,6 +69,7 @@ export class TurnsInFlight {
   private pending: Promise<void> = Promise.resolve();
   private loaded = false;
   private frozen = false;
+  private readonly continuations = new Map<string, number>();
 
   constructor(private readonly options: TurnsInFlightOptions = {}) {}
 
@@ -116,11 +123,43 @@ export class TurnsInFlight {
 
   record(turn: InFlightTurn): void {
     if (this.frozen) return;
+    const continuationCount = this.continuations.get(turn.sessionId);
     this.turns.set(turn.sessionId, {
       ...turn,
+      ...(continuationCount !== undefined ? { continuationCount } : {}),
       writer: { pid: process.pid },
       prompt: { ...turn.prompt, text: turn.prompt.text.slice(0, MAX_PROMPT_TEXT) },
     });
+    this.persist();
+  }
+
+  /** Saves the attempt before a runtime can crash, then transfers it to its new turn marker. */
+  async continuing(marker: InFlightTurn, prompt: () => Promise<void>): Promise<void> {
+    this.continuations.set(marker.sessionId, (marker.continuationCount ?? 0) + 1);
+    try {
+      this.record(marker);
+      await this.flush();
+      await prompt();
+    } finally {
+      this.continuations.delete(marker.sessionId);
+      this.clear(marker.sessionId, marker.turnId);
+    }
+  }
+
+  setWaitingForAnswer(sessionId: string, waitingForAnswer: boolean): void {
+    if (this.frozen) return;
+    const held = this.turns.get(sessionId);
+    if (!held) return;
+    this.turns.set(sessionId, { ...held, waitingForAnswer });
+    this.persist();
+  }
+
+  /** A user message can also join a running turn without replacing its marker. */
+  resetContinuations(sessionId: string): void {
+    if (this.frozen || this.continuations.has(sessionId)) return;
+    const held = this.turns.get(sessionId);
+    if (!held?.continuationCount) return;
+    this.turns.set(sessionId, { ...held, continuationCount: 0 });
     this.persist();
   }
 

@@ -1544,7 +1544,7 @@ export class PiHost {
       if (preflightState !== "pending") return;
       preflightState = result.accepted ? "accepted" : "rejected";
       onPreflightResult?.(result);
-      if (result.accepted) resolvePreflight();
+      if (result.accepted) { this.turnsInFlight.resetContinuations(thread.threadId); resolvePreflight(); }
       else {
         failUnpersistedMarker();
         if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
