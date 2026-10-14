@@ -77,8 +77,8 @@ button > svg { pointer-events: none; }
 /* macOS draws its traffic lights over the sidebar's top: that strip is room for them and the window's handle. */
 .app-shell.window-inset { --window-top: 40px; }
 .sidebar-top { grid-area: 1 / 1 / 2 / 2; align-self: start; z-index: 2; height: var(--window-top, 0px); -webkit-app-region: drag; }
-/* Past the traffic lights and the sidebar toggle, centred on them (26 px down). */
-.sidebar-brand { display: flex; align-items: center; gap: 6px; height: 28px; margin: 12px 0 0 calc(114px / var(--page-zoom, 1)); }
+/* Just past the native traffic lights, centred on them (26 px down). Their position ignores page zoom. */
+.sidebar-brand { display: flex; align-items: center; gap: 6px; height: 28px; margin: 12px 0 0 calc(88px / var(--page-zoom, 1)); }
 .sidebar-brand-mark { width: 16px; height: 16px; flex: none; }
 .tau-mark rect { fill: var(--brand); }
 .tau-mark path { fill: none; stroke: var(--brand-on); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }

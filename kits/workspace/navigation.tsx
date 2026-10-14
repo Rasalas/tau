@@ -536,9 +536,9 @@ export function ProjectSwitcherPopover({
 }
 
 /**
- * The rail's project filter between the search and "+": a folder for every
- * project, the shown project's tile and name while one is (design 1k). Its
- * footer opens a project and the project settings.
+ * The rail's project filter, followed by search and "+". A chosen project's
+ * tile and name replace "All projects"; its footer opens a project and the
+ * project settings.
  */
 function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
   const threadStore = useThreadStore();
@@ -1255,7 +1255,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     <aside className="session-rail">
       <div className="sidebar-controls">
         <div className="rail-head">
-          {/* On macOS it sits right of the traffic lights, where the closed sidebar's title bar has it too. */}
+          {/* On macOS it sits at the title bar's right edge, above the new-thread button. */}
           {actions.toggleSidebar ? <button
             type="button"
             className="sidebar-action sidebar-toggle"
@@ -1266,7 +1266,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             <PanelLeft size={16} />
           </button> : null}
           <ProjectFilterButton actions={actions} />
-          {/* On macOS these sit in the title bar strip beside the traffic lights. */}
+          {/* Search and new thread share the project filter's row on every platform. */}
           <div className="rail-head-actions">
             {/* Design 1a: the palette's door, ⌘K from anywhere. */}
             <button
