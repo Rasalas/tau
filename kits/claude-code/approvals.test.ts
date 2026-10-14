@@ -6,11 +6,10 @@ import {
 
 describe("Claude approvals", () => {
   it("names what a tool is about to do and offers the three answers", () => {
-    expect(summarizeToolInput("Bash", { command: "  rm   -rf build ", description: "clean" })).toBe("Bash: rm -rf build");
+    expect(summarizeToolInput("Bash", { command: "  rm   -rf build ", description: "clean" })).toBe("Bash:   rm   -rf build ");
     expect(summarizeToolInput("Read", { file_path: "/repo/a.ts" })).toBe("Read: /repo/a.ts");
     expect(summarizeToolInput("mcp__x__do", { count: 3 })).toBe('mcp__x__do: {"count":3}');
     expect(summarizeToolInput("Thing", {})).toBe("Thing");
-    expect(summarizeToolInput("Bash", { command: "x".repeat(300) })).toHaveLength("Bash: ".length + 240);
     expect(permissionPrompt({ toolName: "Bash", input: { command: "ls" }, description: "List files", blockedPath: "/etc" })).toEqual({
       kind: "select",
       title: "Claude wants to run Bash",
@@ -18,6 +17,14 @@ describe("Claude approvals", () => {
       options: [ALLOW, ALLOW_SESSION, DENY],
     });
     expect(permissionPrompt({ toolName: "Bash", input: {}, title: "Claude wants to list files", displayName: "Run command" }).title).toBe("Claude wants to list files");
+  });
+
+  it.each([" ", "\n"])("shows a complete long command with %j separators in the permission prompt", (separator) => {
+    const command = `printf '%s' '${"two  spaces ".repeat(60)}'${separator}printf 'finished'`;
+    expect(command.length).toBeGreaterThan(600);
+    const prompt = permissionPrompt({ toolName: "Bash", input: { command }, description: "Print text" });
+    expect(prompt.message).toBe(`Bash: ${command}\nPrint text`);
+    expect(prompt.options).toEqual([ALLOW, ALLOW_SESSION, DENY]);
   });
 
   it("maps the answer onto the SDK's result, and keeps a session allowance out of the settings files", () => {

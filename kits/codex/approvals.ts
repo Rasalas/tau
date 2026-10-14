@@ -64,7 +64,7 @@ const LEGACY_WORDS = { accept: "approved", session: "approved_for_session", decl
 
 function approval(title: string, message: string, words: typeof V2_WORDS, wrap: (word: string) => unknown): ApprovalDialog {
   return {
-    prompts: [{ kind: "select", title, ...(message.trim() ? { message: clip(message) } : {}), options: [ALLOW, ALLOW_SESSION, DENY] }],
+    prompts: [{ kind: "select", title, ...(message.trim() ? { message } : {}), options: [ALLOW, ALLOW_SESSION, DENY] }],
     resultFor: ([answer]) => wrap(decision(answer, words)),
   };
 }

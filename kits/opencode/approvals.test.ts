@@ -38,6 +38,13 @@ describe("OpenCode's requests on the dialog surface", () => {
     expect(dialog.reply({ value: ALLOW, typed: true })).toBe("reject");
   });
 
+  it("shows a command longer than 600 characters in full", () => {
+    const command = `printf '%s' '${"two  spaces ".repeat(60)}'\nprintf 'finished'`;
+    expect(command.length).toBeGreaterThan(600);
+    const dialog = permissionDialog({ id: "per_2", sessionID: "ses_1", permission: "bash", patterns: [command], metadata: { command } });
+    expect(dialog.prompt).toMatchObject({ message: command });
+  });
+
   it("pages several questions and answers each with labels or typed text", () => {
     const dialogs = questionDialogs([
       { question: "Which database?", header: "DB", options: [{ label: "Postgres", description: "" }, { label: "SQLite", description: "" }] },

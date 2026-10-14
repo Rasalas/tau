@@ -113,7 +113,8 @@ export function permissionDialog(request: PermissionRequest): { prompt: BackendP
   const lines = [detail, always.length ? `For this session: ${always.join(", ")}` : ""].filter(Boolean).join("\n");
   const title = TITLES[request.permission] ?? `OpenCode asks for “${request.permission}”`;
   return {
-    prompt: { kind: "select", title, ...(lines ? { message: clip(lines) } : {}), options: [ALLOW, ALLOW_SESSION, DENY] },
+    // The user allows exactly what they read, so the command is never cut.
+    prompt: { kind: "select", title, ...(lines.trim() ? { message: lines.trim() } : {}), options: [ALLOW, ALLOW_SESSION, DENY] },
     reply: (answer) => {
       if (!answer || !("value" in answer) || answer.typed) return "reject";
       return answer.value === ALLOW ? "once" : answer.value === ALLOW_SESSION ? "always" : "reject";
