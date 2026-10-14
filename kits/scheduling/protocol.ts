@@ -1,5 +1,12 @@
 export const SCHEDULING_ID = "tau.scheduling";
-export type Schedule = { kind: "once"; at: string } | { kind: "daily"; time: string; timezone: "UTC" } | { kind: "webhook" };
+export type Schedule =
+  | { kind: "once"; at: string }
+  | { kind: "daily"; time: string; timezone: "UTC" }
+  /** Five-field cron in an IANA zone, the composer's "Repeat": `0 9 * * 1,3,5`, `Europe/Berlin`. */
+  | { kind: "cron"; expression: string; timezone: string }
+  | { kind: "webhook" };
+/** Kinds that have a next occurrence after each run. */
+export const repeats = (schedule: Schedule) => schedule.kind === "daily" || schedule.kind === "cron";
 export type AccessLevel = "read-only" | "ask" | "auto" | "full";
 export interface JobConfig {
   workspaceStrategy: "worktree" | "current";

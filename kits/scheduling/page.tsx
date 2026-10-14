@@ -5,7 +5,7 @@ import { Dialog, errorMessage, tooltipProps, useThreadStore, type PageProps, typ
 import { AutomationEditor } from "./editor.js";
 import { needsDecision, type SchedulingFeed } from "./feed.js";
 import type { Job, ManagementState } from "./protocol.js";
-import { busyJob, statusText, utc } from "./job-summary.js";
+import { busyJob, scheduleText, statusText } from "./job-summary.js";
 export { statusText } from "./job-summary.js";
 
 function ResolveDialog({ job, feed, onClose, openThread }: { job: Job; feed: SchedulingFeed; onClose(): void; openThread(): void }) {
@@ -45,7 +45,7 @@ function AutomationRow({ job, state, feed, actions, edit, resolve }: { job: Job;
   const disabled = busy || !state.canManage;
   const running = busyJob(job);
   return <article className={`scheduling-row ${needsDecision(job) ? "needs-you" : ""}`}>
-    <div className="scheduling-row-main"><h3>{job.config.name}</h3><p>{statusText(job)}</p><small>{job.config.workspace.split(/[\\/]/u).pop()} · {job.config.backend}{job.config.schedule.kind === "daily" ? ` · Every day ${job.config.schedule.time} UTC` : job.config.schedule.kind === "webhook" ? " · Signed webhook" : ` · Once ${utc(job.config.schedule.at)}`}</small></div>
+    <div className="scheduling-row-main"><h3>{job.config.name}</h3><p>{statusText(job)}</p><small>{job.config.workspace.split(/[\\/]/u).pop()} · {job.config.backend}{` · ${scheduleText(job.config.schedule)}`}</small></div>
     <div className="scheduling-row-actions">
       {job.status === "held" || job.status === "failed" ? <><button disabled={disabled || !state.enabled} onClick={() => void run("resolve", { id: job.id, decision: "run" })}>{job.status === "failed" ? "Try again" : "Run now"}</button><button disabled={disabled} onClick={() => void run("resolve", { id: job.id, decision: "skip" })}>Skip</button></> : job.status === "uncertain" ? <><button onClick={job.lastRun?.threadId ? open : () => actions.notify('Search recent threads titled "Scheduled:" before resolving this run.')}>{job.lastRun?.threadId ? "Find its thread" : "Inspect threads"}</button><button disabled={disabled} onClick={resolve}>Resolve…</button></> : running ? <button disabled={!job.lastRun?.threadId} onClick={open}>Open thread</button> : <button type="button" role="switch" aria-checked={job.enabled} aria-label={`${job.enabled ? "Turn off" : "Turn on"} ${job.config.name}`} className="scheduling-switch" disabled={disabled} onClick={() => void run(job.enabled ? "disable" : "enable")} {...tooltipProps(!state.canManage ? "Manage automations in this machine's own Tau window." : undefined)}><span /></button>}
       <details className="scheduling-menu" open={menu} onToggle={(event) => setMenu(event.currentTarget.open)}><summary aria-label={`More actions for ${job.config.name}`}><MoreHorizontal size={16} /></summary><div>

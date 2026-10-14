@@ -8,6 +8,7 @@ import type { WorkspaceSummaryService } from "./summary.js";
 const Page = lazy(() => import("./page.js"));
 const Secrets = lazy(() => import("./secret-card.js"));
 const Summary = lazy(() => import("./summary.js"));
+const Planner = lazy(() => import("./planner.js"));
 
 const schedulingExtension: DesktopExtension = {
   id: SCHEDULING_ID, name: "Automations",
@@ -22,6 +23,7 @@ const schedulingExtension: DesktopExtension = {
     });
     plugin.registerCommand({ id: "scheduling.open", label: "Automations", group: "Extensions", access: "read", run: (actions) => actions.openPage?.("scheduling.automations") });
     plugin.registerCommand({ id: "scheduling.new", label: "New automation", group: "Extensions", run: (actions) => actions.openPage?.("scheduling.automations", { create: true }) });
+    plugin.registerComposerPlanner({ id: "scheduling.repeat", label: "Repeat", order: 10, profiles: ["desktop", "web", "compact"], Component: (props) => <Suspense fallback={<div className="plan-sheet-body" />}><Planner {...props} feed={feed} /></Suspense> });
     plugin.registerRegion({ id: "scheduling.private-secret", placement: "composer-above", order: 15, profiles: ["desktop", "web", "compact"], Component: (props) => <Suspense fallback={null}><Secrets {...props} feed={feed} /></Suspense> });
   },
 };

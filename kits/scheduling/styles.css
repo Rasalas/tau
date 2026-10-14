@@ -38,7 +38,7 @@
 .scheduling-dialog form { display: flex; flex-direction: column; gap: 14px; }
 .scheduling-dialog header p { color: var(--muted); font-size: var(--text-xs); line-height: 1.6; }
 .scheduling-dialog label { display: flex; flex-direction: column; gap: 6px; font-size: var(--text-xs); color: var(--ink-3); }
-.scheduling-dialog :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--inset); color: var(--ink); font: inherit; }
+.scheduling-dialog :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select):not(.scheduling-repeat-row *) { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--inset); color: var(--ink); font: inherit; }
 .scheduling-dialog textarea { resize: vertical; line-height: 1.55; }
 .scheduling-dialog small { color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
 .scheduling-checkbox { display: flex !important; flex-direction: row !important; align-items: center; gap: 8px; font-size: var(--text-xs); }
@@ -79,15 +79,43 @@
 .scheduling-summary button:focus-visible { outline: 2px solid var(--acid); outline-offset: 2px; }
 .scheduling-summary .scheduling-switch:hover:not(:disabled) { background: var(--line); }
 .scheduling-summary .scheduling-switch[aria-checked="true"]:hover:not(:disabled) { background: var(--acid); }
+/* Repeat: the builder shared by the composer's Plan sheet and the editor. */
+.scheduling-plan { display: contents; }
+.scheduling-plan-note { margin: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
+.scheduling-repeat { display: flex; flex-direction: column; gap: 12px; color: var(--ink-2); font-size: var(--text-sm); }
+.scheduling-repeat-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.scheduling-repeat-row > span { color: var(--muted); }
+.scheduling-repeat-row > small { color: var(--faint); font-size: var(--text-xs); }
+.scheduling-repeat-row :is(select, input), .scheduling-repeat-cron input { box-sizing: border-box; height: 30px; padding: 0 8px; border: 1px solid var(--line-field); border-radius: var(--radius-sm); background: var(--field); color: var(--ink); font: inherit; font-variant-numeric: tabular-nums; }
+.scheduling-repeat-row :is(select, input):focus-visible, .scheduling-repeat-cron input:focus-visible { outline: none; border-color: var(--line-focus); box-shadow: 0 0 0 1.5px var(--focus); }
+.scheduling-repeat-custom { color: var(--ink-2) !important; overflow-wrap: anywhere; }
+.scheduling-repeat-days { display: flex; gap: 4px; }
+.scheduling-repeat-days button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line-field); border-radius: 50%; background: transparent; color: var(--ink-3); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.scheduling-repeat-days button:hover:not(:disabled) { background: var(--hover); }
+.scheduling-repeat-days button[aria-pressed="true"] { border-color: var(--acid-line); background: var(--acid-bg); color: var(--acid-text); }
+.scheduling-repeat-days button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.scheduling-repeat :disabled { opacity: .55; cursor: default; }
+.scheduling-repeat-next { margin: 0; color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.scheduling-repeat-cron { color: var(--muted); font-size: var(--text-xs); }
+.scheduling-repeat-cron > summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; user-select: none; }
+.scheduling-repeat-cron > summary::-webkit-details-marker { display: none; }
+.scheduling-repeat-cron > summary > svg { transition: transform var(--motion-fast, 120ms) ease; }
+.scheduling-repeat-cron[open] > summary > svg { transform: rotate(90deg); }
+.scheduling-repeat-cron code { color: var(--ink-3); font-family: var(--mono); }
+.scheduling-repeat-cron input { display: block; width: 100%; margin: 8px 0 6px; font-family: var(--mono); }
+.scheduling-repeat-cron input[aria-invalid="true"] { border-color: var(--danger-line); }
+.scheduling-repeat-cron small { color: var(--faint); }
 @media (max-width: 560px) {
   .scheduling-row-actions { flex-wrap: wrap; }
   .scheduling-row-actions button:not(.scheduling-switch) { min-height: 44px; }
   .scheduling-menu > summary { width: 44px; height: 44px; }
   .scheduling-dialog { width: 100%; max-height: calc(100dvh - 16px); margin: auto 0 0; border-radius: var(--radius-md) var(--radius-md) 0 0; }
   .dialog-backdrop:has(.scheduling-dialog) { align-items: flex-end; }
-  .scheduling-dialog :is(input:not([type="checkbox"]):not([type="radio"]), select, button), .scheduling-secret input, .scheduling-secret button { min-height: 44px; }
+  .scheduling-dialog :is(input:not([type="checkbox"]):not([type="radio"]), select, button):not(.scheduling-repeat-row *), .scheduling-secret input, .scheduling-secret button { min-height: 44px; }
+  .scheduling-repeat-row :is(select, input) { min-height: 40px; }
+  .scheduling-repeat-days button { width: 38px; height: 38px; }
   .scheduling-dialog :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select), .scheduling-secret input { font-size: max(16px, var(--type-input-min, 16px)); }
   .scheduling-secret footer { flex-wrap: wrap; }
   .scheduling-secret .primary { flex: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .scheduling-switch span { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .scheduling-switch span, .scheduling-repeat-cron > summary > svg { transition: none; } }
