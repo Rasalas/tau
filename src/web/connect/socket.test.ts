@@ -12,6 +12,19 @@ function fixture() {
   return { socket, tls, relay, failure, createRelay };
 }
 describe("browser relay socket lifecycle", () => {
+  it.each([ArrayBuffer, SharedArrayBuffer])("copies a %s view into ArrayBuffer-backed relay bytes", async (BufferType) => {
+    const { socket, tls, relay } = fixture(); await Promise.resolve();
+    const storage = new Uint8Array(new BufferType(4)); storage.set([99, 1, 2, 88]);
+    vi.mocked(tls.drain).mockReturnValueOnce(storage.subarray(1, 3));
+    relay.onmessage!({ data: '{"type":"authenticated"}' } as MessageEvent);
+    const sent = vi.mocked(relay.send).mock.calls[0]![0] as Uint8Array;
+    expect([...sent]).toEqual([1, 2]);
+    expect(sent.buffer).toBeInstanceOf(ArrayBuffer);
+    expect(sent.buffer).not.toBe(storage.buffer);
+    storage.fill(0);
+    expect([...sent]).toEqual([1, 2]);
+    socket.close();
+  });
   it("sends only relay authentication until TLS and the inner upgrade finish", async () => {
     const { socket, tls, relay, createRelay } = fixture(); await Promise.resolve();
     const opened = vi.fn(); socket.onopen = opened;

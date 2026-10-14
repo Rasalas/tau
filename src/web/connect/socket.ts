@@ -84,7 +84,7 @@ export class BrowserConnectSocket implements HostSocket, PairingSocket {
     // Browser sockets have no writable event. Bound the browser's queue while
     // rustls keeps the remaining records and tungstenite keeps pending writes.
     while (this.relay.bufferedAmount < 256 * 1024) {
-      const bytes = tunnel.drain(); if (!bytes.length) break; this.relay.send(bytes);
+      const bytes = tunnel.drain(); if (!bytes.length) break; this.relay.send(new Uint8Array(bytes));
     }
     if (tunnel.closed()) { this.finish(tunnel.close_code(), tunnel.close_reason()); return; }
     if (this.relay.bufferedAmount > 0) this.timer = setTimeout(() => { try { this.pump(); } catch (error) { this.fail(String(error)); } }, 8);
