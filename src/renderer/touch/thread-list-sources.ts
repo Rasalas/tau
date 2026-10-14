@@ -42,3 +42,18 @@ export function useThreadListSources(registry: ExtensionRegistry): OutsideThread
   };
   return useSyncExternalStore(subscribe, read);
 }
+
+/** Whether a kit's layout (`registerThreadListLayout`) turns the Working group on, followed while the list shows. */
+export function useThreadListWorking(registry: ExtensionRegistry): boolean {
+  const subscribe = useCallback((listener: () => void) => {
+    let stops: Array<() => void> = [];
+    const follow = () => {
+      for (const stop of stops) stop();
+      stops = registry.getThreadListLayouts().map((layout) => layout.subscribe(listener));
+    };
+    follow();
+    const stopRegistry = registry.subscribeRegistrations(() => { follow(); listener(); });
+    return () => { stopRegistry(); for (const stop of stops) stop(); };
+  }, [registry]);
+  return useSyncExternalStore(subscribe, () => registry.getThreadListLayouts().some((layout) => layout.working()));
+}

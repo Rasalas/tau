@@ -1151,7 +1151,7 @@ turn's steps and its agents there. An older core never draws the placement.
 lists threads that are not this host's among a phone's or tablet's own:
 another machine's. Each entry (`ThreadListEntry`) has a `key` that is never a
 thread id of this host, the thread's `session` as its own host lists it,
-`running`, `waiting` while it waits for an answer there (API 1.35.0), `opening` while `open` is under way, `settled` for the settled
+`running`, `waiting` while it waits for an answer there (API 1.35.0), `background` while work there wakes it again, such as a background task or a watched pull request (API 1.64.0), `opening` while `open` is under way, `settled` for the settled
 shelf, the `machine` it runs on (`{ name, icon }`, drawn after the project
 on the row's project line) and `unavailable`, the reason it cannot be reached
 now, which greys the row. The rows stand among the host's by the list's own
@@ -3904,6 +3904,20 @@ Thread Rail's snooze and sibling marks and Servers Kit's deployment mark appear
 on the phone with their own icons and tooltips. Call it as
 `registerThreadListAccessory?.(…)`: a phone whose bundle predates it ignores the call, and the
 kit's `engines.api` stays where it was, so that phone keeps the kit.
+
+### The compact list's Working group (API 1.64.0)
+
+`registerThreadListLayout({ id, subscribe, working })` gives a kit a say over a
+phone's or tablet's thread list. While any layout's `working()` answers true,
+threads that run or wait on work that wakes them (a row in the `working` or
+`background` state, not pinned or settled) fold into a Working shelf below the
+active threads, folded by default. The active threads then go newest first by
+when each last came back to the user, and Working lists the thread last sent
+work first; a run ending or waking inside it does not move its row. The client
+stamps both moments itself. `subscribe`'s listener runs when the answer
+changes. Thread Rail Kit registers one that follows its Working section
+setting, so the desktop rail and the compact list agree. Call it as
+`registerThreadListLayout?.(…)`, so an older phone keeps the kit.
 
 ### Parts and customizations: `registerCustomizations` (API 1.62.0)
 
