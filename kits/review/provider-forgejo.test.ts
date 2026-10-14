@@ -156,13 +156,26 @@ describe("the Forgejo provider through tea", () => {
 
   it("submits a review with its verdict and line comments on the head it read", async () => {
     const { invoke, calls } = await harness();
-    await invoke("pr-review", { url: URL_14486, event: "request-changes", body: "Not yet.", comments: [{ id: "c1", path: "a.go", line: 3, side: "new", body: "Here." }] });
+    await invoke("pr-review", { url: URL_14486, event: "request-changes", body: "  Not yet.  ", comments: [{ id: "c1", path: "a.go", line: 3, side: "new", body: "Here." }] });
     const review = calls.find((call) => call.args.at(-1) === `${API}/pulls/14486/reviews` && call.args.includes("POST"))!;
     expect(JSON.parse(review.input!)).toEqual({
       event: "REQUEST_CHANGES", body: "Not yet.", commit_id: "1cbdbe71bcc602d20a7d254ead5e3ae4ecc12a4a",
       comments: [{ path: "a.go", body: "Here.", new_position: 3 }],
     });
     await expect(invoke("pr-comment", { url: URL_14486, threadId: "23383834", body: "Reply" })).rejects.toThrow(/Forgejo does not let Tau reply/u);
+  });
+
+  it.each(["", " \n\t "])("rejects a change request with blank summary %j before posting its line comments", async (body) => {
+    const { invoke, calls } = await harness();
+    await expect(invoke("pr-review", { url: URL_14486, event: "request-changes", body, comments: [{ id: "c1", path: "a.go", line: 3, side: "new", body: "Here." }] })).rejects.toThrow("Forgejo requires a summary to request changes.");
+    expect(calls.filter((call) => call.args.includes("POST"))).toEqual([]);
+  });
+
+  it.each(["comment", "approve"])("allows a %s review with only line comments", async (event) => {
+    const { invoke, calls } = await harness();
+    await invoke("pr-review", { url: URL_14486, event, body: "", comments: [{ id: "c1", path: "a.go", line: 3, side: "new", body: "Here." }] });
+    const review = calls.find((call) => call.args.at(-1) === `${API}/pulls/14486/reviews` && call.args.includes("POST"))!;
+    expect(JSON.parse(review.input!)).toMatchObject({ event: event === "approve" ? "APPROVED" : "COMMENT", body: "", comments: [{ path: "a.go", body: "Here.", new_position: 3 }] });
   });
 
   it("reads a file at the head commit through the raw endpoint, with a sentence for what it cannot show", async () => {
