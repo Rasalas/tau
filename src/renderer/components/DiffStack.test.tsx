@@ -53,10 +53,25 @@ describe("DiffStack", () => {
   });
 
   it("bounds mounted diffs and DOM nodes after scrolling all 300 files of 150 lines", async () => {
-    const { container, visibility } = setup(300);
-    for (let index = 0; index < 300; index += 1) {
-      visibility(index === 0 ? [[index, true]] : [[index - 1, false], [index, true]]);
+    const { container, files, regions, visibility } = setup(300);
+    const windowSize = 10;
+    let previous: number[] = [];
+    // Mount every file, with fewer full-stack updates than a one-file scroll step.
+    for (let start = 0; start < files.length; start += windowSize) {
+      const current = Array.from({ length: Math.min(windowSize, files.length - start) }, (_, offset) => start + offset);
+      visibility([...previous.map((index): [number, boolean] => [index, false]), ...current.map((index): [number, boolean] => [index, true])]);
+      // Each viewport must commit before the next observer notification.
+      // eslint-disable-next-line no-await-in-loop
+      await waitFor(() => {
+        const mounted = Array.from(container.querySelectorAll(".diff-stream"), (stream) => stream.closest<HTMLElement>("[data-stack-file]")!.dataset.path);
+        expect(mounted).toEqual(current.map((index) => files[index]!.path));
+        for (const index of current) expect(regions[index]!.querySelector(".diff-row")).toBeTruthy();
+      });
+      expect(container.querySelectorAll(".diff-row").length).toBeLessThanOrEqual(150 * current.length);
+      expect(container.querySelectorAll("*").length).toBeLessThan(10_000);
+      previous = current;
     }
+    visibility(previous.slice(0, -1).map((index) => [index, false]));
     await waitFor(() => expect(container.querySelectorAll(".diff-stream")).toHaveLength(1));
     expect(container.querySelectorAll(".diff-row").length).toBeLessThanOrEqual(150);
     expect(container.querySelectorAll("*").length).toBeLessThan(10_000);
