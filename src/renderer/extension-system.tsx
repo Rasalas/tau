@@ -805,6 +805,32 @@ export interface ComposerSendModeContribution extends ProfileScoped {
   subscribe(listener: () => void): () => void;
 }
 
+/** What a planner's tab in the Plan sheet gets (API 1.64.0). */
+export interface ComposerPlannerProps {
+  /** The draft as Send would take it. */
+  draft: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft };
+  /** The thread the composer writes to. */
+  snapshot: HostSnapshot;
+  actions: WorkbenchActions | undefined;
+  /** Saved: the composer clears its draft, closes the sheet and shows `summary` ("Every Monday at 09:00"). */
+  onPlanned(summary: string): void;
+  onCancel(): void;
+}
+
+/**
+ * Another way to plan the composer's draft, beside sending it once into this
+ * thread later: the Plan sheet shows it as a tab (API 1.64.0). The tab draws
+ * everything below the tabs, its footer included; `.plan-sheet-body` and
+ * `.plan-sheet-footer` give it the sheet's spacing.
+ */
+export interface ComposerPlannerContribution extends ProfileScoped {
+  id: string;
+  /** The tab's name: "Repeat". */
+  label: string;
+  order?: number;
+  Component: ComponentType<ComposerPlannerProps>;
+}
+
 /** A mark on a model's row in the model picker, and optionally words after the highlighted row's facts. */
 export interface ModelBadgeContribution extends ProfileScoped {
   id: string;
@@ -1750,6 +1776,8 @@ export interface DesktopExtensionContext {
   registerComposerSpeed(speed: ComposerSpeedContribution): () => void;
   /** Changes what the send button does for a thread, such as compacting first. */
   registerComposerSendMode(mode: ComposerSendModeContribution): () => void;
+  /** A tab of the composer's Plan sheet, such as a repeating schedule (API 1.64.0). */
+  registerComposerPlanner(planner: ComposerPlannerContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
@@ -1980,6 +2008,7 @@ export class ExtensionRegistry {
   private modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
   private composerSpeeds = new Map<string, Owned<ComposerSpeedContribution>>();
   private composerSendModes = new Map<string, Owned<ComposerSendModeContribution>>();
+  private composerPlanners = new Map<string, Owned<ComposerPlannerContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
@@ -2316,6 +2345,11 @@ export class ExtensionRegistry {
         if (!this.scopeToProfile(owner, "composer send mode", mode.id, undefined, mode)) return noContribution;
         note("composer send mode");
         return this.register(this.composerSendModes, mode.id, { ...mode, ...owner }, disposers);
+      },
+      registerComposerPlanner: (planner) => {
+        if (!this.scopeToProfile(owner, "composer planner", planner.id, planner.label, planner)) return noContribution;
+        note("composer planners");
+        return this.register(this.composerPlanners, planner.id, { ...planner, ...owner }, disposers);
       },
       provideService: (id, value) => {
         const held = this.extensionServices.get(id);
@@ -2737,6 +2771,10 @@ export class ExtensionRegistry {
 
   getComposerSendModes(): Array<Owned<ComposerSendModeContribution>> {
     return this.sorted("composer-send-modes", this.composerSendModes);
+  }
+
+  getComposerPlanners(): Array<Owned<ComposerPlannerContribution>> {
+    return this.sorted("composer-planners", this.composerPlanners);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {

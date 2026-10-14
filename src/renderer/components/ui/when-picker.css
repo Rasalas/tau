@@ -1,0 +1,18 @@
+/* WhenPicker: Snooze's and Plan's list of times, one row picked. */
+.when-picker { display: flex; flex-direction: column; gap: 8px; }
+.when-picker-list { display: flex; flex-direction: column; gap: 1px; margin: 0 -8px; outline: none; }
+.when-picker-row {
+  display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 10px; border-radius: 8px;
+  color: var(--ink-2); font: var(--text-md) var(--sans); cursor: pointer; user-select: none;
+}
+.when-picker-row > svg { flex: none; color: var(--muted); }
+.when-picker-row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.when-picker-row > small { flex: none; color: var(--faint); font: var(--text-sm) var(--sans); font-variant-numeric: tabular-nums; }
+.when-picker-row:hover { background: var(--hover); }
+.when-picker-row .when-picker-tick { visibility: hidden; color: var(--acid-text); }
+.when-picker-row[aria-selected="true"] { background: var(--acid-bg); color: var(--acid-text); }
+.when-picker-row[aria-selected="true"] > :is(small, svg) { color: var(--acid-text); }
+.when-picker-row[aria-selected="true"] .when-picker-tick { visibility: visible; }
+.when-picker-list:focus-visible .when-picker-row[aria-selected="true"] { box-shadow: inset 0 0 0 1.5px var(--focus); }
+.when-picker-rule { height: 1px; margin: 4px 10px; background: var(--line-inset); }
+.when-picker-more { color: var(--faint) !important; }
