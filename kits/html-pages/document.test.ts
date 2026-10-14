@@ -113,6 +113,7 @@ describe("preparePageDocument", () => {
     expect(style(out)).toContain("--background:teal;");
     expect(style(out)).toContain("--chart-1:var(--accent);");
     expect(out).toContain("ui/notifications/size-changed");
+    expect(out).toContain("params:{url:u,metaKey:e.metaKey,ctrlKey:e.ctrlKey}");
     expect(out.endsWith("<body>hi</body></html>")).toBe(true);
   });
 

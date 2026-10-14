@@ -194,14 +194,14 @@ const MESSAGES = { size: "ui/notifications/size-changed", link: "ui/open-link", 
 // Anything but images and text keeps Expand on the page itself.
 const NOT_A_GALLERY = "canvas,video,audio,iframe,object,embed,input,select,textarea,button,table";
 
-// Reports the page's height to the card and hands a clicked http(s) link to it; the frame cannot open a window itself.
+// Reports the page's height to the card and hands a clicked http(s) link, with its ⌘ and Ctrl state, to it; the frame cannot open a window itself.
 // Images go to the card too: a click opens Tau's viewer, and a page of only images says so, for Expand.
 const BOOTSTRAP = `(function(){var n=0,h,g;function post(m){try{window.parent.postMessage(m,"*");}catch(e){}}`
   + `function imgs(){return Array.prototype.filter.call(document.images,function(i){return i.complete&&i.naturalWidth>0&&(i.currentSrc||i.src)&&!i.closest("a[href],button");});}`
   + `function list(a){return a.map(function(i){return{src:i.currentSrc||i.src,alt:i.alt||i.title||""};});}`
   + `document.addEventListener("click",function(e){if(!e.isTrusted)return;var p=e.composedPath(),a=p.find(function(t){return t&&t.matches&&t.matches("a[href]");});`
   + `if(!a){var t=p[0];if(!t||t.tagName!=="IMG")return;var l=imgs(),k=l.indexOf(t);if(k<0)return;e.preventDefault();post({jsonrpc:"2.0",method:${JSON.stringify(MESSAGES.openImages)},params:{images:list(l),index:k}});return;}`
-  + `var u=a.getAttribute("href")||"";if(!/^https?:\\/\\//i.test(u))return;e.preventDefault();post({jsonrpc:"2.0",id:"tau-link-"+(++n),method:${JSON.stringify(MESSAGES.link)},params:{url:u}});},true);`
+  + `var u=a.getAttribute("href")||"";if(!/^https?:\\/\\//i.test(u))return;e.preventDefault();post({jsonrpc:"2.0",id:"tau-link-"+(++n),method:${JSON.stringify(MESSAGES.link)},params:{url:u,metaKey:e.metaKey,ctrlKey:e.ctrlKey}});},true);`
   + `window.addEventListener("message",function(e){var d=e.data;if(e.source!==window.parent||!d||d.jsonrpc!=="2.0"||d.method!==${JSON.stringify(MESSAGES.listImages)})return;post({jsonrpc:"2.0",id:d.id,result:{images:list(imgs())}});});`
   + `function m(){var v=imgs().length>0&&!document.querySelector(${JSON.stringify(NOT_A_GALLERY)})&&!Array.prototype.some.call(document.querySelectorAll("svg"),function(s){var r=s.getBoundingClientRect();return r.width>=100&&r.height>=100;});`
   + `if(v===g)return;g=v;post({jsonrpc:"2.0",method:${JSON.stringify(MESSAGES.media)},params:{gallery:v}});}`

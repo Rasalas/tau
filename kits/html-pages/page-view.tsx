@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Maximize2, PanelRightOpen } from "lucide-react";
 import { AttachmentLightbox, SandboxFrame, errorMessage, tooltipProps, useClientEnvironment, useColorScheme, type AttachmentImage, type HostExtensionClient, type SandboxFrameHandle, type WorkbenchActions } from "tau";
 import { HTML_PAGE_COMMANDS, HTML_PAGE_STAGE_TAB, PAGE_MESSAGES, type HtmlPageOpen, type HtmlPageOpenInput } from "./protocol.js";
+import { openPageLink } from "./links.js";
 import { pageTheme } from "./theme.js";
 
 type View =
@@ -24,13 +25,13 @@ export function reportedHeight(data: unknown): number | undefined {
   return typeof height === "number" && Number.isFinite(height) && height > 0 ? height : undefined;
 }
 
-/** A clicked http(s) link the page handed over, with the id its answer needs. */
-export function linkRequest(data: unknown): { id: string | number; url: string } | undefined {
+/** A clicked http(s) link the page handed over, with the id its answer needs and the modifiers held. */
+export function linkRequest(data: unknown): { id: string | number; url: string; metaKey: boolean; ctrlKey: boolean } | undefined {
   const message = data as Message | null;
   if (typeof message !== "object" || message === null || message.jsonrpc !== "2.0" || message.method !== LINK_METHOD) return undefined;
   if (typeof message.id !== "string" && typeof message.id !== "number") return undefined;
-  const url = (message.params as { url?: unknown } | undefined)?.url;
-  return typeof url === "string" && /^https?:\/\//iu.test(url) ? { id: message.id, url } : undefined;
+  const { url, metaKey, ctrlKey } = (message.params ?? {}) as { url?: unknown; metaKey?: unknown; ctrlKey?: unknown };
+  return typeof url === "string" && /^https?:\/\//iu.test(url) ? { id: message.id, url, metaKey: metaKey === true, ctrlKey: ctrlKey === true } : undefined;
 }
 
 const DATA_IMAGE = /^data:image\/(?:png|jpeg|gif|webp|avif|bmp|svg\+xml)(?:;[^,;]*)*;base64,/iu;
@@ -148,7 +149,7 @@ export function PageView({ host, actions, threadId, pageId, variant, onTitle }: 
     const link = linkRequest(data);
     if (!link) return;
     const allowed = Boolean(handle.current?.hasUserActivation());
-    if (allowed) actions.openExternal(link.url);
+    if (allowed) openPageLink(link.url, link, actions);
     handle.current?.post(allowed
       ? { jsonrpc: "2.0", id: link.id, result: {} }
       : { jsonrpc: "2.0", id: link.id, error: { code: -32000, message: "Links open only from a click in the page." } });

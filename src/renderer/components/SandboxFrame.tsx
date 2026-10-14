@@ -1,13 +1,17 @@
 import { Minimize2 } from "lucide-react";
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import {
   FRAME_DEFAULT_HEIGHT,
+  FRAME_KEYS_MESSAGE,
   FRAME_SCHEME_MESSAGE,
   clampFrameHeight,
   frameAllowAttribute,
+  readFrameKeyDown,
   type SandboxFramePermissions,
 } from "../../shared/sandbox-frame";
 import { useColorScheme } from "../use-color-scheme";
+import { WorkbenchContext } from "../workbench-context";
+import { frameChords, replayableKey } from "./sandbox-frame-keys";
 import { tooltipProps } from "./ui/Tooltip";
 
 export interface SandboxFrameHandle {
@@ -52,7 +56,9 @@ const popoverSupported = () => typeof HTMLElement !== "undefined" && "popover" i
 /**
  * A document served by the host, drawn in an opaque-origin frame (ADR 0032).
  * Isolation lives here: the sandbox and `allow` attributes, the message source
- * check, the navigation lock and full screen without a reload.
+ * check, the navigation lock and full screen without a reload. A click gives the
+ * keyboard to the document, so it passes on the app shortcuts that only change
+ * the view; the frame checks each one before it replays it.
  */
 export function SandboxFrame(props: SandboxFrameProps) {
   const { title, permissions, bordered, handleRef } = props;
@@ -68,8 +74,10 @@ export function SandboxFrame(props: SandboxFrameProps) {
   // The document may speak before its load event; the reply must not be dropped.
   const alive = useRef(false);
   const latest = useRef(props);
+  const registry = useContext(WorkbenchContext)?.registry;
+  const registryRef = useRef(registry);
   // Layout effects: the listener must exist when the frame commits, before its document can speak.
-  useLayoutEffect(() => { latest.current = props; });
+  useLayoutEffect(() => { latest.current = props; registryRef.current = registry; });
 
   const fullscreen = Boolean(props.fullscreen) && popoverSupported() && kept !== undefined;
 
@@ -78,12 +86,14 @@ export function SandboxFrame(props: SandboxFrameProps) {
     if (target && alive.current && !stopped) target.postMessage(message, "*");
   }, [stopped]);
 
+  const activated = () => {
+    const frame = frameRef.current;
+    return frame !== null && document.activeElement === frame && navigator.userActivation?.isActive === true;
+  };
+
   useImperativeHandle(handleRef, () => ({
     post,
-    hasUserActivation: () => {
-      const frame = frameRef.current;
-      return frame !== null && document.activeElement === frame && navigator.userActivation?.isActive === true;
-    },
+    hasUserActivation: activated,
     width: () => Math.round(boxRef.current?.getBoundingClientRect().width ?? 0),
     size: () => {
       const rect = frameRef.current?.getBoundingClientRect();
@@ -97,7 +107,11 @@ export function SandboxFrame(props: SandboxFrameProps) {
       const source = frameRef.current?.contentWindow;
       if (!source || event.source !== source) return;
       alive.current = true;
-      latest.current.onMessage(event.data);
+      const key = readFrameKeyDown(event.data);
+      if (!key) { latest.current.onMessage(event.data); return; }
+      // Replayed on the frame element, it reaches the window listeners the way a key outside would.
+      const replay = registryRef.current && activated() ? replayableKey(registryRef.current, key) : undefined;
+      if (replay) frameRef.current?.dispatchEvent(replay);
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
@@ -106,6 +120,21 @@ export function SandboxFrame(props: SandboxFrameProps) {
   useEffect(() => {
     if (loaded && !stopped) post({ type: FRAME_SCHEME_MESSAGE, scheme });
   }, [loaded, stopped, scheme, post]);
+
+  // The document passes on only the chords named here; a later binding change reaches it too.
+  useEffect(() => {
+    if (!registry || !loaded || stopped) return;
+    let sent = "";
+    const send = () => {
+      const chords = frameChords(registry);
+      const next = JSON.stringify(chords);
+      if (next === sent) return;
+      sent = next;
+      post({ type: FRAME_KEYS_MESSAGE, chords });
+    };
+    send();
+    return registry.subscribeRegistrations(send);
+  }, [registry, loaded, stopped, post]);
 
   const hasBox = kept !== undefined;
   useEffect(() => {

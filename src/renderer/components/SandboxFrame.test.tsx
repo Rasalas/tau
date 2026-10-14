@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FRAME_SCHEME_MESSAGE } from "../../shared/sandbox-frame";
+import { FRAME_KEYDOWN_MESSAGE, FRAME_KEYS_MESSAGE, FRAME_SCHEME_MESSAGE } from "../../shared/sandbox-frame";
+import { ExtensionRegistry, type WorkbenchActions } from "../extension-system";
+import { isMacPlatform } from "../keybindings";
+import { useAppKeybindings } from "../use-app-keybindings";
+import { WorkbenchContext } from "../workbench-context";
 import { SandboxFrame, type SandboxFrameHandle, type SandboxFrameProps } from "./SandboxFrame";
 
 const base = { src: "tau-ext://resources/frame/a", title: "App", onMessage: () => undefined };
@@ -264,5 +268,104 @@ describe("SandboxFrame measuring and handle", () => {
     expect(handle.current!.hasUserActivation()).toBe(false);
     vi.stubGlobal("navigator", {});
     expect(handle.current!.hasUserActivation()).toBe(false);
+  });
+});
+
+describe("SandboxFrame app shortcuts", () => {
+  const mac = isMacPlatform();
+  const press = (key: string, code: string, init: Record<string, unknown> = {}) => ({ type: FRAME_KEYDOWN_MESSAGE, key, code, metaKey: mac, ctrlKey: !mac, ...init });
+  const chordOf = (key: string, init: Record<string, unknown> = {}) => ({ key, metaKey: mac, ctrlKey: !mac, shiftKey: false, altKey: false, ...init });
+
+  function appWithFrame(props: Partial<SandboxFrameProps> = {}) {
+    const ran = { view: vi.fn(), draft: vi.fn(), settle: vi.fn() };
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "test", name: "Test", activate(context) {
+      context.registerCommand({ id: "view.open", label: "Open the view", group: "Test", access: "read", run: ran.view });
+      context.registerCommand({ id: "runtime.new-session", label: "New thread", group: "Test", access: "write", run: ran.draft });
+      context.registerCommand({ id: "thread.settle", label: "Settle", group: "Test", access: "write", run: ran.settle });
+      context.registerKeybinding({ keys: "mod+k", commandId: "view.open" });
+      context.registerKeybinding({ keys: "mod+n", commandId: "runtime.new-session" });
+      context.registerKeybinding({ keys: "mod+shift+s", commandId: "thread.settle" });
+      context.registerKeybinding({ keys: "escape", commandId: "view.open" });
+    } });
+    renderHook(() => useAppKeybindings(registry, {} as WorkbenchActions, vi.fn()));
+    const workbench = { registry, tools: [], events: [], openFile: () => undefined, applySnapshot: () => undefined, handleHostEvent: () => undefined };
+    const view = render(<WorkbenchContext.Provider value={workbench}><SandboxFrame {...base} {...props} /></WorkbenchContext.Provider>);
+    const frame = frameOf();
+    const post = vi.spyOn(frame.contentWindow!, "postMessage");
+    fireEvent.load(frame);
+    return { ran, registry, frame, post, view };
+  }
+
+  const activate = (live: boolean) => Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: live } });
+
+  afterEach(() => { delete (navigator as { userActivation?: unknown }).userActivation; });
+
+  it("names the chords a page may press once the document loaded, and follows later bindings", () => {
+    const { registry, post } = appWithFrame();
+    const keys = () => post.mock.calls.filter(([message]) => (message as { type?: string }).type === FRAME_KEYS_MESSAGE);
+    expect(keys()).toHaveLength(1);
+    expect(keys()[0]![0]).toEqual({ type: FRAME_KEYS_MESSAGE, chords: [chordOf("k"), chordOf("n")] });
+    act(() => { registry.activate({ id: "later", name: "Later", activate(context) {
+      context.registerCommand({ id: "later.open", label: "Later", group: "Test", access: "read", run: () => undefined });
+      context.registerKeybinding({ keys: "mod+j", commandId: "later.open" });
+    } }); });
+    expect(keys()).toHaveLength(2);
+    expect(keys()[1]![0]).toEqual({ type: FRAME_KEYS_MESSAGE, chords: [chordOf("k"), chordOf("n"), chordOf("j")] });
+  });
+
+  it("replays a chord that only changes the view, from the focused frame while the click is live", () => {
+    const onMessage = vi.fn();
+    const { ran, frame } = appWithFrame({ onMessage });
+    activate(true);
+    frame.focus();
+    messageFrom(frame.contentWindow, press("k", "KeyK"));
+    expect(ran.view).toHaveBeenCalledOnce();
+    messageFrom(frame.contentWindow, press("n", "KeyN"));
+    expect(ran.draft).toHaveBeenCalledOnce();
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("runs nothing a page may not press, whatever the page claims", () => {
+    const { ran, frame } = appWithFrame();
+    activate(true);
+    frame.focus();
+    const forged = [
+      press("s", "KeyS", { shiftKey: true }),
+      press("k", "KeyK", { metaKey: false, ctrlKey: false }),
+      press("Escape", "Escape", { metaKey: false, ctrlKey: false }),
+      press("q", "KeyQ"),
+      { ...press("k", "KeyK"), key: "" },
+    ];
+    for (const message of forged) messageFrom(frame.contentWindow, message);
+    expect(ran.view).not.toHaveBeenCalled();
+    expect(ran.settle).not.toHaveBeenCalled();
+    expect(ran.draft).not.toHaveBeenCalled();
+  });
+
+  it("replays nothing when the frame has no focus, the click is not live or another window speaks", () => {
+    const { ran, frame } = appWithFrame();
+    activate(true);
+    messageFrom(frame.contentWindow, press("k", "KeyK"));
+    frame.focus();
+    activate(false);
+    messageFrom(frame.contentWindow, press("k", "KeyK"));
+    activate(true);
+    messageFrom(window, press("k", "KeyK"));
+    expect(ran.view).not.toHaveBeenCalled();
+  });
+
+  it("passes the key on to nobody where the frame sits outside a workbench", () => {
+    const onMessage = vi.fn();
+    renderFrame({ onMessage });
+    const frame = frameOf();
+    activate(true);
+    frame.focus();
+    const seen = vi.fn();
+    window.addEventListener("keydown", seen);
+    messageFrom(frame.contentWindow, press("k", "KeyK"));
+    window.removeEventListener("keydown", seen);
+    expect(seen).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
   });
 });
