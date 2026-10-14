@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
-import type { UiFileContent } from "../shared/workspace-kit-types";
+import type { UiEditor, UiFileContent } from "../shared/workspace-kit-types";
 import { linkedFilePath } from "../shared/linked-file-path";
 import type { WorkspaceResourceOrigin } from "../workbench/stage";
 import type { DocumentSourceContribution } from "./extension-system";
@@ -17,6 +17,8 @@ export interface WorkspaceResources {
   loadMedia?(path: string): Promise<{ url: string; mimeType: string; release?: () => void }>;
   loadVisualization?(relativePath: string, theme: "light" | "dark"): Promise<{ url: string; release?: () => void }>;
   openFile(relativePath: string): void;
+  /** Where the host machine can show this thread's files; absent when it cannot (a phone, another machine's thread). */
+  hostFiles?(): { editor?: UiEditor; fileManager?: UiEditor; open(relativePath: string, editorId: string): void } | undefined;
 }
 
 export const RESOURCE_UNAVAILABLE = "This thread's workspace files are unavailable on this connection.";
@@ -67,7 +69,7 @@ export function bindWorkspaceFileLoader(source: DocumentSourceContribution | und
 }
 
 /** Also adapts existing file chips, which still call WorkbenchContext.openFile. */
-export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, children }: { sessionId?: string; workspace?: string; displayPath?: string; children: ReactNode }) {
+export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, local = true, children }: { sessionId?: string; workspace?: string; displayPath?: string; /** False when the files are on another machine than the window's host. */ local?: boolean; children: ReactNode }) {
   const workbench = useContext(WorkbenchContext);
   const client = useHostClient();
   const source = workbench?.registry.getDocumentSource();
@@ -100,9 +102,17 @@ export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, c
         // Path validation happens in the reader too, so an invalid link gets readable guidance.
         workbench?.openWorkspaceFile?.(path.replace(/^\.\//u, ""), origin ?? null);
       },
+      hostFiles: () => {
+        if (!lease.active || !local || !origin || !source) return undefined;
+        const state = source.getState();
+        // With no other editor installed, the source's default editor is the file manager itself.
+        const editor = state.editor && state.editor.id !== state.fileManager?.id ? state.editor : undefined;
+        if (!editor && !state.fileManager) return undefined;
+        return { editor, fileManager: state.fileManager, open: (path, editorId) => source.openInEditor(path, { workspace: origin.workspace, editorId }) };
+      },
     };
     return { value, lease };
-  }, [client, displayPath, sessionId, source, workspace, workbench?.openWorkspaceFile]);
+  }, [client, displayPath, local, sessionId, source, workspace, workbench?.openWorkspaceFile]);
   useEffect(() => {
     resources.lease.active = true;
     return () => { resources.lease.active = false; };

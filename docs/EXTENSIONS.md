@@ -691,6 +691,14 @@ the same id, so key what you keep by `from.workspace` too. `from.workspace` is
 absent when the window has no project on screen; Files Kit then opens nothing
 and saves nothing.
 
+Core's file links in a reply (a click, ⌘/Ctrl-click, a context menu) also go
+through the document source. New in API 1.63.0: `getState()` may carry
+`fileManager` beside `editor`, the entry that shows a file in the machine's file
+manager, and `openInEditor(relPath, { workspace?, editorId? })` opens a file of
+the named project in the named editor, `fileManager.id` included. Both stay
+absent where the host's files are not the client's, and an old source that
+ignores the options keeps working (it opens in its default editor).
+
 #### Context in the composer
 
 `registerComposerInline` lets a package put typed context into the composer's
@@ -2154,8 +2162,9 @@ after another kit changed them. Review Kit fills both with the pull or merge
 request of the branch. `registerFileEditor(open)` is the offer to edit a file:
 a double-click in the Files panel calls `open(relPath, actions)` instead of
 pinning the file tab, the last offer wins, and Files Kit is the kit that makes
-it. `openInEditor(relPath?, editorId?, { line?, column? })` opens a file in
-one of the machine's editors at a line, and `chooseEditor(id)` makes one the
+it. `openInEditor(relPath?, editorId?, { line?, column? }, workspace?)` opens a file in
+one of the machine's editors at a line (`workspace`, new in API 1.63.0, names the
+project it is in; without it the followed one), and `chooseEditor(id)` makes one the
 default.
 
 Workspace Kit's host reads and writes the project's files for the kits built

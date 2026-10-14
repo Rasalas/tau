@@ -51,6 +51,9 @@ export interface TurnStat {
 
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 
+/** The one `list-editors` entry that is not an editor: it shows the file in the system's file manager. */
+export const FILE_MANAGER_ID = "file-manager";
+
 /** Where in a file an editor opens it, 1-based. */
 export interface EditorPosition {
   line?: number;
@@ -806,7 +809,8 @@ export interface WorkspaceStoreApi {
   closeReview(): void;
   /** Commits the selected changes and reports whether the host accepted them. */
   commit(message: string, push: boolean): Promise<boolean>;
-  openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition): Promise<void>;
+  /** `workspace` names the project `relPath` is in; without it, the followed one. */
+  openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition, workspace?: string): Promise<void>;
   /** Makes an editor the one "Open in" uses first. */
   chooseEditor(id: string): void;
   activeTerminal(): UiTerminal | undefined;

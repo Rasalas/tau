@@ -1580,8 +1580,10 @@ export interface DocumentSourceContribution extends ProfileScoped {
   /** Read a transcript link on its host, including absolute paths and paths outside the workspace. Requires an explicit origin. */
   loadLinkedFile?(path: string, from: DocumentOrigin & { workspace: string }): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions, from?: DocumentOrigin): Promise<UiFileDiff>;
-  openInEditor(relPath: string): void;
-  getState(): { changes: UiWorkspaceChanges; editor?: UiEditor };
+  /** `workspace` names the project the file belongs to (default: the one followed), `editorId` an editor other than the default, e.g. the `fileManager` (API 1.63.0). */
+  openInEditor(relPath: string, options?: { workspace?: string; editorId?: string }): void;
+  /** `fileManager` shows a file in the machine's file manager, where it has one (API 1.63.0); like `editor`, absent where the host's files are not this client's. */
+  getState(): { changes: UiWorkspaceChanges; editor?: UiEditor; fileManager?: UiEditor };
   subscribe(listener: () => void): () => void;
   listFiles?(): Promise<string[]> | string[];
 }
