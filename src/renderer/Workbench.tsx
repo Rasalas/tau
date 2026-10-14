@@ -472,7 +472,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       if (!compactRef.current.compact) return { covered };
       // Settled threads keep their unsettled rank: one settling right now still has its place.
       const { threads } = threadStore.getSnapshot();
-      const working = registry.getThreadListLayouts().some((layout) => layout.working());
+      const working = registry.getThreadListLayouts().some((entry) => entry.working());
       return { covered, listOrder: threadListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, marks: registry.getThreadRowMarks(), ...(project ? { project } : {}), ...(working ? { working: compactWorkingClock } : {}) }) };
     },
   }), [clientStorage, phoneNav.showChat, phoneNav.showList, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
