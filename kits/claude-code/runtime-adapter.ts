@@ -1,6 +1,7 @@
 import { query as sdkQuery, type CanUseTool, type EffortLevel, type McpServerConfig, type OnUserDialog, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { AGENT_OOM_MESSAGE, spawnOwnedProcess, wrapAgentCommand, type AgentScopeHandle, type AgentWrapInput, type CompletionRequest, type HostMcpConnection, type RuntimePermissionLevel, type RuntimePromptInput, type RuntimePromptResult, type RuntimeTransport, type SkillRuntimeAdapter } from "tau/host-extension";
-import { homedir } from "node:os";
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import manifest from "./tau-extension.json";
 import { probeClaude, type ClaudeProbe } from "./probe.js";
 import { ClaudeSdkSession } from "./sdk-session.js";
@@ -372,7 +373,9 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   function probe(probeOptions: { fresh?: boolean; usage?: boolean } = {}): Promise<ClaudeProbe> {
     const now = Date.now();
     if (!probeOptions.fresh && !probeOptions.usage && probeCache && now - probeCache.at < PROBE_TTL_MS) return probeCache.result;
-    const result = probeClaude({ query, executable: options.resolveCommand?.(commandName()) ?? commandName(), cwd: homedir(), env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP }, ...(probeOptions.usage ? { usage: true } : {}) });
+    const cwd = dirname(options.storePath);
+    const result = mkdir(cwd, { recursive: true, mode: 0o700 }).then(() =>
+      probeClaude({ query, executable: options.resolveCommand?.(commandName()) ?? commandName(), cwd, env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP }, ...(probeOptions.usage ? { usage: true } : {}) }));
     probeCache = { at: now, result };
     // A failed probe is not remembered; the next caller tries again.
     result.catch(() => { if (probeCache?.result === result) probeCache = undefined; });
