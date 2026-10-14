@@ -7,7 +7,8 @@ import { StreamingMarkdownBlocks } from "./markdown-blocks";
 import { FRAGMENT_PREFIX, parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHtml } from "./markdown-pipeline";
 export type { MarkdownComponents } from "./markdown-pipeline";
 import { WorkbenchContext } from "../workbench-context";
-import { useWorkspaceResources, transcriptFilePath } from "../workspace-resource-context";
+import { useWorkspaceResources, transcriptFilePath, type WorkspaceResources } from "../workspace-resource-context";
+import { useFileLinkMenu } from "./file-link-menu";
 import { MediaLinkContext } from "./media-link-context";
 import { WorkspaceVideo, isVideoPath } from "./WorkspaceVideo";
 import { MediaGallery } from "./MediaGallery";
@@ -303,9 +304,15 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
  */
 function FileChip({ path, name }: { path: string; name: string }) {
   const openFile = useContext(WorkbenchContext)?.openFile;
-  const chip = <code className="md-file-chip" {...tooltipProps(path, { variant: "code" })}><FileKindIcon name={name} size={12} />{name}</code>;
-  if (!openFile || !/[/\\]/u.test(path)) return chip;
-  return <button type="button" className="md-file-link" aria-label={`Open ${path}`} onClick={() => openFile(path.replace(/^\.\//u, ""))}>{chip}</button>;
+  if (!openFile || !/[/\\]/u.test(path)) return <code className="md-file-chip" {...tooltipProps(path, { variant: "code" })}><FileKindIcon name={name} size={12} />{name}</code>;
+  return <OpenableFileChip path={path} name={name} open={() => openFile(path.replace(/^\.\//u, ""))} />;
+}
+
+function OpenableFileChip({ path, name, open }: { path: string; name: string; open(): void }) {
+  const link = useFileLinkMenu(path, open);
+  return <button type="button" className="md-file-link" aria-label={`Open ${path}`} {...link.props}>
+    <code className="md-file-chip" {...link.tooltip()}><FileKindIcon name={name} size={12} />{name}</code>
+  </button>;
 }
 
 /** The element a `#fragment` names inside the Markdown that holds the link; a repeat's `-N` finds the Nth heading of that slug. */
@@ -325,17 +332,22 @@ function FileLink({ href, children }: { href?: string; children?: ReactNode }) {
   const resources = useWorkspaceResources();
   const fragment = href?.startsWith("#") ?? false;
   const local = href && !/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/|#|\?)/u.test(href);
+  if (local && resources) return <LocalFileLink href={href} resources={resources}>{children}</LocalFileLink>;
   // A fragment stays in the document: the browser would open a window for it, and the route lives in the hash.
   return <a href={href} target={local || fragment ? undefined : "_blank"} rel="noreferrer noopener" onClick={fragment ? (event) => {
     event.preventDefault();
     fragmentTarget(event.currentTarget, href!.slice(1))?.scrollIntoView({ block: "start" });
-  } : local && resources ? (event) => {
-    event.preventDefault();
-    let path = href;
-    try { path = decodeURIComponent(href); } catch { /* Keep malformed paths readable in the file error. */ }
+  } : undefined}><MediaLinkContext.Provider value>{children}</MediaLinkContext.Provider></a>;
+}
+
+function LocalFileLink({ href, resources, children }: { href: string; resources: WorkspaceResources; children?: ReactNode }) {
+  let path = href;
+  try { path = decodeURIComponent(href); } catch { /* Keep malformed paths readable in the file error. */ }
+  const link = useFileLinkMenu(path, () => {
     try { resources.openFile(transcriptFilePath(path, resources.displayPath)); }
     catch { resources.openFile(path); }
-  } : undefined}><MediaLinkContext.Provider value>{children}</MediaLinkContext.Provider></a>;
+  });
+  return <a href={href} className="md-file-ref" rel="noreferrer noopener" {...link.tooltip()} {...link.props}><MediaLinkContext.Provider value>{children}</MediaLinkContext.Provider></a>;
 }
 
 type CodeChild = ReactElement<{ className?: string; children?: ReactNode }>;
