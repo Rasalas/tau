@@ -85,15 +85,22 @@ interface RowMeasurer {
  * virtual-core 3.13 hands a removed row's late resize to the row now at its index and stops
  * observing that row (a settled turn remounts under persisted ids); this keeps measuring it.
  */
-function useRowMeasurement(virtualizer: RowMeasurer): (node: HTMLDivElement | null) => (() => void) | undefined {
+function useRowMeasurement(virtualizer: RowMeasurer, resizeEntries: WeakMap<Element, ResizeObserverEntry>): (node: HTMLDivElement | null) => (() => void) | undefined {
   const latest = useRef(virtualizer);
   useLayoutEffect(() => { latest.current = virtualizer; }, [virtualizer]);
   const [observer] = useState(() => typeof ResizeObserver === "undefined"
     ? undefined
     : new ResizeObserver((entries) => {
-      const rows = entries.map((entry) => entry.target as HTMLElement);
       requestAnimationFrame(() => {
-        for (const row of rows) if (row.isConnected) latest.current.measureElement(row);
+        for (const entry of entries) {
+          const row = entry.target as HTMLElement;
+          if (!row.isConnected) continue;
+          // Keep the removed-row workaround, but use the geometry the browser
+          // already delivered instead of forcing another offsetHeight layout.
+          resizeEntries.set(row, entry);
+          try { latest.current.measureElement(row); }
+          finally { resizeEntries.delete(row); }
+        }
       });
     }));
   return useCallback((node: HTMLDivElement | null) => {
@@ -226,6 +233,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
 
   // Kept across renders: the virtualizer's retries after a reveal read it again.
   const revealPaddingEnd = useRef(0);
+  const [resizeEntries] = useState(() => new WeakMap<Element, ResizeObserverEntry>());
   const virtualizer = useVirtualizer({
     count: messages.length,
     scrollPaddingEnd: revealPaddingEnd.current,
@@ -236,7 +244,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     },
     getItemKey: (index) => messages[index]?.id ?? index,
     measureElement: (element, entry, instance) => {
-      const size = measureElement(element, entry, instance);
+      const size = measureElement(element, entry ?? resizeEntries.get(element), instance);
       const { messageId, rowKind: kind } = (element as HTMLElement).dataset;
       if (messageId && kind) rowSizes.record(messageId, kind, size);
       return size;
@@ -261,7 +269,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
   }, [virtualizer]);
   useLeadingRowAnchor(virtualizer, scrollRef, messageIndex.positions, rowSizes);
-  const measureRow = useRowMeasurement(virtualizer);
+  const measureRow = useRowMeasurement(virtualizer, resizeEntries);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const activityLayout = useRef<ActivityLayoutSnapshot>({

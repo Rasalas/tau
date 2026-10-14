@@ -25,7 +25,7 @@ const thread = (id: string, modifiedAt = 1): UiSession => ({
 const model = (id: string): UiModel => ({ provider: "openai", id, name: id } as UiModel);
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confirmations?: boolean; declineWorktree?: boolean } = {}) {
+function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confirmations?: boolean; declineWorktree?: boolean; patchReply?: (state: RailState) => Promise<RailState> } = {}) {
   let state: RailState = { threads: {}, settings: { onMerged: true, onClosed: false }, ...options.initial };
   const invoke = vi.fn(async (_extensionId: string, command: string, input?: unknown) => {
     if (command === "state" || command === "import") return state;
@@ -40,8 +40,8 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confir
         }
         threads[id] = next;
       }
-      state = { ...state, threads };
-      return state;
+      state = { ...state, threads, ...(state.publication ? { publication: { ...state.publication, revision: state.publication.revision + 1 } } : {}) };
+      return options.patchReply ? options.patchReply(state) : state;
     }
     if (command === "archive") {
       const id = (input as { threadId: string }).threadId;
@@ -91,6 +91,53 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confir
 
 const claim = (overrides: Partial<NewThreadClaimEvent> = {}): NewThreadClaimEvent => ({
   prompt: "fix the queue", projectPath: "/project", preparing: () => undefined, alternate: false, runtime: "pi", attachments: 0, ...overrides,
+});
+
+it("keeps a settled thread off the active list while an older metadata push overtakes its patch reply", async () => {
+  let acknowledge!: () => void;
+  const harness = setup({ patchReply: (state) => new Promise((resolve) => { acknowledge = () => resolve(state); }) });
+  await flush();
+  const stale = harness.current();
+  const active = () => harness.organizer().sections([thread("a")]).find((section) => section.id === "active")!.threads;
+  expect(active().map((entry) => entry.id)).toEqual(["a"]);
+  harness.organizer().toggleSettled(thread("a"));
+  await flush();
+  expect(active()).toEqual([]);
+  harness.push(stale);
+  expect(active()).toEqual([]);
+  acknowledge();
+  await flush();
+  expect(active()).toEqual([]);
+});
+
+it("ignores pre-settlement snapshots after the write has been acknowledged", async () => {
+  const harness = setup({ initial: { publication: { epoch: "host", revision: 0 } } });
+  await flush();
+  const stale = harness.current();
+  harness.organizer().toggleSettled(thread("a"));
+  await flush();
+  harness.push(stale);
+  expect(harness.organizer().sections([thread("a")]).find((section) => section.id === "active")!.threads).toEqual([]);
+});
+
+it("keeps the latest un-settle intent visible while two write replies are delayed", async () => {
+  const acknowledgments: Array<() => void> = [];
+  const harness = setup({ patchReply: (state) => new Promise((resolve) => { acknowledgments.push(() => resolve(state)); }) });
+  await flush();
+  harness.organizer().toggleSettled(thread("a"));
+  await flush();
+  harness.organizer().toggleSettled(thread("a"));
+  await flush();
+  const active = () => harness.organizer().sections([thread("a")]).find((section) => section.id === "active")!.threads.map((entry) => entry.id);
+  expect(active()).toEqual(["a"]);
+  expect(harness.calls("patch")).toHaveLength(1);
+  acknowledgments.shift()!();
+  await flush();
+  expect(active()).toEqual(["a"]);
+  expect(harness.calls("patch")).toHaveLength(2);
+  acknowledgments.shift()!();
+  await flush();
+  expect(active()).toEqual(["a"]);
 });
 
 describe("Thread Rail on the desktop", () => {
@@ -401,6 +448,7 @@ describe("Thread Rail on the desktop", () => {
     push({ threads: { p: { pinned: true, pinOrder: 0 } }, settings: { onMerged: true, onClosed: false } });
     organizer().runMenu(thread("p"), "settle", actions);
     await registry.executeCommand("thread.undo", actions);
+    await flush();
     expect(calls("patch").at(-1)).toEqual({ patches: { p: { settledAt: null, settledBy: null, pinned: true, pinOrder: 0, order: null, snoozedUntil: null, keptAt: null } } });
 
     const title = registry.getCommandsFor("thread-title").map((command) => [command.id, command.destructive ?? false]);

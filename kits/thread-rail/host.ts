@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import {
   HostCommandError,
@@ -122,10 +123,12 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         localTrashIds = new Set(trash.filter((entry) => entry.backendKind !== "machine").map((entry) => entry.sessionId));
       };
       await readOwnership();
-      const homeState = (): RailState => ({ threads: Object.fromEntries(Object.entries(state.threads).filter(([id]) => !owner(id))), settings: state.settings });
+      const publicationEpoch = randomUUID();
+      let publicationRevision = 0;
+      const homeState = (): RailState => ({ threads: Object.fromEntries(Object.entries(state.threads).filter(([id]) => !owner(id))), settings: state.settings, publication: { epoch: publicationEpoch, revision: publicationRevision } });
       // Do not await peer reads during activation: reciprocally paired hosts answer from their caches.
       let remote: ReturnType<typeof followMachineState>;
-      remote = followMachineState(context, () => { if (remote) context.emit(META_EVENT, publicState()); }, owner, {
+      remote = followMachineState(context, () => { if (remote) { publicationRevision++; context.emit(META_EVENT, publicState()); } }, owner, {
         states: cached?.data ?? {},
         save: (states) => {
           const text = JSON.stringify(states);
@@ -138,7 +141,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
             });
         },
       });
-      function publicState(): RailState { return remote.merged(homeState()); }
+      function publicState(): RailState { return { ...remote.merged(homeState()), publication: { epoch: publicationEpoch, revision: publicationRevision } }; }
       const persist = () => {
         saving = writePersistedJson(file, STATE_VERSION, { ...state })
           .catch((error: unknown) => services.log("thread-rail.save-failed", error instanceof Error ? error.message : String(error)));
@@ -157,6 +160,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         const restored = Object.entries(state.threads).filter(([id, meta]) => !owner(id) && meta.settledAt && !next.threads[id]?.settledAt).map(([id]) => id);
         if (settled.length || restored.length) void context.invokeHostExtension(REVIEW_EXTENSION_ID, "watch-shelf", { settled, restored }).catch(() => undefined);
         state = next;
+        publicationRevision++;
         persist();
         context.emit(META_EVENT, publicState());
         context.emit(MACHINE_META_EVENT, homeState(), { topic: MACHINE_STATE_TOPIC });
@@ -181,8 +185,9 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         }
         change(local);
         await Promise.all([...byMachine].map(async ([machine, remotePatches]) => {
-          await callMachine(machine, "patch", { patches: remotePatches });
-          await remote.refresh(machine);
+          const answer = await callMachine(machine, "patch", { patches: remotePatches });
+          remote.confirmPatch(machine, remotePatches, answer);
+          void remote.refresh(machine).catch((error: unknown) => services.log("thread-rail.machine-read-failed", error instanceof Error ? error.message : String(error)));
         }));
       };
 

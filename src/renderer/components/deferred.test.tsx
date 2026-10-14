@@ -70,6 +70,37 @@ describe("deferred", () => {
 });
 
 describe("deferredModule", () => {
+  it("starts optional preloads one at a time in separate idle callbacks", async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    const callbacks: Array<() => void> = [];
+    vi.stubGlobal("requestIdleCallback", (callback: () => void) => { callbacks.push(callback); return callbacks.length; });
+    try {
+      const fresh = await import("./deferred");
+      let finish!: (value: object) => void;
+      const first = vi.fn(() => new Promise<object>((resolve) => { finish = resolve; }));
+      const second = vi.fn(async () => ({}));
+      fresh.deferredModule(first);
+      fresh.deferredModule(second);
+      fresh.preloadDeferredWhenIdle(0);
+      window.dispatchEvent(new Event("load"));
+      await vi.runOnlyPendingTimersAsync();
+      expect(first).not.toHaveBeenCalled();
+      callbacks.shift()!();
+      expect(first).toHaveBeenCalledOnce();
+      expect(second).not.toHaveBeenCalled();
+      finish({});
+      await vi.waitFor(() => expect(callbacks).toHaveLength(1));
+      expect(second).not.toHaveBeenCalled();
+      expect(callbacks).toHaveLength(1);
+      callbacks.shift()!();
+      expect(second).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("loads once, then answers synchronously through `current`", async () => {
     const load = vi.fn(async () => ({ answer: 42 }));
     const module = deferredModule(load);

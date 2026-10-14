@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { open, stat } from "node:fs/promises";
-import { parseSessionEntries, SessionManager } from "@earendil-works/pi-coding-agent";
+import { readPersistedSessionBranch } from "./persisted-transcript-reader-session.js";
 import type { UiMessage, UiToolOutputReadResult } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
@@ -59,7 +59,7 @@ export class PersistedTranscriptReader {
   diagnostics: PersistedTranscriptDiagnostics = { builds: 0, mappedRecords: 0, pageRecords: 0, cacheBytes: 0, sessions: 0 };
 
   constructor(
-    private readonly workerUrl = new URL("./persisted-transcript-worker.js", import.meta.url),
+    private readonly workerUrl = new URL("./persisted-transcript-worker.mjs", import.meta.url),
     private readonly cacheBytesLimit = 64 * 1024 * 1024,
     private readonly smallFileBytesLimit = 256 * 1024,
   ) {
@@ -163,11 +163,7 @@ export class PersistedTranscriptReader {
     if (this.closed) throw new Error("Persisted transcript reader is closed.");
     let reader: PersistedThreadTranscript;
     try {
-      const parsed = parseSessionEntries(text);
-      const header = parsed[0] as { type?: string; id?: unknown; cwd?: unknown } | undefined;
-      if (header?.type !== "session" || typeof header.id !== "string") throw new Error("Invalid Pi session header");
-      const cwd = typeof header.cwd === "string" && header.cwd ? header.cwd : process.cwd();
-      const entries = SessionManager.inMemory(cwd, undefined, parsed).getBranch();
+      const entries = readPersistedSessionBranch(text);
       reader = new PersistedThreadTranscript(thread, options, entries);
       reader.messages();
     } catch (error) { throw new Error(UNREADABLE_SESSION_FILE, { cause: error }); }

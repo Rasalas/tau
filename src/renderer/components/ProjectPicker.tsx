@@ -3,7 +3,7 @@ import { Check, ChevronRight, MessageSquare, Plus, Search, Trash2 } from "lucide
 import type { UiProject, UiSession } from "../../shared/contracts";
 import { pickerOrder } from "../../workbench/new-thread-project";
 import { namesWorkspace } from "../../shared/workspace-identity";
-import { Sheet } from "../touch/Sheet";
+import { Sheet } from "../deferred-surfaces";
 import { Popover } from "./ui/Dialog";
 import { ProjectIcon } from "./ProjectIcon";
 import { VirtualList } from "./VirtualList";

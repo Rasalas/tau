@@ -321,6 +321,7 @@ try {
   const wallClock = [];
   let phases = [];
   let background = [];
+  let eventLoopStalls = [];
   let idleHeapMiB;
   for (let hostRun = 0; hostRun < HOST_RUNS; hostRun += 1) {
     const history = new ProjectHistory(historyPath);
@@ -356,6 +357,7 @@ try {
     // Phases describe one host; the last start stands for the report.
     phases = host.getLifecycleMeasurements();
     background = host.getBackgroundLifecycleMeasurements();
+    eventLoopStalls = host.getEventLoopStallHistory();
   }
   const metadata = await measureMetadataCommands(PiHost, ProjectHistory, SessionManager);
   // Kits are Full Mode's; safe mode loads none.
@@ -377,6 +379,7 @@ try {
     idleHeapMiB,
     phases,
     background,
+    eventLoopStalls,
     metadata,
     ...(largeThread ? { largeThread } : {}),
   };

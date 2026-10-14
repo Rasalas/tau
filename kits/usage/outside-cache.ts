@@ -475,6 +475,9 @@ export class OutsideUsageCache {
     return this.running;
   }
 
+  /** Waits for the current background read and its final durable cache write. */
+  async drain(): Promise<void> { await this.running; }
+
   snapshot(): OutsideScan {
     const roots: OutsideRootReport[] = [];
     const units: OutsideScan["units"] = [];

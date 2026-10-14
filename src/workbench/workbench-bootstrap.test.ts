@@ -112,3 +112,46 @@ it("still reports a real bootstrap failure while retrying the read", async () =>
   expect(applyBootstrap).toHaveBeenCalledOnce();
   stop();
 });
+
+it("revalidates previously loaded content after reconnect", async () => {
+  vi.useFakeTimers();
+  let connection!: (state: HostConnectionState) => void;
+  const bootstrap = vi.fn().mockResolvedValue({} as HostBootstrap);
+  const onLoaded = vi.fn();
+  const stop = followWorkbenchBootstrap({
+    bootstrap, onConnectionState: (listener) => { connection = listener; return () => {}; },
+    watchThread: () => () => {}, limitPushesToWatched: () => {},
+  }, {
+    history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true } as never,
+    threads: { getSnapshot: () => ({}), subscribe: () => () => {} } as never,
+    applyBootstrap: () => true,
+  }, vi.fn(), onLoaded);
+  await vi.advanceTimersByTimeAsync(0);
+  connection("reconnecting");
+  connection("connected");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(bootstrap).toHaveBeenCalledTimes(2);
+  expect(onLoaded).toHaveBeenCalledTimes(2);
+  stop();
+});
+
+it("ignores duplicate connected notifications while an initial read is pending", async () => {
+  let connection!: (state: HostConnectionState) => void;
+  let resolve!: (value: HostBootstrap) => void;
+  const bootstrap = vi.fn(() => new Promise<HostBootstrap>((done) => { resolve = done; }));
+  const applied = vi.fn(() => true);
+  const stop = followWorkbenchBootstrap({
+    bootstrap, onConnectionState: (listener) => { connection = listener; return () => {}; },
+    watchThread: () => () => {}, limitPushesToWatched: () => {},
+  }, {
+    history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true } as never,
+    threads: { getSnapshot: () => ({}), subscribe: () => () => {} } as never,
+    applyBootstrap: applied,
+  }, vi.fn());
+  connection("connected");
+  resolve({} as HostBootstrap);
+  await Promise.resolve();
+  expect(applied).toHaveBeenCalledOnce();
+  expect(bootstrap).toHaveBeenCalledOnce();
+  stop();
+});

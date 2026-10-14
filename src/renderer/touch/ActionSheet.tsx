@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { PanelIconComponent } from "../components/PanelIcon";
-import { Sheet } from "./Sheet";
+import { Sheet } from "../deferred-surfaces";
 
 export interface SheetAction {
   id: string;

@@ -15,6 +15,28 @@ const load = (providers: HostRuntimeBackendProvider[]) => loadExternalSessionShe
 });
 
 describe("loadExternalSessionShells", () => {
+  it("bounds overlapping listings and keeps registration order", async () => {
+    const releases: Array<() => void> = [];
+    let active = 0;
+    let maximum = 0;
+    const providers = Array.from({ length: 7 }, (_, index) => ({ kind: `backend-${index}`, listThreads: async () => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      active -= 1;
+      return [{ threadId: String(index), cwd: "/repo", updatedAt: index, messages: [] }];
+    } } as unknown as HostRuntimeBackendProvider));
+    const result = load(providers);
+    expect(releases).toHaveLength(4);
+    for (let i = 0; i < 7; i += 1) {
+      releases[i]!();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    expect((await result).map((shell) => shell.id)).toEqual(["0", "1", "2", "3", "4", "5", "6"]);
+    expect(maximum).toBe(4);
+  });
+
   it("lists a remote thread's count and machine without loading its transcript", async () => {
     const machine = { id: "rex", name: "rex", backendKind: "codex", modelProvider: "openai" };
     const [shell] = await load([provider([{ threadId: "rex~t1", cwd: "/remote", title: "Remote work", updatedAt: 1, messages: [], messageCount: 42, machine }])]);

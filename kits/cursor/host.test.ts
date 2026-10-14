@@ -13,8 +13,15 @@ const FAKE_CLI = fileURLToPath(new URL("./fixtures/fake-cursor-agent.mjs", impor
 const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 const INSTALL_SCRIPT = 'DOWNLOAD_URL="https://downloads.cursor.com/lab/2026.10.02-abc1234/${OS}/${ARCH}/agent-cli-package.tar.gz"';
 const directories: string[] = [];
+const registries: Array<{ dispose(): Promise<void> }> = [];
+const stores: CursorSessionStore[] = [];
+function trackedStore(store: CursorSessionStore): CursorSessionStore { stores.push(store); return store; }
 
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+afterEach(async () => {
+  await Promise.all(registries.splice(0).map((registry) => registry.dispose()));
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 async function harness(options: { customModels?: string; found?: boolean; env?: Record<string, string> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-cursor-host-"));
@@ -40,6 +47,7 @@ async function harness(options: { customModels?: string; found?: boolean; env?: 
     },
   });
   const sent = async () => (await readFile(log, "utf8").catch(() => "")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method?: string; params?: Record<string, unknown> });
+  registries.push(registry);
   return { registry, provider: backends[0]!, backend: (kind: string) => backends.find((entry) => entry.kind === kind), root, sent, connects, fetch };
 }
 
@@ -162,7 +170,7 @@ describe("Cursor host half", () => {
 
   it("hands each thread's running total to the Usage kit and to no other kit", async () => {
     const { registry, root } = await harness();
-    const store = new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const store = trackedStore(new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) }));
     await store.recordUsage("thread-1", "/repo", { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0, turns: 1 });
     await store.setObservedModel("thread-1", "/repo", "gpt-5.4");
     const usage = caller("tau.usage");
@@ -175,7 +183,7 @@ describe("Cursor host half", () => {
 
   it("names each thread's model and its maker for the thread's row", async () => {
     const { provider, root } = await harness();
-    const store = new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const store = trackedStore(new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) }));
     await store.setModels([{ id: "m-1", name: "Claude Sonnet 4.5", efforts: [] }]);
     await store.setObservedModel("on-claude", "/repo", "m-1");
     await store.setObservedModel("on-auto", "/repo", "default");
@@ -188,7 +196,7 @@ describe("Cursor host half", () => {
 
   it("hands the text of its threads to the Search kit and to no other kit", async () => {
     const { registry, root } = await harness();
-    const store = new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const store = trackedStore(new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) }));
     await store.appendMessages("thread-1", "/repo", [
       { id: "u1", role: "user", text: "Rename the queue", timestamp: 1 },
       { id: "a1", role: "assistant", text: "Renamed it.", timestamp: 2 },
@@ -206,7 +214,7 @@ describe("Cursor host half", () => {
 
   it("lists what each thread cost from its store, as its open thread shows it", async () => {
     const { provider, root } = await harness();
-    const store = new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const store = trackedStore(new CursorSessionStore({ filePath: CursorSessionStore.defaultPath(join(root, "agent", "sessions")) }));
     const total = (turns: number) => ({ inputTokens: 1_000 * turns, outputTokens: 100 * turns, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100 * turns, costUsd: 0.25 * turns, turns });
     // Cursor keeps a running total, no turns and no model per turn.
     await store.recordUsage("used", "/repo", total(2));

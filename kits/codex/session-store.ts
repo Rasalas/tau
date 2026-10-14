@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
-import { SessionStorePersistence } from "../_shared/session-store-persistence.js";
+import { SessionStorePersistence, sessionMessageIndex } from "../_shared/session-store-persistence.js";
 
 /**
  * App-data persistence for Codex threads: the Tau thread → Codex thread
@@ -243,7 +243,7 @@ export class CodexSessionStore {
     this.persistence = new SessionStorePersistence({
       filePath: options.filePath,
       version: CURRENT_VERSION,
-      logger: options.logger,
+      logger: options.logger, immutableUsageTurns: true,
       decode: (value) => {
         const data = decodeFile(value);
         return data ? { sessions: data.sessions, models: { [DEFAULT_INSTANCE_ID]: data.models, ...data.instanceModels } } : undefined;
@@ -254,6 +254,10 @@ export class CodexSessionStore {
       },
     });
   }
+
+  get databasePath(): string { return this.persistence.databasePath; }
+  dispose(): Promise<void> { return this.persistence.dispose(); }
+  flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 
   /** Beside the Pi session directory, like the other backends' stores, so a dev instance never writes into the user's own. */
   static defaultPath(sessionsDir: string): string {
@@ -294,7 +298,30 @@ export class CodexSessionStore {
       .map(clone);
   }
 
-  /** The thread's record, created on the given instance when it has none. */
+  /** Index recovery needs a title seed and count, never a transcript copy. */
+  async listMetadata(instance?: string): Promise<Array<Omit<CodexSessionRecord, "usageTurns"> & { messageCount: number }>> {
+    await this.load();
+    return [...this.records.values()].filter((record) => instance === undefined || sameInstance(record, instance))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map((record) => {
+        const { messages, usageTurns: _usageTurns, ...metadata } = record;
+        const firstUser = sessionMessageIndex(messages).firstUser;
+        return { ...clone({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: messages.length };
+      });
+  }
+
+  private async ensureRecord(tauThreadId: string, cwd: string): Promise<CodexSessionRecord> {
+    await this.load();
+    const existing = this.records.get(tauThreadId);
+    if (existing) {
+      if (existing.cwd !== cwd) throw new Error("This thread belongs to another workspace.");
+      return existing;
+    }
+    await this.ensure(tauThreadId, cwd);
+    return this.records.get(tauThreadId)!;
+  }
+
+  /** The thread's record, created when it has none. */
   async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<CodexSessionRecord> {
     await this.load();
     const existing = this.records.get(tauThreadId);
@@ -309,7 +336,7 @@ export class CodexSessionStore {
   }
 
   private async update(tauThreadId: string, cwd: string, change: (record: CodexSessionRecord) => void): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId)!;
     change(record);
     record.updatedAt = this.now();
@@ -364,7 +391,7 @@ export class CodexSessionStore {
   recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turn?: UsageTurn): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => {
       record.usage = { ...usage };
-      if (turn) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
+      if (turn) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], { ...turn });
     });
   }
 
@@ -420,7 +447,7 @@ export class CodexSessionStore {
         if (message.role !== "user" && message.role !== "assistant" && message.role !== "notice") continue;
         const clientMessageId = text(message.clientMessageId, MAX_ID_LENGTH);
         if (clientMessageId) {
-          const existing = record.messages.find((item) => item.clientMessageId === clientMessageId);
+          const existing = sessionMessageIndex(record.messages).ids.get(clientMessageId);
           if (existing && existing.text === message.text && existing.role === message.role) continue;
           if (existing) throw new Error(`The Codex transcript already holds a different message '${clientMessageId}'.`);
         }
@@ -464,6 +491,6 @@ export class CodexSessionStore {
   }
 
   private persist(tauThreadId: string): Promise<void> {
-    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId) }] });
+    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId), appendOnly: true }] });
   }
 }

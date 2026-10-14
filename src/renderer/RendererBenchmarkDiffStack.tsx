@@ -15,9 +15,17 @@ export default function DiffStackScenario({ files, lines, onFinished }: { files:
     let frame = 0;
     let index = 0;
     let waiting = false;
+    const progress = { visited: 0, waiting: false, targetPresent: false, rowsPresent: false };
+    const probe = window as typeof window & { __TAU_DIFF_STACK_PROGRESS__?: typeof progress };
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Cross-process diagnostic read by the Electron fixture over CDP.
+    probe.__TAU_DIFF_STACK_PROGRESS__ = progress;
     const advance = () => {
+      progress.visited = index;
+      progress.waiting = waiting;
       const region = scroll.current?.querySelector<HTMLElement>(`[data-path="src/file-${index}.ts"]`);
-      if (!region) return;
+      progress.targetPresent = !!region;
+      progress.rowsPresent = !!region?.querySelector(".diff-row");
+      if (!region) { frame = requestAnimationFrame(advance); return; }
       if (!waiting) { region.scrollIntoView({ block: "start" }); waiting = true; }
       if (region.querySelector(".diff-row")) {
         // Let the observer evict the preceding card and paint this one before advancing.
@@ -30,7 +38,11 @@ export default function DiffStackScenario({ files, lines, onFinished }: { files:
       } else frame = requestAnimationFrame(advance);
     };
     frame = requestAnimationFrame(advance);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Release the cross-process diagnostic when this scenario unmounts.
+      delete probe.__TAU_DIFF_STACK_PROGRESS__;
+    };
   }, [files, onFinished]);
 
   return <div className="benchmark-diff-stack" ref={scroll}>

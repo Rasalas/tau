@@ -4,8 +4,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AntigravitySessionStore } from "./session-store.js";
 
+const liveStores: AntigravitySessionStore[] = [];
+function makeSessionStore(options: ConstructorParameters<typeof AntigravitySessionStore>[0]) {
+  const store = new AntigravitySessionStore(options); liveStores.push(store); return store;
+}
+
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(liveStores.splice(0).map((store) => store.dispose())); await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
 describe("AntigravitySessionStore", () => {
   it("keeps the thread's session id, transcript, title, usage and model across a reload", async () => {
@@ -13,7 +18,7 @@ describe("AntigravitySessionStore", () => {
     directories.push(directory);
     const filePath = join(directory, "tau", "antigravity-runtime-sessions.json");
     let clock = 10;
-    const store = new AntigravitySessionStore({ filePath, now: () => clock++ });
+    const store = makeSessionStore({ filePath, now: () => clock++ });
     await store.ensure("thread", "/repo");
     await store.setAcpSession("thread", "/repo", "acp-1");
     await store.appendMessages("thread", "/repo", [{ id: "u", role: "user", text: "hi", timestamp: 1, clientMessageId: "c1" }, { id: "a", role: "assistant", text: "hello", timestamp: 2 }]);
@@ -24,13 +29,13 @@ describe("AntigravitySessionStore", () => {
     await store.setModel("thread", "/repo", "gemini-3.8-flash-low");
     await expect(store.ensure("thread", "/elsewhere")).rejects.toThrow(/another workspace/u);
 
-    const reloaded = new AntigravitySessionStore({ filePath });
+    const reloaded = makeSessionStore({ filePath });
     const record = await reloaded.get("thread");
     expect(record).toMatchObject({ backendKind: "antigravity", acpSessionId: "acp-1", title: "Greeting", titleSource: "derived", model: "gemini-3.8-flash-low", usage: { totalTokens: 3 } });
     // The ids the transcript showed come back, so tool cards anchored to them find them.
     expect(record?.messages).toEqual([{ id: "u", role: "user", text: "hi", timestamp: 1, clientMessageId: "c1" }, { id: "a", role: "assistant", text: "hello", timestamp: 2 }]);
     expect((await reloaded.list("/repo")).map((entry) => entry.tauThreadId)).toEqual(["thread"]);
-    expect(JSON.parse(await readFile(filePath, "utf8")).version).toBe(1);
+    expect(JSON.parse(await readFile(filePath, "utf8")).version).toBe(4);
     expect(AntigravitySessionStore.defaultPath("/x/sessions")).toBe("/x/tau/antigravity-runtime-sessions.json");
   });
 
@@ -38,24 +43,36 @@ describe("AntigravitySessionStore", () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-agy-store-"));
     directories.push(directory);
     const filePath = join(directory, "sessions.json");
-    const store = new AntigravitySessionStore({ filePath });
+    const store = makeSessionStore({ filePath });
     expect(await store.listModels()).toEqual([]);
     await store.setModels([{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }, { value: "", name: "nameless" }]);
     // An empty report never wipes what the last session knew.
     await store.setModels([]);
-    expect(await new AntigravitySessionStore({ filePath }).listModels()).toEqual([{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }]);
+    expect(await makeSessionStore({ filePath }).listModels()).toEqual([{ value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }]);
   });
 
   it("hands a thread's record to the trash and takes the same record back", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-agy-store-"));
     directories.push(directory);
     const filePath = join(directory, "sessions.json");
-    const store = new AntigravitySessionStore({ filePath });
+    const store = makeSessionStore({ filePath });
     await store.ensure("thread", "/repo");
     await store.setAcpSession("thread", "/repo", "acp-1");
     const taken = await store.take("thread");
-    expect(await new AntigravitySessionStore({ filePath }).get("thread")).toBeUndefined();
+    expect(await makeSessionStore({ filePath }).get("thread")).toBeUndefined();
     await store.put("thread", JSON.parse(JSON.stringify(taken)));
-    expect(await new AntigravitySessionStore({ filePath }).get("thread")).toMatchObject({ acpSessionId: "acp-1" });
+    expect(await makeSessionStore({ filePath }).get("thread")).toMatchObject({ acpSessionId: "acp-1" });
   });
+});
+
+it("lists a title seed and count while keeping full transcripts available", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tau-agy-metadata-"));
+  directories.push(directory);
+  const store = makeSessionStore({ filePath: join(directory, "sessions.json") });
+  await store.appendMessages("metadata", "/repo", [
+    { id: "u", role: "user", text: "Title seed", timestamp: 1 },
+    { id: "a", role: "assistant", text: "Response", timestamp: 2 },
+  ]);
+  expect((await store.listMetadata())[0]).toMatchObject({ messageCount: 2, messages: [{ role: "user", text: "Title seed" }] });
+  expect((await store.list())[0]?.messages).toHaveLength(2);
 });

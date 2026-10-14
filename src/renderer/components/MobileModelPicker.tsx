@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Search, Star } from "lucide-react";
-import { Sheet } from "../touch/Sheet";
+import { Sheet } from "../deferred-surfaces";
 import { MakerMark, RuntimeMark, RuntimeMarks } from "./ModelPickerRow";
 import { modelFamily, type Offering } from "./model-offerings";
 import { modelEntries, modelMaker } from "./model-entries";

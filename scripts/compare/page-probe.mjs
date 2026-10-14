@@ -1,6 +1,30 @@
 // Code evaluated inside each app's renderer. App-neutral on purpose: the same
 // probe measures both, only the selectors in apps.mjs differ.
 
+/** Tau startup follows host confirmation and stable visible layout separately from first paint. */
+export const INSTALL_STARTUP_PROBE = `(() => {
+  if (window.__tauStartup) return;
+  const state = window.__tauStartup = { currentAt: null, stableAt: null, confirmedAt: null, lastChangeAt: null };
+  let previous = '';
+  const box = (selector) => {
+    const rect = document.querySelector(selector)?.getBoundingClientRect();
+    return rect ? [rect.x, rect.y, rect.width, rect.height].map(Math.round) : null;
+  };
+  const tick = (now) => {
+    const shell = document.querySelector('.app-shell[data-startup-ready="true"][data-content-freshness="current"][data-thread-index-current="true"]');
+    if (shell && !document.querySelector('nav[aria-label="Threads"][aria-busy="true"]')) {
+      state.currentAt ??= now;
+      const signature = JSON.stringify({ chat: box('.conversation-column'), stage: box('.workspace-area'), composer: box('[data-composer-surface]'),
+        anchor: [...document.querySelectorAll('[data-message-id]')].at(-1)?.getAttribute('data-message-id'),
+        threads: [...document.querySelectorAll('[data-rail-thread]')].map((row) => row.getAttribute('data-rail-thread')) });
+      if (signature !== previous) { previous = signature; state.lastChangeAt = now; state.stableAt = null; }
+      if (now - state.lastChangeAt >= 500) { state.stableAt = state.lastChangeAt; state.confirmedAt = now; return; }
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+})()`;
+
 /** Installs `window.__compareProbe`: rAF intervals, long tasks and first sight of sentinel strings. */
 export const INSTALL_PROBE = `(() => {
   if (window.__compareProbe) return true;

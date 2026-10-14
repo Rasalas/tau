@@ -2114,7 +2114,9 @@ npm run benchmark:sessions -- --check
 ```
 
 The command writes `reports/session-performance-report.json`. Its blocking
-budgets require one changed record of at most 64 KiB for the title fixture,
+budgets count SQLite row writes using fixture-only triggers: a title change
+updates one session row without touching messages or usage; appending one
+message updates one session row and inserts one message row. They also require
 40-message pages, no warm rebuild or remapping, the 64 MiB cache bound and no
 worker startup for the small fixture. Timings, including migration and worker
 startup, are reported separately.
@@ -2146,3 +2148,27 @@ p95 29.2 ms (24 ms budget), and long-user-message frame p95 83.3 ms (24 ms),
 mount p95 136.4 ms (24 ms) and maximum long task 96.0 ms (50 ms). These changes
 do not bring those rendering costs within their timing budgets. The full
 measurements are in `reports/renderer-ci-report.json`.
+
+### October 14 startup correctness and total bundle budget
+
+The performance fixes add explicit cached-thread freshness, unavailable-backend state, and initial Markdown readiness so a short message does not replace a 96-pixel loading placeholder after the workbench appears. The final desktop build is approximately 540.1 KB of total gzipped JavaScript. Its total gzip budget increases from 540,000 to 540,500 bytes; initial JavaScript, CSS, browser-client and build-time budgets are unchanged. The desktop omits the modulepreload compatibility shim because its bundled Chromium supports it natively; the independently built browser client retains its compatibility configuration. Three isolated startup runs after the fixes recorded no layout shifts, with first visible workbench times of 646–733 ms. These are renderer-reload fixture measurements, not a general startup percentile.
+
+
+### October 14 external runtime SQLite persistence
+
+External runtime stores now use native SQLite on a dedicated worker, with WAL, transactional session/message/usage changes and automatic import of the former JSON layouts. Pi's SDK-owned session files are unchanged. Migration retains legacy backups and publishes a version marker only after a committed import. A published database that is missing or corrupt fails closed.
+
+The structural session benchmark uses fixture-only SQL triggers to count changed rows: five title changes update five session rows and no history rows; a message append inserts one message row and updates one session row. The checked fixtures contain 10, 100 and 1,000 threads. These row counts are the regression gate; local timings are diagnostic.
+
+Initial hydration still reads all histories. A local comparison with 100 threads of 200 roughly 1-KiB messages measured 68–70 ms for the prior chunk store and 152–157 ms for SQLite. Releasing the initial read worker lowered retained additional RSS to about 46 MiB, versus 55–56 MiB for the chunk store and 95–103 MiB when SQLite retained that worker. The first later write starts a new retained worker. This improves steady-state write amplification, but does not establish faster cold startup.
+
+
+### Integration with October 14 main
+
+After integrating main through `f3b16034`, the desktop renderer contains 546,196 bytes of total gzipped JavaScript and the shipped kit desktop code contains 3,202,214 bytes. The combined freshness, layout and ordered-settlement guards exceed main's former limits by 1,196 and 2,214 bytes respectively. The total JavaScript gzip cap is now 546,500 bytes, and the kit desktop cap is 3,202,500 bytes. Initial JavaScript/CSS, browser-client and build-time limits remain unchanged. This is an explicit allowance for the additional behavior, not a measured bundle-size improvement. A focused scan found no accidental production dependency or safe small removal; on-demand SQLite history hydration remains a separate follow-up.
+
+
+The first CI run of the integrated PR also checked the separate web client: its total JavaScript gzip output was 557,809 bytes, above the existing 557,000-byte limit. The web total cap is explicitly adjusted to 558,000 bytes for the shared freshness/startup code; its initial asset and build-time limits are unchanged. This web budget check had been omitted from the local landing checks. The later main change #333 independently raises the kit desktop cap to 3,300,000 bytes; integration preserves that main policy rather than lowering it to this branch's earlier 3,202,500-byte cap.
+
+
+Integration through main `0041fcfa` produces 546,625 desktop and 558,135 web total gzip bytes. Both total caps increase by a further 250 bytes, to 546,750 and 558,250 respectively. Initial asset and timing budgets remain unchanged; these are explicit integration allowances, not size improvements.

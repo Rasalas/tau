@@ -1,13 +1,21 @@
 import { createReadStream } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { getAgentDir, SessionManager, type FileEntry, type SessionHeader, type SessionInfo } from "@earendil-works/pi-coding-agent";
-import { readSessionModel, type SessionModel } from "./session-model-provider.js";
-import { readSessionFileStamp, type SessionFileStamp } from "./session-usage.js";
+import { SessionModelCollector, type SessionModel } from "./session-model-provider.js";
+import { type SessionFileStamp } from "./session-usage.js";
 
+import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
+
+interface StrongStamp extends SessionFileStamp { dev: number; ino: number; ctimeMs: number }
+const sameStamp = (a: StrongStamp | undefined, b: StrongStamp) => a?.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs && a.dev === b.dev && a.ino === b.ino;
+async function readStamp(path: string): Promise<StrongStamp | undefined> {
+  try { const info = await stat(path); return { size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, dev: info.dev, ino: info.ino }; }
+  catch { return undefined; }
+}
 interface CachedInfo {
-  stamp?: SessionFileStamp;
+  stamp?: StrongStamp;
   info?: SessionInfo;
   model?: SessionModel;
 }
@@ -25,7 +33,8 @@ async function mapBounded<T, R>(items: readonly T[], read: (item: T) => Promise<
 }
 
 /** The shell fields of a session, without retaining its searchable history. */
-async function readInfo(path: string, stamp: SessionFileStamp): Promise<SessionInfo | undefined> {
+async function readInfo(path: string, stamp: SessionFileStamp): Promise<{ info: SessionInfo; model?: SessionModel } | undefined> {
+  const collector = new SessionModelCollector();
   let header: SessionHeader | undefined;
   let name: string | undefined;
   let firstMessage = "";
@@ -39,6 +48,7 @@ async function readInfo(path: string, stamp: SessionFileStamp): Promise<SessionI
       let entry: FileEntry;
       try { entry = JSON.parse(line) as FileEntry; } catch { continue; }
       if (!entry || typeof entry !== "object") continue;
+      collector.add(entry);
       if (!header) {
         if (entry.type !== "session" || typeof entry.id !== "string") return undefined;
         header = entry;
@@ -65,41 +75,61 @@ async function readInfo(path: string, stamp: SessionFileStamp): Promise<SessionI
   const created = new Date(header.timestamp);
   const modified = lastActivity !== undefined && lastActivity > 0 ? new Date(lastActivity)
     : !Number.isNaN(created.getTime()) ? created : new Date(stamp.mtimeMs);
-  return {
+  return { model: collector.model(), info: {
     path, id: header.id, cwd: typeof header.cwd === "string" ? header.cwd : "",
     name, parentSessionPath: header.parentSession, created, modified, messageCount,
     firstMessage: firstMessage || "(no messages)", allMessagesText: "",
-  };
+  } };
 }
 
 /** A stat-only recovery scan; a changed file alone pays for reading its entries. */
 export class SessionInfoIndex {
   private readonly cache = new Map<string, CachedInfo>();
 
-  constructor(private readonly sessionsDir?: string) {}
+  private restored?: Promise<void>;
+  private dirty = false;
+  constructor(private readonly sessionsDir?: string, private readonly options: { file?: string; logger?: PersistedJsonLogger } = {}) {}
+
+  private restore(): Promise<void> {
+    return this.restored ??= (this.options.file ? readPersistedJson(this.options.file, {
+      expectedVersion: 1, decode: (raw, version) => version === 1 ? decodeInfoCache(raw) : undefined,
+      ...(this.options.logger ? { logger: this.options.logger } : {}),
+    }).then((read) => { for (const entry of read?.data ?? []) this.cache.set(entry.info!.path, entry); }, () => undefined) : Promise.resolve());
+  }
+  private async persist(): Promise<void> {
+    if (!this.dirty || !this.options.file) return;
+    this.dirty = false;
+    try { await writePersistedJson(this.options.file, 1, { entries: [...this.cache.values()] }, this.options.logger ? { logger: this.options.logger } : {}); }
+    catch { this.dirty = true; }
+  }
 
   async list(readFiles = false): Promise<{
     infos: SessionInfo[];
     stamps: Map<string, SessionFileStamp>;
     models: Map<string, SessionModel | undefined>;
   }> {
+    await this.restore();
     const root = this.sessionsDir ?? join(getAgentDir(), "sessions");
     const direct = readFiles ? await SessionManager.listAll(this.sessionsDir) : undefined;
     const byPath = new Map(direct?.map((info) => [info.path, { ...info, allMessagesText: "" }]));
     const files = direct ? [...byPath.keys()] : await this.files(root);
     const retained = new Set(files);
-    for (const path of this.cache.keys()) if (!retained.has(path)) this.cache.delete(path);
+    for (const path of this.cache.keys()) if (!retained.has(path)) { this.cache.delete(path); this.dirty = true; }
     const entries = await mapBounded(files, async (path): Promise<CachedInfo | undefined> => {
-      const stamp = await readSessionFileStamp(path);
+      const stamp = await readStamp(path);
       if (!stamp) { this.cache.delete(path); return { info: byPath.get(path) }; }
       const cached = this.cache.get(path);
-      if (!readFiles && cached?.stamp?.size === stamp.size && cached.stamp.mtimeMs === stamp.mtimeMs) return cached;
+      if (!readFiles && sameStamp(cached?.stamp, stamp)) return cached;
       const read = await readInfo(path, stamp);
-      const info = read ?? byPath.get(path);
-      const model = info ? await readSessionModel(path) : undefined;
+      const info = read?.info ?? byPath.get(path);
+      const model = read?.model;
       const entry = { stamp, info, model };
-      if (read) this.cache.set(path, entry);
+      // A writer may append while the scan yields. Do not persist mixed metadata
+      // as a reusable answer for a newer file revision.
+      const after = await readStamp(path);
+      if (read && after && sameStamp(stamp, after)) this.cache.set(path, entry);
       else this.cache.delete(path);
+      this.dirty = true;
       return entry;
     });
     const infos: SessionInfo[] = [];
@@ -112,6 +142,7 @@ export class SessionInfoIndex {
       models.set(entry.info.id, entry.model);
     }
     infos.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+    await this.persist();
     return { infos, stamps, models };
   }
 
@@ -126,4 +157,21 @@ export class SessionInfoIndex {
       })).flat();
     } catch { return []; }
   }
+}
+
+function decodeInfoCache(raw: unknown): CachedInfo[] | undefined {
+  const entries = (raw as { entries?: unknown } | null)?.entries;
+  if (!Array.isArray(entries)) return undefined;
+  return entries.flatMap((value): CachedInfo[] => {
+    if (!value || typeof value !== "object") return [];
+    const { stamp, info, model } = value as CachedInfo;
+    if (!stamp || ![stamp.size, stamp.mtimeMs, stamp.ctimeMs, stamp.dev, stamp.ino].every((part) => typeof part === "number" && Number.isFinite(part))) return [];
+    if (!info || typeof info.path !== "string" || typeof info.id !== "string" || typeof info.cwd !== "string" || typeof info.firstMessage !== "string" || !Number.isSafeInteger(info.messageCount) || info.messageCount < 0) return [];
+    if (info.name !== undefined && typeof info.name !== "string" || info.parentSessionPath !== undefined && typeof info.parentSessionPath !== "string") return [];
+    const created = new Date(info.created);
+    const modified = new Date(info.modified);
+    if (!Number.isFinite(created.getTime()) || !Number.isFinite(modified.getTime())) return [];
+    if (model !== undefined && (!model || typeof model.provider !== "string" || model.id !== undefined && typeof model.id !== "string")) return [];
+    return [{ stamp, info: { ...info, created, modified, allMessagesText: "" }, ...(model ? { model } : {}) }];
+  });
 }

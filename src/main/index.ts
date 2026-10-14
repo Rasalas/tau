@@ -1026,6 +1026,7 @@ if (primaryInstance) app.on("before-quit", (event) => {
     const staged = updates?.downloaded();
     if (installGuard && staged) installGuard.write(staged, updateQuit);
     shutdownComplete = true;
+    await hostLog.flush();
     app.quit();
   })();
 });

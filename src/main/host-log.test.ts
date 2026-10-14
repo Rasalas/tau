@@ -1,9 +1,14 @@
-import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { platform } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostLog } from "./host-log.js";
+
+vi.mock("node:fs/promises", async (original) => {
+  const fs = await original<typeof import("node:fs/promises")>();
+  return { ...fs, appendFile: vi.fn(fs.appendFile) };
+});
 
 const temporaryDirectories: string[] = [];
 
@@ -30,6 +35,8 @@ describe("HostLog", () => {
     log.warn("slow start", { ms: 900 });
     log.error("host crashed", new Error("boom"));
 
+    await log.flush();
+
     const contents = await readFile(log.filePath, "utf8");
     const lines = contents.trim().split("\n");
     expect(lines).toHaveLength(4);
@@ -44,6 +51,8 @@ describe("HostLog", () => {
     const log = new HostLog({ dir, maxBytes: 50 });
 
     for (let i = 0; i < 10; i++) log.info(`line ${i} padded with enough text to cross the threshold quickly`);
+
+    await log.flush();
 
     const rotated = `${log.filePath}.1`;
     const currentSize = (await readFile(log.filePath, "utf8")).length;
@@ -64,6 +73,7 @@ describe("HostLog", () => {
     const log = new HostLog({ dir });
     expect(() => log.info("should not throw")).not.toThrow();
     expect(() => log.error("still should not throw", new Error("x"))).not.toThrow();
+    await log.flush();
   });
 
   it("mirrors to the console only when asked", async () => {
@@ -79,8 +89,42 @@ describe("HostLog", () => {
       const loud = new HostLog({ dir, fileName: "loud.log", mirrorToConsole: true });
       loud.info("loud");
       expect(calls.some((line) => line.includes("loud"))).toBe(true);
+      await Promise.all([silent.flush(), loud.flush()]);
     } finally {
       console.log = originalLog;
     }
+  });
+
+  it("batches a burst without issuing file writes on the caller's stack", async () => {
+    const log = new HostLog({ dir: await tempDir(), mirrorToConsole: false });
+    vi.mocked(appendFile).mockClear();
+    for (let index = 0; index < 1_000; index++) log.info(`burst ${index}`);
+    expect(appendFile).not.toHaveBeenCalled();
+    await log.flush();
+    expect(vi.mocked(appendFile).mock.calls.length).toBeLessThan(10);
+    const lines = (await readFile(log.filePath, "utf8")).trim().split("\n");
+    expect(lines).toHaveLength(1_000);
+    expect(lines[0]).toContain("burst 0");
+    expect(lines.at(-1)).toContain("burst 999");
+  });
+
+  it("bounds queued output while a disk write is stalled and resumes afterwards", async () => {
+    const log = new HostLog({ dir: await tempDir(), mirrorToConsole: false });
+    let release!: () => void;
+    let started!: () => void;
+    const blocked = new Promise<void>((done) => { release = done; });
+    const entered = new Promise<void>((done) => { started = done; });
+    vi.mocked(appendFile).mockImplementationOnce(async () => { started(); await blocked; });
+    log.info("first write");
+    await entered;
+    for (let index = 0; index < 100; index++) log.info("x".repeat(32 * 1024));
+    release();
+    await log.flush();
+    const contents = await readFile(log.filePath, "utf8");
+    expect(Buffer.byteLength(contents)).toBeLessThan(2 * 1024 * 1024 + 200);
+    expect(contents).toMatch(/log.backpressure \d+ lines dropped/);
+    log.info("resumed");
+    await log.flush();
+    expect(await readFile(log.filePath, "utf8")).toContain("INFO resumed");
   });
 });

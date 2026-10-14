@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { parseSessionEntries, SessionManager } from "@earendil-works/pi-coding-agent";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -33,6 +34,41 @@ function session(turns: number): string {
 }
 
 describe("persisted transcript worker", () => {
+  it("ships a worker that does not initialize the runtime SDK barrel", async () => {
+    const source = await readFile(workerFixture.url, "utf8");
+    expect(/from\s+["']@earendil-works\/pi-coding-agent["']/u.test(source)).toBe(false);
+    expect(Buffer.byteLength(source)).toBeLessThan(256 * 1024);
+  });
+
+  it("matches the full SDK through branching, compaction, context edits and legacy messages", async () => {
+    const path = join(directory, "sdk-semantics.jsonl");
+    const base = session(30);
+    const timestamp = new Date(1).toISOString();
+    const tail = [
+      { type: "message", id: "discarded", parentId: "entry-59", timestamp, message: { role: "assistant", content: [{ type: "text", text: "Old branch" }], timestamp: 1 } },
+      { type: "context_edit", id: "edit", parentId: "entry-59", timestamp, targetId: "entry-55", replacement: { content: [{ type: "text", text: "Edited context" }] } },
+      { type: "compaction", id: "compact", parentId: "edit", timestamp, firstKeptEntryId: "entry-50", summary: "Retained summary", tokensBefore: 42_000 },
+      { type: "message", id: "result", parentId: "compact", timestamp, message: { role: "toolResult", toolCallId: "tool", content: [{ type: "text", text: "Full tool output" }], timestamp: 1 } },
+      { type: "message", id: "notice", parentId: "result", timestamp, message: { role: "hookMessage", customType: "notice", content: [{ type: "text", text: "Legacy notice" }], display: true, timestamp: 1 } },
+    ];
+    // Version two preserves stable entry ids but migrates hookMessage to custom.
+    const text = base.replace('"version":3', '"version":2') + tail.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+    await writeFile(path, text);
+    const thread = { sessionId: "thread", cwd: "/repo", path };
+    const sdkEntries = SessionManager.inMemory("/repo", undefined, parseSessionEntries(text)).getBranch();
+    const oracle = new PersistedThreadTranscript(thread, options, sdkEntries);
+    const reader = new PersistedTranscriptReader(workerFixture.url, 64 * 1024 * 1024, 0);
+    try {
+      const page = await reader.page(thread, options);
+      expect(page).toEqual(oracle.page());
+      expect(page.messages.some((message) => message.text === "Old branch")).toBe(false);
+      expect(page.messages.find((message) => message.compaction)?.compaction?.tokensAfter).toBeGreaterThan(0);
+      expect(await reader.toolOutput(thread, options, "tool")).toEqual(oracle.toolOutput("tool"));
+      const older = await reader.page(thread, options, page.olderCursor);
+      expect(older).toEqual(oracle.page(page.olderCursor));
+    } finally { await reader.dispose(); }
+  });
+
   it("shares one cold small snapshot across concurrent reads with distinct cursors", async () => {
     const path = join(directory, "concurrent-small.jsonl");
     await writeFile(path, session(30));

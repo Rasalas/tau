@@ -69,11 +69,20 @@ export function preloadDeferred(): Promise<void> {
 /** After start-up, when the window is idle, so the first open of a surface does not wait for its chunk. */
 export function preloadDeferredWhenIdle(delayMs = 2_000): void {
   if (typeof window === "undefined") return;
-  const run = () => void preloadDeferred().catch(() => undefined);
-  const schedule = () => window.setTimeout(() => {
-    if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 5_000 });
-    else run();
-  }, delayMs);
+  let index = 0;
+  const scheduleNext = () => {
+    if (index >= loaders.length) return;
+    const run = () => {
+      // One import at a time. Starting every registered chunk in the same
+      // idle callback lets their evaluation compete with the next interaction.
+      const load = loaders[index++];
+      if (load) void load().catch(() => undefined).then(scheduleNext);
+    };
+    // No deadline forces optional work onto a renderer that is still busy.
+    if (typeof requestIdleCallback === "function") requestIdleCallback(run);
+    else window.setTimeout(run, 16);
+  };
+  const schedule = () => window.setTimeout(scheduleNext, delayMs);
   if (document.readyState === "complete") schedule();
   else window.addEventListener("load", schedule, { once: true });
 }

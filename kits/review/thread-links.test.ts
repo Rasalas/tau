@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +8,28 @@ import { registerThreadLinks, type ThreadLinks } from "./thread-links-host.js";
 import { parseGitHubDetail, parseRequestUrl } from "./pull-request-json.js";
 import type { SourceControl } from "./provider-registry.js";
 import type { PullRequestDetail, ThreadPullRequestLink } from "./protocol.js";
+import { ThreadLinkStore, linkKey } from "./thread-links.js";
 
 const directories: string[] = [];
 afterEach(async () => { for (const path of directories.splice(0)) await rm(path, { recursive: true, force: true }); });
+
+it("keeps unchanged refresh timestamps in memory without replacing the links file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tau-review-noop-"));
+  directories.push(dir);
+  let now = 1;
+  const store = new ThreadLinkStore(dir, () => now);
+  const ref = parseRequestUrl("https://github.com/acme/shop-api/pull/5")!;
+  await store.link("thread", ref, "user", { title: "Saved", state: "open" });
+  const file = join(dir, "thread-pull-requests.json");
+  const before = await stat(file, { bigint: true });
+  now++;
+  expect(await store.update("thread", linkKey(ref), { title: "Saved", state: "open" })).toBe(false);
+  const after = await stat(file, { bigint: true });
+  expect([after.ino, after.mtimeNs]).toEqual([before.ino, before.mtimeNs]);
+  expect((await store.list("thread"))[0]?.refreshedAt).toBe(now);
+  expect(await store.update("thread", linkKey(ref), { title: "Changed", state: "merged" })).toBe(true);
+  expect((await new ThreadLinkStore(dir).list("thread"))[0]?.title).toBe("Changed");
+});
 
 async function fixture(discovery?: { sessions: unknown[]; branch: string; state: "open" | "merged" }) {
   const directory = await mkdtemp(join(tmpdir(), "tau-review-links-"));

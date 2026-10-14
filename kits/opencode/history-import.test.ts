@@ -44,10 +44,13 @@ interface Generation {
 
 const TOKENS: OpenCodeTokens = { input: 100, output: 20, reasoning: 5, cache: { read: 7, write: 3 } };
 const directories: string[] = [];
+const stores: OpenCodeSessionStore[] = [];
+function trackedStore(store: OpenCodeSessionStore): OpenCodeSessionStore { stores.push(store); return store; }
 const closers: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
   await Promise.all(closers.splice(0).map((close) => close()));
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -128,7 +131,7 @@ async function setup(generation: Generation) {
   const api = (await connectOpenCodeServer(server.url, "pw")).api;
   const dir = await mkdtemp(join(tmpdir(), "tau-opencode-import-"));
   directories.push(dir);
-  const store = new OpenCodeSessionStore({ filePath: join(dir, "opencode-runtime-sessions.json") });
+  const store = trackedStore(new OpenCodeSessionStore({ filePath: join(dir, "opencode-runtime-sessions.json") }));
   return { server, api, store };
 }
 

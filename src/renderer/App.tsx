@@ -48,8 +48,7 @@ import { usePanelLayout } from "./use-panel-layout";
 import type { SubmissionControllerPorts } from "./submission-controller";
 import { deferredSubmission } from "./deferred-submission";
 import { useTurnActivityCache } from "./use-turn-activity-cache";
-import { followWorkbenchBootstrap } from "../workbench/workbench-bootstrap";
-import { followOpenPrompts } from "../workbench/open-prompts";
+import { useWorkbenchStartup } from "./use-workbench-startup";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
@@ -384,10 +383,14 @@ export default function App() {
 
   useEffect(() => {
     if (!client) return;
-    if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error), "error"));
+    // Safe mode and a confirmed empty workspace have no package scan to await.
+    // Keep undefined (bootstrap still pending) loading; a later real path starts
+    // its normal scan even after the empty workspace has revealed the shell.
+    if (safeMode || workspaceCwd === "") registry.setLoadingExtensions(false);
+    else if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error), "error"));
     // A project's own settings apply from the start screen on, before its thread has a workspace id.
     preferences.setWorkspace(activeWorkspaceId ?? workspaceCwd);
-  }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
+  }, [activeWorkspaceId, client, preferences, registry, runtimeExtensions, safeMode, workspaceCwd]);
   const syncDesktopExtensions = useCallback((only?: readonly string[], report?: PackagesChangeReport) => {
     void runtimeExtensions.resync(only, report).catch((error) => setNotice(errorMessage(error), "error"));
   }, [runtimeExtensions, setNotice]);
@@ -411,26 +414,22 @@ export default function App() {
   ]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 
+  const freshness = useWorkbenchStartup(client, workbenchSession, clientStorage, setNotice, openStartDraft);
+
   useEffect(() => {
     let unsubscribe = () => {};
-    let stopBootstrap = () => {};
-    let stopPrompts = () => {};
     if (client) {
       // A page showing another machine looks as the window's own machine does.
       const personPreferences = getPlatform()?.environments?.shownElsewhere ? client.personPreferences?.bind(client) : undefined;
       preferences.bindHost(client, activeWorkspaceId, personPreferences ? { get: () => personPreferences(), set: (patch) => personPreferences(patch) } : undefined);
       unsubscribe = client.onHostEvent(handleHostEvent);
-      // A question raised while nobody was listening would otherwise stall the
-      // host forever, including during bootstrap itself.
-      stopPrompts = followOpenPrompts(client, viewStore);
-      stopBootstrap = followWorkbenchBootstrap(client, workbenchSession, setNotice, openStartDraft);
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
-    return () => { unsubscribe(); stopBootstrap(); stopPrompts(); };
-  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, openStartDraft, threadStore, transcriptHistory, viewStore, workbenchSession]);
+    return unsubscribe;
+  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, hostSession, openStartDraft, threadStore, transcriptHistory, viewStore, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {
@@ -654,6 +653,7 @@ export default function App() {
   ]);
 
   const thread = useMemo<WorkbenchThread>(() => ({
+    freshness, cachedAt: cachedBootstrap?.savedAt,
     snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread), draftRuntime: pendingNewThread?.runtime,
     showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
@@ -663,7 +663,7 @@ export default function App() {
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
-    activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
+    freshness, cachedBootstrap?.savedAt, activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
     threadCommands, copyMessage, duplicateThread, editFromMessage, forkFromTree, liveSnapshot, navigateThreadTree,
     openThreadTree, pendingNewThread, runStartedAt, settleActiveThread, showStartScreen, startProjectName,
     startProjectPath, threadDropController, threadTreeModal, titleCommands,

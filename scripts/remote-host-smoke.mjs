@@ -29,13 +29,6 @@ const HOST_ENTRY = join(ROOT, "dist-electron", "main", "headless.js");
 const PROTOCOL = 1;
 const steps = [];
 
-// Nothing here should take minutes; a hang is a failure, not a wait.
-const guard = setTimeout(() => {
-  console.error("✗ the smoke ran into its 120s guard");
-  process.exit(1);
-}, 120_000);
-guard.unref();
-
 function step(name, detail = "") {
   steps.push(name);
   console.log(`✓ ${name}${detail ? ` — ${detail}` : ""}`);
@@ -127,9 +120,21 @@ async function waitFor(predicate, message, timeoutMs = 20_000) {
 }
 
 if (!existsSync(HOST_ENTRY)) {
-  console.log("Building the host entry (tsc -p tooling/tsconfig.electron.json)…");
-  execFileSync(process.execPath, [join(ROOT, "node_modules", "typescript", "bin", "tsc"), "-p", "tooling/tsconfig.electron.json"], { cwd: ROOT, stdio: "inherit" });
+  console.log("Building the host entry through the repository check slot...");
+  execFileSync(process.execPath, [join(ROOT, "scripts", "check.mjs"), "typecheck", "-p", "tooling/tsconfig.electron.json"], { cwd: ROOT, stdio: "inherit" });
 }
+// Large persisted histories need the independently bundled, lightweight worker.
+// tsc emits the host modules, but does not produce this mandatory asset.
+if (!existsSync(join(ROOT, "dist-electron", "main", "persisted-transcript-worker.mjs"))) {
+  execFileSync(process.execPath, [join(ROOT, "scripts", "build-host-worker.mjs")], { cwd: ROOT, stdio: "inherit" });
+}
+// Guard the protocol run. Building and waiting for the shared check slot have their own lifetime.
+const guard = setTimeout(() => {
+  console.error("✗ the smoke ran into its 120s guard");
+  process.exit(1);
+}, 120_000);
+guard.unref();
+
 // The pinning a window uses, not a copy of it.
 const { pinnedTlsConnect, HostCertificateRefusedError, KnownHosts, establishHostTrust, migratedKnownHostPin, hostEndpoint } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-tls-trust.js")).href);
 const { HostUplink } = await import(pathToFileURL(join(ROOT, "dist-electron", "main", "host-uplink.js")).href);

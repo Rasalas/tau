@@ -1,3 +1,4 @@
+import { HostPreparationQueue } from "./host-preparation-queue.js";
 import { AgentSessionControl } from "./agent-session-control.js";
 import { randomBytes } from "node:crypto";
 import { statSync } from "node:fs";
@@ -418,7 +419,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     fail: (error) => deps.fail(error),
     errorMessage: (error) => deps.errorMessage(error),
   }, {
-    ...(options.sessionUsageCachePath ? { usageCachePath: options.sessionUsageCachePath } : {}),
+    ...(options.sessionUsageCachePath ? { usageCachePath: options.sessionUsageCachePath, infoCachePath: join(dirname(options.sessionUsageCachePath), "session-info-cache.json") } : {}),
     ...(options.sessionLineageCachePath ? { lineageCachePath: options.sessionLineageCachePath } : {}),
     ...(options.logger ? { logger: options.logger } : {}),
   });
@@ -573,7 +574,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     pi.registerTool(backgroundWorkTool(() => backgrounds.forThread(session.sessionId)));
     pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${BACKGROUND_WORK_INSTRUCTIONS}` }));
   });
-  const catalogs = runtimeCatalogs(options, deps, completions, piAdapter, () => seam.backends.values(), emit, (kind) => void publication.recheckVersion(kind));
+  const preparation = new HostPreparationQueue(() => index.scanned && !lifecycle.currentOperation
+    && !threads.list().some(({ runtime }) => runtime && (runtime.state.streaming || runtime.adapterStreaming || runtime.adapterPending > 0
+      || runtime.compactionPending || runtime.pendingClientMessageIds.length > 0 || runtime.inFlightClientMessageIds.size > 0
+      || turnsInFlight.get(runtime.threadId)?.writer?.pid === process.pid)));
+  const catalogs = runtimeCatalogs(options, deps, completions, piAdapter, () => seam.backends.values(), emit, (kind) => void publication.recheckVersion(kind), preparation);
   // `disabledExtensions` is the one list every client follows; the host's halves follow it too.
   const hostExtensions = new HostExtensionRegistry(seam.services, (event) => emit(event), {
     disabled: () => {
@@ -750,6 +755,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   });
   const prewarmEnabled = process.env.TAU_NO_PREWARM !== "1" && hostConfig.prewarm !== false && deps.automaticPrewarm;
   const prewarm = new RuntimePrewarm({
+    preparation,
     automatic: prewarmEnabled,
     safeMode,
     maxLiveThreads: MAX_LIVE_THREADS,
@@ -909,6 +915,7 @@ function runtimeCatalogs(
   backends: () => Iterable<HostRuntimeBackendProvider>,
   emit: Emit,
   programChanged: (kind: ThreadBackendKind) => void,
+  preparation: HostPreparationQueue,
 ): RuntimeCatalogs {
   let book: Promise<ModelPriceBook | undefined> | undefined;
   const priceBook = () => book ??= completions.catalogData().then((data) => new ModelPriceBook(data.known, modelReleaseDate), () => {
@@ -926,6 +933,7 @@ function runtimeCatalogs(
     },
   };
   return new RuntimeCatalogs({
+    preparation,
     sources: () => [pi, ...sortByRuntimeOrder([...backends()]).flatMap((provider): RuntimeCatalogSource[] => provider.newThreadCatalog
       ? [{
         kind: provider.kind,

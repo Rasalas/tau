@@ -3,6 +3,7 @@ import type { HostLogger } from "./host-log.js";
 export function installHostProcessErrorHandlers(log: HostLogger): void {
   process.on("uncaughtException", (error) => {
     log.error("process.uncaughtException", error);
+    log.flushSync?.();
     process.exit(1);
   });
   process.on("unhandledRejection", (reason) => {

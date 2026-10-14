@@ -251,3 +251,23 @@ it("keeps native subagents alive after the parent settles and updates their orig
   await Promise.resolve();
   expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ id: thread.adapterActivity[0]?.id, tools: [done] }));
 });
+
+it("does not rescan old turns on each subagent update, and invalidates a replaced history", () => {
+  const thread = makeThread();
+  const { services } = makeServices();
+  const agent: UiToolRun = { ...tool, id: "native", kind: "subagent" };
+  let reads = 0;
+  thread.adapterActivity = Array.from({ length: 1_000 }, (_, index) => ({
+    id: `old-${index}`, status: "completed" as const,
+    get tools() { reads++; return index === 999 ? targetTools : []; },
+  }));
+  const targetTools = [agent];
+  for (let index = 0; index < 10; index++) handleBackendRuntimeEvent({ type: "tool-end", tool: { ...agent, output: String(index) } }, thread, services);
+  expect(targetTools[0]?.output).toBe("9");
+  expect(reads).toBeLessThan(2_000);
+  const replacement: UiTurnActivityEntry = { id: "replacement", tools: [agent], status: "running" };
+  thread.adapterActivity = [replacement];
+  handleBackendRuntimeEvent({ type: "tool-end", tool: { ...agent, output: "restored" } }, thread, services);
+  expect(replacement.tools[0]?.output).toBe("restored");
+  expect(targetTools[0]?.output).toBe("9");
+});

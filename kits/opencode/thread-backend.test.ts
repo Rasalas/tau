@@ -14,12 +14,15 @@ import { OpenCodeSessionStore } from "./session-store.js";
 import { OpenCodeThreadRuntimeBackend, promptParts, type OpenCodeConnectInput } from "./thread-backend.js";
 
 const directories: string[] = [];
+const stores: OpenCodeSessionStore[] = [];
+function trackedStore(store: OpenCodeSessionStore): OpenCodeSessionStore { stores.push(store); return store; }
 const fakes: FakeOpenCode[] = [];
 const backends: OpenCodeThreadRuntimeBackend[] = [];
 
 afterEach(async () => {
   await Promise.all(backends.splice(0).map((backend) => backend.dispose()));
   await Promise.all(fakes.splice(0).map((fake) => fake.close()));
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -28,7 +31,7 @@ async function scratch(script?: FakeScript) {
   directories.push(dir);
   const fake = await startFakeOpenCode({ password: "secret", ...(script ? { script } : {}) });
   fakes.push(fake);
-  return { dir, fake, store: new OpenCodeSessionStore({ filePath: join(dir, "opencode-runtime-sessions.json") }), connects: [] as OpenCodeConnectInput[] };
+  return { dir, fake, store: trackedStore(new OpenCodeSessionStore({ filePath: join(dir, "opencode-runtime-sessions.json") })), connects: [] as OpenCodeConnectInput[] };
 }
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;

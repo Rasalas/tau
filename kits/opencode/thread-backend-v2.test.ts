@@ -15,12 +15,15 @@ import { OpenCodeSessionStore } from "./session-store.js";
 import { OpenCodeThreadRuntimeBackend, type OpenCodeConnectInput } from "./thread-backend.js";
 
 const directories: string[] = [];
+const stores: OpenCodeSessionStore[] = [];
+function trackedStore(store: OpenCodeSessionStore): OpenCodeSessionStore { stores.push(store); return store; }
 const fakes: Array<{ close(): Promise<void> }> = [];
 const backends: OpenCodeThreadRuntimeBackend[] = [];
 
 afterEach(async () => {
   await Promise.all(backends.splice(0).map((backend) => backend.dispose()));
   await Promise.all(fakes.splice(0).map((fake) => fake.close()));
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -32,7 +35,7 @@ async function scratch(options: FakeOpenCode2Options = {}) {
   return {
     dir,
     fake,
-    store: new OpenCodeSessionStore({ filePath: join(dir, "opencode-runtime-sessions.json") }),
+    store: trackedStore(new OpenCodeSessionStore({ filePath: join(dir, "opencode-runtime-sessions.json") })),
     connects: [] as OpenCodeConnectInput[],
     handles: [] as OpenCodeServerHandle[],
     models: undefined as ReturnType<typeof storedModels> | undefined,
@@ -777,7 +780,7 @@ describe("the same backend on an OpenCode 1 server", () => {
     const handles: OpenCodeServerHandle[] = [];
     const backend = new OpenCodeThreadRuntimeBackend("tau-1", dir, {
       adapter: createOpenCodeRuntimeAdapter(),
-      store: new OpenCodeSessionStore({ filePath: join(dir, "opencode-runtime-sessions.json") }),
+      store: trackedStore(new OpenCodeSessionStore({ filePath: join(dir, "opencode-runtime-sessions.json") })),
       connect: async () => { handles.push(await connectOpenCodeServer(fake.url, "secret")); return handles.at(-1)!; },
       permissionLevel: () => "full",
     });

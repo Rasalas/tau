@@ -47,9 +47,13 @@ describe("thread-opening composer focus", () => {
           </> });
       },
     }] });
-    await settleFocus();
+    // The composer becomes accessible after the initial package/parser load,
+    // independently of the timer that schedules thread-opening focus.
+    const composer = await vi.waitFor(async () => {
+      await settleFocus();
+      return screen.getByRole("textbox");
+    }, { timeout: 5_000 });
     expect(screen.getByText("first")).toBeTruthy();
-    const composer = screen.getByRole("textbox");
     expect(document.activeElement === composer).toBe(!touch);
 
     composer.blur();

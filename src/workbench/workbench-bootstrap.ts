@@ -10,7 +10,7 @@ import type { WorkbenchSession } from "./workbench-session";
  * Loads the initial snapshot, retrying failed reads and reconnects until it arrives, then
  * follows the shown thread. Replay cannot replace an initial snapshot that
  * never arrived. Disposing releases both subscriptions and ignores late replies.
- * `onLoaded` runs once, after the first snapshot is on screen.
+ * `onLoaded` runs after an accepted initial or reconnect snapshot is on screen.
  */
 export function followWorkbenchBootstrap(
   client: Pick<HostClient, "bootstrap" | "onConnectionState" | "watchThread" | "limitPushesToWatched">,
@@ -34,7 +34,7 @@ export function followWorkbenchBootstrap(
     const generation = connectionGeneration;
     const request = workbench.history.beginBootstrap();
     client.bootstrap().then((bootstrap) => {
-      if (disposed) return;
+      if (disposed || !connected || generation !== connectionGeneration) return;
       loaded = true;
       const applied = workbench.applyBootstrap(bootstrap, request);
       stopFollowing();
@@ -56,11 +56,13 @@ export function followWorkbenchBootstrap(
     });
   };
   const stopRecovery = client.onConnectionState((state) => {
+    if (state === "connected" && connected) return;
     connectionGeneration += 1;
     connected = state === "connected";
     clearTimeout(retryTimer);
     retryTimer = undefined;
     if (connected) { retryDelay = 1_000; load(); }
+    else loaded = false;
   });
   load();
   return () => {

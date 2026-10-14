@@ -1,6 +1,5 @@
 import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { HostBootstrap, UiProject } from "../shared/contracts";
-import type { ThreadDetail, TranscriptPage } from "../shared/host-protocol";
 import { namesWorkspace } from "../shared/workspace-identity";
 import { optimisticThreadSnapshot, threadDetailFromPage } from "../workbench/app-state";
 import type { ClientStorage } from "../workbench/client-storage";
@@ -15,12 +14,6 @@ import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { TranscriptHistoryController, TransitionToken } from "../workbench/transcript-history";
 import type { WorkbenchSession } from "../workbench/workbench-session";
-
-/** Whether the persisted page holds a message the cached detail lacks. */
-function addsMessages(cached: ThreadDetail, page: TranscriptPage): boolean {
-  const known = new Set(cached.messages.map((message) => message.id));
-  return page.messages.some((message) => !known.has(message.id));
-}
 
 export interface ShowThreadOptions {
   /** A new draft: the caret goes to its composer once the chat is in view. */
@@ -231,13 +224,15 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     // detail stops following the thread once it leaves the screen, so a newer page replaces it.
     if (previous && target) {
       void client!.loadTranscript(target.id).then((page) => {
-        if (confirmed || !page.messages.length || !history.isCurrentThreadTransition(transition)) return;
-        if (cached && !addsMessages(cached, page)) return;
+        if (confirmed || !history.isCurrentThreadTransition(transition)) return;
         applySnapshot(optimisticThreadSnapshot(previous, target, threadDetailFromPage(page, target)));
         // Painting the page settles the history's transition; the host's answer needs one of its own.
         transition = history.beginThreadSwitch(target.id);
         previewed = true;
-        show();
+        // An empty persisted page clears a stale cached preview, but does not
+        // establish that an uncached thread can open. Keep its list visible
+        // until the runtime accepts the switch (or a nonempty page arrives).
+        if (page.messages.length > 0) show();
         view.addEvent("thread.switch.preview", target.title);
       }, () => undefined);
     }

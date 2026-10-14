@@ -153,6 +153,7 @@ export function Composer({
   onCancelPrompt,
   onCompactContext,
   held = false,
+  holdReason,
   onNotify,
   onOpenPromptEditor,
   onRunShellAction,
@@ -199,6 +200,7 @@ export function Composer({
   onCompactContext(): void;
   /** Submitting would go wrong now: an extension is changing the workspace, or the draft's runtime cannot start a thread. */
   held?: boolean;
+  holdReason?: string;
   onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   /** Opens the current draft in an external editor via workspace extension. */
   onOpenPromptEditor?(): void;
@@ -723,7 +725,7 @@ export function Composer({
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean, plain?: boolean) => void>(() => {});
   const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
   // Why sending is held now: the button's tooltip says it, and a key pressed anyway gets it as a notice.
-  const sendReason = sendBlockReason({
+  const sendReason = held && holdReason ? holdReason : sendBlockReason({
     held,
     dictating,
     asking: arrival.waiting,

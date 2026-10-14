@@ -88,6 +88,8 @@ export interface RailSettings {
 }
 
 export interface RailState {
+  /** Orders full snapshots from one host process, including command replies. */
+  publication?: { epoch: string; revision: number };
   threads: Readonly<Record<string, ThreadMeta>>;
   settings: RailSettings;
 }
@@ -133,6 +135,8 @@ export interface RailDropTarget {
 
 /** Workspace Kit's organizer contract, the part this kit fills. */
 export interface RailOrganizer {
+  /** Initial grouping metadata is still being read. */
+  isLoading?(): boolean;
   subscribe(listener: () => void): () => void;
   getVersion(): number;
   sections(threads: readonly UiSession[], activity?: { runningThreadIds: readonly string[]; waitingThreadIds: readonly string[]; failedThreadIds: readonly string[] }): Array<{ id: string; label?: string; threads: readonly UiSession[]; shelf?: boolean; collapsed?: boolean; settled?: boolean }>;

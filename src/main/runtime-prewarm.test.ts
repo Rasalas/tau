@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { UiSession } from "../shared/contracts.js";
 import { RuntimePrewarm, type RuntimePrewarmPort } from "./runtime-prewarm.js";
+import { HostPreparationQueue } from "./host-preparation-queue.js";
 import type { ThreadRuntime } from "./thread-runtime.js";
 
 function fakeThread(cwd = "/repo"): ThreadRuntime {
@@ -48,6 +49,36 @@ function shell(id: string, path: string, projectPath = "/repo"): UiSession {
 }
 
 describe("RuntimePrewarm", () => {
+  it("promotes a requested spare while foreground work blocks automatic preparation", async () => {
+    const preparation = new HostPreparationQueue(() => false);
+    const { prewarm, port } = makePrewarm({ preparation });
+    prewarm.scheduleSpare("/repo");
+    expect(port.runtimes.open).not.toHaveBeenCalled();
+    await expect(prewarm.takeSpare("/repo")).resolves.toBeTruthy();
+    expect(port.runtimes.open).toHaveBeenCalledOnce();
+    prewarm.dispose();
+    preparation.dispose();
+  });
+
+  it("cancels a queued spare when the project changes or preparation is disposed", async () => {
+    vi.useFakeTimers();
+    try {
+      let ready = false;
+      const preparation = new HostPreparationQueue(() => ready);
+      const { prewarm, port } = makePrewarm({ preparation });
+      prewarm.scheduleSpare("/repo");
+      prewarm.scheduleSpare("/other");
+      ready = true;
+      await vi.advanceTimersByTimeAsync(100);
+      expect(port.runtimes.open).toHaveBeenCalledOnce();
+      prewarm.scheduleSpare("/third");
+      prewarm.dispose();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(port.runtimes.open).toHaveBeenCalledOnce();
+      preparation.dispose();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("builds no spare in safe mode or with automatic prewarm off", async () => {
     const off = makePrewarm({ automatic: false });
     off.prewarm.scheduleSpare("/repo");
@@ -72,8 +103,9 @@ describe("RuntimePrewarm", () => {
     const { prewarm, port } = makePrewarm();
     prewarm.scheduleSpare("/repo");
     prewarm.scheduleSpare("/repo");
-    expect(port.runtimes.open).toHaveBeenCalledOnce();
+    expect(port.runtimes.open).not.toHaveBeenCalled();
     expect(await prewarm.takeSpare("/repo")).toBeTruthy();
+    expect(port.runtimes.open).toHaveBeenCalledOnce();
     expect(await prewarm.takeSpare("/repo")).toBeUndefined();
   });
 
@@ -85,7 +117,7 @@ describe("RuntimePrewarm", () => {
 
   it("discards the spare of the previous project when the project changes", async () => {
     const { prewarm, disposed } = makePrewarm();
-    prewarm.scheduleSpare("/repo");
+    await prewarm.awaitSpare("/repo");
     prewarm.scheduleSpare("/other");
     await prewarm.awaitSpare("/other");
     expect(disposed).toHaveLength(1);
@@ -130,7 +162,7 @@ describe("RuntimePrewarm", () => {
       });
       prewarm.scheduleThreads();
       prewarm.scheduleThreads();
-      vi.advanceTimersByTime(1_000);
+      await vi.advanceTimersByTimeAsync(1_001);
       expect(prewarmed).toEqual(["/a.jsonl"]);
     } finally {
       vi.useRealTimers();
@@ -151,4 +183,23 @@ describe("RuntimePrewarm", () => {
       vi.useRealTimers();
     }
   });
+});
+
+it("does not open every neighbour concurrently while the first is still loading", async () => {
+  vi.useFakeTimers();
+  const release: Array<() => void> = [];
+  const started: string[] = [];
+  try {
+    const { prewarm } = makePrewarm({
+      indexedSessions: () => [shell("a", "/a.jsonl"), shell("b", "/b.jsonl"), shell("c", "/c.jsonl")],
+      prewarmSession: async (path) => { started.push(path); await new Promise<void>((done) => release.push(done)); },
+    });
+    prewarm.scheduleThreads();
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect(started).toEqual(["/a.jsonl"]);
+    release.shift()?.();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(started).toEqual(["/a.jsonl", "/b.jsonl"]);
+    prewarm.dispose();
+  } finally { release.forEach((done) => done()); vi.useRealTimers(); }
 });

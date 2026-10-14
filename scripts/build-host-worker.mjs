@@ -1,4 +1,6 @@
 import { build, context } from "esbuild";
+import { persistedTranscriptWorkerBuildOptions } from "./persisted-transcript-worker-build.mjs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The entry an isolated host extension runs in. It ships as one CommonJS file
@@ -17,10 +19,10 @@ const options = {
 };
 
 if (process.argv.includes("--watch")) {
-  const watcher = await context(options);
-  await watcher.watch();
-  console.log("Watching the isolated host extension worker");
+  const watchers = await Promise.all([context(options), context(persistedTranscriptWorkerBuildOptions(root, join(root, "dist-electron/main/persisted-transcript-worker.mjs")))]);
+  await Promise.all(watchers.map((watcher) => watcher.watch()));
+  console.log("Watching host extension and persisted transcript workers");
   await new Promise(() => undefined);
 } else {
-  await build(options);
+  await Promise.all([build(options), build(persistedTranscriptWorkerBuildOptions(root, join(root, "dist-electron/main/persisted-transcript-worker.mjs")))]);
 }

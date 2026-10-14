@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { readSessionFile } from "./session-read.js";
+import { existsSync, readFileSync } from "node:fs";
+import { readPersistedSessionBranch } from "./persisted-transcript-reader-session.js";
 import type { UiComposerCommand, UiMessage, UiToolOutputReadResult, UiTaskProgressEntry, UiTurnActivityEntry } from "../shared/contracts.js";
 import { normalizeTranscriptCursorBoundaries, type TranscriptPage } from "../shared/host-protocol.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
@@ -70,7 +70,7 @@ function openBranch(path: string): readonly unknown[] {
   if (!path || !existsSync(path)) throw new Error(MISSING_SESSION_FILE);
   try {
     // Read in memory: Pi's open could repair a file another host is writing.
-    return readSessionFile(path).getBranch();
+    return readPersistedSessionBranch(readFileSync(path, "utf8"));
   } catch (error) {
     throw new Error(UNREADABLE_SESSION_FILE, { cause: error });
   }

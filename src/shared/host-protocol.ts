@@ -32,6 +32,8 @@ export interface ThreadShellUpdate {
 }
 
 export interface ThreadIndexUpdate {
+  complete?: boolean;
+  unavailableBackends?: string[];
   projects: ThreadIndexSnapshot["projects"];
   sessions: ThreadIndexSnapshot["sessions"];
 }

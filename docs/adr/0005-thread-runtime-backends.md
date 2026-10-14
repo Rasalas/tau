@@ -340,3 +340,22 @@ is on their home machine, as ADR 0030 describes. A provider may set
 runtime pickers. Its records may report `messageCount` without loading a
 transcript and carry `machine` for the index's runtime and machine marks.
 These optional fields are extension API 1.42.0.
+
+## Amendment, 2026-10-14: SQLite for external runtime session stores
+
+External runtime kits using the shared session store keep their records in
+SQLite. Messages and usage entries are separate ordered rows. Codex, Claude
+Code and Antigravity append only the new rows, so completing
+a turn does not rewrite the previous transcript. Metadata and its appended
+rows commit in one transaction. The native `node:sqlite` connection runs in a
+worker thread with WAL journaling, keeping disk waits off the host event loop.
+This supersedes the JSON app-data storage described above; backend ownership
+and the providers' own session files do not change.
+
+Migration retains the prior JSON files and publishes the new layout marker
+only after the database is complete. Once published, a missing or unreadable
+database is an error, rather than a reason to restore an obsolete snapshot.
+The intermediate bounded JSON chunk layout remains readable for migration.
+SQLite avoids maintaining a custom chunk manifest and crash-publication
+protocol for each subsequent append. Initial hydration still reads the stored
+histories; lazy transcript loading is a separate interface change.

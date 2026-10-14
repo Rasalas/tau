@@ -9,7 +9,9 @@ export async function testPersistedTranscriptWorker(): Promise<{ url: URL; dispo
   const directory = await mkdtemp(join(process.cwd(), ".scratch", "transcript-worker-"));
   const outfile = join(directory, "worker.mjs");
   try {
-    await build({ entryPoints: ["src/main/persisted-transcript-worker.ts"], outfile, bundle: true, platform: "node", format: "esm", packages: "external", logLevel: "silent" });
+    // Use the production worker options, including its SDK dependency isolation.
+    const { persistedTranscriptWorkerBuildOptions } = await import(new URL("../../../scripts/persisted-transcript-worker-build.mjs", import.meta.url).href);
+    await build(persistedTranscriptWorkerBuildOptions(process.cwd(), outfile));
     return { url: pathToFileURL(outfile), dispose: () => rm(directory, { recursive: true, force: true }) };
   } catch (error) {
     await rm(directory, { recursive: true, force: true });

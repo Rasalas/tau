@@ -4,7 +4,7 @@ import type { DocumentSourceContribution } from "../extension-system";
 import { useHostClient } from "../host-client-context";
 import { bindWorkspaceFileLoader } from "../workspace-resource-context";
 import { FileViewer } from "../components/FileViewer";
-import { Sheet } from "./Sheet";
+import { Sheet } from "../deferred-surfaces";
 
 /** A phone reader, not the desktop stage or an editor. Its tab persists with the thread. */
 export function WorkspaceFileSheet({ tab, source, onClose }: { tab: StageFileTab; source?: DocumentSourceContribution; onClose(): void }) {

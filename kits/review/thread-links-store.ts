@@ -16,7 +16,12 @@ export class ThreadLinkRows {
   private pending = new Set<string>();
   private listeners = new Set<() => void>();
   private readonly stop: () => void;
-  private readonly refresh = new RequestRefresh((threadId) => { void this.load(threadId, true); });
+  private readonly refresh = new RequestRefresh((threadId) => {
+    const links = this.entries.get(threadId)?.links;
+    // Merged requests cannot reopen. A newly linked request still arrives through onLinksChanged.
+    if (links?.length && links.every((link) => link.state === "merged")) return;
+    void this.load(threadId, true);
+  });
   private readonly reread = new Map<string, boolean | "force">();
 
   constructor(private readonly client: Pick<PullRequestClient, "links" | "onLinksChanged">, private readonly now: () => number = Date.now) {

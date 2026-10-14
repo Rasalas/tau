@@ -1,3 +1,4 @@
+import { HostPreparationQueue } from "./host-preparation-queue.js";
 import { basename } from "node:path";
 import { performance } from "node:perf_hooks";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -9,6 +10,7 @@ import type { ThreadRuntimeLifecycle } from "./thread-runtime-lifecycle.js";
 export interface RuntimePrewarmPort {
   /** False in tests and benchmarks, where a background runtime would distort the measurement. */
   automatic: boolean;
+  preparation?: HostPreparationQueue;
   safeMode: boolean;
   /** Live runtimes the host keeps; prewarming never fills the budget to the brim. */
   maxLiveThreads: number;
@@ -36,18 +38,23 @@ export interface RuntimePrewarmPort {
  * of the thread on screen, so switching to one is immediate.
  */
 export class RuntimePrewarm {
-  private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined>; cancel: () => void };
+  private spare?: { cwd: string; pending: Promise<ThreadRuntime | undefined>; start?: () => void; cancel: () => void };
   private timer?: ReturnType<typeof setTimeout>;
 
-  constructor(private readonly port: RuntimePrewarmPort) {}
+  private readonly preparation: HostPreparationQueue;
+  private readonly pending = new Set<() => void>();
+  private readonly pendingPaths = new Set<string>();
+  private disposed = false;
+
+  constructor(private readonly port: RuntimePrewarmPort) { this.preparation = port.preparation ?? new HostPreparationQueue(); }
 
   /** Builds a blank runtime for a project. `force` overrides the automatic-prewarm switch. */
   scheduleSpare(cwd: string, force = false): void {
-    if ((!this.port.automatic && !force) || this.port.safeMode || this.spare?.cwd === cwd || !this.port.isDirectory(cwd)) return;
+    if (this.disposed || (!this.port.automatic && !force) || this.port.safeMode || this.spare?.cwd === cwd || !this.port.isDirectory(cwd)) return;
     void this.discardSpare().catch((error) => this.port.fail(error));
     const startedAt = performance.now();
     const cancellation = new AbortController();
-    const pending = this.port.runtimes.open(
+    const open = () => this.port.runtimes.open(
       SessionManager.create(cwd, this.port.sessionsDir),
       { type: "session_start", reason: "new", previousSessionFile: undefined },
       { background: true, adopt: false, prepared: true, abortSignal: cancellation.signal },
@@ -58,7 +65,9 @@ export class RuntimePrewarm {
       this.port.log("runtime.spare.failed", this.port.errorMessage(error));
       return undefined;
     }).finally(() => this.port.recordBackground("spare", startedAt));
-    this.spare = { cwd, pending, cancel: () => cancellation.abort() };
+    const work = force ? undefined : this.preparation.schedule(open);
+    const pending = work?.result ?? open();
+    this.spare = { cwd, pending, start: work?.start, cancel: () => { work?.cancel(); cancellation.abort(); } };
   }
 
   /** Hands over the spare of this project, if there is one; the caller owns it afterwards. */
@@ -66,6 +75,7 @@ export class RuntimePrewarm {
     const spare = this.spare;
     if (!spare || spare.cwd !== cwd) return undefined;
     this.spare = undefined;
+    spare.start?.();
     return await spare.pending;
   }
 
@@ -80,7 +90,9 @@ export class RuntimePrewarm {
   /** The spare of this project, built now if there is none. It stays the spare. */
   async awaitSpare(cwd: string): Promise<ThreadRuntime | undefined> {
     if (this.spare?.cwd !== cwd) this.scheduleSpare(cwd, true);
-    return this.spare?.cwd === cwd ? await this.spare.pending : undefined;
+    if (this.spare?.cwd !== cwd) return undefined;
+    this.spare.start?.();
+    return await this.spare.pending;
   }
 
   async discardSpare(): Promise<void> {
@@ -94,20 +106,37 @@ export class RuntimePrewarm {
 
   /** Opens the neighbours of the thread on screen, a second after it settled. */
   scheduleThreads(): void {
-    if (!this.port.automatic || this.port.safeMode || this.timer) return;
+    if (this.disposed || !this.port.automatic || this.port.safeMode || this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       if (!this.port.hasLocalActive()) return;
       const live = this.port.liveThreadIds();
       const candidates = this.port.indexedSessions()
-        .filter((session) => session.projectPath === this.port.cwd() && !live.has(session.id) && !this.port.runtimes.isOpening(session.path))
+        .filter((session) => session.projectPath === this.port.cwd() && !live.has(session.id) && !this.port.runtimes.isOpening(session.path) && !this.pendingPaths.has(session.path))
         .slice(0, Math.max(0, this.port.maxLiveThreads - 2 - live.size));
-      for (const session of candidates) void this.port.prewarmSession(session.path);
+      const cwd = this.port.cwd();
+      for (const session of candidates) {
+        this.pendingPaths.add(session.path);
+        const work = this.preparation.schedule(async () => {
+          if (this.disposed || this.port.cwd() !== cwd || !this.port.hasLocalActive()
+            || this.port.liveThreadIds().has(session.id) || this.port.runtimes.isOpening(session.path)
+            || this.port.liveThreadIds().size >= this.port.maxLiveThreads - 2) return;
+          await this.port.prewarmSession(session.path);
+        });
+        this.pending.add(work.cancel);
+        void work.result.catch((error) => this.port.fail(error)).finally(() => { this.pending.delete(work.cancel); this.pendingPaths.delete(session.path); });
+      }
     }, 1_000);
     this.timer.unref?.();
   }
 
   dispose(): void {
+    this.disposed = true;
+    for (const cancel of this.pending) cancel();
+    this.pending.clear();
+    this.pendingPaths.clear();
+    this.spare?.cancel();
+    if (!this.port.preparation) this.preparation.dispose();
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
   }

@@ -231,11 +231,15 @@ export class RuntimeExtensions {
    */
   private async replace(cwd: string, only: readonly string[]): Promise<readonly RuntimeExtensionRecord[]> {
     const generation = this.generation;
+    // Every bundle shares the icon namespace. Load it alongside the API and
+    // host request instead of adding another network round trip afterwards.
+    const icons = loadSharedIcons();
+    icons.catch(() => undefined);
     await loadTauApi();
     const result = this.withoutTooNew(await this.host.load(cwd, sharedExportNames(), only));
     if (generation !== this.generation) return this.loaded;
     if (result.bundles.length > 0) {
-      await loadSharedIcons();
+      await icons;
       if (generation !== this.generation) return this.loaded;
     }
     this.reportLoadErrors(result.errors, result.bundles);
@@ -449,13 +453,14 @@ export class RuntimeExtensions {
 
   private async load(cwd: string, generation: number): Promise<readonly RuntimeExtensionRecord[]> {
     this.cwd = cwd;
+    const icons = loadSharedIcons();
+    icons.catch(() => undefined);
     await loadTauApi();
     const result = this.withoutTooNew(await this.host.load(cwd, sharedExportNames()));
     if (generation !== this.generation) return this.loaded;
-    // Only a workspace with packages pays for the icon set; it must be in
-    // place before a bundle's shim reads its named exports.
+    // The namespace must be in place before a bundle reads its named exports.
     if (result.bundles.length > 0) {
-      await loadSharedIcons();
+      await icons;
       if (generation !== this.generation) return this.loaded;
     }
     this.reportLoadErrors(result.errors, result.bundles);
@@ -507,6 +512,7 @@ export class RuntimeExtensions {
         if (themes.has(sheet.dataset.tauExtension ?? "")) document.head.append(sheet);
       }
     }
+    await this.registry.whenStylesReady();
     return this.loaded;
   }
 }

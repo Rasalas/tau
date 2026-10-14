@@ -189,7 +189,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         return adapter;
       };
 
-      const record = (entry: Awaited<ReturnType<ClaudeRuntimeSessionStore["list"]>>[number]): HostBackendThreadRecord => {
+      const record = (entry: Awaited<ReturnType<ClaudeRuntimeSessionStore["list"]>>[number] & { messageCount?: number }): HostBackendThreadRecord => {
         const usage = store.talliesOf(entry.tauThreadId);
         return {
           threadId: entry.tauThreadId,
@@ -198,6 +198,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
           updatedAt: entry.updatedAt,
           messages: entry.messages,
+          ...(entry.messageCount !== undefined ? { messageCount: entry.messageCount } : {}),
           ...(usage.length ? { usage } : {}),
         };
       };
@@ -295,7 +296,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           adapter,
           modelProvider: "anthropic",
           homeProviders: ["anthropic"],
-          listThreads: async () => (await store.list(undefined, id)).map(record),
+          listThreads: async () => (await store.listMetadata(undefined, id)).map(record),
           removeThread: (threadId) => store.take(threadId),
           restoreThread: (threadId, value) => store.put(threadId, value),
           lookup: async (threadId) => {
@@ -594,9 +595,10 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       });
 
       for (const instance of settings.list()) register(instance.id);
-      return () => {
+      return async () => {
         signIn.dispose();
         for (const id of [...unregisters.keys()]) unregister(id);
+        await store.flushAndRelease();
       };
     },
   };

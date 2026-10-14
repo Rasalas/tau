@@ -751,6 +751,10 @@ export interface PreparedThreadCapability {
 export interface ThreadIndexSnapshot {
   projects: UiProject[];
   sessions: UiSession[];
+  /** Backends whose rows remain last known because their listing did not answer. */
+  unavailableBackends?: string[];
+  /** False for scan progress; true when the bounded attempt finished. See unavailableBackends for retained rows. */
+  complete?: boolean;
   /**
    * The threads running on the host, by id, with the host's start of each run (epoch ms). Only a
    * bootstrap carries it, and then it replaces what a client knew (API 1.27.0).

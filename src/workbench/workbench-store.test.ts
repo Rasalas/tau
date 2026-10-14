@@ -12,6 +12,7 @@ import { ThreadViewStore } from "./thread-view-store";
 import { TranscriptHistoryController } from "./transcript-history";
 import { WorkbenchSession } from "./workbench-session";
 import { WorkbenchStore } from "./workbench-store";
+import { flushBootstrapCache, readBootstrapCache } from "./bootstrap-cache";
 import { writeCachedTurnActivity } from "./turn-activity";
 
 const snapshot: HostSnapshot = {
@@ -146,7 +147,28 @@ describe("WorkbenchStore", () => {
     store.applySnapshot(snapshot);
     expect(storage.keys().length).toBe(0);
     store.applyThreadIndex(threadIndex);
-    expect(storage.keys().some((key) => key.includes("bootstrap"))).toBe(true);
+    expect(storage.keys().some((key) => key.includes("bootstrap"))).toBe(false);
+    flushBootstrapCache(storage);
+    expect(readBootstrapCache(storage)?.snapshot.sessionId).toBe("one");
+  });
+
+  it("retains cached rows until an explicitly complete index arrives", () => {
+    const { store, threads } = build({ snapshot, threadIndex });
+    store.applyThreadIndex({ projects: [], sessions: [], complete: false });
+    expect(threads.getThread("one")).toBeDefined();
+    store.applyThreadIndex({ projects: [], sessions: [], complete: true });
+    expect(threads.getThread("one")).toBeUndefined();
+  });
+
+  it("retains unavailable backend rows after a bounded scan while accepting local deletions", () => {
+    const saved = { ...threadIndex, sessions: [...threadIndex.sessions, { ...threadIndex.sessions[0]!, id: "remote", path: "tau-thread:slow:remote", backendKind: "slow" }] };
+    const { store, threads } = build({ snapshot, threadIndex: saved });
+    store.applyThreadIndex({ projects: [], sessions: [], complete: true, unavailableBackends: ["slow"] });
+    expect(threads.getThread("one")).toBeUndefined();
+    expect(threads.getThread("remote")).toBeDefined();
+    expect(threads.getSnapshot().unavailableBackends).toEqual(["slow"]);
+    store.applyThreadIndex({ projects: [], sessions: [], complete: true, unavailableBackends: [] });
+    expect(threads.getThread("remote")).toBeUndefined();
   });
 
   it("routes a run update to the thread store and an error update to the notice", () => {

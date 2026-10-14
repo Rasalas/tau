@@ -101,13 +101,43 @@ export function draftKeyOwner(key: string): { sessionId: string } | { draftId: s
   return undefined;
 }
 
-function readComposerDrafts(storage: ClientStorage): Record<string, string> {
-  try {
-    const value = JSON.parse(storage.get(DRAFTS_KEY) ?? "{}");
-    return value && typeof value === "object" ? value as Record<string, string> : {};
-  } catch {
-    return {};
+// Migrate the old collection once per storage. Subsequent keystrokes touch one key.
+const migratedDraftStorage = new WeakSet<ClientStorage>();
+const composerEntry = (key: string) => `${DRAFTS_KEY}:entry:${encodeURIComponent(key)}`;
+function migrateComposerDrafts(storage: ClientStorage): void {
+  if (migratedDraftStorage.has(storage)) return;
+  const raw = storage.get(DRAFTS_KEY);
+  if (raw) {
+    let drafts: unknown;
+    try { drafts = JSON.parse(raw); } catch { drafts = undefined; }
+    if (drafts && typeof drafts === "object" && !Array.isArray(drafts)) {
+      for (const [key, value] of Object.entries(drafts)) {
+        if (typeof value === "string" && storage.get(composerEntry(key)) === null) storage.set(composerEntry(key), value);
+      }
+    }
+    storage.remove(DRAFTS_KEY);
   }
+  migratedDraftStorage.add(storage);
+}
+function readComposerEntry(storage: ClientStorage, key: string): string | undefined {
+  try {
+    migrateComposerDrafts(storage);
+    return storage.get(composerEntry(key)) ?? undefined;
+  } catch {
+    // Reads remain usable when storage denies migration writes. The legacy
+    // collection is kept until every entry has reached its individual key.
+    try {
+      const migrated = storage.get(composerEntry(key));
+      if (migrated !== null) return migrated;
+      const legacy = JSON.parse(storage.get(DRAFTS_KEY) ?? "{}");
+      return legacy && typeof legacy[key] === "string" ? legacy[key] : undefined;
+    } catch { return undefined; }
+  }
+}
+function writeComposerEntry(storage: ClientStorage, key: string, value: string | undefined): void {
+  migrateComposerDrafts(storage);
+  if (value === undefined) storage.remove(composerEntry(key));
+  else storage.set(composerEntry(key), value);
 }
 
 /** The record belongs to the draft this key names, and to no other. */
@@ -121,7 +151,7 @@ export function readComposerDraft(storage: ClientStorage, key?: DraftKey | strin
   // not in the generic composer map: that map may contain attachment-adjacent
   // state and must stay empty until a real thread exists.
   if (typeof key === "string" && key.startsWith("new:")) return pendingForKey(storage, key)?.draft ?? "";
-  return key ? readComposerDrafts(storage)[key] ?? "" : "";
+  return key ? readComposerEntry(storage, key) ?? "" : "";
 }
 
 export function writeComposerDraft(storage: ClientStorage, key: DraftKey | string | undefined, text: string): void {
@@ -131,10 +161,7 @@ export function writeComposerDraft(storage: ClientStorage, key: DraftKey | strin
     if (pending) writeNewThreadDraft(storage, { ...pending, draft: text || undefined });
     return;
   }
-  const drafts = readComposerDrafts(storage);
-  if (text) drafts[key] = text;
-  else delete drafts[key];
-  storage.set(DRAFTS_KEY, JSON.stringify(drafts));
+  writeComposerEntry(storage, key, text || undefined);
 }
 
 const isStringRecord = (value: unknown): value is Record<string, string> =>
@@ -151,7 +178,7 @@ export function readComposerDraftState(storage: ClientStorage, key: DraftKey | s
   if (!key) return undefined;
   const raw = key.startsWith("new:")
     ? pendingForKey(storage, key)?.extensions?.[owner]
-    : readComposerDrafts(storage)[extensionEntry(key, owner)];
+    : readComposerEntry(storage, extensionEntry(key, owner));
   if (raw === undefined) return undefined;
   try { return JSON.parse(raw) as unknown; } catch { return undefined; }
 }
@@ -169,10 +196,7 @@ export function writeComposerDraftState(storage: ClientStorage, key: DraftKey | 
     writeNewThreadDraft(storage, Object.keys(extensions).length > 0 ? { ...rest, extensions } : rest);
     return;
   }
-  const drafts = readComposerDrafts(storage);
-  if (raw === undefined) delete drafts[extensionEntry(key, owner)];
-  else drafts[extensionEntry(key, owner)] = raw;
-  storage.set(DRAFTS_KEY, JSON.stringify(drafts));
+  writeComposerEntry(storage, extensionEntry(key, owner), raw);
 }
 
 function parseNewThreadDraft(value: Partial<NewThreadDraft> | null): NewThreadDraft | undefined {

@@ -1,5 +1,28 @@
 import { expect, it, vi } from "vitest";
 import { ThreadLinkRows } from "./thread-links-store.js";
+import type { ThreadPullRequestLink } from "./protocol.js";
+
+it("stops periodic reads for merged links and resumes after a host change", async () => {
+  vi.useFakeTimers();
+  try {
+    const link = { url: "https://github.com/o/r/pull/1", state: "merged" } as ThreadPullRequestLink;
+    const read = vi.fn().mockResolvedValue([link]);
+    let changed!: (threadId: string) => void;
+    const rows = new ThreadLinkRows({ links: read, onLinksChanged: (listener) => { changed = listener; return () => {}; } });
+    await rows.load("thread");
+    const unwatch = rows.watch("thread");
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(read).toHaveBeenCalledTimes(1);
+    read.mockResolvedValue([{ ...link, state: "open" }]);
+    changed("thread");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(read).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(read).toHaveBeenCalledTimes(3);
+    unwatch();
+    rows.dispose();
+  } finally { vi.useRealTimers(); }
+});
 
 it("coalesces fresh reads arriving during a thread lookup and preserves force", async () => {
   let finish!: (links: []) => void;

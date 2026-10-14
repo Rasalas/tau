@@ -14,7 +14,7 @@ import {
   visibleTitleText,
 } from "./host-messages.js";
 import type { HostRuntimeBackendProvider, HostThread, HostThreadLifecycleSet } from "./host-extensions.js";
-import { loadExternalSessionShells } from "./external-session-shells.js";
+import { ExternalSessionListings, loadExternalSessionShells } from "./external-session-shells.js";
 import { externalThreadPath } from "./pi-host-support.js";
 import type { ProjectFactsCache } from "./project-facts-cache.js";
 import type { ProjectHistory } from "./project-history.js";
@@ -64,6 +64,8 @@ export interface ThreadIndexPort {
 }
 
 export interface ThreadIndexOptions {
+  externalTimeoutMs?: number;
+  infoCachePath?: string;
   usageCachePath?: string;
   lineageCachePath?: string;
   logger?: HostLogger;
@@ -84,6 +86,11 @@ export class ThreadIndex {
   private readonly lineage: SessionLineageIndex;
   private lineageCacheLoaded?: Promise<void>;
   /** Other runtimes' tallies by shell path, as their last listing gave them, for repricing. */
+  private readonly externalListings = new ExternalSessionListings((provider) => this.refreshLateProvider(provider));
+  private lateRefreshQueued = false;
+  private lateRefreshRequested = false;
+  private unavailableBackends: string[] = [];
+  private disposed = false;
   private externalTallies = new Map<string, readonly UsageTally[]>();
   private externalProjects = new Map<string, Pick<UiProject, "name" | "icon"> & { listed?: boolean }>();
   /** The parent of a thread this host started or indexed, for its live shell. */
@@ -112,8 +119,11 @@ export class ThreadIndex {
   /** Pictures of projects only their threads name; the history resolves its own. */
   private readonly threadProjectIcons = new Map<string, string | undefined>();
 
-  constructor(private readonly port: ThreadIndexPort, options: ThreadIndexOptions = {}) {
-    this.sessionInfos = new SessionInfoIndex(port.sessionsDir);
+  constructor(private readonly port: ThreadIndexPort, private readonly options: ThreadIndexOptions = {}) {
+    this.sessionInfos = new SessionInfoIndex(port.sessionsDir, {
+      ...(options.infoCachePath ? { file: options.infoCachePath } : {}),
+      ...(options.logger ? { logger: options.logger } : {}),
+    });
     this.usage = new SessionUsageIndex({
       ...(options.usageCachePath ? { path: options.usageCachePath } : {}),
       ...(options.logger ? { logger: options.logger } : {}),
@@ -186,12 +196,14 @@ export class ThreadIndex {
    */
   async refresh(publish: "none" | "index" | "changes" | "changed-index", readFiles = false): Promise<ThreadIndexSnapshot> {
     if (!this.scan) {
-      this.scan = this.scanSessions(readFiles).finally(() => { this.scan = undefined; });
+      this.scan = this.scanSessions(readFiles, publish !== "none").finally(() => { this.scan = undefined; });
       this.scan.then(() => this.firstScan.resolve(), (error: unknown) => this.firstScan.reject(error));
     }
     const { previous, next, projectsChanged } = await this.scan;
+    if (this.disposed) return this.snapshot();
     if (publish === "index" || publish !== "none" && projectsChanged || publish === "changed-index" && sessionIndexUpdates(previous, next).length > 0) this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
     else if (publish === "changes") for (const update of sessionIndexUpdates(previous, next)) this.port.emitUpdate(update);
+    if (publish !== "none") this.port.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-index", index: this.snapshot() });
     return this.snapshot();
   }
 
@@ -203,7 +215,7 @@ export class ThreadIndex {
     this.recoveryTimer.unref?.();
   }
 
-  private async scanSessions(readFiles: boolean): Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }> {
+  private async scanSessions(readFiles: boolean, publishProgress: boolean): Promise<{ previous: readonly UiSession[]; next: UiSession[]; projectsChanged: boolean }> {
     const scanStartedAt = Date.now();
     this.usageCacheLoaded ??= this.usage.load().catch(() => undefined);
     this.lineageCacheLoaded ??= this.lineage.load().catch(() => undefined);
@@ -234,7 +246,22 @@ export class ThreadIndex {
     );
     const previous = this.sessions;
     const previousProjects = this.externalProjects;
-    const external = await this.externalShells();
+    // Publish local metadata without waiting for any external program. Until
+    // the bounded scan ends, preserve other providers' last known rows.
+    const partial = new Map(scanned.map((session) => [session.id, session]));
+    for (const session of previous) if (session.backendKind && session.backendKind !== "pi") partial.set(session.id, session);
+    const publishPartial = () => {
+      if (this.disposed) return;
+      this.sessions = mergeSessionIndexScan([...partial.values()], this.sessions, scanStartedAt, this.liveThreadIds())
+        .filter((session) => !this.port.inTrash?.(session.id));
+      if (publishProgress) this.port.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-index", index: { ...this.snapshot(), complete: false } });
+    };
+    publishPartial();
+    const external = await this.externalShells((provider, shells) => {
+      for (const session of partial.values()) if (session.backendKind === provider.kind) partial.delete(session.id);
+      for (const session of shells) partial.set(session.id, session);
+      publishPartial();
+    });
     const projectsChanged = previousProjects.size !== this.externalProjects.size || [...this.externalProjects].some(([id, project]) => {
       const before = previousProjects.get(id);
       return before?.name !== project.name || before?.icon !== project.icon || before?.listed !== project.listed;
@@ -244,22 +271,58 @@ export class ThreadIndex {
     const trashed = (id: string) => this.port.inTrash?.(id) === true;
     const next = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveThreadIds())
       .filter((session) => !trashed(session.id));
+    if (this.disposed) return { previous, next: this.sessions, projectsChanged: false };
     this.sessions = next;
     this.scannedOnce = true;
     await this.sweep(sessionInfos, previous, next);
     return { previous, next, projectsChanged };
   }
 
-  private async externalShells(): Promise<UiSession[]> {
+  private refreshLateProvider(provider: HostRuntimeBackendProvider): void {
+    if (this.disposed || this.port.backends().get(provider.kind) !== provider) return;
+    this.lateRefreshRequested = true;
+    if (this.lateRefreshQueued) return;
+    this.lateRefreshQueued = true;
+    queueMicrotask(() => {
+      void (async () => {
+        try {
+          do {
+            // A late answer cannot mutate a scan in progress. Consume it in
+            // the next scan, after current publication and lifecycle settle.
+            await this.scan?.catch(() => undefined);
+            this.lateRefreshRequested = false;
+            if (this.disposed) return;
+            await this.refresh("index");
+          } while (this.lateRefreshRequested);
+        } catch (error) { this.port.fail(error); }
+        finally { this.lateRefreshQueued = false; }
+      })();
+    });
+  }
+
+  private async externalShells(onReady: (provider: HostRuntimeBackendProvider, shells: UiSession[]) => void): Promise<UiSession[]> {
     const tallies = new Map<string, readonly UsageTally[]>();
     const projects = new Map<string, Pick<UiProject, "name" | "icon"> & { listed?: boolean }>();
+    const unavailable = new Set<string>();
     const shells = await loadExternalSessionShells({
       safeMode: this.port.safeMode, providers: this.port.backends().values(),
+      listings: this.externalListings, timeoutMs: this.options.externalTimeoutMs,
+      isCurrent: (provider) => !this.disposed && this.port.backends().get(provider.kind) === provider,
+      onUnavailable: (provider) => { unavailable.add(provider.kind); }, onReady,
       projectName: (cwd) => this.port.projects.name(cwd), projectLabel: (cwd) => this.port.projects.label(cwd),
       onProject: (id, project) => { projects.set(id, project); },
       onError: (provider, error) => this.port.log("runtime-backend.list.failed", `${provider.kind}: ${this.port.errorMessage(error)}`),
       usage: (path, list) => { tallies.set(path, list); return usageOrUndefined(this.port.priceUsage(list)); },
     });
+    for (const session of this.sessions) {
+      if (!session.backendKind || !unavailable.has(session.backendKind)) continue;
+      shells.push(session);
+      const previousTallies = this.externalTallies.get(session.path);
+      if (previousTallies) tallies.set(session.path, previousTallies);
+      const previousProject = this.externalProjects.get(session.id);
+      if (previousProject) projects.set(session.id, previousProject);
+    }
+    this.unavailableBackends = [...unavailable].sort();
     this.externalTallies = tallies;
     this.externalProjects = projects;
     return shells;
@@ -590,6 +653,8 @@ export class ThreadIndex {
         }])).values()],
       ],
       sessions: this.sessions.map((session) => this.withIdentity(session)),
+      complete: this.scannedOnce,
+      unavailableBackends: this.unavailableBackends,
     };
   }
 
@@ -607,6 +672,8 @@ export class ThreadIndex {
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
+    this.externalListings.dispose();
     this.firstScan.reject(new Error("The host stopped before it read its threads."));
     for (const timer of this.coalesced.values()) clearTimeout(timer);
     this.coalesced.clear();

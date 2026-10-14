@@ -6,6 +6,29 @@ import type { HostTurnObserverSet } from "./host-extensions.js";
 import type { ThreadControls } from "./thread-stop.js";
 import type { ThreadRuntime } from "./thread-runtime.js";
 
+interface ActivityToolPosition { entry: UiTurnActivityEntry; tool: number }
+const activityPositions = new WeakMap<ThreadRuntime, {
+  history: UiTurnActivityEntry[];
+  scanned: number;
+  tools: Map<string, ActivityToolPosition>;
+}>();
+
+/** A restored history replaces the array; new turns append to it. Neither needs a scan per delta. */
+function positionsFor(thread: ThreadRuntime) {
+  const history = thread.adapterActivity;
+  let index = activityPositions.get(thread);
+  if (!index || index.history !== history || index.scanned > history.length) {
+    index = { history, scanned: 0, tools: new Map() };
+    activityPositions.set(thread, index);
+  }
+  while (index.scanned < history.length) {
+    const activity = index.scanned++;
+    const entry = history[activity]!;
+    entry.tools.forEach((tool, position) => index!.tools.set(tool.id, { entry, tool: position }));
+  }
+  return index;
+}
+
 export interface BackendEventServices {
   clientTurns: ClientTurnLedger;
   emit(event: HostEvent): void;
@@ -97,12 +120,15 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
     }
     case "tool-end":
       if (event.tool.kind === "subagent") {
-        const entry = thread.adapterActivity.find((activity) => activity.tools.some((tool) => tool.id === event.tool.id)) ?? currentActivity(thread);
-        const at = entry.tools.findIndex((tool) => tool.id === event.tool.id);
+        const positions = positionsFor(thread);
+        const known = positions.tools.get(event.tool.id);
+        const entry = known?.entry ?? currentActivity(thread);
+        const at = known?.tool ?? entry.tools.findIndex((tool) => tool.id === event.tool.id);
         if (at === -1) {
           entry.anchorMessageId ??= thread.adapterMessages.at(-1)?.id;
           entry.tools.push(event.tool);
         } else entry.tools[at] = event.tool;
+        positions.tools.set(event.tool.id, { entry, tool: at === -1 ? entry.tools.length - 1 : at });
         saveActivity(thread, services, entry);
         services.emit({ type: at === -1 ? "tool-start" : "tool-end", sessionId, tool: event.tool });
       } else finishTool(event.tool, thread, services);
@@ -157,6 +183,7 @@ function recordTool(thread: ThreadRuntime, tool: UiToolRun): void {
   const at = entry.tools.findIndex((existing) => existing.id === tool.id);
   if (at === -1) entry.tools.push(tool);
   else entry.tools[at] = tool;
+  positionsFor(thread).tools.set(tool.id, { entry, tool: at === -1 ? entry.tools.length - 1 : at });
 }
 
 /** Hands the turn's activity to a runtime that keeps it across restarts. */

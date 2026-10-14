@@ -11,12 +11,17 @@ import { CursorSessionStore } from "./session-store.js";
 import { CursorThreadRuntimeBackend, cursorMode } from "./thread-backend.js";
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+const stores: CursorSessionStore[] = [];
+function trackedStore(store: CursorSessionStore): CursorSessionStore { stores.push(store); return store; }
+afterEach(async () => {
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 async function scratchStore(): Promise<CursorSessionStore> {
   const directory = await mkdtemp(join(tmpdir(), "tau-cursor-backend-"));
   directories.push(directory);
-  return new CursorSessionStore({ filePath: join(directory, "sessions.json") });
+  return trackedStore(new CursorSessionStore({ filePath: join(directory, "sessions.json") }));
 }
 
 const MODES = { currentModeId: "agent", availableModes: [{ id: "agent", name: "Agent" }, { id: "plan", name: "Plan" }, { id: "ask", name: "Ask" }] };

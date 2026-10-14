@@ -2,7 +2,7 @@ import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, parseSkillEnvelope, readUsageTurns, unpricedUsage, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
-import { SessionStorePersistence } from "../_shared/session-store-persistence.js";
+import { SessionStorePersistence, sessionMessageIndex } from "../_shared/session-store-persistence.js";
 import { recoverUsageTurns } from "./sdk-usage.js";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
@@ -462,14 +462,19 @@ export class ClaudeRuntimeSessionStore {
     this.persistence = new SessionStorePersistence({
       filePath: options.filePath,
       version: CURRENT_VERSION,
-      logger: options.logger,
+      logger: options.logger, immutableUsageTurns: true,
       decode: (value) => {
         const sessions = decodeSessions(value);
         return sessions ? { sessions } : undefined;
       },
       encode: (data) => ({ sessions: data.sessions.map(serializeRecord) }),
+      encodeMessage: (message) => serializeMessage(message as ClaudeStoredMessage),
     });
   }
+
+  get databasePath(): string { return this.persistence.databasePath; }
+  dispose(): Promise<void> { return this.persistence.dispose(); }
+  flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 
   /**
    * Beside the Pi session directory: `~/.pi/agent/tau/` for the default store,
@@ -535,7 +540,30 @@ export class ClaudeRuntimeSessionStore {
       .map(cloneRecord);
   }
 
-  /** The thread's record, created on the given instance when it has none. */
+  /** Index recovery needs a title seed and count, never a transcript copy. */
+  async listMetadata(cwd?: string, instance?: string): Promise<Array<Omit<ClaudeRuntimeSessionRecord, "usageTurns"> & { messageCount: number }>> {
+    await this.load();
+    return [...this.records.values()].filter((record) => (cwd === undefined || record.cwd === cwd) && (instance === undefined || sameInstance(record, instance)))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map((record) => {
+        const { messages, usageTurns: _usageTurns, ...metadata } = record;
+        const firstUser = sessionMessageIndex(messages).firstUser;
+        return { ...cloneRecord({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: messages.length };
+      });
+  }
+
+  private async ensureRecord(tauThreadId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
+    await this.load();
+    const existing = this.records.get(tauThreadId);
+    if (existing) {
+      if (existing.cwd !== cwd) throw new Error("This thread belongs to another workspace.");
+      return existing;
+    }
+    await this.ensure(tauThreadId, cwd);
+    return this.records.get(tauThreadId)!;
+  }
+
+  /** The thread's record, created when it has none. */
   async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<ClaudeRuntimeSessionRecord> {
     await this.load();
     const existing = this.records.get(tauThreadId);
@@ -564,7 +592,7 @@ export class ClaudeRuntimeSessionStore {
   }
 
   async markStarted(tauThreadId: string, cwd: string): Promise<void> {
-    const record = await this.ensure(tauThreadId, cwd);
+    const record = await this.ensureRecord(tauThreadId, cwd);
     const current = this.records.get(tauThreadId);
     if (!current || current.claudeSessionId !== record.claudeSessionId || current.started) return;
     current.started = true;
@@ -576,7 +604,7 @@ export class ClaudeRuntimeSessionStore {
 
   /** Records the attempt before a child process is created. */
   async markAttempted(tauThreadId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) throw new Error("Claude runtime session could not be persisted.");
     record.attempted = true;
@@ -593,7 +621,7 @@ export class ClaudeRuntimeSessionStore {
     cwd: string,
     outcome: "started" | "missing" | "failed" | "aborted",
   ): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     record.attempted = true;
@@ -604,7 +632,7 @@ export class ClaudeRuntimeSessionStore {
 
   /** The user's model and effort for the thread; `undefined` returns a field to the CLI's default. */
   async setSelection(tauThreadId: string, cwd: string, selection: { model?: string | undefined; effort?: string | undefined; mode?: string | undefined }): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     if ("model" in selection) {
@@ -625,7 +653,7 @@ export class ClaudeRuntimeSessionStore {
 
   /** Restricts a new thread to these tools for good. */
   async setTools(tauThreadId: string, cwd: string, tools: readonly string[]): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     record.tools = [...tools];
@@ -635,7 +663,7 @@ export class ClaudeRuntimeSessionStore {
 
   /** What the CLI reported running, so a resumed thread can name its model before the next turn. */
   async setObservedModel(tauThreadId: string, cwd: string, model: string): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record || record.observedModel === model) return;
     record.observedModel = model;
@@ -645,20 +673,20 @@ export class ClaudeRuntimeSessionStore {
 
   /** Replaces the thread's running total; the backend sums turns itself. */
   async recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turns: readonly UsageTurn[] = [], snapshot?: readonly UsageTally[]): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     record.usage = { ...usage };
     record.usageAccounting = "delta";
     if (snapshot) record.usageSnapshot = snapshot.map((tally) => ({ ...tally }));
-    for (const turn of turns) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
+    for (const turn of turns) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], { ...turn });
     record.updatedAt = this.now();
     await this.persist(tauThreadId);
   }
 
   /** The context the thread's last turn left; `undefined` forgets it, after a compaction nobody measured yet. */
   async setContextUsage(tauThreadId: string, cwd: string, contextUsage: UiContextUsage | undefined): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     if (contextUsage) record.contextUsage = { ...contextUsage };
@@ -668,7 +696,7 @@ export class ClaudeRuntimeSessionStore {
   }
 
   async setGoal(tauThreadId: string, cwd: string, goal: ClaudeStoredGoal | undefined): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     if (goal) record.goal = { ...goal };
@@ -678,7 +706,7 @@ export class ClaudeRuntimeSessionStore {
   }
 
   async markCreateFallbackUsed(tauThreadId: string, cwd: string): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record || record.createFallbackUsed) return;
     record.createFallbackUsed = true;
@@ -692,7 +720,7 @@ export class ClaudeRuntimeSessionStore {
     messages: readonly UiMessage[],
     options: ClaudeExchangeOptions = {},
   ): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     const knownSkills = new Set([...options.knownSkillNames ?? []].filter((name) => SKILL_NAME.test(name)));
@@ -722,7 +750,7 @@ export class ClaudeRuntimeSessionStore {
       // are ignored after verification; a conflicting replay is rejected so
       // append-only history can never be silently replaced.
       if (stored.clientMessageId) {
-        const existing = [...record.messages, ...additions].find((item) => item.clientMessageId === stored.clientMessageId);
+        const existing = sessionMessageIndex(record.messages).ids.get(stored.clientMessageId) ?? additions.find((item) => item.clientMessageId === stored.clientMessageId);
         if (existing) {
           if (sameStoredMessage(existing, stored)) continue;
           throw new Error(`Claude transcript already contains a conflicting message id '${stored.clientMessageId}'.`);
@@ -779,7 +807,7 @@ export class ClaudeRuntimeSessionStore {
   }
 
   async setTitle(tauThreadId: string, cwd: string, title: string, source: ClaudeTitleSource): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     const safeTitle = visibleStoredTitle(title).slice(0, MAX_TITLE_LENGTH);
@@ -811,6 +839,6 @@ export class ClaudeRuntimeSessionStore {
   }
 
   private persist(tauThreadId: string): Promise<void> {
-    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId) }] });
+    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId), appendOnly: true }] });
   }
 }

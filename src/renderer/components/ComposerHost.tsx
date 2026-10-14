@@ -25,18 +25,15 @@ interface ComposerHostProps {
 /** Keeps the editor mounted and animates its move between start and thread layouts. */
 export class ComposerHost extends Component<ComposerHostProps, Record<string, never>, DOMRect | undefined> {
   private readonly hostRef = createRef<HTMLDivElement>();
-  private previousRect: DOMRect | undefined;
   private frame: number | undefined;
   private cleanupTimer: number | undefined;
 
-  componentDidMount(): void { this.previousRect = this.measure(); }
-  getSnapshotBeforeUpdate(): DOMRect | undefined { return this.measure(); }
+  getSnapshotBeforeUpdate(previousProps: ComposerHostProps): DOMRect | undefined {
+    return previousProps.start === this.props.start ? undefined : this.measure();
+  }
 
   componentDidUpdate(previousProps: ComposerHostProps, _previousState: Record<string, never>, beforeLayout?: DOMRect): void {
-    const current = this.measure();
-    const previous = beforeLayout ?? this.previousRect;
-    this.previousRect = current;
-    if (previousProps.start !== this.props.start) this.animate(previous, current);
+    if (previousProps.start !== this.props.start) this.animate(beforeLayout, this.measure());
   }
 
   componentWillUnmount(): void { this.clearAnimation(); }

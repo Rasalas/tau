@@ -9,6 +9,22 @@ const shell = (id: string, title = id) => ({
 afterEach(() => vi.useRealTimers());
 
 describe("ThreadStore selective navigation subscriptions", () => {
+  it("publishes a completeness-only index change without rerendering shell subscriptions", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("one")], complete: false });
+    const changed = vi.fn();
+    const row = vi.fn();
+    const ids = vi.fn();
+    store.subscribeToIds(ids);
+    store.subscribe(changed);
+    store.subscribeToThread("one", row);
+    store.applyThreadIndex({ projects: [], sessions: [shell("one")], complete: true });
+    expect(store.getSnapshot().complete).toBe(true);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(ids).toHaveBeenCalledOnce();
+    expect(row).not.toHaveBeenCalled();
+  });
+
   it("keeps live run state through navigation and stale snapshot hints in both directions", () => {
     const store = new ThreadStore();
     store.setThreadRunning("one", true, 1_000);

@@ -26,7 +26,9 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: { output: rendererBuild.output, onwarn: rendererBuild.onwarn },
     // Electron reads chunks from disk, so a lazy chunk's scripts need no preload
     // list; only its stylesheets still have to be fetched with it.
-    modulePreload: { resolveDependencies: (_file, dependencies) => dependencies.filter((dependency) => dependency.endsWith(".css")) },
+    // The bundled Electron Chromium supports modulepreload natively. The web
+    // build has its own configuration and retains Vite's compatibility shim.
+    modulePreload: { polyfill: false, resolveDependencies: (_file, dependencies) => dependencies.filter((dependency) => dependency.endsWith(".css")) },
     target: rendererBuild.target,
     cssTarget: rendererBuild.cssTarget,
     manifest: true,

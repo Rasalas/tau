@@ -302,7 +302,7 @@ describe("useWorkbenchActions", () => {
     result.current.setComposerImages?.([{ kind: "image", name: "b.gif", mimeType: "image/gif", data: "BBB", size: 3 }]);
     expect(setAttachments).toHaveBeenCalledWith("draft-1", [expect.objectContaining({ name: "b.gif", previewUrl: "data:image/gif;base64,BBB" })]);
     result.current.setComposerDraft?.("stashed away");
-    expect(storage.set).toHaveBeenCalledWith("tau.composer-drafts.v1", JSON.stringify({ "draft-1": "stashed away" }));
+    expect(storage.set).toHaveBeenCalledWith("tau.composer-drafts.v1:entry:draft-1", "stashed away");
   });
 
   it("starts a new thread in a named project without the picker, and leaves an unknown one alone", () => {

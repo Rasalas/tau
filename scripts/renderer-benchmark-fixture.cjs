@@ -45,6 +45,7 @@ app.whenReady().then(async () => {
       const state = await window.webContents.executeJavaScript(`JSON.stringify({
         readyState: document.readyState,
         visibilityState: document.visibilityState,
+        diffStackProgress: window.__TAU_DIFF_STACK_PROGRESS__,
         domNodes: document.getElementsByTagName("*").length,
         contentCharacters: document.body.textContent?.length ?? 0,
       })`).catch((error) => JSON.stringify({ inspectionError: error.message }));
@@ -60,8 +61,8 @@ app.whenReady().then(async () => {
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally {
     window.destroy();
-    app.exit(0);
   }
+  app.exit(0);
 }).catch((error) => {
   console.error(error);
   app.exit(1);

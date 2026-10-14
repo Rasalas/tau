@@ -196,7 +196,7 @@ it("replaces a cached detail with a persisted page that is newer", async () => {
   await act(async () => { test.responses.get("b")!.resolve(result("b", "Question B")); await selected; });
 });
 
-it("keeps a cached detail when the persisted page adds nothing", async () => {
+it("updates cached content when the persisted page changes an existing message", async () => {
   const test = await start();
   let selected!: Promise<boolean>;
   act(() => { selected = test.actions().switchSession("b"); });
@@ -208,7 +208,22 @@ it("keeps a cached detail when the persisted page adds nothing", async () => {
   act(() => { selected = test.actions().switchSession("b"); });
   await screen.findByText("Live B");
   await act(async () => { test.pages.get("b")!.resolve({ sessionId: "b", hasMore: false, messages: detail("b", "Persisted B").messages }); });
-  expect(screen.getByText("Live B")).toBeTruthy();
-  expect(screen.queryByText("Persisted B")).toBeNull();
+  await screen.findByText("Persisted B");
+  expect(screen.queryByText("Live B")).toBeNull();
   await act(async () => { test.responses.get("b")!.resolve(result("b", "Live B")); await selected; });
+});
+
+it("refreshes a cached transcript when the persisted page deletes all messages", async () => {
+  const test = await start();
+  let selected!: Promise<boolean>;
+  act(() => { selected = test.actions().switchSession("b"); });
+  await act(async () => { test.responses.get("b")!.resolve(result("b", "Removed B")); await selected; });
+  act(() => { selected = test.actions().switchSession("a"); });
+  await act(async () => { test.responses.get("a")!.resolve(result("a", "Original A")); await selected; });
+  await screen.findByText("Original A");
+  act(() => { selected = test.actions().switchSession("b"); });
+  await screen.findByText("Removed B");
+  await act(async () => { test.pages.get("b")!.resolve({ sessionId: "b", hasMore: false, messages: [] }); });
+  expect(screen.queryByText("Removed B")).toBeNull();
+  await act(async () => { test.responses.get("b")!.resolve(result("b", "Confirmed B")); await selected; });
 });

@@ -1,4 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { ProviderReadCache } from "./provider-read-cache.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
@@ -14,8 +15,6 @@ import { isRateLimited, RateLimitGate, retryAtFrom } from "./provider-rate-limit
 import { parseRequestUrl } from "./pull-request-json.js";
 import { defaultCliRunner, explainCliFailure, remoteHost, serviceFor, SERVICES, type CliRunner } from "./request-cli.js";
 
-/** A read is reused this long, for a tab reopened or a second client; `fresh` skips it. */
-const READ_TTL_MS = 60_000;
 /** A signed-in login is asked for once an hour per host; a failed ask is not remembered. */
 const VIEWER_TTL_MS = 60 * 60_000;
 /** A credential is held in memory this long, never written anywhere. */
@@ -88,7 +87,7 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
   const env = options.env ?? process.env;
   const fetchImpl: HttpFetch = options.fetch ?? ((url, init) => fetch(url, init));
   const gate = new RateLimitGate(now);
-  const cache = new Map<string, { at: number; value: Promise<unknown>; refreshing: boolean }>();
+  const cache = new ProviderReadCache(now);
   const viewers = new Map<string, { at: number; login: Promise<string | undefined> }>();
   const credentials = new Map<string, { at: number; value: Promise<GitCredential | undefined> }>();
   let hostChoices: Promise<Record<string, RequestService>> | undefined;
@@ -186,17 +185,10 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
     http,
     credential,
     cached: <T>(kind: string, ref: PullRequestRef, fresh: boolean, read: () => Promise<T>, coalesceFresh = false): Promise<T> => {
-      const key = `${kind}\0${ref.url}`;
-      const entry = cache.get(key);
-      if (entry && now() - entry.at < READ_TTL_MS && (!fresh || (coalesceFresh && entry.refreshing))) return entry.value as Promise<T>;
-      const value = read();
-      const next = { at: now(), value, refreshing: fresh && coalesceFresh };
-      cache.set(key, next);
-      void value.then(() => { next.refreshing = false; }, () => { if (cache.get(key)?.value === value) cache.delete(key); });
-      return value;
+      return cache.read(`${kind}\0${ref.url}`, fresh, read, coalesceFresh);
     },
     drop: (kind, ref) => { cache.delete(`${kind}\0${ref.url}`); },
-    forget: (ref) => { for (const key of cache.keys()) if (key.endsWith(`\0${ref.url}`)) cache.delete(key); },
+    forget: (ref) => { cache.forget(`\0${ref.url}`); },
     workspace: async (command, input) => {
       try {
         return await context.invokeHostExtension(WORKSPACE_HOST_EXTENSION_ID, command, input);
@@ -247,6 +239,6 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
     },
     revision: () => revision,
     tools,
-    dispose: routing.dispose,
+    dispose: async () => { cache.dispose(); credentials.clear(); viewers.clear(); await routing.dispose(); },
   };
 }

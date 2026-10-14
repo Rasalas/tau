@@ -1,20 +1,26 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { OpenCodeSessionStore } from "./session-store.js";
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+const stores: OpenCodeSessionStore[] = [];
+function tracked<T extends OpenCodeSessionStore>(liveStore: T): T { stores.push(liveStore); return liveStore; }
+afterEach(async () => {
+  const closed = await Promise.allSettled(stores.splice(0).map((liveStore) => liveStore.dispose()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  for (const result of closed) if (result.status === "rejected") throw result.reason;
+});
 
 async function store() {
   const directory = await mkdtemp(join(tmpdir(), "tau-opencode-store-"));
   directories.push(directory);
   const filePath = join(directory, "sessions.json");
-  return { filePath, make: () => new OpenCodeSessionStore({ filePath, now: () => 5 }) };
+  return { filePath, make: () => tracked(new OpenCodeSessionStore({ filePath, now: () => 5 })) };
 }
 
-describe("OpenCodeSessionStore shared file", () => {
+describe("OpenCodeSessionStore shared database", () => {
   it("keeps other stores' model catalogs across thread and catalog writes", async () => {
     const { make } = await store();
     const first = make();
@@ -68,4 +74,20 @@ describe("OpenCodeSessionStore shared file", () => {
     await second.ensure("fourth", "/repo");
     expect((await make().list()).map((record) => record.tauThreadId).sort()).toEqual(["first", "fourth", "second", "third"]);
   });
+});
+
+it("persists messages, model choices and catalogs in SQLite across disposal", async () => {
+  const { make } = await store();
+  const writer = make();
+  await writer.appendMessages("thread", "/repo", [{ id: "user", role: "user", text: "hello", timestamp: 1, clientMessageId: "prompt" }]);
+  await writer.setSelection("thread", "/repo", { model: { provider: "fake", id: "model" }, variant: "high" });
+  await writer.setModels([{ provider: "fake", id: "model", name: "Model", variants: ["high"] }]);
+  await writer.appendMessages("thread", "/repo", [{ id: "answer", role: "assistant", text: "answer", timestamp: 2 }]);
+  await writer.dispose();
+  expect((await readFile(writer.databasePath)).subarray(0, 16).toString()).toBe("SQLite format 3\0");
+  const reader = make();
+  const restored = await reader.get("thread");
+  expect(restored?.messages.map((message) => message.text)).toEqual(["hello", "answer"]);
+  expect(restored).toMatchObject({ model: { provider: "fake", id: "model" }, variant: "high" });
+  expect(await reader.listModels()).toEqual([{ provider: "fake", id: "model", name: "Model", variants: ["high"] }]);
 });

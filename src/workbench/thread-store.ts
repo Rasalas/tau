@@ -20,6 +20,9 @@ export interface ThreadActivitySnapshot {
 }
 
 export interface ThreadStoreSnapshot {
+  /** False while the host is still enumerating persisted threads. */
+  complete?: boolean;
+  unavailableBackends?: readonly string[];
   projects: readonly UiProject[];
   threads: readonly UiSession[];
   activeThreadId: string;
@@ -227,6 +230,8 @@ export class ThreadStore {
     }
     this.publish({
       ...this.snapshot,
+      complete: threadIndex.complete,
+      unavailableBackends: sameIds(this.snapshot.unavailableBackends ?? [], threadIndex.unavailableBackends ?? []),
       projects: stabilizeProjects(this.snapshot.projects, threadIndex.projects),
       threads: stabilizeThreads(this.snapshot.threads, threadIndex.sessions),
       ...(threadIndex.runs ? this.runsFromHost(threadIndex.runs) : {}),
@@ -391,13 +396,14 @@ export class ThreadStore {
       : { ...candidate, isStreaming, interruptedThreadIds, failedThreadIds, limitedThreadIds };
     const previous = this.snapshot;
     const activityChanged = ACTIVITY_KEYS.some((key) => next[key] !== previous[key]);
-    if (!activityChanged && next.projects === previous.projects && next.threads === previous.threads) return;
+    if (!activityChanged && next.complete === previous.complete && next.unavailableBackends === previous.unavailableBackends && next.projects === previous.projects && next.threads === previous.threads) return;
     this.snapshot = next;
     if (next.projects !== previous.projects) this.projectListeners.forEach((listener) => listener());
     if (activityChanged) {
       this.activitySnapshot = activityOf(next);
       this.activityListeners.forEach((listener) => listener());
     }
+    if (next.threads === previous.threads && (next.complete !== previous.complete || next.unavailableBackends !== previous.unavailableBackends)) this.idListeners.forEach((listener) => listener());
     if (next.threads !== previous.threads) {
       const nextIds = next.threads.map((thread) => thread.id);
       const idsChanged = this.threadIds.length !== nextIds.length || this.threadIds.some((id, index) => id !== nextIds[index]);
@@ -405,7 +411,7 @@ export class ThreadStore {
       else if (nextIds.length === 0) this.threadIds = [];
 
       const previousIds = previous.threads.map((thread) => thread.id);
-      if (previousIds.length !== this.threadIds.length || previousIds.some((id, index) => id !== this.threadIds[index])) {
+      if (next.complete !== previous.complete || next.unavailableBackends !== previous.unavailableBackends || previousIds.length !== this.threadIds.length || previousIds.some((id, index) => id !== this.threadIds[index])) {
         this.idListeners.forEach((listener) => listener());
       }
       const previousById = new Map(previous.threads.map((thread) => [thread.id, thread] as const));

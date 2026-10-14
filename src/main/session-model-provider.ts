@@ -30,31 +30,38 @@ function record(value: unknown): { id: string; entry: ProviderEntry } | undefine
   return { id: candidate.id, entry: { parentId } };
 }
 
+/** Collects branch ancestry during an existing session scan. */
+export class SessionModelCollector {
+  private readonly entries = new Map<string, ProviderEntry>();
+  private leafId?: string;
+  add(value: unknown): void {
+    const parsed = record(value);
+    if (!parsed) return;
+    this.entries.set(parsed.id, parsed.entry);
+    this.leafId = parsed.id;
+  }
+  model(): SessionModel | undefined {
+    const seen = new Set<string>();
+    let leafId = this.leafId;
+    while (leafId && !seen.has(leafId)) {
+      seen.add(leafId);
+      const entry = this.entries.get(leafId);
+      if (!entry) return undefined;
+      if (entry.provider) return { provider: entry.provider, ...(entry.model ? { id: entry.model } : {}) };
+      leafId = entry.parentId ?? undefined;
+    }
+    return undefined;
+  }
+}
+
 /** Reads only the entry ancestry needed to resolve the selected branch's latest model. */
 export async function readSessionModel(path: string): Promise<SessionModel | undefined> {
-  const entries = new Map<string, ProviderEntry>();
-  let leafId: string | undefined;
+  const collector = new SessionModelCollector();
   try {
     const lines = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
     for await (const line of lines) {
-      let value: unknown;
-      try { value = JSON.parse(line); } catch { continue; }
-      const parsed = record(value);
-      if (!parsed) continue;
-      entries.set(parsed.id, parsed.entry);
-      leafId = parsed.id;
+      try { collector.add(JSON.parse(line)); } catch { continue; }
     }
-  } catch {
-    return undefined;
-  }
-
-  const seen = new Set<string>();
-  while (leafId && !seen.has(leafId)) {
-    seen.add(leafId);
-    const entry = entries.get(leafId);
-    if (!entry) return undefined;
-    if (entry.provider) return { provider: entry.provider, ...(entry.model ? { id: entry.model } : {}) };
-    leafId = entry.parentId ?? undefined;
-  }
-  return undefined;
+  } catch { return undefined; }
+  return collector.model();
 }

@@ -11,8 +11,15 @@ import { GrokSessionStore } from "./session-store.js";
 const FAKE_CLI = fileURLToPath(new URL("./fixtures/fake-grok.mjs", import.meta.url));
 const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 const directories: string[] = [];
+const registries: Array<{ dispose(): Promise<void> }> = [];
+const stores: GrokSessionStore[] = [];
+function trackedStore(store: GrokSessionStore): GrokSessionStore { stores.push(store); return store; }
 
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+afterEach(async () => {
+  await Promise.all(registries.splice(0).map((registry) => registry.dispose()));
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 async function harness(options: { customModels?: string; found?: boolean; env?: Record<string, string>; fetch?: typeof globalThis.fetch } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-grok-host-"));
@@ -37,6 +44,7 @@ async function harness(options: { customModels?: string; found?: boolean; env?: 
     },
   });
   const sent = async () => (await readFile(log, "utf8").catch(() => "")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method?: string; params?: Record<string, unknown> });
+  registries.push(registry);
   return { registry, provider: backends[0]!, backend: (kind: string) => backends.find((entry) => entry.kind === kind), root, sent, connects };
 }
 
@@ -137,7 +145,7 @@ describe("Grok host half", () => {
     const { registry, root } = await harness({ fetch: fetch as unknown as typeof globalThis.fetch });
     await mkdir(join(root, "grok-home"), { recursive: true });
     await writeFile(join(root, "grok-home", "auth.json"), JSON.stringify({ "https://accounts.x.ai/sign-in": { key: "token", auth_mode: "oauth" } }));
-    const store = new GrokSessionStore({ filePath: GrokSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const store = trackedStore(new GrokSessionStore({ filePath: GrokSessionStore.defaultPath(join(root, "agent", "sessions")) }));
     const turn = { provider: "xai", model: "grok-4.6", billing: "subscription" as const, inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0.001, turns: 1, at: 5 };
     await store.recordUsage("thread-1", "/repo", { ...turn }, turn);
     const usage = caller("tau.usage");
@@ -156,7 +164,7 @@ describe("Grok host half", () => {
   it("lists what each thread cost from its store, without opening it", async () => {
     const { provider, root } = await harness();
     // A synthetic store: never the user's own.
-    const store = new GrokSessionStore({ filePath: GrokSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const store = trackedStore(new GrokSessionStore({ filePath: GrokSessionStore.defaultPath(join(root, "agent", "sessions")) }));
     const total = (turns: number) => ({ inputTokens: 1_000 * turns, outputTokens: 100 * turns, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100 * turns, costUsd: 0.25 * turns, turns });
     await store.recordUsage("turns", "/repo", total(1), { provider: "xai", model: "grok-4.3", ...total(1), at: 1 });
     await store.recordUsage("turns", "/repo", total(2), { provider: "xai", model: "grok-4.3", ...total(1), at: 2 });

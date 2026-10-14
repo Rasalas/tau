@@ -1,18 +1,23 @@
-import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { CodexSessionStore } from "./session-store.js";
 
+const liveStores: CodexSessionStore[] = [];
+function makeSessionStore(options: ConstructorParameters<typeof CodexSessionStore>[0]) {
+  const liveStore = new CodexSessionStore(options); liveStores.push(liveStore); return liveStore;
+}
+
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+afterEach(async () => { await Promise.all(liveStores.splice(0).map((liveStore) => liveStore.dispose())); await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
 async function store() {
   const directory = await mkdtemp(join(tmpdir(), "tau-codex-store-"));
   directories.push(directory);
   const filePath = join(directory, "codex-runtime-sessions.json");
-  return { filePath, make: () => new CodexSessionStore({ filePath, now: () => 5 }) };
+  return { filePath, make: () => makeSessionStore({ filePath, now: () => 5 }) };
 }
 
 describe("CodexSessionStore", () => {
@@ -73,15 +78,16 @@ describe("CodexSessionStore", () => {
   it("keeps when a thread began, and dates one stored before by its first message", async () => {
     const { filePath, make } = await store();
     let now = 5;
-    const first = new CodexSessionStore({ filePath, now: () => now });
+    const first = makeSessionStore({ filePath, now: () => now });
     await first.ensure("tau-1", "/repo");
     now = 9;
     await first.appendMessages("tau-1", "/repo", [{ id: "u", role: "user", text: "Hi", timestamp: 9 }]);
     expect((await make().list()).map((record) => [record.createdAt, record.updatedAt])).toEqual([[5, 9]]);
 
-    const stored = JSON.parse(await readFile(recordPath(filePath, "tau-1"), "utf8"));
+    const stored = JSON.parse(readPayload(filePath, "tau-1"));
     delete stored.sessions[0].createdAt;
-    await writeFile(recordPath(filePath, "tau-1"), JSON.stringify(stored));
+    const db = new DatabaseSync(`${filePath}.sqlite`);
+    try { db.prepare("UPDATE sessions SET metadata=? WHERE thread_id=?").run(JSON.stringify(stored), "tau-1"); } finally { db.close(); }
     expect((await make().list())[0]?.createdAt).toBe(9);
   });
 
@@ -109,7 +115,7 @@ describe("CodexSessionStore", () => {
     expect(await second.listModels()).toEqual([{ id: "gpt-5.6-luna", name: "GPT-5.6-Luna", efforts: ["low"], defaultEffort: "low" }]);
     await expect(second.ensure("tau-1", "/elsewhere")).rejects.toThrow("another workspace");
     await expect(second.appendMessages("tau-1", "/repo", [{ id: "x", role: "user", text: "Different", timestamp: 3, clientMessageId: "m1" }])).rejects.toThrow("different message");
-    expect(JSON.parse(await readFile(filePath, "utf8")).version).toBe(2);
+    expect(JSON.parse(await readFile(filePath, "utf8")).version).toBe(4);
   });
 
   it("hands a thread's record to the trash and takes the same record back", async () => {
@@ -140,7 +146,7 @@ describe("CodexSessionStore", () => {
     await expect(again.list()).resolves.toHaveLength(2);
     await expect(again.listModels()).resolves.toEqual([{ id: "gpt-5.5", name: "GPT-5.5", efforts: [] }]);
     await expect(again.listModels("work")).resolves.toEqual([{ id: "gpt-5.6-luna", name: "GPT-5.6 Luna", efforts: ["low"] }]);
-    const saved = JSON.parse(await readFile(recordPath(filePath, "work", "models"), "utf8"));
+    const saved = JSON.parse(readPayload(filePath, "work", true));
     expect(Object.keys(saved.instanceModels)).toEqual(["work"]);
 
   });
@@ -159,6 +165,23 @@ describe("CodexSessionStore", () => {
   });
 });
 
-function recordPath(filePath: string, id: string, kind = "session"): string {
-  return join(`${filePath}.records`, `${kind}-${createHash("sha256").update(id).digest("hex")}.json`);
+function readPayload(filePath: string, id: string, models = false): string {
+  const db = new DatabaseSync(`${filePath}.sqlite`);
+  try { return String(db.prepare(models ? "SELECT payload FROM models WHERE instance_id=?" : "SELECT metadata FROM sessions WHERE thread_id=?").get(id)?.[models ? "payload" : "metadata"]); }
+  finally { db.close(); }
 }
+
+it("lists title seeds and message counts without cloning transcript history", async () => {
+  const { make } = await store();
+  const sessions = make();
+  await sessions.appendMessages("summary", "/repo", [
+    { id: "u", role: "user", text: "Title seed", timestamp: 1 },
+    ...Array.from({ length: 50 }, (_, i) => ({ id: `a-${i}`, role: "assistant" as const, text: "x".repeat(1024), timestamp: i + 2 })),
+  ]);
+  const [summary] = await sessions.listMetadata();
+  expect(summary?.messageCount).toBe(51);
+  expect(summary?.messages).toHaveLength(1);
+  summary!.messages[0]!.text = "external mutation";
+  expect((await sessions.get("summary"))?.messages[0]?.text).toBe("Title seed");
+  expect((await sessions.list())[0]?.messages).toHaveLength(51);
+});

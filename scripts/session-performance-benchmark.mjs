@@ -1,5 +1,7 @@
 import { build } from "esbuild";
-import { mkdtemp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { persistedTranscriptWorkerBuildOptions } from "./persisted-transcript-worker-build.mjs";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -9,16 +11,9 @@ await mkdir(join(root, ".scratch"), { recursive: true });
 const directory = await mkdtemp(join(root, ".scratch", "session-performance-"));
 const rounded = (value) => Math.round(value * 10) / 10;
 const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
-const report = { schemaVersion: 1, generatedAt: new Date().toISOString(), persistence: [], transcript: [] };
+const report = { schemaVersion: 2, generatedAt: new Date().toISOString(), persistence: [], transcript: [] };
 const failures = [];
 let reader;
-
-async function files(path) {
-  return new Map(await Promise.all((await readdir(path)).filter((name) => name.endsWith(".json")).map(async (name) => {
-    const info = await stat(join(path, name), { bigint: true });
-    return [name, { stamp: `${info.ino}:${info.mtimeNs}`, size: Number(info.size) }];
-  })));
-}
 
 try {
   // Bundled local modules, external installed packages: the same source under
@@ -28,7 +23,7 @@ try {
     outfile: join(directory, "subject.mjs"), bundle: true, platform: "node", format: "esm", packages: "external",
     alias: { "tau/host-extension": join(root, "src/main/host-extension-api.ts") },
   });
-  await build({ entryPoints: [join(root, "src/main/persisted-transcript-worker.ts")], outfile: join(directory, "worker.mjs"), bundle: true, platform: "node", format: "esm", packages: "external" });
+  await build(persistedTranscriptWorkerBuildOptions(root, join(directory, "worker.mjs")));
   const { SessionStorePersistence, PersistedTranscriptReader, PI_AGENT_RUNTIME_ADAPTER } = await import(pathToFileURL(join(directory, "subject.mjs")));
   for (const count of [10, 100, 1_000]) {
     const path = join(directory, `sessions-${count}.json`);
@@ -38,23 +33,47 @@ try {
     }));
     await writeFile(path, JSON.stringify({ version: 1, sessions }));
     const store = new SessionStorePersistence({ filePath: path, version: 1, decode: (value) => value });
-    const migrationStart = performance.now();
-    await store.load();
-    const migrationMs = performance.now() - migrationStart;
-    const before = await files(`${path}.records`);
-    const times = [], synchronous = [];
-    for (let repeat = 0; repeat < 5; repeat++) {
-      sessions[0].title = `changed-${repeat}`;
-      const start = performance.now();
-      const pending = store.write({ sessions: [{ id: sessions[0].tauThreadId, record: sessions[0] }] });
-      synchronous.push(performance.now() - start);
-      await pending;
-      times.push(performance.now() - start);
+    let audit;
+    try {
+      const migrationStart = performance.now();
+      await store.load();
+      const migrationMs = performance.now() - migrationStart;
+      // Establish the caller's append-only array identity before measuring.
+      await store.write({ sessions: [{ id: sessions[0].tauThreadId, record: sessions[0], appendOnly: true }] });
+      // Fixture-only SQL triggers count actual writes, including a delete/reinsert
+      // that would otherwise leave identical final payloads. No production hooks.
+      audit = new DatabaseSync(store.databasePath);
+      audit.exec("PRAGMA busy_timeout = 5000; CREATE TABLE benchmark_writes (entity TEXT NOT NULL)");
+      for (const table of ["sessions", "messages", "usage_turns"]) {
+        for (const operation of ["INSERT", "UPDATE", "DELETE"]) {
+          audit.exec(`CREATE TRIGGER benchmark_${table}_${operation} AFTER ${operation} ON ${table}
+            BEGIN INSERT INTO benchmark_writes VALUES ('${table}'); END`);
+        }
+      }
+      const times = [], synchronous = [];
+      for (let repeat = 0; repeat < 5; repeat++) {
+        sessions[0].title = `changed-${repeat}`;
+        const start = performance.now();
+        const pending = store.write({ sessions: [{ id: sessions[0].tauThreadId, record: sessions[0], appendOnly: true }] });
+        synchronous.push(performance.now() - start);
+        await pending;
+        times.push(performance.now() - start);
+      }
+      const rowWrites = () => Object.fromEntries(audit.prepare("SELECT entity, count(*) AS count FROM benchmark_writes GROUP BY entity").all().map((row) => [row.entity, row.count]));
+      const titleRowWrites = rowWrites();
+      audit.exec("DELETE FROM benchmark_writes");
+      sessions[0].messages.push({ role: "assistant", text: "one new message", timestamp: 41 });
+      const appendStarted = performance.now();
+      await store.write({ sessions: [{ id: sessions[0].tauThreadId, record: sessions[0], appendOnly: true }] });
+      const appendMs = performance.now() - appendStarted;
+      const appendRowWrites = rowWrites();
+      report.persistence.push({ threads: count, migrationMs: rounded(migrationMs), medianWriteMs: rounded(median(times)), medianSynchronousCallMs: rounded(median(synchronous)), titleRowWrites, appendMs: rounded(appendMs), appendRowWrites });
+      if (titleRowWrites.sessions !== 5 || titleRowWrites.messages || titleRowWrites.usage_turns) failures.push(`${count} threads: title changes rewrote history: ${JSON.stringify(titleRowWrites)}`);
+      if (appendRowWrites.sessions !== 1 || appendRowWrites.messages !== 1 || appendRowWrites.usage_turns) failures.push(`${count} threads: append rewrote previous rows: ${JSON.stringify(appendRowWrites)}`);
+    } finally {
+      audit?.close();
+      await store.dispose();
     }
-    const changed = [...await files(`${path}.records`)].filter(([name, info]) => before.get(name)?.stamp !== info.stamp);
-    const rewrittenBytes = changed.reduce((sum, [, info]) => sum + info.size, 0);
-    report.persistence.push({ threads: count, migrationMs: rounded(migrationMs), medianWriteMs: rounded(median(times)), medianSynchronousCallMs: rounded(median(synchronous)), changedFiles: changed.length, rewrittenBytes });
-    if (changed.length !== 1 || rewrittenBytes > 64 * 1_024) failures.push(`${count} threads: one title change rewrote ${changed.length} files / ${rewrittenBytes} bytes`);
   }
   reader = new PersistedTranscriptReader(pathToFileURL(join(directory, "worker.mjs")));
   for (const count of [200, 2_000, 20_000]) {

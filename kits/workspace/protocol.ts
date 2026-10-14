@@ -310,7 +310,7 @@ export interface WorkspaceHostCommands {
   /** A normal merge commit of a branch into the checkout's own; a conflict is backed out (callers: `tau.servers`). */
   "merge-branch": { input: { branch: string; workspace?: string }; output: MergeBranchResult };
   /** Review Kit's reading of the branch before it opens a request (callers: `tau.review`). */
-  "review-request-context": { input: { detail?: boolean; base?: string } | undefined; output: ReviewRequestContext };
+  "review-request-context": { input: { detail?: boolean; base?: string; discovery?: boolean } | undefined; output: ReviewRequestContext };
   /** Reads metadata for a known project without changing the active host workspace. */
   "workspace-info": { input: { workspace?: string } | undefined; output: WorkspaceReport };
   /** Reads every linked checkout only when the picker needs cleanup safety facts. */
@@ -750,6 +750,8 @@ export interface ThreadRailRowAction {
  * search, the paging, the rows and the gestures. One at a time; the last wins.
  */
 export interface ThreadRailOrganizer {
+  /** True until grouping metadata has answered, or the initial read failed. */
+  isLoading?(): boolean;
   subscribe(listener: () => void): () => void;
   /** Moves whenever `sections` would answer differently for the same threads. */
   getVersion(): number;

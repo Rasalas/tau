@@ -336,22 +336,36 @@ export const threadRailExtension: DesktopExtension = {
     const selection = new FanOutSelection();
     let workspace: WorkspaceStoreSlice | undefined;
     let titles: ThreadTitlesSlice | undefined;
+    let writing: Promise<void> | undefined;
     const send = (patches: Record<string, ThreadMetaPatch | null>): Promise<boolean> => {
       // The host refuses a Read-only device's changes (ADR 0024); nothing moves, and it says why.
       if (hostIsReadOnly()) { store.actions?.notify(READ_ONLY_REASON); return Promise.resolve(false); }
-      store.apply(patches);
-      return context.host.invoke("patch", { patches }).then((state) => { store.set(state); return true; }, () => {
+      const pending = store.beginPatch(patches);
+      const invoke = () => {
+        const request = { epoch: store.getState().publication?.epoch };
+        return context.host.invoke("patch", { patches }).then((state) => ({ state, request }));
+      };
+      const sent = (writing ? writing.then(invoke) : invoke()).then(({ state, request }) => { store.finishPatch(pending, state, request); return true; }, () => {
+        store.finishPatch(pending);
         // The host pushes its own state again; a failed write shows as the row moving back.
-        void context.host.invoke("state").then((state) => store.set(state)).catch(() => undefined);
+        const request = { epoch: store.getState().publication?.epoch };
+        void context.host.invoke("state").then((state) => store.set(state, request)).catch(() => undefined);
         return false;
       });
+      const waiting = sent.then(() => undefined);
+      writing = waiting;
+      void waiting.then(() => { if (writing === waiting) writing = undefined; });
+      return sent;
     };
     const undo = new ThreadUndo({ onError: (action, error) => store.actions?.notify(`Failed to undo ${UNDO_VERB[action]}: ${errorMessage(error)}`, "error") });
     const trashListeners = new Set<(trash: readonly TrashedThread[]) => void>();
     const organizer = createRailOrganizer(store, {
       send,
       undo,
-      archive: async (threadId) => { store.set(await context.host.invoke("archive", { threadId })); },
+      archive: async (threadId) => {
+        const request = { epoch: store.getState().publication?.epoch };
+        store.set(await context.host.invoke("archive", { threadId }), request);
+      },
       remove: async (threadId) => { await context.host.invoke("remove", { threadId }); },
       restore: async (threadId) => { await context.host.invoke("restore", { threadId }); },
       running: (threadId) => store.running.has(threadId),
@@ -370,13 +384,13 @@ export const threadRailExtension: DesktopExtension = {
         }));
       },
     });
-    const load = (state: unknown, preferences: PreferencesStore) => {
+    const load = (state: unknown, preferences: PreferencesStore, request: { epoch?: string }) => {
       const { pinnedThreadIds, settledThreadIds } = preferences.getSnapshot();
-      if (store.loaded || hostIsReadOnly() || (pinnedThreadIds.length === 0 && settledThreadIds.length === 0)) { store.set(state); return; }
+      if (store.loaded || hostIsReadOnly() || (pinnedThreadIds.length === 0 && settledThreadIds.length === 0)) { store.set(state, request); return; }
       // The host takes the old lists over only once, whichever client asks first.
       void context.host.invoke("import", { pinned: pinnedThreadIds, settled: settledThreadIds })
-        .then((imported) => store.set(imported))
-        .catch(() => store.set(state));
+        .then((imported) => store.set(imported, request))
+        .catch(() => store.set(state, request));
     };
     const stopMeta = context.host.onEvent(META_EVENT, (payload) => store.set(payload));
     const stopTrash = context.host.onEvent(TRASH_EVENT, (payload) => {
@@ -387,7 +401,9 @@ export const threadRailExtension: DesktopExtension = {
       if (event.running) store.running.add(event.sessionId);
       else store.running.delete(event.sessionId);
     });
-    void context.host.invoke("state").then((state) => load(state as RailState, context.preferences)).catch((error: unknown) => {
+    const initialRequest = { epoch: store.getState().publication?.epoch };
+    void context.host.invoke("state").then((state) => load(state as RailState, context.preferences, initialRequest)).catch((error: unknown) => {
+      store.finishLoading();
       if (!(error instanceof HostUnavailableError)) console.warn("Thread Rail could not read its state", error);
     });
     const stopBridge = bridgePreferences(context.preferences, store, organizer);
@@ -451,7 +467,10 @@ export const threadRailExtension: DesktopExtension = {
       // Threads' Rail and Ask first cards (API 1.61.0); the page the rail had before opens Threads.
       context.registerSettingsSection({
         id: "thread-rail.rail", page: "threads", card: "rail", order: 10, profiles: ["desktop", "web"], replaces: ["thread-rail.settings"], rows: THREAD_RAIL_ROWS,
-        Component: createRailRows(store, async (settings) => { store.set(await context.host.invoke("settings", settings)); }),
+        Component: createRailRows(store, async (settings) => {
+          const request = { epoch: store.getState().publication?.epoch };
+          store.set(await context.host.invoke("settings", settings), request);
+        }),
       }),
       context.registerSettingsSection({ id: "thread-rail.ask-first", page: "threads", card: "ask-first", order: 10, profiles: ["desktop", "web"], rows: ASK_FIRST_ROWS, Component: createAskFirstRows(context.preferences) }),
       context.registerCommand({ id: "thread.pin", label: "Pin or unpin thread", group: "Thread", access: "write", run: (app) => withActive(app, organizer.togglePin) }),

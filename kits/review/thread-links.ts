@@ -151,7 +151,8 @@ export class ThreadLinkStore {
     const changed = (["title", "state", "draft", "headRef", "headSha", "baseRef"] as const).some((field) => current[field] !== next[field])
       || current.stack?.number !== next.stack?.number || current.stack?.size !== next.stack?.size;
     links[index] = next;
-    await this.save();
+    // Freshness is useful during this run but does not justify rewriting every thread's links.
+    if (changed) await this.save();
     return changed;
   }
 

@@ -760,6 +760,7 @@ export class PiHost {
 
   async start(): Promise<HostBootstrap> {
     return this.lifecycle.runActivation("start", async (activation) => {
+      this.report.startDiagnostics();
       const activationEpoch = activation.epoch;
       this.lifecycleMetrics.begin(this.safeMode ? "safe" : "full", "bootstrap");
       try {
@@ -808,6 +809,7 @@ export class PiHost {
         this.lifecycleMetrics.end();
         return result;
       } catch (error) {
+        this.report.stopDiagnostics();
         this.lifecycleMetrics.end();
         throw error;
       }
@@ -934,6 +936,7 @@ export class PiHost {
 
   getLifecycleMeasurements() { return this.lifecycleMetrics.getMeasurements(); }
   getBackgroundLifecycleMeasurements() { return this.report.backgroundMeasurements.map((item) => ({ ...item })); }
+  getEventLoopStallHistory() { return this.report.getEventLoopStallHistory(); }
 
   /** Publishes a thread the runtime created and now owns; one identity and publication path. */
   private async completeRuntimeOwnedNewThread(thread: ThreadRuntime, requestId: NewThreadRequestId): Promise<NewThreadResult> {
@@ -1744,11 +1747,13 @@ export class PiHost {
   private admitWorkspace(path: string): WorkspaceRef { this.admittedWorkspaces.add(path); return this.workspaces.ref(path); }
 
   async dispose(): Promise<void> {
+    this.report.stopDiagnostics();
     // Before anything is torn down: the aborts below are this shutdown's, not
     // the user's, and a thread they stop is exactly one a restart must see.
     this.turnsInFlight.freeze();
     this.queue.freeze(); this.limits.freeze();
     return this.lifecycle.run("dispose", async () => {
+      this.report.stopDiagnostics();
       this.clientTurns.clear();
       this.watch?.close();
       this.threads.stopIdleRelease();
@@ -1763,13 +1768,15 @@ export class PiHost {
       for (const cwd of new Set([this.cwd, ...this.threads.list().map((thread) => thread.cwd)])) {
         await this.closeWorkspace(cwd, "shutdown");
       }
-      try { await this.hostExtensions.dispose(); } catch (error) { teardownErrors.push(error); }
-      await this.seam.mcp.close();
+      try { await this.seam.mcp.close(); } catch (error) { teardownErrors.push(error); }
       try { await this.prewarm.discardSpare(); } catch (error) { teardownErrors.push(error); }
-      await this.runtimes.settleOpening();
+      try { await this.runtimes.settleOpening(); } catch (error) { teardownErrors.push(error); }
       const results = await Promise.allSettled(this.threads.list().map((record) => this.threads.release(record.threadId)));
       for (const result of results) if (result.status === "rejected") teardownErrors.push(result.reason);
       await finishHostShutdown(teardownErrors, [
+        // Runtime disposal can still persist final messages. Keep the owning
+        // extensions and their session databases alive until those writes finish.
+        () => this.hostExtensions.dispose(),
         () => this.projectHistory.flush(),
         () => this.index.dispose(),
         () => this.persistedTranscripts.dispose(),
