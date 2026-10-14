@@ -683,7 +683,11 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 /* A watched row folds open when its watch starts, staggered when the fold opens, and folds away when it ends. */
 @keyframes review-strip-row-in { from { max-height: 0; opacity: 0; overflow: hidden; } to { max-height: 34px; opacity: 1; overflow: hidden; } }
 @keyframes review-strip-row-out { from { max-height: 34px; opacity: 1; overflow: hidden; } to { max-height: 0; opacity: 0; overflow: hidden; border-width: 0; } }
-.review-pr-strip.arriving { animation: review-strip-row-in var(--motion) var(--ease) backwards; animation-delay: calc(var(--arrive, 0) * 40ms); }
+/* `--arrive` is the row's place among those arriving together; the row sets it inline. */
+.review-pr-strip.arriving {
+  --arrive: 0;
+  animation: review-strip-row-in var(--motion) var(--ease) backwards; animation-delay: calc(var(--arrive) * 40ms);
+}
 .review-pr-strip.leaving { animation: review-strip-row-out var(--motion) var(--ease) forwards; pointer-events: none; }
 /* A changed check outcome pops once with a ring in its colour. */
 @keyframes review-strip-checks-settle {
@@ -691,10 +695,19 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
   60% { transform: scale(1.08); }
   to { transform: none; box-shadow: 0 0 0 7px transparent; }
 }
-.review-pr-strip-checks.settled { --settle-tone: var(--strip-tone); border-radius: 999px; animation: review-strip-checks-settle var(--motion-slow) var(--ease); }
-.review-pr-strip-checks.settled[data-tone=failed] { --settle-tone: var(--fail); }
-.review-pr-strip-checks.settled[data-tone=pending] { --settle-tone: var(--warn); }
-.review-pr-strip-checks.settled[data-tone=passed] { --settle-tone: var(--ready); }
+.review-pr-strip-checks.settled {
+  --settle-tone: var(--strip-tone);
+  border-radius: 999px; animation: review-strip-checks-settle var(--motion-slow) var(--ease);
+}
+.review-pr-strip-checks.settled[data-tone=failed] {
+  --settle-tone: var(--fail);
+}
+.review-pr-strip-checks.settled[data-tone=pending] {
+  --settle-tone: var(--warn);
+}
+.review-pr-strip-checks.settled[data-tone=passed] {
+  --settle-tone: var(--ready);
+}
 /* Five rows of 30px and their shared borders. */
 .review-pr-strips-scroll { display: flex; flex-direction: column; max-height: 146px; margin-top: -1px; overflow-y: auto; overscroll-behavior: contain; }
 .review-pr-strips-scroll > .review-pr-strip { flex: none; border-radius: 0; }
