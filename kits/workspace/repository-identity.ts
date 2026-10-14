@@ -1,12 +1,13 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-/** Git's checkout identity, read without starting a process or scanning status. */
-export async function readRepositoryIdentity(cwd: string): Promise<{ gitDir: string; commonDir: string } | undefined> {
+/** Git's checkout identity, read without starting a process or scanning status. `root` is the working tree holding `.git`, `folder` the real path of `cwd`. */
+export async function readRepositoryIdentity(cwd: string): Promise<{ gitDir: string; commonDir: string; root: string; folder: string } | undefined> {
   // Explicit Git environment overrides need Git's own resolution rules.
   if (process.env.GIT_DIR || process.env.GIT_COMMON_DIR || process.env.GIT_CEILING_DIRECTORIES) return undefined;
   try {
-    let directory = await realpath(cwd);
+    const folder = await realpath(cwd);
+    let directory = folder;
     for (;;) {
       const marker = join(directory, ".git");
       const info = await stat(marker).catch((error: NodeJS.ErrnoException) => {
@@ -22,7 +23,7 @@ export async function readRepositoryIdentity(cwd: string): Promise<{ gitDir: str
           throw error;
         });
         const commonDir = common === undefined ? gitDir : await realpath(resolve(gitDir, common.trim()));
-        return { gitDir, commonDir };
+        return { gitDir, commonDir, root: directory, folder };
       }
       const parent = dirname(directory);
       if (parent === directory) return undefined;

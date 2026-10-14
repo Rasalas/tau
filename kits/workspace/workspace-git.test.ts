@@ -1581,6 +1581,21 @@ describe("worktree creation", () => {
     );
     expect(name).toBe("tau");
   });
+
+  it("adds the folder's path below the working tree root when Git has to answer", async () => {
+    const run = (toplevel: string) => async (_path: string, args: string[]) => {
+      if (args.includes("--git-common-dir")) return "/repos/tau/.git\n";
+      if (args.includes("--show-toplevel")) return toplevel;
+      throw new Error(`unexpected ${args.join(" ")}`);
+    };
+    expect(await repositoryDisplayName("/repos/tau/apps/server", run("/repos/tau\n"))).toBe("tau/apps/server");
+    expect(await repositoryDisplayName("/repos/tau", run("/repos/tau\n"))).toBe("tau");
+    // No working tree to measure from: the plain repository name stands.
+    expect(await repositoryDisplayName("/repos/tau/apps/server", async (_path, args) => {
+      if (args.includes("--show-toplevel")) throw new Error("this operation must be run in a work tree");
+      return "/repos/tau/.git\n";
+    })).toBe("tau");
+  });
 });
 
 describe("workspace publishing", () => {

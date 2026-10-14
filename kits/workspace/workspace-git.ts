@@ -3,7 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { findExecutable, gitExecutable } from "tau/host-extension";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative as relativePath, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative as relativePath, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
@@ -2832,14 +2832,23 @@ export async function mainCheckoutOf(cwd: string, runGit: GitRunner = git): Prom
   }
 }
 
-/** Returns one stable project name for a repository and all of its linked worktrees. */
+/** The repository's name, then the folder's path below the working tree root (`acme/apps/server`), so two folders of one repository differ. */
+function nameWithinRepository(repository: string, root: string | undefined, folder: string): string {
+  const below = root ? relativePath(root, folder) : "";
+  if (!below || below === ".." || below.startsWith(`..${sep}`) || isAbsolute(below)) return repository;
+  return [repository, ...below.split(sep)].join("/");
+}
+
+/** Returns one stable project name for a repository and all of its linked worktrees; a folder below the working tree root adds its path. */
 export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git): Promise<string> {
   try {
     const identity = runGit === git ? await readRepositoryIdentity(cwd) : undefined;
-    if (identity) return basename(dirname(identity.commonDir)) || basename(cwd) || cwd;
+    if (identity) return nameWithinRepository(basename(dirname(identity.commonDir)) || basename(cwd) || cwd, identity.root, identity.folder);
     const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
-    const absoluteCommonDir = resolve(cwd, commonDir);
-    return basename(dirname(absoluteCommonDir)) || basename(cwd) || cwd;
+    const repository = basename(dirname(resolve(cwd, commonDir))) || basename(cwd) || cwd;
+    // Best effort: a bare repository has no working tree, and the plain name still stands.
+    const root = (await runGit(cwd, ["rev-parse", "--show-toplevel"]).catch(() => "")).trim();
+    return nameWithinRepository(repository, root || undefined, await realpath(cwd).catch(() => resolve(cwd)));
   } catch {
     return basename(cwd) || cwd;
   }
