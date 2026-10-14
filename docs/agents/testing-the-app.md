@@ -61,6 +61,17 @@ drawable window is retried; other errors fail immediately. The log records that
 error, the window unit's pid and running state, and the wait until a successful
 open. The frame check still proves the page was drawn.
 
+Only the fake service manager enables `TAU_DISPLAY_SMOKE_DIAGNOSTICS=1`.
+On capture errors, `[display-smoke-diagnostics]` logs geometry, visibility,
+loading, offscreen/painting/throttling status, load/paint counts and process
+exits. Process history starts at window-half activation, view events at creation.
+`paint`/`isPainting()` apply to offscreen rendering, so zero paints alone do not
+prove a stalled regular view. After the original timeout, a final `capturePage()`
+probe logs status, emptiness and size; it cannot rescue the smoke. Limits are
+1 s for document reads, 2 s for capture, 5 s for the request. No page content,
+URLs, image bytes or raw diagnostic errors are logged. These facts distinguish
+loading, geometry and process failures from a compositor stall; the cause is open.
+
 Cleanup scans `/proc` for surviving group members and descendants, including
 detached processes whose environment or arguments name the smoke's temporary
 HOME or userData. It checks PID start times before signaling, rescans during

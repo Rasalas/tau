@@ -1,4 +1,4 @@
-import { BrowserWindow, ClipboardItem, WebContentsView, clipboard, nativeImage, session, shell, type ContextMenuParams, type Debugger, type NativeImage } from "electron";
+import { app, BrowserWindow, ClipboardItem, WebContentsView, clipboard, nativeImage, session, shell, type ContextMenuParams, type Debugger, type NativeImage } from "electron";
 import { sep } from "node:path";
 import { downloadPreviewFile } from "./download.js";
 import { isWebLink, previewMenuEntries, type PreviewMenuAction } from "./context-menu.js";
@@ -13,6 +13,9 @@ import { cdpInputCommands, type PreviewPageInput } from "./remote-input.js";
 import { placePreviewView } from "./view-placement.js";
 import type { PreviewDeviceMetrics } from "./device-layout.js";
 import { PREVIEW_WINDOW_UNAVAILABLE } from "./window-availability.js";
+import { observePreviewSmoke, observePreviewSmokeProcesses } from "./smoke-diagnostics.js";
+
+const smokeDiagnostics = new WeakMap<PreviewSurface, ReturnType<typeof observePreviewSmoke>>();
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
 const DEFAULT_PARTITION = "persist:tau-preview";
@@ -80,7 +83,7 @@ export function fileUrlAllowed(url: string, workspaceRoot: string): boolean {
  * session, with no Node, no device permissions and no way out of the
  * workspace on `file://`.
  */
-export function createElectronPreviewSurface(options: PreviewSurfaceOptions, window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]): PreviewSurface | undefined {
+export function createElectronPreviewSurface(options: PreviewSurfaceOptions, window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0], processes?: ReturnType<typeof observePreviewSmokeProcesses>): PreviewSurface | undefined {
   if (!window || window.isDestroyed()) return undefined;
 
   // A profile is a partition: its own cookies, storage and cache.
@@ -109,6 +112,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
   view.setVisible(false);
   window.contentView.addChildView(view);
   const placement = placePreviewView(window, view);
+  const diagnostics = process.env.TAU_DISPLAY_SMOKE_DIAGNOSTICS === "1" ? observePreviewSmoke(contents, view, window, placement, app, processes) : undefined;
 
   const errors: string[] = [];
   let destroyed = false;
@@ -380,6 +384,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      diagnostics?.dispose();
       recorder?.dispose();
       recorder = undefined;
       if (contents.debugger.isAttached()) contents.debugger.detach();
@@ -389,6 +394,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
       options.log("preview.closed");
     },
   };
+  if (diagnostics) smokeDiagnostics.set(surface, diagnostics);
   options.log("preview.opened", partition);
   return surface;
 }
@@ -447,6 +453,7 @@ function snapshot(surface: PreviewSurface, result?: unknown): PreviewSnapshot {
  * state back, and a change between calls is reported with `view-changed`.
  */
 export default function activatePreviewWindowHalf(context: WindowExtensionContext): WindowExtension {
+  const processes = process.env.TAU_DISPLAY_SMOKE_DIAGNOSTICS === "1" ? observePreviewSmokeProcesses(app) : undefined;
   let surface: PreviewSurface | undefined;
   let partition = DEFAULT_PARTITION;
   let workspaceRoot = "";
@@ -470,7 +477,7 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
       workspaceRoot: () => workspaceRoot,
       log: (label, detail) => context.log(label, detail),
       ...(context.showContextMenu ? { showContextMenu: context.showContextMenu } : {}),
-    }, window);
+    }, window, processes);
     if (!created) throw new Error(PREVIEW_WINDOW_UNAVAILABLE);
     owner = window;
     surface = created;
@@ -482,6 +489,10 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
 
   return {
     handle(command: string, input?: unknown): unknown {
+      if (command === "smoke-diagnostics" && process.env.TAU_DISPLAY_SMOKE_DIAGNOSTICS === "1") {
+        const diagnostics = surface ? smokeDiagnostics.get(surface) : undefined;
+        return diagnostics?.read(fields(input).capturePage === true) ?? Promise.resolve({ available: false, ...(processes ? { processes: processes.read() } : {}) });
+      }
       // Before the view's own handling: an import names a partition without switching the view to it.
       if (command === "cookie-import-start") {
         // It may wait on the keychain longer than a client call lives; the result is reported back.
@@ -545,6 +556,7 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
       }
     },
     dispose() {
+      processes?.dispose();
       surface?.destroy();
       surface = undefined;
     },
