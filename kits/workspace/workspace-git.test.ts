@@ -1215,6 +1215,34 @@ describe("worktree base", () => {
     expect(base.note).toContain("origin is unreachable");
   });
 
+  it("retries a ref conflict before falling back from origin to a local base", async () => {
+    let fetches = 0;
+    const base = await resolveWorktreeBase("/repo", { requested: "main" }, async (_cwd, args) => {
+      if (args[0] === "remote") return "origin\n";
+      if (args[0] === "fetch" && ++fetches === 1) throw new Error("error: cannot lock ref 'refs/remotes/origin/main': is at abc but expected def");
+      if (args.join(" ") === "rev-parse --verify --quiet origin/main^{commit}") return "fresh\n";
+      if (args.join(" ") === "rev-parse --verify --quiet main^{commit}") return "stale\n";
+      return "";
+    });
+    expect(base).toEqual({ ref: "origin/main", commit: "fresh", fromOrigin: true });
+    expect(fetches).toBe(2);
+  });
+
+  it.each([
+    ["persistent ref lock", "error: cannot lock ref 'refs/remotes/origin/main': File exists", 2],
+    ["network failure", "network unavailable", 1],
+    ["permission failure", "fatal: could not read from remote repository", 1],
+  ])("preserves the fetch error for a %s", async (_name, message, attempts) => {
+    let fetches = 0;
+    const error = new Error(message);
+    await expect(resolveWorktreeBase("/repo", { requested: "origin/main" }, async (_cwd, args) => {
+      if (args[0] === "remote") return "origin\n";
+      if (args[0] === "fetch") { fetches++; throw error; }
+      throw new Error(`unexpected command: ${args.join(" ")}`);
+    })).rejects.toBe(error);
+    expect(fetches).toBe(attempts);
+  });
+
   it("refuses a base that names no commit", async () => {
     await expect(resolveWorktreeBase("/repo", { requested: "nope", startFromOrigin: false }, runner({
       "remote": "",
@@ -1278,6 +1306,46 @@ describe("worktree removal", () => {
 });
 
 describe("worktree creation", () => {
+  it.each([
+    "error: cannot lock ref 'refs/remotes/origin/main': is at abc but expected def",
+    "error: unable to update local ref",
+    "fatal: Unable to create '/repo/.git/FETCH_HEAD.lock': File exists.",
+    "error: fetching ref refs/remotes/origin/main failed: incorrect old value provided",
+    "error: fetching ref refs/remotes/origin/main failed: reference already exists",
+  ])("creates from origin/main after a competing fetch fails with %s", async (message) => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-fetch-race-"));
+    const calls: string[][] = [];
+    let fetches = 0;
+    const commit = "8888888888888888888888888888888888888888";
+    try {
+      const destination = await createWorktree(cwd, "feat/retry", { baseRef: "origin/main" }, async () => ({
+        root: cwd, isRepo: true, isDirty: false, hasRemote: true,
+        worktrees: [], refs: [], worktreeParent: join(cwd, "worktrees"),
+      }), async (_path, args, maxBuffer) => {
+        calls.push(args);
+        if (args[0] === "remote") return "origin\n";
+        if (args[0] === "fetch") {
+          expect(maxBuffer).toBe(8 * 1024 * 1024);
+          if (++fetches === 1) throw Object.assign(new Error("git fetch failed"), { stderr: message });
+        }
+        if (args.join(" ") === "rev-parse --verify --quiet origin/main^{commit}") {
+          expect(fetches).toBe(2);
+          return `${commit}\n`;
+        }
+        if (args[1] === "--symbolic-full-name") return "refs/remotes/origin/main\n";
+        return "";
+      });
+      expect(destination).toBe(join(cwd, "worktrees", "feat-retry"));
+      expect(calls.filter((args) => args[0] === "fetch")).toEqual([
+        ["fetch", "--prune", "origin"], ["fetch", "--prune", "origin"],
+      ]);
+      expect(calls).toContainEqual(["worktree", "add", "-b", "feat/retry", destination, commit]);
+      expect(calls).toContainEqual(["config", "branch.feat/retry.tau-base", "origin/main"]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("keeps automatically named threads isolated when their workspace metadata is stale", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-name-"));
     try {

@@ -2686,6 +2686,23 @@ export interface WorktreeBase {
 
 const REMOTE_PREFIX = /^([^/]+)\//u;
 
+async function fetchWorktreeRemote(cwd: string, remote: string, runGit: GitRunner): Promise<void> {
+  const fetch = () => runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
+  try {
+    await fetch();
+  } catch (error: unknown) {
+    const stderr = (error as { stderr?: unknown } | null)?.stderr;
+    const diagnostic = typeof stderr === "string" ? stderr : error instanceof Error ? error.message : String(error);
+    const refConflict = /\bcannot lock ref\b|\bunable to update local ref\b/iu.test(diagnostic)
+      || /\bfetching ref \S+ failed: (incorrect old value provided|reference already exists)\b/iu.test(diagnostic)
+      || /\bunable to create [^\n]*\.lock['"]?: file exists\b/iu.test(diagnostic);
+    if (!refConflict) throw error;
+    // A concurrent fetch can finish updating the shared refs before the retry.
+    await delay(75);
+    await fetch();
+  }
+}
+
 /**
  * Resolves the base of a new worktree: with "start from
  * origin" the remote is fetched and the worktree is created at that SHA, so a
@@ -2714,10 +2731,10 @@ export async function resolveWorktreeBase(
   // A base the caller named is fetched or the creation fails; the remote a
   // default base is only *hoped* to have must not break a picker that is
   // offline, so its fetch failure degrades to the local base.
-  if (remote) await runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
+  if (remote) await fetchWorktreeRemote(cwd, remote, runGit);
   let fetchError: string | undefined;
   if (tracking) {
-    fetchError = await runGit(cwd, ["fetch", "--prune", "origin"], 8 * 1024 * 1024)
+    fetchError = await fetchWorktreeRemote(cwd, "origin", runGit)
       .then(() => undefined)
       .catch((error: unknown) => error instanceof Error ? error.message.split("\n")[0] : String(error));
   }
