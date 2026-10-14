@@ -130,14 +130,19 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   const parkAndMove = (threadIds: readonly string[], actions: WorkbenchActions | undefined, park: () => Promise<boolean>) => {
     const leaving = inView(actions);
     if (!actions || !leaving || !threadIds.includes(leaving)) { void park(); return; }
-    const order = actions.threadListOrder?.() ?? store.displayed.map((thread) => thread.id);
+    const listed = actions.threadListOrder?.() ?? store.displayed.map((thread) => thread.id);
+    // A thread leaving from Working, which the order may leave out, goes to the top of the list.
+    const order = listed.includes(leaving) ? listed : [leaving, ...listed];
     const parking = new Set(threadIds);
+    const busy = new Set(last.working.map((thread) => thread.id));
     const at = now();
-    const next = nextActiveThread(order, leaving, (id) => !parking.has(id) && ["pinned", "active"].includes(sectionOf(meta(id), at)));
+    const next = nextActiveThread(order, leaving, (id) => !parking.has(id) && !busy.has(id) && ["pinned", "active"].includes(sectionOf(meta(id), at)));
     const target = next ? store.session(next) : undefined;
     const project = store.session(leaving);
     void park().then((parked) => {
       if (!parked || inView(store.actions ?? actions) !== leaving || ["pinned", "active"].includes(sectionOf(meta(leaving), now()))) return;
+      // A phone goes back to its list, its home, rather than into another thread.
+      if (actions.showThreadList?.()) return;
       if (target) void actions.switchSession(target.path);
       else actions.newSession(project ? { workspace: project.workspaceId ?? project.projectPath } : undefined);
     });

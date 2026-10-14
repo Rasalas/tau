@@ -198,6 +198,13 @@ describe("the compact list's Working group", () => {
     expect(ids(groups)).toEqual([["working", ["machine:m:x"]]]);
   });
 
+  it("leaves the Working group out of the list's order", () => {
+    const threads = [thread("a", 30), thread("b", 20), thread("c", 10)];
+    const activity = { ...idle, runningThreadIds: ["b"] };
+    expect(threadListOrder(threads, activity, { working: createWorkingClock() })).toEqual(["a", "c"]);
+    expect(threadListOrder(threads, activity)).toEqual(["b", "a", "c"]);
+  });
+
   it("stays off without a clock", () => {
     expect(ids(threadListGroups([thread("a", 10)], { ...idle, runningThreadIds: ["a"] }))).toEqual([["active", ["a"]]]);
   });

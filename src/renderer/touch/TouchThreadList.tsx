@@ -30,7 +30,7 @@ import { ActionSheet, type SheetAction } from "./ActionSheet";
 import { SwipeRow, type SwipeAction } from "./SwipeRow";
 import { useSteadyRows } from "./steady-rows";
 import { useThreadListSources, useThreadListWorking } from "./thread-list-sources";
-import { createWorkingClock } from "../../workbench/working-clock";
+import { compactWorkingClock as workingClock } from "../../workbench/working-clock";
 
 /** Finished threads keep a Done badge until settled, regardless of whether they have been read. */
 function RowTime({ row }: { row: ThreadSupervisionRow }) {
@@ -48,8 +48,6 @@ export const SETTLED_OPEN_KEY = "tau.thread-list.settled-open.v1";
 /** Whether this client has the Working shelf open; folded is the default, as T3 Code's. */
 export const WORKING_OPEN_KEY = "tau.thread-list.working-open.v1";
 
-// Module scope keeps the order across screens that unmount the list.
-const workingClock = createWorkingClock();
 
 /** The branch every checkout starts on says nothing on a row, as on the desktop rail. */
 const DEFAULT_BRANCHES = new Set(["main", "master"]);
