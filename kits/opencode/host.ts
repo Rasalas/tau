@@ -585,7 +585,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       }, { long: true, callers: [ONBOARDING_KIT_ID] });
 
       for (const instance of settings.list()) register(instance.id);
-      return () => { for (const id of [...states.keys()]) unregister(id); };
+      return async () => { for (const id of [...states.keys()]) unregister(id); await store.flushAndRelease(); };
     },
   };
 }

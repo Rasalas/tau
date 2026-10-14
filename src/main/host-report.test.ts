@@ -40,3 +40,22 @@ describe("HostReport", () => {
     expect(metrics.getMeasurements()[0]?.phases[0]?.name).toBe("resources");
   });
 });
+
+it("exposes stall history and logs labels without copying event details or prompts", async () => {
+  vi.useFakeTimers();
+  let now = 0;
+  const warn = vi.fn();
+  const report = new HostReport({ emit: () => {}, threadFor: () => undefined, logger: { warn } as never }, undefined, { now: () => now });
+  try {
+    report.startDiagnostics();
+    report.log("prompt.accepted", "private prompt content");
+    now = 350;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(warn).toHaveBeenCalledWith("host.event-loop.stall", expect.objectContaining({ delayMs: 250, recentEvents: [expect.objectContaining({ label: "prompt.accepted" })] }));
+    const history = report.getEventLoopStallHistory();
+    expect(history).toHaveLength(1);
+    expect(JSON.stringify(history)).not.toContain("private prompt content");
+    history.length = 0;
+    expect(report.getEventLoopStallHistory()).toHaveLength(1);
+  } finally { report.stopDiagnostics(); vi.clearAllTimers(); vi.useRealTimers(); }
+});

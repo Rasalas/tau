@@ -563,7 +563,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         return models;
       };
 
-      const record = (entry: Awaited<ReturnType<CodexSessionStore["list"]>>[number]): HostBackendThreadRecord => {
+      const record = (entry: Awaited<ReturnType<CodexSessionStore["list"]>>[number] & { messageCount?: number }): HostBackendThreadRecord => {
         const usage = store.talliesOf(entry.tauThreadId);
         return {
           threadId: entry.tauThreadId,
@@ -572,6 +572,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
           updatedAt: entry.updatedAt,
           messages: entry.messages,
+          ...(entry.messageCount !== undefined ? { messageCount: entry.messageCount } : {}),
           ...(usage.length ? { usage } : {}),
         };
       };
@@ -619,7 +620,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
           adapter,
           modelProvider: "openai",
           homeProviders: ["openai"],
-          listThreads: async () => (await store.list(id)).map(record),
+          listThreads: async () => (await store.listMetadata(id)).map(record),
           removeThread: async (threadId) => {
             threadAccounts.delete(threadId);
             const taken = await store.take(threadId);
@@ -1078,9 +1079,10 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         if (managedPath) { await managed.prune(); return; }
         for (const instance of settings.list()) if (await usesManaged(instance.id)) { await fetchManaged(); return; }
       }).catch(() => undefined);
-      return () => {
+      return async () => {
         signIn.dispose();
         for (const id of [...states.keys()]) unregister(id);
+        await store.flushAndRelease();
       };
     },
   };

@@ -344,6 +344,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     },
     subscribe: store.subscribe,
     getVersion: store.getVersion,
+    isLoading: () => !store.loaded,
     sections(threads, activity) {
       const blocked = new Set([...(activity?.waitingThreadIds ?? []), ...(activity?.failedThreadIds ?? [])]);
       const working = new Set((activity?.runningThreadIds ?? [...store.running]).filter((id) => !blocked.has(id)));

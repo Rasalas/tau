@@ -103,6 +103,30 @@ describe("workspace lifecycle hooks", () => {
     expect(order).toEqual(["close /repo shutdown"]);
   });
 
+  it("keeps extension storage open until the runtime's final write completes", async () => {
+    const { host, internals } = await hostWithHooks([]);
+    let storageClosed = false;
+    let finishWrite!: () => void;
+    let beganWrite!: () => void;
+    const writing = new Promise<void>((resolve) => { beganWrite = resolve; });
+    const finish = new Promise<void>((resolve) => { finishWrite = resolve; });
+    internals.prewarm = { dispose: () => undefined, discardSpare: async () => undefined };
+    internals.index = { dispose: async () => undefined };
+    internals.projectHistory = { flush: async () => undefined, list: () => [] };
+    internals.seam.mcp.close = async () => undefined;
+    internals.hostExtensions = { dispose: async () => { storageClosed = true; } };
+    internals.threads.release = async () => {
+      beganWrite();
+      await finish;
+      if (storageClosed) throw new Error("Final transcript write reached a closed session store");
+    };
+    const stopping = host.dispose();
+    await writing;
+    finishWrite();
+    await expect(stopping).resolves.toBeUndefined();
+    expect(storageClosed).toBe(true);
+  });
+
   it("moves a deleted thread to the trash and announces it only when purged", async () => {
     const order: string[] = [];
     const { host, internals } = await hostWithHooks(order);

@@ -31,7 +31,7 @@ describe("parallel worktree creation", () => {
     const { root, cwd, worktreeParent } = await repository();
     const linked = join(root, "linked");
     git(cwd, "worktree", "add", "-b", "feature/parent", linked);
-    let added = 0;
+    let addAttemptsFinished = 0;
     let writing = false;
     let collisions = 0;
     let release!: () => void;
@@ -51,15 +51,24 @@ describe("parallel worktree creation", () => {
           writing = false;
         }
       }
-      const output = await runAgentGit(path, args, options);
-      if (args[0] === "worktree" && args[1] === "add" && ++added === 20) release();
-      return output;
+      try {
+        return await runAgentGit(path, args, options);
+      } finally {
+        // A failed add must release the barrier too: otherwise successful
+        // children wait forever and hide the actual Git failure as a timeout.
+        if (args[0] === "worktree" && args[1] === "add" && ++addAttemptsFinished === 20) release();
+      }
     };
     const results = await Promise.allSettled(Array.from({ length: 20 }, (_, index) => createAgentWorktree({
       parentCwd: index % 2 ? linked : cwd,
       agentId: index.toString(16).padStart(8, "0"),
       worktreeParent,
       runGit,
+    }).catch((error: unknown) => {
+      // A failure before worktree add must also unblock the successful
+      // children, so allSettled reports the original failure.
+      release();
+      throw error;
     })));
     expect(results.filter((result) => result.status === "rejected")).toEqual([]);
     expect(collisions).toBe(0);

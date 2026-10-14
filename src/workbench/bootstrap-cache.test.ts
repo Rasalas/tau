@@ -3,7 +3,7 @@ import type { HostSnapshot } from "../shared/contracts";
 import { detailFromSnapshot } from "../shared/host-protocol";
 import { asHostTranscriptCursor } from "../shared/transcript-cursor";
 import { createMemoryStorage, type ClientStorage } from "./client-storage";
-import { readBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
+import { flushBootstrapCache, readBootstrapCache, scheduleBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
 
 const snapshot: HostSnapshot = {
   cwd: "/project", sessionId: "session", sessionTitle: "Cached", models: [{ provider: "p", id: "m", name: "M" }],
@@ -27,6 +27,20 @@ describe("bootstrap cache", () => {
     expect(cached?.snapshot.models).toEqual([]);
     expect(cached?.snapshot.allTools).toEqual([]);
     expect(cached?.snapshot.isStreaming).toBe(false);
+  });
+
+  it("retains the active chat with a large index and coalesces pending updates", () => {
+    const storage = createMemoryStorage();
+    const index = { projects: [], sessions: Array.from({ length: 10_000 }, (_, i) => ({ id: String(i), path: String(i), title: "Thread", modifiedAt: i, projectPath: "/p", projectName: "p", messageCount: 1 })) };
+    scheduleBootstrapCache(snapshot, index, storage);
+    scheduleBootstrapCache({ ...snapshot, sessionTitle: "Latest" }, index, storage);
+    expect(readBootstrapCache(storage)).toBeUndefined();
+    flushBootstrapCache(storage);
+    const cached = readBootstrapCache(storage);
+    expect(cached?.snapshot.sessionTitle).toBe("Latest");
+    expect(cached?.snapshot.messages).toHaveLength(10);
+    expect(cached?.threadIndex.sessions.length).toBeLessThanOrEqual(1_000);
+    expect(cached?.savedAt).toBeTypeOf("number");
   });
 
   it("moves the cursor to the oldest retained turn after caching a paged transcript", () => {

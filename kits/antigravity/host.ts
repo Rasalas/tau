@@ -98,7 +98,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       };
 
       /** A thread's shell; the account's model names tell whose model it ran on. */
-      const record = (entry: Awaited<ReturnType<AntigravitySessionStore["list"]>>[number], names: ReadonlyMap<string, string>): HostBackendThreadRecord => {
+      const record = (entry: Awaited<ReturnType<AntigravitySessionStore["list"]>>[number] & { messageCount?: number }, names: ReadonlyMap<string, string>): HostBackendThreadRecord => {
         const model = entry.model ?? entry.observedModel;
         const name = model ? names.get(model) : undefined;
         const usage = store.talliesOf(entry.tauThreadId, antigravityUsageOrigin);
@@ -109,6 +109,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
           updatedAt: entry.updatedAt,
           messages: entry.messages,
+          ...(entry.messageCount !== undefined ? { messageCount: entry.messageCount } : {}),
           ...(model ? { model: { provider: antigravityModelProvider({ id: model, ...(name ? { name } : {}) }), id: model } } : {}),
           ...(usage.length ? { usage } : {}),
         };
@@ -126,7 +127,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         ownPlan: true,
         listThreads: async () => {
           const names = await modelNames();
-          return (await store.list()).map((entry) => record(entry, names));
+          return (await store.listMetadata()).map((entry) => record(entry, names));
         },
         removeThread: async (threadId) => {
           const taken = await store.take(threadId);
@@ -352,9 +353,10 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         await signIn.publish();
         return signInSettings.current;
       });
-      return () => {
+      return async () => {
         signIn.dispose();
         unregister();
+        await store.flushAndRelease();
       };
     },
   };

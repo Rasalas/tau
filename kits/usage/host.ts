@@ -366,7 +366,11 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         try { return await context.invokeHostExtension(source.extensionId, BACKEND_REDEEM_RESET_COMMAND, { runtime, identity: request.identity, checkPending: request.checkPending === true }); }
         finally { limits = undefined; }
       }, { long: true });
-      return () => { stopObserving(); };
+      return async () => {
+        stopObserving();
+        if (reading) await reading;
+        await outsideCache.drain();
+      };
     },
   };
 }

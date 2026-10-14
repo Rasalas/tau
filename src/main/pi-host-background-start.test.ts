@@ -1,3 +1,4 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { DEFAULT_BACKGROUND_LIMIT } from "./lifecycle-queue.js";
@@ -245,4 +246,53 @@ describe("background start preparation", () => {
     expect(created).not.toBe("");
     expect(bench.internals.threads.get(created)).toBeUndefined();
   });
+});
+
+it("keeps automatic spare preparation behind an admitted turn's held preflight", async () => {
+  vi.useFakeTimers();
+  const delivered: string[] = [];
+  const history = { list: () => [], isHidden: () => false, iconFor: async () => undefined, remember: async () => undefined, flush: async () => undefined };
+  // Construct PiHost so the preparation queue uses the actual components gate.
+  const host = new PiHost("/repo", () => undefined, history as never, false, false);
+  const internals = host as unknown as Record<string, any>;
+  const active = fakeThread("active", delivered);
+  internals.threads.adopt({ threadId: "active", cwd: "/repo", runtime: active, isolation: "in-process" });
+  internals.threads.setActive("active");
+  internals.index.scannedOnce = true;
+  internals.index.refreshShell = async () => {};
+  internals.prewarm.port.automatic = true;
+  internals.prewarm.port.isDirectory = () => true;
+  const opened = vi.spyOn(internals.runtimes, "open").mockResolvedValue(fakeThread("spare", delivered));
+  vi.spyOn(internals.runtimes, "dispose").mockResolvedValue(undefined);
+  // Session creation is a runtime boundary; keep this fixture out of Pi's real directory.
+  const create = vi.spyOn(SessionManager, "create").mockReturnValue({ getSessionId: () => "spare" } as never);
+  let release!: () => void;
+  let reached!: () => void;
+  const entered = new Promise<void>((resolve) => { reached = resolve; });
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  internals.turnObservers.add({ prepare: async () => { reached(); await held; } });
+  const pending = host.prompt("foreground work", [], "active");
+  try {
+    await entered;
+    expect(internals.turnsInFlight.get("active")?.writer?.pid).toBe(process.pid);
+    expect(active.state.streaming).toBe(false);
+    expect(active.adapterPending).toBe(0);
+    expect(internals.lifecycle.currentOperation).toBeUndefined();
+    internals.prewarm.scheduleSpare("/repo");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(opened, "optional runtime work must wait for foreground preflight").not.toHaveBeenCalled();
+    release();
+    await pending;
+    await vi.advanceTimersByTimeAsync(200);
+    expect(opened).toHaveBeenCalledOnce();
+  } finally {
+    release();
+    await pending;
+    await host.dispose();
+    internals.prewarm.preparation.dispose();
+    create.mockRestore();
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
 });

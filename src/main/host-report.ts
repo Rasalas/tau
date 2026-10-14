@@ -1,3 +1,4 @@
+import { EventLoopStallHistory, type EventLoopStall, type EventLoopStallOptions } from "./event-loop-stalls.js";
 import { basename } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { HostEvent, ThreadHostEvent } from "../shared/contracts.js";
@@ -17,18 +18,38 @@ export interface HostReportPort {
  * user error, or a renderer error from replacing the full logger detail.
  */
 export class HostReport {
+  private readonly recentEvents: Array<{ label: string; timestamp: number }> = [];
+  private readonly eventLoopStalls: EventLoopStallHistory;
   private readonly backgroundLifecycle: Array<{ name: string; durationMs: number }> = [];
 
   constructor(
     private readonly port: HostReportPort,
     private readonly metrics?: HostLifecycleInstrumentation,
-  ) {}
+    diagnostics: EventLoopStallOptions = {},
+  ) {
+    this.eventLoopStalls = new EventLoopStallHistory({
+      ...diagnostics,
+      recentEvents: () => this.recentEvents,
+      onStall: (stall) => this.port.logger?.warn("host.event-loop.stall", stall),
+    });
+  }
+
+  startDiagnostics(): void { this.eventLoopStalls.start(); }
+  stopDiagnostics(): void { this.eventLoopStalls.stop(); }
+  getEventLoopStallHistory(): EventLoopStall[] { return this.eventLoopStalls.getHistory(); }
+
+  private noteEvent(label: string): void {
+    this.recentEvents.push({ label: label.slice(0, 120), timestamp: Date.now() });
+    if (this.recentEvents.length > 50) this.recentEvents.shift();
+  }
 
   log(label: string, detail?: string): void {
+    this.noteEvent(label);
     this.port.emit({ type: "event-log", label, detail, timestamp: Date.now() });
   }
 
   logForThread(thread: ThreadRuntime, label: string, detail?: string): void {
+    this.noteEvent(label);
     const event: ThreadHostEvent = { type: "event-log", label, detail, timestamp: Date.now(), sessionId: thread.sessionId };
     if (thread.deferHostEvent(event)) return;
     this.port.emit(event);

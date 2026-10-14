@@ -59,6 +59,35 @@ export async function readRequestTemplate(cwd: string, treeish: string, runGit: 
   return undefined;
 }
 
+/** Discovery reads branch identity and routing, without upstream counts or commit history. */
+async function readDiscoveryContext(cwd: string, base: string | undefined, runGit: GitRunner): Promise<ReviewRequestContext> {
+  const text = async (args: string[]) => (await runGit(cwd, args).catch(() => "")).trim();
+  const [identity, remoteOutput, refOutput] = await Promise.all([
+    text(["rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD"]),
+    text(["remote", "-v"]),
+    base ? Promise.resolve("") : text(["for-each-ref", "--format=%(refname)%00%(symref)",
+      "refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master"]),
+  ]);
+  const lines = identity.split(/\r?\n/u);
+  // Unborn repositories cannot resolve HEAD; detached HEAD has no branch name.
+  const root = lines.length >= 2 ? lines[0]! : (await text(["rev-parse", "--show-toplevel"])) || cwd;
+  const branch = lines.length >= 2 ? (lines[1] !== "HEAD" ? lines[1] : undefined) : (await text(["branch", "--show-current"])) || undefined;
+  const remotes = remoteOutput.split(/\r?\n/u).flatMap((line) => {
+    const match = /^(\S+)\s+(.+?)\s+\(fetch\)$/u.exec(line);
+    return match ? [{ name: match[1]!, url: match[2]! }] : [];
+  });
+  const remote = remotes.find((entry) => entry.name === "origin") ?? remotes[0];
+  const refs = new Map(refOutput.split(/\r?\n/u).filter(Boolean).map((line) => {
+    const [name, symbolic = ""] = line.split("\0");
+    return [name!, symbolic];
+  }));
+  const originHead = refs.get("refs/remotes/origin/HEAD");
+  const fallback = ["refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master"].find((name) => refs.has(name));
+  const defaultBase = base || (originHead ? originHead.replace(/^refs\/remotes\//u, "") : fallback?.replace(/^refs\/(remotes|heads)\//u, "")) || branch || "HEAD";
+  const target = remote && defaultBase.startsWith(`${remote.name}/`) ? defaultBase.slice(remote.name.length + 1) : defaultBase;
+  return { root, ...(branch ? { branch } : {}), ...(remote ? { remote } : {}), base: target };
+}
+
 /**
  * What opening a pull or merge request needs to know about a checkout: its
  * branch, the remote and upstream, and the base a new request merges into.
@@ -67,9 +96,10 @@ export async function readRequestTemplate(cwd: string, treeish: string, runGit: 
  */
 export async function readReviewRequestContext(
   cwd: string,
-  options: { detail?: boolean; base?: string } = {},
+  options: { detail?: boolean; base?: string; discovery?: boolean } = {},
   runGit: GitRunner = runGitCommand,
 ): Promise<ReviewRequestContext> {
+  if (options.discovery && !options.detail) return readDiscoveryContext(cwd, options.base?.trim(), runGit);
   const text = async (args: string[]) => (await runGit(cwd, args).catch(() => "")).trim();
   const root = (await text(["rev-parse", "--show-toplevel"])) || cwd;
   const branch = (await text(["branch", "--show-current"])) || undefined;

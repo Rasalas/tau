@@ -24,10 +24,13 @@ const TURNS = process.env.TAU_OPENCODE2_TURN === "1";
 const MODEL = { provider: "opencode", id: process.env.TAU_OPENCODE2_MODEL ?? "space-bunny-free" };
 
 const roots: string[] = [];
+const stores: OpenCodeSessionStore[] = [];
+function trackedStore(store: OpenCodeSessionStore): OpenCodeSessionStore { stores.push(store); return store; }
 const servers: OpenCodeServerHandle[] = [];
 
 afterAll(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close().catch(() => undefined)));
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -107,7 +110,7 @@ describe.skipIf(!BIN)("a real OpenCode 2 server", () => {
 
   it.skipIf(!TURNS)("runs turns: a reply, a refused command, an answered question, a stop and a plan", async () => {
     const space = await scratch();
-    const store = new OpenCodeSessionStore({ filePath: join(space.root, "sessions.json") });
+    const store = trackedStore(new OpenCodeSessionStore({ filePath: join(space.root, "sessions.json") }));
     const events: ThreadRuntimeEvent[] = [];
     const asked: BackendPrompt[] = [];
     let answer: (prompt: BackendPrompt) => ExtensionUiAnswer = () => ({ cancelled: true });
@@ -167,7 +170,7 @@ describe.skipIf(!BIN)("a real OpenCode 2 server", () => {
   it.skipIf(!TURNS)("gives a thread Tau's MCP tools under the names its cards know", async () => {
     const space = await scratch();
     const mcp = await mcpServer("live-token");
-    const store = new OpenCodeSessionStore({ filePath: join(space.root, "sessions.json") });
+    const store = trackedStore(new OpenCodeSessionStore({ filePath: join(space.root, "sessions.json") }));
     const events: ThreadRuntimeEvent[] = [];
     const backend = new OpenCodeThreadRuntimeBackend("live-2", space.project, {
       adapter: createOpenCodeRuntimeAdapter(),

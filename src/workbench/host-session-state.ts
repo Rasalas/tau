@@ -5,6 +5,13 @@
  */
 export class HostSessionState {
   private applied = false;
+  private readonly confirmedListeners = new Set<(sessionId: string) => void>();
+  /** Authoritative detail accepted for the shown thread, distinct from cached previews. */
+  confirmShown = (sessionId: string): void => { this.confirmedListeners.forEach((listener) => listener(sessionId)); };
+  onConfirmed = (listener: (sessionId: string) => void): (() => void) => {
+    this.confirmedListeners.add(listener);
+    return () => this.confirmedListeners.delete(listener);
+  };
 
   markApplied = (): void => {
     this.applied = true;

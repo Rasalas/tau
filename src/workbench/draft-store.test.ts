@@ -1,9 +1,33 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
+import { STORAGE_KEYS } from "./storage-keys";
 import { createMemoryStorage } from "./client-storage";
 import { createNewThreadDraft, draftKey, readComposerDraft, readComposerDraftState, readNewThreadDraft, writeComposerDraft, writeComposerDraftState, writeNewThreadDraft } from "./draft-store";
 
 describe("composer drafts", () => {
+  it("migrates the legacy collection once and writes only the changed draft", () => {
+    const storage = createMemoryStorage();
+    storage.set(STORAGE_KEYS.composerDrafts, JSON.stringify({ "session:one": "old", "session:two": "keep" }));
+    expect(readComposerDraft(storage, "session:one")).toBe("old");
+    expect(storage.get(STORAGE_KEYS.composerDrafts)).toBeNull();
+    const writes: string[] = [];
+    const set = storage.set;
+    storage.set = (key, value) => { writes.push(key); set(key, value); };
+    writeComposerDraft(storage, "session:one", "new");
+    expect(writes).toHaveLength(1);
+    expect(readComposerDraft(storage, "session:two")).toBe("keep");
+  });
+
+  it("reads legacy text when migration writes fail and keeps the source record", () => {
+    const storage = createMemoryStorage();
+    storage.set(STORAGE_KEYS.composerDrafts, JSON.stringify({ "session:one": "recoverable" }));
+    storage.set = () => { throw new Error("quota"); };
+    expect(readComposerDraft(storage, "session:one")).toBe("recoverable");
+    expect(storage.get(STORAGE_KEYS.composerDrafts)).not.toBeNull();
+    storage.get = () => { throw new Error("privacy"); };
+    expect(readComposerDraft(storage, "session:one")).toBe("");
+  });
+
   it("persists text independently for sessions and unstarted project threads", () => {
     const storage = createMemoryStorage();
     writeComposerDraft(storage, draftKey("one"), "session text");

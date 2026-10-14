@@ -194,10 +194,15 @@ export class AcpSessionStore<K extends string = string> {
     this.persistence = new SessionStorePersistence({
       filePath: options.filePath,
       version: CURRENT_VERSION,
+      immutableUsageTurns: true,
       logger: options.logger,
       decode: (value) => decodeFile(value, options.backendKind),
     });
   }
+
+  get databasePath(): string { return this.persistence.databasePath; }
+  dispose(): Promise<void> { return this.persistence.dispose(); }
+  flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 
   /** Beside the Pi session directory, like the other backends' stores, so a dev instance never writes into the user's own. */
   static pathFor(sessionsDir: string, backendKind: string): string {
@@ -251,8 +256,10 @@ export class AcpSessionStore<K extends string = string> {
   }
 
   private async update(tauThreadId: string, cwd: string, change: (record: AcpSessionRecord<K>) => void): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.load();
+    if (!this.records.has(tauThreadId)) await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId)!;
+    if (record.cwd !== cwd) throw new Error(`This ${this.options.agent} thread belongs to another workspace.`);
     change(record);
     record.updatedAt = this.now();
     await this.persist(tauThreadId);
@@ -280,7 +287,7 @@ export class AcpSessionStore<K extends string = string> {
   recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turn?: UsageTurn): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => {
       record.usage = { ...usage };
-      if (turn) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
+      if (turn) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], { ...turn });
     });
   }
 
@@ -343,6 +350,6 @@ export class AcpSessionStore<K extends string = string> {
   }
 
   private persist(tauThreadId: string): Promise<void> {
-    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId) }] });
+    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId), appendOnly: true }] });
   }
 }

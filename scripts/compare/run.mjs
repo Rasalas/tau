@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { APPS, assertOwnedRoot, freePort, resetRunFromTemplate, saveTemplate } from "./apps.mjs";
 import { click, connect, evaluate, insertText, pressEnter, waitFor, waitForPage } from "./cdp.mjs";
 import { openForbiddenFiles } from "./isolation.mjs";
-import { FIND_SCROLLER, INSTALL_PROBE, PAINT_TIMINGS, START_BLANK_SAMPLER, STOP_BLANK_SAMPLER, STOP_RECORDING, startRecording } from "./page-probe.mjs";
+import { FIND_SCROLLER, INSTALL_PROBE, INSTALL_STARTUP_PROBE, PAINT_TIMINGS, START_BLANK_SAMPLER, STOP_BLANK_SAMPLER, STOP_RECORDING, startRecording } from "./page-probe.mjs";
 import { descendants, measureIdleCpu, processTable, stopTree, treeMemory } from "./processes.mjs";
 import { writeCodexSessions, sessionPlan } from "./sessions-fixture.mjs";
 import { aggregateRuns, frameStats, longTaskStats, round } from "./stats.mjs";
@@ -73,6 +73,7 @@ export async function start(app, root, { onStage } = {}) {
       exited.then((status) => { throw new Error(`${app.label} exited during start: ${JSON.stringify(status)}`); }),
     ]);
     const session = await connect(page.webSocketDebuggerUrl);
+    if (app.id === "tau") await evaluate(session, INSTALL_STARTUP_PROBE);
     onStage?.("connected", Date.now() - spawnedAt);
     return { child, port, session, spawnedAt };
   } catch (error) {
@@ -236,6 +237,12 @@ async function measureRun(app, root, options, turn) {
       paintToReadyMs: firstPaintMs === null ? null : round(interactiveMs - firstPaintMs),
       pageTargetMs: stages.connected,
     };
+    if (app.id === "tau") {
+      const { value } = await waitFor(session, `window.__tauStartup?.stableAt !== null && window.__tauStartup?.stableAt !== undefined ? ({ ...window.__tauStartup, timeOrigin: performance.timeOrigin }) : null`, { timeoutMs: 90_000, pollMs: 20 });
+      startup.currentContentMs = round(value.timeOrigin + value.currentAt - spawnedAt);
+      startup.stableLayoutMs = round(value.timeOrigin + value.stableAt - spawnedAt);
+      startup.stabilityConfirmedMs = round(value.timeOrigin + value.confirmedAt - spawnedAt);
+    }
     await evaluate(session, INSTALL_PROBE);
     await setViewport(session);
     await session.send("Network.enable");

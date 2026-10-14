@@ -1295,6 +1295,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       <nav
         className={`session-list${drag ? " rail-dragging" : ""}`}
         aria-label="Threads"
+        aria-busy={organizer?.isLoading?.() === true}
         tabIndex={0}
         onPointerDown={onPointerDown}
         onClickCapture={(event) => {
@@ -1350,7 +1351,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         }}
       >
         {/* One scroll; the shelves consume the free space above them on short lists. */}
-        <div ref={listRef} className="rail-active">
+        {organizer?.isLoading?.() ? <p className="sidebar-empty" role="status">Loading threads…</p> : null}
+        <div ref={listRef} className="rail-active" style={organizer?.isLoading?.() ? { visibility: "hidden" } : undefined} inert={organizer?.isLoading?.() === true}>
         <div className="rail-active-rows">
         {shownSections.slice(0, mainIndex).map(renderSection)}
         <RailDrafts actions={actions} {...(projectFilter ? { project: projectFilter } : {})} listed={listedIds} />

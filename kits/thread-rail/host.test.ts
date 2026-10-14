@@ -176,7 +176,10 @@ describe("Thread Rail host", () => {
       expect(stored).toMatchObject({ version: 1, threads: { a: { pinned: true } } });
     });
     const again = await harness({ stateDir });
-    await expect(again.invoke("state")).resolves.toEqual(state);
+    const restored = await again.invoke("state");
+    expect(restored.threads).toEqual(state.threads);
+    expect(restored.settings).toEqual(state.settings);
+    expect(restored.publication?.epoch).not.toBe(state.publication?.epoch);
   });
 
   it("takes a thread off the shelf and out of a snooze when a prompt arrives, and records its activity", async () => {
@@ -744,7 +747,7 @@ describe("Thread Rail machine cache races", () => {
     await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW + 1));
   });
 
-  it("waits for the refreshed home state after a write made during an earlier read", async () => {
+  it("keeps an acknowledged remote settlement visible without waiting for older state reads", async () => {
     const machines = machineServices([rex]);
     const answers: Array<(value: unknown) => void> = [];
     machines.call.mockImplementation(async (_machine, _extension, command) => command === "state" ? new Promise((resolve) => answers.push(resolve)) : command === "trash" ? [] : undefined);
@@ -752,9 +755,10 @@ describe("Thread Rail machine cache races", () => {
     let finished = false;
     const writing = invoke("patch", { patches: { "rex~t1": { settledAt: NOW } } }).then((state) => { finished = true; return state; });
     await vi.waitFor(() => expect(machines.call.mock.calls.some((call) => call[2] === "patch")).toBe(true));
+    expect((await invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW);
     answers[0]!({ threads: {} });
     await vi.waitFor(() => expect(answers).toHaveLength(2));
-    expect(finished).toBe(false);
+    expect(finished).toBe(true);
     answers[1]!({ threads: { t1: { settledAt: NOW } } });
     expect((await writing).threads["rex~t1"]?.settledAt).toBe(NOW);
   });
@@ -769,6 +773,18 @@ describe("Thread Rail machine cache races", () => {
     const sections = railSections([row], await invoke("state"), NOW);
     expect(sections.active).toEqual([]);
     expect(sections.settled).toEqual([row]);
+  });
+
+  it("keeps a newer peer read ahead of an older machine metadata push", async () => {
+    const machines = machineServices([rex]);
+    const publication = { epoch: "peer", revision: 2 };
+    machines.call.mockImplementation(async (_machine, _extension, command) => command === "trash" ? [] : { threads: { t1: { settledAt: NOW } }, publication });
+    const { invoke, events } = await harness({ machines: machines.services, sessions: [proxy("rex~t1")] });
+    await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW));
+    const before = events.filter((event) => event.name === META_EVENT).length;
+    machines.emit("rex", MACHINE_META_EVENT, { threads: {}, publication: { ...publication, revision: 1 } });
+    expect((await invoke("state")).threads["rex~t1"]?.settledAt).toBe(NOW);
+    expect(events.filter((event) => event.name === META_EVENT)).toHaveLength(before);
   });
 
   it("keeps a live meta push newer than a pending read while still accepting the trash read", async () => {

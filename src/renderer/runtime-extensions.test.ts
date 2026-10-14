@@ -385,8 +385,13 @@ describe("runtime desktop extensions", () => {
       openSettings: vi.fn(),
       log: vi.fn(),
     };
-    await new RuntimeExtensions(registry, h).sync("/project");
+    const synced = new RuntimeExtensions(registry, h).sync("/project");
     const link = () => document.head.querySelector<HTMLLinkElement>('link[data-tau-extension="x.styled"]');
+    await vi.waitFor(() => expect(link()).not.toBeNull());
+    expect(registry.isLoadingExtensions()).toBe(true);
+    link()!.dispatchEvent(new Event("load"));
+    await synced;
+    expect(registry.isLoadingExtensions()).toBe(false);
     expect(link()?.href).toBe("tau-ext://bundles/x.styled/def456.css");
 
     registry.setActive("x.styled", false);

@@ -1,22 +1,28 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AcpSessionStore } from "./session-store.js";
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+const stores: AcpSessionStore[] = [];
+function tracked<T extends AcpSessionStore>(liveStore: T): T { stores.push(liveStore); return liveStore; }
+afterEach(async () => {
+  const closed = await Promise.allSettled(stores.splice(0).map((liveStore) => liveStore.dispose()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  for (const result of closed) if (result.status === "rejected") throw result.reason;
+});
 
 async function store() {
   const directory = await mkdtemp(join(tmpdir(), "tau-acp-store-"));
   directories.push(directory);
-  return { make: () => new AcpSessionStore({ filePath: join(directory, "tau", "fake-runtime-sessions.json"), backendKind: "fake", agent: "Fake", now: () => 7 }) };
+  return { make: () => tracked(new AcpSessionStore({ filePath: join(directory, "tau", "fake-runtime-sessions.json"), backendKind: "fake", agent: "Fake", now: () => 7 })) };
 }
 
 const total = (turns: number) => ({ inputTokens: 10 * turns, outputTokens: 2 * turns, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12 * turns, costUsd: 0.5 * turns, turns });
 const turn = (at: number, model = "m-1") => ({ provider: "xai", model, ...total(1), at });
 
-describe("AcpSessionStore shared file", () => {
+describe("AcpSessionStore shared database", () => {
   it("keeps other stores' model catalogs across thread and catalog writes", async () => {
     const { make } = await store();
     const first = make();
@@ -102,4 +108,22 @@ describe("AcpSessionStore creation time", () => {
     await acp.setObservedModel("t", "/repo", "m-1");
     expect((await acp.list()).map((record) => record.createdAt)).toEqual([7]);
   });
+});
+
+it("persists append-only messages and immutable usage in SQLite across disposal", async () => {
+  const { make } = await store();
+  const writer = make();
+  await writer.appendMessages("thread", "/repo", [{ id: "user", role: "user", text: "hello", timestamp: 1, clientMessageId: "prompt" }]);
+  const suppliedTurn = turn(1);
+  await writer.recordUsage("thread", "/repo", total(1), suppliedTurn);
+  suppliedTurn.costUsd = 99;
+  await writer.setTitle("thread", "/repo", "Retained", "renamed");
+  await writer.appendMessages("thread", "/repo", [{ id: "answer", role: "assistant", text: "answer", timestamp: 2 }]);
+  await writer.dispose();
+  expect((await readFile(writer.databasePath)).subarray(0, 16).toString()).toBe("SQLite format 3\0");
+  const reader = make();
+  const restored = await reader.get("thread");
+  expect(restored?.messages.map((message) => message.text)).toEqual(["hello", "answer"]);
+  expect(restored?.title).toBe("Retained");
+  expect(restored?.usageTurns?.[0]?.costUsd).toBe(0.5);
 });

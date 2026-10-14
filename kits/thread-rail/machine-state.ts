@@ -1,6 +1,6 @@
 import type { HostExtensionContext, HostMachine, HostSessionSummary, HostTrashedThread } from "tau/host-extension";
-import { decodeState } from "./meta.js";
-import { THREAD_RAIL_EXTENSION_ID, TRASH_EVENT, type RailState } from "./protocol.js";
+import { applyPatches, decodeState, EMPTY_STATE } from "./meta.js";
+import { THREAD_RAIL_EXTENSION_ID, TRASH_EVENT, type RailState, type ThreadMetaPatch } from "./protocol.js";
 
 export const MACHINE_STATE_TOPIC = "machine-state";
 export const MACHINE_META_EVENT = "machine-meta";
@@ -27,6 +27,7 @@ export function followMachineState(context: HostExtensionContext, changed: () =>
     merged: (local: RailState) => local,
     mergedTrash: (local: HostTrashedThread[]) => local,
     refresh: async (_machine: string) => undefined,
+    confirmPatch: (_machine: string, _patches: Record<string, ThreadMetaPatch | null>, _answer: unknown) => undefined,
     dispose: () => undefined,
   };
   const states = new Map<string, RailState>(Object.entries(cache?.states ?? {}));
@@ -47,7 +48,21 @@ export function followMachineState(context: HostExtensionContext, changed: () =>
     const local = (await context.services.sessions.trash()).filter((entry) => entry.backendKind !== "machine");
     if (!disposed) context.emit(TRASH_EVENT, mergedTrash(local));
   };
-  const setState = (machine: string, value: unknown) => { states.set(machine, decodeState(value)); cache?.save(Object.fromEntries(states)); changed(); };
+  const setState = (machine: string, value: unknown) => {
+    const next = decodeState(value);
+    const previous = states.get(machine)?.publication;
+    if (previous && (!next.publication || (next.publication.epoch === previous.epoch && next.publication.revision < previous.revision))) return false;
+    states.set(machine, next); cache?.save(Object.fromEntries(states)); changed();
+    return true;
+  };
+  const confirmPatch = (machine: string, patches: Record<string, ThreadMetaPatch | null>, answer: unknown) => {
+    // A successful write is already authoritative. Old in-flight reads must
+    // not undo it, or add another full network round trip to its acknowledgment.
+    bump(stateRevisions, machine);
+    const next = applyPatches(states.get(machine) ?? EMPTY_STATE, patches);
+    const publication = decodeState(answer).publication;
+    setState(machine, { ...next, ...(publication ? { publication } : {}) });
+  };
   const setTrash = (machine: string, value: unknown) => {
     if (!Array.isArray(value)) return;
     trash.set(machine, value.filter((entry): entry is HostTrashedThread => !!entry && typeof entry === "object" && typeof entry.sessionId === "string" && entry.backendKind !== "machine"));
@@ -95,8 +110,7 @@ export function followMachineState(context: HostExtensionContext, changed: () =>
         if (disposed || !connected.has(machine.id)) return;
         // A push is newer than any outstanding initial/index read.
         if (event.name === MACHINE_META_EVENT) {
-          bump(stateRevisions, machine.id);
-          setState(machine.id, event.payload);
+          if (setState(machine.id, event.payload)) bump(stateRevisions, machine.id);
         }
         if (event.name === MACHINE_TRASH_EVENT) {
           bump(trashRevisions, machine.id);
@@ -136,7 +150,7 @@ export function followMachineState(context: HostExtensionContext, changed: () =>
   const stopIndex = machines.subscribeIndex?.((machine) => { void refresh(machine); });
   update(machines.list());
   return {
-    merged, mergedTrash, refresh,
+    merged, mergedTrash, refresh, confirmPatch,
     dispose() { disposed = true; stopMachines(); stopIndex?.(); for (const stop of watches.values()) stop(); },
   };
 }

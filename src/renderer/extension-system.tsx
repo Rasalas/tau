@@ -1812,8 +1812,8 @@ export interface DesktopExtension {
 
 /**
  * Puts an extension's stylesheet in the document and takes it out again. A
- * served `url` is a `<link>`, which the browser blocks rendering on until it
- * has it, so the extension's first paint is never unstyled.
+ * Dynamically inserted links do not block paint. Startup waits for their load
+ * before revealing the workbench; each extension still owns its stylesheet.
  */
 function mountStyles(extension: DesktopExtension): (() => void) | undefined {
   const styles = extension.styles;
@@ -1822,9 +1822,26 @@ function mountStyles(extension: DesktopExtension): (() => void) | undefined {
     ? Object.assign(document.createElement("link"), { rel: "stylesheet", href: styles.url })
     : Object.assign(document.createElement("style"), { textContent: styles.css ?? "" });
   element.dataset.tauExtension = extension.id;
+  if (element instanceof HTMLLinkElement) {
+    const ready = new Promise<void>((resolve) => {
+      const finish = () => {
+        clearTimeout(timeout);
+        element.removeEventListener("load", finish);
+        element.removeEventListener("error", finish);
+        resolve();
+      };
+      // A broken stylesheet must not leave the whole workbench hidden.
+      const timeout = setTimeout(finish, 5_000);
+      element.addEventListener("load", finish, { once: true });
+      element.addEventListener("error", finish, { once: true });
+    });
+    stylesheetLoads.set(element, ready);
+  }
   document.head.append(element);
   return () => { element.remove(); };
 }
+
+const stylesheetLoads = new WeakMap<HTMLLinkElement, Promise<void>>();
 
 export interface ExtensionSummary {
   id: string;
@@ -1952,6 +1969,7 @@ export class ExtensionRegistry {
   private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
   private keybindingEntries: KeybindingEntry[] = [];
   private keybindingSeq = 0;
+  private keybindingsVersion = 0;
   private keybindingState: KeybindingState | undefined;
   /** Commands whose default chords are shadowed, and by how many live bindings. */
   private shadowedCommands = new Map<string, number>();
@@ -2700,6 +2718,7 @@ export class ExtensionRegistry {
   /** Counts one shadow of a command's default chords; the returned function drops it again. */
   private shadowCommand(commandId: string): () => void {
     this.shadowedCommands.set(commandId, (this.shadowedCommands.get(commandId) ?? 0) + 1);
+    this.keybindingsVersion += 1;
     this.changed();
     let dropped = false;
     return () => {
@@ -2708,6 +2727,7 @@ export class ExtensionRegistry {
       const left = (this.shadowedCommands.get(commandId) ?? 1) - 1;
       if (left > 0) this.shadowedCommands.set(commandId, left);
       else this.shadowedCommands.delete(commandId);
+      this.keybindingsVersion += 1;
       this.changed();
     };
   }
@@ -2741,6 +2761,7 @@ export class ExtensionRegistry {
   private addKeybinding(binding: ResolvedKeybinding, ast: WhenNode | undefined, tier: KeybindingEntry["tier"]): KeybindingEntry {
     const entry: KeybindingEntry = { binding, ast, tier, seq: this.keybindingSeq++ };
     this.keybindingEntries.push(entry);
+    this.keybindingsVersion += 1;
     this.changed();
     return entry;
   }
@@ -2749,6 +2770,7 @@ export class ExtensionRegistry {
     const index = this.keybindingEntries.indexOf(entry);
     if (index < 0) return;
     this.keybindingEntries.splice(index, 1);
+    this.keybindingsVersion += 1;
     this.changed();
   }
 
@@ -2762,7 +2784,7 @@ export class ExtensionRegistry {
    * the earlier one keeps the chord.
    */
   private resolveKeybindings(mac = isMacPlatform()): KeybindingState {
-    if (this.keybindingState?.version === this.version && this.keybindingState.mac === mac) return this.keybindingState;
+    if (this.keybindingState?.version === this.keybindingsVersion && this.keybindingState.mac === mac) return this.keybindingState;
     const defaults = new Map<string, KeybindingEntry>();
     for (const entry of this.keybindingEntries) {
       if (entry.tier === 0 && !defaults.has(entry.binding.commandId)) defaults.set(entry.binding.commandId, entry);
@@ -2771,6 +2793,7 @@ export class ExtensionRegistry {
       .filter((entry) => !this.isShadowed(entry.binding))
       .sort((a, b) => b.tier - a.tier || a.seq - b.seq);
     const live: LiveKeybinding[] = [];
+    const chords = new Map<string, LiveKeybinding[]>();
     const conflicts: KeybindingConflict[] = [];
     for (const entry of ordered) {
       const inherited = !entry.binding.when && entry.binding.replaces ? defaults.get(entry.binding.replaces) : undefined;
@@ -2778,8 +2801,8 @@ export class ExtensionRegistry {
       const effective = inherited?.binding.when ? { ...entry.binding, when: inherited.binding.when } : entry.binding;
       const candidate: LiveKeybinding = { ...entry, effective, whenAst, specific: isSpecificWhen(whenAst, this.profile === "desktop") };
       const chord = platformChordId(entry.binding.chord, mac);
-      const holder = live.find((other) => platformChordId(other.binding.chord, mac) === chord
-        && other.tier === entry.tier
+      const holders = chords.get(chord) ?? [];
+      const holder = holders.find((other) => other.tier === entry.tier
         && other.specific === candidate.specific
         && other.binding.commandId !== entry.binding.commandId
         && whenOverlaps(other.whenAst, whenAst));
@@ -2788,9 +2811,11 @@ export class ExtensionRegistry {
         continue;
       }
       live.push(candidate);
+      holders.push(candidate);
+      chords.set(chord, holders);
     }
     live.sort((a, b) => a.seq - b.seq);
-    this.keybindingState = { version: this.version, mac, live, conflicts };
+    this.keybindingState = { version: this.keybindingsVersion, mac, live, conflicts };
     return this.keybindingState;
   }
 
@@ -3070,6 +3095,12 @@ export class ExtensionRegistry {
    */
   isLoadingExtensions(): boolean {
     return this.loadingExtensions;
+  }
+
+  /** All active URL stylesheets currently in the document, loaded or failed. */
+  async whenStylesReady(): Promise<void> {
+    await Promise.all([...document.head.querySelectorAll<HTMLLinkElement>("link[data-tau-extension]")]
+      .map((link) => stylesheetLoads.get(link)));
   }
 
   setLoadingExtensions(loading: boolean): void {

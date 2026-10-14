@@ -14,7 +14,7 @@ import { Popover } from "../components/ui/Dialog";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { useHostCapabilities } from "../use-host-capabilities";
 import { useThreadStore } from "../workbench-context";
-import { Sheet } from "./Sheet";
+import { Sheet } from "../deferred-surfaces";
 import { TouchThreadList, type TouchThreadListProps } from "./TouchThreadList";
 import { useThreadListSources } from "./thread-list-sources";
 import "./touch.css";

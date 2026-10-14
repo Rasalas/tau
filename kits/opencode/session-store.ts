@@ -198,6 +198,10 @@ export class OpenCodeSessionStore {
     });
   }
 
+  get databasePath(): string { return this.persistence.databasePath; }
+  dispose(): Promise<void> { return this.persistence.dispose(); }
+  flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
+
   /** Beside the Pi session directory, like the other backends' stores, so a dev instance never writes into the user's own. */
   static defaultPath(sessionsDir: string): string {
     return join(dirname(sessionsDir), "tau", "opencode-runtime-sessions.json");
@@ -243,8 +247,10 @@ export class OpenCodeSessionStore {
   }
 
   private async update(tauThreadId: string, cwd: string, change: (record: OpenCodeSessionRecord) => void): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.load();
+    if (!this.records.has(tauThreadId)) await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId)!;
+    if (record.cwd !== cwd) throw new Error("This OpenCode thread belongs to another workspace.");
     change(record);
     record.updatedAt = this.now();
     await this.persist(tauThreadId);
@@ -372,6 +378,6 @@ export class OpenCodeSessionStore {
   }
 
   private persist(tauThreadId: string): Promise<void> {
-    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId) }] });
+    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId), appendOnly: true }] });
   }
 }

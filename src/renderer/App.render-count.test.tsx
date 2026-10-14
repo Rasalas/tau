@@ -36,6 +36,15 @@ vi.mock("./components/ThreadHeader", () => ({
 
 // The composer sits beside the transcript; a flush of tool output leaves it alone too.
 const composerRenders = vi.hoisted(() => ({ count: 0 }));
+const transcriptRenders = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./components/TranscriptViewport", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./components/TranscriptViewport")>();
+  const Real = actual.TranscriptViewport;
+  return { ...actual, TranscriptViewport: (props: Parameters<typeof Real>[0]) => {
+    transcriptRenders.count += 1;
+    return <Real {...props} />;
+  } };
+});
 vi.mock("./components/Composer", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./components/Composer")>();
   const Real = actual.Composer;
@@ -63,6 +72,7 @@ describe("app render isolation", () => {
   let client: FakeHostClient;
 
   beforeEach(() => {
+    transcriptRenders.count = 0;
     appRenders.count = 0;
     workbenchRenders.count = 0;
     composerRenders.count = 0;
@@ -92,6 +102,27 @@ describe("app render isolation", () => {
       }),
     });
     setHostClient(client);
+  });
+
+  it("opens and closes a drawer without rendering the transcript or composer again", async () => {
+    const view = await renderLoadedApp(client, { extensions: [{ id: "layout", name: "Layout", activate(context) {
+      context.registerPanel({ id: "probe", label: "Probe", placement: "drawer", Component: () => <span>Drawer content</span> });
+      context.registerSidebar({ id: "controls", Component: ({ actions }) => <aside>
+        <button onClick={() => actions.openPanel("probe")}>Open drawer</button>
+        <button onClick={() => actions.closePanel?.("probe")}>Close drawer</button>
+      </aside> });
+    } }] });
+    await screen.findByText("hello");
+    await waitFor(() => expect(view.container.querySelector(".app-shell")?.getAttribute("data-startup-ready")).toBe("true"));
+    const before = { composer: composerRenders.count, transcript: transcriptRenders.count };
+    fireEvent.click(screen.getByRole("button", { name: "Open drawer" }));
+    await screen.findByText("Drawer content");
+    expect(composerRenders.count).toBe(before.composer);
+    expect(transcriptRenders.count).toBe(before.transcript);
+    fireEvent.click(screen.getByRole("button", { name: "Close drawer" }));
+    await waitFor(() => expect(view.container.querySelector(".workbench-drawer")).toBeNull());
+    expect(composerRenders.count).toBe(before.composer);
+    expect(transcriptRenders.count).toBe(before.transcript);
   });
 
   it("isolates dynamic extension data from App and the composer while updating the active transcript", async () => {

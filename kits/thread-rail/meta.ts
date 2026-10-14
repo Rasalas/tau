@@ -56,7 +56,11 @@ export function decodeState(value: unknown): RailState {
     const meta = decodeMeta(entry);
     if (meta) threads[id] = meta;
   }
-  return { threads, settings: decodeSettings(raw.settings) };
+  const publication = record(raw.publication);
+  return { threads, settings: decodeSettings(raw.settings),
+    ...(typeof publication.epoch === "string" && Number.isSafeInteger(publication.revision) && (publication.revision as number) >= 0
+      ? { publication: { epoch: publication.epoch, revision: publication.revision as number } } : {}),
+  };
 }
 
 /** Applies patches; answers the same object when nothing changed, so callers can skip a write. */

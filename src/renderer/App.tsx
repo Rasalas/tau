@@ -6,7 +6,7 @@ import { WorkbenchSession } from "../workbench/workbench-session";
 import { ThreadCommands } from "../workbench/thread-commands";
 import { useThreadNavigation, type ShowThreadOptions } from "./use-thread-navigation";
 import { useThreadTree } from "./use-thread-tree";
-import { readBootstrapCache } from "../workbench/bootstrap-cache";
+import { flushBootstrapCache, readBootstrapCache } from "../workbench/bootstrap-cache";
 import { type ComposerAttachmentHandle, type ComposerControlHandle } from "./components/Composer";
 import { visibleUserMessageText } from "./components/MessageText";
 import { useWorkbenchToasts } from "./use-workbench-toasts";
@@ -74,6 +74,13 @@ export default function App() {
   // What the client claims never moves; how wide it is does.
   const layoutProfile = useLayoutProfile(profile);
   const cachedBootstrap = useMemo(() => readBootstrapCache(clientStorage), [clientStorage]);
+  const [freshness, setFreshness] = useState<"loading" | "offline" | "current">(client ? "loading" : "current");
+  const bootstrapLoaded = useRef(!client);
+  useEffect(() => {
+    const flush = () => flushBootstrapCache(clientStorage);
+    window.addEventListener("pagehide", flush);
+    return () => { window.removeEventListener("pagehide", flush); flush(); };
+  }, [clientStorage]);
   const actionsRef = useRef<WorkbenchActions | undefined>(undefined);
   const clientRef = useRef(client);
   const [registry] = useState(() => {
@@ -415,6 +422,8 @@ export default function App() {
     let unsubscribe = () => {};
     let stopBootstrap = () => {};
     let stopPrompts = () => {};
+    let stopFreshness = () => {};
+    let stopConfirmation = () => {};
     if (client) {
       // A page showing another machine looks as the window's own machine does.
       const personPreferences = getPlatform()?.environments?.shownElsewhere ? client.personPreferences?.bind(client) : undefined;
@@ -423,14 +432,30 @@ export default function App() {
       // A question raised while nobody was listening would otherwise stall the
       // host forever, including during bootstrap itself.
       stopPrompts = followOpenPrompts(client, viewStore);
-      stopBootstrap = followWorkbenchBootstrap(client, workbenchSession, setNotice, openStartDraft);
+      let connected = true;
+      stopFreshness = client.onConnectionState((state) => {
+        if (state === "connected" && connected) return;
+        connected = state === "connected";
+        setFreshness(connected ? "loading" : "offline");
+      });
+      stopConfirmation = hostSession.onConfirmed(() => {
+        if (!connected) return;
+        bootstrapLoaded.current = true;
+        setFreshness("current");
+      });
+      stopBootstrap = followWorkbenchBootstrap(client, workbenchSession, setNotice, (bootstrap) => {
+        const firstLoad = !bootstrapLoaded.current;
+        bootstrapLoaded.current = true;
+        setFreshness("current");
+        if (firstLoad) openStartDraft(bootstrap);
+      });
     } else {
       applyThreadIndex(mockThreadIndex);
       applySnapshot(mockSnapshot);
       addEvent("preview.mode", "Electron host unavailable; showing fixture state");
     }
-    return () => { unsubscribe(); stopBootstrap(); stopPrompts(); };
-  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, openStartDraft, threadStore, transcriptHistory, viewStore, workbenchSession]);
+    return () => { unsubscribe(); stopBootstrap(); stopPrompts(); stopFreshness(); stopConfirmation(); };
+  }, [addEvent, applySnapshot, applyThreadIndex, client, handleHostEvent, hostSession, openStartDraft, threadStore, transcriptHistory, viewStore, workbenchSession]);
 
   const activeThreadIdForEvents = snapshot?.sessionId;
   useEffect(() => {
@@ -654,6 +679,7 @@ export default function App() {
   ]);
 
   const thread = useMemo<WorkbenchThread>(() => ({
+    freshness, cachedAt: cachedBootstrap?.savedAt,
     snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread), draftRuntime: pendingNewThread?.runtime,
     showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
@@ -663,7 +689,7 @@ export default function App() {
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
-    activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
+    freshness, cachedBootstrap?.savedAt, activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
     threadCommands, copyMessage, duplicateThread, editFromMessage, forkFromTree, liveSnapshot, navigateThreadTree,
     openThreadTree, pendingNewThread, runStartedAt, settleActiveThread, showStartScreen, startProjectName,
     startProjectPath, threadDropController, threadTreeModal, titleCommands,

@@ -40,6 +40,7 @@ function makeIndex(options: {
   backends?: HostRuntimeBackendProvider[];
   priceUsage?: ThreadIndexPort["priceUsage"];
   iconFor?: (path: string) => Promise<string | undefined>;
+  externalTimeoutMs?: number;
 } = {}) {
   const events: HostEvent[] = [];
   const updates: HostUpdate[] = [];
@@ -70,7 +71,7 @@ function makeIndex(options: {
     log: noop,
     fail: noop,
     errorMessage: (error) => String(error),
-  });
+  }, { externalTimeoutMs: options.externalTimeoutMs });
   return { index, events, updates, projects };
 }
 
@@ -611,4 +612,67 @@ describe("thread index scale with other runtimes' threads", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+});
+
+it("finishes a usable index around a hung provider and retains its last rows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tau-hung-index-"));
+  const listThreads = vi.fn(() => new Promise<HostBackendThreadRecord[]>(() => {}));
+  const provider = { kind: "slow", listThreads } as unknown as HostRuntimeBackendProvider;
+  const healthy = { kind: "healthy", listThreads: async () => [{ threadId: "fresh", cwd: "/repo", updatedAt: 2, messages: [] }] } as unknown as HostRuntimeBackendProvider;
+  const { index } = makeIndex({ sessionsDir: root, backends: [provider, healthy], externalTimeoutMs: 20 });
+  seed(index, [shell({ id: "retained", path: "tau-thread:slow:retained", backendKind: "slow" })]);
+  try {
+    const answer = await Promise.race([index.refresh("index"), new Promise<undefined>((resolve) => setTimeout(resolve, 100))]);
+    expect(answer, "the hung provider must not block the shared index").toBeDefined();
+    expect(answer?.complete).toBe(true);
+    expect(answer?.sessions.map((row) => row.id).sort()).toEqual(["fresh", "retained"]);
+    expect(answer?.unavailableBackends).toEqual(["slow"]);
+    await index.refresh("index");
+    expect(listThreads).toHaveBeenCalledOnce();
+  } finally { await index.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
+it("publishes healthy rows before timeout, then accepts a late successful deletion without duplicate calls", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tau-delayed-index-"));
+  let resolve!: (value: HostBackendThreadRecord[]) => void;
+  const listThreads = vi.fn().mockResolvedValueOnce([{ threadId: "old", cwd: "/repo", updatedAt: 1, messages: [] }])
+    .mockImplementationOnce(() => new Promise<HostBackendThreadRecord[]>((done) => { resolve = done; }))
+    .mockResolvedValue([]);
+  const provider = { kind: "slow", listThreads } as unknown as HostRuntimeBackendProvider;
+  let healthyId = "first";
+  const healthy = { kind: "healthy", listThreads: async () => [{ threadId: healthyId, cwd: "/repo", updatedAt: 2, messages: [] }] } as unknown as HostRuntimeBackendProvider;
+  const { index, updates } = makeIndex({ sessionsDir: root, backends: [provider, healthy], externalTimeoutMs: 40 });
+  try {
+    await index.refresh("index");
+    updates.length = 0;
+    healthyId = "changed";
+    const pending = index.refresh("index");
+    await vi.waitFor(() => expect(updates.some((update) => update.type === "thread-index" && update.index.complete === false && update.index.sessions.some((row) => row.id === "changed"))).toBe(true), { interval: 1, timeout: 30 });
+    const failed = await pending;
+    expect(failed.sessions.map((row) => row.id).sort()).toEqual(["changed", "old"]);
+    expect(failed.unavailableBackends).toEqual(["slow"]);
+    await index.refresh("index");
+    expect(listThreads).toHaveBeenCalledTimes(2);
+    resolve([]);
+    await vi.waitFor(() => expect(index.list().some((row) => row.id === "old")).toBe(false), { interval: 1 });
+    const recovered = index.snapshot();
+    expect(recovered.sessions.map((row) => row.id)).toEqual(["changed"]);
+    expect(recovered.unavailableBackends).toEqual([]);
+  } finally { await index.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
+it("rejects the late answer of a replaced provider", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tau-replaced-index-"));
+  let resolve!: (value: HostBackendThreadRecord[]) => void;
+  const old = { kind: "runtime", listThreads: () => new Promise<HostBackendThreadRecord[]>((done) => { resolve = done; }) } as unknown as HostRuntimeBackendProvider;
+  const backends = [old];
+  const { index } = makeIndex({ sessionsDir: root, backends, externalTimeoutMs: 10 });
+  try {
+    await index.refresh("index");
+    backends[0] = { kind: "runtime", listThreads: async () => [{ threadId: "new", cwd: "/repo", updatedAt: 2, messages: [] }] } as unknown as HostRuntimeBackendProvider;
+    expect((await index.refresh("index")).sessions.map((row) => row.id)).toEqual(["new"]);
+    resolve([{ threadId: "obsolete", cwd: "/repo", updatedAt: 3, messages: [] }]);
+    await Promise.resolve(); await Promise.resolve();
+    expect((await index.refresh("index")).sessions.map((row) => row.id)).toEqual(["new"]);
+  } finally { await index.dispose(); await rm(root, { recursive: true, force: true }); }
 });

@@ -11,7 +11,7 @@ import {
 } from "../shared/host-protocol";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import { transcriptNavigationScopeKey } from "./app-state";
-import { writeBootstrapCache } from "./bootstrap-cache";
+import { scheduleBootstrapCache } from "./bootstrap-cache";
 import type { ClientStorage } from "./client-storage";
 import { createDraftKey, type DraftKey } from "./composer-scope-store";
 import { draftKey, type NewThreadDraft } from "./draft-store";
@@ -161,10 +161,20 @@ export class WorkbenchStore {
     this.applyBootstrapWithObservation(bootstrap, request).accepted;
 
   applyThreadIndex = (threadIndex: ThreadIndexSnapshot): void => {
+    if ((threadIndex.complete === false || threadIndex.unavailableBackends?.length) && this.cachedIndex) {
+      const unavailable = new Set(threadIndex.unavailableBackends);
+      const retained = this.cachedIndex.sessions.filter((thread) => threadIndex.complete === false || Boolean(thread.backendKind && unavailable.has(thread.backendKind)));
+      const sessions = new Map(retained.map((thread) => [thread.id, thread]));
+      for (const thread of threadIndex.sessions) sessions.set(thread.id, thread);
+      const retainedWorkspaces = new Set(retained.map((thread) => thread.workspaceId ?? thread.projectPath));
+      const projects = new Map(this.cachedIndex.projects.filter((project) => threadIndex.complete === false || retainedWorkspaces.has(project.workspaceId ?? project.path)).map((project) => [project.workspaceId ?? project.path, project]));
+      for (const project of threadIndex.projects) projects.set(project.workspaceId ?? project.path, project);
+      threadIndex = { ...threadIndex, sessions: [...sessions.values()], projects: [...projects.values()] };
+    }
     this.ports.threads.applyThreadIndex(threadIndex);
     this.ports.history.setThreadIndex(threadIndex);
     this.cachedIndex = threadIndex;
-    writeBootstrapCache(this.cachedSnapshot, threadIndex, this.ports.storage);
+    scheduleBootstrapCache(this.cachedSnapshot, threadIndex, this.ports.storage);
   };
 
   applyTranscriptPage = (page: TranscriptPage, request?: TranscriptHistoryRequest): boolean => {
@@ -349,13 +359,14 @@ export class WorkbenchStore {
         turnActivityHistory: detailForRender.turnActivityHistory,
       });
     });
+    if (view.getSnapshot()?.sessionId === detail.sessionId) hostSession.confirmShown(detail.sessionId);
     return deliveryObservation;
   }
 
   /** The last snapshot the host confirmed, kept so the next start paints before the host answers. */
   private remember(snapshot: HostSnapshot): HostSnapshot {
     this.cachedSnapshot = snapshot;
-    writeBootstrapCache(snapshot, this.cachedIndex, this.ports.storage);
+    scheduleBootstrapCache(snapshot, this.cachedIndex, this.ports.storage);
     return snapshot;
   }
 }

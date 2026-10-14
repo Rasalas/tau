@@ -16,6 +16,7 @@ import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "./compo
 import { RenderErrorBoundary } from "./components/RenderErrorBoundary";
 import { ComposerHost, LiveStatus } from "./components/ComposerHost";
 import { ComposerReserve } from "./components/ComposerReserve";
+import { isMarkdownReady, preloadMarkdown } from "./components/LazyMarkdown";
 import { WorkingTimer } from "./components/WorkRows";
 import { threadCostLabel } from "./cost-format";
 import { retryPrompt } from "./components/TurnError";
@@ -224,6 +225,9 @@ export interface WorkbenchLayout {
 
 /** What the visible thread is, and how its transcript is navigated. */
 export interface WorkbenchThread {
+  /** Host confirmation of the visible snapshot, independent of its run state. */
+  freshness?: "loading" | "offline" | "current";
+  cachedAt?: number;
   snapshot?: HostSnapshot;
   /** The snapshot as the conversation sees it: a draft, or the live run state. */
   conversationSnapshot?: HostSnapshot;
@@ -319,6 +323,28 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     projects, removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, conversationView, closeConversationView, pages,
   } = layout;
+  const client = useHostClient();
+  const extensionsLoading = useSyncExternalStore(registry.subscribe, () => Boolean(client) && registry.isLoadingExtensions());
+  const indexComplete = useSyncExternalStore(threadStore.subscribeToIds, () => threadStore.getSnapshot().complete !== false);
+  const indexCurrent = useSyncExternalStore(threadStore.subscribeToIds, () => threadStore.getSnapshot().complete !== false && !threadStore.getSnapshot().unavailableBackends?.length);
+  const markdownNeeded = Boolean(client) && !thread.showStartScreen;
+  const [markdownReady, setMarkdownReady] = useState(isMarkdownReady);
+  useEffect(() => {
+    if (!markdownNeeded || markdownReady) return;
+    let active = true;
+    const finish = () => { if (active) setMarkdownReady(true); };
+    // An import failure must reach its feature boundary, not hold the shell.
+    const timeout = window.setTimeout(finish, 5_000);
+    void preloadMarkdown().then(finish, finish).finally(() => window.clearTimeout(timeout));
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [markdownNeeded, markdownReady]);
+  // Reveal the first screen after its contributed layout and styles arrive.
+  // Later package reloads keep the already visible workbench in place.
+  const startupRevealed = useRef(false);
+  if (!extensionsLoading && (!markdownNeeded || markdownReady)) startupRevealed.current = true;
+  const startupReady = startupRevealed.current;
+  const transcriptReady = startupReady || !markdownNeeded || markdownReady;
+  const contentCurrent = thread.freshness === undefined || thread.freshness === "current";
   const {
     snapshot, conversationSnapshot, pendingNewThread, draftRuntime, showStartScreen, startProjectPath, startProjectName,
     dropController, activeDraftKey, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
@@ -580,12 +606,15 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </Suspense> : undefined;
 
   // Settings → Providers, on the runtime's own card where this client has one.
-  const openProviders = (kind?: string) => {
+  const openProviders = useCallback((kind?: string) => {
     const card = !phone && kind ? registry.getSettingsPages().find((page) => page.runtime === kind)?.id : undefined;
-    threadBrowserProps.onOpenSettings(card ?? "providers");
-  };
+    if (phone) phoneNav.openSettings(card ?? "providers");
+    else actions.openSettings(card ?? "providers");
+  }, [actions, phone, phoneNav.openSettings, registry]);
+  const openQueue = useCallback(() => revealQueuedMessages(thread.transcriptRef.current), [thread.transcriptRef]);
 
   const conversationComposer = <ConversationComposer
+    current={contentCurrent}
     view={view}
     composer={composer}
     snapshot={snapshot}
@@ -598,7 +627,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     openProviders={openProviders}
     threadStore={threadStore}
     floating={floating}
-    onOpenQueue={() => revealQueuedMessages(thread.transcriptRef.current)}
+    onOpenQueue={openQueue}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -793,7 +822,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   />;
   return providers(<>
     {/* Settings covers the shell rather than unmounting it, so threads, terminals and scroll stay as they were. */}
-    <div className={shellClassName} inert={Boolean(settingsPage) || phoneHome} style={{ "--sidebar-width": `${drawnSidebar}px` } as CSSProperties}>
+    {!startupReady ? <div className="workbench-startup" role="status">Loading…</div> : null}
+    <div className={shellClassName} data-startup-ready={startupReady} data-content-freshness={thread.freshness ?? "current"} data-thread-index-complete={indexComplete} data-thread-index-current={indexCurrent} inert={Boolean(settingsPage) || phoneHome || !startupReady} style={{ "--sidebar-width": `${drawnSidebar}px`, ...(!startupReady ? { visibility: "hidden", opacity: 0 } : {}) } as CSSProperties}>
+      {indexComplete && !indexCurrent && sidebarShown && !compact ? <div className="thread-index-freshness" role="status" style={{ maxWidth: `${Math.max(0, drawnSidebar - 24)}px` }}>Thread lists unavailable. Saved data.</div> : null}
       {phone ? <TitleBar
         registry={registry}
         snapshot={snapshot}
@@ -843,7 +874,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       <div className={centerClassName} style={{ "--chat-width": `${chatWidth}px`, "--workbench-width": `${centerWidth}px` } as CSSProperties}>
         {spine ? <aside className="thread-spine" aria-label="Thread">
           <h2>{conversationSnapshot?.sessionTitle || "Untitled thread"}</h2>
-          <p className="thread-spine-state">{conversationSnapshot?.isStreaming
+          <p className="thread-spine-state">{!contentCurrent ? "Run status unknown" : conversationSnapshot?.isStreaming
             ? <><span className="spinner small" aria-hidden /><span>Working {thread.runStartedAt ? <WorkingTimer startedAt={thread.runStartedAt} /> : null}</span></>
             : "Idle"}{threadCostLabel(conversationSnapshot?.usage) ? ` · ${threadCostLabel(conversationSnapshot?.usage)}` : null}</p>
           <Region registry={registry} placement="spine" snapshot={conversationSnapshot} actions={actions} />
@@ -886,7 +917,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
               /> : null}
               <WorkspaceResourceProvider sessionId={conversationSnapshot?.sessionId} workspace={conversationSnapshot?.workspaceId} displayPath={conversationSnapshot?.cwd}>
-                <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} />
+                {transcriptReady ? <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} /> : null}
               </WorkspaceResourceProvider>
               {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}
               <Region
@@ -942,6 +973,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               </div> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} workspacePreviewAvailable={(workspaceAreaShown || stageExpanded) && registry.getRegions("workspace-preview").length > 0} />
               <ComposerHost start={showStartScreen}>
+                {!contentCurrent ? <div className="thread-freshness" role="status">
+                  {thread.freshness === "offline" ? "Offline. " : "Connecting. "}
+                  {thread.cachedAt ? <>Saved {new Date(thread.cachedAt).toLocaleString()}. </> : snapshot ? "Saved messages. " : null}
+                  Waiting for current messages and run status.
+                </div> : null}
                 <HostConnectionStatus />
                 {conversationComposer}
               </ComposerHost>
@@ -1101,7 +1137,7 @@ function useCloseOnThreadChange(pages: AppPageStore, sessionId: string | undefin
  * The transcript follows the store on its own. A streamed delta or a flush of
  * tool output re-renders this subtree and leaves the rest of the workbench untouched.
  */
-function ConversationTranscript({ view, thread, registry, actions, prompts, abort, composer, jumpToLatest }: {
+const ConversationTranscript = memo(function ConversationTranscript({ view, thread, registry, actions, prompts, abort, composer, jumpToLatest }: {
   view: ThreadViewStore;
   jumpToLatest: JumpToLatestStore;
   thread: WorkbenchThread;
@@ -1189,10 +1225,11 @@ function ConversationTranscript({ view, thread, registry, actions, prompts, abor
       jumpToLatest={jumpToLatest}
     />}
   </TranscriptHistoryBoundary>;
-}
+});
 
 /** The context meter reads token estimates at its displayed precision. */
-function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating, onOpenQueue }: {
+const ConversationComposer = memo(function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating, onOpenQueue, current = true }: {
+  current?: boolean;
   view: ThreadViewStore;
   onOpenQueue(): void;
   floating?: boolean;
@@ -1299,9 +1336,10 @@ function ConversationComposer({ view, composer, snapshot, conversationSnapshot, 
       if (active) answerUiPrompt(active.id, { cancelled: true });
     }}
     onCompactContext={() => void compactContext()}
-    held={holds > 0 || setup?.state === "none"}
+    held={!current || holds > 0 || setup?.state === "none"}
+    holdReason={!current ? "Waiting for current messages and run status." : undefined}
     onNotify={onNotify}
     onOpenPromptEditor={() => void actions?.executeCommand?.("workspace.open-prompt-editor")}
     onRunShellAction={(cmd, includeInContext = true) => actions ? actions.runShellAction(cmd, includeInContext) : Promise.reject(new Error("Actions unavailable"))}
   />;
-}
+});

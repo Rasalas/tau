@@ -9,6 +9,10 @@ import type { RailQuestion, RailState, ThreadMetaPatch, ThreadSiblingsService } 
  */
 export class RailStore implements ThreadSiblingsService {
   private state: RailState = EMPTY_STATE;
+  private confirmed: RailState = EMPTY_STATE;
+  private nextPatch = 0;
+  private readonly pending = new Map<number, Readonly<Record<string, ThreadMetaPatch | null>>>();
+  private readonly retiredEpochs = new Set<string>();
   private version = 0;
   private listeners = new Set<() => void>();
   /** Pinned and active threads in the order the rail drew them. */
@@ -49,17 +53,45 @@ export class RailStore implements ThreadSiblingsService {
   };
 
   /** What the host pushed; it replaces whatever this client assumed. */
-  set(payload: unknown): void {
-    this.state = decodeState(payload);
+  set(payload: unknown, request?: { epoch?: string }): void {
+    const next = decodeState(payload);
+    const previous = this.confirmed.publication;
+    // A reply from a request started before a new activation was observed
+    // cannot switch us back to an old, possibly never-seen process epoch.
+    if (request && request.epoch !== previous?.epoch && next.publication?.epoch !== previous?.epoch) return;
+    if (next.publication && this.retiredEpochs.has(next.publication.epoch)) return;
+    if (previous && (!next.publication || (next.publication.epoch === previous.epoch && next.publication.revision < previous.revision))) return;
+    if (previous && next.publication?.epoch !== previous.epoch) this.retiredEpochs.add(previous.epoch);
+    this.confirmed = next;
+    this.reconcile();
     this.loaded = true;
     this.changed();
   }
 
-  /** A change this client just asked the host for, shown before the host confirms it. */
-  apply(patches: Readonly<Record<string, ThreadMetaPatch | null>>): void {
-    const next = applyPatches(this.state, patches);
-    if (next === this.state) return;
-    this.state = next;
+  /** Local intent stays over host snapshots until its own write answers. */
+  beginPatch(patches: Readonly<Record<string, ThreadMetaPatch | null>>): number {
+    const id = ++this.nextPatch;
+    this.pending.set(id, patches);
+    this.reconcile();
+    this.changed();
+    return id;
+  }
+
+  finishPatch(id: number, payload?: unknown, request?: { epoch?: string }): void {
+    if (payload !== undefined) this.set(payload, request);
+    this.pending.delete(id);
+    this.reconcile();
+    this.changed();
+  }
+
+  private reconcile(): void {
+    this.state = this.confirmed;
+    for (const patches of this.pending.values()) this.state = applyPatches(this.state, patches);
+  }
+
+  finishLoading(): void {
+    if (this.loaded) return;
+    this.loaded = true;
     this.changed();
   }
 

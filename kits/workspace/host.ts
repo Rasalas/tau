@@ -595,6 +595,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const named = optionalString(input, "workspace");
         return readReviewRequestContext(named ? await services.knownWorkspacePath(named) : cwd(), {
           detail: record(input).detail === true,
+          discovery: record(input).discovery === true,
           ...(optionalString(input, "base") ? { base: optionalString(input, "base") } : {}),
         });
       }, { access: "read", callers: [REVIEW_KIT_ID] });

@@ -159,7 +159,7 @@ export const tau = {
   },
   isAppPage: (target) => /\/dist\/index\.html/u.test(target.url),
   // The workspace's unsent draft is a rail row too, but not an imported thread.
-  ready: (threads) => `!!document.querySelector("textarea") && document.querySelectorAll("${IMPORTED_ROW}").length >= ${threads}`,
+  ready: (threads) => `!!document.querySelector('.app-shell[data-startup-ready="true"][data-content-freshness="current"][data-thread-index-current="true"]') && !document.querySelector('nav[aria-label="Threads"][aria-busy="true"]') && !!document.querySelector("textarea") && document.querySelectorAll("${IMPORTED_ROW}").length >= ${threads}`,
   async revealThreads() {},
   /**
    * A thread opens with its newest 10 turns; older ones come 20 at a time as

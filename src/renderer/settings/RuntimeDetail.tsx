@@ -1,8 +1,7 @@
-import { Fragment, useCallback, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useState } from "react";
 import { ChevronLeft, Plus, Star, Undo2 } from "lucide-react";
 import type { HostSnapshot, UiRuntimeBackend } from "../../shared/contracts";
 import type { SettingsPageContribution } from "../extension-system";
-import { AddModelProviderModal } from "../components/AddModelProviderModal";
 import { ProviderIconStack, providerLabel } from "../components/ProviderIconStack";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { READ_ONLY_REASON, useHostCapabilities } from "../use-host-capabilities";
@@ -15,6 +14,7 @@ import { SettingOrigin, SettingRow, SettingsSection, useSetting, type SettingHan
 import { settingAnchor } from "./settings-search";
 
 const SOURCES: readonly ProviderCardBadgeSource[] = ["program", "account"];
+const LazyAddModelProviderModal = lazy(() => import("../components/AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
 
 /** Marks beyond this many fold into "+N". */
 const MAX_MARKS = 7;
@@ -185,7 +185,7 @@ export function RuntimeDetail({ backend, row, card, snapshot, onBack, onMakeDefa
           </SettingsSection>
         )}
       </div>
-      {addingProvider ? <AddModelProviderModal onClose={() => setAddingProvider(false)} /> : null}
+      {addingProvider ? <Suspense fallback={null}><LazyAddModelProviderModal onClose={() => setAddingProvider(false)} /></Suspense> : null}
     </section>
   );
 }

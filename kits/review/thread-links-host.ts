@@ -10,6 +10,8 @@ import { linkKey, linkMatchesQuery, ThreadLinkStore } from "./thread-links.js";
 
 /** An open linked request's state is asked again at most this often; a merged one only on request. */
 const REFRESH_MS = 60_000;
+/** An unchanged branch with an open link still checks for additional requests periodically. */
+const LINKED_DISCOVERY_MS = 5 * 60_000;
 /** A closed one is asked about now and then, so reopening it on the host is noticed. */
 const CLOSED_REFRESH_MS = 30 * 60_000;
 /** Linked requests read at once when Thread Rail asks about many threads. */
@@ -114,20 +116,42 @@ export function registerThreadLinks(
   };
 
   const discoveredAt = new Map<string, number>();
-  const discover = async (threadId: string, force = false) => {
-    if (!force && Date.now() - (discoveredAt.get(threadId) ?? 0) < REFRESH_MS) return;
+  const currentAt = new Map<string, { key: string; at: number }>();
+  const discoveries = new Map<string, { force: boolean; value: Promise<void> }>();
+  const discover = (threadId: string, force = false): Promise<void> => {
+    const pending = discoveries.get(threadId);
+    if (pending) return force && !pending.force ? pending.value.then(() => discover(threadId, true)) : pending.value;
+    const at = discoveredAt.get(threadId);
+    if (!force && at !== undefined && Date.now() - at < REFRESH_MS) return Promise.resolve();
     discoveredAt.set(threadId, Date.now());
+    const value = runDiscovery(threadId, force).finally(() => {
+      if (discoveries.get(threadId)?.value === value) discoveries.delete(threadId);
+    });
+    discoveries.set(threadId, { force, value });
+    return value;
+  };
+  const runDiscovery = async (threadId: string, force: boolean) => {
     try {
       const sessions = await services.sessions.list();
       const thread = sessions.find((entry) => entry.sessionId === threadId);
       // A shared checkout does not tell us which conversation owns its PR.
       if (!thread || thread.parentThreadId || sessions.filter((entry) => !entry.parentThreadId && entry.cwd === thread.cwd).length !== 1) return;
-      const git = await workspace("review-request-context", { workspace: thread.cwd }) as ReviewRequestContext;
+      const git = await workspace("review-request-context", { workspace: thread.cwd, discovery: true }) as ReviewRequestContext;
       if (!git?.branch || !git.remote || git.branch === git.base) return;
-      const provider = sources.get(await sources.detect(git.remote.url));
+      const service = await sources.detect(git.remote.url);
+      const provider = sources.get(service);
       const target = provider.repository(git.remote.url);
       if (!target || provider.missing()) return;
+      // Refresh already tracks this open request's state. Keep checking Git so
+      // another branch or remote still starts discovery on the next poll.
+      const links = await store.list(threadId);
+      const key = JSON.stringify([service, target.host, target.repo, git.root, git.branch]);
+      const checked = currentAt.get(threadId);
+      if (!force && checked?.key === key && Date.now() - checked.at < LINKED_DISCOVERY_MS
+        && links.some((entry) => entry.service === service && entry.host === target.host && entry.repo === target.repo
+          && entry.headRef === git.branch && entry.state === "open")) return;
       const request = await provider.current({ ...target, cwd: git.root, branch: git.branch, fresh: force });
+      currentAt.set(threadId, { key, at: Date.now() });
       // Never adopt an old merged request merely because its branch name was reused.
       if (!request || request.state !== "open" || request.headRef !== git.branch) return;
       const ref = parseRequestUrl(request.url);
@@ -145,7 +169,17 @@ export function registerThreadLinks(
     return Date.now() - (entry.refreshedAt ?? 0) > (entry.state === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
   };
 
-  const refresh = async (threadId: string, force: boolean) => {
+  const refreshes = new Map<string, { force: boolean; value: Promise<void> }>();
+  const refresh = (threadId: string, force: boolean): Promise<void> => {
+    const pending = refreshes.get(threadId);
+    if (pending) return force && !pending.force ? pending.value.then(() => refresh(threadId, true)) : pending.value;
+    const value = runRefresh(threadId, force).finally(() => {
+      if (refreshes.get(threadId)?.value === value) refreshes.delete(threadId);
+    });
+    refreshes.set(threadId, { force, value });
+    return value;
+  };
+  const runRefresh = async (threadId: string, force: boolean) => {
     await discover(threadId, force);
     const links = await store.list(threadId);
     const due = links.filter((entry) => force || stale(entry));
@@ -165,9 +199,9 @@ export function registerThreadLinks(
 
   context.registerCommand("thread-links", async (input) => {
     const threadId = threadOf(input);
-    await discover(threadId);
     const mode = record(input).refresh;
     if (mode === true || mode === "force") await refresh(threadId, mode === "force");
+    else await discover(threadId);
     return store.list(threadId);
   }, { access: "read", long: true });
 
@@ -314,7 +348,7 @@ export function registerThreadLinks(
     // Runtimes other than Pi read it from the MCP endpoint's instructions.
     services.mcp.registerInstructions?.(() => LINKING_INSTRUCTIONS) ?? (() => undefined),
     services.registerThreadLifecycle({
-      threadDeleted: async (sessionId) => { await store.forget(sessionId); },
+      threadDeleted: async (sessionId) => { discoveredAt.delete(sessionId); currentAt.delete(sessionId); await store.forget(sessionId); },
     }),
   ];
 

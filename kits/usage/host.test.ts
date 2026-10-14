@@ -3,13 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostExtension, HostTurnObserver } from "tau/host-extension";
-import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { activateHostKit as activateKit } from "../../src/main/test-support/host-kit-harness.js";
 import { assistantLine, claudeLine, codexMeta, codexResponse, DAY, writeSession } from "./fixtures.js";
 import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, readLimitsAnswer, readDays, readLogsAnswer, SCAN_MAX_AGE_MS } from "./host.js";
 import type { UsageLimitsSummary, UsageSummary } from "./protocol.js";
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+const registries: Array<Awaited<ReturnType<typeof activateKit>>> = [];
+async function activateHostKit(...args: Parameters<typeof activateKit>) {
+  const registry = await activateKit(...args);
+  registries.push(registry);
+  return registry;
+}
+afterEach(async () => {
+  // Stop kits and drain background cache writes before deleting their data.
+  await Promise.all(registries.splice(0).map((registry) => registry.dispose()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 const NOW = Date.UTC(2026, 8, 22, 12);
 const usage = { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 12, costUsd: 0.5, turns: 3 };

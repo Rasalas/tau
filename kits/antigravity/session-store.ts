@@ -1,6 +1,6 @@
-import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { appendUsageTurn, readPersistedJson, readUsageTurns, writePersistedJson, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { appendUsageTurn, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { SessionStorePersistence, sessionMessageIndex } from "../_shared/session-store-persistence.js";
 import { talliesOfRecord } from "../_acp/session-store.js";
 
 /**
@@ -153,38 +153,32 @@ export class AntigravitySessionStore {
   private readonly now: () => number;
   private readonly records = new Map<string, AntigravitySessionRecord>();
   private models: AntigravityStoredModel[] = [];
-  private loaded = false;
   private loading?: Promise<void>;
+  private readonly persistence: SessionStorePersistence<AntigravitySessionRecord, AntigravityStoredModel>;
 
   constructor(private readonly options: AntigravitySessionStoreOptions) {
     this.now = options.now ?? Date.now;
+    this.persistence = new SessionStorePersistence({ filePath: options.filePath, version: CURRENT_VERSION, logger: options.logger, immutableUsageTurns: true,
+      decode: (value) => { const data = decodeFile(value); return data ? { sessions: data.sessions, models: { default: data.models } } : undefined; },
+      encode: (data) => ({ sessions: data.sessions, models: data.models?.default ?? [] }),
+    });
   }
+
+  get databasePath(): string { return this.persistence.databasePath; }
+  dispose(): Promise<void> { return this.persistence.dispose(); }
+  flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 
   /** Beside the Pi session directory, like the Claude Code kit's store, so a dev instance never writes into the user's own. */
   static defaultPath(sessionsDir: string): string {
     return join(dirname(sessionsDir), "tau", "antigravity-runtime-sessions.json");
   }
 
-  async load(): Promise<void> {
-    if (this.loaded) return;
-    if (!this.loading) this.loading = this.readFromDisk();
-    await this.loading;
-  }
-
-  private async readFromDisk(): Promise<void> {
-    try {
-      const result = await readPersistedJson(this.options.filePath, { expectedVersion: CURRENT_VERSION, decode: decodeFile, logger: this.options.logger });
-      if (result) {
-        for (const record of result.data.sessions) this.records.set(record.tauThreadId, record);
-        this.models = result.data.models;
-        await chmod(this.options.filePath, 0o600).catch(() => undefined);
-      }
-    } catch {
-      this.records.clear();
-      this.models = [];
-    } finally {
-      this.loaded = true;
-    }
+  load(): Promise<void> {
+    this.loading ??= this.persistence.load().then((data) => {
+      for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record);
+      this.models = data?.models?.default ?? [];
+    }).catch(() => undefined);
+    return this.loading;
   }
 
   async get(tauThreadId: string): Promise<AntigravitySessionRecord | undefined> {
@@ -204,6 +198,30 @@ export class AntigravitySessionStore {
     return [...this.records.values()].filter((record) => cwd === undefined || record.cwd === cwd).sort((left, right) => right.updatedAt - left.updatedAt).map(cloneRecord);
   }
 
+  /** Index recovery needs a title seed and count, never a transcript copy. */
+  async listMetadata(cwd?: string): Promise<Array<Omit<AntigravitySessionRecord, "usageTurns"> & { messageCount: number }>> {
+    await this.load();
+    return [...this.records.values()].filter((record) => cwd === undefined || record.cwd === cwd)
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map((record) => {
+        const { messages, usageTurns: _usageTurns, ...metadata } = record;
+        const firstUser = sessionMessageIndex(messages).firstUser;
+        return { ...cloneRecord({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: messages.length };
+      });
+  }
+
+  private async ensureRecord(tauThreadId: string, cwd: string): Promise<AntigravitySessionRecord> {
+    await this.load();
+    const existing = this.records.get(tauThreadId);
+    if (existing) {
+      if (existing.cwd !== cwd) throw new Error("This thread belongs to another workspace.");
+      return existing;
+    }
+    await this.ensure(tauThreadId, cwd);
+    return this.records.get(tauThreadId)!;
+  }
+
+  /** The thread's record, created when it has none. */
   async ensure(tauThreadId: string, cwd: string): Promise<AntigravitySessionRecord> {
     await this.load();
     const existing = this.records.get(tauThreadId);
@@ -211,17 +229,17 @@ export class AntigravitySessionStore {
     if (existing) throw new Error("Antigravity session belongs to another workspace.");
     const record: AntigravitySessionRecord = { backendKind: "antigravity", tauThreadId, cwd, messages: [], createdAt: this.now(), updatedAt: this.now() };
     this.records.set(tauThreadId, record);
-    await this.persist();
+    await this.persist(tauThreadId);
     return cloneRecord(record);
   }
 
   private async update(tauThreadId: string, cwd: string, change: (record: AntigravitySessionRecord) => void): Promise<void> {
-    await this.ensure(tauThreadId, cwd);
+    await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     change(record);
     record.updatedAt = this.now();
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
   setAcpSession(tauThreadId: string, cwd: string, acpSessionId: string): Promise<void> {
@@ -244,7 +262,7 @@ export class AntigravitySessionStore {
   recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turn?: UsageTurn): Promise<void> {
     return this.update(tauThreadId, cwd, (record) => {
       record.usage = { ...usage };
-      if (turn) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], turn);
+      if (turn) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], { ...turn });
     });
   }
 
@@ -265,7 +283,7 @@ export class AntigravitySessionStore {
         const id = boundedString(message.id, MAX_ID_LENGTH);
         const stored: AntigravityStoredMessage = { ...(id ? { id } : {}), role: message.role, text: message.text, timestamp: message.timestamp, ...(clientMessageId ? { clientMessageId } : {}) };
         if (clientMessageId) {
-          const existing = record.messages.find((item) => item.clientMessageId === clientMessageId);
+          const existing = sessionMessageIndex(record.messages).ids.get(clientMessageId);
           if (existing) {
             if (existing.text === stored.text && existing.role === stored.role) continue;
             throw new Error(`Antigravity transcript already contains a conflicting message id '${clientMessageId}'.`);
@@ -287,7 +305,7 @@ export class AntigravitySessionStore {
     const next = models.flatMap((model) => { const parsed = storedModel(model); return parsed ? [parsed] : []; });
     if (next.length === 0 || JSON.stringify(next) === JSON.stringify(this.models)) return;
     this.models = next;
-    await this.persist();
+    await this.persistence.write({ models: [{ id: "default", models: next }] });
   }
 
   /** Takes a thread's record out for the host's trash; the CLI's own history stays where it is. */
@@ -296,7 +314,7 @@ export class AntigravitySessionStore {
     const record = this.records.get(tauThreadId);
     if (!record) return undefined;
     this.records.delete(tauThreadId);
-    await this.persist();
+    await this.persist(tauThreadId);
     return cloneRecord(record);
   }
 
@@ -307,10 +325,10 @@ export class AntigravitySessionStore {
     if (!record || record.tauThreadId !== tauThreadId) throw new Error("This is not the Antigravity thread that was deleted.");
     if (this.records.has(tauThreadId)) throw new Error("A Antigravity thread with this id exists again; it was not restored.");
     this.records.set(tauThreadId, record);
-    await this.persist();
+    await this.persist(tauThreadId);
   }
 
-  private persist(): Promise<void> {
-    return writePersistedJson(this.options.filePath, CURRENT_VERSION, { sessions: [...this.records.values()], models: this.models }, { logger: this.options.logger });
+  private persist(tauThreadId: string): Promise<void> {
+    return this.persistence.write({ sessions: [{ id: tauThreadId, record: this.records.get(tauThreadId), appendOnly: true }] });
   }
 }

@@ -471,6 +471,7 @@ async function main(): Promise<void> {
       }
       await access.flush().catch((error: unknown) => hostLog.warn("host.access.flush-failed", error));
       folderLock.release();
+      await hostLog.flush();
       process.exit(code);
     },
   );

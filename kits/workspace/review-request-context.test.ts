@@ -88,3 +88,32 @@ describe("review request context", () => {
     expect(context.template).toBeUndefined();
   });
 });
+
+it("reads discovery context in at most three Git subprocesses without upstream history", async () => {
+  const { work, remote } = await repositoryWithRemote();
+  await git(work, "push", "-u", "origin", "feature/pr");
+  const calls: string[][] = [];
+  const context = await readReviewRequestContext(work, { discovery: true }, async (cwd, args) => {
+    calls.push(args);
+    return (await git(cwd, ...args)).stdout;
+  });
+  expect(context).toMatchObject({ root: work, branch: "feature/pr", remote: { name: "origin", url: remote }, base: "main" });
+  expect(context.upstream).toBeUndefined();
+  expect(context.ahead).toBeUndefined();
+  expect(calls).toHaveLength(3);
+});
+
+it("keeps discovery branch/base semantics for detached and unborn checkouts", async () => {
+  const { work } = await repositoryWithRemote();
+  await git(work, "remote", "set-head", "origin", "-d");
+  expect((await readReviewRequestContext(work, { discovery: true })).base).toBe("main");
+  await git(work, "checkout", "--detach");
+  const detached = await readReviewRequestContext(work, { discovery: true });
+  expect(detached.branch).toBeUndefined();
+  expect(detached.base).toBe("main");
+  const empty = await mkdtemp(join(tmpdir(), "tau-unborn-discovery-"));
+  folders.push(empty);
+  await git(empty, "init", "-b", "main");
+  await git(empty, "remote", "add", "origin", "https://github.com/acme/repo.git");
+  expect(await readReviewRequestContext(empty, { discovery: true })).toMatchObject({ root: empty, branch: "main", base: "main", remote: { name: "origin", url: "https://github.com/acme/repo.git" } });
+});

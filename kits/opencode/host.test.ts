@@ -14,10 +14,15 @@ import { OpenCodeSessionStore } from "./session-store.js";
 const FAKE_CLI = fileURLToPath(new URL("./fixtures/fake-serve.mjs", import.meta.url));
 const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 const directories: string[] = [];
+const registries: Array<{ dispose(): Promise<void> }> = [];
+const stores: OpenCodeSessionStore[] = [];
+function trackedStore(store: OpenCodeSessionStore): OpenCodeSessionStore { stores.push(store); return store; }
 const fakes: FakeOpenCode[] = [];
 
 afterEach(async () => {
   await Promise.all(fakes.splice(0).map((fake) => fake.close()));
+  await Promise.all(registries.splice(0).map((registry) => registry.dispose()));
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -52,6 +57,7 @@ async function harness(options: { installed?: string; found?: boolean; cliPath?:
     },
   }, (event) => events.push(event));
   const backend = (kind: string) => backends.find((entry) => entry.kind === kind);
+  registries.push(registry);
   return { registry, provider: backends[0]!, backend, backends, events, root, fake, external, starts };
 }
 
@@ -215,7 +221,7 @@ describe("OpenCode host half", () => {
 
   it("hands each thread's running total to the Usage kit and to no other kit", async () => {
     const { registry, root } = await harness();
-    const store = new OpenCodeSessionStore({ filePath: OpenCodeSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const store = trackedStore(new OpenCodeSessionStore({ filePath: OpenCodeSessionStore.defaultPath(join(root, "agent", "sessions")) }));
     await store.recordUsage("thread-1", "/repo", { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5, cacheWriteTokens: 0, totalTokens: 17, costUsd: 0.01, turns: 1 });
     await store.setObservedModel("thread-1", "/repo", { provider: "opencode", id: "big-pickle" });
     await store.setSession("thread-1", "/repo", "ses-1");
@@ -272,7 +278,7 @@ describe("OpenCode host half", () => {
 
   it("lists what each thread cost from its store, as its open thread shows it", async () => {
     const { provider, root } = await harness();
-    const store = new OpenCodeSessionStore({ filePath: OpenCodeSessionStore.defaultPath(join(root, "agent", "sessions")) });
+    const store = trackedStore(new OpenCodeSessionStore({ filePath: OpenCodeSessionStore.defaultPath(join(root, "agent", "sessions")) }));
     const total = (turns: number) => ({ inputTokens: 1_000 * turns, outputTokens: 100 * turns, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1_100 * turns, costUsd: 0.25 * turns, turns });
     // OpenCode keeps a running total with the price it named.
     await store.recordUsage("used", "/repo", total(2));

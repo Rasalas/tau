@@ -32,7 +32,9 @@ and a **Review** button in the thread header that fills the composer with a revi
 
 ## Change Tau itself
 
-You need Node.js 22 and Git.
+You need Node.js 22.13+ or Node.js 24+ and Git. The runtime session stores use
+the built-in `node:sqlite` module, available without an extra flag from
+[Node.js 22.13](https://nodejs.org/download/release/latest-jod/docs/api/sqlite.html).
 
 1. **Get the code.**
 

@@ -11,12 +11,17 @@ import { GrokSessionStore } from "./session-store.js";
 import { GrokThreadRuntimeBackend, PLAN_INSTRUCTIONS } from "./thread-backend.js";
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+const stores: GrokSessionStore[] = [];
+function trackedStore(store: GrokSessionStore): GrokSessionStore { stores.push(store); return store; }
+afterEach(async () => {
+  await Promise.all(stores.splice(0).map((store) => store.dispose()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 async function scratchStore(): Promise<GrokSessionStore> {
   const directory = await mkdtemp(join(tmpdir(), "tau-grok-backend-"));
   directories.push(directory);
-  return new GrokSessionStore({ filePath: join(directory, "sessions.json") });
+  return trackedStore(new GrokSessionStore({ filePath: join(directory, "sessions.json") }));
 }
 
 const EFFORTS = [{ id: "high", value: "high", default: true }, { id: "low", value: "low" }];

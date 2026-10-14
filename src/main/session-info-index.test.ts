@@ -44,9 +44,38 @@ describe("SessionInfoIndex", () => {
     await utimes(path, at, at);
     const after = await stat(path);
     expect([after.size, after.mtimeMs]).toEqual([before.size, before.mtimeMs]);
-    expect((await index.list()).infos[0]?.id).toBe("one");
+    expect((await index.list()).infos[0]?.id).toBe("two");
     expect((await index.list(true)).infos[0]?.id).toBe("two");
     expect((await index.list()).infos[0]?.id).toBe("two");
+  });
+
+  it("restores unchanged shell metadata and model without rereading history after restart", async () => {
+    const root = await directory();
+    const path = join(root, "one.jsonl");
+    const file = join(root, "cache", "info.json");
+    await writeFile(path, session("one") + message("hello", 1) + JSON.stringify({ type: "model_change", id: "model", provider: "fixture", modelId: "selected" }) + "\n");
+    const first = await new SessionInfoIndex(root, { file }).list();
+    vi.mocked(createReadStream).mockClear();
+    const restored = await new SessionInfoIndex(root, { file }).list();
+    expect(restored.infos).toEqual(first.infos);
+    expect(restored.models.get("one")).toEqual({ provider: "fixture", id: "selected" });
+    expect(createReadStream).not.toHaveBeenCalled();
+    await appendFile(path, message("changed", 2));
+    expect((await new SessionInfoIndex(root, { file }).list()).infos[0]?.messageCount).toBe(2);
+    expect(createReadStream).toHaveBeenCalledOnce();
+  });
+
+  it("ignores corrupt and newer-version caches without trusting their metadata", async () => {
+    const root = await directory();
+    const path = join(root, "one.jsonl");
+    const file = join(root, "cache.json");
+    await writeFile(path, session("one"));
+    await writeFile(file, "broken");
+    expect((await new SessionInfoIndex(root, { file, logger: { warn: () => {} } }).list()).infos[0]?.id).toBe("one");
+    const future = JSON.stringify({ version: 999, entries: [] });
+    await writeFile(file, future);
+    expect((await new SessionInfoIndex(root, { file, logger: { warn: () => {} } }).list()).infos[0]?.id).toBe("one");
+    expect(await import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8"))).toBe(future);
   });
 
   it("keeps a directly listed session when no file stamp is available", async () => {
@@ -79,7 +108,7 @@ describe("SessionInfoIndex", () => {
     await appendFile(a, message("new", 2));
     const changed = await index.list();
     expect(changed.infos.find((info) => info.id === "a")?.messageCount).toBe(2);
-    expect(vi.mocked(createReadStream).mock.calls.map(([path]) => path)).toEqual([a, a]);
+    expect(vi.mocked(createReadStream).mock.calls.map(([path]) => path)).toEqual([a]);
     await appendFile(a, JSON.stringify({ type: "model_change", id: "model", parentId: null, provider: "fixture", modelId: "selected" }) + "\n");
     expect((await index.list()).models.get("a")).toEqual({ provider: "fixture", id: "selected" });
   });

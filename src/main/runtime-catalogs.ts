@@ -1,3 +1,4 @@
+import type { HostPreparationQueue, PreparedWork } from "./host-preparation-queue.js";
 import type {
   RuntimeCapabilities,
   ThreadBackendKind,
@@ -44,6 +45,7 @@ export interface RuntimeCatalogsOptions {
   file?: string;
   /** Whether `start` asks the runtimes in the background; otherwise only clients make it ask. */
   automatic: boolean;
+  preparation?: HostPreparationQueue;
   log(label: string, detail?: string): void;
   /** A source's program changed since its answer (a CLI update); the host asks its version again. */
   programChanged?(kind: ThreadBackendKind): void;
@@ -81,6 +83,7 @@ export class RuntimeCatalogs {
   private restored?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private warmed = false;
+  private readonly preparing = new Map<ThreadBackendKind, { work: PreparedWork<void>; maxAge: number }>();
   private disposed = false;
   private writing: Promise<void> = Promise.resolve();
 
@@ -153,6 +156,8 @@ export class RuntimeCatalogs {
 
   dispose(): void {
     this.disposed = true;
+    for (const { work } of this.preparing.values()) work.cancel();
+    this.preparing.clear();
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
   }
@@ -162,7 +167,7 @@ export class RuntimeCatalogs {
     // One at a time: each may start its program.
     for (const source of this.options.sources()) {
       if (this.disposed) return;
-      if (this.stale(source, this.options.startMaxAgeMs ?? START_MAX_AGE_MS) || await this.programChanged(source)) await this.ask(source).catch(() => undefined);
+      await this.prepare(source, this.options.startMaxAgeMs ?? START_MAX_AGE_MS);
     }
   }
 
@@ -184,7 +189,27 @@ export class RuntimeCatalogs {
   }
 
   private askLater(source: RuntimeCatalogSource): void {
-    void this.ask(source).catch(() => undefined);
+    void this.prepare(source, this.options.freshMs ?? FRESH_MS);
+  }
+
+  private prepare(source: RuntimeCatalogSource, maxAge: number): Promise<void | undefined> {
+    if (this.disposed) return Promise.resolve();
+    const existing = this.preparing.get(source.kind);
+    if (existing) { existing.maxAge = Math.min(existing.maxAge, maxAge); return existing.work.result; }
+    const run = async () => {
+      const current = this.options.sources().find((candidate) => candidate.kind === source.kind);
+      if (this.disposed || !current) return;
+      const changed = await this.programChanged(current);
+      if (this.disposed) return;
+      // A foreground revalidation can tighten this while the fingerprint is read.
+      const age = this.preparing.get(source.kind)?.maxAge ?? maxAge;
+      if (this.stale(current, age) || changed) await this.ask(current).catch(() => undefined);
+    };
+    if (!this.options.preparation) return run();
+    const work = this.options.preparation.schedule(run);
+    this.preparing.set(source.kind, { work, maxAge });
+    void work.result.catch((error: unknown) => this.options.log("runtime-catalog.prepare-failed", String(error))).finally(() => { if (this.preparing.get(source.kind)?.work === work) this.preparing.delete(source.kind); });
+    return work.result;
   }
 
   private ask(source: RuntimeCatalogSource): Promise<HeldRuntimeCatalog> {
