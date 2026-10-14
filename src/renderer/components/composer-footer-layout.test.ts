@@ -5,7 +5,7 @@ import { fitFooterControls, type FooterMeasurement } from "./composer-footer-lay
 const measure = (available: number): FooterMeasurement => ({
   available,
   gap: 8,
-  fixed: [160],
+  fixed: [{ natural: 160, icon: 160 }],
   blocks: [{ natural: 90, icon: 30 }, { natural: 100, icon: 30 }, { natural: 40, icon: 30 }],
   overflow: 28,
 });
@@ -68,8 +68,8 @@ describe("fitFooterControls", () => {
     });
 
     it("counts its gap with the other items", () => {
-      expect(fitFooterControls({ available: 168, gap: 8, fixed: [100], lead: [{ natural: 60, icon: 20 }], blocks: [], overflow: 0 })).toEqual({ leadIcons: false, iconOnly: 0, hidden: 0 });
-      expect(fitFooterControls({ available: 167, gap: 8, fixed: [100], lead: [{ natural: 60, icon: 20 }], blocks: [], overflow: 0 })).toEqual({ leadIcons: true, iconOnly: 0, hidden: 0 });
+      expect(fitFooterControls({ available: 168, gap: 8, fixed: [{ natural: 100, icon: 100 }], lead: [{ natural: 60, icon: 20 }], blocks: [], overflow: 0 })).toEqual({ leadIcons: false, iconOnly: 0, hidden: 0 });
+      expect(fitFooterControls({ available: 167, gap: 8, fixed: [{ natural: 100, icon: 100 }], lead: [{ natural: 60, icon: 20 }], blocks: [], overflow: 0 })).toEqual({ leadIcons: true, iconOnly: 0, hidden: 0 });
     });
   });
 });

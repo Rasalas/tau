@@ -28,6 +28,12 @@ const NO_SHORTCUTS: readonly string[] = [];
 
 const px = (value: string) => Number.parseFloat(value) || 0;
 
+function naturalWidth(item: HTMLElement): number {
+  // The model may be shrunk with an ellipsis; count the width its label asks for.
+  const label = item.querySelector<HTMLElement>(".runtime-chip-label");
+  return item.getBoundingClientRect().width + (label ? Math.max(0, label.scrollWidth - label.clientWidth) : 0);
+}
+
 /** A chip reduced to its icon: a 32 px desktop target. Once drawn so, the real width counts. */
 const ICON_CHIP = 32;
 
@@ -61,7 +67,6 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   const row = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const measured = useRef(new Map<string, Measured>());
-  const leadMeasured = useRef(new Map<string, FooterBlockWidths>());
   const triggerWidth = useRef(ICON_CHIP);
   const [layout, setLayout] = useState(NO_LAYOUT);
   const [open, setOpen] = useState(false);
@@ -86,39 +91,51 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
     if (!element) return;
     const style = getComputedStyle(element);
     const gap = px(style.columnGap);
-    const fixed: number[] = [];
+    const fixed: FooterBlockWidths[] = [];
     const lead: FooterBlockWidths[] = [];
     const leadCollapsed = element.hasAttribute("data-lead-icons");
-    for (const child of element.children) {
-      const item = child as HTMLElement;
-      const id = item.dataset.composerBlock;
-      if (item.dataset.composerCollapsible !== undefined) {
-        // As with a block: the label width it had, and the width it shows now once it is an icon.
-        const width = item.getBoundingClientRect().width;
-        const key = item.dataset.composerCollapsible || String(lead.length);
-        const previous = leadMeasured.current.get(key);
-        const natural = leadCollapsed && previous ? previous.natural : width;
-        const entry = { natural, icon: Math.min(leadCollapsed ? width : ICON_CHIP, natural) };
-        leadMeasured.current.set(key, entry);
-        lead.push(entry);
-      } else if (id !== undefined && item.dataset.composerPinned !== undefined) {
-        fixed.push(item.getBoundingClientRect().width);
-      } else if (id !== undefined) {
-        const width = item.getBoundingClientRect().width;
-        const previous = measured.current.get(id);
-        // An icon-only block keeps the label width it had; its icon width is what it shows now.
-        const natural = item.dataset.iconOnly !== undefined && previous ? previous.natural : width;
-        const icon = item.dataset.iconOnly !== undefined ? width : iconWidth(item, width);
-        const shortcuts = [...item.querySelectorAll<HTMLElement>("[data-composer-shortcut]")].flatMap((node) => node.dataset.composerShortcut?.split(/\s+/u) ?? []);
-        measured.current.set(id, { natural, icon: Math.min(icon, natural), shortcuts });
-      } else if (item.dataset.composerOverflow !== undefined) {
-        triggerWidth.current = item.getBoundingClientRect().width;
-        if (menuAlways.current) fixed.push(triggerWidth.current);
-      } else {
-        // The model chip may be shrunk with an ellipsis; count the width its label asks for.
-        const label = item.querySelector<HTMLElement>(".runtime-chip-label");
-        fixed.push(item.getBoundingClientRect().width + (label ? Math.max(0, label.scrollWidth - label.clientWidth) : 0));
+    const fixedItems: HTMLElement[] = [];
+    const leadItems: HTMLElement[] = [];
+    // Collapsing the lead also hides model/thinking chevrons. Measure both states
+    // before fitting, so a collapsed width can never stand in for an expanded one.
+    // Restore the rendered state synchronously, before the browser can paint.
+    element.removeAttribute("data-lead-icons");
+    try {
+      for (const child of element.children) {
+        const item = child as HTMLElement;
+        const id = item.dataset.composerBlock;
+        if (item.dataset.composerCollapsible !== undefined) {
+          const width = item.getBoundingClientRect().width;
+          lead.push({ natural: width, icon: width });
+          leadItems.push(item);
+        } else if (id !== undefined && item.dataset.composerPinned !== undefined) {
+          fixedItems.push(item);
+        } else if (id !== undefined) {
+          const width = item.getBoundingClientRect().width;
+          const previous = measured.current.get(id);
+          // An icon-only block keeps the label width it had; its icon width is what it shows now.
+          const natural = item.dataset.iconOnly !== undefined && previous ? previous.natural : width;
+          const icon = item.dataset.iconOnly !== undefined ? width : iconWidth(item, width);
+          const shortcuts = [...item.querySelectorAll<HTMLElement>("[data-composer-shortcut]")].flatMap((node) => node.dataset.composerShortcut?.split(/\s+/u) ?? []);
+          measured.current.set(id, { natural, icon: Math.min(icon, natural), shortcuts });
+        } else if (item.dataset.composerOverflow !== undefined) {
+          triggerWidth.current = item.getBoundingClientRect().width;
+          if (menuAlways.current) fixedItems.push(item);
+        } else {
+          fixedItems.push(item);
+        }
       }
+      for (const item of fixedItems) {
+        const width = naturalWidth(item);
+        fixed.push({ natural: width, icon: width });
+      }
+      if (leadItems.length > 0) {
+        element.setAttribute("data-lead-icons", "");
+        leadItems.forEach((item, index) => { lead[index]!.icon = item.getBoundingClientRect().width; });
+        fixedItems.forEach((item, index) => { fixed[index]!.icon = naturalWidth(item); });
+      }
+    } finally {
+      element.toggleAttribute("data-lead-icons", leadCollapsed);
     }
     const widths = order.current.flatMap((block) => {
       const entry = measured.current.get(block.id);

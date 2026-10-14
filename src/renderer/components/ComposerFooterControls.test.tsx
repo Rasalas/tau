@@ -43,6 +43,39 @@ function Footer({ revision }: { revision: string }) {
 const block = (id: string) => document.querySelector<HTMLElement>(`.composer-chips > [data-composer-block="${id}"]`);
 
 describe("ComposerFooterControls", () => {
+  it.each(["model", "reasoning"])("settles when collapsing access also hides the %s chevron", (control) => {
+    const original = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!;
+    let controlWidth = 100;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("composer-model-chip") || this.dataset.composerBlock === "reasoning") {
+        return rect(controlWidth - (this.closest("[data-lead-icons]") ? 20 : 0));
+      }
+      return original.call(this);
+    });
+    const Row = ({ revision }: { revision: string }) => <ComposerFooterControls
+      revision={revision}
+      leading={<>
+        <button type="button" className="runtime-chip" data-composer-collapsible="access"><svg />Full access</button>
+        {control === "model" ? <button type="button" className="runtime-chip composer-model-chip">Model<svg className="chev" /></button> : null}
+      </>}
+      blocks={control === "reasoning" ? [{ id: "reasoning", pinned: true, node: <button type="button" className="runtime-chip composer-thinking-chip">High<svg className="chev" /></button> }] : []}
+    />;
+    const collapsed = () => document.querySelector(".composer-chips")?.hasAttribute("data-lead-icons");
+    available = 195;
+    const view = render(<Row revision="narrow" />);
+    expect(collapsed()).toBe(true);
+    // Changing the model/level while collapsed must refresh its expanded width too.
+    controlWidth = 140;
+    view.rerender(<Row revision="changed" />);
+    expect(collapsed()).toBe(true);
+    available = 240;
+    view.rerender(<Row revision="edge" />);
+    expect(collapsed()).toBe(true);
+    available = 241;
+    view.rerender(<Row revision="wide" />);
+    expect(collapsed()).toBe(false);
+  });
+
   it("keeps every label while the row has room", () => {
     available = 400;
     render(<Footer revision="a" />);
