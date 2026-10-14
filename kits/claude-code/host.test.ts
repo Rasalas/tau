@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,9 +20,10 @@ afterEach(async () => {
 
 const offline = (async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof globalThis.fetch;
 
-async function harness(findCommand: (name: string) => string | undefined, fetch: typeof globalThis.fetch = offline, env: (agentDir: string) => NodeJS.ProcessEnv = () => ({})) {
+async function harness(findCommand: (name: string) => string | undefined, fetch: typeof globalThis.fetch = offline, env: (agentDir: string) => NodeJS.ProcessEnv = () => ({}), before?: (agentDir: string) => Promise<void>) {
   const agentDir = await mkdtemp(join(tmpdir(), "tau-claude-host-"));
   directories.push(agentDir);
+  await before?.(agentDir);
   const backends: HostRuntimeBackendProvider[] = [];
   const registry = await activateHostKit(createClaudeCodeHostExtension({ fetch, env: env(agentDir) }), {
     stateDir: join(agentDir, "state"),
@@ -387,4 +389,20 @@ describe("Claude Code host half", () => {
     expect(listed.has("unused")).toBe(true);
     expect(listed.get("unused")).toBeUndefined();
   });
+});
+
+it("counts instances without reading Claude transcript or usage payloads", async () => {
+  const { registry } = await harness(() => "/usr/local/bin/claude", offline, () => ({}), async root => {
+    const store = new ClaudeRuntimeSessionStore({ filePath: join(root, "tau", "claude-runtime-sessions.json") });
+    await store.appendExchange("unseen", root, [{ id: "user", role: "user", text: "seed", timestamp: 1 }]);
+    const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 0, turns: 1 };
+    await store.recordUsage("unseen", root, usage, [{ ...usage, provider: "anthropic", model: "fixture", at: 2 }]);
+    await store.dispose();
+    const db = new DatabaseSync(store.databasePath);
+    try {
+      for (const table of ["messages", "usage_turns"]) db.exec(`ALTER TABLE ${table} RENAME TO fixture_${table};
+        CREATE VIEW ${table} AS SELECT thread_id, ordinal, json('poison payload') AS payload FROM fixture_${table}`);
+    } finally { db.close(); }
+  });
+  await expect(registry.invoke("tau.claude-code", "instances")).resolves.toMatchObject({ instances: [{ id: "default", threads: 1 }] });
 });

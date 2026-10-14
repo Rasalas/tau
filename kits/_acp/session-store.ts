@@ -195,6 +195,11 @@ export class AcpSessionStore<K extends string = string> {
       filePath: options.filePath,
       version: CURRENT_VERSION,
       immutableUsageTurns: true,
+      publishHydrated: (id, record) => {
+        if (record) this.records.set(id, record as AcpSessionRecord<K>);
+        else this.records.delete(id);
+      },
+      summarizeUsage: record => record.usageTurns ? talliesOfRecord(record) : undefined,
       logger: options.logger,
       decode: (value) => decodeFile(value, options.backendKind),
     });
@@ -210,7 +215,7 @@ export class AcpSessionStore<K extends string = string> {
   }
 
   private load(): Promise<void> {
-    this.loading ??= this.persistence.load()
+    this.loading ??= this.persistence.loadMetadata()
       .then(async (data) => {
         for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record as AcpSessionRecord<K>);
         this.models = new Map(Object.entries(data?.models ?? {}));
@@ -220,8 +225,32 @@ export class AcpSessionStore<K extends string = string> {
     return this.loading;
   }
 
+  /** Dated usage reports do not need message histories. */
+  async listUsage(): Promise<Array<Omit<AcpSessionRecord<K>, "messages">>> {
+    await this.load();
+    const persisted = await this.persistence.loadUsage();
+    return persisted.map(record => this.persistence.isUnloaded(record.tauThreadId) ? record as AcpSessionRecord<K> : this.records.get(record.tauThreadId) ?? record as AcpSessionRecord<K>)
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(record => {
+        const { messages: _messages, ...usage } = clone({ ...record, messages: [] });
+        return usage;
+      });
+  }
+
+  private async hydrateMany(threadIds: string[]): Promise<void> {
+    const ids = threadIds.filter(id => this.persistence.isUnloaded(id));
+    if (!ids.length) return;
+    await this.persistence.loadSessions(ids);
+  }
+
+  private async hydrate(tauThreadId: string): Promise<void> {
+    if (!this.persistence.isUnloaded(tauThreadId)) return;
+    await this.persistence.loadSession(tauThreadId);
+  }
+
   async get(tauThreadId: string): Promise<AcpSessionRecord<K> | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     return record ? clone(record) : undefined;
   }
@@ -229,21 +258,39 @@ export class AcpSessionStore<K extends string = string> {
   /** A listed thread's tallies, for its row before it opens; `origin` names a thread that kept only its total. */
   talliesOf(tauThreadId: string, origin?: (record: AcpSessionRecord<K>) => { provider?: string; model?: string }): UsageTally[] {
     const record = this.records.get(tauThreadId);
-    return record ? talliesOfRecord(record, origin?.(record)) : [];
+    const summary = this.persistence.isUnloaded(tauThreadId) ? this.persistence.usageTallies(tauThreadId) : undefined;
+    return summary ? summary as UsageTally[] : record ? talliesOfRecord(record, origin?.(record)) : [];
   }
 
   /** Every thread, or those of one instance (`default` included). */
   async list(instance?: string): Promise<AcpSessionRecord<K>[]> {
     await this.load();
+    await this.hydrateMany([...this.records.values()]
+      .filter((record) => instance === undefined || sameInstance(record, instance)).map(record => record.tauThreadId));
     return [...this.records.values()]
       .filter((record) => instance === undefined || sameInstance(record, instance))
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .map(clone);
   }
 
+  /** Recovery and sidebar listing read the catalog, never histories. */
+  async listMetadata(instance?: string): Promise<Array<Omit<AcpSessionRecord<K>, "usageTurns"> & { messageCount: number }>> {
+    await this.load();
+    return [...this.records.values()].filter(record => instance === undefined || sameInstance(record, instance))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(record => {
+        const { messages, ...metadata } = record;
+        const firstUser = messages.find(message => message.role === "user");
+        const result = { ...clone({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: this.persistence.messageCount(record.tauThreadId) ?? messages.length };
+        delete result.usageTurns;
+        return result;
+      });
+  }
+
   /** The thread's record, created on the given instance when it has none. */
   async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<AcpSessionRecord<K>> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const existing = this.records.get(tauThreadId);
     if (existing && existing.cwd !== cwd) throw new Error(`This ${this.options.agent} thread belongs to another workspace.`);
     if (existing && instance !== undefined && !sameInstance(existing, instance)) throw new Error(`This ${this.options.agent} thread runs on another instance.`);
@@ -257,6 +304,7 @@ export class AcpSessionStore<K extends string = string> {
 
   private async update(tauThreadId: string, cwd: string, change: (record: AcpSessionRecord<K>) => void): Promise<void> {
     await this.load();
+    await this.hydrate(tauThreadId);
     if (!this.records.has(tauThreadId)) await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId)!;
     if (record.cwd !== cwd) throw new Error(`This ${this.options.agent} thread belongs to another workspace.`);
@@ -332,6 +380,7 @@ export class AcpSessionStore<K extends string = string> {
   /** Takes a thread's record out for the host's trash; the agent's own chat stays. */
   async take(tauThreadId: string): Promise<AcpSessionRecord<K> | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     if (!record) return undefined;
     this.records.delete(tauThreadId);

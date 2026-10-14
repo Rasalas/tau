@@ -189,7 +189,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
         return next;
       };
 
-      const record = (entry: Awaited<ReturnType<GrokSessionStore["list"]>>[number]): HostBackendThreadRecord => {
+      const record = (entry: Awaited<ReturnType<GrokSessionStore["list"]>>[number] & { messageCount?: number }): HostBackendThreadRecord => {
         const usage = store.talliesOf(entry.tauThreadId, grokUsageOrigin);
         return {
           threadId: entry.tauThreadId,
@@ -198,6 +198,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
           updatedAt: entry.updatedAt,
           messages: entry.messages,
+          ...(entry.messageCount !== undefined ? { messageCount: entry.messageCount } : {}),
           ...(usage.length ? { usage } : {}),
         };
       };
@@ -232,7 +233,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           order: 60,
           adapter,
           homeProviders: ["xai"],
-          listThreads: async () => (await store.list(id)).map(record),
+          listThreads: async () => (await store.listMetadata(id)).map(record),
           removeThread: async (threadId) => {
             const taken = await store.take(threadId);
             const tools = await activity.take(threadId);
@@ -295,7 +296,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
       };
 
       const instancesReport = async (): Promise<GrokInstancesReport> => {
-        const threads = await store.list();
+        const threads = await store.listMetadata();
         return {
           instances: settings.list().map((instance) => ({
             ...instance,
@@ -386,7 +387,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
       });
       // Each thread's turns, for the Usage kit; read from the store, never from Grok.
       context.registerCommand("usage", async () => ({
-        threads: (await store.list()).map((entry) => {
+        threads: (await store.listUsage()).map((entry) => {
           const model = entry.model ?? entry.observedModel;
           return {
             threadId: entry.tauThreadId,

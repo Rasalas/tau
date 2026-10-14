@@ -159,6 +159,11 @@ export class AntigravitySessionStore {
   constructor(private readonly options: AntigravitySessionStoreOptions) {
     this.now = options.now ?? Date.now;
     this.persistence = new SessionStorePersistence({ filePath: options.filePath, version: CURRENT_VERSION, logger: options.logger, immutableUsageTurns: true,
+      publishHydrated: (id, record) => {
+        if (record) this.records.set(id, record);
+        else this.records.delete(id);
+      },
+      summarizeUsage: record => record.usageTurns ? talliesOfRecord(record) : undefined,
       decode: (value) => { const data = decodeFile(value); return data ? { sessions: data.sessions, models: { default: data.models } } : undefined; },
       encode: (data) => ({ sessions: data.sessions, models: data.models?.default ?? [] }),
     });
@@ -174,15 +179,39 @@ export class AntigravitySessionStore {
   }
 
   load(): Promise<void> {
-    this.loading ??= this.persistence.load().then((data) => {
+    this.loading ??= this.persistence.loadMetadata().then((data) => {
       for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record);
       this.models = data?.models?.default ?? [];
     }).catch(() => undefined);
     return this.loading;
   }
 
+  /** Dated usage reports do not need message histories. */
+  async listUsage(): Promise<Array<Omit<AntigravitySessionRecord, "messages">>> {
+    await this.load();
+    const persisted = await this.persistence.loadUsage();
+    return persisted.map(record => this.persistence.isUnloaded(record.tauThreadId) ? record : this.records.get(record.tauThreadId) ?? record)
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(record => {
+        const { messages: _messages, ...usage } = cloneRecord({ ...record, messages: [] });
+        return usage;
+      });
+  }
+
+  private async hydrateMany(threadIds: string[]): Promise<void> {
+    const ids = threadIds.filter(id => this.persistence.isUnloaded(id));
+    if (!ids.length) return;
+    await this.persistence.loadSessions(ids);
+  }
+
+  private async hydrate(tauThreadId: string): Promise<void> {
+    if (!this.persistence.isUnloaded(tauThreadId)) return;
+    await this.persistence.loadSession(tauThreadId);
+  }
+
   async get(tauThreadId: string): Promise<AntigravitySessionRecord | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     return record ? cloneRecord(record) : undefined;
   }
@@ -190,11 +219,13 @@ export class AntigravitySessionStore {
   /** A listed thread's tallies, for its row before it opens; `origin` names a thread that kept only its total. */
   talliesOf(tauThreadId: string, origin?: (record: AntigravitySessionRecord) => { provider?: string; model?: string }): UsageTally[] {
     const record = this.records.get(tauThreadId);
-    return record ? talliesOfRecord(record, origin?.(record)) : [];
+    const summary = this.persistence.isUnloaded(tauThreadId) ? this.persistence.usageTallies(tauThreadId) : undefined;
+    return summary ? summary as UsageTally[] : record ? talliesOfRecord(record, origin?.(record)) : [];
   }
 
   async list(cwd?: string): Promise<AntigravitySessionRecord[]> {
     await this.load();
+    await this.hydrateMany([...this.records.values()].filter((record) => cwd === undefined || record.cwd === cwd).map(record => record.tauThreadId));
     return [...this.records.values()].filter((record) => cwd === undefined || record.cwd === cwd).sort((left, right) => right.updatedAt - left.updatedAt).map(cloneRecord);
   }
 
@@ -206,12 +237,13 @@ export class AntigravitySessionStore {
       .map((record) => {
         const { messages, usageTurns: _usageTurns, ...metadata } = record;
         const firstUser = sessionMessageIndex(messages).firstUser;
-        return { ...cloneRecord({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: messages.length };
+        return { ...cloneRecord({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: this.persistence.messageCount(record.tauThreadId) ?? messages.length };
       });
   }
 
   private async ensureRecord(tauThreadId: string, cwd: string): Promise<AntigravitySessionRecord> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const existing = this.records.get(tauThreadId);
     if (existing) {
       if (existing.cwd !== cwd) throw new Error("This thread belongs to another workspace.");
@@ -224,6 +256,7 @@ export class AntigravitySessionStore {
   /** The thread's record, created when it has none. */
   async ensure(tauThreadId: string, cwd: string): Promise<AntigravitySessionRecord> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const existing = this.records.get(tauThreadId);
     if (existing && existing.cwd === cwd) return cloneRecord(existing);
     if (existing) throw new Error("Antigravity session belongs to another workspace.");
@@ -311,6 +344,7 @@ export class AntigravitySessionStore {
   /** Takes a thread's record out for the host's trash; the CLI's own history stays where it is. */
   async take(tauThreadId: string): Promise<AntigravitySessionRecord | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     if (!record) return undefined;
     this.records.delete(tauThreadId);

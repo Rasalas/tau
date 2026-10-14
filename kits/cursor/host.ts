@@ -198,7 +198,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
       };
 
       /** A thread's shell; the instance's model names tell whose model it ran on. */
-      const record = (entry: Awaited<ReturnType<CursorSessionStore["list"]>>[number], names: ReadonlyMap<string, string>): HostBackendThreadRecord => {
+      const record = (entry: Awaited<ReturnType<CursorSessionStore["list"]>>[number] & { messageCount?: number }, names: ReadonlyMap<string, string>): HostBackendThreadRecord => {
         const model = entry.model ?? entry.observedModel;
         const name = model ? names.get(model) : undefined;
         // Cursor keeps a total only, unnamed as the open thread shows it: priced as Cursor reported it.
@@ -210,6 +210,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
           updatedAt: entry.updatedAt,
           messages: entry.messages,
+          ...(entry.messageCount !== undefined ? { messageCount: entry.messageCount } : {}),
           ...(model ? { model: { provider: cursorModelProvider({ id: model, ...(name ? { name } : {}) }), id: model } } : {}),
           ...(usage.length ? { usage } : {}),
         };
@@ -278,7 +279,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           ownPlan: true,
           listThreads: async () => {
             const names = await modelNames(id);
-            return (await store.list(id)).map((entry) => record(entry, names));
+            return (await store.listMetadata(id)).map((entry) => record(entry, names));
           },
           removeThread: async (threadId) => {
             const taken = await store.take(threadId);
@@ -333,7 +334,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
       };
 
       const instancesReport = async (): Promise<CursorInstancesReport> => {
-        const threads = await store.list();
+        const threads = await store.listMetadata();
         return {
           instances: settings.list().map((instance) => ({
             ...instance,
@@ -430,7 +431,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
       });
       // Each thread's running total, for the Usage kit; read from the store, never from Cursor.
       context.registerCommand("usage", async () => ({
-        threads: (await store.list()).map((entry) => {
+        threads: (await store.listMetadata()).map((entry) => {
           const model = entry.model ?? entry.observedModel;
           return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),

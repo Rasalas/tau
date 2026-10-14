@@ -194,6 +194,10 @@ export class OpenCodeSessionStore {
       filePath: options.filePath,
       version: CURRENT_VERSION,
       logger: options.logger,
+      publishHydrated: (id, record) => {
+        if (record) this.records.set(id, record);
+        else this.records.delete(id);
+      },
       decode: decodeFile,
     });
   }
@@ -208,7 +212,7 @@ export class OpenCodeSessionStore {
   }
 
   private load(): Promise<void> {
-    this.loading ??= this.persistence.load()
+    this.loading ??= this.persistence.loadMetadata()
       .then((data) => {
         for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record);
         this.models = new Map(Object.entries(data?.models ?? {}));
@@ -217,8 +221,20 @@ export class OpenCodeSessionStore {
     return this.loading;
   }
 
+  private async hydrateMany(threadIds: string[]): Promise<void> {
+    const ids = threadIds.filter(id => this.persistence.isUnloaded(id));
+    if (!ids.length) return;
+    await this.persistence.loadSessions(ids);
+  }
+
+  private async hydrate(tauThreadId: string): Promise<void> {
+    if (!this.persistence.isUnloaded(tauThreadId)) return;
+    await this.persistence.loadSession(tauThreadId);
+  }
+
   async get(tauThreadId: string): Promise<OpenCodeSessionRecord | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     return record ? clone(record) : undefined;
   }
@@ -226,15 +242,31 @@ export class OpenCodeSessionStore {
   /** Every thread, or those of one instance (`default` included). */
   async list(instance?: string): Promise<OpenCodeSessionRecord[]> {
     await this.load();
+    await this.hydrateMany([...this.records.values()]
+      .filter((record) => instance === undefined || sameInstance(record, instance)).map(record => record.tauThreadId));
     return [...this.records.values()]
       .filter((record) => instance === undefined || sameInstance(record, instance))
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .map(clone);
   }
 
+  /** Recovery and sidebar listing read the catalog, never histories. */
+  async listMetadata(instance?: string): Promise<Array<Omit<OpenCodeSessionRecord, "usageTurns"> & { messageCount: number }>> {
+    await this.load();
+    return [...this.records.values()].filter(record => instance === undefined || sameInstance(record, instance))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(record => {
+        const { messages, ...metadata } = record;
+        const firstUser = messages.find(message => message.role === "user");
+        const result = { ...clone({ ...metadata, messages: firstUser ? [firstUser] : [] }), messageCount: this.persistence.messageCount(record.tauThreadId) ?? messages.length };
+        return result;
+      });
+  }
+
   /** The thread's record, created on the given instance when it has none. */
   async ensure(tauThreadId: string, cwd: string, instance?: string): Promise<OpenCodeSessionRecord> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const existing = this.records.get(tauThreadId);
     if (existing && existing.cwd !== cwd) throw new Error("This OpenCode thread belongs to another workspace.");
     if (existing && instance !== undefined && !sameInstance(existing, instance)) throw new Error("This OpenCode thread runs on another instance.");
@@ -248,6 +280,7 @@ export class OpenCodeSessionStore {
 
   private async update(tauThreadId: string, cwd: string, change: (record: OpenCodeSessionRecord) => void): Promise<void> {
     await this.load();
+    await this.hydrate(tauThreadId);
     if (!this.records.has(tauThreadId)) await this.ensure(tauThreadId, cwd);
     const record = this.records.get(tauThreadId)!;
     if (record.cwd !== cwd) throw new Error("This OpenCode thread belongs to another workspace.");
@@ -360,6 +393,7 @@ export class OpenCodeSessionStore {
   /** Takes a thread's record out for the host's trash; OpenCode's own session stays. */
   async take(tauThreadId: string): Promise<OpenCodeSessionRecord | undefined> {
     await this.load();
+    await this.hydrate(tauThreadId);
     const record = this.records.get(tauThreadId);
     if (!record) return undefined;
     this.records.delete(tauThreadId);

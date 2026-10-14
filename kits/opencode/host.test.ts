@@ -263,7 +263,8 @@ describe("OpenCode host half", () => {
     expect(outcome.imported).toHaveLength(1);
     expect(outcome.failed).toEqual([{ path: "ses_missing", reason: "not a session of OpenCode" }]);
     const [thread] = await provider.listThreads();
-    expect(thread).toMatchObject({ cwd: "/work/app", title: "Fix the flaky test", messages: [{ role: "user", text: "Fix the flaky test" }, { role: "assistant", text: "Done." }] });
+    expect(thread).toMatchObject({ cwd: "/work/app", title: "Fix the flaky test", messageCount: 2, messages: [{ role: "user", text: "Fix the flaky test" }] });
+    expect((await provider.lookup!(thread!.threadId))?.messages).toMatchObject([{ role: "user", text: "Fix the flaky test" }, { role: "assistant", text: "Done." }]);
     await expect(onboarding.call!("import-sessions", { paths: ["ses_old"] })).resolves.toMatchObject({ imported: [], skipped: 1 });
     expect(((await onboarding.call!("import-scan")) as { sessions: Array<{ imported: boolean }> }).sessions[0]!.imported).toBe(true);
   });
