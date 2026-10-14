@@ -18,7 +18,7 @@ import type {
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
-import { Popover, AttachmentLightbox, ComposerMenuItem, ComposerMenuPopover, ComposerSendChooser, ExtensionPrompt, PlanSheet, ThinkingMenu } from "../deferred-surfaces";
+import { Popover, AttachmentLightbox, ComposerMenuItem, ComposerMenuPopover, ComposerSendChooser, ExtensionPrompt, PlanSheet, QueueShelf, ThinkingMenu } from "../deferred-surfaces";
 import { sendChoices, type SendChoice } from "./composer-send-choice";
 import { tooltipProps } from "./ui/Tooltip";
 import { contextChoices, formatTokens, modelFamily, modelKey, offeringKey } from "./model-offerings";
@@ -142,7 +142,10 @@ export function Composer({
   onAbort,
   onCancelQueued,
   onSteerQueued,
-  onOpenQueue,
+  queueHeld = false,
+  onReturnQueued,
+  onReorderQueue,
+  onPlanQueued,
   onSetModel,
   onSetThinking,
   runtimeChoice,
@@ -184,8 +187,13 @@ export function Composer({
   onCancelQueued(id: string): void;
   /** Sends one queued message now, ahead of the rest of the queue. */
   onSteerQueued(id: string): void;
-  /** Brings the queued messages into view; "N queued" in the footer is a button when this is given. */
-  onOpenQueue?(): void;
+  /** A restart, a stop or a limit held the queue: nothing in its line leaves until the user sends. */
+  queueHeld?: boolean;
+  /** Takes a queued message back into the composer to edit. */
+  onReturnQueued?(id: string): void;
+  onReorderQueue?(id: string, toIndex: number): void;
+  /** Gives a waiting message another time. */
+  onPlanQueued?(id: string, deliverAt: number): void;
   onSetModel(provider: string, id: string): void;
   onSetThinking(level: string): void;
   /** Offered while the composer targets a thread that does not exist yet. */
@@ -729,9 +737,6 @@ export function Composer({
   const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean, plain?: boolean) => void>(() => {});
   const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
-  // "2 queued", "1 planned", or both: a planned message does not wait for the turn.
-  const plannedCount = queue.filter((entry) => entry.deliverAt !== undefined).length;
-  const queuedLabel = [queue.length > plannedCount ? `${queue.length - plannedCount} queued` : "", plannedCount > 0 ? `${plannedCount} planned` : ""].filter(Boolean).join(" · ");
   // The send menu and Plan belong to a thread that exists, outside a question and a kit's send mode.
   const canChoose = !newThread && !draftOnOtherRuntime && Boolean(snapshot) && !answerable && !readOnly && !mobileComposer && !(sendMode || sendModeBusyHere);
   // Why sending is held now: the button's tooltip says it, and a key pressed anyway gets it as a notice.
@@ -965,9 +970,6 @@ export function Composer({
         onSelect={onCompactContext}
       />,
     }] : []),
-    ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: onOpenQueue
-      ? <button type="button" className="composer-queued" {...tooltipProps("Show the queued messages")} onClick={onOpenQueue}>{queuedLabel}</button>
-      : <span className="composer-queued">{queuedLabel}</span> }] : []),
   ];
 
   const attachmentControl = (
@@ -1002,6 +1004,20 @@ export function Composer({
     // `question`: the agent awaits an answer; a chord for the prompt field (Plan's Shift+Tab) stands back.
     <footer className="composer-zone" data-keybinding-context={prompt ? "composer question" : "composer"}>
       <div className="composer-surface" data-composer-surface="true">
+      {/* What waits, as a tab over the composer (design G1); a question and the composer tuck over it. */}
+      {queue.length > 0 && !newThread ? (
+        <QueueShelf
+          queue={queue}
+          streaming={streaming}
+          held={queueHeld}
+          {...(registry?.keybindingLabel?.("thread.steerQueuedMessage") ? { steerShortcut: registry.keybindingLabel("thread.steerQueuedMessage") } : {})}
+          onSteer={onSteerQueued}
+          onEdit={(id) => onReturnQueued ? onReturnQueued(id) : onCancelQueued(id)}
+          onRemove={onCancelQueued}
+          onMoveToFront={(id) => onReorderQueue?.(id, 0)}
+          {...(onPlanQueued ? { onPlan: onPlanQueued } : {})}
+        />
+      ) : null}
       {prompt ? (() => {
         // An extension that recognises the prompt draws it; core draws the four dialogs.
         const promptRenderer = registry?.getPromptRenderer(prompt);

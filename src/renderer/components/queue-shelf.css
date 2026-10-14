@@ -1,0 +1,55 @@
+/*
+ * "Next" over the composer (design G1): a tab inset by the composer's radius,
+ * so its edges stand on the composer's straight top edge, and tucked that far
+ * under it, so it has no bottom edge of its own.
+ */
+.queue-shelf {
+  position: relative; display: flex; flex-direction: column; gap: 4px;
+  margin: 0 var(--composer-tab-inset, 22px) calc(-1 * var(--composer-tab-inset, 22px));
+  padding: 9px 10px calc(var(--composer-tab-inset, 22px) + 8px) 14px;
+  border-radius: 16px 16px 0 0; background: var(--sunken); box-shadow: inset 0 1px 0 var(--edge-highlight);
+  font: var(--text-sm)/1.45 var(--sans); color: var(--ink-2);
+}
+.queue-shelf > header { display: flex; align-items: center; gap: 7px; min-height: 22px; color: var(--faint); font-size: var(--text-xs); }
+.queue-shelf > header > b { font-weight: 500; color: var(--acid-text); }
+.queue-shelf.held > header > b { color: var(--warn); }
+.queue-shelf-more {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border: 0; border-radius: var(--radius-pill);
+  background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); cursor: pointer;
+}
+.queue-shelf-more:hover { background: var(--raised); color: var(--ink); }
+.queue-shelf-more > svg { transition: transform .15s var(--ease); }
+.queue-shelf-more[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.queue-shelf-text {
+  margin: 0; color: var(--ink-2); font-size: var(--text-md); white-space: pre-wrap; overflow-wrap: anywhere; cursor: text;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.queue-shelf > footer { display: flex; align-items: center; gap: 2px; margin-left: -6px; }
+.queue-shelf > footer > .spacer { flex: 1; }
+.queue-shelf-action {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border: 0; border-radius: var(--radius-pill);
+  background: transparent; color: var(--muted); font: var(--text-xs) var(--sans); white-space: nowrap; cursor: pointer;
+}
+.queue-shelf-action:hover { background: var(--raised); color: var(--ink); }
+.queue-shelf-action.primary { color: var(--acid-text); box-shadow: inset 0 0 0 1px var(--acid-line); }
+.queue-shelf-action.primary:hover { background: var(--acid-chip); color: var(--acid-text); }
+.queue-shelf-icon {
+  flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-pill);
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.queue-shelf-icon:hover { background: var(--raised); color: var(--ink); }
+.queue-shelf-rest { display: flex; flex-direction: column; gap: 1px; margin: 4px -6px 0; padding: 6px 0 0; border-top: 1px solid var(--line-inset); list-style: none; }
+.queue-shelf-row { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 2px 0 8px; border-radius: 10px; }
+.queue-shelf-row:hover, .queue-shelf-row:focus-within { background: var(--hover); }
+.queue-shelf-row > svg { flex: none; color: var(--faint); }
+.queue-shelf-row > svg.planned, .queue-shelf-row > small.planned { color: var(--acid-text); }
+.queue-shelf-row-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); cursor: text; }
+.queue-shelf-row > small { flex: none; color: var(--faint); font-size: var(--text-xs); white-space: nowrap; }
+.queue-shelf-row-actions { display: none; align-items: center; gap: 2px; }
+.queue-shelf-row:is(:hover, :focus-within) > .queue-shelf-row-actions { display: flex; }
+.queue-shelf-row:is(:hover, :focus-within) > small { display: none; }
+/* A touch screen has no pointer to hover with: the row's actions stay. */
+@media (hover: none) {
+  .queue-shelf-row-actions { display: flex; }
+  .queue-shelf-row > small { display: none; }
+}

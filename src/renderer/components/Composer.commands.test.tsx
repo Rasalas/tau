@@ -194,9 +194,10 @@ describe("Composer command menu", () => {
       onCompactContext={() => {}}
     /></TestProviders>);
 
+    // The queue's tab sits above the question; nothing comes between the question and its field.
     const stack = container.querySelector(".composer-surface");
-    expect(Array.from(stack?.children ?? []).slice(0, 2).map((element) => element.classList[0]))
-      .toEqual(["prompt-arrival", "composer-frame"]);
+    expect(Array.from(stack?.children ?? []).slice(0, 3).map((element) => element.classList[0]))
+      .toEqual(["queue-shelf", "prompt-arrival", "composer-frame"]);
     expect(stack?.querySelector(".prompt-arrival > .extension-prompt")).not.toBeNull();
   });
 

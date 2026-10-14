@@ -43,6 +43,17 @@ function hostQueue(client: FakeHostClient) {
   return { items, publish, deliverHead };
 }
 
+/** The queue shelf over the composer, when something waits. */
+const shelf = () => screen.queryByRole("region", { name: "Queued messages" });
+/** What waits, in order: the next message, then the rest, opened if needed. */
+function waiting(): Array<string | null | undefined> {
+  const found = shelf();
+  if (!found) return [];
+  const more = within(found).queryByRole("button", { name: /Then \d+ more/u });
+  if (more?.getAttribute("aria-expanded") === "false") fireEvent.click(more);
+  return [found.querySelector(".queue-shelf-text")?.textContent, ...[...found.querySelectorAll(".queue-shelf-row-text")].map((row) => row.textContent)];
+}
+
 /** Queues a follow-up while a turn runs: Enter steers, so it goes through the send menu (⌘↵, then ↵ on Queue). */
 async function queueFollowUp(composer: HTMLElement, text: string) {
   fireEvent.change(composer, { target: { value: text } });
@@ -493,22 +504,21 @@ describe("last-turn activity", () => {
     const composer = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
     await queueFollowUp(composer, "after this turn");
 
-    await waitFor(() => expect(screen.getByRole("listitem").textContent).toContain("after this turn"));
+    await waitFor(() => expect(waiting()).toEqual(["after this turn"]));
     expect(client.queueMessage).toHaveBeenCalledWith("session", "after this turn", [], undefined);
     expect(composer.value).toBe("");
     // Neither the runtime nor the window sends it; the host does when the run ends.
     expect(followUp).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(view.container.querySelector(".transcript .queued-message")?.textContent).toContain("after this turn");
+    // It waits over the composer, not at the end of the transcript.
+    expect(view.container.querySelector(".composer-zone .queue-shelf")?.textContent).toContain("after this turn");
+    expect(view.container.querySelector(".transcript .queue-shelf")).toBeNull();
     expect(view.container.querySelector(".transcript .message.user")).toBeNull();
 
-    // "1 queued" in the footer takes the keyboard to the queue.
-    fireEvent.click(screen.getByRole("button", { name: "1 queued" }));
-    expect(view.container.querySelector(".transcript .queued-messages")?.contains(document.activeElement)).toBe(true);
 
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
     queue.deliverHead();
-    await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());
+    await waitFor(() => expect(shelf()).toBeNull());
     expect(sendPrompt).not.toHaveBeenCalled();
   });
 
@@ -519,10 +529,10 @@ describe("last-turn activity", () => {
     act(() => client.emit({ type: "user-message", sessionId: "session", message: { id: "u1", role: "user", text: "earlier work", timestamp: 1 } }));
     queue.items.push({ id: "restored", text: "from before the restart", attachments: [] });
     queue.publish({ held: true });
-    await waitFor(() => expect(screen.getByRole("listitem").textContent).toContain("Held"));
+    await waitFor(() => expect(shelf()?.textContent).toContain("Held"));
   });
 
-  it("steers the head of the queue with Cmd+Enter on an empty field or its Send now button", async () => {
+  it("steers the head of the queue with Cmd+Enter on an empty field or its Steer now button", async () => {
     const steer = vi.fn(async () => undefined);
     client.followUp = vi.fn(async () => undefined);
     client.steer = steer;
@@ -533,18 +543,18 @@ describe("last-turn activity", () => {
 
     const composer = screen.getByPlaceholderText(/queue a follow-up/u);
     await queueFollowUp(composer, "first");
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    await waitFor(() => expect(waiting()).toHaveLength(1));
     await queueFollowUp(composer, "second");
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
+    await waitFor(() => expect(waiting()).toHaveLength(2));
 
     fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
     await waitFor(() => expect(steer).toHaveBeenCalledWith("first", [], "session", expect.anything(), undefined));
-    await waitFor(() => expect(screen.getAllByRole("listitem").map((row) => row.querySelector("p")?.textContent)).toEqual(["second"]));
+    await waitFor(() => expect(waiting()).toEqual(["second"]));
     expect(screen.getByText("first")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+    fireEvent.click(within(shelf()!).getByRole("button", { name: /Steer now/u }));
     await waitFor(() => expect(steer).toHaveBeenCalledWith("second", [], "session", expect.anything(), undefined));
-    await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());
+    await waitFor(() => expect(shelf()).toBeNull());
   });
 
   it("returns a queued message to the composer, and Stop returns the whole queue", async () => {
@@ -559,15 +569,16 @@ describe("last-turn activity", () => {
     const composer = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
     for (const [index, text] of ["first", "second", "third"].entries()) {
       await queueFollowUp(composer, text);
-      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(index + 1));
+      await waitFor(() => expect(waiting()).toHaveLength(index + 1));
     }
-    fireEvent.click(within(screen.getAllByRole("listitem")[1]!).getByRole("button", { name: "Edit in the composer" }));
+    waiting();
+    fireEvent.click(within(shelf()!).getByText("second"));
     await waitFor(() => expect(composer.value).toBe("second"));
-    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(waiting()).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "Stop the run" }));
     await waitFor(() => expect(composer.value).toBe("second\n\nfirst\n\nthird"));
-    expect(screen.queryByRole("listitem")).toBeNull();
+    expect(shelf()).toBeNull();
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: false }));
     expect(sendPrompt).not.toHaveBeenCalled();
   });

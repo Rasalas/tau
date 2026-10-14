@@ -10,8 +10,8 @@ import { deferred, deferredModule, preloadDeferredWhenIdle } from "./components/
 
 export const Menu = deferred(() => import("./components/Menu").then((module) => module.Menu));
 export const TranscriptSearch = deferred(() => import("./components/TranscriptSearch").then((module) => module.TranscriptSearch));
-export const QueuedMessages = deferred(
-  () => import("./components/QueuedMessages").then((module) => module.QueuedMessages),
+export const QueueShelf = deferred(
+  () => import("./components/QueueShelf").then((module) => module.QueueShelf),
   ({ queue }) => queue.length > 0,
 );
 export const ExtensionPrompt = deferred(() => import("./components/ExtensionPrompt").then((module) => module.ExtensionPrompt));
