@@ -6,6 +6,7 @@ export interface PreviewPlacement {
   place(rect: PreviewRect, visible: boolean, offscreen?: boolean): void;
   /** Whether the user can see the view now, so its compositor has a current frame. */
   onScreen(): boolean;
+  diagnostics(): { visible: boolean; minimized: boolean; bounds: PreviewRect } | null;
   destroy(): void;
 }
 
@@ -91,6 +92,7 @@ export function placePreviewView(window: BrowserWindow, view: WebContentsView): 
       else apply();
     },
     onScreen: () => !stage && placed?.visible === true && windowPaints(),
+    diagnostics: () => stage ? { visible: stage.isVisible(), minimized: stage.isMinimized(), bounds: stage.getBounds() } : null,
     destroy() {
       if (destroyed) return;
       destroyed = true;

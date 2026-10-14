@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { cleanSmoke, describeCleanup, readStarted, xLockPath } from "./smoke-processes.mjs";
 import { openDisplayPreview } from "./display-smoke-preview.mjs";
+import { createDisplayFrameReader } from "./display-smoke-diagnostics.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MAIN = join(ROOT, "dist-electron", "main");
@@ -196,7 +197,7 @@ delete env.ELECTRON_RUN_AS_NODE;
 const DESKTOP = { WAYLAND_DISPLAY: "wayland-0", WAYLAND_SOCKET: "3", XDG_SESSION_TYPE: "wayland" };
 Object.assign(env, DESKTOP);
 const FAKE_MANAGER = join(ROOT, "scripts", "fake-service-manager.mjs");
-execFileSync(process.execPath, [FAKE_MANAGER, "systemctl", "--user", "set-environment", ...Object.entries(DESKTOP).map(([key, value]) => `${key}=${value}`)], { env, stdio: "inherit" });
+execFileSync(process.execPath, [FAKE_MANAGER, "systemctl", "--user", "set-environment", ...Object.entries(DESKTOP).map(([key, value]) => `${key}=${value}`), "TAU_DISPLAY_SMOKE_DIAGNOSTICS=1"], { env, stdio: "inherit" });
 /** The desktop's variables a process started with. */
 const desktopIn = (pid) => readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").filter((entry) => Object.keys(DESKTOP).includes(entry.split("=")[0]));
 const manager = new HostServiceManager({ execPath: electronPath, entry: HOST_ENTRY, userData, env, home });
@@ -266,15 +267,7 @@ try {
   if (!windowArgs.includes("--ozone-platform=x11")) fail(`the window is not told to use X11: ${windowArgs.join(" ")}`);
   step("the window runs on X11, without the desktop's Wayland");
 
-  let lastError;
-  const frame = async () => {
-    let shot = null;
-    await waitFor(async () => {
-      shot = await preview("mini-frame").catch((error) => { if (error.message !== lastError) console.log(`  (no frame yet: ${error.message})`); lastError = error.message; return null; });
-      return shot?.data;
-    }, "a frame of the page", 30_000);
-    return shot;
-  };
+  const frame = createDisplayFrameReader(preview, waitFor);
   const shot = await frame();
   const bytes = Buffer.from(shot.data, "base64");
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || shot.width <= 0 || shot.height <= 0) fail(`the frame is no picture: ${shot.width}×${shot.height}, ${bytes.length} bytes`);

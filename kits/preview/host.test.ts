@@ -76,27 +76,39 @@ async function activate(createSurface: (options: PreviewSurfaceOptions) => Promi
   return { ...context, tools, call, text };
 }
 
-describe("preview observation", () => {
-  it("does not start a missing window just to release observation demand", async () => {
+describe("smoke diagnostics routing", () => {
+  it("registers only in the smoke environment and forwards no page fields or surface creation", async () => {
+    const createSurface = vi.fn(async () => fakeSurface().surface);
+    const callClient = vi.fn(async () => ({ available: false }));
     let window: string | undefined = "w1";
-    const callClient = vi.fn(async () => undefined);
-    const registry = await activateHostKit(createPreviewHostExtension(async (options) => {
-      const made = fakeSurface({ setObserved: (observed) => { void options.callClient!("observed", { observed }); } });
-      return made.surface;
-    }), {
+    const services = {
       stateDir: "/state",
       registerRuntimeExtension: () => () => undefined,
       registerTurnObserver: () => () => undefined,
       clientWindow: () => window,
       callClient,
-    });
-    await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:3000" });
-    await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "hold", { on: true });
-    callClient.mockClear();
-    window = undefined;
-    await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "hold", { on: false });
-    expect(callClient).not.toHaveBeenCalled();
-    registry.deactivate(PREVIEW_HOST_EXTENSION_ID);
+    };
+    vi.stubEnv("TAU_DISPLAY_SMOKE_DIAGNOSTICS", "0");
+    const normal = await activateHostKit(createPreviewHostExtension(createSurface), services);
+    try {
+      await expect(normal.invoke(PREVIEW_HOST_EXTENSION_ID, "smoke-diagnostics", {})).rejects.toThrow();
+      vi.stubEnv("TAU_DISPLAY_SMOKE_DIAGNOSTICS", "1");
+      const smoke = await activateHostKit(createPreviewHostExtension(createSurface), services);
+      try {
+        await expect(smoke.invoke(PREVIEW_HOST_EXTENSION_ID, "smoke-diagnostics", { capturePage: true, url: "secret" })).resolves.toEqual({ available: false });
+        expect(callClient).toHaveBeenCalledWith(PREVIEW_HOST_EXTENSION_ID, "smoke-diagnostics", { capturePage: true }, { window: "w1" });
+        expect(createSurface).not.toHaveBeenCalled();
+        window = undefined;
+        callClient.mockClear();
+        await expect(smoke.invoke(PREVIEW_HOST_EXTENSION_ID, "smoke-diagnostics", { capturePage: true })).resolves.toEqual({ available: false, windowAttached: false });
+        expect(callClient).not.toHaveBeenCalled();
+      } finally {
+        smoke.deactivate(PREVIEW_HOST_EXTENSION_ID);
+      }
+    } finally {
+      normal.deactivate(PREVIEW_HOST_EXTENSION_ID);
+      vi.unstubAllEnvs();
+    }
   });
 });
 

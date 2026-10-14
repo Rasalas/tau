@@ -1,4 +1,4 @@
-import { BrowserWindow, ClipboardItem, WebContentsView, clipboard, nativeImage, session, shell, type ContextMenuParams, type Debugger, type NativeImage } from "electron";
+import { app, BrowserWindow, ClipboardItem, WebContentsView, clipboard, nativeImage, session, shell, type ContextMenuParams, type Debugger, type NativeImage } from "electron";
 import { sep } from "node:path";
 import { downloadPreviewFile } from "./download.js";
 import { isWebLink, previewMenuEntries, type PreviewMenuAction } from "./context-menu.js";
@@ -13,6 +13,9 @@ import { cdpInputCommands, type PreviewPageInput } from "./remote-input.js";
 import { placePreviewView } from "./view-placement.js";
 import type { PreviewDeviceMetrics } from "./device-layout.js";
 import { PREVIEW_WINDOW_UNAVAILABLE } from "./window-availability.js";
+import { observePreviewSmoke, observePreviewSmokeProcesses } from "./smoke-diagnostics.js";
+
+const smokeDiagnostics = new WeakMap<PreviewSurface, ReturnType<typeof observePreviewSmoke>>();
 
 /** Cookies and storage of previewed sites stay out of the workbench's own session. */
 const DEFAULT_PARTITION = "persist:tau-preview";
@@ -80,7 +83,7 @@ export function fileUrlAllowed(url: string, workspaceRoot: string): boolean {
  * session, with no Node, no device permissions and no way out of the
  * workspace on `file://`.
  */
-export function createElectronPreviewSurface(options: PreviewSurfaceOptions, window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]): PreviewSurface | undefined {
+export function createElectronPreviewSurface(options: PreviewSurfaceOptions, window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0], processes?: ReturnType<typeof observePreviewSmokeProcesses>): PreviewSurface | undefined {
   if (!window || window.isDestroyed()) return undefined;
 
   // A profile is a partition: its own cookies, storage and cache.
@@ -109,26 +112,11 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
   view.setVisible(false);
   window.contentView.addChildView(view);
   const placement = placePreviewView(window, view);
+  const diagnostics = process.env.TAU_DISPLAY_SMOKE_DIAGNOSTICS === "1" ? observePreviewSmoke(contents, view, window, placement, app, processes) : undefined;
 
   const errors: string[] = [];
   let destroyed = false;
   let recorder: PreviewRecorder | undefined;
-  let observed = false;
-  let recording = false;
-  let captures = 0;
-  let throttled = true;
-  const updateThrottling = (): void => {
-    if (destroyed || contents.isDestroyed()) return;
-    const needsFrames = observed || recording || captures > 0;
-    const next = placement.onScreen() || !needsFrames;
-    if (next === throttled) return;
-    contents.setBackgroundThrottling(next);
-    throttled = next;
-  };
-  window.on("minimize", updateThrottling);
-  window.on("hide", updateThrottling);
-  window.on("restore", updateThrottling);
-  window.on("show", updateThrottling);
   let pageZoom = 1;
   let appearance: PreviewAppearance = "system";
   const note = (message: string): void => {
@@ -287,7 +275,6 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
       const key = next ? JSON.stringify(next) : "";
       if (key === deviceKey) {
         placement.place(rect, visible, device !== undefined);
-        updateThrottling();
         return;
       }
       deviceKey = key;
@@ -295,18 +282,8 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
       const token = ++placing;
       emulation = emulation.then(() => emulate(next)).catch((error: unknown) => note(`device layout: ${error instanceof Error ? error.message : String(error)}`));
       // Shown only once the page has the layout for it, so the window never draws the other one.
-      void emulation.then(() => {
-        if (!destroyed && token === placing) {
-          placement.place(rect, visible, next !== undefined);
-          updateThrottling();
-        }
-      });
+      void emulation.then(() => { if (!destroyed && token === placing) placement.place(rect, visible, next !== undefined); });
       if (!visible) placement.place(rect, visible, next !== undefined);
-      updateThrottling();
-    },
-    setObserved(next) {
-      observed = next;
-      updateThrottling();
     },
     async load(url: string, timeoutMs: number) {
       const settled = new Promise<void>((resolve) => {
@@ -371,46 +348,26 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
     },
     async capture(maxWidth: number, rect?: PreviewRect, jpeg?: boolean) {
       await emulation;
-      captures += 1;
-      updateThrottling();
-      try {
-        // A view on screen shows a device's layout scaled; the protocol's screenshot has it at its own size.
-        const image = placement.onScreen() && !device ? await (rect ? contents.capturePage(rect) : contents.capturePage()) : await captureHidden(rect, jpeg);
-        const size = image.getSize();
-        const scaled = size.width > maxWidth
-          ? image.resize({ width: maxWidth, height: Math.max(1, Math.round(size.height * (maxWidth / size.width))), quality: jpeg ? "better" : "good" })
-          : image;
-        const final = scaled.getSize();
-        return { base64: (jpeg ? scaled.toJPEG(72) : scaled.toPNG()).toString("base64"), width: final.width, height: final.height };
-      } finally {
-        captures -= 1;
-        updateThrottling();
-      }
+      // A view on screen shows a device's layout scaled; the protocol's screenshot has it at its own size.
+      const image = placement.onScreen() && !device ? await (rect ? contents.capturePage(rect) : contents.capturePage()) : await captureHidden(rect, jpeg);
+      const size = image.getSize();
+      const scaled = size.width > maxWidth
+        ? image.resize({ width: maxWidth, height: Math.max(1, Math.round(size.height * (maxWidth / size.width))), quality: jpeg ? "better" : "good" })
+        : image;
+      const final = scaled.getSize();
+      return { base64: (jpeg ? scaled.toJPEG(72) : scaled.toPNG()).toString("base64"), width: final.width, height: final.height };
     },
     async record(action, recordOptions) {
       if (destroyed) throw new Error("The preview is closed.");
       if (action === "start") {
         recorder ??= new PreviewRecorder(contents, recordOptions);
-        recording = true;
-        updateThrottling();
-        try {
-          return await recorder.start();
-        } catch (error) {
-          recording = false;
-          updateThrottling();
-          throw error;
-        }
+        return recorder.start();
       }
       const active = recorder;
       if (!active) return { chunks: [], mimeType: "video/webm" };
       if (action === "take") return active.take();
       recorder = undefined;
-      try {
-        return await active.stop();
-      } finally {
-        recording = false;
-        updateThrottling();
-      }
+      return active.stop();
     },
     async input(event: PreviewPageInput) {
       if (destroyed) throw new Error("The preview is closed.");
@@ -427,19 +384,17 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      diagnostics?.dispose();
       recorder?.dispose();
       recorder = undefined;
       if (contents.debugger.isAttached()) contents.debugger.detach();
       window.off("closed", closeWithWindow);
-      window.off("minimize", updateThrottling);
-      window.off("hide", updateThrottling);
-      window.off("restore", updateThrottling);
-      window.off("show", updateThrottling);
       placement.destroy();
       if (!contents.isDestroyed()) contents.close();
       options.log("preview.closed");
     },
   };
+  if (diagnostics) smokeDiagnostics.set(surface, diagnostics);
   options.log("preview.opened", partition);
   return surface;
 }
@@ -498,6 +453,7 @@ function snapshot(surface: PreviewSurface, result?: unknown): PreviewSnapshot {
  * state back, and a change between calls is reported with `view-changed`.
  */
 export default function activatePreviewWindowHalf(context: WindowExtensionContext): WindowExtension {
+  const processes = process.env.TAU_DISPLAY_SMOKE_DIAGNOSTICS === "1" ? observePreviewSmokeProcesses(app) : undefined;
   let surface: PreviewSurface | undefined;
   let partition = DEFAULT_PARTITION;
   let workspaceRoot = "";
@@ -521,7 +477,7 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
       workspaceRoot: () => workspaceRoot,
       log: (label, detail) => context.log(label, detail),
       ...(context.showContextMenu ? { showContextMenu: context.showContextMenu } : {}),
-    }, window);
+    }, window, processes);
     if (!created) throw new Error(PREVIEW_WINDOW_UNAVAILABLE);
     owner = window;
     surface = created;
@@ -533,6 +489,10 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
 
   return {
     handle(command: string, input?: unknown): unknown {
+      if (command === "smoke-diagnostics" && process.env.TAU_DISPLAY_SMOKE_DIAGNOSTICS === "1") {
+        const diagnostics = surface ? smokeDiagnostics.get(surface) : undefined;
+        return diagnostics?.read(fields(input).capturePage === true) ?? Promise.resolve({ available: false, ...(processes ? { processes: processes.read() } : {}) });
+      }
       // Before the view's own handling: an import names a partition without switching the view to it.
       if (command === "cookie-import-start") {
         // It may wait on the keychain longer than a client call lives; the result is reported back.
@@ -557,9 +517,6 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
           return snapshot(open());
         case "place":
           open().place(options.rect as PreviewRect, options.visible === true, readDevice(options.device));
-          return snapshot(open());
-        case "observed":
-          open().setObserved!(options.observed === true);
           return snapshot(open());
         case "load":
           return open().load(String(options.url ?? ""), Number(options.timeoutMs ?? 15_000)).then(() => snapshot(surface!));
@@ -599,6 +556,7 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
       }
     },
     dispose() {
+      processes?.dispose();
       surface?.destroy();
       surface = undefined;
     },
