@@ -1,7 +1,8 @@
 import { HostCommandError } from "tau/host-extension";
 
 /** Without a reset time from the host, the first pause lasts this long and doubles up to the cap. */
-const FIRST_PAUSE_MS = 60_000;
+const FIRST_PAUSE_MS = 30_000;
+const GITHUB_FIRST_PAUSE_MS = 60_000;
 const LONGEST_PAUSE_MS = 15 * 60_000;
 
 /** The CLIs say it in words; the APIs with 429 or GitHub's 403 with nothing remaining. */
@@ -51,7 +52,8 @@ export class RateLimitGate {
   record(kind: string, host: string, retryAt?: number, identity = ""): number {
     const key = this.key(kind, host, identity);
     const attempt = (this.paused.get(key)?.attempt ?? 0) + 1;
-    const fallback = this.now() + Math.min(FIRST_PAUSE_MS * 2 ** (attempt - 1), LONGEST_PAUSE_MS);
+    const firstPause = kind === "github" ? GITHUB_FIRST_PAUSE_MS : FIRST_PAUSE_MS;
+    const fallback = this.now() + Math.min(firstPause * 2 ** (attempt - 1), LONGEST_PAUSE_MS);
     const until = Math.max(this.paused.get(key)?.until ?? 0, retryAt && retryAt > this.now() ? retryAt : fallback);
     this.paused.set(key, { until, attempt });
     return until;
