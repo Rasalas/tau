@@ -158,6 +158,50 @@ describe("Message reasoning presentation", () => {
     expect(screen.getByText(/Thinking/u)).toBeTruthy();
   });
 
+  describe("while thinking streams", () => {
+    const streamingMessage = (thinking: string) => ({ id: "assistant", role: "assistant" as const, text: "", thinking, timestamp: 0 });
+    const view = (thinking: string, streaming = true) => (
+      <TestProviders><Message message={streamingMessage(thinking)} detail="detailed" streaming={streaming} /></TestProviders>
+    );
+    // jsdom has no layout, so the box gets a fixed size: 1000 px of text in a 384 px window.
+    const sizedBody = async (container: HTMLElement) => {
+      await screen.findByText("first");
+      const body = container.querySelector(".message-thinking-body") as HTMLElement;
+      Object.defineProperty(body, "scrollHeight", { configurable: true, value: 1000 });
+      Object.defineProperty(body, "clientHeight", { configurable: true, value: 384 });
+      return body;
+    };
+
+    it("keeps the newest text in view", async () => {
+      const { container, rerender } = render(view("first"));
+      const body = await sizedBody(container);
+      rerender(view("first second"));
+      expect(body.scrollTop).toBe(1000);
+    });
+
+    it("does not pull a reader back who scrolled up, and follows again once they return to the end", async () => {
+      const { container, rerender } = render(view("first"));
+      const body = await sizedBody(container);
+      body.scrollTop = 100;
+      fireEvent.scroll(body);
+      rerender(view("first second"));
+      expect(body.scrollTop).toBe(100);
+      body.scrollTop = 614;
+      fireEvent.scroll(body);
+      rerender(view("first second third"));
+      expect(body.scrollTop).toBe(1000);
+    });
+
+    it("leaves a finished thought where it is", async () => {
+      const { container, rerender } = render(view("first"));
+      const body = await sizedBody(container);
+      body.scrollTop = 616;
+      fireEvent.scroll(body);
+      rerender(view("first second", false));
+      expect(body.scrollTop).toBe(616);
+    });
+  });
+
   it("stamps the answer with its time only at everything", () => {
     const view = render(<TestProviders><Message message={reasoning} detail="everything" /></TestProviders>);
     expect(view.container.querySelector("time.message-stamp")).toBeTruthy();
