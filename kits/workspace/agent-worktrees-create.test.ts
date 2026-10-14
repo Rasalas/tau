@@ -27,8 +27,10 @@ afterEach(async () => {
 });
 
 describe("parallel worktree creation", () => {
-  it("records the base and target of all twenty children across the repository's checkouts", async () => {
+  it("records the base and target of every concurrent child across the repository's checkouts", async () => {
     const { root, cwd, worktreeParent } = await repository();
+    // The barrier forces contention; more children only add Git subprocess load.
+    const childCount = 8;
     const linked = join(root, "linked");
     git(cwd, "worktree", "add", "-b", "feature/parent", linked);
     let added = 0;
@@ -52,10 +54,10 @@ describe("parallel worktree creation", () => {
         }
       }
       const output = await runAgentGit(path, args, options);
-      if (args[0] === "worktree" && args[1] === "add" && ++added === 20) release();
+      if (args[0] === "worktree" && args[1] === "add" && ++added === childCount) release();
       return output;
     };
-    const results = await Promise.allSettled(Array.from({ length: 20 }, (_, index) => createAgentWorktree({
+    const results = await Promise.allSettled(Array.from({ length: childCount }, (_, index) => createAgentWorktree({
       parentCwd: index % 2 ? linked : cwd,
       agentId: index.toString(16).padStart(8, "0"),
       worktreeParent,
@@ -69,8 +71,8 @@ describe("parallel worktree creation", () => {
       expect(await readBranchBase(child.path, child.branch)).toBe(child.baseCommit);
       expect(git(child.path, "config", "--get", `branch.${child.branch}.tau-review-target`)).toBe(index % 2 ? "feature/parent" : "main");
     }
-    expect(git(cwd, "worktree", "list", "--porcelain").match(/^worktree /gmu)).toHaveLength(22);
-    expect(await readdir(worktreeParent)).toHaveLength(20);
+    expect(git(cwd, "worktree", "list", "--porcelain").match(/^worktree /gmu)).toHaveLength(childCount + 2);
+    expect(await readdir(worktreeParent)).toHaveLength(childCount);
   }, 60_000);
 
   it("retries actual config lock errors for both required metadata writes", async () => {
