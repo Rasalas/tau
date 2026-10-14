@@ -23,6 +23,7 @@ import {
   type RuntimeToolMaintenance,
   type RuntimeToolVersion,
 } from "tau/host-extension";
+import { customModelIds, withCustomModels } from "../_acp/custom-models.js";
 import type { AcpProcess, AcpSpawnInput } from "../_acp/client.js";
 import { withTauServer } from "../_acp/mcp.js";
 import { cursorModelProvider, cursorNewThreadCatalog, storedModels } from "./catalog.js";
@@ -94,6 +95,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
     activate(context) {
       const services: HostExtensionServices = context.services;
       const env = options.env ?? process.env;
+      const customModels = async () => customModelIds((await services.settings?.())?.values.customModels);
       const storePath = CursorSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const store = new CursorSessionStore({ filePath: storePath });
       const activity = new TurnActivityStore({ directory: join(dirname(storePath), "cursor-activity") });
@@ -155,6 +157,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           cwd: input.cwd,
           env: instanceEnv(id),
           clientVersion: options.clientVersion ?? "0.0.0",
+          customModels: await customModels(),
           ...(options.spawn ? { spawn: options.spawn } : {}),
           mcpServers: withTauServer([], tau),
           onUpdate: input.onUpdate,
@@ -260,7 +263,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
         }
         const probe = await runProbe(id);
         await store.setModels(probe.models, id).catch(() => undefined);
-        return cursorNewThreadCatalog(probe.models);
+        return cursorNewThreadCatalog(withCustomModels(probe.models, await customModels()));
       };
 
       const providerFor = (id: string): HostRuntimeBackendProvider => {
@@ -297,7 +300,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
               activity,
               instance: id,
               openSession: (input) => open(id, input) as Promise<CursorSessionLike>,
-              storedModels: () => store.listModels(id),
+              storedModels: async () => withCustomModels(await store.listModels(id), await customModels()),
               permissionLevel: thread.permissionLevel,
               ...(thread.executionPolicy ? { executionPolicy: thread.executionPolicy } : {}),
               onMessage: thread.onMessage,

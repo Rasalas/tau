@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderView, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
+import { renderKitSettingsPage } from "../../src/renderer/test-support/kit-settings-page.js";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { CursorInstances, CursorProviderCard, cursorExtension, loginCommand, searchRows } from "./desktop.js";
+
+const render = (ui: Parameters<typeof renderView>[0]) => renderView(ui, { wrapper: TestProviders });
 
 afterEach(cleanup);
 
@@ -23,6 +27,24 @@ function instances(extra: Record<string, unknown> = {}) {
 }
 
 describe("Cursor desktop extension", () => {
+  it("saves custom model IDs from the runtime card and ignores blank lines", async () => {
+    const { registry } = createKitHarness(async (_id, command) => command === "status" ? READY : undefined);
+    registry.activate(cursorExtension);
+    const page = registry.getSettingsPages().find((entry) => entry.id === "cursor.settings")!;
+    const key = "tau.cursor.customModels";
+    const { updates } = renderKitSettingsPage(page.Component, { host: { values: { [key]: "gateway/existing" } } });
+    const field = await screen.findByRole("textbox", { name: "Custom models" });
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe("gateway/existing"));
+    fireEvent.change(field, { target: { value: " gateway/one \n \n gateway/two\n\n" } });
+    expect(updates).toEqual([]);
+    fireEvent.blur(field);
+    await waitFor(() => expect(updates).toEqual([{ values: { [key]: "gateway/one\ngateway/two" } }]));
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe("gateway/one\ngateway/two"));
+    fireEvent.change(field, { target: { value: " \n\n" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(updates.at(-1)).toEqual({ values: { [key]: "" } }));
+  });
+
   it("keeps runtime identification out of the status line", () => {
     const { registry } = createKitHarness();
     registry.activate(cursorExtension);

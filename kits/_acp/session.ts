@@ -82,6 +82,8 @@ export interface AcpAgentSessionOptions {
   mcpServers?: readonly unknown[];
   /** False sends http and sse servers even to an agent that does not list the transport. */
   checkMcpTransports?: boolean;
+  /** Explicitly configured IDs; the agent validates models it did not advertise. */
+  customModels?: readonly string[];
   timeouts?: Partial<AcpTimeouts>;
 }
 
@@ -219,11 +221,12 @@ export class AcpAgentSession {
     this.modeId = setup.modes?.currentModeId ?? (findConfigOption(this.configOptions, "mode")?.currentValue as string | undefined);
   }
 
-  /** The models the session offers, native ids kept; from the config option, else the model state. */
+  /** Advertised and explicitly configured models, with native IDs kept. */
   modelOptions(): AcpSelectOption[] {
     const option = findConfigOption(this.configOptions, "model");
-    if (option) return configOptionValues(option);
-    return this.setup?.models?.availableModels.map((model) => ({ value: model.modelId, name: model.name, description: model.description })) ?? [];
+    const models = option ? configOptionValues(option) : this.setup?.models?.availableModels.map((model) => ({ value: model.modelId, name: model.name, description: model.description })) ?? [];
+    const seen = new Set(models.map((model) => model.value));
+    return [...models, ...[...new Set(this.base.customModels)].filter((id) => !seen.has(id)).map((id) => ({ value: id, name: id }))];
   }
 
   currentModel(): string | undefined {
@@ -237,13 +240,14 @@ export class AcpAgentSession {
     return this.setup?.modes?.availableModes.map((mode) => ({ value: mode.id, name: mode.name, description: mode.description })) ?? [];
   }
 
-  /** Model and mode go through `session/set_config_option`; a select value the session does not list is refused here. */
+  /** Unlisted select values are refused except for explicitly configured model IDs. */
   async setConfigOption(configId: string, value: string | boolean): Promise<void> {
     this.requireSession();
     const option = this.configOptions.find((entry) => entry.id === configId) ?? findConfigOption(this.configOptions, configId as "model" | "mode");
     if (option && option.type === "select") {
       if (String(option.currentValue).trim() === String(value).trim()) return;
-      if (!configOptionValues(option).some((entry) => entry.value === value)) throw new AcpRequestError("session/set_config_option", ACP_INVALID_PARAMS, `${this.base.agentName} does not offer "${String(value)}" for ${configId}.`);
+      const customModel = option === findConfigOption(this.configOptions, "model") && typeof value === "string" && this.base.customModels?.includes(value);
+      if (!customModel && !configOptionValues(option).some((entry) => entry.value === value)) throw new AcpRequestError("session/set_config_option", ACP_INVALID_PARAMS, `${this.base.agentName} does not offer "${String(value)}" for ${configId}.`);
     }
     if (option && option.type === "boolean" && option.currentValue === value) return;
     const result = await this.client.request<{ configOptions?: AcpConfigOption[] | null }>("session/set_config_option", { sessionId: this.setup!.sessionId, configId: option?.id ?? configId, value }, { timeoutMs: this.timeouts.sessionMs });
@@ -258,7 +262,7 @@ export class AcpAgentSession {
   async setModel(modelId: string, meta?: Record<string, unknown>): Promise<void> {
     if (findConfigOption(this.configOptions, "model") || !this.setup?.models) return this.setConfigOption("model", modelId);
     if (this.setup.models.currentModelId === modelId && !meta) return;
-    if (!this.setup.models.availableModels.some((model) => model.modelId === modelId)) throw new AcpRequestError("session/set_model", ACP_INVALID_PARAMS, `${this.base.agentName} does not offer "${modelId}" for model.`);
+    if (!this.base.customModels?.includes(modelId) && !this.setup.models.availableModels.some((model) => model.modelId === modelId)) throw new AcpRequestError("session/set_model", ACP_INVALID_PARAMS, `${this.base.agentName} does not offer "${modelId}" for model.`);
     await this.client.request("session/set_model", { sessionId: this.setup.sessionId, modelId, ...(meta ? { _meta: meta } : {}) }, { timeoutMs: this.timeouts.sessionMs });
     this.setup = { ...this.setup, models: { ...this.setup.models, currentModelId: modelId } };
   }

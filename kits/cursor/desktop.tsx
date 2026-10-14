@@ -20,6 +20,7 @@ import {
   type SettingsPageProps,
   type WorkbenchActions,
 } from "tau";
+import { CustomModelsSetting } from "../_acp/custom-models-setting.js";
 import {
   CURSOR_BACKEND_KIND,
   CURSOR_HOME_VARIABLE,
@@ -221,6 +222,7 @@ export function CursorProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE
           {signedIn ? <SettingRow id={rows.models} title="Models" description={`${status?.models ?? 0} models; pick one and its reasoning effort per thread in the composer.`} /> : null}
         </>
       ) : null}
+      <CustomModelsSetting extensionId={CURSOR_HOST_EXTENSION_ID} id={rows.customModels} />
       <CommandRow
         id={rows.executable}
         program={label}
@@ -251,13 +253,14 @@ export function CursorProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE
 /** The element ids of an instance's rows; every instance's card sits on the same page, so each carries its id. */
 export function rowIds(instance: string) {
   const prefix = instance === DEFAULT_INSTANCE_ID ? "setting-cursor" : `setting-cursor-${instance}`;
-  return { prefix, program: `${prefix}-program`, account: `${prefix}-account`, models: `${prefix}-models`, executable: `${prefix}-executable`, setup: `${prefix}-setup` };
+  return { prefix, program: `${prefix}-program`, account: `${prefix}-account`, models: `${prefix}-models`, customModels: `${prefix}-custom-models`, executable: `${prefix}-executable`, setup: `${prefix}-setup` };
 }
 
 /** What the Settings search finds on an instance's card. */
 export function searchRows(instance: string, label: string) {
   const ids = rowIds(instance);
   return [
+    { id: ids.customModels, label: `${label} custom models`, keywords: ["model ID", "gateway"] },
     { id: ids.program, label: `${label} CLI`, keywords: ["cursor", "cursor-agent", "version", "update", "install", "installed", "check"] },
     { id: ids.executable, label: `${label} executable`, keywords: ["cursor-agent", "path", "command", "binary"] },
     { id: ids.setup, label: `${label} instance setup`, keywords: ["cursor", "instance", "home", "environment", "arguments"] },
