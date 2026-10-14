@@ -139,7 +139,7 @@ describe("a fresh install (2a)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start without a project" }));
     await waitFor(() => expect(openProject).toHaveBeenCalledWith("ws:scratch"));
     expect(createScratch).toHaveBeenCalledTimes(1);
-    const heading = await screen.findByRole("heading", { name: "What should No project do next?" });
+    const heading = await screen.findByRole("heading", { name: "What should we do next?" });
     expect(within(heading.parentElement!).getByRole("button", { name: "Change project, current project No project" })).toBeTruthy();
   });
 
@@ -154,8 +154,19 @@ describe("a fresh install (2a)", () => {
     window.history.replaceState({}, "", "/?profile=compact&thread=scratch");
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
     start({ isRepo: false, messageCount: 0, privateWorkspace: true });
-    expect(await screen.findByRole("button", { name: "Change project, current project No project" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /What should we build.*No project/u })).toBeTruthy();
+    const heading = await screen.findByRole("heading", { name: "What should we build?" });
+    const picker = within(heading.parentElement!).getByRole("button", { name: "Change project, current project No project" });
+    expect(heading.contains(picker)).toBe(false);
+    expect(picker.classList.contains("draft-pill")).toBe(true);
+    fireEvent.click(picker);
+    expect(await screen.findByRole("dialog", { name: "Choose project" })).toBeTruthy();
+  });
+
+  it("reopens an empty private workspace without its project name in the heading", async () => {
+    start({ isRepo: false, messageCount: 0, privateWorkspace: true });
+    const heading = await screen.findByRole("heading", { name: "What should we do next?" });
+    const picker = within(heading.parentElement!).getByRole("button", { name: "Change project, current project No project" });
+    expect(within(picker).getByText("No project")).toBeTruthy();
   });
 
   it("names a reopened private workspace in the thread header and sidebar", async () => {
