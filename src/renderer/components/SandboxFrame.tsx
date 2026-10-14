@@ -15,6 +15,7 @@ import { useColorScheme } from "../use-color-scheme";
 import { WorkbenchContext } from "../workbench-context";
 import { FRAME_ZOOM_MAX, FRAME_ZOOM_MIN, frameChords, nextZoom, replayableKey, zoomChords, zoomStepOf } from "./sandbox-frame-keys";
 import { tooltipProps } from "./ui/Tooltip";
+import "./sandbox-frame.css";
 
 export interface SandboxFrameHandle {
   /** Posts to the framed document with target "*" (its origin is opaque). No-op before it loaded or spoke, after it stopped, or after unmount. */
