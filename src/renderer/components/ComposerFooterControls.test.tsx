@@ -11,6 +11,8 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     const iconOnly = this.closest("[data-icon-only]") !== null;
     if (this.dataset.composerOverflow !== undefined) return rect(29);
+    // A collapsible lead chip: its label is 100 px wide, the lock 13.
+    if (this.dataset.composerCollapsible !== undefined) return rect(this.closest("[data-lead-icons]") ? 13 : 100);
     // Only a chip with an icon shrinks to it; a text-only one keeps its label.
     if (this.dataset.composerBlock !== undefined || this.classList.contains("runtime-chip")) return rect(iconOnly && this.querySelector("svg") ? 13 : 100);
     return rect(0);
@@ -156,5 +158,32 @@ describe("ComposerFooterControls", () => {
     available = 110;
     view.rerender(<ComposerFooterControls revision="b" leading={null} blocks={[{ id: "reasoning", node: <button type="button" className="runtime-chip">Medium</button> }]} />);
     expect(block("reasoning")?.textContent).toBe("Medium");
+  });
+
+  it("shrinks a collapsible lead control to its icon before any block loses its label, and gives the label back", () => {
+    const Row = ({ revision }: { revision: string }) => (
+      <ComposerFooterControls
+        revision={revision}
+        leading={<><button type="button" className="runtime-chip" data-composer-collapsible=""><svg />Full access</button><button type="button" className="runtime-chip">Model</button></>}
+        blocks={blocks}
+      />
+    );
+    const row = () => document.querySelector(".composer-chips")!;
+    available = 400;
+    const view = render(<Row revision="a" />);
+    expect(row().hasAttribute("data-lead-icons")).toBe(false);
+    available = 360;
+    view.rerender(<Row revision="b" />);
+    expect(row().hasAttribute("data-lead-icons")).toBe(true);
+    expect(block("effort")?.dataset.iconOnly).toBeUndefined();
+    expect(block("access")?.dataset.iconOnly).toBeUndefined();
+    available = 300;
+    view.rerender(<Row revision="c" />);
+    expect(row().hasAttribute("data-lead-icons")).toBe(true);
+    expect(block("access")?.dataset.iconOnly).toBe("");
+    available = 420;
+    view.rerender(<Row revision="d" />);
+    expect(row().hasAttribute("data-lead-icons")).toBe(false);
+    expect(block("access")?.dataset.iconOnly).toBeUndefined();
   });
 });

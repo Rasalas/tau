@@ -27,3 +27,5 @@ html:not([data-device="phone"]):not([data-device="tablet"]) .composer-toolbar .r
   height: var(--icon-size);
 }
 .composer-chips > .composer-attach-chip + .composer-lead-rule { display: none; }
+/* A short row (data-lead-icons) drops the model's and the reasoning's chevrons too, so the model keeps more of its name. */
+[data-lead-icons] :is(.composer-model-chip, .composer-thinking-chip) .chev { display: none; }
