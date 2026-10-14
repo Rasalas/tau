@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChartColumn, RefreshCw } from "lucide-react";
-import { Empty, errorMessage, ProviderIconStack, SettingsPageAction, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ProjectIconSubject, type ThreadStore, type UiProject, type UiSession } from "tau";
+import { Empty, errorMessage, ProviderIconStack, SettingsPageAction, Slot, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type PageProps, type ProjectIconSubject, type ThreadStore, type UiProject, type UiSession } from "tau";
 import { ActivityCalendar, ReadingHistory } from "./activity.js";
 import { jumpTo, PeriodSwitch, RUNTIME_LABELS, UsageFilterButton } from "./controls.js";
 import { family, withoutRuntimes } from "./accounts.js";
@@ -14,7 +14,7 @@ import { UsageHistory } from "./history.js";
 import { UsageLimits } from "./limits.js";
 import { ModelPrices } from "./prices.js";
 import { mergeEntries, mergeLimits, readMachines, useOtherMachines, type MachineRead } from "./machines.js";
-import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, USAGE_REDEEM_RESET_COMMAND, type UsageLimitAccount, type UsageLimitsSummary, type UsageSourceReport, type UsageEntry, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
+import { USAGE_LIMITS_COMMAND, USAGE_SUMMARY_COMMAND, USAGE_REDEEM_RESET_COMMAND, USAGE_SLOTS, type UsageLimitAccount, type UsageLimitsSummary, type UsageSourceReport, type UsageEntry, type UsageSummary, type UsageSummaryInput } from "./protocol.js";
 import { costliestThread, Figure, projectRow, providerRow, UsageStats, UsageTable, type TableRow } from "./overview.js";
 import { readLastState, saveLastState } from "./last-state.js";
 
@@ -353,6 +353,7 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
               } finally { await loadLimits(true); }
             }} limits={shownLimits} error={limitsError} now={clock} entries={allEntries} fromDay={last - 30} period="Last 30 days" choices={choices} onRetry={() => void loadLimits(true)} {...(actions ? { onOpenExternal: (url: string) => actions.openExternal(url) } : {})} />}
             {shownLimits ? <ReadingHistory limits={shownLimits} now={clock} /> : null}
+            {actions && Slot ? <Slot name={USAGE_SLOTS.limitsEnd} actions={actions} /> : null}
           </section>
 
           {summary && allEntries.length > 0 ? (
@@ -365,6 +366,9 @@ export function UsagePage({ host, environments, actions, params = {}, navigate, 
               </div>
             </section>
           ) : null}
+
+          {/* `Slot` is API 1.62.0; an older client (a phone not yet updated) has none and draws no slot. */}
+          {actions && Slot ? <Slot name={USAGE_SLOTS.pageEnd} actions={actions} /> : null}
 
           {navigate ? (
             <footer className="usage-footer">

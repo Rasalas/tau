@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
-import type { RegionPlacement } from "./extension-system";
+import type { RegionPlacement, SlotPlacement } from "./extension-system";
 
 declare module "react" {
   namespace JSX {
@@ -34,7 +34,7 @@ export interface Customizations {
   /** A new `order` for a part, within its placement. */
   order?: Readonly<Record<string, number>>;
   /** A region moved to another placement. */
-  placement?: Readonly<Record<string, RegionPlacement>>;
+  placement?: Readonly<Record<string, RegionPlacement | SlotPlacement>>;
   /** A part drawn by another component, which gets the original's props plus `Original`. */
   replaced?: Readonly<Record<string, ComponentType<any>>>;
 }
@@ -43,6 +43,20 @@ export interface Customizations {
 export interface CustomizationLayer {
   getSnapshot(): Customizations;
   subscribe(listener: () => void): () => void;
+  /** Layers apply from low to high; 0 by default. Customize Kit, the user's own, uses 100. */
+  order?: number;
+}
+
+/** Layers in the order they apply: hidden parts add up, a later order, move or replacement wins. */
+export function mergeCustomizations(layers: readonly Customizations[]): Customizations {
+  if (layers.length === 0) return EMPTY;
+  if (layers.length === 1) return layers[0]!;
+  return {
+    hidden: [...new Set(layers.flatMap((layer) => layer.hidden ?? []))],
+    order: Object.assign({}, ...layers.map((layer) => layer.order ?? {})) as Record<string, number>,
+    placement: Object.assign({}, ...layers.map((layer) => layer.placement ?? {})) as Record<string, RegionPlacement | SlotPlacement>,
+    replaced: Object.assign({}, ...layers.map((layer) => layer.replaced ?? {})) as Record<string, ComponentType<any>>,
+  };
 }
 
 export type ReplacementProps<P> = P & { Original: ComponentType<P> };
@@ -59,7 +73,16 @@ export interface CustomizablePart {
   hidden: boolean;
   replaced: boolean;
   /** A region's placement as the kit registered it. */
-  placement?: RegionPlacement;
+  placement?: RegionPlacement | SlotPlacement;
+  /** Drawn on other kinds of device only (a phone's top bar): customizable from here, not shown here. */
+  elsewhere?: boolean;
+}
+
+/** The part kind of a contribution kind as `ProfiledContribution` names it (`thread-list-title region`). */
+export function partKindOf(kind: string): { kind: PartKind; placement?: string } | undefined {
+  if (kind.endsWith(" region")) return { kind: "region", placement: kind.slice(0, -" region".length) };
+  const named: Record<string, PartKind> = { panel: "panel", page: "page", "status item": "status", sidebar: "sidebar", "composer control": "composer-control" };
+  return named[kind] ? { kind: named[kind] } : undefined;
 }
 
 const EMPTY: Customizations = {};

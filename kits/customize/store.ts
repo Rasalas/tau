@@ -7,8 +7,8 @@ import { CUSTOMIZE_LIMITS, EMPTY_STATE, type CustomizeState, type UserScript, ty
 export class CustomizeError extends Error {}
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/u;
-// Part names and placements are `kind:id[/Field]` or a placement word; nothing that could leave a selector.
-const NAME = /^[a-z][a-z-]*(?::[A-Za-z0-9_.:@-]+(?:\/[A-Za-z]+)?)?$/u;
+// Part names and placements are `kind:id[/Field]`, a placement word or a kit's slot (`tau.usage/page-end`); nothing that could leave a selector.
+const NAME = /^(?:[a-z][a-z-]*(?::[A-Za-z0-9_.:@-]+(?:\/[A-Za-z]+)?)?|[a-z0-9][a-z0-9.-]*\/[a-z0-9][a-z0-9.-]*)$/u;
 
 function record(value: unknown, what: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new CustomizeError(`${what} is malformed.`);

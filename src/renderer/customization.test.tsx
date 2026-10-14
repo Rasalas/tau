@@ -53,6 +53,15 @@ describe("customizations by part name", () => {
     expect(part?.textContent).toBe("mine bars");
   });
 
+  it("lists a part another kind of device draws, so it can be changed from here", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "tau.usage", name: "Usage", activate(context) {
+      context.registerRegion({ id: "usage.juicebars", placement: "thread-list-title", profiles: ["compact"], Component: () => <b>bars</b> });
+    } });
+    expect(registry.getRegions("thread-list-title")).toEqual([]);
+    expect(registry.getCustomizableParts()).toEqual([expect.objectContaining({ name: "region:usage.juicebars", placement: "thread-list-title", elsewhere: true, hidden: false })]);
+  });
+
   it("keeps a replaced component's identity across snapshots, so its state survives", () => {
     const registry = new ExtensionRegistry();
     usageKit(registry);
@@ -78,22 +87,28 @@ describe("customizations by part name", () => {
     expect(render(<Summary actions={actions} />).container.textContent).toBe("my bar");
   });
 
-  it("lists every part with what the layer does to it, and lets the last layer apply", () => {
+  it("lists every part with what the layers do to it, and applies every layer by order", () => {
     const registry = new ExtensionRegistry();
     usageKit(registry);
-    const first = layer({ hidden: ["region:usage.other"] });
-    const second = layer({ hidden: ["region:usage.juicebars"] });
+    const Mine = () => <span>mine</span>;
+    const Theirs = () => <span>theirs</span>;
+    const user = { ...layer({ hidden: ["region:usage.other"], replaced: { "page:usage/Summary": Mine } }), order: 100 };
+    const pkg = layer({ hidden: ["region:usage.juicebars"], replaced: { "page:usage/Summary": Theirs } });
     let dispose: (() => void) | undefined;
-    registry.activate({ id: "a", name: "A", activate(context) { context.registerCustomizations(first); } });
-    registry.activate({ id: "b", name: "B", activate(context) { dispose = context.registerCustomizations(second); } });
+    // The user's layer comes first here and still applies last.
+    registry.activate({ id: "user", name: "User", activate(context) { context.registerCustomizations(user); } });
+    registry.activate({ id: "pkg", name: "Package", activate(context) { dispose = context.registerCustomizations(pkg); } });
 
     const parts = registry.getCustomizableParts();
     expect(parts.map((part) => part.name)).toEqual(["region:usage.juicebars", "region:usage.other", "page:usage", "page:usage/Summary"]);
     expect(parts.find((part) => part.name === "region:usage.juicebars")).toMatchObject({ hidden: true, extensionId: "tau.usage", placement: "thread-list-title" });
+    expect(registry.getRegions("thread-list-title")).toEqual([]);
+    const Summary = registry.getPage("usage")!.Summary!;
+    expect(render(<Summary actions={actions} />).container.textContent).toBe("mine");
 
     dispose?.();
     expect(registry.getRegions("thread-list-title").map((region) => region.id)).toEqual(["usage.juicebars"]);
-    registry.deactivate("a");
+    registry.deactivate("user");
     expect(registry.getRegions("thread-list-title").map((region) => region.id)).toEqual(["usage.juicebars", "usage.other"]);
   });
 });

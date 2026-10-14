@@ -55,7 +55,13 @@ The script follows Tau's light and dark colours through variables such as
 
 Click **Add script** under Scripts and set its target to a placement instead
 of a part name, such as `title-bar` or `thread-list-title`. The script then
-draws there beside what extensions put there.
+draws there beside what extensions put there. Extensions offer places of their
+own too: `tau.usage/limits-end` puts a script under Usage's plan limits,
+`tau.usage/page-end` at the end of the Usage page.
+
+Parts that only a phone or tablet draws, such as `region:usage.juicebars`, are
+listed on the desktop too, marked "on other devices", so you can change them
+from there.
 
 ## Your own styles
 

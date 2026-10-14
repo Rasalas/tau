@@ -50,6 +50,8 @@ export function createLayer(context: LayerContext, scriptComponent: ReturnType<t
   let source: CustomizeState | undefined;
   let snapshot: Customizations = {};
   return {
+    // The user's own changes come after any a package makes.
+    order: 100,
     subscribe: context.store.subscribe,
     getSnapshot(): Customizations {
       const state = context.store.getSnapshot();

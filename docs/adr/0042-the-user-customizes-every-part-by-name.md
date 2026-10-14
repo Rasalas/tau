@@ -29,13 +29,25 @@ release.
 | sidebar module | `sidebar:<id>` | |
 | composer control | `composer-control:<id>` | |
 
-**Core applies one customization layer.** `registerCustomizations(layer)`
+**Core applies the customization layers.** `registerCustomizations(layer)`
 (API 1.62.0) hands core `{ hidden, order, placement, replaced }`, keyed by part
-name. Core applies it where it lists contributions: a hidden part is left out,
+name. Core applies them where it lists contributions: a hidden part is left out,
 `order` and a region's `placement` override the kit's, and a replaced
 component is drawn instead of the original with the original's props plus
-`Original`. One layer applies, the last registered; a missing part is skipped
-and listed. Behaviour (hooks, gates, send modes, keybindings, tool cards) and
+`Original`. Every layer applies, by its `order` and then as registered: hidden
+parts add up, a later layer's order, move or replacement wins. A package that
+changes another kit registers a layer; the user's own (Customize Kit, order
+100) comes last. A missing part is skipped and listed.
+
+**Kits offer places and join lists.** A kit offers a place in its own surface as
+a slot, `<kit id>/<name>`, drawn with `Slot`; any region registered there is
+drawn in it, a user script included. A host half joins another kit's list with
+`context.offer(contract)`, and the gathering kit reads `context.offering`
+when it needs the list. Usage offers `tau.usage/limits-end` and
+`tau.usage/page-end` and gathers `tau.usage/limits-source` and
+`tau.usage/threads-source`.
+
+Behaviour (hooks, gates, send modes, keybindings, tool cards) and
 core's own surfaces (Settings, the palette, approvals, the Read-only notice)
 are not parts and cannot be customized.
 

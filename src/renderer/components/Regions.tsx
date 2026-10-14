@@ -1,5 +1,5 @@
 import { Suspense, useSyncExternalStore, type ReactNode } from "react";
-import type { ExtensionRegistry, LookInRegionContext, RegionPlacement, RegionProps, TranscriptTurn, WorkbenchActions } from "../extension-system";
+import type { ExtensionRegistry, LookInRegionContext, RegionPlacement, RegionProps, SlotPlacement, TranscriptTurn, WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./LazyFeature";
 import { Part, partName } from "../customization";
@@ -8,7 +8,7 @@ interface RegionHostProps {
   workspaceSummary?: RegionProps["workspaceSummary"];
   workspacePreviewAvailable?: boolean;
   registry: ExtensionRegistry;
-  placement: RegionPlacement;
+  placement: RegionPlacement | SlotPlacement;
   snapshot?: HostSnapshot;
   actions: WorkbenchActions;
   lookIn?: LookInRegionContext;
@@ -43,7 +43,8 @@ export function Region({ registry, placement, snapshot, actions, lookIn, turn, w
     {children}
   </>;
   // Bare: the contributions are the container's own children (a header's sub-line).
-  return bare ? drawn : <div className={`workbench-region region-${placement}`} data-placement={placement} role="group">{drawn}</div>;
+  // A kit's slot (`tau.usage/page-end`) is a class name only after its slash and dots become dashes.
+  return bare ? drawn : <div className={`workbench-region region-${placement.replace(/[^a-z0-9-]/gu, "-")}`} data-placement={placement} role="group">{drawn}</div>;
 }
 
 /** A placement kits may take over from core: their contributions while any is registered, else `fallback`. */

@@ -111,7 +111,7 @@ export function CustomizeSettings({ store, parts, subscribeParts, pick }: Custom
                   key={part.name}
                   id={partRowId(part.name)}
                   title={part.label}
-                  description={<><code>{part.name}</code>{script ? <> · replaced by “{script.name}”</> : null}</>}
+                  description={<><code>{part.name}</code>{part.elsewhere ? <> · on other devices</> : null}{script ? <> · replaced by “{script.name}”</> : null}</>}
                   {...(readOnly ? { disabledReason: READ_ONLY_REASON } : {})}
                   control={<span className="customize-row-controls">
                     {script ? null : <Button variant="ghost" disabled={readOnly} onClick={() => addScript({ replace: part.name }, `${part.label} (mine)`)}>Replace</Button>}

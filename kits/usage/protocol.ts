@@ -37,6 +37,14 @@ export const BACKEND_USAGE_COMMAND = "usage";
  * `callers: ["tau.usage"]`.
  */
 export const USAGE_THREADS_SOURCE = "tau.usage/threads-source";
+
+/** Places on the Usage page other kits and the user's scripts fill (`registerRegion({ placement })`). */
+export const USAGE_SLOTS = {
+  /** Under Plan limits, after the readings. */
+  limitsEnd: "tau.usage/limits-end",
+  /** At the end of the page, before its links. */
+  pageEnd: "tau.usage/page-end",
+} as const;
 export const USAGE_LIMITS_SOURCE = "tau.usage/limits-source";
 
 /** Tokens and money one thread or one row accounts for. */

@@ -3855,16 +3855,20 @@ kit's component itself (Workspace Kit draws a page's `Summary` in the sidebar's
 foot) wraps it in `Part` from `tau`, so it is named there too. A contribution's
 id is therefore API: renaming one breaks the user's customizations of it.
 
-`context.registerCustomizations(layer)` hands core the user's changes:
+`context.registerCustomizations(layer)` hands core a set of changes:
 `layer.getSnapshot()` answers `{ hidden?, order?, placement?, replaced? }`,
 each keyed by part name, and `layer.subscribe` reports a change. Core applies
 the last layer registered wherever it lists contributions: a hidden part is left
 out (a hidden `Summary` leaves the page, and the foot falls back to the page's
 figure or icon), `order` and a region's `placement` override the kit's, and a
 component in `replaced` is drawn instead of the original with the original's
-props plus `Original` (`ReplacementProps<P>`). Customize Kit
-(`kits/customize/`) is the one layer Tau ships. `context.customizableParts()`
-lists every part on this client with what the layer does to it, and
+props plus `Original` (`ReplacementProps<P>`). Every registered layer applies,
+by `layer.order` (0 by default) and then as registered: hidden parts add up, and
+a later layer's order, move or replacement wins. A package that adjusts another
+kit registers a layer of its own; Customize Kit (`kits/customize/`), the
+user's own, uses order 100 and so comes last. `context.customizableParts()`
+lists every part on this client with what the layers do to it (`elsewhere`
+marks one only another kind of device draws, a phone's top bar), and
 `context.onPartsChanged(listener)` reports parts coming and going. Hooks, gates,
 send modes, keybindings, tool cards and core's own surfaces are not parts.
 
@@ -3877,6 +3881,13 @@ other service to a script. Usage lends its plan windows as `tau.usage/limits`
 label, usedPercent, resetsAt? }] }] }`, or `null` before the first reading).
 A script also has `tau.openPage(id, params?)` and `tau.runCommand(id)`, which
 runs only from a click in the script.
+
+**Places in a kit's own surface.** A kit offers one with `<Slot name="<kit
+id>/<name>" actions={actions} />` from `tau` (API 1.62.0); every region
+registered with that `placement` draws there, as a part, with the region props.
+Usage offers `tau.usage/limits-end` (under Plan limits) and
+`tau.usage/page-end`. A slot draws nothing while no region fills it, and an
+older client has no `Slot`, so test for it before drawing one.
 
 `SandboxFrame` takes `minHeight` (API 1.62.0) for a frame inside a row, and
 `WorkbenchActions.closeSettings()` leaves Settings.

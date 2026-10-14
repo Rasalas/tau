@@ -43,7 +43,7 @@ import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 import { providerIconKey } from "./runtime-marks";
-import { CustomizationState, partName, PART_FIELDS, type CustomizablePart, type CustomizationLayer, type PartKind } from "./customization";
+import { CustomizationState, mergeCustomizations, partKindOf, partName, PART_FIELDS, type CustomizablePart, type CustomizationLayer, type PartKind } from "./customization";
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -378,6 +378,12 @@ export interface TranscriptRowsHandle {
  * reserves space beneath it for extension-owned live frames without covering chat.
  * `spine` fills the narrow column the conversation collapses to (design 1b), under the title.
  */
+/**
+ * A place a kit offers in its own surface for others to fill, `<kit id>/<name>`
+ * (`tau.usage/page-end`); the kit draws it with `Slot` (API 1.62.0).
+ */
+export type SlotPlacement = `${string}/${string}`;
+
 export type RegionPlacement = "workspace-summary" | "workspace-preview" | "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider" | "spine";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
@@ -460,7 +466,7 @@ export interface RegionProps {
 
 export interface RegionContribution extends ProfileScoped {
   id: string;
-  placement: RegionPlacement;
+  placement: RegionPlacement | SlotPlacement;
   order?: number;
   Component: ComponentType<RegionProps>;
 }
@@ -1764,8 +1770,9 @@ export interface DesktopExtensionContext {
    */
   useService<T>(id: string, use: (value: T) => (() => void) | void): () => void;
   /**
-   * The user's changes to other extensions' parts, by part name (API 1.62.0,
-   * ADR 0042). One layer applies, the last one registered.
+   * Changes to other extensions' parts, by part name (API 1.62.0, ADR 0042).
+   * Every layer applies, by `order` and then as registered; Customize Kit's,
+   * the user's own, comes last.
    */
   registerCustomizations(layer: CustomizationLayer): () => void;
   /** Every part on offer on this client, drawn or customized away (API 1.62.0). */
@@ -2309,7 +2316,7 @@ export class ExtensionRegistry {
         note("customizations");
         const entry = { layer, extensionId: extension.id };
         this.customizationLayers.push(entry);
-        const unsubscribe = layer.subscribe(() => { if (this.customizationLayers.at(-1) === entry) this.applyCustomizations(); });
+        const unsubscribe = layer.subscribe(() => this.applyCustomizations());
         this.applyCustomizations();
         let done = false;
         const dispose = () => {
@@ -2638,7 +2645,7 @@ export class ExtensionRegistry {
     return value;
   }
 
-  getRegions(placement: RegionPlacement): Array<Owned<RegionContribution>> {
+  getRegions(placement: RegionPlacement | SlotPlacement): Array<Owned<RegionContribution>> {
     const key = `regions:placed:${placement}`;
     const cached = this.sortedCache.get(key);
     if (cached?.version === this.version) return cached.value as Array<Owned<RegionContribution>>;
@@ -3211,7 +3218,10 @@ export class ExtensionRegistry {
   }
 
   private applyCustomizations(): void {
-    this.customization.set(this.customizationLayers.at(-1)?.layer.getSnapshot());
+    // By `order`, then as they came: a later layer's order, move or replacement wins, and hidden parts add up.
+    const layers = this.customizationLayers.map((entry, index) => ({ entry, index }))
+      .sort((a, b) => (a.entry.layer.order ?? 0) - (b.entry.layer.order ?? 0) || a.index - b.index);
+    this.customization.set(mergeCustomizations(layers.map(({ entry }) => entry.layer.getSnapshot())));
     this.changed();
   }
 
@@ -3231,7 +3241,7 @@ export class ExtensionRegistry {
           extensionName: item.extensionName,
           hidden: this.customization.isHidden(name),
           replaced: this.customization.isReplaced(name),
-          ...(kind === "region" && typeof item.placement === "string" ? { placement: item.placement as RegionPlacement } : {}),
+          ...(kind === "region" && typeof item.placement === "string" ? { placement: item.placement as RegionPlacement | SlotPlacement } : {}),
         });
         parts.push(part(partName(kind, item.id)));
         for (const field of PART_FIELDS[kind]) {
@@ -3245,6 +3255,22 @@ export class ExtensionRegistry {
     add("page", this.pages.values());
     add("sidebar", this.sidebarContributions.values());
     add("composer-control", this.composerControls.values());
+    // What another kind of device draws can be changed from here too; its fields are only known where it is drawn.
+    const listed = new Set(parts.map((part) => part.name));
+    for (const entry of this.getUnrenderedContributions()) {
+      const mapped = partKindOf(entry.kind);
+      if (!mapped) continue;
+      const name = partName(mapped.kind, entry.id);
+      if (listed.has(name)) continue;
+      listed.add(name);
+      parts.push({
+        name, kind: mapped.kind, id: entry.id, label: entry.label ?? entry.id,
+        extensionId: entry.extensionId, extensionName: entry.extensionName,
+        hidden: this.customization.isHidden(name), replaced: this.customization.isReplaced(name),
+        ...(mapped.placement ? { placement: mapped.placement as RegionPlacement | SlotPlacement } : {}),
+        elsewhere: true,
+      });
+    }
     return parts;
   }
 
