@@ -2,7 +2,7 @@
 
 The optional `tau.usage-statistics` kit counts participating desktop installations through the existing Matomo service on the Strato VPS under Dokploy. No additional collector service is needed.
 
-Reporting is off until the person using the device enables **Settings → General → Privacy → Share usage statistics**. The choice and a cryptographically random 16-character hexadecimal ID live under `device:tau.usage-statistics.v1` in client storage. They are not host preferences and are not synced between devices. Different devices, user-data profiles and reinstalls can represent the same person more than once. These are installation counts, not registered users or verified people.
+Reporting is off until the person using the device enables **Settings → General → Privacy → Share usage statistics**. After the first accepted prompt in an installed release, a question toast asks once: **Share**, **Don't share**, or **Details**, which opens that setting. Either answer, or any choice in Settings, ends the question on that device. Closed without an answer, it comes back in the next window. Nothing is sent before **Share**. The choice and a cryptographically random 16-character hexadecimal ID live under `device:tau.usage-statistics.v1` in client storage. They are not host preferences and are not synced between devices. Different devices, user-data profiles and reinstalls can represent the same person more than once. These are installation counts, not registered users or verified people.
 
 ## What is counted
 
@@ -14,6 +14,24 @@ Each participating device reports at most one successful request of each kind pe
 | `human_prompt_accepted` | The local composer accepts a runtime prompt, a queued follow-up, steering, or a kit-claimed first prompt | Active prompt installations |
 
 Rejected submissions, slash commands and shell commands do not emit the prompt event. Scheduler wakes, host user-message events, background agents and subagent turns do not independently emit it. A queued prompt counts when it is accepted into the queue, even if never run. The event carries no prompt contents. The renderer schedules delivery without awaiting it in the submission path.
+
+### Daily summary
+
+The window also counts, per UTC day, what its prompts used and how runs ended. Counts start only while reporting is on and stay under `device:tau.usage-statistics.daily.v1`. A finished day is sent at the first activity of a later day, as one Matomo event per row with the count as event value. The server therefore sees one batch a day and no time of a single prompt or run:
+
+| Category (`e_c`) | Action (`e_a`) | Name (`e_n`) | Value (`e_v`) |
+| --- | --- | --- | --- |
+| `prompts` | runtime: `pi`, `claude-code`, `codex`, `opencode`, `antigravity`, `cursor`, `grok` or `other` | `<provider>/<model> · <reasoning> · <access>` | prompts that day |
+| `runs` | runtime, as above | `ok`, `error` or `limit` | runs that ended so that day |
+
+- **Runtime:** a runtime instance's own name (`codex@work`) is cut to its program.
+- **Model:** named only for known providers; any other provider is reported as `other`, since a self-hosted model's name can say whose it is.
+- **Reasoning:** one of `default`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, otherwise `other`.
+- **Access:** Access Kit's workbench level, `read-only`, `ask`, `auto` or `full`.
+- **Runs:** a run counts in the window that prompted its thread, when its runtime stops working; queued follow-ups in the same run do not add runs. `error` means the thread list reports a turn error, `limit` a usage or rate limit. A run the user stopped counts as `ok`.
+- **Limits:** a day holds at most 40 rows. A day older than seven days is dropped unsent. A failed send is retried at the next activity after five minutes. A new day that begins while an older one is still unsent replaces it. Turning reporting off deletes the unsent counts.
+
+In Matomo they appear under Behaviour → Events. Installations per runtime are unique visitors with a segment such as `eventCategory==prompts;eventAction==claude-code`. Error rates divide the summed event values of `runs` by runtime. Because a day is sent the next day, it lands in Matomo on the day it was received.
 
 Only a normal packaged desktop client advertises release metadata to the kit. Development, isolated instances, `TAU_USER_DATA`, `TAU_DEV_SERVER_URL`, `TAU_NO_FOCUS=1` and `TAU_USAGE_STATISTICS=0` disable reporting. Native mobile and browser clients are outside this first implementation. A connected remote host cannot enable reporting or supply the client's release version.
 
