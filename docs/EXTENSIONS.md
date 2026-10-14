@@ -3495,6 +3495,26 @@ its tools (`server_status`, `server_list`, `server_read`, `server_diff`,
 extension and for every other runtime over `services.mcp`. No tool uploads or
 rolls back: `server_propose_upload` draws a card whose button the user clicks.
 
+### Joining another kit's list: `context.offer` (API 1.62.0)
+
+A kit that gathers something from other kits used to name them in a fixed
+list. A host half now says it answers a contract with
+`context.offer("<vendor.kit>/<name>")`; the gathering kit asks
+`context.offering(contract)` when it needs the list and gets `[{ id, name }]`
+of the active extensions that offered it, in activation order. Core never reads
+the contract. An offer goes with its disposer, with deactivation and with a
+failure, and the start order of the two kits does not matter, since the list
+is read when it is used. In a worker `offering` is a round trip and answers a
+promise; `await` it in both.
+
+Usage takes two contracts, so a kit of your own shows on the Usage page beside
+the runtimes Tau ships (`kits/usage/protocol.ts`):
+
+| Contract | Command it answers (`callers: ["tau.usage"]`) | What Usage does with it |
+|---|---|---|
+| `tau.usage/limits-source` | `usage-limits { refresh? }` → `{ accounts: UsageLimitAccount[] }` | Shows the accounts' windows under Limits, in the juicebars and in `tau.usage/limits`, with the kit's name as the source. |
+| `tau.usage/threads-source` | `usage` → `{ backend, threads: BackendUsageThread[] }` | Counts the threads' tokens and cost under the runtime `backend` names. |
+
 ### What Reviews asks of other kits
 
 Review Kit's request lifecycle binds creation and merging to the checkout the
@@ -3810,6 +3830,67 @@ Thread Rail's snooze and sibling marks and Servers Kit's deployment mark appear
 on the phone with their own icons and tooltips. Call it as
 `registerThreadListAccessory?.(…)`: a phone whose bundle predates it ignores the call, and the
 kit's `engines.api` stays where it was, so that phone keeps the kit.
+
+### Parts and customizations: `registerCustomizations` (API 1.62.0)
+
+Every region, status item, panel, page, sidebar module and composer control is
+a **part** with a name, and the user may hide, reorder, move or replace any of
+them ([ADR 0042](adr/0042-the-user-customizes-every-part-by-name.md)). A name is
+`<kind>:<id>`, a component a page carries besides its body `<kind>:<id>/<Field>`:
+
+| Kind | Name | Fields |
+|---|---|---|
+| region | `region:usage.juicebars` | |
+| status item | `status:<id>` | |
+| panel | `panel:<id>` | |
+| page | `page:usage` | `page:usage/Summary`, `page:usage/Sidebar` |
+| sidebar module | `sidebar:<id>` | |
+| composer control | `composer-control:<id>` | |
+
+`partName(kind, id, field?)` builds one. Core draws each part inside
+`<tau-part data-tau-part="<name>">`, which draws no box (`display: contents`):
+a user style hides a part with `[data-tau-part="…"] { display: none }` and
+styles what it holds with `[data-tau-part="…"] > *`. A kit that draws another
+kit's component itself (Workspace Kit draws a page's `Summary` in the sidebar's
+foot) wraps it in `Part` from `tau`, so it is named there too. A contribution's
+id is therefore API: renaming one breaks the user's customizations of it.
+
+`context.registerCustomizations(layer)` hands core a set of changes:
+`layer.getSnapshot()` answers `{ hidden?, order?, placement?, replaced? }`,
+each keyed by part name, and `layer.subscribe` reports a change. Core applies
+the last layer registered wherever it lists contributions: a hidden part is left
+out (a hidden `Summary` leaves the page, and the foot falls back to the page's
+figure or icon), `order` and a region's `placement` override the kit's, and a
+component in `replaced` is drawn instead of the original with the original's
+props plus `Original` (`ReplacementProps<P>`). Every registered layer applies,
+by `layer.order` (0 by default) and then as registered: hidden parts add up, and
+a later layer's order, move or replacement wins. A package that adjusts another
+kit registers a layer of its own; Customize Kit (`kits/customize/`), the
+user's own, uses order 100 and so comes last. `context.customizableParts()`
+lists every part on this client with what the layers do to it (`elsewhere`
+marks one only another kind of device draws, a phone's top bar), and
+`context.onPartsChanged(listener)` reports parts coming and going. Hooks, gates,
+send modes, keybindings, tool cards and core's own surfaces are not parts.
+
+**Data for the user's scripts.** A user script runs on the sandbox frame and
+reads what a kit lends it with `tau.data(id, callback)`. A kit lends a value by
+providing a service of the `SharedData` shape, `{ shared: true, getSnapshot(),
+subscribe(listener) }`, whose snapshot is plain data; Customize Kit hands no
+other service to a script. Usage lends its plan windows as `tau.usage/limits`
+(`{ checkedAt, accounts: [{ runtime, label, plan?, windows: [{ id, kind,
+label, usedPercent, resetsAt? }] }] }`, or `null` before the first reading).
+A script also has `tau.openPage(id, params?)` and `tau.runCommand(id)`, which
+runs only from a click in the script.
+
+**Places in a kit's own surface.** A kit offers one with `<Slot name="<kit
+id>/<name>" actions={actions} />` from `tau` (API 1.62.0); every region
+registered with that `placement` draws there, as a part, with the region props.
+Usage offers `tau.usage/limits-end` (under Plan limits) and
+`tau.usage/page-end`. A slot draws nothing while no region fills it, and an
+older client has no `Slot`, so test for it before drawing one.
+
+`SandboxFrame` takes `minHeight` (API 1.62.0) for a frame inside a row, and
+`WorkbenchActions.closeSettings()` leaves Settings.
 
 ### Who is attached: `services.clients`
 

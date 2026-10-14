@@ -1,0 +1,18 @@
+/* A script draws in its part's place: no box of ours around the frame. */
+.customize-script { display: block; min-width: 0; }
+.customize-script[data-inline] { display: inline-block; vertical-align: middle; max-width: 100%; }
+.customize-script .sandbox-frame-view { background: transparent; color-scheme: normal; }
+.customize-script-error { color: var(--danger); font-size: var(--text-xs); }
+
+.customize-picker { position: fixed; inset: 0; z-index: 2147483000; pointer-events: none; }
+.customize-picker-box { position: fixed; border: 2px solid var(--acid); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--acid) 12%, transparent); }
+.customize-picker-label { position: fixed; padding: 2px 6px; border-radius: var(--radius-sm); background: var(--acid); color: var(--acid-ink); font-size: var(--text-xs); white-space: nowrap; }
+.customize-picker-label code { font-family: var(--mono); }
+.customize-picker-hint { position: fixed; left: 50%; bottom: 16px; translate: -50% 0; padding: 6px 12px; border-radius: var(--radius-md); background: var(--raised); color: var(--ink); box-shadow: 0 4px 16px var(--shadow); font-size: var(--text-sm); }
+body[data-tau-picking] * { cursor: crosshair !important; }
+
+.customize-row-controls { display: inline-flex; align-items: center; gap: var(--space-3); }
+.customize-group-title { margin: var(--space-5) 0 var(--space-2); color: var(--muted); font-size: var(--text-xs); font-weight: 500; }
+.customize-entry { display: flex; flex-direction: column; gap: var(--space-3); padding-bottom: var(--space-5); border-bottom: 1px solid var(--line-soft); }
+.customize-entry:last-child { border-bottom: 0; }
+.customize-error { color: var(--danger); }

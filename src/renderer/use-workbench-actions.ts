@@ -163,6 +163,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       ...(options.togglePanelMaximized ? { togglePanelMaximized: options.togglePanelMaximized } : {}),
       openCommandPalette: options.openPalette,
       openSettings: (page) => options.setSettingsPage(page ?? "general"),
+      closeSettings: () => options.setSettingsPage(undefined),
       // Read what is on screen first: Settings covers the thread until the next render.
       newSession: (request) => { newSession(request); options.setSettingsPage(undefined); },
       switchSession,

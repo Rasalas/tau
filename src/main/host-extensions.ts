@@ -1301,6 +1301,7 @@ export interface HostExtensionEmitOptions {
 }
 
 const MAX_TOPIC_LENGTH = 256;
+const OFFER_CONTRACT = /^[a-z0-9][a-z0-9.-]{0,63}\/[a-z0-9][a-z0-9./-]{0,63}$/u;
 
 export interface HostExtensionCommandOptions {
   /** Commands that may be called by these host extension IDs. */
@@ -1365,6 +1366,14 @@ export interface HostExtensionContext {
    * topic (`HostExtensionClient.watch`); use one for output only a visible view draws.
    */
   emit(name: string, payload?: unknown, options?: HostExtensionEmitOptions): void;
+  /**
+   * Says this extension answers a contract another extension names, such as
+   * `tau.usage/limits` (API 1.62.0). Core never reads the contract; it only
+   * answers `offering`. The offer goes with the returned disposer or deactivation.
+   */
+  offer(contract: string): () => void;
+  /** The active extensions offering `contract`, in activation order (API 1.62.0). */
+  offering(contract: string): Array<{ id: string; name: string }>;
   /**
    * Reports a failure the extension cannot recover from, after activation: the
    * registry records the reason and deactivates it. An isolated package uses
@@ -1544,6 +1553,8 @@ interface ActiveHostExtension {
   /** Each command's `audit` option, when it has one. */
   commandAudit: Map<string, { label?: string; automatic?: true }>;
   commandCallers: Map<string, ReadonlySet<string>>;
+  /** Contracts it said it answers (`offer`). */
+  offers: Set<string>;
   disposers: Array<() => void | Promise<void>>;
   /** Set once the extension reported a failure it cannot recover from. */
   fatal?: string;
@@ -1623,6 +1634,7 @@ export class HostExtensionRegistry {
       ownerCommands: new Set(),
       commandAudit: new Map(),
       commandCallers: new Map(),
+      offers: new Set(),
       disposers: [],
     };
     this.invocationContexts.set(invocationContextId, { extensionId: extension.id, record });
@@ -1673,6 +1685,12 @@ export class HostExtensionRegistry {
         }
         this.publish({ type: "extension-event", extensionId: extension.id, name, payload, ...(topic === undefined ? {} : { topic }) });
       },
+      offer: (contract) => {
+        if (!OFFER_CONTRACT.test(contract)) throw new Error(`Host extension ${extension.id}: a contract looks like "vendor.kit/name", not "${contract}"`);
+        record.offers.add(contract);
+        return () => { record.offers.delete(contract); };
+      },
+      offering: (contract) => this.offering(contract),
       fail: (reason) => this.reportFatal(extension, record, reason),
     };
     try {
@@ -1700,6 +1718,13 @@ export class HostExtensionRegistry {
   }
 
   /** An extension that cannot go on: the reason is kept and the extension stops. */
+  /** Active extensions that offered `contract`; a failed one has stopped answering. */
+  offering(contract: string): Array<{ id: string; name: string }> {
+    return [...this.active.values()]
+      .filter((record) => !record.fatal && record.offers.has(contract))
+      .map((record) => ({ id: record.extension.id, name: record.extension.name }));
+  }
+
   private reportFatal(extension: HostExtension, record: ActiveHostExtension, reason: string): void {
     if (record.fatal) return;
     record.fatal = reason;

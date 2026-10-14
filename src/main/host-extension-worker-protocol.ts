@@ -221,6 +221,10 @@ export interface WorkerHostExtensionContext {
   readonly invokeHostExtension: (extensionId: string, command: string, input?: unknown) => Promise<unknown>;
   registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean; callers?: readonly string[]; access?: "read" | "owner"; audit?: { label?: string; automatic?: boolean } }): () => void;
   emit(name: string, payload?: unknown, options?: HostExtensionEmitOptions): void;
+  /** Says this extension answers a contract another extension names (API 1.62.0). */
+  offer(contract: string): () => void;
+  /** The active extensions offering `contract`, a round trip from a worker (API 1.62.0). */
+  offering(contract: string): Promise<Array<{ id: string; name: string }>>;
 }
 
 /** The default export of a package's host entry when it runs isolated. */
@@ -249,6 +253,7 @@ export type WorkerToHostMessage =
   | { t: "command"; name: string; long: boolean; callers: readonly string[]; access?: "read" | "owner"; audit?: { label?: string; automatic?: boolean } }
   | { t: "command-off"; name: string }
   | { t: "emit"; name: string; payload: unknown; topic?: string }
+  | { t: "offer"; contract: string; on: boolean }
   | { t: "log"; label: string; detail?: string }
   | { t: "rpc"; id: number; path: string; args: readonly unknown[] }
   | { t: "release"; handle: number }

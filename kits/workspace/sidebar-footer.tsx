@@ -1,5 +1,5 @@
 import { ChevronLeft, CircleArrowUp, Settings } from "lucide-react";
-import { errorMessage, READ_ONLY_REASON, tooltipProps, useAppUpdate, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
+import { errorMessage, Part, partName, READ_ONLY_REASON, tooltipProps, useAppUpdate, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
 
 const noBadge = () => undefined;
 const noSummary = () => undefined;
@@ -40,7 +40,7 @@ function SummaryButton({ page, actions }: { page: PageContribution; actions: Wor
 
 /** A page's own drawing for the foot (Usage's juicebars), else its figure, else its icon. */
 function PageSummarySlot({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
-  if (page.Summary) return <page.Summary actions={actions} />;
+  if (page.Summary) return <Part name={partName("page", page.id, "Summary")}><page.Summary actions={actions} /></Part>;
   return <SummaryButton page={page} actions={actions} />;
 }
 

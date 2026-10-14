@@ -18,6 +18,7 @@ import { Sheet } from "./Sheet";
 import { TouchThreadList, type TouchThreadListProps } from "./TouchThreadList";
 import { useThreadListSources } from "./thread-list-sources";
 import "./touch.css";
+import { Part, partName } from "../customization";
 
 export { TouchThreadList };
 
@@ -117,7 +118,7 @@ function TabletSummaryButton({ page, actions }: { page: PageContribution; action
 }
 
 function TabletPageSummary({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {
-  return page.Summary ? <page.Summary actions={actions} /> : <TabletSummaryButton page={page} actions={actions} />;
+  return page.Summary ? <Part name={partName("page", page.id, "Summary")}><page.Summary actions={actions} /></Part> : <TabletSummaryButton page={page} actions={actions} />;
 }
 
 function TabletPageButton({ page, actions }: { page: PageContribution; actions: WorkbenchActions }) {

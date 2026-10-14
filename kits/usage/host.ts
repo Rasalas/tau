@@ -13,6 +13,8 @@ import {
   OUTSIDE_LOG_SOURCES,
   USAGE_EXTENSION_ID,
   USAGE_LIMITS_COMMAND,
+  USAGE_LIMITS_SOURCE,
+  USAGE_THREADS_SOURCE,
   USAGE_SUMMARY_COMMAND,
   type BackendLogFolder,
   type BackendUsageAnswer,
@@ -140,10 +142,18 @@ function usageOf(value: unknown): BackendUsageThread["usage"] | undefined {
 }
 
 /** Another kit's answer is data from outside this kit: keep only what has the agreed shape. */
+/** The listed sources, then every kit that offered itself and is not listed. */
+export function withOffered<T extends { extensionId: string }>(listed: readonly T[], offered: ReadonlyArray<{ id: string; name: string }>, make: (offer: { id: string; name: string }) => T): T[] {
+  const known = new Set(listed.map((source) => source.extensionId));
+  return [...listed, ...offered.filter((offer) => !known.has(offer.id) && offer.id !== USAGE_EXTENSION_ID).map(make)];
+}
+
 export function readBackendAnswer(value: unknown): BackendUsageAnswer | undefined {
   const threads = value && typeof value === "object" ? (value as { threads?: unknown }).threads : undefined;
   if (!Array.isArray(threads)) return undefined;
+  const backend = (value as { backend?: unknown }).backend;
   return {
+    ...(typeof backend === "string" && /^[a-z0-9][a-z0-9@._-]{0,63}$/u.test(backend) ? { backend } : {}),
     threads: threads.flatMap((item): BackendUsageThread[] => {
       if (!item || typeof item !== "object") return [];
       const thread = item as Record<string, unknown>;
@@ -213,10 +223,12 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
       let stale = true;
       let reading: Promise<UsageScan> | undefined;
 
-      const askBackend = async (source: BackendUsageSource): Promise<BackendScan> => {
+      const askBackend = async (source: BackendUsageSource & { offered?: boolean }): Promise<BackendScan> => {
         try {
           const answer = readBackendAnswer(await context.invokeHostExtension(source.extensionId, BACKEND_USAGE_COMMAND));
-          return answer ? { source, answer } : { source, error: `${source.label} answered in a shape this extension does not read` };
+          if (!answer) return { source, error: `${source.label} answered in a shape this extension does not read` };
+          // A kit that offered itself names its runtime; a listed one is named by the list.
+          return { source: source.offered && answer.backend ? { ...source, backend: answer.backend } : source, answer };
         } catch (error) {
           return { source, error: reason(error) };
         }
@@ -254,7 +266,8 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
 
       const read = async (): Promise<UsageScan> => {
         stale = false;
-        const [pi, backends, outside] = await Promise.all([cache.scan(services.sessionsDir), Promise.all(sources.map(askBackend)), readOutside()]);
+        const asked = withOffered(sources, await context.offering(USAGE_THREADS_SOURCE), (offer) => ({ extensionId: offer.id, backend: offer.id, label: offer.name, offered: true }));
+        const [pi, backends, outside] = await Promise.all([cache.scan(services.sessionsDir), Promise.all(asked.map(askBackend)), readOutside()]);
         return { scannedAt: now(), sessionsDir: services.sessionsDir, pi, backends, outside };
       };
 
@@ -320,7 +333,8 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
       let readingLimits: Promise<UsageLimitsSummary> | undefined;
       const readLimits = async (refresh: boolean): Promise<UsageLimitsSummary> => {
         await history.load(now()).catch((error) => services.log("usage.history-read-failed", reason(error)));
-        const answers = await Promise.all(limitSources.map(async (source): Promise<{ source: LimitSource; accounts?: UsageLimitAccount[]; error?: string }> => {
+        const asked = withOffered(limitSources, await context.offering(USAGE_LIMITS_SOURCE), (offer) => ({ extensionId: offer.id, label: offer.name }));
+        const answers = await Promise.all(asked.map(async (source): Promise<{ source: LimitSource; accounts?: UsageLimitAccount[]; error?: string }> => {
           try {
             const accounts = readLimitsAnswer(await context.invokeHostExtension(source.extensionId, BACKEND_LIMITS_COMMAND, refresh ? { refresh } : {}));
             return accounts ? { source, accounts } : { source, error: `${source.label} answered in a shape this extension does not read` };

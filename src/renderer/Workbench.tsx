@@ -46,6 +46,7 @@ import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, TranscriptTurn, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
+import { Part, partName } from "./customization";
 import { StartDetails, ThreadHeader } from "./components/ThreadHeader";
 import { ProjectCrumb } from "./components/ProjectCrumb";
 import { ProjectIcon } from "./components/ProjectIcon";
@@ -818,8 +819,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {pageSidebar ? <div className="sidebar-slot"><LazyFeatureBoundary label="sidebar" frame={pageSidebarFrame}>
         <Suspense fallback={pageSidebarFrame(null)}><LazyPageSidebar registry={registry} store={pages} actions={actions} /></Suspense>
       </LazyFeatureBoundary></div> : null}
-      <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>{sidebarContributions.map((contribution) => <LazyFeatureBoundary
-        key={contribution.id}
+      <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>{sidebarContributions.map((contribution) => <Part key={contribution.id} name={partName("sidebar", contribution.id)}><LazyFeatureBoundary
         label="sidebar"
         extensionId={contribution.extensionId}
         extensionName={contribution.extensionName}
@@ -827,7 +827,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onNotify={actions.notify}
       >
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
-      </LazyFeatureBoundary>)}</div>
+      </LazyFeatureBoundary></Part>)}</div>
       {touchSidebarShown || (sidebarShown && !compact) ? <ResizeHandle
         className="sidebar-resizer"
         label="Resize sidebar"
@@ -1043,6 +1043,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       registry={registry}
       actions={actions}
       onNotify={actions.notify}
+      part={partName("panel", sheetPanel.id)}
     />, hostFor(sheetPanel.id), sheetPanel.id) : null}
     {!phone ? createPortal(<Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />, titleActionsHost) : null}
     {panels.map((panel) => {
@@ -1061,6 +1062,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         registry={registry}
         actions={actions}
         onNotify={actions.notify}
+        part={partName("panel", panel.id)}
       />, hostFor(panel.id), panel.id);
     })}
   </>);

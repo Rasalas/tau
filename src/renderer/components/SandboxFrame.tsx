@@ -28,6 +28,8 @@ export interface SandboxFrameProps {
   permissions?: SandboxFramePermissions | undefined;
   /** The height the document asked for; clamped to 80..2000 here, default 320, ignored in full screen. */
   height?: number | undefined;
+  /** Lowers the 80 px floor for a frame inside a row (API 1.62.0). */
+  minHeight?: number | undefined;
   bordered?: boolean | undefined;
   fullscreen?: boolean | undefined;
   /** Called when the frame wants to leave full screen: Escape pressed outside the document, focus moving outside the box, or the exit button. Controlled: the caller sets `fullscreen`. */
@@ -149,7 +151,7 @@ export function SandboxFrame(props: SandboxFrameProps) {
   };
 
   return (
-    <div className="sandbox-frame" style={{ height: clampFrameHeight(props.height ?? FRAME_DEFAULT_HEIGHT) }}>
+    <div className="sandbox-frame" style={{ height: clampFrameHeight(props.height ?? FRAME_DEFAULT_HEIGHT, props.minHeight) }}>
       <div
         ref={boxRef}
         className="sandbox-frame-box"

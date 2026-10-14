@@ -1,0 +1,17 @@
+{
+  "id": "tau.customize",
+  "name": "Customize",
+  "description": "Hide, reorder, move and replace any part of Tau by its name, with your own styles and scripts.",
+  "icon": "Paintbrush",
+  "version": "1.0.0",
+  "engines": {
+    "api": "^1.62.0"
+  },
+  "permissions": [
+    "network"
+  ],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css",
+  "host": "./host.ts"
+}

@@ -22,6 +22,7 @@ export const PAGES = [
   { slug: "kit-tutorial", source: "docs/kit-tutorial.md", group: "Guides", title: "Your first kit", blurb: "Create, install, trust, approve, edit, rebuild and give one small kit a setting, step by step." },
   { slug: "updates-and-machines", source: "docs/site/updates-and-machines.md", group: "Guides", blurb: "How Tau updates itself, other computers, and a host without a window." },
   { slug: "servers", source: "docs/servers.md", group: "Guides", title: "Servers", blurb: "Work on a site that lives on a server: upload, drift, roll back." },
+  { slug: "customize", source: "docs/customize.md", group: "Guides", title: "Customize Tau", blurb: "Hide, move or replace any part of Tau by its name, with your own styles and scripts." },
   { slug: "runtimes", source: "docs/runtimes.md", group: "Reference", blurb: "Claude Code, Codex, Antigravity and Pi, pull request tools, and a live Pi session." },
   { slug: "hosts", source: "docs/hosts.md", group: "Reference", title: "Hosts and devices", blurb: "The host as a service, over a socket or TLS, other machines, the web client and the phone app." },
   { slug: "push", source: "docs/push.md", group: "Reference", title: "Push notifications", blurb: "Tau's relay, what it sees, the end-to-end encryption, and your own keys." },
