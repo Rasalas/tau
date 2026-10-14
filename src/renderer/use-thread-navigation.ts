@@ -162,6 +162,8 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
   const beginStartDraft = useCallback(() => {
     const snapshot = view.getSnapshot();
     if (newThread.current() || !snapshot || snapshot.isStreaming || view.getTranscript().messages.length) return;
+    // An uncached thread has an empty transcript until its history arrives.
+    if ((threads.getThread(snapshot.sessionId)?.messageCount ?? 0) > 0) return;
     const project = threads.getProjects().find((candidate) => namesWorkspace(snapshot.workspaceId ?? snapshot.cwd, candidate.workspaceId, candidate.path));
     if (project && !client?.isReadOnly()) moveDraftToProject(project);
   }, [client, moveDraftToProject, newThread, threads, view]);
