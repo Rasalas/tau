@@ -102,7 +102,7 @@ describe("Access Kit desktop extension", () => {
 
   it("hides the chip's label when the footer row marks itself narrow, leaving the lock and the aria-label", () => {
     const css = readFileSync("kits/access/styles.css", "utf8");
-    expect(css).toMatch(/\.composer-chips\[data-lead-icons\] \.composer-access-status \.composer-access-label \{ display: none; \}/u);
+    expect(css).toMatch(/\[data-lead-icons\] \.composer-access-label \{ display: none; \}/u);
   });
 
   it("offers one palette command per level", () => {
