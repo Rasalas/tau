@@ -1254,13 +1254,20 @@ export async function restoreWorkspaceSnapshot(
     await assertFilesystemRestoreable(cwd, rollbackFilesystem, "Restore backup");
   }
 
+  const ensureWindowsCwd = async (): Promise<void> => {
+    // Windows Git can remove a nested workspace when its last file disappears.
+    if (process.platform === "win32" && !existsSync(cwd)) await mkdir(cwd, { recursive: true });
+  };
   const applyGit = async (treeId: string, notify = true): Promise<void> => {
+    await ensureWindowsCwd();
     // `clean -fd` removes only non-ignored untracked files, matching the
     // capture boundary. Ignored folders (for example node_modules) are never
     // removed by a restore operation.
     await runGit(cwd, ["clean", "-fd", "--"], SNAPSHOT_GIT_BUFFER);
+    await ensureWindowsCwd();
     if (notify) await options.onPhase?.("cleaned");
     await runGit(cwd, ["read-tree", "--reset", "-u", treeId], SNAPSHOT_GIT_BUFFER);
+    await ensureWindowsCwd();
   };
   const apply = targetFilesystem && rollbackFilesystem
     ? () => applyFilesystemSnapshot(cwd, targetFilesystem.after)
