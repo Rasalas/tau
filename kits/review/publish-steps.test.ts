@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runPublish, stepState, stepWords, type PublishProgress, type PublishStep } from "./publish-steps.js";
+import { publishFailureMessage, runPublish, stepState, stepWords, type PublishProgress, type PublishStep } from "./publish-steps.js";
 
 function steps(failing?: PublishStep) {
   const calls: PublishStep[] = [];
@@ -12,6 +12,14 @@ function steps(failing?: PublishStep) {
 }
 
 describe("Commit, push & PR steps", () => {
+  it.each([
+    ["Command failed: /usr/bin/git -c core.quotePath=false push\r\nfatal: Authentication failed\r\nhint: Check your credentials", "Pushing failed: Authentication failed."],
+    ["Command failed: /usr/bin/git -c core.fsmonitor=false push\n", "Pushing failed."],
+    ["Check out a branch before pushing; HEAD is detached.", "Pushing failed: Check out a branch before pushing; HEAD is detached."],
+  ])("formats the push failure without exposing the command: %s", (output, expected) => {
+    expect(publishFailureMessage("push", "PR", output)).toBe(expected);
+  });
+
   it("runs commit, push and create in order and reports each one", async () => {
     const { calls, perform } = steps();
     const seen: PublishProgress[] = [];

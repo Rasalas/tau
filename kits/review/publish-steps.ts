@@ -21,6 +21,14 @@ export function stepWords(step: PublishStep, noun: string): Record<StepState, st
   return { pending: `Create ${noun}`, running: `Creating ${noun}…`, done: `${noun} created`, failed: `Creating ${noun} failed` };
 }
 
+/** Git's diagnostic is readable; the command and remaining output belong in Copy. */
+export function publishFailureMessage(step: PublishStep, noun: string, output: string): string {
+  const diagnostic = /^\s*(?:fatal|error):\s*(.+)$/imu.exec(output)?.[1]?.trim();
+  const reason = diagnostic ?? (output.includes("Command failed:") ? "" : output.split(/\r?\n/u)[0]?.trim());
+  const message = `${stepWords(step, noun).failed}${reason ? `: ${reason}` : ""}`;
+  return /[.!?]$/u.test(message) ? message : `${message}.`;
+}
+
 /**
  * Runs the steps that have not gone through yet, in order, and stops at the first that fails; the
  * next call continues there, so what already worked is never done twice.

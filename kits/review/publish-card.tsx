@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Check, Circle, Sparkles, X } from "lucide-react";
-import { Dialog, errorMessage, FileKindIcon, Spinner, tooltipProps, type HostExtensionClient, type PreferencesStore, type RegionProps, type UiFileDiff, type WorkbenchActions } from "tau";
+import { Dialog, errorMessage, FileKindIcon, Spinner, tooltipProps, type HostExtensionClient, type PreferencesStore, type RegionProps, type ToastHandle, type UiFileDiff, type WorkbenchActions } from "tau";
 import { chosenWritingModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
 import type { LocalRequestClient } from "./local-request-client.js";
 import { providerInfo, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
 import { openPullRequest } from "./pull-request-open.js";
-import { PUBLISH_STEPS, runPublish, stepState, stepWords, type PublishProgress, type PublishStep, type StepState } from "./publish-steps.js";
+import { PUBLISH_STEPS, publishFailureMessage, runPublish, stepState, stepWords, type PublishProgress, type PublishStep, type StepState } from "./publish-steps.js";
 import { requestShort, type RequestClient, type RowRequests } from "./requests.js";
 import type { WorkspaceChangesReader } from "./workspace.js";
 
@@ -77,6 +77,7 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
   const [notes, setNotes] = useState<string[]>([]);
   const [progress, setProgress] = useState<PublishProgress>({ done: [] });
   const [busy, setBusy] = useState(false);
+  const failureToast = useRef<{ step: PublishStep; handle: ToastHandle } | undefined>(undefined);
   const alive = useRef(true);
   const latest = useRef(0);
   const { short, noun, capabilities } = providerInfo(status?.service ?? "github");
@@ -154,7 +155,19 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
         actions.notify(created ? `${requestShort(created)} ${providerInfo(created.provider).sign}${created.number} created${draft ? " as draft" : ""}.` : `${short} created.`);
         if (created) openPullRequest(actions, created, opened.cwd);
       },
-    }, (next) => { if (alive.current) setProgress(next); }, (step, reason) => actions.notify(`${stepWords(step, short).failed}: ${errorMessage(reason)}`, "error"));
+    }, (next) => {
+      if (failureToast.current && next.done.includes(failureToast.current.step)) {
+        failureToast.current.handle.dismiss();
+        failureToast.current = undefined;
+      }
+      if (alive.current) setProgress(next);
+    }, (step, reason) => {
+      const output = errorMessage(reason);
+      const failureTitle = publishFailureMessage(step, short, output);
+      const handle = actions.toast?.({ id: failureToast.current?.handle.id, type: "error", title: failureTitle, copyText: output });
+      if (handle) failureToast.current = { step, handle };
+      else actions.notify(failureTitle, "error");
+    });
     if (alive.current) setBusy(false);
     if (done) onClose();
   };
