@@ -128,7 +128,7 @@ describe("HTML page card", () => {
     const link = (id: string, params: object) => ({ jsonrpc: "2.0", id, method: "ui/open-link", params: { url: "https://example.com/doc", ...params } });
     speak(iframe, { jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { height: 100 } });
 
-    const open = vi.fn<PreviewLinksService["open"]>((url, event) => !event.metaKey && !event.ctrlKey);
+    const open = vi.fn<PreviewLinksService["open"]>((url, event) => !event.metaKey && !event.ctrlKey && !event.altKey);
     const release = holdPreviewLinks({ open });
     speak(iframe, link("l1", {}));
     expect(open).toHaveBeenLastCalledWith("https://example.com/doc", expect.objectContaining({ metaKey: false, ctrlKey: false }), actions);
@@ -137,10 +137,14 @@ describe("HTML page card", () => {
     expect(open).toHaveBeenLastCalledWith("https://example.com/doc", expect.objectContaining({ metaKey: true }), actions);
     expect(actions.openExternal).toHaveBeenCalledExactlyOnceWith("https://example.com/doc");
 
+    speak(iframe, link("option", { altKey: true }));
+    expect(open).toHaveBeenLastCalledWith("https://example.com/doc", expect.objectContaining({ altKey: true }), actions);
+    expect(actions.openExternal).toHaveBeenCalledTimes(2);
+
     release();
     speak(iframe, link("l3", {}));
-    expect(open).toHaveBeenCalledTimes(2);
-    expect(actions.openExternal).toHaveBeenCalledTimes(2);
+    expect(open).toHaveBeenCalledTimes(3);
+    expect(actions.openExternal).toHaveBeenCalledTimes(3);
   });
 
   it("says so when the page is gone, and shows a failed call's reason", async () => {
@@ -199,7 +203,8 @@ describe("link requests", () => {
   const request = (params: unknown) => ({ jsonrpc: "2.0", id: "l1", method: "ui/open-link", params });
 
   it("reads the url and the modifiers held, and refuses what is not a web link", () => {
-    expect(linkRequest(request({ url: "https://a.test/", metaKey: true, ctrlKey: "yes" }))).toEqual({ id: "l1", url: "https://a.test/", metaKey: true, ctrlKey: false });
+    expect(linkRequest(request({ url: "https://a.test/", metaKey: true, ctrlKey: "yes", altKey: true }))).toEqual({ id: "l1", url: "https://a.test/", metaKey: true, ctrlKey: false, altKey: true });
+    expect(linkRequest(request({ url: "https://a.test/", altKey: "yes" }))).toMatchObject({ altKey: false });
     expect(linkRequest(request({ url: "https://a.test/" }))).toMatchObject({ metaKey: false, ctrlKey: false });
     expect(linkRequest(request({ url: "javascript:alert(1)" }))).toBeUndefined();
     expect(linkRequest(request(undefined))).toBeUndefined();

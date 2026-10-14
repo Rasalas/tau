@@ -26,12 +26,12 @@ export function reportedHeight(data: unknown): number | undefined {
 }
 
 /** A clicked http(s) link the page handed over, with the id its answer needs and the modifiers held. */
-export function linkRequest(data: unknown): { id: string | number; url: string; metaKey: boolean; ctrlKey: boolean } | undefined {
+export function linkRequest(data: unknown): { id: string | number; url: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean } | undefined {
   const message = data as Message | null;
   if (typeof message !== "object" || message === null || message.jsonrpc !== "2.0" || message.method !== LINK_METHOD) return undefined;
   if (typeof message.id !== "string" && typeof message.id !== "number") return undefined;
-  const { url, metaKey, ctrlKey } = (message.params ?? {}) as { url?: unknown; metaKey?: unknown; ctrlKey?: unknown };
-  return typeof url === "string" && /^https?:\/\//iu.test(url) ? { id: message.id, url, metaKey: metaKey === true, ctrlKey: ctrlKey === true } : undefined;
+  const { url, metaKey, ctrlKey, altKey } = (message.params ?? {}) as { url?: unknown; metaKey?: unknown; ctrlKey?: unknown; altKey?: unknown };
+  return typeof url === "string" && /^https?:\/\//iu.test(url) ? { id: message.id, url, metaKey: metaKey === true, ctrlKey: ctrlKey === true, altKey: altKey === true } : undefined;
 }
 
 const DATA_IMAGE = /^data:image\/(?:png|jpeg|gif|webp|avif|bmp|svg\+xml)(?:;[^,;]*)*;base64,/iu;

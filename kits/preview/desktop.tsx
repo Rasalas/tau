@@ -130,7 +130,9 @@ export const previewExtension: DesktopExtension = {
       previewView.set("browser");
       void open(url, app);
     };
-    const stopLinks = followLinkTarget(linkTarget, (url) => openLink(url, workbenchActions.get() ?? { openPanel: () => undefined }));
+    const stopLinks = followLinkTarget(linkTarget,
+      (url) => openLink(url, workbenchActions.get() ?? { openPanel: () => undefined }),
+      (url) => workbenchActions.get()?.openExternal(url));
     // Links that leave the transcript's text (an agent's page) follow the same setting.
     plugin.provideService<PreviewLinksService>(PREVIEW_LINKS_SERVICE, {
       open: (url, event, app) => {
