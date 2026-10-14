@@ -92,6 +92,19 @@ const FIXED_TILE_TEXT = new Set([
   ".token-gate-help > summary::before",
 ]);
 
+/** Where `color: var(--fainter)` is allowed: a glyph (slash, chevron, icon button) or a disabled control, never a word or a number. */
+const HINT_GLYPHS = new Set([
+  "kits/files/styles.css: .files-crumb-sep",
+  "kits/questionnaire/styles.css: .extension-pager > button:disabled",
+  "kits/workspace/styles.css: .restore-dialog > footer > button:disabled",
+  "renderer/components/model-picker.css: .model-row-action",
+  "renderer/components/review-layout.css: .review-tree-file:hover .review-tree-viewed, .review-tree-viewed:focus-visible",
+  "renderer/settings/settings.css: .settings-page-head li + li::before",
+  "renderer/settings/settings.css: .setting-origin-trigger, .setting-reset",
+  "renderer/settings/settings.css: .runtimes-star",
+  "renderer/settings/settings.css: .extension-row-chevron",
+]);
+
 async function cssUnder(root: string): Promise<string[]> {
   const found: string[] = [];
   for await (const path of glob(`${root}/**/*.css`)) found.push(path);
@@ -134,6 +147,20 @@ function luminance(value: string): number {
 function ratio(foreground: string, background: string): number {
   const [a, b] = [luminance(foreground), luminance(background)];
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/** `color-mix(in srgb, <top> <percent>%, <under>)` for two opaque `#rrggbb` colours. */
+function mixOver(top: string, percent: number, under: string): string {
+  const channel = (hex: string, index: number) => Number.parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  return `#${[0, 1, 2].map((index) => Math.round(channel(top, index) * percent / 100 + channel(under, index) * (1 - percent / 100)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** The token a rule's `property` names with `var(--x)`, found by its exact selector. */
+function declaredToken(css: string, selector: string, property: string): string {
+  const body = rules(css).find((rule) => rule.selector === selector && new RegExp(`(?:^|[;\\s])${property}:`, "u").test(rule.body))?.body;
+  const token = body === undefined ? undefined : new RegExp(`(?:^|[;\\s])${property}:\\s*(?:color-mix\\(in srgb,\\s*)?var\\(--([\\w-]+)\\)`, "u").exec(body)?.[1];
+  if (token === undefined) throw new Error(`${selector} sets no ${property}: var(--token)`);
+  return token;
 }
 
 async function stylesheets(): Promise<Array<{ name: string; css: string }>> {
@@ -211,6 +238,75 @@ describe("the token contract", () => {
     }
     // Text takes --faint, --info-ink, --ready or --fail-ink; the others are 3:1 marks.
     expect(weak).toEqual([]);
+  });
+
+  it("uses the hint tier for glyphs only, never for a number or a word", async () => {
+    const used = new Set<string>();
+    const words: string[] = [];
+    for (const { name, css } of await allStylesheets()) {
+      for (const { selector, body } of rules(css)) {
+        if (!/(?:^|[;\s])color:\s*var\(--fainter\)/u.test(body)) continue;
+        const key = `${name}: ${selector.replace(/\s+/gu, " ")}`;
+        used.add(key);
+        if (!HINT_GLYPHS.has(key)) words.push(key);
+      }
+    }
+    // A line number or a label takes --muted or --faint (4.5:1); add a glyph to HINT_GLYPHS only if it has no letters or digits.
+    expect(words).toEqual([]);
+    expect([...HINT_GLYPHS].filter((key) => !used.has(key)), "drop what no longer uses --fainter").toEqual([]);
+    const editor = await readFile(new URL("../../kits/files/editor-theme.ts", import.meta.url), "utf8");
+    expect(editor).not.toMatch(/\bcolor:\s*"var\(--fainter\)"/u);
+  });
+
+  it("reads every line number at 4.5:1 on the rows it sits on, in both schemes", async () => {
+    const tokens = await readTokens();
+    const diff = await readFile(new URL("./components/diff-view.css", import.meta.url), "utf8");
+    const styles = await readFile(STYLES, "utf8");
+    const editor = await readFile(new URL("../../kits/files/editor-theme.ts", import.meta.url), "utf8");
+    const gutters: ReadonlyArray<[string, string, string[]]> = [
+      ["the diff gutter", declaredToken(diff, ".diff-gutter", "color"), ["stage", "diff-add-bg", "diff-del-bg"]],
+      ["the file source gutter", declaredToken(styles, ".source-gutter", "color"), ["stage"]],
+      ["the editor gutter", /"\.cm-gutters":\s*\{[^}]*\bcolor:\s*"var\(--([\w-]+)\)"/u.exec(editor)?.[1] ?? "none", ["stage"]],
+    ];
+    for (const scheme of ["light", "dark"] as const) {
+      for (const [what, token, rows] of gutters) {
+        for (const row of rows) {
+          const contrast = ratio(colour(tokens, token, scheme), colour(tokens, row, scheme));
+          expect(contrast, `${scheme}: ${what} (--${token}) on --${row} is ${contrast.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  it("reads a draft row's texts at 4.5:1, open or not, in both schemes", async () => {
+    const tokens = await readTokens();
+    const styles = await readFile(STYLES, "utf8");
+    const tint = (selector: string, property: string) => {
+      const body = rules(styles).find((rule) => rule.selector === selector && rule.body.includes(property))?.body ?? "";
+      const mix = new RegExp(`${property}:\\s*color-mix\\(in srgb,\\s*var\\(--([\\w-]+)\\)\\s*(\\d+)%,\\s*(?:var\\(--([\\w-]+)\\)|transparent)\\)`, "u").exec(body);
+      if (!mix) throw new Error(`${selector} sets no ${property}: color-mix(in srgb, var(--x) N%, var(--y))`);
+      // A tint over transparent lies on the sidebar.
+      return { top: mix[1]!, percent: Number(mix[2]), under: mix[3] ?? "rail" };
+    };
+    const resting = tint(".thread-draft-row", "background");
+    const open = tint(".thread-draft-row.active", "--row-bg");
+    const rows: ReadonlyArray<[string, typeof resting, string]> = [
+      ["a draft row", resting, ".thread-draft-row .thread-title"],
+      ["the open draft row", open, ".thread-draft-row.active .thread-title"],
+    ];
+    const texts: ReadonlyArray<[string, string]> = [
+      ["the branch", declaredToken(styles, ".thread-branch", "color")],
+      ["the Draft mark", declaredToken(styles, ".thread-draft-mark", "color")],
+    ];
+    for (const scheme of ["light", "dark"] as const) {
+      for (const [row, { top, percent, under }, titleRule] of rows) {
+        const ground = mixOver(colour(tokens, top, scheme), percent, colour(tokens, under, scheme));
+        for (const [what, token] of [...texts, ["the title", declaredToken(styles, titleRule, "color")] as [string, string]]) {
+          const contrast = ratio(colour(tokens, token, scheme), ground);
+          expect(contrast, `${scheme}: ${what} (--${token}) on ${row} is ${contrast.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
   });
 
   it("gives every colour token a value in both schemes", async () => {
