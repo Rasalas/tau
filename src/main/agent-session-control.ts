@@ -172,7 +172,7 @@ export class AgentSessionControl {
             await resume.notice?.(text);
             if (port.active() === thread) await port.publication().publishDetail();
           } } } : {}),
-          prompt: (text, hidden) => port.prompt(thread.threadId, text, hidden),
+          prompt: (text, hidden) => port.turnsInFlight.continuing(marker, () => port.prompt(thread.threadId, text, hidden)),
         } satisfies ReconcilableThread;
       },
     });

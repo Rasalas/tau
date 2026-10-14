@@ -50,6 +50,38 @@ function open(query: ClaudeQuery) {
 }
 
 describe("ClaudeSdkSession", () => {
+  it("preserves a thrown 403 error without adding a login hint", async () => {
+    const detail = "Failed to authenticate. API Error: 403 Your organization does not have access to this model.";
+    const { query, aborted } = sessionQuery(() => { throw new Error(detail); });
+    const { session, exits } = open(query);
+    await expect(session.send("hello", "next")).rejects.toThrow(new Error(detail));
+    expect((exits[0] as Error).message).toBe(detail);
+    expect(aborted()).toBe(false);
+  });
+
+  it.each(["Invalid API key", "Please sign in", "API Error: 401 Unauthorized"])("still aborts immediately on an explicit login error: %s", async (detail) => {
+    const { query, aborted } = sessionQuery(() => [
+      frame({ type: "assistant", error: "authentication_failed", message: { content: [{ type: "text", text: detail }] } }),
+    ]);
+    const { session } = open(query);
+    await expect(session.send("hello", "next")).rejects.toThrow("Sign in again");
+    expect(session.closed).toBe(true);
+    expect(aborted()).toBe(true);
+  });
+
+  it("uses a 401 result to identify an ambiguous assistant error as a login failure", async () => {
+    const { query, aborted } = sessionQuery((message) => [
+      frame({ type: "assistant", error: "authentication_failed", message: { content: [{ type: "text", text: "Could not complete this request." }] } }),
+      frame({ type: "result", subtype: "success", is_error: true, api_error_status: 401, num_turns: 1, result: "Request rejected.", user_message_uuids: [message.uuid] }),
+    ]);
+    const { session, exits, seen } = open(query);
+    await expect(session.send("hello", "next")).resolves.toMatchObject({ api_error_status: 401 });
+    expect(seen).toEqual(["system", "assistant", "result"]);
+    expect((exits[0] as Error).message).toContain("Sign in again");
+    expect(session.closed).toBe(true);
+    expect(aborted()).toBe(true);
+  });
+
   it("reports a thrown authentication failure with a login hint and aborts the session", async () => {
     const { query, aborted } = sessionQuery(() => { throw new Error("Failed to authenticate: OAuth session expired and could not be refreshed"); });
     const { session, exits } = open(query);

@@ -438,6 +438,7 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
     lineComment: async (ref, input, known) => { await postReview(ref, "COMMENT", "", [input], known, `Commenting on ${noun(ref)}`); },
     update: async (ref, input) => { await api(ref.host, pullPath(ref), `Editing ${noun(ref)}`, { method: "PATCH", body: input }); },
     review: async (ref, input, known) => {
+      if (input.event === "request-changes" && !input.body.trim()) throw new HostCommandError("Forgejo requires a summary to request changes.");
       const event = input.event === "approve" ? "APPROVED" : input.event === "request-changes" ? "REQUEST_CHANGES" : "COMMENT";
       await postReview(ref, event, input.body, input.comments, known, `Submitting the review of ${noun(ref)}`);
       tools.drop("reviews", ref);

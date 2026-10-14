@@ -9,7 +9,9 @@ export interface ContextBreakdown {
   system: number;
 }
 
-function compact(tokens: number): string {
+export function compactTokens(tokens: number): string {
+  // From 999,500 the thousands branch would round up to "1000k".
+  if (tokens >= 999_500) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`;
   return String(tokens);
 }
@@ -59,7 +61,7 @@ export function ContextMeter({
         <div className="context-popover" ref={popover}>
           <header>
             <strong>Context</strong>
-            <span>{compact(usage.tokens)} / {compact(usage.contextWindow)}</span>
+            <span>{compactTokens(usage.tokens)} / {compactTokens(usage.contextWindow)}</span>
             <b>{Math.round(percent)}%</b>
           </header>
           <div className="context-bar">
@@ -78,13 +80,13 @@ export function ContextMeter({
               <span key={segment.key}>
                 <i style={{ background: segment.color }} />
                 <em>{segment.label}</em>
-                {compact(breakdown[segment.key])}
+                {compactTokens(breakdown[segment.key])}
               </span>
             ))}
             <span>
               <i style={{ border: "1px solid #3f3f38" }} />
               <em>free</em>
-              {compact(free)}
+              {compactTokens(free)}
             </span>
           </div>
           <button onClick={onCompact}>Compact context</button>

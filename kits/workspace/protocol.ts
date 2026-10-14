@@ -51,6 +51,9 @@ export interface TurnStat {
 
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 
+/** The one `list-editors` entry that is not an editor: it shows the file in the system's file manager. */
+export const FILE_MANAGER_ID = "file-manager";
+
 /** Where in a file an editor opens it, 1-based. */
 export interface EditorPosition {
   line?: number;
@@ -389,7 +392,7 @@ export interface WorkspaceHostClient {
   readLinkedFile(path: string, workspace: string): Promise<UiFileContent>;
   statFile(relPath: string): Promise<UiFileStat>;
   writeFile(relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
-  commit(message: string, push: boolean): Promise<CommitResult>;
+  commit(message: string, push: boolean, workspace?: string): Promise<CommitResult>;
   pull(workspace?: string): Promise<PullResult>;
   push(workspace?: string): Promise<PushResult>;
   getWorkspaceInfo(workspace?: string): Promise<WorkspaceReport>;
@@ -448,7 +451,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     readLinkedFile: (path, workspace) => call("read-linked-file", { path, workspace }),
     statFile: (relPath) => call("file-stat", { relPath }),
     writeFile: (relPath, text, expectedMtimeMs) => call("write-file", expectedMtimeMs === undefined ? { relPath, text } : { relPath, text, expectedMtimeMs }),
-    commit: (message, push) => call("commit", { message, push }),
+    commit: (message, push, workspace) => call("commit", workspace ? { message, push, workspace } : { message, push }),
     pull: (workspace) => call("pull", workspace ? { workspace } : undefined),
     push: (workspace) => call("push", workspace ? { workspace } : undefined),
     getWorkspaceInfo: (workspace) => call("workspace-info", workspace === undefined ? undefined : { workspace }),
@@ -808,7 +811,8 @@ export interface WorkspaceStoreApi {
   closeReview(): void;
   /** Commits the selected changes and reports whether the host accepted them. */
   commit(message: string, push: boolean): Promise<boolean>;
-  openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition): Promise<void>;
+  /** `workspace` names the project `relPath` is in; without it, the followed one. */
+  openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition, workspace?: string): Promise<void>;
   /** Makes an editor the one "Open in" uses first. */
   chooseEditor(id: string): void;
   activeTerminal(): UiTerminal | undefined;

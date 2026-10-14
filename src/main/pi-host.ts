@@ -629,6 +629,11 @@ export class PiHost {
   authorizeHostExtension(extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<void> { return this.hostExtensions.authorizeInvocation(extensionId, command, input, principal); }
   activeThreadIdentity(): { sessionId: string; backendKind: string } | undefined { const thread = this.active; return thread ? { sessionId: thread.threadId, backendKind: thread.backend.kind } : undefined; }
 
+  hasRequiredBackgroundWork(): boolean {
+    return this.attached.session.isAttached && this.controls.hasRequiredBackgroundWork(this.attachedThread)
+      || this.threads.list().some(({ runtime }) => this.controls.hasRequiredBackgroundWork(runtime));
+  }
+
   /** Extension commands that may run long, so a client runs them as host jobs. */
   longHostExtensionCommands(): string[] {
     return this.hostExtensions.longCommands();
@@ -1547,7 +1552,7 @@ export class PiHost {
       if (preflightState !== "pending") return;
       preflightState = result.accepted ? "accepted" : "rejected";
       onPreflightResult?.(result);
-      if (result.accepted) resolvePreflight();
+      if (result.accepted) { this.turnsInFlight.resetContinuations(thread.threadId); resolvePreflight(); }
       else {
         failUnpersistedMarker();
         if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);

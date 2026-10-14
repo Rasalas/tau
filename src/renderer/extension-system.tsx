@@ -43,6 +43,7 @@ import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 import { providerIconKey } from "./runtime-marks";
+import { CustomizationState, mergeCustomizations, partKindOf, partName, PART_FIELDS, type CustomizablePart, type CustomizationLayer, type PartKind } from "./customization";
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -61,6 +62,8 @@ export interface WorkbenchActions {
   /** With `menu`, on the level of the command of that id that has a `submenu` (API 1.12.0). */
   openCommandPalette(options?: { menu?: string }): void;
   openSettings(page?: string): void;
+  /** Leaves Settings for what it covered (API 1.62.0). */
+  closeSettings?(): void;
   /**
    * A new thread's draft in the project on screen, else where the host last worked, else through the picker (API 1.25.0).
    * With `workspace`, in that project, and nothing when the window does not know it yet; with `pick`, through the picker.
@@ -375,6 +378,12 @@ export interface TranscriptRowsHandle {
  * reserves space beneath it for extension-owned live frames without covering chat.
  * `spine` fills the narrow column the conversation collapses to (design 1b), under the title.
  */
+/**
+ * A place a kit offers in its own surface for others to fill, `<kit id>/<name>`
+ * (`tau.usage/page-end`); the kit draws it with `Slot` (API 1.62.0).
+ */
+export type SlotPlacement = `${string}/${string}`;
+
 export type RegionPlacement = "workspace-summary" | "workspace-preview" | "title-bar" | "thread-title" | "thread-details" | "thread-branch" | "draft-actions" | "stage-bar" | "composer-above" | "composer-controls" | "composer-below" | "transcript-header" | "transcript-footer" | "look-in" | "thread-list-head" | "thread-list-title" | "turn-divider" | "spine";
 
 /** Where a thread of a list source runs: its mark and name on the row's project line. */
@@ -457,7 +466,7 @@ export interface RegionProps {
 
 export interface RegionContribution extends ProfileScoped {
   id: string;
-  placement: RegionPlacement;
+  placement: RegionPlacement | SlotPlacement;
   order?: number;
   Component: ComponentType<RegionProps>;
 }
@@ -1565,14 +1574,16 @@ export interface DocumentSourceContribution extends ProfileScoped {
   /** The stage names the project its tabs were stored for, which a draft's may be. */
   loadFile(path: string, from?: DocumentOrigin): Promise<UiFileContent>;
   /** Stream media of an explicit originating workspace. Release when its viewer closes. API 1.52.0. */
-  loadMedia?(path: string, from: DocumentOrigin & { workspace: string }): Promise<{ url: string; mimeType: string; release?: () => void }>;
+  loadMedia?(path: string, from: DocumentOrigin & { workspace: string }): Promise<{ url: string; mimeType: string; release?: () => void; mainCheckoutPath?: string; resolvedPath?: string }>;
   /** Publish a workspace fragment as an opaque sandbox on this connection; release when unmounted. */
   loadVisualization?(path: string, from: DocumentOrigin & { workspace: string }, theme?: "light" | "dark"): Promise<{ url: string; release?: () => void }>;
   /** Read a transcript link on its host, including absolute paths and paths outside the workspace. Requires an explicit origin. */
   loadLinkedFile?(path: string, from: DocumentOrigin & { workspace: string }): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions, from?: DocumentOrigin): Promise<UiFileDiff>;
-  openInEditor(relPath: string): void;
-  getState(): { changes: UiWorkspaceChanges; editor?: UiEditor };
+  /** `workspace` names the project the file belongs to (default: the one followed), `editorId` an editor other than the default, e.g. the `fileManager` (API 1.63.0). */
+  openInEditor(relPath: string, options?: { workspace?: string; editorId?: string }): void;
+  /** `fileManager` shows a file in the machine's file manager, where it has one (API 1.63.0); like `editor`, absent where the host's files are not this client's. */
+  getState(): { changes: UiWorkspaceChanges; editor?: UiEditor; fileManager?: UiEditor };
   subscribe(listener: () => void): () => void;
   listFiles?(): Promise<string[]> | string[];
 }
@@ -1760,6 +1771,16 @@ export interface DesktopExtensionContext {
    * which runs when the provider withdraws or this extension deactivates.
    */
   useService<T>(id: string, use: (value: T) => (() => void) | void): () => void;
+  /**
+   * Changes to other extensions' parts, by part name (API 1.62.0, ADR 0042).
+   * Every layer applies, by `order` and then as registered; Customize Kit's,
+   * the user's own, comes last.
+   */
+  registerCustomizations(layer: CustomizationLayer): () => void;
+  /** Every part on offer on this client, drawn or customized away (API 1.62.0). */
+  customizableParts(): CustomizablePart[];
+  /** Runs when parts come or go or the layer changes (API 1.62.0). */
+  onPartsChanged(listener: () => void): () => void;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   /** Threads of elsewhere in a phone's or tablet's thread list, beside this host's (API 1.30.0). */
@@ -2011,6 +2032,9 @@ export class ExtensionRegistry {
   /** The last failure per extension entry path; an entry that builds again drops out. */
   private readonly loadFailures = new Map<string, string>();
   private sortedCache = new Map<string, { version: number; value: unknown[] }>();
+  private readonly customization = new CustomizationState();
+  /** The layers in the order they came; the last one applies. */
+  private customizationLayers: Array<{ layer: CustomizationLayer; extensionId: string }> = [];
 
   /**
    * Records a renderable contribution and answers whether this client draws it.
@@ -2308,6 +2332,29 @@ export class ExtensionRegistry {
         disposers.push(dispose);
         return dispose;
       },
+      registerCustomizations: (layer) => {
+        note("customizations");
+        const entry = { layer, extensionId: extension.id };
+        this.customizationLayers.push(entry);
+        const unsubscribe = layer.subscribe(() => this.applyCustomizations());
+        this.applyCustomizations();
+        let done = false;
+        const dispose = () => {
+          if (done) return;
+          done = true;
+          unsubscribe();
+          this.customizationLayers = this.customizationLayers.filter((held) => held !== entry);
+          this.applyCustomizations();
+        };
+        disposers.push(dispose);
+        return dispose;
+      },
+      customizableParts: () => this.getCustomizableParts(),
+      onPartsChanged: (listener) => {
+        const dispose = this.subscribeRegistrations(listener);
+        disposers.push(dispose);
+        return dispose;
+      },
       registerSidebar: (contribution) => {
         if (!this.scopeToProfile(owner, "sidebar", contribution.id, undefined, contribution)) return noContribution;
         note("sidebar");
@@ -2509,7 +2556,7 @@ export class ExtensionRegistry {
   }
 
   getPanels(): Array<Owned<PanelContribution>> {
-    return this.sorted("panels", this.panels);
+    return this.customized("panel", this.panels);
   }
 
   /** The kind that draws a stage tab, while the extension offering it is active. */
@@ -2529,11 +2576,11 @@ export class ExtensionRegistry {
 
   /** Pages of the app extensions added, in `order`. */
   getPages(): Array<Owned<PageContribution>> {
-    return this.sorted("pages", this.pages);
+    return this.customized("page", this.pages);
   }
 
   getPage(id: string | undefined): Owned<PageContribution> | undefined {
-    return id ? this.pages.get(id) : undefined;
+    return id ? this.getPages().find((page) => page.id === id) : undefined;
   }
 
   /** Sections packages added to one of core's Settings pages, in `order`. */
@@ -2618,17 +2665,17 @@ export class ExtensionRegistry {
     return value;
   }
 
-  getRegions(placement: RegionPlacement): Array<Owned<RegionContribution>> {
+  getRegions(placement: RegionPlacement | SlotPlacement): Array<Owned<RegionContribution>> {
     const key = `regions:placed:${placement}`;
     const cached = this.sortedCache.get(key);
     if (cached?.version === this.version) return cached.value as Array<Owned<RegionContribution>>;
-    const value = this.sorted(`regions:${placement}`, this.regions).filter((region) => region.placement === placement);
+    const value = this.customized("region", this.regions).filter((region) => region.placement === placement);
     this.sortedCache.set(key, { version: this.version, value });
     return value;
   }
 
   getStatusItems(): Array<Owned<StatusItemContribution>> {
-    return this.sorted("status-items", this.statusItems);
+    return this.customized("status", this.statusItems);
   }
 
   getOverlay(id: string | undefined): Owned<OverlayContribution> | undefined {
@@ -2649,7 +2696,7 @@ export class ExtensionRegistry {
   }
 
   getComposerControls(): Array<Owned<ComposerControlContribution>> {
-    return this.sorted("composer-controls", this.composerControls);
+    return this.customized("composer-control", this.composerControls);
   }
 
   getComposerInlines(): Array<Owned<ComposerInlineContribution>> {
@@ -2673,7 +2720,7 @@ export class ExtensionRegistry {
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
-    return this.sorted("sidebar", this.sidebarContributions);
+    return this.customized("sidebar", this.sidebarContributions);
   }
 
   getProjectSources(): Array<Owned<ProjectSourceContribution>> {
@@ -3190,6 +3237,74 @@ export class ExtensionRegistry {
     );
     this.sortedCache.set(key, { version: this.version, value });
     return value;
+  }
+
+  /** A kind's contributions as the user customized them, in their (possibly overridden) order. */
+  private customized<T extends { id: string; order?: number }>(kind: PartKind, map: Map<string, T>): T[] {
+    const key = `customized:${kind}`;
+    const cached = this.sortedCache.get(key);
+    if (cached?.version === this.version) return cached.value as T[];
+    const value = this.customization.apply(kind, [...map.values()]);
+    value.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    this.sortedCache.set(key, { version: this.version, value });
+    return value;
+  }
+
+  private applyCustomizations(): void {
+    // By `order`, then as they came: a later layer's order, move or replacement wins, and hidden parts add up.
+    const layers = this.customizationLayers.map((entry, index) => ({ entry, index }))
+      .sort((a, b) => (a.entry.layer.order ?? 0) - (b.entry.layer.order ?? 0) || a.index - b.index);
+    this.customization.set(mergeCustomizations(layers.map(({ entry }) => entry.layer.getSnapshot())));
+    this.changed();
+  }
+
+  /** Every part on offer on this client, with what the layer does to it. */
+  getCustomizableParts(): CustomizablePart[] {
+    const parts: CustomizablePart[] = [];
+    const add = (kind: PartKind, items: Iterable<Owned<{ id: string; label?: string; placement?: unknown }>>) => {
+      for (const item of items) {
+        const label = item.label ?? item.id;
+        const part = (name: string, field?: string): CustomizablePart => ({
+          name,
+          kind,
+          id: item.id,
+          ...(field ? { field } : {}),
+          label: field ? `${label} · ${field}` : label,
+          extensionId: item.extensionId,
+          extensionName: item.extensionName,
+          hidden: this.customization.isHidden(name),
+          replaced: this.customization.isReplaced(name),
+          ...(kind === "region" && typeof item.placement === "string" ? { placement: item.placement as RegionPlacement | SlotPlacement } : {}),
+        });
+        parts.push(part(partName(kind, item.id)));
+        for (const field of PART_FIELDS[kind]) {
+          if ((item as unknown as Record<string, unknown>)[field]) parts.push(part(partName(kind, item.id, field), field));
+        }
+      }
+    };
+    add("region", this.regions.values());
+    add("status", this.statusItems.values());
+    add("panel", this.panels.values());
+    add("page", this.pages.values());
+    add("sidebar", this.sidebarContributions.values());
+    add("composer-control", this.composerControls.values());
+    // What another kind of device draws can be changed from here too; its fields are only known where it is drawn.
+    const listed = new Set(parts.map((part) => part.name));
+    for (const entry of this.getUnrenderedContributions()) {
+      const mapped = partKindOf(entry.kind);
+      if (!mapped) continue;
+      const name = partName(mapped.kind, entry.id);
+      if (listed.has(name)) continue;
+      listed.add(name);
+      parts.push({
+        name, kind: mapped.kind, id: entry.id, label: entry.label ?? entry.id,
+        extensionId: entry.extensionId, extensionName: entry.extensionName,
+        hidden: this.customization.isHidden(name), replaced: this.customization.isReplaced(name),
+        ...(mapped.placement ? { placement: mapped.placement as RegionPlacement | SlotPlacement } : {}),
+        elsewhere: true,
+      });
+    }
+    return parts;
   }
 
   private changed(): void {

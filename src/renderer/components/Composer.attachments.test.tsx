@@ -58,9 +58,30 @@ function sizedImageFile(name: string, size: number): File {
   return file;
 }
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Composer attachments", () => {
+  it.each([undefined, "followUp", "steer"] as const)("submits resized bytes with %s delivery", async (delivery) => {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 4000, height: 1000, close: vi.fn() })));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback, type) => callback(new Blob(["fitted"], { type })));
+    const snapshot: HostSnapshot = {
+      cwd: "/project", sessionId: "session", sessionTitle: "Thread", models: [],
+      thinkingLevel: "off", thinkingLevels: ["off"], messages: [], isStreaming: delivery !== undefined,
+      activeTools: [], allTools: [], extensionCount: 0, supportsImageInput: true,
+    };
+    const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true })), undefined, snapshot);
+    const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 15, 160, 0, 0, 3, 232]);
+    fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [new File([bytes], "shot.png", { type: "image/png" })] } });
+    await screen.findByRole("button", { name: "Preview shot.png" });
+    const draft = screen.getByPlaceholderText(delivery ? /Steer, or queue/u : /Ask anything/u) as HTMLTextAreaElement;
+    typeAfterChips(draft, "look at this");
+    fireEvent.keyDown(draft, { key: "Enter", metaKey: delivery === "steer" });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0]?.[1]).toEqual([{ kind: "image", name: "shot.png", mimeType: "image/png", data: btoa("fitted"), size: 6 }]);
+    expect(onSubmit.mock.calls[0]?.[2]).toBe(delivery);
+  });
+
   it("keeps the hidden file input out of the tab order", () => {
     renderComposer();
     expect((screen.getByLabelText("Choose attachment files") as HTMLInputElement).tabIndex).toBe(-1);

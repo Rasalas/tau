@@ -3,8 +3,11 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { backgroundHoldsRun } from "../shared/background-work.js";
+import type { UiBackgroundTask } from "../shared/contracts.js";
 import type { HostUpdateStatus } from "../shared/host-updates.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
+import { describeHostUpdate } from "../shared/host-updates.js";
 import { NO_JOB_CONTEXT } from "./host-jobs.js";
 import { HostUpdater, createUpdateMethods, localWindowUpdatePort, type HostUpdaterOptions, type WindowUpdatePort } from "./host-updater.js";
 import { releaseKeysFor } from "./release-feed.js";
@@ -183,6 +186,126 @@ describe("HostUpdater", () => {
     instance.observe({ type: "agent-status", sessionId: "a", running: false });
     await vi.waitFor(() => expect(installed).toHaveLength(1));
     expect(instance.status().phase).toBe("installed");
+  });
+
+  it.each(["command", "agent", "task", "monitor"] as const)("keeps an automatic update waiting for required background %s work and its result", async (kind) => {
+    const feed = fakeFeed("0.7.14");
+    const { installer, installed } = fakeInstaller();
+    let tasks: UiBackgroundTask[] = [{ id: "work", kind, label: "Required work" }];
+    const { instance, advance, restart } = updater({
+      fetch: feed.fetch, installer, hasRequiredBackgroundWork: () => backgroundHoldsRun(tasks),
+    });
+    vi.useFakeTimers();
+    try {
+      instance.observe({ type: "agent-status", sessionId: "a", running: true });
+      instance.observe({ type: "agent-status", sessionId: "a", running: false });
+      advance(120_000);
+      expect(await instance.check()).toMatchObject({ phase: "waiting", runningTurns: 0, reason: expect.stringMatching(/background/u) });
+      expect(installed).toHaveLength(0);
+      expect(restart).not.toHaveBeenCalled();
+      tasks = [{ ...tasks[0]!, state: "reported" }];
+      advance(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(installed).toHaveLength(0);
+      tasks = [];
+      advance(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(installed).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await instance.check();
+      expect(installed).toHaveLength(1);
+      expect(restart).toHaveBeenCalledOnce();
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("installs with a checked service released to run independently", async () => {
+    const feed = fakeFeed("0.7.14");
+    const { installer, installed } = fakeInstaller();
+    const tasks: UiBackgroundTask[] = [{ id: "server", kind: "command", label: "Dev server", blocksCompletion: false }];
+    const { instance, advance } = updater({ fetch: feed.fetch, installer, hasRequiredBackgroundWork: () => backgroundHoldsRun(tasks) });
+    advance(120_000);
+    vi.useFakeTimers();
+    try {
+      expect((await instance.check()).phase).toBe("installed");
+      expect(installed).toHaveLength(1);
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("abandons an automatic install after the bounded wait without losing work or retrying on its own", async () => {
+    const feed = fakeFeed("0.7.14");
+    const { installer, installed } = fakeInstaller();
+    let required = true;
+    const { instance, advance, restart } = updater({ fetch: feed.fetch, installer, hasRequiredBackgroundWork: () => required, backgroundWaitMs: 10_000 });
+    vi.useFakeTimers();
+    try {
+      advance(120_000);
+      expect((await instance.check()).phase).toBe("waiting");
+      expect(describeHostUpdate(instance.status())).toMatch(/background/u);
+      advance(10_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(instance.status()).toMatchObject({ phase: "ready", reason: expect.stringContaining("deferred") });
+      expect(describeHostUpdate(instance.status())).toContain("Update now");
+      expect(installed).toHaveLength(0);
+      expect(restart).not.toHaveBeenCalled();
+      required = false;
+      advance(120_000);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(await instance.check()).toMatchObject({ phase: "ready", reason: expect.stringContaining("deferred") });
+      expect(installed).toHaveLength(0);
+      expect((await instance.install()).phase).toBe("installed");
+      expect(installed).toHaveLength(1);
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for background work before passing Update now to the window", async () => {
+    const feed = fakeFeed("0.7.14");
+    let required = true;
+    const window: WindowUpdatePort = {
+      attached: () => true, state: async () => ({ installs: true }), install: vi.fn(async () => ({ started: true })),
+    };
+    const { instance, advance } = updater({ fetch: feed.fetch, window, hasRequiredBackgroundWork: () => required });
+    vi.useFakeTimers();
+    try {
+      expect((await instance.install()).phase).toBe("waiting");
+      expect(window.install).not.toHaveBeenCalled();
+      required = false;
+      advance(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(window.install).toHaveBeenCalledOnce();
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("rechecks background work that starts during the install permission check", async () => {
+    const feed = fakeFeed("0.7.14");
+    let required = false;
+    let checks = 0;
+    const { installer, installed } = fakeInstaller({ blocked: async () => { if (++checks === 2) required = true; return undefined; } });
+    const { instance, advance } = updater({ fetch: feed.fetch, installer, hasRequiredBackgroundWork: () => required });
+    vi.useFakeTimers();
+    try {
+      advance(120_000);
+      expect((await instance.check()).phase).toBe("waiting");
+      expect(installed).toHaveLength(0);
+      required = false;
+      advance(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(installed).toHaveLength(1);
+    } finally {
+      instance.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("refuses a download whose checksum does not match, and installs nothing", async () => {

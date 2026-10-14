@@ -5,8 +5,9 @@ import type { ToolCardProps, UiToolRun, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import htmlPages from "./desktop.js";
 import { createPageCard } from "./page-card.js";
-import { PageView } from "./page-view.js";
-import { HTML_PAGE_COMMANDS, HTML_PAGE_STAGE_TAB, type HtmlPageOpen } from "./protocol.js";
+import { holdPreviewLinks, openPageLink } from "./links.js";
+import { PageView, linkRequest } from "./page-view.js";
+import { HTML_PAGE_COMMANDS, HTML_PAGE_STAGE_TAB, PREVIEW_LINKS_SERVICE, type HtmlPageOpen, type PreviewLinksService } from "./protocol.js";
 
 const tool = (overrides: Partial<UiToolRun> = {}): UiToolRun => ({
   id: "call1", name: "mcp__tau__show_html_page", args: { title: "Totals" }, status: "done", startedAt: 1,
@@ -78,6 +79,74 @@ describe("HTML page card", () => {
     expect(actions.openExternal).toHaveBeenCalledTimes(1);
   });
 
+  it("opens a clicked image in the viewer, only from a live click and only images Tau may draw", async () => {
+    setup(async () => ready({ origins: ["https://cdn.example.com"] }));
+    const iframe = await waitForFrame();
+    const png = "data:image/png;base64,iVBORw0KGgo=";
+    const open = { jsonrpc: "2.0", method: "tau/open-images", params: { index: 1, images: [
+      { src: "javascript:alert(1)", alt: "script" },
+      { src: png, alt: "The share question" },
+      { src: "https://cdn.example.com/b.webp", alt: "" },
+      { src: "https://tracker.test/pixel.png", alt: "undeclared" },
+    ] } };
+    speak(iframe, open);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    iframe.focus();
+    speak(iframe, open);
+    const dialog = await screen.findByRole("dialog", { name: "The share question" });
+    expect(dialog.querySelector(".lightbox-stage img")?.getAttribute("src")).toBe(png);
+    expect(screen.getByText(/1 of 2/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next media" }));
+    expect(screen.getByRole("dialog", { name: "Totals" }).querySelector(".lightbox-stage img")?.getAttribute("src")).toBe("https://cdn.example.com/b.webp");
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("expands a page of images into the viewer", async () => {
+    setup(async () => ready());
+    const iframe = await waitForFrame();
+    const post = vi.spyOn(iframe.contentWindow!, "postMessage").mockImplementation(() => undefined);
+    speak(iframe, { jsonrpc: "2.0", method: "tau/notifications/page-media", params: { gallery: true } });
+    fireEvent.click(await screen.findByRole("button", { name: "Expand" }));
+    const request = post.mock.calls.at(-1)?.[0] as { id: string; method: string };
+    expect(request.method).toBe("tau/list-images");
+    // Only the answer to this request counts.
+    speak(iframe, { jsonrpc: "2.0", id: "other", result: { images: [{ src: "data:image/png;base64,AAAA", alt: "Wrong" }] } });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    speak(iframe, { jsonrpc: "2.0", id: request.id, result: { images: [{ src: "data:image/png;base64,AAAA", alt: "Window" }] } });
+    expect(await screen.findByRole("dialog", { name: "Window" })).toBeTruthy();
+  });
+
+  it("lets Preview Kit decide where a link opens, and falls back to the system browser", async () => {
+    const { actions } = setup(async () => ready());
+    const iframe = await waitForFrame();
+    vi.spyOn(iframe.contentWindow!, "postMessage").mockImplementation(() => undefined);
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    iframe.focus();
+    const link = (id: string, params: object) => ({ jsonrpc: "2.0", id, method: "ui/open-link", params: { url: "https://example.com/doc", ...params } });
+    speak(iframe, { jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { height: 100 } });
+
+    const open = vi.fn<PreviewLinksService["open"]>((url, event) => !event.metaKey && !event.ctrlKey && !event.altKey);
+    const release = holdPreviewLinks({ open });
+    speak(iframe, link("l1", {}));
+    expect(open).toHaveBeenLastCalledWith("https://example.com/doc", expect.objectContaining({ metaKey: false, ctrlKey: false }), actions);
+    expect(actions.openExternal).not.toHaveBeenCalled();
+    speak(iframe, link("l2", { metaKey: true }));
+    expect(open).toHaveBeenLastCalledWith("https://example.com/doc", expect.objectContaining({ metaKey: true }), actions);
+    expect(actions.openExternal).toHaveBeenCalledExactlyOnceWith("https://example.com/doc");
+
+    speak(iframe, link("option", { altKey: true }));
+    expect(open).toHaveBeenLastCalledWith("https://example.com/doc", expect.objectContaining({ altKey: true }), actions);
+    expect(actions.openExternal).toHaveBeenCalledTimes(2);
+
+    release();
+    speak(iframe, link("l3", {}));
+    expect(open).toHaveBeenCalledTimes(3);
+    expect(actions.openExternal).toHaveBeenCalledTimes(3);
+  });
+
   it("says so when the page is gone, and shows a failed call's reason", async () => {
     setup(async () => ({ state: "missing" }));
     await screen.findByText("This page is no longer stored.");
@@ -130,6 +199,19 @@ describe("HTML page in a stage tab", () => {
   });
 });
 
+describe("link requests", () => {
+  const request = (params: unknown) => ({ jsonrpc: "2.0", id: "l1", method: "ui/open-link", params });
+
+  it("reads the url and the modifiers held, and refuses what is not a web link", () => {
+    expect(linkRequest(request({ url: "https://a.test/", metaKey: true, ctrlKey: "yes", altKey: true }))).toEqual({ id: "l1", url: "https://a.test/", metaKey: true, ctrlKey: false, altKey: true });
+    expect(linkRequest(request({ url: "https://a.test/", altKey: "yes" }))).toMatchObject({ altKey: false });
+    expect(linkRequest(request({ url: "https://a.test/" }))).toMatchObject({ metaKey: false, ctrlKey: false });
+    expect(linkRequest(request({ url: "javascript:alert(1)" }))).toBeUndefined();
+    expect(linkRequest(request(undefined))).toBeUndefined();
+    expect(linkRequest({ ...request({ url: "https://a.test/" }), id: undefined })).toBeUndefined();
+  });
+});
+
 describe("HTML pages kit registration", () => {
   it("claims the tool under both of its names and registers the stage tab", () => {
     const { registry } = createKitHarness();
@@ -141,5 +223,21 @@ describe("HTML pages kit registration", () => {
     expect(registry.getStageTabKinds().map((kind) => kind.kind)).toEqual([HTML_PAGE_STAGE_TAB]);
     registry.deactivate(htmlPages.id);
     expect(registry.toolCardFor(tool({ name: "show_html_page" }))).toBeUndefined();
+  });
+
+  it("takes Preview Kit's link service while it is published, and lets go when it is withdrawn", () => {
+    const { registry } = createKitHarness();
+    const open = vi.fn<PreviewLinksService["open"]>(() => true);
+    registry.activate(htmlPages);
+    const provider = { id: "test.preview", name: "Preview stand-in", activate: (context: { provideService<T>(id: string, value: T): () => void }) => context.provideService<PreviewLinksService>(PREVIEW_LINKS_SERVICE, { open }) };
+    registry.activate(provider);
+    const actions = { openPanel: vi.fn(), openExternal: vi.fn() };
+    openPageLink("https://example.com/", { metaKey: false, ctrlKey: false }, actions);
+    expect(open).toHaveBeenCalledOnce();
+    expect(actions.openExternal).not.toHaveBeenCalled();
+    registry.deactivate(provider.id);
+    openPageLink("https://example.com/", { metaKey: false, ctrlKey: false }, actions);
+    expect(actions.openExternal).toHaveBeenCalledOnce();
+    registry.deactivate(htmlPages.id);
   });
 });

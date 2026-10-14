@@ -2,7 +2,7 @@
 
 An optional kit for iOS simulators and Android emulators. Open Devices from the stage toolbar or command palette. Refresh a configured host, select a device, then boot it or view its screen. Each selected device has a tab. The same controls work in the web workbench and phone sheet.
 
-The live viewer decodes the hub's H.264 video with WebCodecs. iOS uses the native AVCC HTTP stream; Android uses its SEMU WebSocket stream. Tau keeps both upstream connections on the host and carries bounded video batches through authenticated host commands. A lease belongs to its paired device or local owner, holds at most 4 MiB of queued packets, permits one pending read, and expires after 15 seconds without reads. No hub URL or shell route reaches the client. Hidden, paused and closed viewers release their streams. Unsupported decoders, unavailable streams and slow viewers show serial PNG screen captures instead.
+The live viewer decodes the hub's H.264 video with WebCodecs. iOS uses the native AVCC HTTP stream; Android uses its SEMU WebSocket stream. Tau keeps both upstream connections on the host and carries bounded video batches through authenticated host commands. A lease belongs to its paired device or local owner, holds at most 4 MiB of queued packets, permits one pending read, and expires after 15 seconds without reads. No hub URL or shell route reaches the client. Hidden, paused and closed viewers release their streams. A decoder backlog reopens the lease with a fresh decoder and keyframe, at most twice per visible viewing session. Unsupported decoders, unavailable streams and persistent backlogs show serial PNG screen captures instead.
 
 Touch coordinates use the screen's native pixel dimensions, for video and PNGs. Tau reads the iOS simulator's screen scale before input and converts pixels to logical points; it refuses input if that scale cannot be read. Dragging sends a swipe. Home, Android Back, orientation and text input use agent-device. Open the app by its identifier before sending input or requesting accessibility snapshots.
 
@@ -24,6 +24,8 @@ Prerequisites on every device host:
 - Input automation can require the upstream runner's platform setup. Errors from that runner appear in the device view.
 
 Dependencies remain in their original npm package trees with their license notices. Tau does not copy upstream implementation code into this kit.
+
+Failed commands preserve structured stdout diagnostics: the tool's message, startup cause or reason, and recovery hint. Other output keeps the stderr or exit-code fallback. `fixtures/daemon-start-failure.json` models the `success: false` envelope from the pinned automation CLI's JSON error serializer and daemon startup path.
 
 ## Remote hosts and access
 

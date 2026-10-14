@@ -630,6 +630,8 @@ body:not([data-profile="compact"]) .conversation-start .composer-frame textarea 
 /* A failed column holds the card alone, not the thread grid above. */
 .conversation-column.conversation-failed { display: flex; justify-content: center; }
 .status-line:not(:has(.status-item:not(:empty))) { display: none; }
+/* A named part (ADR 0042) draws no box of its own. */
+tau-part { display: contents; }
 @keyframes start-screen-enter {
   from { opacity: 0; transform: translateY(7px); }
   to { opacity: 1; transform: none; }
@@ -825,18 +827,18 @@ body:not([data-profile="compact"]) .conversation-start .composer-frame textarea 
   padding: 8px var(--composer-inset, 0) 0; margin-bottom: -4px;
 }
 /* Only the arrow: no row at all, the arrow floats over the transcript's bottom edge. */
-.workbench-region.region-composer-controls:not(:has(> :not(.jump-to-latest-float))) { height: 0; padding: 0; margin: 0; }
+.workbench-region.region-composer-controls:not(:has(> :not(.jump-to-latest-float, tau-part:empty))) { height: 0; padding: 0; margin: 0; }
 /* 10 px to what sits under a pill: the composer zone's own 14 px, or this when something else comes first (an empty anchor draws nothing). */
-.region-composer-controls:has(> :not(.jump-to-latest-float)) + .region-transcript-footer:not(:empty) { margin-top: 14px; }
-.conversation-column:has(.region-composer-controls > :not(.jump-to-latest-float)):not(:has(.region-transcript-footer:not(:empty))) .region-composer-above:has(> :not(:empty)) { margin-top: 14px; }
+.region-composer-controls:has(> :not(.jump-to-latest-float, tau-part:empty)) + .region-transcript-footer:not(:empty) { margin-top: 14px; }
+.conversation-column:has(.region-composer-controls > :not(.jump-to-latest-float, tau-part:empty)):not(:has(.region-transcript-footer:not(:empty))) .region-composer-above:has(> :not(:empty)) { margin-top: 14px; }
 /* Takes no room: the gap before it is given back, so the pills stay centred and the arrow hangs off their right. */
 .jump-to-latest-float {
   position: relative; z-index: 4; flex: none; align-self: center;
   width: 0; height: 0; margin-left: calc(-1 * var(--controls-gap));
 }
 .jump-to-latest-float > .jump-to-latest { position: absolute; top: 0; left: var(--controls-gap); translate: 0 -50%; }
-.region-composer-controls:not(:has(> :not(.jump-to-latest-float))) > .jump-to-latest-float { position: absolute; left: 50%; bottom: 10px; margin: 0; }
-.region-composer-controls:not(:has(> :not(.jump-to-latest-float))) > .jump-to-latest-float > .jump-to-latest { top: auto; bottom: 0; left: 0; translate: -50% 0; }
+.region-composer-controls:not(:has(> :not(.jump-to-latest-float, tau-part:empty))) > .jump-to-latest-float { position: absolute; left: 50%; bottom: 10px; margin: 0; }
+.region-composer-controls:not(:has(> :not(.jump-to-latest-float, tau-part:empty))) > .jump-to-latest-float > .jump-to-latest { top: auto; bottom: 0; left: 0; translate: -50% 0; }
 /* One family for the row's pills (the tasks, a turn's changes, Jump to latest): one size, edge, fill and state. */
 .control-pill {
   position: relative; flex: none; box-sizing: border-box; height: var(--control-pill-height); min-width: var(--control-pill-height);
@@ -1065,6 +1067,8 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .markdown code.md-file-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: -1px; font: 500 var(--text-sm) var(--sans); word-break: normal; white-space: nowrap; }
 .md-file-chip > svg { color: var(--muted); }
 .md-file-link { display: inline; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+/* A long touch opens the link menu, not the system's link preview. */
+.md-file-ref, .md-file-link { -webkit-touch-callout: none; }
 .md-file-link:hover > .md-file-chip { box-shadow: inset 0 -1px var(--info-ink); color: var(--info-ink); }
 .message.user .markdown :not(pre) > code {
   background: color-mix(in srgb, var(--user-bubble-ink) 9%, transparent); border-color: transparent; color: inherit;
@@ -1444,7 +1448,7 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 /* A new thread's machine and project, before the model. */
 .composer-lead-rule { width: 1px; height: 16px; flex: none; background: var(--line); }
 /* The kits' lead controls drew nothing (a thread that started): no rule before the model. */
-.composer-lead-rule:first-child { display: none; }
+.composer-lead-rule:not(:is(:not(tau-part:empty) ~ .composer-lead-rule)) { display: none; }
 /* The reasoning level reads as text beside the model, as in the design. */
 .runtime-chip.composer-thinking-chip { color: var(--muted); }
 .runtime-chip.composer-thinking-chip:disabled { cursor: default; background: transparent; color: var(--faint); }
@@ -1688,6 +1692,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .extension-prompt-title, .extension-prompt-message { margin: 0; padding: 0 2px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .extension-prompt-message { color: var(--ink-3); max-height: min(240px, 40dvh); overflow-y: auto; overscroll-behavior: contain; }
+/* The question is Markdown so its links work; the card keeps its own type and line spacing. */
+.extension-prompt-title > .markdown:not(.markdown-inline), .extension-prompt-message > .markdown:not(.markdown-inline) { font-size: inherit; line-height: inherit; white-space: normal; }
 .extension-prompt-subject {
   display: block; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
   font: calc(var(--text-xs) - .5px)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; overscroll-behavior: contain;
@@ -2146,7 +2152,8 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 
 /* Regions and status line: placement is core, content belongs to extensions. */
 .workbench-region { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.workbench-region:empty { display: none; }
+/* Empty also when every part drew nothing. */
+.workbench-region:not(:has(> :not(tau-part:empty))) { display: none; }
 .region-transcript-footer, .region-composer-above, .region-composer-below { padding: 0 var(--composer-inset, 0); }
 .status-line {
   display: flex; align-items: center; gap: 12px; padding: 4px 14px;
@@ -2269,18 +2276,6 @@ body[data-profile="compact"] .touch-split .thread-header-tools { max-width: 60%;
 .message-images[data-origin="conversation"] > .message-image-button[data-kind="video"] { width: min(320px, 100%); aspect-ratio: 16 / 9; }
 .message-images[data-origin="conversation"] video { display: block; }
 
-/* SandboxFrame: the box is a manual popover, so full screen reuses the same iframe. */
-.sandbox-frame { position: relative; width: 100%; }
-.sandbox-frame-box { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; }
-.sandbox-frame-box[popover] { position: static; inset: auto; margin: 0; padding: 0; border: 0; overflow: hidden; background: transparent; color: inherit; }
-.sandbox-frame-box[data-bordered]:not([data-sandbox-frame-fullscreen]) { border: 1px solid var(--line-card); border-radius: var(--radius-md); overflow: hidden; }
-.sandbox-frame-box[popover]:popover-open { position: fixed; inset: 0; width: 100vw; height: 100dvh; background: var(--stage); color: var(--ink); }
-.sandbox-frame-view { display: block; flex: 1; width: 100%; min-height: 0; border: 0; }
-.sandbox-frame-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-4); height: 40px; padding: 0 var(--space-5); border-bottom: 1px solid var(--line); font-size: var(--text-sm); color: var(--ink-2); }
-.sandbox-frame-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sandbox-frame-exit { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
-.sandbox-frame-exit:hover { background: var(--raised); color: var(--ink); }
-.sandbox-frame-notice { display: flex; flex: 1; align-items: center; justify-content: center; margin: 0; padding: var(--space-5); text-align: center; font-size: var(--text-sm); color: var(--muted); }
 
 /* The rows the transcript's find and a "Go to source" land on. */
 ::highlight(transcript-find) { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; }

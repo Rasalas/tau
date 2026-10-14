@@ -1,4 +1,4 @@
-import { FileMedia, isPlayableFile, type MediaLoader } from "./FileMedia";
+import { FileMedia, isPlayableFile, type MediaLoader, type MediaResource } from "./FileMedia";
 import { useEffect, useState } from "react";
 import { ExternalLink, FileWarning, WrapText } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff } from "../../shared/workspace-kit-types";
@@ -7,6 +7,7 @@ import type { CommandContribution, WorkbenchActions } from "../extension-system"
 import { useDiffPresentation } from "../renderer-services-context";
 import { errorMessage } from "../../workbench/error-message";
 import { FileSource, lineCount } from "./FileSource";
+import { FileMarkdown, MarkdownViewToggle, useMarkdownView } from "./FileMarkdown";
 import { DiffPane } from "./DiffPane";
 import { formatBytes } from "../format-bytes";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
@@ -17,6 +18,13 @@ import { Empty } from "./ui/Feedback";
 export function missingReason(message: string): "project" | "file" | undefined {
   if (/not a known Tau project/u.test(message)) return "project";
   return /\bENOENT\b/u.test(message) ? "file" : undefined;
+}
+
+function missingFileDescription(error: string, path: string): string {
+  const checked = error.indexOf("Checked ");
+  if (checked >= 0) return error.slice(checked);
+  const attempted = /(?:stat|open) '([^']+)'/u.exec(error)?.[1] ?? path;
+  return `There is no file at ${attempted}.`;
 }
 
 export function FileViewer({ tab, relativePath, changed, stat, editor, commands = [], actions, loadFile, loadMedia, loadDiff, onChangeView, onOpenInEditor, onClose }: {
@@ -39,9 +47,13 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
 }) {
   const [content, setContent] = useState<UiFileContent>();
   const [error, setError] = useState<string>();
+  const [media, setMedia] = useState<MediaResource>();
+  const mainCheckout = isPlayableFile(relativePath) ? media?.mainCheckoutPath : content?.mainCheckoutPath;
+  const resolvedPath = isPlayableFile(relativePath) ? media?.resolvedPath : content?.path;
   const { layout: mode, setLayout: setMode, wrap, setWrap } = useDiffPresentation();
   const { readOnly } = useHostCapabilities();
-  const view: StageView = tab.view === "diff" && !changed ? "source" : tab.view;
+  const view: StageView = tab.view === "diff" && (!changed || mainCheckout) ? "source" : tab.view;
+  const markdown = useMarkdownView(relativePath, tab, content, view);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,14 +76,16 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
     <header className="stage-pane-header">
       <strong title={tab.path}>{relativePath}</strong>
       {meta ? <small>{meta}</small> : null}
+      {mainCheckout ? <small title={resolvedPath}>Read only · from the main checkout</small> : null}
       <span className="spacer" />
-      {changed ? (
+      {changed && !mainCheckout ? (
         <div className="toggle-group" role="group" aria-label="View">
           <button className={view === "diff" ? "active" : ""} aria-pressed={view === "diff"} onClick={() => onChangeView("diff")}>Diff</button>
           <button className={view === "source" ? "active" : ""} aria-pressed={view === "source"} onClick={() => onChangeView("source")}>Source</button>
         </div>
       ) : null}
-      {changed && stat && Number.isFinite(stat.added) && Number.isFinite(stat.removed) ? <small className="stage-pane-stat"><span className="stat-add">+{stat.added}</span> <span className="stat-del">−{stat.removed}</span></small> : null}
+      {changed && !mainCheckout && stat && Number.isFinite(stat.added) && Number.isFinite(stat.removed) ? <small className="stage-pane-stat"><span className="stat-add">+{stat.added}</span> <span className="stat-del">−{stat.removed}</span></small> : null}
+      <MarkdownViewToggle view={markdown} />
       {view === "diff" ? <button className={`icon-button ${wrap ? "active" : ""}`} aria-pressed={wrap} aria-label={wrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setWrap(!wrap)}><WrapText size={14} /></button> : null}
       {view === "diff" ? (
         <div className="toggle-group" role="group" aria-label="Diff layout">
@@ -79,7 +93,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
           <button className={mode === "split" ? "active" : ""} aria-pressed={mode === "split"} onClick={() => setMode("split")}>Split</button>
         </div>
       ) : null}
-      {actions ? commands.map((command) => {
+      {actions ? commands.filter((command) => !mainCheckout || command.access === "read").map((command) => {
         const refused = commandRefusal(command, readOnly);
         return <button
           key={command.id}
@@ -89,7 +103,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
           onClick={() => { Promise.resolve(command.run(actions)).catch((reason: unknown) => actions.notify(errorMessage(reason), "error")); }}
         >{command.label}</button>;
       }) : null}
-      {editor ? (
+      {editor && !mainCheckout ? (
         <button className="text-button" title={`Open in ${editor.name}`} onClick={() => onOpenInEditor(tab.path)}>
           <span>Open in {editor.name}</span> <ExternalLink size={11} />
         </button>
@@ -97,13 +111,13 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
     </header>
     {view === "diff"
       ? <DiffPane path={relativePath} mode={mode} wrap={wrap} loadDiff={loadDiff} />
-      : isPlayableFile(relativePath) ? <FileMedia path={relativePath} load={loadMedia} />
+      : isPlayableFile(relativePath) ? <FileMedia path={relativePath} load={loadMedia} onLoad={setMedia} />
       : error
         ? <Empty
           icon={<FileWarning size={20} />}
           title={missingReason(error) ? "File not found" : "Could not open this file"}
           description={<><code>{relativePath}</code><br />{missingReason(error) === "file"
-            ? "There is no file at this path any more."
+            ? missingFileDescription(error, tab.path)
             : missingReason(error) === "project" ? "Its project is not open in Tau any more." : error}</>}
         >{onClose ? <button type="button" className="text-button" onClick={onClose}>Close</button> : null}</Empty>
         : !content
@@ -112,6 +126,8 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
             ? <div className="stage-image"><img src={content.dataUrl} alt={content.name} /></div>
             : content.kind === "binary"
               ? <div className="stage-empty">Binary file ({formatBytes(content.size)}) — nothing to show here.</div>
-              : <FileSource content={content} line={tab.line} reveal={tab.reveal} />}
+              : markdown.rendered
+                ? <FileMarkdown content={content} path={relativePath} origin={tab.resourceOrigin} loadFile={loadFile} loadMedia={loadMedia} />
+                : <FileSource content={content} line={tab.line} reveal={tab.reveal} />}
   </div>;
 }

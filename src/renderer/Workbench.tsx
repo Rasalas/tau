@@ -47,6 +47,7 @@ import { useConversationActivities } from "./conversation-activities";
 import type { TranscriptTurnStart } from "../workbench/transcript-navigation";
 import type { ExtensionRegistry, TranscriptTurn, WorkbenchActions } from "./extension-system";
 import { MountedPanel, PanelMaximizeButton, PanelSlot, usePanelHosts } from "./components/PanelHosts";
+import { Part, partName } from "./customization";
 import { StartDetails, ThreadHeader } from "./components/ThreadHeader";
 import { ProjectCrumb } from "./components/ProjectCrumb";
 import { ProjectIcon } from "./components/ProjectIcon";
@@ -397,8 +398,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const compactRef = useRef({ compact, split, stacked: false, maximized: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
-  // The project the touch thread list is narrowed to; a new thread from it starts there.
-  const [touchProjectPath, setTouchProjectPath] = useState<string>();
+  // The project the touch thread list is narrowed to; a new thread from it starts there. A path no project has anymore shows all.
+  const [touchProjectPath, setTouchProjectPath] = useState(() => clientStorage.get(STORAGE_KEYS.touchProject) ?? undefined);
   const touchProject = touchProjectPath === undefined ? undefined : projects.find((project) => project.path === touchProjectPath);
   // A phone's home is its thread list; a chat, a page or Settings is a screen over it.
   const phone = compact && !split;
@@ -596,7 +597,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     onStop: (row: { id: string }) => composer.abort(row.id),
     project: touchProject,
     projects,
-    onProjectChange: (project: UiProject | undefined) => setTouchProjectPath(project?.path),
+    onProjectChange: (project: UiProject | undefined) => {
+      setTouchProjectPath(project?.path);
+      if (project) clientStorage.set(STORAGE_KEYS.touchProject, project.path);
+      else clientStorage.remove(STORAGE_KEYS.touchProject);
+    },
     onNewThread: startTouchThread,
     onOpenSettings: (page?: string) => (phone ? phoneNav.openSettings(page) : actions.openSettings(page)),
   };
@@ -849,8 +854,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {pageSidebar ? <div className="sidebar-slot"><LazyFeatureBoundary label="sidebar" frame={pageSidebarFrame}>
         <Suspense fallback={pageSidebarFrame(null)}><LazyPageSidebar registry={registry} store={pages} actions={actions} /></Suspense>
       </LazyFeatureBoundary></div> : null}
-      <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>{sidebarContributions.map((contribution) => <LazyFeatureBoundary
-        key={contribution.id}
+      <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>{sidebarContributions.map((contribution) => <Part key={contribution.id} name={partName("sidebar", contribution.id)}><LazyFeatureBoundary
         label="sidebar"
         extensionId={contribution.extensionId}
         extensionName={contribution.extensionName}
@@ -858,7 +862,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onNotify={actions.notify}
       >
         <Suspense fallback={<LazyFeatureFallback label="sidebar" />}><contribution.Component actions={actions} /></Suspense>
-      </LazyFeatureBoundary>)}</div>
+      </LazyFeatureBoundary></Part>)}</div>
       {touchSidebarShown || (sidebarShown && !compact) ? <ResizeHandle
         className="sidebar-resizer"
         label="Resize sidebar"
@@ -916,7 +920,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
                 onRetry={(path) => void actions.switchSession(path)}
                 onOpenProviders={() => (phone ? phoneNav.openSettings("providers") : actions.openSettings("providers"))}
               /> : null}
-              <WorkspaceResourceProvider sessionId={conversationSnapshot?.sessionId} workspace={conversationSnapshot?.workspaceId} displayPath={conversationSnapshot?.cwd}>
+              <WorkspaceResourceProvider sessionId={conversationSnapshot?.sessionId} workspace={conversationSnapshot?.workspaceId} displayPath={conversationSnapshot?.cwd} local={conversationSnapshot?.backendKind !== "machine"}>
                 {transcriptReady ? <ConversationTranscript view={view} thread={thread} registry={registry} actions={actions} prompts={composer.prompts} abort={composer.abort} composer={composer} jumpToLatest={jumpToLatest} /> : null}
               </WorkspaceResourceProvider>
               {/* On the transcript's bottom edge, so a floating Jump to latest never covers the footer. */}
@@ -1079,6 +1083,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       registry={registry}
       actions={actions}
       onNotify={actions.notify}
+      part={partName("panel", sheetPanel.id)}
     />, hostFor(sheetPanel.id), sheetPanel.id) : null}
     {!phone ? createPortal(<Region registry={registry} placement="title-bar" snapshot={snapshot} actions={actions} />, titleActionsHost) : null}
     {panels.map((panel) => {
@@ -1097,6 +1102,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         registry={registry}
         actions={actions}
         onNotify={actions.notify}
+        part={partName("panel", panel.id)}
       />, hostFor(panel.id), panel.id);
     })}
   </>);

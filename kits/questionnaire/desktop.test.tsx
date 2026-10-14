@@ -49,6 +49,21 @@ describe("Questionnaire Kit", () => {
     expect(registry.interceptPrompt(ask(1, "input"))).toBeUndefined();
   });
 
+  it("draws a link in a question as a link", async () => {
+    const store = new QuestionnaireStore();
+    const { registry } = createKitHarness();
+    registry.activate(createQuestionnaireExtension(store));
+    const linked: UiQuestionnaireQuestion[] = [{ question: "Approve at [the portal](https://example.com/device)?", header: "Login", multiSelect: false, options: [{ label: "yes", description: "" }, { label: "no", description: "" }] }];
+    const prompt: ExtensionUiPrompt = {
+      id: "p1", sessionId: "s1", kind: "select", title: "[Login] Approve at [the portal](https://example.com/device)?", options: ["yes", "no"],
+      extras: { [QUESTIONNAIRE_EXTRA]: { index: 0, questions: linked } },
+    };
+    const renderer = registry.getPromptRenderer(prompt)!;
+    render(<renderer.Component prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    const link = await screen.findByRole("link", { name: "the portal" });
+    expect(link.getAttribute("href")).toBe("https://example.com/device");
+  });
+
   it("registers multi-select submission for the composer and marks choice modes", () => {
     const store = new QuestionnaireStore();
     const { registry } = createKitHarness();

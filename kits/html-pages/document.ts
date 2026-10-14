@@ -1,6 +1,6 @@
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { HTML_PAGE_LIMITS, PAGE_THEME_TOKENS } from "./protocol.js";
+import { HTML_PAGE_LIMITS, PAGE_MESSAGES, PAGE_THEME_TOKENS } from "./protocol.js";
 
 /** Why a page cannot be shown; the text goes back to the agent. */
 export class PageError extends Error {}
@@ -186,17 +186,28 @@ function themeCss(theme: Record<string, string>): string {
   const charts = ["var(--accent)", ...CHARTS].map((color, index) => `--chart-${index + 1}:${color};`).join("");
   return `:root{${declarations}${charts}}`
     + "html{background:var(--background);color:var(--foreground);font:14px/1.5 var(--font-sans);-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}"
-    + "body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono)}";
+    + "body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono)}img:not(a[href] img,button img){cursor:zoom-in}";
 }
 
-const MESSAGES = { size: "ui/notifications/size-changed", link: "ui/open-link" } as const;
+const MESSAGES = { size: "ui/notifications/size-changed", link: "ui/open-link", media: PAGE_MESSAGES.media, openImages: PAGE_MESSAGES.openImages, listImages: PAGE_MESSAGES.listImages } as const;
 
-// Reports the page's height to the card and hands a clicked http(s) link to it; the frame cannot open a window itself.
-const BOOTSTRAP = `(function(){var n=0,h;function post(m){try{window.parent.postMessage(m,"*");}catch(e){}}`
-  + `document.addEventListener("click",function(e){if(!e.isTrusted)return;var a=e.composedPath().find(function(t){return t&&t.matches&&t.matches("a[href]");});if(!a)return;var u=a.getAttribute("href")||"";if(!/^https?:\\/\\//i.test(u))return;e.preventDefault();post({jsonrpc:"2.0",id:"tau-link-"+(++n),method:${JSON.stringify(MESSAGES.link)},params:{url:u}});},true);`
-  + `function z(){var r=document.documentElement,v=Math.ceil(r.scrollHeight>r.clientHeight?r.scrollHeight:r.getBoundingClientRect().height);if(v===h)return;h=v;post({jsonrpc:"2.0",method:${JSON.stringify(MESSAGES.size)},params:{height:v}});}`
+// Anything but images and text keeps Expand on the page itself.
+const NOT_A_GALLERY = "canvas,video,audio,iframe,object,embed,input,select,textarea,button,table";
+
+// Reports height and forwards http(s) links with their modifiers; the frame cannot open a window itself.
+// Images go to the card too: a click opens Tau's viewer, and a page of only images says so, for Expand.
+const BOOTSTRAP = `(function(){var n=0,h,g;function post(m){try{window.parent.postMessage(m,"*");}catch(e){}}`
+  + `function imgs(){return Array.prototype.filter.call(document.images,function(i){return i.complete&&i.naturalWidth>0&&(i.currentSrc||i.src)&&!i.closest("a[href],button");});}`
+  + `function list(a){return a.map(function(i){return{src:i.currentSrc||i.src,alt:i.alt||i.title||""};});}`
+  + `document.addEventListener("click",function(e){if(!e.isTrusted)return;var p=e.composedPath(),a=p.find(function(t){return t&&t.matches&&t.matches("a[href]");});`
+  + `if(!a){var t=p[0];if(!t||t.tagName!=="IMG")return;var l=imgs(),k=l.indexOf(t);if(k<0)return;e.preventDefault();post({jsonrpc:"2.0",method:${JSON.stringify(MESSAGES.openImages)},params:{images:list(l),index:k}});return;}`
+  + `var u=a.getAttribute("href")||"";if(!/^https?:\\/\\//i.test(u))return;e.preventDefault();post({jsonrpc:"2.0",id:"tau-link-"+(++n),method:${JSON.stringify(MESSAGES.link)},params:{url:u,metaKey:e.metaKey,ctrlKey:e.ctrlKey,altKey:e.altKey}});},true);`
+  + `window.addEventListener("message",function(e){var d=e.data;if(e.source!==window.parent||!d||d.jsonrpc!=="2.0"||d.method!==${JSON.stringify(MESSAGES.listImages)})return;post({jsonrpc:"2.0",id:d.id,result:{images:list(imgs())}});});`
+  + `function m(){var v=imgs().length>0&&!document.querySelector(${JSON.stringify(NOT_A_GALLERY)})&&!Array.prototype.some.call(document.querySelectorAll("svg"),function(s){var r=s.getBoundingClientRect();return r.width>=100&&r.height>=100;});`
+  + `if(v===g)return;g=v;post({jsonrpc:"2.0",method:${JSON.stringify(MESSAGES.media)},params:{gallery:v}});}`
+  + `function z(){m();var r=document.documentElement,v=Math.ceil(r.scrollHeight>r.clientHeight?r.scrollHeight:r.getBoundingClientRect().height);if(v===h)return;h=v;post({jsonrpc:"2.0",method:${JSON.stringify(MESSAGES.size)},params:{height:v}});}`
   + `var o;if(window.ResizeObserver){o=new ResizeObserver(z);o.observe(document.documentElement);}`
-  + `document.addEventListener("DOMContentLoaded",function(){if(o&&document.body)o.observe(document.body);z();});window.addEventListener("load",z);})();`;
+  + `document.addEventListener("load",m,true);document.addEventListener("DOMContentLoaded",function(){if(o&&document.body)o.observe(document.body);z();});window.addEventListener("load",z);})();`;
 
 /**
  * The page as the frame loads it: Tau's theme variables and base style, the

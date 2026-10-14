@@ -113,6 +113,8 @@ describe("code block head", () => {
 describe("paths in inline code", () => {
   it("reads a workspace path or a source file's name as a file chip, and leaves other code alone", () => {
     expect(inlineCodeFile("src/main/pi-host.ts")).toBe("pi-host.ts");
+    expect(inlineCodeFile(".scratch/report.md:12")).toBe("report.md:12");
+    expect(inlineCodeFile("file.ts:12")).toBe("file.ts:12");
     expect(inlineCodeFile("./kits/plan/desktop.tsx")).toBe("desktop.tsx");
     expect(inlineCodeFile("package.json")).toBe("package.json");
     expect(inlineCodeFile("/Users/me/file.ts")).toBe("file.ts");

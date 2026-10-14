@@ -69,7 +69,7 @@ export function PreviewSettingsPage() {
         control={<SegmentedControl label="Default appearance" value={appearance.value} options={APPEARANCES} onChange={appearance.set} />} />
     </SettingsSection>
     <SettingsSection title="Links">
-      <SettingRow id="setting-preview-links" title="Open links from a thread in" description={`A web link in a reply opens here or in the system browser; ${pageModifier()}-click always takes the browser.`} setting={linkTarget}
+      <SettingRow id="setting-preview-links" title="Open links from a thread in" description={`A web link in a reply or an agent's page opens here or in the system browser; ${pageModifier()}-click always takes the browser.`} setting={linkTarget}
         control={<SegmentedControl label="Open links in" value={linkTarget.value} options={LINK_TARGETS} onChange={linkTarget.set} />} />
     </SettingsSection>
     <SettingsSection title="Recording">

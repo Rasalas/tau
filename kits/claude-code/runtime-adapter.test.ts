@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -288,6 +288,27 @@ describe("Claude Code runtime adapter", () => {
     expect(spawned).toBe(1);
     await adapter.probe({ fresh: true });
     expect(spawned).toBe(2);
+  });
+
+  it("loads models from its own state directory before any thread exists", async () => {
+    const stateDir = join(directory, "probe-state");
+    await expect(stat(stateDir)).rejects.toMatchObject({ code: "ENOENT" });
+    const query = ((params: { prompt: AsyncIterable<unknown>; options?: Options }) => {
+      async function* run(): AsyncGenerator<SDKMessage, void> {
+        yield init();
+        for await (const message of params.prompt) void message;
+      }
+      const initializationResult = async () => {
+        if (params.options?.cwd !== stateDir) throw new Error("The wrapper requires Tau's state directory.");
+        expect((await stat(stateDir)).isDirectory()).toBe(true);
+        return { models: [{ value: "test-model", displayName: "Test model", description: "" }] };
+      };
+      return Object.assign(run(), { initializationResult }) as unknown as ReturnType<ClaudeQuery>;
+    }) as unknown as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ storePath: join(stateDir, "sessions.json"), query, env: {} });
+
+    await expect(adapter.probe()).resolves.toMatchObject({ models: [{ id: "test-model", name: "Test model" }] });
+    await expect(stat(join(stateDir, "sessions.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("aborts a running turn and everything queued behind it without blocking the next turn", async () => {

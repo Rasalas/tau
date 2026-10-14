@@ -3,7 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { findExecutable, gitExecutable } from "tau/host-extension";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative as relativePath, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative as relativePath, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
@@ -1254,13 +1254,20 @@ export async function restoreWorkspaceSnapshot(
     await assertFilesystemRestoreable(cwd, rollbackFilesystem, "Restore backup");
   }
 
+  const ensureWindowsCwd = async (): Promise<void> => {
+    // Windows Git can remove a nested workspace when its last file disappears.
+    if (process.platform === "win32" && !existsSync(cwd)) await mkdir(cwd, { recursive: true });
+  };
   const applyGit = async (treeId: string, notify = true): Promise<void> => {
+    await ensureWindowsCwd();
     // `clean -fd` removes only non-ignored untracked files, matching the
     // capture boundary. Ignored folders (for example node_modules) are never
     // removed by a restore operation.
     await runGit(cwd, ["clean", "-fd", "--"], SNAPSHOT_GIT_BUFFER);
+    await ensureWindowsCwd();
     if (notify) await options.onPhase?.("cleaned");
     await runGit(cwd, ["read-tree", "--reset", "-u", treeId], SNAPSHOT_GIT_BUFFER);
+    await ensureWindowsCwd();
   };
   const apply = targetFilesystem && rollbackFilesystem
     ? () => applyFilesystemSnapshot(cwd, targetFilesystem.after)
@@ -2686,6 +2693,23 @@ export interface WorktreeBase {
 
 const REMOTE_PREFIX = /^([^/]+)\//u;
 
+async function fetchWorktreeRemote(cwd: string, remote: string, runGit: GitRunner): Promise<void> {
+  const fetch = () => runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
+  try {
+    await fetch();
+  } catch (error: unknown) {
+    const stderr = (error as { stderr?: unknown } | null)?.stderr;
+    const diagnostic = typeof stderr === "string" ? stderr : error instanceof Error ? error.message : String(error);
+    const refConflict = /\bcannot lock ref\b|\bunable to update local ref\b/iu.test(diagnostic)
+      || /\bfetching ref \S+ failed: (incorrect old value provided|reference already exists)\b/iu.test(diagnostic)
+      || /\bunable to create [^\n]*\.lock['"]?: file exists\b/iu.test(diagnostic);
+    if (!refConflict) throw error;
+    // A concurrent fetch can finish updating the shared refs before the retry.
+    await delay(75);
+    await fetch();
+  }
+}
+
 /**
  * Resolves the base of a new worktree: with "start from
  * origin" the remote is fetched and the worktree is created at that SHA, so a
@@ -2714,10 +2738,10 @@ export async function resolveWorktreeBase(
   // A base the caller named is fetched or the creation fails; the remote a
   // default base is only *hoped* to have must not break a picker that is
   // offline, so its fetch failure degrades to the local base.
-  if (remote) await runGit(cwd, ["fetch", "--prune", remote], 8 * 1024 * 1024);
+  if (remote) await fetchWorktreeRemote(cwd, remote, runGit);
   let fetchError: string | undefined;
   if (tracking) {
-    fetchError = await runGit(cwd, ["fetch", "--prune", "origin"], 8 * 1024 * 1024)
+    fetchError = await fetchWorktreeRemote(cwd, "origin", runGit)
       .then(() => undefined)
       .catch((error: unknown) => error instanceof Error ? error.message.split("\n")[0] : String(error));
   }
@@ -2808,14 +2832,23 @@ export async function mainCheckoutOf(cwd: string, runGit: GitRunner = git): Prom
   }
 }
 
-/** Returns one stable project name for a repository and all of its linked worktrees. */
+/** The repository's name, then the folder's path below the working tree root (`acme/apps/server`), so two folders of one repository differ. */
+function nameWithinRepository(repository: string, root: string | undefined, folder: string): string {
+  const below = root ? relativePath(root, folder) : "";
+  if (!below || below === ".." || below.startsWith(`..${sep}`) || isAbsolute(below)) return repository;
+  return [repository, ...below.split(sep)].join("/");
+}
+
+/** Returns one stable project name for a repository and all of its linked worktrees; a folder below the working tree root adds its path. */
 export async function repositoryDisplayName(cwd: string, runGit: GitRunner = git): Promise<string> {
   try {
     const identity = runGit === git ? await readRepositoryIdentity(cwd) : undefined;
-    if (identity) return basename(dirname(identity.commonDir)) || basename(cwd) || cwd;
+    if (identity) return nameWithinRepository(basename(dirname(identity.commonDir)) || basename(cwd) || cwd, identity.root, identity.folder);
     const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
-    const absoluteCommonDir = resolve(cwd, commonDir);
-    return basename(dirname(absoluteCommonDir)) || basename(cwd) || cwd;
+    const repository = basename(dirname(resolve(cwd, commonDir))) || basename(cwd) || cwd;
+    // Best effort: a bare repository has no working tree, and the plain name still stands.
+    const root = (await runGit(cwd, ["rev-parse", "--show-toplevel"]).catch(() => "")).trim();
+    return nameWithinRepository(repository, root || undefined, await realpath(cwd).catch(() => resolve(cwd)));
   } catch {
     return basename(cwd) || cwd;
   }

@@ -42,6 +42,10 @@ export default {
     context.registerCommand("caller", async (_input, call) => ({ call, devices: await services.clients.devices() }));
     context.registerCommand("proxy-read", (input) => context.invokeHostExtension("acme.target", "read", input));
     context.registerCommand("proxy-restricted", (input) => context.invokeHostExtension("acme.target", "restricted", input));
+    let withdraw;
+    context.registerCommand("offer", () => { withdraw = context.offer("acme.target/source"); return true; });
+    context.registerCommand("withdraw", () => { withdraw?.(); return true; });
+    context.registerCommand("offering", () => context.offering("acme.target/source"));
     context.registerCommand("electron", () => require("electron").app.getName());
     context.registerCommand("spin", () => { while (true) { /* a synchronous loop the host must survive */ } });
     context.registerCommand("die", () => { process.exit(3); });
@@ -490,6 +494,23 @@ describe("isolated host extensions", () => {
         extensionId: "acme.worker", command: "failed-state", attempt: 1,
         error: { stack: expect.stringContaining("Could not list conversations"), cause: { code: "EIO", stack: expect.stringContaining("storage unavailable") } },
       });
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("carries a worker's offers to the registry and answers its question about them", async () => {
+    const { registry, extension } = harness();
+    await registry.activate({ id: "acme.target", name: "Target Extension", activate: (context) => { context.offer("acme.target/source"); } });
+    await registry.activate(extension);
+    try {
+      await registry.invoke("acme.worker", "offer");
+      await expect(registry.invoke("acme.worker", "offering")).resolves.toEqual([{ id: "acme.target", name: "Target Extension" }, { id: "acme.worker", name: "Worker Package" }]);
+      await registry.invoke("acme.worker", "withdraw");
+      await expect(registry.invoke("acme.worker", "offering")).resolves.toEqual([{ id: "acme.target", name: "Target Extension" }]);
+      await registry.invoke("acme.worker", "offer");
+      await registry.deactivate("acme.worker");
+      expect(registry.offering("acme.target/source").map((entry) => entry.id)).toEqual(["acme.target"]);
     } finally {
       await registry.dispose();
     }

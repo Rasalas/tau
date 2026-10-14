@@ -18,6 +18,7 @@ import computerUse from "./computer-use/desktop.js";
 import snapshots from "./snapshots/desktop.js";
 import evidence from "./evidence/desktop.js";
 import htmlPages from "./html-pages/desktop.js";
+import customize from "./customize/desktop.js";
 import takeover from "./takeover/desktop.js";
 import tailscale from "./tailscale/desktop.js";
 import composerContext from "./composer-context/desktop.js";
@@ -55,7 +56,7 @@ import { screenService } from "./preview/screen-store.js";
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [devices, access, agents, claudeCode, codex, openCode, cursor, grok, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piProviders, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, usageStatistics, workspace, worktreeNames, appearance, handoff, evidence, htmlPages, snapshots, takeover, environments, tailscale, push, servers, remoteWork, resumeCompaction];
+const kits = [devices, access, agents, claudeCode, codex, openCode, cursor, grok, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piProviders, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, usageStatistics, workspace, worktreeNames, appearance, handoff, evidence, htmlPages, snapshots, takeover, environments, tailscale, push, servers, remoteWork, resumeCompaction, customize];
 
 afterEach(cleanup);
 

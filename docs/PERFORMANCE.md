@@ -265,6 +265,8 @@ Later on October 12 the desktop budget rises again, from 520,000 to 540,000 byte
 
 On October 14 the initial CSS budgets rise from 147,000 to 148,000 bytes, desktop and browser alike. Main's browser build sat 4 bytes below its budget (146,996). A narrow chat column now shrinks the access chip to its lock and drops the model's and the reasoning's chevrons, so nothing in the composer row overlaps; those rules add 87 bytes, and the find bar's clearance and small fixes from the same app check about as many again. The raise leaves room for them once instead of a raise per change.
 
+Later on October 14 the budgets for total gzipped JavaScript rise from 540,000 to 545,000 bytes on the desktop and from 552,000 to 557,000 in the browser. Customizing parts by name, the image viewer for agent pages and the first fixes from comparing T3 Code commit by commit put the desktop build at about 540,020 bytes; the next fixes (a tooltip that keeps clear of the macOS window buttons, composer images fitted to 2,000 px) add a few hundred bytes each. The raise leaves room for the rest of that round once instead of a raise per change. The initial JavaScript and CSS budgets hold.
+
 ## Request weight of the kits' tools
 
 Every model request carries the system prompt and a declaration (name, description, JSON schema) for each active tool. Tau's kits register their tools for every Pi thread, so the declarations were most of a short request. Measured on 2026-10-12 with `scripts/measure-request-weight.mjs`: a fake model on loopback records the body of each request a dev instance sends (`npm run dev:instance -- --fresh --agent-dir .tau-dev/request-weight/pi-agent`, one prompt of one word, all kits on macOS). There is no tokenizer in `node_modules`; tokens are characters / 4, the estimate Pi itself uses, so read them as relative sizes.
@@ -921,6 +923,17 @@ On v0.7.25 (`eb7aa24a`) the kits' desktop halves measured 3,097,289 bytes, 2,711
 - **Syntax.** K121 left syntax minification out together with renaming. It keeps every name, so a kit's stack trace still reads without the map.
 - **Dependencies' names.** CodeMirror and Lezer ship readable ESM and made up most of Files Kit (1,009,933 → 836,263 bytes). Each module under `node_modules` goes through a rename-only esbuild transform with an inline map, which the bundler chains, so `desktop.js.map` still points at the original file, line and name. A file that links a map of its own (xterm) is left as it is, so that map still reaches xterm's TypeScript sources; xterm ships minified anyway. The prebuild took as long as before (3.1–5.0 s either way under a load of 20 to 60).
 - **Not worth it / not found.** The kits share almost no code: per esbuild's metafile, the only source bundled by two kits is a 254-byte file of Remote Work Kit and 50 bytes of Workspace Kit. No kit bundles its own React, icons or virtualizer (all shared), none inlines an asset, and no `process.env.NODE_ENV` branch remains. Destructuring the shared bindings (`var {a, b} = m`) instead of one `pick` per name would save about 20 KB more but needs a second build per kit to learn which names survive tree shaking. Full renaming of the kits' own code would save about 485 KB more; it stays out so a kit's names read without the map.
+
+### Kit headroom, Customize Kit (2026-10-14)
+
+Customize Kit (ADR 0042) added 24,076 bytes and took the kits' desktop halves to 3,220,675, over `kitDesktopJavascriptBytes` (3,200,000). The destructuring K158 left out now runs: `bundleDesktopExtension` builds each bundle twice in one esbuild context, reads the shared names the first pass kept (`pick("<specifier>", "<name>")`), and binds exactly those with one `var { a, b } = m` per shared module; the other names stay as never-read `export let` so an import only dead code reached still resolves. The second pass reloads only the shims.
+
+| | kits' desktop halves |
+| --- | ---: |
+| with Customize Kit, before | 3,220,675 |
+| shared names destructured | **3,187,829** (−32,846) |
+
+`npm run build:kits` took 5.2 s instead of 3.1 s on the development machine (load 15 to 25). A package compiled at runtime goes through the same function and comes out the same way.
 
 ### Web script headroom, 0.7.32 (K169)
 
@@ -2146,3 +2159,8 @@ External runtime stores now use native SQLite on a dedicated worker, with WAL, t
 The structural session benchmark uses fixture-only SQL triggers to count changed rows: five title changes update five session rows and no history rows; a message append inserts one message row and updates one session row. The checked fixtures contain 10, 100 and 1,000 threads. These row counts are the regression gate; local timings are diagnostic.
 
 Initial hydration still reads all histories. A local comparison with 100 threads of 200 roughly 1-KiB messages measured 68–70 ms for the prior chunk store and 152–157 ms for SQLite. Releasing the initial read worker lowered retained additional RSS to about 46 MiB, versus 55–56 MiB for the chunk store and 95–103 MiB when SQLite retained that worker. The first later write starts a new retained worker. This improves steady-state write amplification, but does not establish faster cold startup.
+
+
+### Integration with October 14 main
+
+After integrating main through `f3b16034`, the desktop renderer contains 546,196 bytes of total gzipped JavaScript and the shipped kit desktop code contains 3,202,214 bytes. The combined freshness, layout and ordered-settlement guards exceed main's former limits by 1,196 and 2,214 bytes respectively. The total JavaScript gzip cap is now 546,500 bytes, and the kit desktop cap is 3,202,500 bytes. Initial JavaScript/CSS, browser-client and build-time limits remain unchanged. This is an explicit allowance for the additional behavior, not a measured bundle-size improvement. A focused scan found no accidental production dependency or safe small removal; on-demand SQLite history hydration remains a separate follow-up.

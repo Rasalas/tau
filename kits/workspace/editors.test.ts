@@ -12,6 +12,24 @@ function probe(options: { platform?: NodeJS.Platform; commands?: Record<string, 
 }
 
 describe("findInstalledEditors", () => {
+  describe.each(["/Applications", "/Users/me/Applications"])("Zed in %s", (folder) => {
+    it.each([true, false])("prefers the macOS bundle over OpenZFS on PATH with a launcher: %s", (hasCli) => {
+      const bundle = `${folder}/Zed.app`;
+      const cli = `${bundle}/Contents/MacOS/cli`;
+      const editors = findInstalledEditors(probe({
+        commands: { zed: "/usr/local/zfs/bin/zed" },
+        files: hasCli ? [bundle, cli] : [bundle],
+      }));
+      const zed = editors.find((editor) => editor.id === "zed");
+      expect(zed?.launch).toEqual(hasCli
+        ? { kind: "command", command: cli, style: "direct-path", baseArgs: [] }
+        : { kind: "app", bundle });
+      expect(editorCommand(zed!, "/project with spaces/file.ts", { isFile: true, platform: "darwin", position: { line: 12, column: 4 } })).toEqual(hasCli
+        ? { command: cli, args: ["/project with spaces/file.ts:12:4"] }
+        : { command: "open", args: ["-a", bundle, "/project with spaces/file.ts"] });
+    });
+  });
+
   it("lists what is on PATH, what Toolbox installed and the macOS bundles, with Finder last", () => {
     const editors = findInstalledEditors(probe({
       commands: { zed: "/opt/homebrew/bin/zed" },

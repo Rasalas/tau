@@ -21,7 +21,7 @@ interface WorkspaceHostClient {
   stageAll(workspace?: string): Promise<unknown>;
   revertFile(relPath: string, workspace?: string): Promise<unknown>;
   readFile(relPath: string, workspace?: string): Promise<unknown>;
-  commit(message: string, push: boolean): Promise<unknown>;
+  commit(message: string, push: boolean, workspace?: string): Promise<unknown>;
   pull(workspace?: string): Promise<unknown>;
   push(workspace?: string): Promise<unknown>;
   getWorkspaceInfo(workspace?: string): Promise<unknown>;
@@ -146,7 +146,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
       case "stage-all": return client.stageAll(...optional(field<string>(input, "workspace")));
       case "revert-file": return client.revertFile(field(input, "relPath")!, ...optional(field<string>(input, "workspace")));
       case "read-file": return client.readFile(field(input, "relPath")!, ...optional(field<string>(input, "workspace")));
-      case "commit": return client.commit(field(input, "message")!, field(input, "push")!);
+      case "commit": return client.commit(field(input, "message")!, field(input, "push")!, field(input, "workspace"));
       case "pull": return client.pull(...optional(field<string>(input, "workspace")));
       case "push": return client.push(...optional(field<string>(input, "workspace")));
       case "workspace-info": return client.getWorkspaceInfo(...optional(field<string>(input, "workspace")));

@@ -9,6 +9,7 @@ import { parseGitHubList } from "./pull-request-list-json.js";
 import { listNarrowings } from "./pull-request-list-filters.js";
 import { PullRequestListView } from "./pull-request-list-view.js";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
+import { createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
 
 const rows = parseGitHubList(readFileSync(join(import.meta.dirname, "fixtures", "gh-pr-list.json"), "utf8"), "BagToad");
 const projects = [
@@ -36,8 +37,9 @@ describe("what narrows the list", () => {
 });
 
 describe("the Pull Requests page on a phone", () => {
-  beforeEach(() => { document.body.dataset.profile = "compact"; });
-  afterEach(() => { cleanup(); delete document.body.dataset.profile; });
+  let storage: ReturnType<typeof createMemoryStorage>;
+  beforeEach(() => { document.body.dataset.profile = "compact"; storage = createMemoryStorage(); setClientStorage(storage); });
+  afterEach(() => { cleanup(); delete document.body.dataset.profile; setClientStorage(undefined); });
 
   function renderPage() {
     const client = {
@@ -54,6 +56,36 @@ describe("the Pull Requests page on a phone", () => {
     render(<TestThreadStore threads={[]} projects={projects}><PullRequestListView surface="page" params={{ scope: "all" }} actions={actions} client={client} open={vi.fn()} /></TestThreadStore>);
     return client;
   }
+
+  it("keeps the project, labels and author across a restart", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: /^#14474 /u });
+    fireEvent.click(screen.getByRole("button", { name: "Filter pull requests" }));
+    const sheet = await screen.findByRole("dialog", { name: "Filter pull requests" });
+    fireEvent.click(within(sheet).getByRole("checkbox", { name: /^go/u }));
+    fireEvent.change(within(sheet).getByRole("combobox", { name: "Author" }), { target: { value: "author:BagToad" } });
+    fireEvent.change(within(sheet).getByRole("combobox", { name: "Project" }), { target: { value: "project:/cli" } });
+    await waitFor(() => expect(JSON.parse(storage.get("tau.review.pull-requests.narrowing")!)).toEqual({ project: "/cli", labels: ["go"], author: "BagToad" }));
+
+    cleanup();
+    const client = renderPage();
+    await waitFor(() => expect(client.list).toHaveBeenCalledWith(expect.objectContaining({ workspace: "/cli" })));
+    expect(client.listMany).not.toHaveBeenCalled();
+    const chips = await screen.findByRole("group", { name: "Active filters" });
+    expect(within(chips).getAllByRole("button").map((chip) => chip.textContent)).toEqual(["cli", "go", "@BagToad", "Clear all"]);
+  });
+
+  it("falls back to every project when the saved one is gone, and drops a cleared filter", async () => {
+    storage.set("tau.review.pull-requests.narrowing", JSON.stringify({ project: "/gone", labels: ["go"], host: "github.com" }));
+    const client = renderPage();
+    await waitFor(() => expect(client.listMany).toHaveBeenCalled());
+    expect(client.list).not.toHaveBeenCalled();
+    const chips = await screen.findByRole("group", { name: "Active filters" });
+    expect(within(chips).getAllByRole("button").map((chip) => chip.textContent)).toEqual(["go", "github.com", "Clear all"]);
+
+    fireEvent.click(within(chips).getByRole("button", { name: "Clear all" }));
+    await waitFor(() => expect(storage.get("tau.review.pull-requests.narrowing")).toBe("{}"));
+  });
 
   it("keeps the header to one line and moves project, state, involvement, grouping, sort and filters into a sheet", async () => {
     const client = renderPage();

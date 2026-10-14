@@ -24,6 +24,7 @@ import {
   type WorkspaceRef,
 } from "tau/host-extension";
 import * as workspaceGit from "./workspace-git.js";
+import { resolveLinkedFile } from "./linked-file-resolution.js";
 import { readVisualizationFragment } from "./visualization-content.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
@@ -416,20 +417,23 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read" });
       // A clicked transcript link is a host filesystem read, not a Git/workspace operation.
       // Require its origin even for absolute paths; never substitute the active project.
-      context.registerCommand("publish-linked-media", async (input) => {
+      context.registerCommand("publish-linked-media", async (input, call) => {
         if (!services.browserResources) throw new Error("This machine does not support media resources.");
         const project = await services.knownWorkspacePath(requiredString(input, "workspace"));
-        const path = await realpath(resolve(project, linkedFilePath(requiredString(input, "path"))));
+        const resolved = await resolveLinkedFile(project, linkedFilePath(requiredString(input, "path")), call.owner, services);
+        const path = await realpath(resolved.path);
         const mimeType = shareableType(path);
         if (!mimeType) throw new Error("This file has no supported media preview.");
         if (!(await stat(path)).isFile()) throw new Error("Not a file.");
-        return { path: services.browserResources.publish((request) => respondSharedFile(path, mimeType, request.headers.get("range"))), mimeType };
+        return { path: services.browserResources.publish((request) => respondSharedFile(path, mimeType, request.headers.get("range"))), mimeType, ...(resolved.mainCheckoutPath ? { mainCheckoutPath: resolved.mainCheckoutPath, resolvedPath: path } : {}) };
       }, { access: "read" });
-      context.registerCommand("read-linked-file", async (input) => {
+      context.registerCommand("read-linked-file", async (input, call) => {
         const workspace = requiredString(input, "workspace");
         const project = await services.knownWorkspacePath(workspace);
         const path = linkedFilePath(requiredString(input, "path"));
-        return readBoundedFileContent(resolve(project, path));
+        const resolved = await resolveLinkedFile(project, path, call.owner, services);
+        const content = await readBoundedFileContent(resolved.path);
+        return { ...content, ...(resolved.mainCheckoutPath ? { mainCheckoutPath: resolved.mainCheckoutPath } : {}) };
       }, { access: "read" });
       context.registerCommand("file-stat", async (input) => {
         const project = await shownRoot(input);

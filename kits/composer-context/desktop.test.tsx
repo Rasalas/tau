@@ -2,16 +2,108 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerInlineContext, HostSnapshot } from "tau";
+import { THREAD_PULL_REQUESTS_SERVICE, type ThreadPullRequest, type ThreadPullRequestsService } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import composerContext, { ExcerptDetail, parseFileQuery, storeInChunks, storeWithRetry } from "./desktop.js";
 import { ChipStore } from "./chips.js";
-import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, UPLOAD_CHUNK_BYTES, type ComposerContextChips } from "./protocol.js";
+import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, UPLOAD_CHUNK_BYTES, type ComposerContextChips, type PullRequestSummary } from "./protocol.js";
 
 afterEach(cleanup);
 
 const SCOPE = "session:t1";
 const snapshot = { cwd: "/repo", sessionId: "t1" } as HostSnapshot;
 const inline = (overrides: Partial<ComposerInlineContext> = {}): ComposerInlineContext => ({ scope: SCOPE, snapshot, fileAttachments: false, imageInput: true, ...overrides });
+
+const linkedRequests: ThreadPullRequest[] = [
+  { url: "https://github.com/fork/stack/pull/42", number: 42, host: "github.com", repo: "fork/stack", title: "Merged stack", state: "merged", headRef: "stack" },
+  { url: "https://forge.example/acme/demo/pulls/42", number: 42, host: "forge.example", repo: "acme/demo", title: "Closed fix", state: "closed" },
+  { url: "https://dev.azure.com/acme/demo/_git/demo/pullrequest/43", number: 43, host: "dev.azure.com", repo: "acme/demo", title: "Draft fix", state: "open", draft: true, headRef: "draft-fix" },
+  { url: "https://bitbucket.org/acme/other/pull-requests/44", number: 44, host: "bitbucket.org", repo: "acme/other" },
+];
+
+function pullRequestSearch() {
+  const invoke = vi.fn(async (): Promise<PullRequestSummary[]> => [
+    { number: 40, title: "Open fix", url: "https://github.com/acme/demo/pull/40" },
+    { number: 42, title: "Old title", url: linkedRequests[0]!.url },
+  ]);
+  const { registry } = createKitHarness(invoke);
+  registry.activate(composerContext);
+  const forThread = vi.fn((sessionId: string) => sessionId === "t1" ? linkedRequests : []);
+  const service: ThreadPullRequestsService = { forThread, subscribe: () => () => {} };
+  const provide = () => registry.activate({
+    id: "test.requests", name: "Requests", activate(context) { context.provideService(THREAD_PULL_REQUESTS_SERVICE, service); },
+  });
+  provide();
+  const contribution = registry.getComposerInlines()[0]!;
+  const trigger = contribution.triggers!.find((entry) => entry.char === "#")!;
+  return { registry, invoke, forThread, provide, contribution, trigger };
+}
+
+describe("Composer Context linked pull request suggestions", () => {
+  it("puts linked requests from every repository and state first, deduplicates by URL, and selects a chip", async () => {
+    const { trigger, contribution, forThread } = pullRequestSearch();
+    const items = await trigger.search("", inline());
+    expect(forThread).toHaveBeenCalledWith("t1");
+    expect(items.map((item) => JSON.parse(item.id).url)).toEqual([
+      ...linkedRequests.map((pr) => pr.url), "https://github.com/acme/demo/pull/40",
+    ]);
+    expect(items[0]).toMatchObject({ label: "#42 Merged stack", description: "stack" });
+    expect(items[2]).toMatchObject({ description: "draft-fix", hint: "draft" });
+    expect(items[3]?.label).toContain("acme/other");
+    trigger.select(items[0]!, "", inline());
+    expect(contribution.chips!.list(SCOPE)[0]).toMatchObject({ label: "#42" });
+    expect((await contribution.prepareSend!({ ...inline(), text: "" }))?.context)
+      .toBe("Pull request [#42](https://github.com/fork/stack/pull/42): Merged stack");
+  });
+
+  it("filters both sources by number prefix or case-insensitive title", async () => {
+    const { trigger } = pullRequestSearch();
+    expect((await trigger.search("42", inline())).map((item) => JSON.parse(item.id).url))
+      .toEqual(linkedRequests.slice(0, 2).map((pr) => pr.url));
+    expect((await trigger.search("FiX", inline())).map((item) => JSON.parse(item.id).title))
+      .toEqual(["Closed fix", "Draft fix", "Open fix"]);
+    expect(await trigger.search("missing", inline())).toEqual([]);
+  });
+
+  it.each([
+    "Install gh or glab to list pull requests.", "The pull requests of this project could not be listed.",
+  ])("keeps linked requests when the host fails: %s", async (message) => {
+    const { trigger, invoke } = pullRequestSearch();
+    invoke.mockRejectedValue(new Error(message));
+    expect((await trigger.search("", inline())).map((item) => JSON.parse(item.id).url))
+      .toEqual(linkedRequests.map((pr) => pr.url));
+    expect(await trigger.search("missing", inline())).toEqual([]);
+  });
+
+  it("offers linked requests without a workspace", async () => {
+    const { trigger, invoke } = pullRequestSearch();
+    const items = await trigger.search("", inline({ snapshot: { sessionId: "t1" } as HostSnapshot }));
+    expect(items.map((item) => JSON.parse(item.id).url)).toEqual(linkedRequests.map((pr) => pr.url));
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("reads only the current thread and releases a withdrawn service", async () => {
+    const { trigger, registry, invoke, forThread, provide } = pullRequestSearch();
+    invoke.mockResolvedValue([]);
+    expect(await trigger.search("", inline({ snapshot: { ...snapshot, sessionId: "t2" } }))).toEqual([]);
+    expect(forThread).toHaveBeenCalledWith("t2");
+    forThread.mockClear();
+    expect(await trigger.search("", inline({ snapshot: undefined }))).toEqual([]);
+    expect(forThread).not.toHaveBeenCalled();
+    registry.deactivate("test.requests");
+    expect(await trigger.search("", inline())).toEqual([]);
+    expect(forThread).not.toHaveBeenCalled();
+    provide();
+    expect(await trigger.search("", inline())).toHaveLength(linkedRequests.length);
+  });
+
+  it("preserves the host error when the thread has no linked requests", async () => {
+    const { trigger, invoke } = pullRequestSearch();
+    invoke.mockRejectedValue(new Error("Install gh or glab to list pull requests."));
+    await expect(trigger.search("", inline({ snapshot: { ...snapshot, sessionId: "t2" } })))
+      .rejects.toThrow("Install gh or glab");
+  });
+});
 
 function activate(storeAttachment?: () => void) {
   const invoke = vi.fn(async (_id: string, command: string, input?: unknown): Promise<unknown> => {

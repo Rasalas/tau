@@ -110,6 +110,29 @@ describe("ExtensionPrompt", () => {
     expect(card.querySelector(".extension-prompt-title")?.textContent).toBe("Which table?");
   });
 
+  it("draws links in the question and its message as links, and keeps the plain title in the folded head", async () => {
+    const prompt: ExtensionUiPrompt = {
+      id: "p1", sessionId: "s1", kind: "select",
+      title: "Sign in at [the portal](https://example.com/device?code=AB-12) first?",
+      message: "Or open https://example.org/docs and read it.",
+      options: ["Yes", "No"],
+    };
+    render(<ExtensionPrompt prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);
+    const card = screen.getByRole("region", { name: "Question" });
+    const portal = await screen.findByRole("link", { name: "the portal" }) as HTMLAnchorElement;
+    expect(portal.getAttribute("href")).toBe("https://example.com/device?code=AB-12");
+    expect(portal.getAttribute("target")).toBe("_blank");
+    // The Preview Kit follows `.markdown a` for where a web link opens.
+    expect(portal.closest(".extension-prompt-title > .markdown")).toBeTruthy();
+    const docs = await screen.findByRole("link", { name: "https://example.org/docs" });
+    expect(docs.closest(".extension-prompt-message > .markdown")).toBeTruthy();
+    expect(card.querySelector(".extension-prompt-title")?.textContent).toBe("Sign in at the portal first?");
+
+    fireEvent.click(screen.getByRole("button", { name: "Fold the question" }));
+    expect(card.querySelector("header .extension-prompt-peek")?.textContent).toBe(prompt.title);
+    expect(card.querySelector("a")).toBeNull();
+  });
+
   it("never folds a permission, whose Deny and Allow must stay in view", () => {
     const prompt: ExtensionUiPrompt = { id: "p1", sessionId: "s1", kind: "confirm", title: "Wants to run", message: "npm run lint" };
     render(<ExtensionPrompt prompt={prompt} pending={0} onAnswer={() => {}} onCancel={() => {}} />);

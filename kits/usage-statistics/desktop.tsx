@@ -1,6 +1,8 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { getClientStorage, SettingRow, Switch, useClientEnvironment, type DesktopExtension } from "tau";
+import { getClientStorage, SettingRow, Switch, useClientEnvironment, type DesktopExtension, type RegionProps, type WorkbenchActions } from "tau";
+import { DailyUsage } from "./daily.js";
 import { UsageStatistics } from "./statistics.js";
+import { watchUsage } from "./watch.js";
 
 /** General's Privacy card: the one choice about this device, and what taking part sends. */
 export function StatisticsSettings({ statistics }: { statistics: UsageStatistics }) {
@@ -9,23 +11,49 @@ export function StatisticsSettings({ statistics }: { statistics: UsageStatistics
   return <>
       <SettingRow id="setting-share-usage-statistics" title="Share usage statistics"
         description="Help count active Tau desktop installations. Off until you choose to participate."
-        help="A random device ID, activity type, app version, platform and release channel go to Torben Buck's self-hosted Matomo. The server timestamps each report. Prompts, files, projects and account identities are not included. IP addresses are fully masked in Matomo; the server still receives the connection's IP and browser headers."
+        help="A random device ID, activity type, app version, platform and release channel go to Torben Buck's self-hosted Matomo, and once a day the previous day's counts: prompts by runtime, model, reasoning level and access level, and how runs ended (finished, error, usage limit). Models of unknown providers are reported as other. The server timestamps each report. Prompts, files, projects and account identities are not included. IP addresses are fully masked in Matomo; the server still receives the connection's IP and browser headers."
         wholeMachine control={<Switch label="Share usage statistics" checked={enabled} disabled={!release} onChange={statistics.setEnabled} />} />
       {!release ? <p className="settings-group-note">Reporting is available in installed desktop releases. Development and test instances do not send statistics.</p> : null}
       {error ? <p className="settings-group-note" role="alert">{error}</p> : null}
-      <p className="settings-group-note">Participating sends a random device ID, daily activity, app version, platform and release channel to Torben Buck's self-hosted Matomo. Prompt text, files, project names and account identities stay out of these reports.</p>
+      <p className="settings-group-note">Participating sends a random device ID, daily activity, app version, platform and release channel to Torben Buck's self-hosted Matomo, and once a day how many prompts went to which runtime and model, at which reasoning and access level, and how many runs ended with an error. Prompt text, files, project names and account identities stay out of these reports.</p>
       <p className="settings-group-note">This choice stays on this device. Turning it off stops new reports and cancels pending requests.</p>
       {id ? <p className="settings-group-note">Statistics ID: <code>{id}</code>. To request deletion of earlier reports, send this ID to <a href="mailto:info@tbuck.de">info@tbuck.de</a>. Turning reporting off does not delete earlier reports.</p> : null}
       <p className="settings-group-note"><a href="https://tbuck.de/privacy/tau/" target="_blank" rel="noreferrer">Privacy policy</a></p>
   </>;
 }
 
-export function StatisticsActivity({ statistics }: { statistics: UsageStatistics }) {
+/** Asked once per window until this device chose; closed unanswered, the next window asks again. */
+export function askToShare(statistics: UsageStatistics, actions: Pick<WorkbenchActions, "toast" | "openSettings">): void {
+  if (!actions.toast || !statistics.claimQuestion()) return;
+  actions.toast({
+    id: "usage-statistics:ask",
+    type: "question",
+    title: "Share usage statistics?",
+    // Details opens the full list of what is sent.
+    description: "Counts this installation with a random ID, its active days and which agents and models it uses; never prompts or files.",
+    timeoutMs: 0,
+    actions: [
+      { label: "Details", opens: true, keepOpen: true, run: () => actions.openSettings("general#setting-share-usage-statistics") },
+      { label: "Don't share", run: () => statistics.setEnabled(false) },
+      // The prompt that brought the question was accepted before the choice; it counts once shared.
+      { label: "Share", run: () => { statistics.setEnabled(true); statistics.record("human_prompt_accepted"); } },
+    ],
+  });
+}
+
+export function StatisticsActivity({ statistics, daily, actions, onPrompt }: {
+  statistics: UsageStatistics;
+  daily?: DailyUsage;
+  actions?: Pick<WorkbenchActions, "toast" | "openSettings">;
+  onPrompt?: (listener: () => void) => () => void;
+}) {
   const { release } = useClientEnvironment();
   useEffect(() => {
     const stop = statistics.start(release);
     const activity = (event: Event) => {
-      if (event.isTrusted && document.visibilityState === "visible" && document.hasFocus()) statistics.record("workbench_used");
+      if (!event.isTrusted || document.visibilityState !== "visible" || !document.hasFocus()) return;
+      statistics.record("workbench_used");
+      daily?.flush();
     };
     document.addEventListener("pointerdown", activity, true);
     document.addEventListener("keydown", activity, true);
@@ -36,7 +64,8 @@ export function StatisticsActivity({ statistics }: { statistics: UsageStatistics
       window.removeEventListener("storage", statistics.refresh);
       stop();
     };
-  }, [release, statistics]);
+  }, [daily, release, statistics]);
+  useEffect(() => actions && onPrompt?.(() => askToShare(statistics, actions)), [actions, onPrompt, statistics]);
   return null;
 }
 
@@ -44,15 +73,29 @@ const extension: DesktopExtension = {
   id: "tau.usage-statistics", name: "Usage statistics",
   activate(context) {
     const statistics = new UsageStatistics(getClientStorage());
+    const daily = new DailyUsage(getClientStorage(), statistics);
+    const stopClearing = statistics.subscribe(() => { if (!statistics.getSnapshot().enabled) daily.clear(); });
     context.events.on("prompt-accepted", () => statistics.record("human_prompt_accepted"));
-    context.registerRegion({ id: "usage-statistics.activity", placement: "composer-above", profiles: ["desktop"], Component: () => <StatisticsActivity statistics={statistics} /> });
+    const onPrompt = (listener: () => void) => context.events.on("prompt-accepted", listener);
+    let seen: RegionProps | undefined;
+    const stopWatching = watchUsage(context.events, daily, () => {
+      const thread = seen?.actions.activeThread();
+      if (!thread) return undefined;
+      const access = context.preferences.value("tau.access", "level");
+      // Access Kit's default level, also what a workbench without it runs at.
+      return { sessionId: thread.sessionId, backendKind: thread.backendKind, model: thread.model, thinkingLevel: seen?.snapshot?.thinkingLevel, access: typeof access === "string" ? access : "full" };
+    });
+    context.registerRegion({ id: "usage-statistics.activity", placement: "composer-above", profiles: ["desktop"], Component: (props: RegionProps) => {
+      seen = props;
+      return <StatisticsActivity statistics={statistics} daily={daily} actions={props.actions} onPrompt={onPrompt} />;
+    } });
     // General's Privacy card (API 1.61.0); the page it had before opens General.
     context.registerSettingsSection({
       id: "usage-statistics.privacy", page: "general", card: "privacy", order: 10, profiles: ["desktop"], replaces: ["usage-statistics.settings"],
       rows: [{ id: "setting-share-usage-statistics", label: "Share usage statistics", keywords: ["privacy", "consent", "analytics", "telemetry", "Matomo", "active installations"] }],
       Component: () => <StatisticsSettings statistics={statistics} />,
     });
-    return statistics.dispose;
+    return () => { stopWatching(); stopClearing(); statistics.dispose(); };
   },
 };
 

@@ -16,7 +16,7 @@ export type HostUpdatePhase =
   | "downloading"
   /** Downloaded and verified; installs at the next quiet moment or on request. */
   | "ready"
-  /** Asked to install; waits for the running turns to end. */
+  /** Waits for running turns or required background work and results. */
   | "waiting"
   | "installing"
   /** Installed; the host restarts into it, or the next start runs it. */
@@ -124,8 +124,8 @@ export function describeHostUpdate(status: HostUpdateStatus): string {
     case "current": return "Up to date.";
     case "available": return `Tau ${status.latest} is available.`;
     case "downloading": return `Downloading Tau ${status.latest}${status.progress !== undefined ? ` (${status.progress}%)` : ""}…`;
-    case "ready": return `Tau ${status.latest} is downloaded and installs when no turn runs.`;
-    case "waiting": return `Tau ${status.latest} installs when ${status.runningTurns === 1 ? "the running turn ends" : `${status.runningTurns ?? "the"} running turns end`}.`;
+    case "ready": return status.reason ?? `Tau ${status.latest} is downloaded and installs when no turn runs.`;
+    case "waiting": return status.reason ?? `Tau ${status.latest} installs when ${status.runningTurns === 1 ? "the running turn ends" : `${status.runningTurns ?? "the"} running turns end`}.`;
     case "installing": return `Installing Tau ${status.latest}…`;
     case "installed": return status.reason ?? `Tau ${status.latest} is installed.`;
     case "failed": return `The update failed: ${status.reason ?? "unknown error"}`;

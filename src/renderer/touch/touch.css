@@ -160,7 +160,7 @@
 .touch-thread-row .thread-main[aria-busy="true"] { opacity: .7; }
 /* Kits' strip over the list: notices. */
 .touch-browser .region-thread-list-head { flex: none; display: flex; flex-direction: column; gap: 6px; max-width: none; margin: 0; padding: 0 8px 4px; }
-.touch-browser .region-thread-list-head:empty { display: none; }
+.touch-browser .region-thread-list-head:not(:has(> :not(tau-part:empty))) { display: none; }
 /* Keyboard and screen-reader way to the actions a long press opens. */
 .touch-thread-more {
   position: absolute; right: 4px; top: 4px; width: 32px; height: 28px;

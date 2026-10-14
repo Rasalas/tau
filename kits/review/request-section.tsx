@@ -194,6 +194,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
         {mode === "publish" ? (
           <PublishForm
             host={plugin.host}
+            workspace={snapshot.workspaceId ?? cwd}
             onCancel={() => setMode("idle")}
             onPublished={(result) => {
               setMode("idle");

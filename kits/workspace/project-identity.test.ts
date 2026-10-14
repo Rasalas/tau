@@ -41,6 +41,37 @@ it("resolves relative gitdir paths and folders inside a worktree", async () => {
   await mkdir(join(worktree, "src"), { recursive: true });
   await writeFile(join(worktree, ".git"), "gitdir: ../Widgets/.git/worktrees/fix\n");
   await writeFile(join(gitDir, "commondir"), "../..\n");
-  expect(await repositoryDisplayName(join(worktree, "src"))).toBe("Widgets");
+  expect(await repositoryDisplayName(join(worktree, "src"))).toBe("Widgets/src");
   expect(await mainCheckoutOf(join(worktree, "src"))).toBe(repository);
+});
+
+it("names folders below a repository root by their path, so two folders of one repository differ", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tau-project-identity-")));
+  folders.push(root);
+  const widgets = join(root, "Widgets");
+  const gadgets = join(root, "Gadgets");
+  for (const repository of [widgets, gadgets]) {
+    await mkdir(join(repository, ".git"), { recursive: true });
+    await mkdir(join(repository, "apps", "server"), { recursive: true });
+  }
+  await mkdir(join(widgets, "apps", "web"));
+
+  expect(await repositoryDisplayName(widgets)).toBe("Widgets");
+  expect(await repositoryDisplayName(join(widgets, "apps", "server"))).toBe("Widgets/apps/server");
+  expect(await repositoryDisplayName(join(widgets, "apps", "web"))).toBe("Widgets/apps/web");
+  expect(await repositoryDisplayName(join(gadgets, "apps", "server"))).toBe("Gadgets/apps/server");
+});
+
+it("names a folder in a linked worktree after the main checkout and its path", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tau-project-identity-")));
+  folders.push(root);
+  const gitDir = join(root, "Widgets", ".git", "worktrees", "fix");
+  const worktree = join(root, "tau-linked");
+  await mkdir(gitDir, { recursive: true });
+  await mkdir(join(worktree, "apps", "server"), { recursive: true });
+  await writeFile(join(worktree, ".git"), `gitdir: ${gitDir}\n`);
+  await writeFile(join(gitDir, "commondir"), "../..\n");
+
+  expect(await repositoryDisplayName(worktree)).toBe("Widgets");
+  expect(await repositoryDisplayName(join(worktree, "apps", "server"))).toBe("Widgets/apps/server");
 });

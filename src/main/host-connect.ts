@@ -9,6 +9,23 @@ import { isHostOwner } from "./host-invocation.js";
 import { ownerRefusal } from "./host-method-access.js";
 import { ConnectHostTunnel, type ConnectHostRoute } from "./connect-tunnel.js";
 
+function registrationFailure(response: Response): Error {
+  const status = `HTTP ${response.status}`;
+  const message = response.status === 401 || response.status === 403
+    ? `The relay refused registration (${status}). Check its enrollment token.`
+    : response.status === 504
+      ? `The relay timed out before registration completed (${status}). Try again in a few minutes.`
+      : `The relay could not complete registration (${status}). Try again later.`;
+  const trace = response.headers.get("traceparent")?.split("-");
+  const traceId = trace?.length === 4 && /^[a-f0-9]{32}$/iu.test(trace[1] ?? "") ? trace[1] : undefined;
+  const requestId = response.headers.get("x-request-id");
+  const diagnostics = [
+    ...(traceId ? [`Trace ID: ${traceId}.`] : []),
+    ...(requestId && /^[a-z0-9._:-]{1,128}$/iu.test(requestId) ? [`Request ID: ${requestId}.`] : []),
+  ];
+  return new Error([message, ...diagnostics].join(" "));
+}
+
 export interface ConnectListener { port: number; publicKey: string; fingerprint: string; close(): Promise<void> }
 export interface HostConnectOptions {
   userData: string;
@@ -63,8 +80,16 @@ export class HostConnect {
       const relay = new URL(input.relay);
       if (relay.protocol !== "https:" || relay.username || relay.password || relay.search || relay.hash || !/^[A-Za-z0-9_-]{43}$/u.test(input.enrollmentToken)) throw new Error("Use an HTTPS relay address and its enrollment token.");
       if (this.config) throw new Error("Remove this machine's current Tau Connect registration before registering another route.");
-      const response = await (this.options.fetch ?? fetch)(new URL("/v1/routes", relay), { method: "POST", headers: { Authorization: `Bearer ${input.enrollmentToken}` }, signal: AbortSignal.timeout(15_000), redirect: "error" });
-      if (!response.ok) throw new Error(`The relay refused registration (${response.status}). Check its enrollment token.`);
+      let response: Response;
+      try {
+        response = await (this.options.fetch ?? fetch)(new URL("/v1/routes", relay), { method: "POST", headers: { Authorization: `Bearer ${input.enrollmentToken}` }, signal: AbortSignal.timeout(15_000), redirect: "error" });
+      } catch (error) {
+        if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+          throw new Error(`Registration ${error.name === "TimeoutError" ? "timed out" : "was cancelled"} locally before a relay response was received. Try again later.`, { cause: error });
+        }
+        throw error;
+      }
+      if (!response.ok) throw registrationFailure(response);
       const record = await response.json() as Omit<ConnectHostRoute, "relay">;
       const config = { ...record, relay: relay.origin };
       if (!validConnectRoute({ relay: config.relay, id: config.id, token: config.clientToken, port: 1 }) || !/^[A-Za-z0-9_-]{43}$/u.test(config.hostToken)) throw new Error("The relay returned an invalid registration.");
@@ -106,7 +131,8 @@ export class HostConnect {
   }
   private async removeNow(): Promise<ConnectStatus> {
     let detail: string | undefined;
-    if (this.config && !await this.revoke(this.config)) detail = `Tau Connect stopped locally. The relay could not revoke route ${this.config.id}; delete it using the relay's administration token.`;
+    // A route the relay already removed has nothing left to revoke.
+    if (this.config && this.state.phase !== "removed" && !await this.revoke(this.config)) detail = `Tau Connect stopped locally. The relay could not revoke route ${this.config.id}; delete it using the relay's administration token.`;
     this.tunnel?.close(); this.tunnel = undefined;
     await this.listener?.close(); this.listener = undefined;
     await rm(this.path, { force: true });

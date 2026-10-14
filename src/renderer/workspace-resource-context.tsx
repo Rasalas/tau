@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
-import type { UiFileContent } from "../shared/workspace-kit-types";
-import { linkedFilePath } from "../shared/linked-file-path";
+import type { UiEditor, UiFileContent } from "../shared/workspace-kit-types";
+import { linkedFileLocation, linkedFilePath } from "../shared/linked-file-path";
 import type { WorkspaceResourceOrigin } from "../workbench/stage";
 import type { DocumentSourceContribution } from "./extension-system";
 import { useHostClient } from "./host-client-context";
@@ -14,9 +14,11 @@ export interface WorkspaceResources {
   readonly available: boolean;
   readonly displayPath?: string;
   loadFile(relativePath: string): Promise<UiFileContent>;
-  loadMedia?(path: string): Promise<{ url: string; mimeType: string; release?: () => void }>;
+  loadMedia?(path: string): Promise<{ url: string; mimeType: string; release?: () => void; mainCheckoutPath?: string; resolvedPath?: string }>;
   loadVisualization?(relativePath: string, theme: "light" | "dark"): Promise<{ url: string; release?: () => void }>;
   openFile(relativePath: string): void;
+  /** Where the host machine can show this thread's files; absent when it cannot (a phone, another machine's thread). */
+  hostFiles?(): { editor?: UiEditor; fileManager?: UiEditor; open(relativePath: string, editorId: string): void } | undefined;
 }
 
 export const RESOURCE_UNAVAILABLE = "This thread's workspace files are unavailable on this connection.";
@@ -24,6 +26,11 @@ const Context = createContext<WorkspaceResources | undefined>(undefined);
 
 export function useWorkspaceResources(): WorkspaceResources | undefined {
   return useContext(Context);
+}
+
+/** Resources for a document that belongs to no thread, such as a Markdown file in a file tab. */
+export function WorkspaceResourcesScope({ value, children }: { value: WorkspaceResources; children: ReactNode }) {
+  return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
 /** Do not resolve a device/absolute path or silently normalize traversal away. */
@@ -37,7 +44,8 @@ export function resourceRelativePath(path: string): string {
 
 /** Keep external links as host paths; in-workspace links keep their relative tab names. */
 export function transcriptFilePath(path: string, displayPath: string | undefined): string {
-  const posix = linkedFilePath(path);
+  const location = linkedFileLocation(path);
+  const posix = linkedFilePath(location.path) + (location.line ? `:${location.line}` : "");
   if (!posix.startsWith("/") && !/^[A-Za-z]:\//u.test(posix)) return posix;
   const root = displayPath?.replace(/\\/gu, "/").replace(/\/+$/u, "");
   return root && posix.startsWith(`${root}/`) ? posix.slice(root.length + 1) : posix;
@@ -67,7 +75,7 @@ export function bindWorkspaceFileLoader(source: DocumentSourceContribution | und
 }
 
 /** Also adapts existing file chips, which still call WorkbenchContext.openFile. */
-export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, children }: { sessionId?: string; workspace?: string; displayPath?: string; children: ReactNode }) {
+export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, local = true, children }: { sessionId?: string; workspace?: string; displayPath?: string; /** False when the files are on another machine than the window's host. */ local?: boolean; children: ReactNode }) {
   const workbench = useContext(WorkbenchContext);
   const client = useHostClient();
   const source = workbench?.registry.getDocumentSource();
@@ -100,9 +108,17 @@ export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, c
         // Path validation happens in the reader too, so an invalid link gets readable guidance.
         workbench?.openWorkspaceFile?.(path.replace(/^\.\//u, ""), origin ?? null);
       },
+      hostFiles: () => {
+        if (!lease.active || !local || !origin || !source) return undefined;
+        const state = source.getState();
+        // With no other editor installed, the source's default editor is the file manager itself.
+        const editor = state.editor && state.editor.id !== state.fileManager?.id ? state.editor : undefined;
+        if (!editor && !state.fileManager) return undefined;
+        return { editor, fileManager: state.fileManager, open: (path, editorId) => source.openInEditor(path, { workspace: origin.workspace, editorId }) };
+      },
     };
     return { value, lease };
-  }, [client, displayPath, sessionId, source, workspace, workbench?.openWorkspaceFile]);
+  }, [client, displayPath, local, sessionId, source, workspace, workbench?.openWorkspaceFile]);
   useEffect(() => {
     resources.lease.active = true;
     return () => { resources.lease.active = false; };

@@ -15,6 +15,7 @@ it("completes without starting configured MCP servers, plugins or apps", async (
     const messages = await sent();
     expect(messages.filter((entry) => entry.startedMcp || entry.startedPlugin || entry.startedApps)).toEqual([]);
     expect(messages.find((entry) => entry.method === "config/read")?.params).toEqual({ includeLayers: false, cwd: "/repo" });
+    expect(messages.find((entry) => entry.method === "thread/start")?.params?.config).not.toHaveProperty("mcp_optional_startup_grace_ms");
     expect(messages.find((entry) => entry.method === "thread/start")?.params?.config).toMatchObject({
       mcp_servers: { personal: { enabled: false }, "with.dot": { enabled: false }, ["__proto__"]: { enabled: false }, disabled: { enabled: false } },
       "features.plugins": false, "features.apps": false,
@@ -23,12 +24,20 @@ it("completes without starting configured MCP servers, plugins or apps", async (
   });
 });
 
-it("keeps configured servers and plugins for ordinary threads", async () => {
+it("keeps configured servers and plugins with startup grace for ordinary threads", async () => {
   await withStub(async (open, sent) => {
     const session = await open({ cwd: "/repo", onNotification: () => undefined, onRequest: async () => ({}), onExit: () => undefined });
     const policy: CodexPolicy = { approvalPolicy: "never", sandbox: "read-only", sandboxPolicy: { type: "readOnly" } };
-    try { await session.startThread({ cwd: "/repo", policy }); } finally { await session.close(); }
+    try {
+      const info = await session.startThread({ cwd: "/repo", policy });
+      await session.resumeThread({ threadId: info.thread.id, cwd: "/repo", policy });
+    } finally { await session.close(); }
     const messages = await sent();
+    const requests = messages.filter((entry) => entry.method === "thread/start" || entry.method === "thread/resume");
+    expect(requests.map((entry) => entry.method)).toEqual(["thread/start", "thread/resume"]);
+    for (const request of requests) {
+      expect(request.params?.config).toEqual({ mcp_optional_startup_grace_ms: 10_000 });
+    }
     expect(messages.filter((entry) => entry.startedMcp).map((entry) => entry.startedMcp)).toEqual(["personal", "with.dot", "__proto__"]);
     expect(messages.some((entry) => entry.startedPlugin)).toBe(true);
     expect(messages.some((entry) => entry.startedApps)).toBe(true);

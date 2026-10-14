@@ -324,6 +324,8 @@ function ActionBar({ deps, source, changes, info, actions, readOnly, refresh }: 
 }
 
 function PushButton({ deps, info, disabled, actions, refresh }: { deps: CompactReviewDeps; info?: WorkspaceInfo; disabled: boolean; actions: WorkbenchActions; refresh(): void }) {
+  const thread = actions.activeThread();
+  const workspace = thread?.workspaceId ?? thread?.cwd;
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const question = pushQuestion(info);
@@ -339,7 +341,7 @@ function PushButton({ deps, info, disabled, actions, refresh }: { deps: CompactR
       onConfirm={() => {
         setAsking(false);
         setBusy(true);
-        void (deps.workspace.invoke("push") as Promise<PushResult>)
+        void (deps.workspace.invoke("push", workspace ? { workspace } : undefined) as Promise<PushResult>)
           .then((result) => { actions.notify(result.detail); refresh(); }, (error: unknown) => actions.notify(errorMessage(error), "error"))
           .finally(() => setBusy(false));
       }}
@@ -488,6 +490,8 @@ function CommentPage({ deps, draft, actions }: {
 }
 
 function CommitPage({ deps, changes, info, actions, readOnly, refresh }: { deps: CompactReviewDeps; changes: UiWorkspaceChanges; info?: WorkspaceInfo } & Common) {
+  const thread = actions.activeThread();
+  const workspace = thread?.workspaceId ?? thread?.cwd;
   const { store } = deps;
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [asking, setAsking] = useState<boolean>();
@@ -500,7 +504,7 @@ function CommitPage({ deps, changes, info, actions, readOnly, refresh }: { deps:
     setAsking(undefined);
     setBusy(true);
     setError(undefined);
-    void (deps.workspace.invoke("commit", { message: message.trim(), push }) as Promise<CommitResult>).then((result) => {
+    void (deps.workspace.invoke("commit", { message: message.trim(), push, ...(workspace ? { workspace } : {}) }) as Promise<CommitResult>).then((result) => {
       actions.notify(result.detail);
       store.update({ commitMessage: "", page: "files" });
       refresh();

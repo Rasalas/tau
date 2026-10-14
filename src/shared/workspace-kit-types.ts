@@ -138,8 +138,10 @@ export interface UiFileDiff {
 }
 
 export interface UiFileContent {
-  /** Absolute path inside the workspace. */
+  /** Absolute path read by the host. */
   path: string;
+  /** A transcript fallback reads this checkout, without granting write access. API 1.62.0. */
+  mainCheckoutPath?: string;
   name: string;
   size: number;
   /** When the file was last written, for an editor that must notice a change on disk. */

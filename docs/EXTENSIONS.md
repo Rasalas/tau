@@ -683,6 +683,20 @@ Without the method, core keeps using `loadFile` for workspace-relative links
 and rejects external paths. Writes and Git
 operations remain workspace-confined.
 
+In API 1.62.0, Workspace Kit tries a missing relative transcript file in the
+same repository's main checkout when the thread runs in a linked worktree.
+`UiFileContent.mainCheckoutPath` names that checkout; the file's `path` is the
+absolute path actually read. The preview header says "Read only · from the
+main checkout" and omits write commands and the external editor action.
+`loadMedia` may return `mainCheckoutPath` and `resolvedPath` for the same header
+on audio, video and PDF previews. Missing-file errors name all checked paths.
+Transcript links with a trailing `:12` keep their source line while the reader
+resolves the file path without that suffix.
+The fallback never applies to saves or Git operations. Device reads require
+an already admitted main checkout and repeat the canonical-path protection
+check there. Absolute device links retain the explicit workspace boundary
+from ADR 0037; the local owner's existing external-link reads remain available.
+
 A kind's `render` gets the same project as a fourth argument,
 `render(params, handle, actions, from)` with `from: DocumentOrigin` (new in API
 1.26.0), so a tab that reads or writes files does so in the project whose stage
@@ -690,6 +704,14 @@ it is on. Handles are per tab id, and two projects' stages may hold a tab of
 the same id, so key what you keep by `from.workspace` too. `from.workspace` is
 absent when the window has no project on screen; Files Kit then opens nothing
 and saves nothing.
+
+Core's file links in a reply (a click, ⌘/Ctrl-click, a context menu) also go
+through the document source. New in API 1.63.0: `getState()` may carry
+`fileManager` beside `editor`, the entry that shows a file in the machine's file
+manager, and `openInEditor(relPath, { workspace?, editorId? })` opens a file of
+the named project in the named editor, `fileManager.id` included. Both stay
+absent where the host's files are not the client's, and an old source that
+ignores the options keeps working (it opens in its default editor).
 
 #### Context in the composer
 
@@ -1758,10 +1780,11 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `MiddleTruncate`, `splitMiddle` | `<MiddleTruncate value={branch} />` cuts in the middle, as Finder does, for values that mean something at both ends — branches, paths, shas: a head that ellipsizes and a tail that stays (a short last path segment, else `tail` characters, 10 by default). No measuring and inline styles only, so it costs what an end cut costs in a long list; both halves are real text, so copy and screen readers get the whole value. Other props go to the outer `span`. `splitMiddle(value, tail?)` answers the cut, or `undefined` when the value is too short to be worth one. The rail's branch line uses it. |
 | `PrivateAccountText` | `<PrivateAccountText text={accountLabel} />` preserves surrounding text and replaces each email address with a blurred random placeholder. Clicking or keyboard activation reveals the real address; activating again hides it. Hidden addresses never enter DOM text or attributes. A changed address starts hidden. Available in API 1.40.0. |
 | `Dialog` | A modal centred over core's scrim with `label` and `className`: Tab and Shift-Tab stay inside it, Escape and a click on the scrim call `onClose`, the first `autoFocus` field (else the first control) gets focus, and focus goes back when it closes. With `className` `confirm-dialog` it is the workbench's card: a `h2`, the text, and a `footer` (direct or in a `form`) drawn as a bar with plain buttons and `primary`/`danger` ones as pills. |
+| `AttachmentLightbox` | New in API 1.63.0. Core's viewer for images and videos, the one a message's attachments open in: `images` (`AttachmentImage[]`: `key`, `src`, `alt`, optional `label` and `kind` `"image"` or `"video"`), the `index` to show first, an optional `origin` line ("from this page") and `onClose`. It draws over the whole window on a dark ground, with zoom, copy, save, arrow keys between the items and Escape to close; focus goes back where it was. HTML Pages Kit opens a page's images in it. |
 | `ConfirmDialog` | A yes-or-no question on `Dialog`: `title`, `message`, `confirmLabel` (`destructive` draws it red; `icon` goes before its label, API 1.38.0), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. Opened from the keyboard it takes focus on its first control, opened by a press on itself (unless a control inside already has it), so Tab and a screen reader continue inside; `takeFocus={false}` (API 1.61.0) leaves focus where it is, for a card that opens on hover and only previews. |
 | `Sheet` | A modal sheet from the bottom edge for a compact client (phone, tablet), where a desktop would use a `Dialog` or a `Popover`: `title`, `className`, `onClose` and the content as children. It has a grip, the title and a 44 px close button on top; the content scrolls under them. The X, Escape, the scrim and a pull down close it; the pull starts anywhere but on a control, and inside the content only once it is scrolled to the top. Review Kit's filters for the Pull Requests page on a phone use it. |
-| `SandboxFrame`, `useColorScheme()` | New in API 1.59.0. A document a host serves, drawn in an opaque-origin frame (ADR 0032). `src` is the capability URL (`host.resourceUrl(path)`); the frame keeps the first non-empty one for its whole life, because a changed `src` would reload the app, and renders nothing while it is `undefined`. `title`, `permissions` (`SandboxFramePermissions`, becomes the `allow` attribute and nothing else is delegated), `height` (what the document asked for, clamped to 80..2000 px, 320 by default, `clampFrameHeight` is exported), `bordered`, `label`, `stoppedLabel`, `onWidth(width)` (the box's width in CSS px as it changes). The frame is `sandbox="allow-scripts allow-forms"`: never `allow-same-origin`, popups or top navigation, no `srcdoc`, `referrerPolicy="no-referrer"`. `onMessage(data)` hears only messages whose `event.source` is this frame's own window; answer with `handleRef`'s `post(message)`, which targets `"*"` (an opaque origin has no other target) and does nothing before the document loaded or spoke, after it stopped or after unmount. The frame is locked to the document that was served: a second `load` means it navigated itself away, so `onStopped()` runs, a notice replaces the frame and nothing more is delivered; mount it again with a different `key` to open the document anew. The handle also has `hasUserActivation()` (true only while the frame has focus and `navigator.userActivation.isActive`: the one moment to open a link the app asked for, through your own code), `width()` and `size()`. `fullscreen` is controlled: the same box moves to the top layer with the Popover API, so the iframe is not reloaded and the app keeps its state; Escape pressed outside the document, focus moving outside the box and the exit button call `onFullscreenChange(false)`, and where the browser has no Popover API the frame ignores `fullscreen` and stays inline. `useColorScheme()` answers `"light"` or `"dark"` for the workbench, live (theme, a custom theme's `color-scheme`, the OS preference); the frame sets its `color-scheme` from it and tells the document on every change after it loaded (the bootstrap the host serves with it listens for that message, from its parent only). |
+| `SandboxFrame`, `useColorScheme()` | New in API 1.59.0. A document a host serves, drawn in an opaque-origin frame (ADR 0032). `src` is the capability URL (`host.resourceUrl(path)`); the frame keeps the first non-empty one for its whole life, because a changed `src` would reload the app, and renders nothing while it is `undefined`. `title`, `permissions` (`SandboxFramePermissions`, becomes the `allow` attribute and nothing else is delegated), `height` (what the document asked for, clamped to 80..2000 px, 320 by default, `clampFrameHeight` is exported), `bordered`, `label`, `stoppedLabel`, `onWidth(width)` (the box's width in CSS px as it changes). The frame is `sandbox="allow-scripts allow-forms"`: never `allow-same-origin`, popups or top navigation, no `srcdoc`, `referrerPolicy="no-referrer"`. `onMessage(data)` hears only messages whose `event.source` is this frame's own window; answer with `handleRef`'s `post(message)`, which targets `"*"` (an opaque origin has no other target) and does nothing before the document loaded or spoke, after it stopped or after unmount. The frame is locked to the document that was served: a second `load` means it navigated itself away, so `onStopped()` runs, a notice replaces the frame and nothing more is delivered; mount it again with a different `key` to open the document anew. The handle also has `hasUserActivation()` (true only while the frame has focus and `navigator.userActivation.isActive`: the one moment to open a link the app asked for, through your own code), `width()` and `size()`. `fullscreen` is controlled: the same box moves to the top layer with the Popover API, so the iframe is not reloaded and the app keeps its state; Escape pressed outside the document, focus moving outside the box and the exit button call `onFullscreenChange(false)`, and where the browser has no Popover API the frame ignores `fullscreen` and stays inline. `useColorScheme()` answers `"light"` or `"dark"` for the workbench, live (theme, a custom theme's `color-scheme`, the OS preference); the frame sets its `color-scheme` from it and tells the document on every change after it loaded (the bootstrap the host serves with it listens for that message, from its parent only). Since API 1.62.0 a click into the document no longer takes the app's shortcuts with it. Inside a workbench the frame names the Cmd/Ctrl chords of commands that only change the view (`access: "read"`, plus the two that open a new thread's draft) to the document; the bootstrap passes one back when no text field has the keyboard and the page's own listeners left the key alone. The frame replays it as a keydown on the iframe element only while the frame has focus and the user's activation is live, and only if the command the app would run for that key is one of those, because a document can claim any key; anything else, and every chord of a command that changes a thread, stays with the page. These messages are the frame's own and never reach `onMessage`. |
 | `FileSource` | A text file as a file tab shows it (API 1.20.0): `content` (a `UiFileContent` of kind `text`, as a document source's `loadFile` answers), line numbers, highlighting while the file is under 200 KB and its language known, the note for a truncated file, and `line` marked and scrolled to (`reveal` counts requests for the same line). The Files panel reads a file with it in a phone's sheet. |
 | `useFocusReturn(active, ref?, fallback?)`, `useFocusTrap(ref, active?)` | The two halves of the above for a surface of your own: give focus back to what had it when `active` turned on (`fallback` when that element is gone), and keep Tab inside. The palette, the model picker and the project picker use them. |
 | `useEscapeLayer(onClose, active?)` | Escape for a floating surface of your own: while `active` it closes on Escape when it is the topmost overlay, before anything under it (Stop, a panel) hears the key, as `Dialog`, `Popover` and `Menu` do. New in API 1.17.0. |
@@ -1781,7 +1804,10 @@ for what the ask tool folds into a dialog's title and options —
 Since API 1.27.0 the frame draws the workbench design's card (1n). Its head
 says what it is — `kind` `"question"` (the default) or `"approval"` — then
 `from`, who asks, and `pick` (`"one"` or `"any"`) at the right; `title` is the
-question under it, and an approval's `message` is its subject in mono (a path,
+question under it (since API 1.62.0 a question's `title` and `message` are drawn
+as Markdown, so a link in them is clickable and follows Settings → Preview's
+link setting; the folded head keeps the plain `title`), and an approval's
+`message` is its subject in mono (a path,
 a command; core's card puts one of 48 characters or fewer in the head and
 a longer or multi-line one in a scrolling body). `hint` opens the foot ("Or
 type an answer below"), `footer` sits before the primary action, and
@@ -2014,7 +2040,13 @@ opens its cookie import dialog with that site filtered to and ticked and that
 Preview profile as the target, and answers the import's result, or `undefined`
 when the user closed the dialog. The user still picks the browser and clicks
 Import; that click is the consent, and no agent tool can import cookies
-([browser-cookie-import.md](browser-cookie-import.md)). Terminal Kit publishes
+([browser-cookie-import.md](browser-cookie-import.md)). Preview Kit also publishes
+`tau.preview/links`: `open(url, { metaKey, ctrlKey, altKey? }, actions)` opens
+`url` in the Preview and answers `true` when Settings → Preview → "Open links from a thread
+in" says so, and answers `false` when ⌘, Ctrl or Alt/Option was held, the link
+is not a web page or the setting names the system browser, where the caller opens it. Optional
+`altKey` is supported in API 1.62.0. HTML Pages Kit sends a page's links through
+it and falls back to `actions.openExternal` when Preview Kit is off. Terminal Kit publishes
 `tau.terminal/run` (new in API 1.11.0): `run({ command, label? }, actions?)`
 opens a shell in a tab of its own, shows the Terminal panel, types the command
 with `; exit` after it and answers `{ id, exitCode? }` once the shell ended —
@@ -2144,8 +2176,9 @@ after another kit changed them. Review Kit fills both with the pull or merge
 request of the branch. `registerFileEditor(open)` is the offer to edit a file:
 a double-click in the Files panel calls `open(relPath, actions)` instead of
 pinning the file tab, the last offer wins, and Files Kit is the kit that makes
-it. `openInEditor(relPath?, editorId?, { line?, column? })` opens a file in
-one of the machine's editors at a line, and `chooseEditor(id)` makes one the
+it. `openInEditor(relPath?, editorId?, { line?, column? }, workspace?)` opens a file in
+one of the machine's editors at a line (`workspace`, new in API 1.63.0, names the
+project it is in; without it the followed one), and `chooseEditor(id)` makes one the
 default.
 
 Workspace Kit's host reads and writes the project's files for the kits built
@@ -3495,6 +3528,26 @@ its tools (`server_status`, `server_list`, `server_read`, `server_diff`,
 extension and for every other runtime over `services.mcp`. No tool uploads or
 rolls back: `server_propose_upload` draws a card whose button the user clicks.
 
+### Joining another kit's list: `context.offer` (API 1.62.0)
+
+A kit that gathers something from other kits used to name them in a fixed
+list. A host half now says it answers a contract with
+`context.offer("<vendor.kit>/<name>")`; the gathering kit asks
+`context.offering(contract)` when it needs the list and gets `[{ id, name }]`
+of the active extensions that offered it, in activation order. Core never reads
+the contract. An offer goes with its disposer, with deactivation and with a
+failure, and the start order of the two kits does not matter, since the list
+is read when it is used. In a worker `offering` is a round trip and answers a
+promise; `await` it in both.
+
+Usage takes two contracts, so a kit of your own shows on the Usage page beside
+the runtimes Tau ships (`kits/usage/protocol.ts`):
+
+| Contract | Command it answers (`callers: ["tau.usage"]`) | What Usage does with it |
+|---|---|---|
+| `tau.usage/limits-source` | `usage-limits { refresh? }` → `{ accounts: UsageLimitAccount[] }` | Shows the accounts' windows under Limits, in the juicebars and in `tau.usage/limits`, with the kit's name as the source. |
+| `tau.usage/threads-source` | `usage` → `{ backend, threads: BackendUsageThread[] }` | Counts the threads' tokens and cost under the runtime `backend` names. |
+
 ### What Reviews asks of other kits
 
 Review Kit's request lifecycle binds creation and merging to the checkout the
@@ -3811,6 +3864,67 @@ on the phone with their own icons and tooltips. Call it as
 `registerThreadListAccessory?.(…)`: a phone whose bundle predates it ignores the call, and the
 kit's `engines.api` stays where it was, so that phone keeps the kit.
 
+### Parts and customizations: `registerCustomizations` (API 1.62.0)
+
+Every region, status item, panel, page, sidebar module and composer control is
+a **part** with a name, and the user may hide, reorder, move or replace any of
+them ([ADR 0042](adr/0042-the-user-customizes-every-part-by-name.md)). A name is
+`<kind>:<id>`, a component a page carries besides its body `<kind>:<id>/<Field>`:
+
+| Kind | Name | Fields |
+|---|---|---|
+| region | `region:usage.juicebars` | |
+| status item | `status:<id>` | |
+| panel | `panel:<id>` | |
+| page | `page:usage` | `page:usage/Summary`, `page:usage/Sidebar` |
+| sidebar module | `sidebar:<id>` | |
+| composer control | `composer-control:<id>` | |
+
+`partName(kind, id, field?)` builds one. Core draws each part inside
+`<tau-part data-tau-part="<name>">`, which draws no box (`display: contents`):
+a user style hides a part with `[data-tau-part="…"] { display: none }` and
+styles what it holds with `[data-tau-part="…"] > *`. A kit that draws another
+kit's component itself (Workspace Kit draws a page's `Summary` in the sidebar's
+foot) wraps it in `Part` from `tau`, so it is named there too. A contribution's
+id is therefore API: renaming one breaks the user's customizations of it.
+
+`context.registerCustomizations(layer)` hands core a set of changes:
+`layer.getSnapshot()` answers `{ hidden?, order?, placement?, replaced? }`,
+each keyed by part name, and `layer.subscribe` reports a change. Core applies
+the last layer registered wherever it lists contributions: a hidden part is left
+out (a hidden `Summary` leaves the page, and the foot falls back to the page's
+figure or icon), `order` and a region's `placement` override the kit's, and a
+component in `replaced` is drawn instead of the original with the original's
+props plus `Original` (`ReplacementProps<P>`). Every registered layer applies,
+by `layer.order` (0 by default) and then as registered: hidden parts add up, and
+a later layer's order, move or replacement wins. A package that adjusts another
+kit registers a layer of its own; Customize Kit (`kits/customize/`), the
+user's own, uses order 100 and so comes last. `context.customizableParts()`
+lists every part on this client with what the layers do to it (`elsewhere`
+marks one only another kind of device draws, a phone's top bar), and
+`context.onPartsChanged(listener)` reports parts coming and going. Hooks, gates,
+send modes, keybindings, tool cards and core's own surfaces are not parts.
+
+**Data for the user's scripts.** A user script runs on the sandbox frame and
+reads what a kit lends it with `tau.data(id, callback)`. A kit lends a value by
+providing a service of the `SharedData` shape, `{ shared: true, getSnapshot(),
+subscribe(listener) }`, whose snapshot is plain data; Customize Kit hands no
+other service to a script. Usage lends its plan windows as `tau.usage/limits`
+(`{ checkedAt, accounts: [{ runtime, label, plan?, windows: [{ id, kind,
+label, usedPercent, resetsAt? }] }] }`, or `null` before the first reading).
+A script also has `tau.openPage(id, params?)` and `tau.runCommand(id)`, which
+runs only from a click in the script.
+
+**Places in a kit's own surface.** A kit offers one with `<Slot name="<kit
+id>/<name>" actions={actions} />` from `tau` (API 1.62.0); every region
+registered with that `placement` draws there, as a part, with the region props.
+Usage offers `tau.usage/limits-end` (under Plan limits) and
+`tau.usage/page-end`. A slot draws nothing while no region fills it, and an
+older client has no `Slot`, so test for it before drawing one.
+
+`SandboxFrame` takes `minHeight` (API 1.62.0) for a frame inside a row, and
+`WorkbenchActions.closeSettings()` leaves Settings.
+
 ### Who is attached: `services.clients`
 
 `services.clients` is ungated — it answers `count()` and takes an observer
@@ -4025,7 +4139,7 @@ restrict DNS resolution. Pass what you read
 through `readFrameCsp` if it came from a third party. Core inserts the
 doctype if missing, then the same policy as a `<meta>`, a script that sets the
 document's colour scheme (`colorScheme`, `"light"` by default) and a guard that
-makes `document.cookie` read as empty, ahead of the document's own markup.
+makes `document.cookie` read as empty, ahead of the document's own markup. A script between them passes the app shortcuts a client names back to it (see `SandboxFrame` above).
 The frame loads the path once and keeps its document; a remounted frame needs a
 new path. Other headers are as for `publish`.
 

@@ -7,6 +7,7 @@ The first builds of Tau set out to prove that Pi can stay the agent runtime whil
 - agents see and organise the thread list: `tau_find_threads` lists threads with settled, snoozed (and until when), pinned and running state, the pull requests they link and a link to paste; `tau_thread_organize` settles or snoozes a thread, and on its own thread the change lands when the turn ends well. A `tau://thread` link in a message is drawn as a chip with the thread's current title and opens it
 - the palette finds a thread by the pull or merge request it links (`#95`, `owner/repo#95`, the URL or the branch), and an empty palette shows the recent threads with the ones waiting for you first
 - optional Working section on desktop and web: enable **Separate working threads** in Settings → Threads to collect running active threads until they finish, fail or need an answer or approval. It starts off; pinned, snoozed, settled and archived threads keep their sections, and manual order and sibling groups stay saved. Connected machines use their reported activity. The compact phone list keeps its current layout
+- customize any part by its name ([Customize Tau](customize.md)): hide, reorder or move what extensions draw, replace a part with a script of your own on the sandbox frame (Usage's juicebars for a bar of yours, fed by its limits), add your own CSS, and pick a part with the pointer; on every device of the machine, undone with one switch
 - searchable recent-project modal (`Cmd/Ctrl+P`) and extension-provided add-project sources
 - working local-folder and Git-clone project flows, plus thread search (`/`)
 - find in the thread (`Cmd/Ctrl+F`, also from the composer, or `/` in the transcript) searches the whole history, also turns not loaded yet and a reply's plan: it starts at the newest match (Enter goes to the next older one, Shift+Enter back), loads older turns on the way, marks the words in the text and the row it stands on
@@ -146,8 +147,11 @@ runtime and on the phone and web client too. Scripts run inside the page, but it
 is sandboxed away from Tau and your session, and it cannot reach the network:
 a chart library loads only from an https host the agent declared, and the card
 shows which. Local images are embedded when the page is made, so it keeps
-working after the files move. A link opens in your browser after you click it.
-The expand button shows the page full size without restarting it; "Open in a
+working after the files move. A link opens in your browser after you click it,
+and an image opens in Tau's image viewer. The expand button shows a page of
+images in that viewer and any other page full size without restarting it. Full
+size zooms the page from 50 to 200 percent, with the buttons in its header or
+`Cmd/Ctrl` with `+`, `-` and `0`, and starts at 100 percent each time; "Open in a
 tab" puts it on the stage (it starts over there). Pages belong to their thread
 and go when the thread is deleted. See [ADR 0035](adr/0035-agent-pages-on-the-sandbox-frame.md).
 

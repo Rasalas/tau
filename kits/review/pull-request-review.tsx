@@ -32,7 +32,8 @@ export function ReviewComposer({ service, events: offered, pending, onRemovePend
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const noun = providerInfo(service).noun;
-  const ready = mode === "comment" ? Boolean(text.trim()) : event === "approve" || Boolean(text.trim()) || pending.length > 0;
+  const summaryRequired = mode === "review" && service === "forgejo" && event === "request-changes";
+  const ready = mode === "comment" || summaryRequired ? Boolean(text.trim()) : event === "approve" || Boolean(text.trim()) || pending.length > 0;
   const submit = async () => {
     if (!ready || busy) return;
     setBusy(true);
@@ -59,6 +60,7 @@ export function ReviewComposer({ service, events: offered, pending, onRemovePend
       <textarea
         autoFocus
         aria-label={mode === "comment" ? "Comment" : "Review summary"}
+        aria-required={summaryRequired || undefined}
         placeholder={mode === "comment" ? "Leave a comment" : "Summarize your review (optional for an approval)"}
         value={text}
         rows={4}
@@ -69,6 +71,7 @@ export function ReviewComposer({ service, events: offered, pending, onRemovePend
           if (key.key === "Enter" && (key.metaKey || key.ctrlKey)) { key.preventDefault(); void submit(); }
         }}
       />
+      {summaryRequired ? <p className="pr-empty">Forgejo requires a summary to request changes.</p> : null}
       {mode === "review" ? (
         <>
           <div className="pr-verdicts" role="radiogroup" aria-label="Verdict">

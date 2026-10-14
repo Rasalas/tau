@@ -1,6 +1,8 @@
 import { createServer, request } from "node:https";
 import { once } from "node:events";
-import { randomBytes } from "node:crypto";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,7 +58,8 @@ it("pairs and authenticates through an opaque TLS relay, refuses wrong credentia
   const transport = await startSocketHostTransport({ listen: "127.0.0.1:0", methods: { echo: async (params) => params[0] }, capabilities: [], hostVersion: "connect-test", host: { id: "test-host", name: "Remote" }, pushLog, access });
   cleanup.push(() => transport.close());
   const remoteListener = await openConnectListener(transport, { ...inner, publicKey: publicKeyPin(inner.cert), fingerprint: certificateFingerprint(inner.cert) }); cleanup.push(() => remoteListener.close());
-  const host = new ConnectHostTunnel(route, remoteListener.port, () => undefined, { ca: outer.cert }); host.start(); cleanup.push(() => host.close());
+  const publish = vi.fn();
+  const host = new ConnectHostTunnel(route, remoteListener.port, publish, { ca: outer.cert }); host.start(); cleanup.push(() => host.close());
   await vi.waitFor(() => expect(relay.stats().hosts).toBe(1));
   const denied = new WebSocket(`${relayUrl.replace("https:", "wss:")}/v1/client/${route.id}`, { ca: outer.cert, headers: { Authorization: `Bearer ${randomBytes(32).toString("base64url")}` } });
   cleanup.push(() => denied.terminate());
@@ -88,4 +91,32 @@ it("pairs and authenticates through an opaque TLS relay, refuses wrong credentia
   expect((await call(`/v1/routes/${route.id}`, "DELETE", route.clientToken)).status).toBe(401);
   expect((await call(`/v1/routes/${route.id}`, "DELETE", route.hostToken)).status).toBe(200);
   await vi.waitFor(() => expect(relay.stats().hosts).toBe(0));
+  await vi.waitFor(() => expect(publish).toHaveBeenLastCalledWith("removed", expect.stringMatching(/401.*register again/iu)));
+});
+
+it.each([401, 403, 503])("stops retrying a refused route but retries temporary HTTP %i failures", async (status) => {
+  const certificate = createSelfSignedCertificate({ commonName: "Tau test", dnsNames: [], ipAddresses: ["127.0.0.1"], days: 30 });
+  const server = createServer(certificate);
+  const upgrade = vi.fn((_request: IncomingMessage, socket: Duplex) => socket.end(`HTTP/1.1 ${status} Refused\r\nConnection: close\r\n\r\n`));
+  server.on("upgrade", upgrade);
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  cleanup.push(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); });
+  const publish = vi.fn();
+  const host = new ConnectHostTunnel({ relay: `https://127.0.0.1:${(server.address() as { port: number }).port}`, id: randomUUID(), hostToken: randomBytes(32).toString("base64url"), clientToken: randomBytes(32).toString("base64url") }, 7788, publish, { ca: certificate.cert });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+  try {
+    host.start();
+    const phase = status === 503 ? "offline" : "removed";
+    await vi.waitFor(() => expect(publish).toHaveBeenLastCalledWith(phase, expect.stringContaining(String(status))));
+    if (status === 503) {
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(upgrade).toHaveBeenCalledTimes(2));
+    } else {
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(0));
+      await vi.advanceTimersByTimeAsync(120_000);
+      host.start();
+      expect(upgrade).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenLastCalledWith("removed", expect.stringMatching(/register again/iu));
+    }
+  } finally { host.close(); vi.useRealTimers(); }
 });

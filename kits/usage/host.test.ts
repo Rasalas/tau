@@ -6,7 +6,7 @@ import type { HostExtension, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit as activateKit } from "../../src/main/test-support/host-kit-harness.js";
 import { assistantLine, claudeLine, codexMeta, codexResponse, DAY, writeSession } from "./fixtures.js";
 import createUsageHostExtension, { LIMITS_MAX_AGE_MS, readBackendAnswer, readLimitsAnswer, readDays, readLogsAnswer, SCAN_MAX_AGE_MS } from "./host.js";
-import type { UsageLimitsSummary, UsageSummary } from "./protocol.js";
+import { USAGE_LIMITS_SOURCE, USAGE_THREADS_SOURCE, type UsageLimitsSummary, type UsageSummary } from "./protocol.js";
 
 const directories: string[] = [];
 const registries: Array<Awaited<ReturnType<typeof activateKit>>> = [];
@@ -293,6 +293,34 @@ describe("Usage host half", () => {
     await limits();
     expect(calls).toHaveLength(3);
   });
+});
+
+it("asks a kit that offered itself as a source, for limits and for its threads, until it withdraws", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tau-usage-offered-"));
+  directories.push(root);
+  const registry = await activateHostKit(createUsageHostExtension({ now: () => NOW, sources: [], limitSources: [] }) as unknown as HostExtension, {
+    sessionsDir: join(root, "sessions"), stateDir: join(root, "state"), registerTurnObserver: () => () => undefined,
+  } as never);
+  let withdraw: (() => void) | undefined;
+  await registry.activate({
+    id: "acme.meter",
+    name: "Acme Meter",
+    activate(context) {
+      context.offer(USAGE_THREADS_SOURCE);
+      withdraw = context.offer(USAGE_LIMITS_SOURCE);
+      context.registerCommand("usage-limits", () => ({ accounts: [{ id: "acme:1", runtime: "acme", label: "Acme", checkedAt: NOW, windows: [{ id: "day", kind: "other", label: "Daily", usedPercent: 40 }] }] }), { callers: ["tau.usage"] });
+      context.registerCommand("usage", () => ({ backend: "acme", threads: [{ threadId: "acme-1", cwd: "/work/alpha", updatedAt: NOW - 1_000, usage }] }), { callers: ["tau.usage"] });
+    },
+  });
+  const limits = await registry.invoke("tau.usage", "limits", { refresh: true }) as UsageLimitsSummary;
+  expect(limits.sources.map((source) => [source.extensionId, source.label, source.status])).toEqual([["acme.meter", "Acme Meter", "ok"]]);
+  expect(limits.accounts.map((account) => account.label)).toEqual(["Acme"]);
+  const summary = await registry.invoke("tau.usage", "summary", { refresh: true }) as UsageSummary;
+  expect(JSON.stringify(summary)).toContain("\"acme\"");
+
+  withdraw?.();
+  const after = await registry.invoke("tau.usage", "limits", { refresh: true }) as UsageLimitsSummary;
+  expect(after.sources).toEqual([]);
 });
 
 it("keeps HTTPS usage management controls from a provider and rejects unsafe link schemes", () => {

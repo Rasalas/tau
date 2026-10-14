@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -17,8 +17,8 @@ export function checkLockPath(cwd) {
   return join(realpathSync(common), "tau-check.lock");
 }
 
-/** Load the CLI in the lock holder itself, so a killed compiler cannot leave a stale lock. */
-export async function runCheck(entry, args, cwd = process.cwd()) {
+/** Keep the check slot in Node, including when the compiler is a native executable. */
+export async function runCheck(entry, args, cwd = process.cwd(), subprocess = false) {
   const path = checkLockPath(cwd);
   const owner = { pid: process.pid, startedAt: new Date().toISOString(), dataFolder: cwd, app: "Tau checks" };
   let lock = await tryLock(path, owner);
@@ -36,7 +36,28 @@ export async function runCheck(entry, args, cwd = process.cwd()) {
   process.once("exit", release);
   process.argv = [process.execPath, entry, ...args];
   try {
-    await import(pathToFileURL(entry).href);
+    if (subprocess) {
+      await new Promise((done, fail) => {
+        const child = spawn(entry, args, { cwd, stdio: "inherit" });
+        const interrupt = () => child.kill("SIGINT");
+        const terminate = () => child.kill("SIGTERM");
+        process.on("SIGINT", interrupt);
+        process.on("SIGTERM", terminate);
+        const cleanup = () => {
+          process.removeListener("SIGINT", interrupt);
+          process.removeListener("SIGTERM", terminate);
+        };
+        child.once("error", (error) => { cleanup(); fail(error); });
+        child.once("close", (code, signal) => {
+          cleanup();
+          if (signal) process.kill(process.pid, signal);
+          else process.exitCode = code ?? 1;
+          done();
+        });
+      });
+    } else {
+      await import(pathToFileURL(entry).href);
+    }
   } catch (error) {
     process.removeListener("exit", release);
     release();
@@ -48,12 +69,18 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   const cli = {
     test: ["vitest", "vitest.mjs"],
-    typecheck: ["typescript", "bin/tsc"],
+    typecheck: ["typescript-7", "bin/tsc"],
   }[command];
   if (!cli) throw new Error("Usage: node scripts/check.mjs <test|typecheck> [arguments...]");
   const [name, bin] = cli;
-  const entry = join(dirname(require.resolve(`${name}/package.json`)), bin);
-  await runCheck(entry, args);
+  const root = dirname(require.resolve(`${name}/package.json`));
+  if (command === "typecheck") {
+    // The package launcher can execve, which would discard Node's check lock.
+    const { default: getExePath } = await import(pathToFileURL(join(root, "lib/getExePath.js")).href);
+    await runCheck(getExePath(), args, process.cwd(), true);
+  } else {
+    await runCheck(join(root, bin), args);
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

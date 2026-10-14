@@ -1,4 +1,4 @@
-import { backgroundCount } from "../shared/background-work.js";
+import { backgroundCount, backgroundHoldsRun } from "../shared/background-work.js";
 import type { ThreadHostEvent, UiBackgroundTask, UiThreadGoal } from "../shared/contracts.js";
 import type { HostStopReport, HostTurnObserverSet } from "./host-extensions.js";
 import type { QueuedMessages } from "./queued-messages.js";
@@ -140,6 +140,10 @@ export function publishedBackground(background: ThreadBackgroundCapability | und
 /** Stop and goals for the host: what the window's Stop and a kit's `sessions.abort` do, and the goal methods. */
 export class ThreadControls {
   constructor(private readonly port: ThreadControlsPort) {}
+
+  hasRequiredBackgroundWork(thread: ThreadRuntime): boolean {
+    return backgroundHoldsRun(this.background(thread)?.current());
+  }
 
   stop = async (thread: ThreadRuntime): Promise<void> => {
     const { port } = this;

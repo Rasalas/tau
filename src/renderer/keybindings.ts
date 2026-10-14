@@ -1,3 +1,5 @@
+import { CODE_KEYS } from "../shared/key-codes";
+
 /**
  * Key chords for workbench keybindings. Spelling follows Pi's keybindings.json
  * ("ctrl+shift+p", "escape", "alt+enter") plus "mod" for the platform's
@@ -83,12 +85,6 @@ export function isImeComposing(event: Pick<KeyboardEvent, "isComposing" | "keyCo
 export function isMacPlatform(platform = typeof navigator === "undefined" ? "" : navigator.platform): boolean {
   return /mac|iphone|ipad/iu.test(platform);
 }
-
-/** Punctuation and digits by position, so ⇧ or a layout that moves them still finds `mod+shift+]`. */
-const CODE_KEYS: Record<string, string> = {
-  Backquote: "`", Backslash: "\\", BracketLeft: "[", BracketRight: "]", Comma: ",", Equal: "=", Minus: "-",
-  Period: ".", Quote: "'", Semicolon: ";", Slash: "/",
-};
 
 function eventKeys(event: KeyboardEvent, chord: KeyChord): string[] {
   const keys = [event.key.toLowerCase()];

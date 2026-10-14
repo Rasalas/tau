@@ -149,6 +149,21 @@ An extension loaded into the workbench. It may add sidebar modules, project sour
 
 One declared piece of behavior that a desktop extension registers with the workbench, such as a sidebar module, panel, command, prompt hook, project source, or tool renderer.
 
+## Part
+
+A contribution the user may change by name (ADR 0042): `region:usage.juicebars`,
+`page:usage/Summary`. A part's name stays the same across releases, so a
+customization keeps working after an update. Not every contribution is a part:
+behaviour (hooks, gates, keybindings) and core's own surfaces are not.
+
+## Customization
+
+The user's own change to the workbench: a part hidden, reordered, moved or
+replaced by a user script, or a user style. Customizations belong to a machine
+and apply on every device that shows it; Settings → Customize lists and undoes
+them. A **user script** is the user's HTML and JavaScript on the sandbox frame,
+never in the workbench's own page; a **user style** is the user's CSS.
+
 ## Core
 
 The minimum workbench and host machinery required to load extensions, run Pi, route typed messages, and provide shared placement and lifecycle. Core does not own optional product features.

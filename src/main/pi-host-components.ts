@@ -777,6 +777,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     ...(options.turnsInFlightPath ? { filePath: options.turnsInFlightPath } : {}),
     ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),
   });
+  extensionUi.addDecorator((prompt) => {
+    turnsInFlight.setWaitingForAnswer(prompt.sessionId, true);
+    return () => turnsInFlight.setWaitingForAnswer(prompt.sessionId, extensionUi.hasOpen(prompt.sessionId));
+  });
   const persistedLogger = options.logger ? { logger: { warn: (message: string, detail?: unknown) => options.logger!.warn(message, detail) } } : {};
   const queue = new QueuedMessages({
     busy: (sessionId) => {

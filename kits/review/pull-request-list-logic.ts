@@ -48,6 +48,27 @@ export function decodeListPreferences(raw: string | undefined): PullRequestListP
   };
 }
 
+/** What the Pull Requests page keeps beyond the preferences: its project and the narrowings that name one host's labels, people and sites. */
+export interface SavedNarrowing {
+  project?: string;
+  labels: string[];
+  author?: string;
+  host?: string;
+}
+
+export function decodeSavedNarrowing(raw: string | undefined): SavedNarrowing {
+  let value: Record<string, unknown> = {};
+  try { value = (JSON.parse(raw ?? "{}") as Record<string, unknown> | null) ?? {}; } catch { /* nothing kept */ }
+  const text = (candidate: unknown) => typeof candidate === "string" && candidate ? candidate : undefined;
+  const [project, author, host] = [value.project, value.author, value.host].map(text);
+  return {
+    labels: Array.isArray(value.labels) ? value.labels.filter((label): label is string => Boolean(text(label))) : [],
+    ...(project ? { project } : {}),
+    ...(author ? { author } : {}),
+    ...(host ? { host } : {}),
+  };
+}
+
 const REVIEW_VALUES: Record<string, PullRequestListFilters["review"]> = {
   approved: "approved",
   changes_requested: "changes-requested",

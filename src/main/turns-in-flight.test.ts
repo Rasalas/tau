@@ -23,6 +23,29 @@ const marker = (overrides: Partial<InFlightTurn> = {}): InFlightTurn => ({
 const mine = (overrides: Partial<InFlightTurn> = {}): InFlightTurn => ({ ...marker(overrides), writer: { pid: process.pid } });
 
 describe("TurnsInFlight", () => {
+  it("persists each continuation before delivery and transfers its count to the new marker", async () => {
+    const { filePath, turns } = await store();
+    await turns.continuing(marker({ continuationCount: 1 }), async () => {
+      expect(await new TurnsInFlight({ filePath }).load()).toEqual([mine({ continuationCount: 2 })]);
+      turns.record(marker({ turnId: "continued-turn" }));
+      turns.resetContinuations("thread-1");
+    });
+    await turns.flush();
+    expect(await new TurnsInFlight({ filePath }).load()).toEqual([mine({ turnId: "continued-turn", continuationCount: 2 })]);
+    turns.resetContinuations("thread-1");
+    await turns.flush();
+    expect(await new TurnsInFlight({ filePath }).load()).toEqual([mine({ turnId: "continued-turn", continuationCount: 0 })]);
+  });
+
+  it("removes a continuation marker if delivery fails before a new turn starts", async () => {
+    const { filePath, turns } = await store();
+    await expect(turns.continuing(marker(), async () => { throw new Error("refused"); })).rejects.toThrow("refused");
+    await turns.flush();
+    expect(await new TurnsInFlight({ filePath }).load()).toEqual([]);
+    turns.record(marker({ turnId: "user-turn" }));
+    expect(turns.get("thread-1")?.continuationCount).toBeUndefined();
+  });
+
   it("writes a marker and reads it back in the next run", async () => {
     const { filePath, turns } = await store();
     turns.record(marker({ prompt: { text: "do the thing", images: 2 } }));

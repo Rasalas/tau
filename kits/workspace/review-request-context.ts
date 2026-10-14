@@ -1,4 +1,5 @@
 import { firstExistingRef, primaryRemote, resolveDefaultBaseRef, runGitCommand, type GitRunner } from "./workspace-git.js";
+import { branchReviewTargetConfigKey } from "./agent-worktrees.js";
 import type { ReviewRequestContext } from "./protocol.js";
 
 const TEMPLATE_MAX_CHARS = 8_000;
@@ -107,8 +108,14 @@ export async function readReviewRequestContext(
   const remoteUrl = remoteName ? await text(["remote", "get-url", remoteName]) : "";
   const upstream = (await text(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])) || undefined;
   const ahead = upstream ? Number(await text(["rev-list", "--count", "@{u}..HEAD"])) || 0 : undefined;
-  const defaultBase = options.base?.trim() || await resolveDefaultBaseRef(cwd, runGit);
-  const base = remoteName && defaultBase.startsWith(`${remoteName}/`) ? defaultBase.slice(remoteName.length + 1) : defaultBase;
+  const explicitBase = options.base?.trim();
+  const savedTarget = !explicitBase && branch ? await text(["config", "--get", branchReviewTargetConfigKey(branch)]) : "";
+  const savedRef = savedTarget ? await firstExistingRef(cwd, [
+    `refs/heads/${savedTarget}`,
+    ...(remoteName ? [`refs/remotes/${remoteName}/${savedTarget}`] : []),
+  ], runGit) : undefined;
+  const defaultBase = explicitBase || (savedRef ? savedTarget : await resolveDefaultBaseRef(cwd, runGit));
+  const base = !savedRef && remoteName && defaultBase.startsWith(`${remoteName}/`) ? defaultBase.slice(remoteName.length + 1) : defaultBase;
   const context: ReviewRequestContext = {
     root,
     ...(branch ? { branch } : {}),

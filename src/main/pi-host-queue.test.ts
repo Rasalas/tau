@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
+import type { UiBackgroundTask } from "../shared/contracts.js";
 import { defaultHostConfigManager } from "./host-config.js";
 import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
@@ -76,6 +77,45 @@ async function host(dir?: string) {
 }
 
 describe("PiHost queue and limits", () => {
+  it("includes kit-owned background work of the attached thread", async () => {
+    const bench = await host();
+    const attached = bench.internals.attachedThread as ThreadRuntime;
+    vi.spyOn(bench.internals.attached.session, "isAttached", "get").mockReturnValue(true);
+    const remove = bench.internals.seam.services.background.provide((id: string) => id === attached.threadId
+      ? { current: () => [{ id: "command", kind: "command", label: "Required command" }], stop: async () => undefined }
+      : undefined);
+    try {
+      expect(bench.host.hasRequiredBackgroundWork()).toBe(true);
+    } finally {
+      remove();
+      await bench.host.queue.flush();
+    }
+  });
+
+  it.each(["native", "kit"] as const)("reads required %s background work on an off-screen thread before its shell is published", async (source) => {
+    const bench = await host();
+    const other = streamedThread("thread-2", []);
+    let tasks: UiBackgroundTask[] = [{ id: "child", kind: "agent", label: "Required child" }];
+    const background = { current: () => tasks, stop: async () => undefined };
+    bench.internals.threads.adopt({ threadId: "thread-2", cwd: "/repo", runtime: other.runtime, isolation: "in-process" });
+    const remove = source === "kit"
+      ? bench.internals.seam.services.background.provide((id: string) => id === "thread-2" ? background : undefined)
+      : undefined;
+    if (source === "native") other.runtime.backend.capabilities.background = background;
+    try {
+      expect(bench.host.hasRequiredBackgroundWork()).toBe(true);
+      tasks = [{ ...tasks[0]!, state: "reported" }];
+      expect(bench.host.hasRequiredBackgroundWork()).toBe(true);
+      tasks = [{ id: "server", kind: "command", label: "Checked service", blocksCompletion: false }];
+      expect(bench.host.hasRequiredBackgroundWork()).toBe(false);
+      tasks = [];
+      expect(bench.host.hasRequiredBackgroundWork()).toBe(false);
+    } finally {
+      remove?.();
+      await bench.host.queue.flush();
+    }
+  });
+
   it("queues the captured prompt before compaction and sends it once afterwards", async () => {
     const bench = await host();
     let finish!: () => void;

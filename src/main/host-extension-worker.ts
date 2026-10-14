@@ -352,6 +352,11 @@ const context: WorkerHostExtensionContext = {
     };
   },
   emit: (name, payload, options) => { send({ t: "emit", name, payload, ...(options?.topic === undefined ? {} : { topic: options.topic }) }); },
+  offer: (contract) => {
+    send({ t: "offer", contract, on: true });
+    return () => { send({ t: "offer", contract, on: false }); };
+  },
+  offering: (contract) => rpc("offering", contract) as Promise<Array<{ id: string; name: string }>>,
 };
 
 function answer(id: number, run: () => unknown): void {

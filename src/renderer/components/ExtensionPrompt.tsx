@@ -5,6 +5,7 @@ import { choiceOptions, splitInputTitle, splitOption, splitPromptTitle } from ".
 
 import { isMacPlatform } from "../keybindings";
 import { domKeybindingContext } from "../keybinding-context";
+import { Markdown } from "./LazyMarkdown";
 import { usePromptSubmit } from "./prompt-submit";
 import { tooltipProps } from "./ui/Tooltip";
 
@@ -163,10 +164,10 @@ export function ExtensionPromptFrame({
         )}
       </header>
       {folded ? null : <>
-        {approval ? null : <p className="extension-prompt-title">{title}</p>}
+        {approval ? null : <div className="extension-prompt-title"><Markdown fallback={title}>{title}</Markdown></div>}
         {message && !inline ? approval
           ? <code className="extension-prompt-subject">{message}</code>
-          : <p className="extension-prompt-message">{message}</p> : null}
+          : <div className="extension-prompt-message"><Markdown fallback={message}>{message}</Markdown></div> : null}
         {children}
         <footer>
           {hint ? <span>{hint}</span> : null}

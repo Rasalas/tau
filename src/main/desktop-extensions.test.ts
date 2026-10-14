@@ -105,8 +105,9 @@ describe("desktop extension bundling", () => {
     const code = await bundleDesktopExtension(join(dir, "one-icon.tsx"), {
       sharedExports: { icons: ["Bot", ...icons], "react/jsx-runtime": ["jsx", "jsxs", "Fragment"], tau: [] },
     });
-    expect(code).toContain('pick("Bot")');
-    expect(code).not.toContain('pick("Icon1")');
+    // One destructuring binds what survived the first pass; nothing else of the 2000 names stays.
+    expect(code).toContain("var{Bot}=m;");
+    expect(code).not.toContain("Icon1");
     // The generated shim is nobody's source, so the inline map does not carry it either.
     const map = JSON.parse(Buffer.from(/base64,([A-Za-z0-9+/=]+)/u.exec(code)![1], "base64").toString("utf8")) as { sources: string[]; sourcesContent: (string | null)[] };
     expect(map.sourcesContent[map.sources.indexOf("tau-shared:icons")]).toBeNull();

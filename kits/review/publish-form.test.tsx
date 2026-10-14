@@ -29,9 +29,10 @@ describe("the publish form", () => {
   it("suggests the account and folder, then publishes only from the confirmation", async () => {
     const { invoke, host } = hostWith();
     const published = vi.fn();
-    render(<PublishForm host={host} onPublished={published} onCancel={() => undefined} />);
+    render(<PublishForm host={host} workspace="ws1_shown" onPublished={published} onCancel={() => undefined} />);
     const name = await screen.findByLabelText("Repository") as HTMLInputElement;
     expect(name.value).toBe("octo/app");
+    expect(invoke).toHaveBeenCalledWith("publish-info", { workspace: "ws1_shown" });
     expect(screen.getByRole("radio", { name: "GitLab" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("radio", { name: "SSH" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(screen.getByRole("radio", { name: "Public" }));
@@ -43,7 +44,7 @@ describe("the publish form", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue…" }));
     fireEvent.click(screen.getByRole("button", { name: "Publish to GitHub" }));
     await waitFor(() => expect(published).toHaveBeenCalledOnce());
-    expect(invoke).toHaveBeenCalledWith("publish-repository", { service: "github", repository: "octo/app", visibility: "public", protocol: "ssh", confirm: true });
+    expect(invoke).toHaveBeenCalledWith("publish-repository", { service: "github", repository: "octo/app", visibility: "public", protocol: "ssh", confirm: true, workspace: "ws1_shown" });
   });
 
   it("offers nothing to publish with when no CLI is ready, and says why", async () => {

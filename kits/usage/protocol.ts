@@ -29,6 +29,24 @@ export type ResetOutcome = "reset" | "nothingToReset" | "alreadyRedeemed" | "alr
  */
 export const BACKEND_USAGE_COMMAND = "usage";
 
+/**
+ * Contracts a kit outside the lists below joins with `context.offer(…)`
+ * (API 1.62.0); Usage then asks it like the kits it names. A threads source
+ * answers `BACKEND_USAGE_COMMAND` and names its runtime in `backend`; a limits
+ * source answers `BACKEND_LIMITS_COMMAND`. Both register their command with
+ * `callers: ["tau.usage"]`.
+ */
+export const USAGE_THREADS_SOURCE = "tau.usage/threads-source";
+
+/** Places on the Usage page other kits and the user's scripts fill (`registerRegion({ placement })`). */
+export const USAGE_SLOTS = {
+  /** Under Plan limits, after the readings. */
+  limitsEnd: "tau.usage/limits-end",
+  /** At the end of the page, before its links. */
+  pageEnd: "tau.usage/page-end",
+} as const;
+export const USAGE_LIMITS_SOURCE = "tau.usage/limits-source";
+
 /** Tokens and money one thread or one row accounts for. */
 export interface UsageTokens {
   inputTokens: number;
@@ -61,6 +79,8 @@ export interface BackendUsageTurn extends UsageTokens {
 
 /** A backend kit's answer to `BACKEND_USAGE_COMMAND`. */
 export interface BackendUsageAnswer {
+  /** The runtime backend its threads ran on; read from a kit that offered itself, else the list names it. */
+  backend?: string;
   threads: BackendUsageThread[];
 }
 
@@ -194,6 +214,29 @@ export interface UsageLimitSample {
   /** The kit that reported it. */
   source: string;
   account: UsageLimitAccount;
+}
+
+/** What Usage lends user scripts as shared data (ADR 0042): `tau.data(USAGE_LIMITS_DATA, …)`. */
+export const USAGE_LIMITS_DATA = "tau.usage/limits";
+
+export interface SharedUsageLimits {
+  checkedAt: number;
+  accounts: Array<{ runtime: string; label: string; plan?: string; machine?: string; windows: Array<{ id: string; kind: UsageLimitWindow["kind"]; label: string; usedPercent: number; resetsAt?: number }> }>;
+}
+
+/** The plan windows as a script reads them: no identities, no management links, no history. */
+export function sharedLimits(limits: UsageLimitsSummary | undefined): SharedUsageLimits | null {
+  if (!limits) return null;
+  return {
+    checkedAt: limits.checkedAt,
+    accounts: limits.accounts.map((account) => ({
+      runtime: account.runtime,
+      label: account.label,
+      ...(account.plan ? { plan: account.plan } : {}),
+      ...(account.machine ? { machine: account.machine } : {}),
+      windows: account.windows.map((window) => ({ id: window.id, kind: window.kind, label: window.label, usedPercent: window.usedPercent, ...(window.resetsAt === undefined ? {} : { resetsAt: window.resetsAt }) })),
+    })),
+  };
 }
 
 export interface UsageLimitsSummary {

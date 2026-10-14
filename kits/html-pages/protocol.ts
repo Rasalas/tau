@@ -12,6 +12,17 @@ export const HTML_PAGE_STAGE_TAB = "tau.html-pages.page";
 
 export const HTML_PAGE_COMMANDS = { open: "open", release: "release" } as const;
 
+/**
+ * Preview Kit's link service, copied rather than imported (a kit never imports
+ * another kit): the part a page's links use.
+ */
+export const PREVIEW_LINKS_SERVICE = "tau.preview/links";
+
+export interface PreviewLinksService {
+  /** Opens `url` in the Preview and answers true, or answers false when the system browser is the place and the caller opens it. */
+  open(url: string, event: { metaKey: boolean; ctrlKey: boolean; altKey?: boolean }, actions: { openPanel(id: string): void }): boolean;
+}
+
 export const HTML_PAGE_LIMITS = {
   /** The document the agent writes or points at. */
   htmlBytes: 1024 * 1024,
@@ -24,6 +35,16 @@ export const HTML_PAGE_LIMITS = {
   bytesPerThread: 50 * 1024 * 1024,
   /** The most a card takes of the thread, in CSS px, unless the agent asks for more. */
   defaultMaxHeight: 720,
+} as const;
+
+/** What a page and its card say about images, besides the MCP Apps size and link messages. */
+export const PAGE_MESSAGES = {
+  /** Page → card: whether the page shows only images and text. */
+  media: "tau/notifications/page-media",
+  /** Page → card, on a click: the page's images and the one clicked. */
+  openImages: "tau/open-images",
+  /** Card → page, a request: the page's images, for Expand. */
+  listImages: "tau/list-images",
 } as const;
 
 const MCP_TAU_PREFIX = "mcp__tau__";

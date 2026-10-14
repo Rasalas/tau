@@ -130,5 +130,7 @@ describe("markdown pipeline", () => {
     expect(safeUrl("?q=a:b")).toBe("?q=a:b");
     expect(safeUrl("#a:b")).toBe("#a:b");
     expect(safeUrl("plain")).toBe("plain");
+    expect(safeUrl("file.ts:12")).toBe("./file.ts:12");
+    expect(safeUrl("javascript:12")).toBe("");
   });
 });

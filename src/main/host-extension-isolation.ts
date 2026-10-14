@@ -188,6 +188,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
   const pendingWork = new Map<string, number>();
   const pins = new Map<number, Record<string, string[]>>();
   const commandDisposers: Array<() => void> = [];
+  const offers = new Map<string, () => void>();
   let pendingObserverDispose: (() => void) | undefined;
   let pinsDispose: (() => void) | undefined;
   let nextCall = 1;
@@ -461,6 +462,16 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "emit":
         context.emit(message.name, message.payload, typeof message.topic === "string" ? { topic: message.topic } : undefined);
         return;
+      case "offer": {
+        offers.get(message.contract)?.();
+        offers.delete(message.contract);
+        try {
+          if (message.on) offers.set(message.contract, context.offer(String(message.contract)));
+        } catch (error) {
+          fail(error instanceof Error ? error.message : String(error));
+        }
+        return;
+      }
       case "log":
         services.log(message.label, message.detail);
         return;
@@ -470,6 +481,10 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
         return;
       }
       case "rpc": {
+        if (message.path === "offering") {
+          respond(message.id, () => context.offering(String(message.args[0])));
+          return;
+        }
         if (message.path === "hostExtension") {
           respond(message.id, () => context.invokeHostExtension(
             String(message.args[0]),
@@ -543,6 +558,8 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     unwatchMemory();
     for (const release of commandDisposers) release();
     commandDisposers.length = 0;
+    for (const release of offers.values()) release();
+    offers.clear();
     for (const release of registrations.values()) release();
     registrations.clear();
     pendingObserverDispose?.();

@@ -3,7 +3,7 @@
   "name": "HTML Pages",
   "description": "Lets an agent show an interactive page, a chart, a diagram, a mockup or a gallery, right in the thread.",
   "version": "1.0.0",
-  "engines": { "api": "^1.59.0" },
+  "engines": { "api": "^1.63.0" },
   "permissions": ["sessions", "runtime:extend", "network"],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

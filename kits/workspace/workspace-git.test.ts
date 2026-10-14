@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, rmdir, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -308,6 +308,71 @@ describe("large diff bounds", () => {
  * "this one test is expensive".
  */
 describe("immutable turn snapshots", () => {
+  it.each([
+    ["clean", false], ["read-tree", false], ["clean", true], ["read-tree", true],
+  ] as const)("keeps a nested Windows workspace after %s with rollback=%s", async (removedBy, rollback) => {
+    const root = await mkdtemp(join(tmpdir(), "tau-restore-nested-"));
+    const cwd = join(root, "nested", "workspace");
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      await writeFile(join(root, "outside.txt"), "outside\n");
+      execFileSync("git", ["add", "."], { cwd: root });
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "fixture"], { cwd: root });
+      await mkdir(cwd, { recursive: true });
+      const empty = await createWorkspaceSnapshot(cwd, { namespace: "empty/turn", phase: "before" });
+      await createWorkspaceSnapshot(cwd, { namespace: "empty/turn", phase: "after" });
+      await writeFile(join(cwd, "current.txt"), "unsaved\n");
+      await createWorkspaceSnapshot(cwd, { namespace: "full/turn", phase: "before" });
+      const full = await createWorkspaceSnapshot(cwd, { namespace: "full/turn", phase: "after" });
+      const target = rollback && removedBy === "read-tree" ? "full" : "empty";
+      const backup = target === "empty" ? "full" : "empty";
+      if (backup === "empty") await rm(join(cwd, "current.txt"));
+      const phases: string[] = [];
+      const runGit = async (path: string, args: string[], maxBuffer?: number): Promise<string> => {
+        // Real Git supplies the trees; only Windows directory removal is simulated.
+        await stat(path);
+        if (rollback && removedBy === "clean" && args[0] === "read-tree" && args.at(-1) === empty.treeId) {
+          await rm(path, { recursive: true, force: true });
+          throw new Error("simulated restore write failure");
+        }
+        const output = execFileSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd: path, encoding: "utf8", maxBuffer });
+        if (args[0] === "clean" && removedBy === "clean") await rm(path, { recursive: true, force: true });
+        if (args[0] === "read-tree" && removedBy === "read-tree" && args.at(-1) === empty.treeId) {
+          await rmdir(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+        }
+        return output;
+      };
+      Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+      const restore = restoreWorkspaceSnapshot(cwd, turnSnapshotRef(target, "turn", "after"), {
+        target: { sessionId: target, turnId: "turn" },
+        rollback: { sessionId: backup, turnId: "turn" },
+        runGit,
+        onPhase: async (phase) => {
+          phases.push(phase);
+          if (phase !== "rolling-back") expect((await stat(cwd)).isDirectory()).toBe(true);
+          if (rollback && removedBy === "read-tree" && phase === "applied") throw new Error("simulated post-apply failure");
+        },
+      });
+      if (rollback) await expect(restore).rejects.toThrow(/original workspace was restored.*simulated (restore write|post-apply) failure/u);
+      else await restore;
+      expect((await stat(cwd)).isDirectory()).toBe(true);
+      if (rollback && removedBy === "clean") {
+        expect(await readFile(join(cwd, "current.txt"), "utf8")).toBe("unsaved\n");
+        expect(full.treeId).not.toBe(empty.treeId);
+      } else {
+        await expect(stat(join(cwd, "current.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      }
+      expect(phases).toEqual(rollback
+        ? ["apply-started", "cleaned", ...(removedBy === "read-tree" ? ["applied"] : []), "rolling-back"]
+        : ["apply-started", "cleaned", "applied"]);
+      expect(await readFile(join(root, "outside.txt"), "utf8")).toBe("outside\n");
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 90_000);
+
   it("restores a verified Git checkpoint and can replay the backup", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-restore-snapshots-"));
     try {
@@ -1215,6 +1280,34 @@ describe("worktree base", () => {
     expect(base.note).toContain("origin is unreachable");
   });
 
+  it("retries a ref conflict before falling back from origin to a local base", async () => {
+    let fetches = 0;
+    const base = await resolveWorktreeBase("/repo", { requested: "main" }, async (_cwd, args) => {
+      if (args[0] === "remote") return "origin\n";
+      if (args[0] === "fetch" && ++fetches === 1) throw new Error("error: cannot lock ref 'refs/remotes/origin/main': is at abc but expected def");
+      if (args.join(" ") === "rev-parse --verify --quiet origin/main^{commit}") return "fresh\n";
+      if (args.join(" ") === "rev-parse --verify --quiet main^{commit}") return "stale\n";
+      return "";
+    });
+    expect(base).toEqual({ ref: "origin/main", commit: "fresh", fromOrigin: true });
+    expect(fetches).toBe(2);
+  });
+
+  it.each([
+    ["persistent ref lock", "error: cannot lock ref 'refs/remotes/origin/main': File exists", 2],
+    ["network failure", "network unavailable", 1],
+    ["permission failure", "fatal: could not read from remote repository", 1],
+  ])("preserves the fetch error for a %s", async (_name, message, attempts) => {
+    let fetches = 0;
+    const error = new Error(message);
+    await expect(resolveWorktreeBase("/repo", { requested: "origin/main" }, async (_cwd, args) => {
+      if (args[0] === "remote") return "origin\n";
+      if (args[0] === "fetch") { fetches++; throw error; }
+      throw new Error(`unexpected command: ${args.join(" ")}`);
+    })).rejects.toBe(error);
+    expect(fetches).toBe(attempts);
+  });
+
   it("refuses a base that names no commit", async () => {
     await expect(resolveWorktreeBase("/repo", { requested: "nope", startFromOrigin: false }, runner({
       "remote": "",
@@ -1278,6 +1371,46 @@ describe("worktree removal", () => {
 });
 
 describe("worktree creation", () => {
+  it.each([
+    "error: cannot lock ref 'refs/remotes/origin/main': is at abc but expected def",
+    "error: unable to update local ref",
+    "fatal: Unable to create '/repo/.git/FETCH_HEAD.lock': File exists.",
+    "error: fetching ref refs/remotes/origin/main failed: incorrect old value provided",
+    "error: fetching ref refs/remotes/origin/main failed: reference already exists",
+  ])("creates from origin/main after a competing fetch fails with %s", async (message) => {
+    const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-fetch-race-"));
+    const calls: string[][] = [];
+    let fetches = 0;
+    const commit = "8888888888888888888888888888888888888888";
+    try {
+      const destination = await createWorktree(cwd, "feat/retry", { baseRef: "origin/main" }, async () => ({
+        root: cwd, isRepo: true, isDirty: false, hasRemote: true,
+        worktrees: [], refs: [], worktreeParent: join(cwd, "worktrees"),
+      }), async (_path, args, maxBuffer) => {
+        calls.push(args);
+        if (args[0] === "remote") return "origin\n";
+        if (args[0] === "fetch") {
+          expect(maxBuffer).toBe(8 * 1024 * 1024);
+          if (++fetches === 1) throw Object.assign(new Error("git fetch failed"), { stderr: message });
+        }
+        if (args.join(" ") === "rev-parse --verify --quiet origin/main^{commit}") {
+          expect(fetches).toBe(2);
+          return `${commit}\n`;
+        }
+        if (args[1] === "--symbolic-full-name") return "refs/remotes/origin/main\n";
+        return "";
+      });
+      expect(destination).toBe(join(cwd, "worktrees", "feat-retry"));
+      expect(calls.filter((args) => args[0] === "fetch")).toEqual([
+        ["fetch", "--prune", "origin"], ["fetch", "--prune", "origin"],
+      ]);
+      expect(calls).toContainEqual(["worktree", "add", "-b", "feat/retry", destination, commit]);
+      expect(calls).toContainEqual(["config", "branch.feat/retry.tau-base", "origin/main"]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("keeps automatically named threads isolated when their workspace metadata is stale", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-worktree-name-"));
     try {
@@ -1447,6 +1580,21 @@ describe("worktree creation", () => {
       async () => "/repos/tau/.git\n",
     );
     expect(name).toBe("tau");
+  });
+
+  it("adds the folder's path below the working tree root when Git has to answer", async () => {
+    const run = (toplevel: string) => async (_path: string, args: string[]) => {
+      if (args.includes("--git-common-dir")) return "/repos/tau/.git\n";
+      if (args.includes("--show-toplevel")) return toplevel;
+      throw new Error(`unexpected ${args.join(" ")}`);
+    };
+    expect(await repositoryDisplayName("/repos/tau/apps/server", run("/repos/tau\n"))).toBe("tau/apps/server");
+    expect(await repositoryDisplayName("/repos/tau", run("/repos/tau\n"))).toBe("tau");
+    // No working tree to measure from: the plain repository name stands.
+    expect(await repositoryDisplayName("/repos/tau/apps/server", async (_path, args) => {
+      if (args.includes("--show-toplevel")) throw new Error("this operation must be run in a work tree");
+      return "/repos/tau/.git\n";
+    })).toBe("tau");
   });
 });
 

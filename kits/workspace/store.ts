@@ -581,7 +581,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!this.allowed("Committing") || !this.requireHost("Committing")) return false;
     this.update({ committing: true });
     try {
-      const result = await this.host.commit(message, push);
+      const result = await this.host.commit(message, push, this.workspace());
       this.update({ changes: result.changes });
       this.notify(result.detail);
       void this.refreshWorkspace();
@@ -622,12 +622,12 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     }
   }
 
-  async openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition): Promise<void> {
+  async openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition, workspace?: string): Promise<void> {
     if (!hostHasLocalFiles()) { this.notify("This machine's files are not on this device."); return; }
     const editorId = editorOverride ?? this.activeEditor()?.id;
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
     if (!this.requireHost("Opening an editor")) return;
-    try { await this.host.openInEditor(editorId, relPath, this.workspace(), position); }
+    try { await this.host.openInEditor(editorId, relPath, workspace ?? this.workspace(), position); }
     catch (error) { this.notify(errorMessage(error), "error"); }
   }
 

@@ -67,7 +67,7 @@ async function fixture() {
                 delivered.push({ text: input.text, hidden: input.hidden === true });
                 streaming = true;
                 input.onAdmitted?.(true);
-                if (input.queued) return {};
+                if (input.queued || input.delivery !== "prompt") return {};
                 await new Promise<void>((resolve) => idleWaiters.add(resolve));
                 return {};
               },
@@ -111,12 +111,90 @@ async function fixture() {
       for (const resolve of idleWaiters) resolve();
       idleWaiters.clear();
     };
-    return { host, startup, ready, bootstrap, aborts, delivered, attempts, notice, turnsInFlight, turnObservers, blockNextAdmission, settle, dispose, texts: () => delivered.map((entry) => entry.text) };
+    return { host, startup, ready, bootstrap, aborts, delivered, attempts, notice, turnsInFlight, turnObservers, blockNextAdmission, settle, dispose,
+      ask: () => events.ask({ kind: "confirm", title: "Approve this work?" }),
+      texts: () => delivered.map((entry) => entry.text) };
   };
   return { root, cwd, start, journalEntries };
 }
 
 describe("host durable recovery through public operations", () => {
+  it.each([false, true])("caps consecutive restart continuations and resets after a user message, journal=%s", async (journal) => {
+    const f = await fixture();
+    await mkdir(join(f.cwd, ".tau"));
+    await writeFile(join(f.cwd, ".tau", "config.json"), JSON.stringify({ threads: { continueAfterRestart: true } }));
+    let running = await f.start({ journal });
+    await running.host.prompt("work that keeps crashing", [], "saved");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await running.dispose();
+      running = await f.start({ journal });
+      expect(running.texts()).toEqual([RESTART_CONTINUATION_PROMPT]);
+    }
+    running.host.queue.add("saved", { text: "retained follow-up", attachments: [] });
+    await running.dispose();
+    const stopped = await f.start({ journal });
+    expect(stopped.texts()).toEqual([]);
+    expect(stopped.notice).toHaveBeenCalledWith(expect.stringContaining("Stopped after 3 automatic continuations"));
+    expect((await stopped.host.bootstrap()).threadIndex.sessions).toContainEqual(expect.objectContaining({ id: "saved", interrupted: true }));
+    expect(stopped.host.queue.view("saved")?.held).toBe(true);
+    await stopped.host.prompt("try again with my correction", [], "saved");
+    await stopped.dispose();
+    const reset = await f.start({ journal });
+    expect(reset.texts()).toEqual([RESTART_CONTINUATION_PROMPT]);
+  });
+
+  it.each([0, 1])("leaves a thread awaiting an answer interrupted after restart, answered=%s", async (answered) => {
+    const f = await fixture();
+    await mkdir(join(f.cwd, ".tau"));
+    await writeFile(join(f.cwd, ".tau", "config.json"), JSON.stringify({ threads: { continueAfterRestart: true } }));
+    const first = await f.start();
+    await first.host.prompt("work needing approval", [], "saved");
+    const answers = [first.ask()];
+    if (answered) {
+      answers.push(first.ask());
+      first.host.answerExtensionUi(first.host.replayOpenUiPrompts()[0]!.id, { confirmed: true });
+    }
+    await first.turnsInFlight.flush();
+    await first.dispose();
+    await Promise.all(answers);
+    const second = await f.start();
+    expect(second.texts()).toEqual([]);
+    expect(second.notice).toHaveBeenCalledWith(expect.stringContaining("waiting for your answer"));
+    expect((await second.host.bootstrap()).threadIndex.sessions).toContainEqual(expect.objectContaining({ id: "saved", interrupted: true }));
+  });
+
+  it.each([false, true])("resets the chain when a user steers a running continuation, journal=%s", async (journal) => {
+    const f = await fixture();
+    await mkdir(join(f.cwd, ".tau"));
+    await writeFile(join(f.cwd, ".tau", "config.json"), JSON.stringify({ threads: { continueAfterRestart: true } }));
+    await writeFile(join(f.root, "turns.json"), JSON.stringify({ version: 1, turns: [{
+      sessionId: "saved", cwd: f.cwd, turnId: "previous", backend: adapter.id,
+      startedAt: 1, prompt: { text: "unfinished" }, continuationCount: 2,
+    }] }));
+    const first = await f.start({ journal });
+    expect(first.texts()).toEqual([RESTART_CONTINUATION_PROMPT]);
+    await first.host.steer("use this correction", [], "saved");
+    await first.dispose();
+    const second = await f.start({ journal });
+    expect(second.texts()).toEqual([RESTART_CONTINUATION_PROMPT]);
+  });
+
+  it("continues after all questions were answered before the restart", async () => {
+    const f = await fixture();
+    await mkdir(join(f.cwd, ".tau"));
+    await writeFile(join(f.cwd, ".tau", "config.json"), JSON.stringify({ threads: { continueAfterRestart: true } }));
+    const first = await f.start();
+    await first.host.prompt("work needing approvals", [], "saved");
+    const answers = [first.ask(), first.ask()];
+    const prompts = first.host.replayOpenUiPrompts();
+    expect(prompts).toHaveLength(2);
+    for (const prompt of prompts) first.host.answerExtensionUi(prompt.id, { confirmed: true });
+    await Promise.all(answers);
+    await first.dispose();
+    const second = await f.start();
+    expect(second.texts()).toEqual([RESTART_CONTINUATION_PROMPT]);
+  });
+
   it("recovers the running turn after a queued prompt returns and the host stops", async () => {
     const f = await fixture();
     const first = await f.start({ journal: true });

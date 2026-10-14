@@ -22,10 +22,10 @@ body:not([data-profile="compact"]) .workspace-area > .stage .stage-strip-actions
 /* With no document open, context stays compact and conversation uses the remaining space. */
 .workbench-center > .workspace-area:not(.has-stage) { flex: 0 0 340px; width: 340px; max-width: 45%; }
 .workspace-area-tools { display: flex; align-items: flex-start; justify-content: flex-end; flex: none; min-height: var(--control-size); }
-.workspace-area-tools > .workbench-region:empty { display: none; }
+.workspace-area-tools > .workbench-region:not(:has(> :not(tau-part:empty))) { display: none; }
 .workspace-preview-bottom { margin-top: auto; min-width: 0; flex: none; }
 .workspace-preview-bottom > .workbench-region { padding: 0; }
-.workspace-preview-bottom:not(:has(> .workbench-region > *)) { display: none; }
+.workspace-preview-bottom:not(:has(> .workbench-region > :not(tau-part:empty))) { display: none; }
 
 /* Keep the native transcript scrollbar at the workbench edge, beyond its context.
  * Only the scroll box grows; its right padding preserves the chat's text column.

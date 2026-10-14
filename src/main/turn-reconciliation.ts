@@ -5,6 +5,7 @@ import { isSessionHeldElsewhere } from "./session-locks.js";
 /** What the host sends a thread whose turn a restart cut short. */
 export const RESTART_CONTINUATION_PROMPT =
   "Continue the interrupted work; the previous attempt was cut off by a restart.";
+const MAX_RESTART_CONTINUATIONS = 3;
 
 export function restartInterruptionNotice(startedAt: number): string {
   return `Interrupted by a restart at ${new Date(startedAt).toLocaleString()}`;
@@ -68,7 +69,10 @@ export async function reconcileInFlightTurns(port: TurnReconciliationPort): Prom
       }
       const repaired = await thread.repair();
       const resume = thread.resume;
-      if (shouldContinue && resume) {
+      const blocked = marker.waitingForAnswer ? "This thread was waiting for your answer. Send a message to continue."
+        : (marker.continuationCount ?? 0) >= MAX_RESTART_CONTINUATIONS
+          ? `Stopped after ${MAX_RESTART_CONTINUATIONS} automatic continuations following restarts. Send a message to try again.` : undefined;
+      if (shouldContinue && resume && !blocked) {
         // The notice comes first either way: a continuation nobody asked for
         // must not read as something the user typed, hidden or not.
         await resume.notice?.(restartContinuationNotice(marker.startedAt));
@@ -77,7 +81,7 @@ export async function reconcileInFlightTurns(port: TurnReconciliationPort): Prom
         port.log("turns.in-flight.continued", `${marker.sessionId.slice(0, 8)} · ${repaired} repaired`);
         continue;
       }
-      await resume?.notice?.(restartInterruptionNotice(marker.startedAt));
+      await resume?.notice?.(`${restartInterruptionNotice(marker.startedAt)}${blocked ? `. ${blocked}` : ""}`);
       port.markInterrupted(marker.sessionId);
       result.interrupted.push(marker.sessionId);
       port.log("turns.in-flight.interrupted", `${marker.sessionId.slice(0, 8)} · ${repaired} repaired`);

@@ -2,7 +2,7 @@
 import "./packaged-app.js";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { build, transform, type BuildFailure, type Plugin } from "esbuild";
+import { context, transform, type BuildFailure, type Plugin } from "esbuild";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
 import { MANIFEST_FILE, isThemeManifest, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
 import { readTrustedPublishers, trustedPublishersPath } from "./extension-signature.js";
@@ -147,22 +147,46 @@ const SHARED_RUNTIME_SOURCE = [
  * renderer already runs, published on `globalThis.__tauShared`. Bundling a
  * second React would break hooks; bundling a second icon set would waste
  * megabytes per extension.
+ *
+ * Without `used`, every name goes through an annotated picker, so esbuild drops
+ * the ones the package never imports (`lucide-react` reports some 3000). With
+ * the names that survived that pass, one destructuring binds them all, which is
+ * some 15 bytes a name smaller than a picker call.
  */
-function sharedModuleSource(specifier: string, exportNames: readonly string[]): string {
+function sharedModuleSource(specifier: string, exportNames: readonly string[], used?: ReadonlySet<string>): string {
   const lines = [
     `import { shared, defaultOf } from ${JSON.stringify(SHARED_RUNTIME)};`,
     `const m = shared(${JSON.stringify(specifier)});`,
     "export default /* @__PURE__ */ defaultOf(m);",
-    // A binding esbuild cannot prove pure is a binding it must keep, and a
-    // property read is never provably pure. Routing every name through an
-    // annotated picker lets it drop the ones the package never imports —
-    // `lucide-react` reports some 3000, and a status icon needs one.
-    `/* @__NO_SIDE_EFFECTS__ */ const pick = (name) => m[name];`,
   ];
+  if (used) {
+    const names = exportNames.filter(isIdentifier);
+    const bound = names.filter((name) => used.has(name));
+    if (bound.length > 0) lines.push(`export const { ${bound.join(", ")} } = m;`);
+    // An import only dead code read still has to resolve; nothing reads these, so esbuild drops them.
+    const rest = names.filter((name) => !used.has(name));
+    if (rest.length > 0) lines.push(`export let ${rest.join(", ")};`);
+    return lines.join("\n");
+  }
+  // A binding esbuild cannot prove pure is a binding it must keep, and a
+  // property read is never provably pure; the picker is annotated pure. The
+  // specifier in each call lets the second pass read the survivors back.
+  lines.push(`/* @__NO_SIDE_EFFECTS__ */ const pick = (specifier, name) => m[name];`);
   for (const name of exportNames) {
-    if (isIdentifier(name)) lines.push(`export const ${name} = /* @__PURE__ */ pick(${JSON.stringify(name)});`);
+    if (isIdentifier(name)) lines.push(`export const ${name} = /* @__PURE__ */ pick(${JSON.stringify(specifier)}, ${JSON.stringify(name)});`);
   }
   return lines.join("\n");
+}
+
+/** The shared names a first-pass bundle still binds, per specifier. */
+function survivingSharedNames(code: string): Map<string, Set<string>> {
+  const used = new Map<string, Set<string>>();
+  for (const match of code.matchAll(/\bpick\d*\("([^"]+)","([^"]+)"\)/gu)) {
+    const names = used.get(match[1]!) ?? new Set<string>();
+    names.add(match[2]!);
+    used.set(match[1]!, names);
+  }
+  return used;
 }
 
 export interface BundleOptions {
@@ -210,7 +234,9 @@ const vendorNames: Plugin = {
 export async function bundleDesktopExtension(entry: string, options: BundleOptions): Promise<string> {
   const shared = new Set(Object.keys(options.sharedExports));
   const workingDirectory = dirname(resolve(entry));
-  const result = await build({
+  // Undefined in the first pass; the second binds only what the first kept.
+  let used: Map<string, Set<string>> | undefined;
+  const builder = await context({
     // esbuild embeds module paths in initializer keys, even with whitespace minification.
     absWorkingDir: workingDirectory,
     entryPoints: [resolve(entry)],
@@ -237,20 +263,30 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
           return { path: args.path, namespace: "tau-shared" };
         });
         api.onLoad({ filter: /.*/, namespace: "tau-shared" }, async (args) => ({
-          contents: args.path === SHARED_RUNTIME ? SHARED_RUNTIME_SOURCE : sharedModuleSource(args.path, await sharedExportNamesFor(args.path, options.sharedExports[args.path])),
+          contents: args.path === SHARED_RUNTIME
+            ? SHARED_RUNTIME_SOURCE
+            : sharedModuleSource(args.path, await sharedExportNamesFor(args.path, options.sharedExports[args.path]), used ? used.get(args.path) ?? new Set() : undefined),
           loader: "js",
         }));
       },
     }],
-  }).catch((error: BuildFailure) => {
+  });
+  try {
+    const first = await builder.rebuild();
+    used = survivingSharedNames(first.outputFiles!.map((file) => file.text).join("\n"));
+    // The context keeps every parsed file; only the shims are loaded again.
+    const result = await builder.rebuild();
+    return withoutGeneratedSources(result.outputFiles!.map((file) => file.text).join("\n"));
+  } catch (error) {
     // Diagnostic consumers resolve relative paths from the process's working directory.
-    for (const message of error.errors ?? []) {
+    for (const message of (error as BuildFailure).errors ?? []) {
       const location = message.location;
       if (location?.file && (!location.namespace || location.namespace === "file")) location.file = resolve(workingDirectory, location.file);
     }
     throw error;
-  });
-  return withoutGeneratedSources(result.outputFiles.map((file) => file.text).join("\n"));
+  } finally {
+    await builder.dispose();
+  }
 }
 
 const INLINE_MAP = /\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)/u;

@@ -391,6 +391,7 @@ async function main(): Promise<void> {
     fetch: (url, init) => fetch(url, init),
     channel: async () => (await defaultHostConfigManager.read()).updates?.channel,
     preserveNightlyChannel: () => defaultHostConfigManager.preserveNightlyChannel(),
+    hasRequiredBackgroundWork: () => started.current()?.hasRequiredBackgroundWork() ?? false,
     // A build that never updates has no window updater to hand an install to.
     ...(appIdentity().updates ? { window: localWindowUpdatePort(clientCalls) } : {}),
     // Only a service is started again; any other host keeps running until its next start.
