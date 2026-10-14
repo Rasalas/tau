@@ -83,6 +83,7 @@ export class CloneToasts {
           onClose: forget,
           actions: workspace ? [{
             label: "Open project",
+            opens: true,
             run: () => void actions.openWorkspace(workspace.workspaceId).catch((error: unknown) => actions.notify(errorMessage(error), "error")),
           }] : [],
         };

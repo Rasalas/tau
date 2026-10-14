@@ -179,8 +179,8 @@ export function createBringProjectHook(choice: BringChoiceStore, remoteWork: Hos
         title: `Runs on ${next.machineName}`,
         description: `${projectName} is there now, in a worktree of its own. Its work comes back as a branch from Settings → Machines.`,
         actions: [
-          ...(environments.watchThread ? [{ label: "Look in", run: () => actions.openThread(next.thread!, { pin: true, machine: next.machine }) }] : []),
-          { label: "Machines", run: () => actions.openSettings(MACHINES_PAGE) },
+          ...(environments.watchThread ? [{ label: "Look in", opens: true, run: () => actions.openThread(next.thread!, { pin: true, machine: next.machine }) }] : []),
+          { label: "Machines", opens: true, run: () => actions.openSettings(MACHINES_PAGE) },
         ],
       });
     });

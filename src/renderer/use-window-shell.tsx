@@ -100,8 +100,8 @@ export function useWindowShell(options: WindowShellOptions): { handle(event: Win
         ...(readable ? { description: "See what changed in this release." } : {}),
         timeoutMs: RELEASE_NOTES_TOAST_MS,
         actions: readable
-          ? [{ label: "What’s new", run: () => setNotes(release) }]
-          : release.url ? [{ label: "Release notes", run: () => latest.current.openExternal(release.url!) }] : [],
+          ? [{ label: "What’s new", opens: true, run: () => setNotes(release) }]
+          : release.url ? [{ label: "Release notes", opens: true, run: () => latest.current.openExternal(release.url!) }] : [],
         onClose: () => {
           stopWatching();
           void client.windowAction({ kind: "release-notes-seen", version: release.version }).catch(() => undefined);

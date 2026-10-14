@@ -34,6 +34,10 @@
   flex: 1; min-width: 0; margin: 0; padding-block: 5px; max-height: 180px; overflow: auto; overflow-wrap: anywhere;
   font: calc(var(--text-sm) + .5px)/18px var(--sans);
 }
+.toast-main { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 10px; }
+.toast-main[data-stacked] { flex-direction: column; align-items: stretch; gap: 0; }
+.toast-main[data-stacked] .toast-body { flex: none; }
+.toast-main[data-stacked] .toast-actions { flex-wrap: wrap; justify-content: flex-end; }
 .toast-actions { flex: none; display: flex; }
 .toast-actions > button {
   border: 0; border-radius: var(--radius-sm); background: transparent; white-space: nowrap;
@@ -46,7 +50,22 @@
 }
 .toast-icon-button:hover { background: var(--chip-hover); color: var(--ink-2); }
 .toast-icon-button.copied { color: var(--ready); }
-.toast-actions + .toast-icon-button, .toast-icon-button + .toast-icon-button { margin-left: -6px; }
+.toast-main + .toast-icon-button, .toast-open + .toast-icon-button, .toast-icon-button + .toast-icon-button { margin-left: -6px; }
+
+/* A toast whose only action opens is one button for its message; the negative margin lets the card's padding tap too. */
+.toast-open {
+  flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 10px; text-align: left;
+  margin: -10px 0 -10px -14px; padding: 10px 6px 10px 14px;
+  border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.toast-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.toast-chevron { flex: none; display: grid; width: 14px; height: 28px; place-items: center; color: var(--faint); }
+.toast-card:has(> .toast-open:active) { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+@media (hover: hover) {
+  .toast-card:has(> .toast-open:hover) { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+  .toast-card:has(> .toast-open:hover) .toast-chevron { color: var(--ink-2); }
+}
 
 /*
  * A touch layout: the stack sits below the title (`ToastViewport` measures
@@ -68,5 +87,7 @@
 .toast-stack[data-touch] .toast-type { height: 44px; }
 .toast-stack[data-touch] .toast-body { padding-block: 12px; max-height: min(180px, max(0px, calc(var(--toast-available-height) - 10px))); font-size: var(--text-md); line-height: 20px; }
 .toast-stack[data-touch] .toast-icon-button { width: 44px; height: 44px; }
+.toast-stack[data-touch] .toast-open { margin-block: -4px; padding-block: 4px; }
+.toast-stack[data-touch] .toast-chevron { height: 44px; }
 .toast-stack[data-touch] .toast-icon-button > svg { width: 18px; height: 18px; }
 .toast-stack[data-touch] .toast-actions > button { line-height: var(--touch-target); padding: 0 12px; font-size: var(--text-md); }

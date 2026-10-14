@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryStorage } from "../../../workbench/client-storage";
 import type { Platform } from "../../../workbench/platform";
 import { ThreadViewStore } from "../../../workbench/thread-view-store";
-import { ToastStore } from "../../../workbench/toast-store";
+import { ToastStore, type ToastOptions } from "../../../workbench/toast-store";
 import { PlatformProvider } from "../../platform-context";
 import { showNoticesAsToasts } from "../../use-workbench-toasts";
 import { ToastViewport, layoutToasts, toastSwipeDismisses } from "./Toasts";
@@ -87,6 +87,156 @@ describe("ToastViewport", () => {
     act(() => { store.show({ description: "Saved" }); });
     fireEvent.keyDown(document, { key: "F6" });
     expect(document.activeElement?.className).toContain("toast-item");
+  });
+});
+
+describe("a toast with buttons", () => {
+  const stacked = () => document.querySelector<HTMLElement>(".toast-main")!.dataset.stacked !== undefined;
+
+  it("keeps one button in the row on a desktop and puts two under the text", () => {
+    const { store } = setup();
+    act(() => { store.show({ id: "undo", title: "Archived 1 thread", actions: [{ label: "Undo", run: vi.fn() }] }); });
+    expect(stacked()).toBe(false);
+    act(() => { store.show({ id: "ask", title: "Keep agent tools up to date?", actions: [{ label: "Not now", run: vi.fn() }, { label: "Keep up to date", run: vi.fn() }] }); });
+    expect(stacked()).toBe(true);
+  });
+
+  it("puts even one button under the text on a touch layout", () => {
+    const { store } = setup(undefined, true);
+    act(() => { store.show({ id: "undo", title: "Archived 1 thread", actions: [{ label: "Undo", run: vi.fn() }] }); });
+    expect(stacked()).toBe(true);
+  });
+});
+
+describe("a toast whose only action opens something", () => {
+  const failure = (run: () => void, extra: Partial<ToastOptions> = {}): ToastOptions => ({
+    type: "error",
+    title: "Notes did not build",
+    description: "line 3: Unexpected token.",
+    actions: [{ label: "Details", opens: true, run }],
+    ...extra,
+  });
+  const item = () => document.querySelector<HTMLElement>(".toast-item")!;
+  const open = () => screen.getByRole("button", { name: "Details: Notes did not build · line 3: Unexpected token." });
+
+  it("is one button for the whole message, named by its action, with no Details button beside it", () => {
+    const { store } = setup();
+    act(() => { store.show(failure(vi.fn())); });
+    const button = open();
+    expect(button.tagName).toBe("BUTTON");
+    expect(button.getAttribute("type")).toBe("button");
+    expect(button.querySelector(".toast-body")!.textContent).toBe("Notes did not build · line 3: Unexpected token.");
+    expect(screen.queryByRole("button", { name: "Details" })).toBeNull();
+    expect(item().querySelector(".toast-actions")).toBeNull();
+    // Nothing interactive inside it.
+    expect(button.querySelector("button, a, input, [role=button], [tabindex]")).toBeNull();
+  });
+
+  it("runs on a click and closes", () => {
+    const { store } = setup();
+    const run = vi.fn();
+    act(() => { store.show(failure(run)); });
+    fireEvent.click(open());
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(store.getToasts()).toEqual([]);
+  });
+
+  it("opens once on Enter and once on Space, as a native button does", () => {
+    const { store } = setup();
+    const run = vi.fn();
+    act(() => { store.show(failure(run, { id: "build" })); });
+    // jsdom has no default action for keys: click where a browser would (Enter on keydown, Space on keyup).
+    const press = (button: HTMLElement, key: string) => {
+      const keyDown = fireEvent.keyDown(button, { key });
+      const keyUp = fireEvent.keyUp(button, { key });
+      if (key === "Enter" && keyDown) fireEvent.click(button);
+      if (key === " " && keyUp) fireEvent.click(button);
+    };
+    press(open(), "Enter");
+    expect(run).toHaveBeenCalledTimes(1);
+    act(() => { store.show(failure(run, { id: "build" })); });
+    press(open(), " ");
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("stays up when its action keeps it open", () => {
+    const { store } = setup();
+    const run = vi.fn();
+    act(() => { store.show({ ...failure(run), actions: [{ label: "Details", opens: true, keepOpen: true, run }] }); });
+    fireEvent.click(open());
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(store.getToasts()).toHaveLength(1);
+  });
+
+  it("comes first in the tab order, then Copy, then Dismiss, and a key on those two does not open it", () => {
+    const { store } = setup();
+    const run = vi.fn();
+    act(() => { store.show(failure(run)); });
+    expect([...item().querySelectorAll("button")].map((button) => button.getAttribute("aria-label")))
+      .toEqual(["Details: Notes did not build · line 3: Unexpected token.", "Copy", "Dismiss notification"]);
+    for (const name of ["Copy", "Dismiss notification"]) {
+      for (const key of ["Enter", " "]) fireEvent.keyDown(screen.getByRole("button", { name }), { key });
+    }
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("keeps Copy and Dismiss to themselves", async () => {
+    const { store, writeText } = setup();
+    const run = vi.fn();
+    act(() => { store.show(failure(run)); });
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(writeText).toHaveBeenCalledWith("Notes did not build · line 3: Unexpected token.");
+    await screen.findByRole("button", { name: "Copied" });
+    expect(run).not.toHaveBeenCalled();
+    expect(store.getToasts()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
+    expect(run).not.toHaveBeenCalled();
+    expect(store.getToasts()).toEqual([]);
+  });
+
+  it("is drawn the same on a touch layout, and a tap on it opens", () => {
+    const { store } = setup(undefined, true);
+    const run = vi.fn();
+    act(() => { store.show(failure(run)); });
+    expect(screen.getByRole("region", { name: "Notifications" }).dataset.touch).toBeDefined();
+    fireEvent.click(open());
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the buttons of two actions, even when both only open something", () => {
+    const { store } = setup();
+    const [look, machines] = [vi.fn(), vi.fn()];
+    act(() => { store.show(failure(vi.fn(), { actions: [{ label: "Look in", opens: true, run: look }, { label: "Machines", opens: true, run: machines }] })); });
+    expect(item().querySelector("button.toast-open")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(Look in|Machines): / })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Machines" }));
+    expect(machines).toHaveBeenCalledTimes(1);
+    expect(look).not.toHaveBeenCalled();
+  });
+
+  it("keeps the button of an action that does something, such as Undo", () => {
+    const { store } = setup();
+    const undo = vi.fn();
+    act(() => { store.show({ type: "success", title: "Archived 1 thread", actions: [{ label: "Undo", run: undo }] }); });
+    expect(item().querySelector("button.toast-open")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(undo).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the button of a question, which waits for an answer", () => {
+    const { store } = setup();
+    act(() => { store.show({ type: "question", title: "Rate limiting", description: "Waiting for your answer", actions: [{ label: "Open", opens: true, run: vi.fn() }] }); });
+    expect(item().querySelector("button.toast-open")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open" })).toBeTruthy();
+  });
+
+  it("follows an update that changes the actions", () => {
+    const { store } = setup();
+    act(() => { store.show(failure(vi.fn(), { id: "build" })); });
+    expect(item().querySelector("button.toast-open")).not.toBeNull();
+    act(() => { store.update("build", { actions: [{ label: "Retry", run: vi.fn() }] }); });
+    expect(item().querySelector("button.toast-open")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 });
 

@@ -105,7 +105,7 @@ function coordinate(context: DesktopExtensionContext) {
       title: titleOf(item),
       description: headline(item.reason),
       timeoutMs: TOAST_MS,
-      actions: [{ label: "Open", run: () => open(item) }],
+      actions: [{ label: "Open", opens: true, run: () => open(item) }],
       onClose: () => { if (toasts.get(id) === handle) toasts.delete(id); },
     });
     if (handle) toasts.set(id, handle);

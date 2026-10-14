@@ -27,7 +27,7 @@ describe("the toast when a guide run ends", () => {
   it("says the guide is ready and opens the request at its guide", () => {
     const toast = guideToast(READY, () => undefined)!;
     expect(toast).toMatchObject({ type: "success", title: "Review guide ready", description: "#7 Add the output helper" });
-    expect(toast.actions?.map((action) => action.label)).toEqual(["Open"]);
+    expect(toast.actions).toMatchObject([{ label: "Open", opens: true }]);
   });
 
   it("says a run failed", () => {

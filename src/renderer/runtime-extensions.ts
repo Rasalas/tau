@@ -417,7 +417,7 @@ export class RuntimeExtensions {
       description: `${line}. The version that was running stays.`,
       timeoutMs: 15_000,
       copyText: failure.message,
-      actions: [{ label: "Details", run: () => this.host.openSettings("inspector") }],
+      actions: [{ label: "Details", opens: true, run: () => this.host.openSettings("inspector") }],
     });
   }
 
@@ -430,7 +430,7 @@ export class RuntimeExtensions {
       title: `${name} is waiting for approval`,
       description: "What it asks for changed, so it is off until you allow it again in Settings → Extensions.",
       timeoutMs: 15_000,
-      actions: [{ label: "Review", run: () => this.host.openSettings(`extensions/${id}`) }],
+      actions: [{ label: "Review", opens: true, run: () => this.host.openSettings(`extensions/${id}`) }],
     });
   }
 

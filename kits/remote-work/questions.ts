@@ -82,8 +82,8 @@ export class QuestionNotices {
     };
     if (actions?.toast) {
       const buttons = environments ? [
-        { label: `Open on ${link.machineName}`, run: open },
-        ...(environments.watchThread ? [{ label: "Look in", run: () => actions.openThread(link.thread!, { pin: true, machine: link.machine }) }] : []),
+        { label: `Open on ${link.machineName}`, opens: true, run: open },
+        ...(environments.watchThread ? [{ label: "Look in", opens: true, run: () => actions.openThread(link.thread!, { pin: true, machine: link.machine }) }] : []),
       ] : [];
       this.toasts.get(link.id)?.dismiss();
       const shown: { handle?: ToastHandle } = {};
