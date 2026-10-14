@@ -171,14 +171,22 @@ export interface GitCredential {
 
 export interface CliOptions {
   cwd?: string;
+  /** Pinned CLI credentials, never logged. */
+  env?: Record<string, string>;
+  /** Opaque credential identity for the rate-limit gate. */
+  credentialIdentity?: string;
   maxBuffer?: number;
   host?: string;
-  /** Reads a call that exited 0 and throws when it failed all the same. */
+  /** Opts into a complete nonzero-exit response before ordinary failure normalization. */
+  acceptFailure?(stdout: string, exitCode: number | undefined): boolean;
+  /** Inspects successful or explicitly accepted output before clearing the rate gate. */
   inspect?(stdout: string, stderr: string): void;
 }
 
 /** What every provider is built on: the host's CLIs, HTTP, the read cache and the kit's other seams. */
 export interface ProviderTools {
+  /** Resolves and pins gh's current credential; identity contains no secret. */
+  githubSession?(host: string): Promise<{ identity: string; cli: ProviderTools["cli"] }>;
   findCommand(name: string): string | undefined;
   log(event: string, detail: string): void;
   /**

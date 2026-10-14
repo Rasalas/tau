@@ -1,7 +1,7 @@
 import { HostCommandError } from "tau/host-extension";
 
 /** Without a reset time from the host, the first pause lasts this long and doubles up to the cap. */
-const FIRST_PAUSE_MS = 30_000;
+const FIRST_PAUSE_MS = 60_000;
 const LONGEST_PAUSE_MS = 15 * 60_000;
 
 /** The CLIs say it in words; the APIs with 429 or GitHub's 403 with nothing remaining. */
@@ -25,6 +25,10 @@ export function retryAtFrom(headers: { get(name: string): string | null }, now: 
   return undefined;
 }
 
+export class RateLimitError extends HostCommandError {
+  constructor(message: string, readonly retryAt: number) { super(message); }
+}
+
 /**
  * Pauses one provider on one host once it said its rate limit is reached,
  * so a polling tab does not keep hitting it: until the reset time the host
@@ -36,29 +40,36 @@ export class RateLimitGate {
   constructor(private readonly now: () => number = Date.now) {}
 
   /** Refuses while the pause lasts. */
-  check(name: string, kind: string, host: string): void {
-    const entry = this.paused.get(this.key(kind, host));
+  check(name: string, kind: string, host: string, identity = ""): void {
+    const entry = this.paused.get(this.key(kind, host, identity));
     if (!entry || entry.until <= this.now()) return;
     const seconds = Math.ceil((entry.until - this.now()) / 1000);
     const wait = seconds > 90 ? `${Math.ceil(seconds / 60)} minutes` : `${seconds} seconds`;
-    throw new HostCommandError(`${name}'s rate limit for ${host} is reached; Tau asks again in ${wait}.`);
+    throw new RateLimitError(`${name}'s rate limit for ${host} is reached; Tau asks again in ${wait}.`, entry.until);
   }
 
-  record(kind: string, host: string, retryAt?: number): void {
-    const key = this.key(kind, host);
+  record(kind: string, host: string, retryAt?: number, identity = ""): number {
+    const key = this.key(kind, host, identity);
     const attempt = (this.paused.get(key)?.attempt ?? 0) + 1;
     const fallback = this.now() + Math.min(FIRST_PAUSE_MS * 2 ** (attempt - 1), LONGEST_PAUSE_MS);
-    this.paused.set(key, { until: retryAt && retryAt > this.now() ? retryAt : fallback, attempt });
+    const until = Math.max(this.paused.get(key)?.until ?? 0, retryAt && retryAt > this.now() ? retryAt : fallback);
+    this.paused.set(key, { until, attempt });
+    return until;
   }
 
   /** A call that started before the pause may still succeed; only one after it ends the pause's growth. */
-  succeeded(kind: string, host: string): void {
-    const key = this.key(kind, host);
+  succeeded(kind: string, host: string, identity = ""): void {
+    const key = this.key(kind, host, identity);
     const entry = this.paused.get(key);
     if (entry && entry.until <= this.now()) this.paused.delete(key);
   }
 
-  private key(kind: string, host: string): string {
-    return `${kind}\0${host.toLowerCase()}`;
+  private key(kind: string, host: string, identity: string): string {
+    return `${kind}\0${host.toLowerCase()}\0${identity}`;
   }
+}
+
+/** gh --include preserves response headers, including on GraphQL HTTP-200 errors. */
+export function retryAtFromCli(text: string, now: number): number | undefined {
+  return retryAtFrom({ get: (name) => new RegExp(`^${name}:\\s*(.+)$`, "imu").exec(text)?.[1]?.trim() ?? null }, now);
 }

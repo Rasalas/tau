@@ -18,6 +18,13 @@ export interface CliRunOptions {
   onStderr?(stderr: string): void;
 }
 
+/** Internal transport failure; providers normalize it before exposing errors to callers. */
+export class CliFailure extends Error {
+  constructor(message: string, readonly stdout: string, readonly stderr: string, readonly exitCode: number | undefined) {
+    super(message);
+  }
+}
+
 const CLI_TIMEOUT_MS = 25_000;
 
 export const defaultCliRunner: CliRunner = (command, args, cwd, options = {}) => new Promise((resolve, reject) => {
@@ -34,8 +41,9 @@ export const defaultCliRunner: CliRunner = (command, args, cwd, options = {}) =>
     if (!error) { options.onStderr?.(String(stderr)); resolve(stdout); return; }
     // Past maxBuffer, stdout holds a cut-off answer rather than a reason.
     const overflow = (error as { code?: unknown }).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
-    const detail = overflow ? error.message : String(stderr || stdout || "").trim() || error.message;
-    reject(new Error(detail));
+    const detail = overflow ? error.message : String(args.includes("--include") ? `${stdout}\n${stderr}` : stderr || stdout || "").trim() || error.message;
+    // Truncated or killed output cannot be recovered as a complete response.
+    reject(new CliFailure(detail, overflow || error.killed ? "" : String(stdout), String(stderr), typeof error.code === "number" && !error.killed ? error.code : undefined));
   });
   if (options.input !== undefined) child.stdin?.end(options.input);
 });

@@ -16,7 +16,7 @@ export class ProviderReadCache {
 
   read<T>(key: string, fresh: boolean, read: () => Promise<T>, coalesceFresh: boolean): Promise<T> {
     const held = this.entries.get(key);
-    if (held && this.now() - held.at < this.ttlMs && (!fresh || (coalesceFresh && held.refreshing))) {
+    if (held && ((coalesceFresh && held.refreshing) || (!fresh && this.now() - held.at < this.ttlMs))) {
       // Map insertion order is the eviction order.
       this.entries.delete(key);
       this.entries.set(key, held);
@@ -27,13 +27,19 @@ export class ProviderReadCache {
     this.delete(key);
     const entry = {
       value, at: this.now(), refreshing: fresh && coalesceFresh, bytes: 0,
-      timer: setTimeout(() => { if (this.entries.get(key) === entry) this.delete(key); }, this.ttlMs),
+      timer: setTimeout(() => { if (this.entries.get(key) === entry && !entry.refreshing) this.delete(key); }, this.ttlMs),
     };
     entry.timer.unref?.();
     this.entries.set(key, entry);
     this.trim();
     void value.then((answer) => {
       if (this.entries.get(key) !== entry) return;
+      if (entry.refreshing) {
+        entry.at = this.now();
+        clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => { if (this.entries.get(key) === entry) this.delete(key); }, this.ttlMs);
+        entry.timer.unref?.();
+      }
       entry.refreshing = false;
       // Bound retained payload, not exact V8 heap. Count two bytes per UTF-16 code unit.
       try { entry.bytes = (typeof answer === "string" ? answer.length : (JSON.stringify(answer)?.length ?? 0)) * 2; }
