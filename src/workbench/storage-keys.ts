@@ -3,6 +3,7 @@
  * version suffix when a key's shape changes incompatibly.
  */
 export const STORAGE_KEYS = {
+  promptLinkArrival: "tau.prompt-link-arrival.v1",
   preferences: "tau.preferences.v1",
   preferencesLegacy: "tau.preferences",
   bootstrapCache: "tau.bootstrap-cache.v7",

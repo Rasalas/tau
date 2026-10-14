@@ -1,4 +1,5 @@
 import "./workspace-area.css";
+import { PromptLinkHandler } from "./PromptLinkHandler";
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, MessageSquare, PanelLeft, PanelRightClose, PanelRightOpen } from "lucide-react";
@@ -646,6 +647,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const pageSidebarFrame = (content: React.ReactNode) => <aside className="page-sidebar-frame">{content}</aside>;
   const settingsFrame = (content: React.ReactNode) => <div className="settings-screen loading">{content}</div>;
   const overlays = <>
+    {snapshot ? <PromptLinkHandler actions={actions} threads={threadStore} snapshot={snapshot} scope={activeDraftKey} /> : null}
     {compact && startupReady ? <Suspense fallback={null}><LazyTouchLayer
       syncUrl={clientProfile !== "desktop"}
       openThread={actions.switchSession}

@@ -1,3 +1,4 @@
+import { receiveDesktopLink } from "./desktop-links.js";
 import { join } from "node:path";
 import { appIdentity, type AppIdentity as AppNames } from "./app-identity.js";
 
@@ -21,8 +22,10 @@ export function configureAppIdentity(app: AppIdentity, userData?: string, platfo
 
 export interface SingleInstanceApp {
   requestSingleInstanceLock(): boolean;
+  isReady?(): boolean;
   quit(): void;
-  on(event: "second-instance", listener: () => void): unknown;
+  on(event: "second-instance", listener: (event: unknown, argv: string[]) => void): unknown;
+  on(event: "open-url", listener: (event: { preventDefault(): void }, url: string) => void): unknown;
 }
 
 export interface SingleInstanceWindow {
@@ -47,7 +50,8 @@ export function installSingleInstance(
     app.quit();
     return false;
   }
-  app.on("second-instance", () => {
+  const show = () => {
+    if (app.isReady?.() === false) return;
     const window = currentWindow();
     if (!window || window.isDestroyed()) {
       openWindow?.();
@@ -56,6 +60,16 @@ export function installSingleInstance(
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
+  };
+  app.on("second-instance", (_event, argv) => {
+    for (const arg of argv ?? []) receiveDesktopLink(arg);
+    show();
   });
+  app.on("open-url", (event, url) => {
+    if (!receiveDesktopLink(url)) return;
+    event.preventDefault();
+    show();
+  });
+  for (const arg of process.argv) receiveDesktopLink(arg);
   return true;
 }

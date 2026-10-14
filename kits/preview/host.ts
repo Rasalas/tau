@@ -1087,6 +1087,14 @@ export function createPreviewHostExtension(
       context.registerCommand("close", () => controller.close());
       context.registerCommand("bounds", (input) => { controller.setBounds(readPreviewBounds(input)); });
       context.registerCommand("state", () => controller.state(), { access: "read" });
+      if (process.env.TAU_DISPLAY_SMOKE_DIAGNOSTICS === "1") {
+        context.registerCommand("smoke-diagnostics", (input) => {
+          const window = context.services.clientWindow?.();
+          if (window === undefined) return { available: false, windowAttached: false };
+          // Pin directly: diagnosis must never restart a window or rebuild its preview.
+          return context.services.callClient("smoke-diagnostics", { capturePage: (input as { capturePage?: unknown } | undefined)?.capturePage === true }, { window });
+        }, { access: "read" });
+      }
       // The window half reports what the page did and the chords it took; core only routes them here.
       context.registerCommand("view-changed", (input) => controller.acceptRemoteState(input));
       const field = (input: unknown, key: string): unknown => input && typeof input === "object" ? (input as Record<string, unknown>)[key] : undefined;

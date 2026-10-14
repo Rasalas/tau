@@ -1,3 +1,4 @@
+import { onDesktopLink, takeDesktopLinks } from "./desktop-links.js";
 import type { CommandLine } from "./command-line.js";
 import type { CommandLineState, ReleaseNotes, WindowAction, WindowShellEvent, WindowShellStatus } from "../shared/window-shell.js";
 
@@ -32,6 +33,7 @@ const defaultSchedule = (run: () => void, ms: number) => {
  * working and whether the user wants to be asked; this side only waits.
  */
 export function createAppShell(ports: AppShellPorts) {
+  onDesktopLink(() => ports.publish({ kind: "links-available" }));
   const schedule = ports.schedule ?? defaultSchedule;
   const waiting = new Map<string, { settle(quit: boolean): void; cancel(): void }>();
   let next = 0;
@@ -56,6 +58,7 @@ export function createAppShell(ports: AppShellPorts) {
 
     async act(action: WindowAction): Promise<unknown> {
       switch (action.kind) {
+        case "take-links": return takeDesktopLinks();
         case "paste-as-text":
           ports.pasteAsText();
           return undefined;

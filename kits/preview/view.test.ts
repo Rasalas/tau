@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeWindow, type FakeWindow } from "./fake-electron-window.js";
 
 interface FakeImage {
@@ -30,10 +30,12 @@ const electron = vi.hoisted(() => ({
   clipboardText: vi.fn(),
   clipboardWrite: vi.fn(async () => undefined),
   openExternal: vi.fn(),
+  app: { on: vi.fn(), off: vi.fn() },
 }));
 vi.mock("electron", async () => {
   const { fakeView, fakeWindow: stageWindow } = await import("./fake-electron-window.js");
   return {
+    app: electron.app,
     WebContentsView: class {
       constructor() {
         return Object.assign(fakeView(), { webContents: electron.contents });
@@ -65,6 +67,7 @@ vi.mock("electron", async () => {
 const { default: activatePreviewWindowHalf, createElectronPreviewSurface, cropToView, deviceOverride } = await import("./view.js");
 
 const surface = () => createElectronPreviewSurface({ partition: "", onChange: () => undefined, workspaceRoot: () => "", log: () => undefined })!;
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(() => {
   let attached = false;
@@ -96,6 +99,29 @@ beforeEach(() => {
 });
 
 describe("a preview call without a drawable window", () => {
+  it("reports the existing view without enabling painting or capturing on a state-only probe", async () => {
+    vi.stubEnv("TAU_DISPLAY_SMOKE_DIAGNOSTICS", "1");
+    const half = activatePreviewWindowHalf({ id: "tau.preview", invokeHost: vi.fn(), log: vi.fn() });
+    await expect(half.handle("smoke-diagnostics")).resolves.toMatchObject({ available: false, processes: { gone: [] } });
+    half.handle("open-view");
+    const facts = await half.handle("smoke-diagnostics") as Record<string, unknown>;
+    expect(facts).toMatchObject({ available: true, contents: { loading: false }, counts: { paint: 0, didFinishLoad: 0 }, capturePage: { status: "not-requested" } });
+    expect(electron.contents.capturePage).not.toHaveBeenCalled();
+    expect(electron.contents.debugger.attach).not.toHaveBeenCalled();
+    expect(electron.window.contentView.children[0]?.visible).toBe(false);
+    half.dispose?.();
+    expect(electron.app.off).toHaveBeenCalledWith("child-process-gone", expect.any(Function));
+  });
+
+  it("returns diagnostic absence without creating a view, only in the smoke environment", async () => {
+    const half = activatePreviewWindowHalf({ id: "tau.preview", invokeHost: vi.fn(), log: vi.fn() });
+    expect(() => half.handle("smoke-diagnostics")).toThrow();
+    vi.stubEnv("TAU_DISPLAY_SMOKE_DIAGNOSTICS", "1");
+    await expect(half.handle("smoke-diagnostics")).resolves.toEqual({ available: false });
+    expect(electron.window.contentView.children).toHaveLength(0);
+    expect(electron.stages).toHaveLength(0);
+  });
+
   it("explains how to enable a host-rendered preview instead of retrying another client's window", () => {
     electron.window = undefined as unknown as FakeWindow;
     const half = activatePreviewWindowHalf({ id: "tau.preview", invokeHost: vi.fn(), log: vi.fn() });

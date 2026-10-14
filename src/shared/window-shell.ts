@@ -36,6 +36,7 @@ export function isQuitConfirmation(value: unknown): value is QuitConfirmation {
 }
 
 export type WindowShellEvent =
+  | { kind: "links-available" }
   | { kind: "menu"; action: WindowMenuAction }
   /** The quit chord is down and waits for a hold or a second press; `up` hides the hint. */
   | { kind: "quit-shortcut"; state: "down"; mode: QuitShortcutMode }
@@ -83,6 +84,7 @@ export interface CommandLineState {
 export type CommandLineOp = "state" | "install" | "remove";
 
 export type WindowAction =
+  | { kind: "take-links" }
   /** Pastes the clipboard's text into whatever has focus, without its formatting. */
   | { kind: "paste-as-text" }
   | { kind: "answer-quit"; requestId: string; answer: QuitAnswer }
@@ -101,6 +103,7 @@ export function decodeWindowAction(method: string, value: unknown): WindowAction
   const fail = (): never => { throw new Error(`${method}: not a window action`); };
   if (!item || typeof item.kind !== "string") return fail();
   switch (item.kind) {
+    case "take-links":
     case "paste-as-text":
     case "status":
     case "check-for-updates":

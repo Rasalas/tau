@@ -76,6 +76,42 @@ async function activate(createSurface: (options: PreviewSurfaceOptions) => Promi
   return { ...context, tools, call, text };
 }
 
+describe("smoke diagnostics routing", () => {
+  it("registers only in the smoke environment and forwards no page fields or surface creation", async () => {
+    const createSurface = vi.fn(async () => fakeSurface().surface);
+    const callClient = vi.fn(async () => ({ available: false }));
+    let window: string | undefined = "w1";
+    const services = {
+      stateDir: "/state",
+      registerRuntimeExtension: () => () => undefined,
+      registerTurnObserver: () => () => undefined,
+      clientWindow: () => window,
+      callClient,
+    };
+    vi.stubEnv("TAU_DISPLAY_SMOKE_DIAGNOSTICS", "0");
+    const normal = await activateHostKit(createPreviewHostExtension(createSurface), services);
+    try {
+      await expect(normal.invoke(PREVIEW_HOST_EXTENSION_ID, "smoke-diagnostics", {})).rejects.toThrow();
+      vi.stubEnv("TAU_DISPLAY_SMOKE_DIAGNOSTICS", "1");
+      const smoke = await activateHostKit(createPreviewHostExtension(createSurface), services);
+      try {
+        await expect(smoke.invoke(PREVIEW_HOST_EXTENSION_ID, "smoke-diagnostics", { capturePage: true, url: "secret" })).resolves.toEqual({ available: false });
+        expect(callClient).toHaveBeenCalledWith(PREVIEW_HOST_EXTENSION_ID, "smoke-diagnostics", { capturePage: true }, { window: "w1" });
+        expect(createSurface).not.toHaveBeenCalled();
+        window = undefined;
+        callClient.mockClear();
+        await expect(smoke.invoke(PREVIEW_HOST_EXTENSION_ID, "smoke-diagnostics", { capturePage: true })).resolves.toEqual({ available: false, windowAttached: false });
+        expect(callClient).not.toHaveBeenCalled();
+      } finally {
+        smoke.deactivate(PREVIEW_HOST_EXTENSION_ID);
+      }
+    } finally {
+      normal.deactivate(PREVIEW_HOST_EXTENSION_ID);
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe("preview bounds", () => {
   it("turns the panel's CSS rectangle into window pixels", () => {
     expect(previewRect({ x: 10.4, y: 20.6, width: 300, height: 200, visible: true }, 1)).toEqual({ x: 10, y: 21, width: 300, height: 200 });
