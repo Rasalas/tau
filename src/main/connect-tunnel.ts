@@ -1,6 +1,7 @@
 import { createServer, connect, type Server, type Socket } from "node:net";
 import { WebSocket, createWebSocketStream, type ClientOptions } from "ws";
 import type { ConnectRoute } from "../shared/managed-connections.js";
+import type { ConnectStatus } from "../shared/connect.js";
 
 export function connectRelayUrl(relay: string, role: "host" | "client" | "data", id: string, connection?: string): string {
   const url = new URL(relay);
@@ -44,7 +45,7 @@ export class ConnectClientBridge {
 }
 
 export interface ConnectHostRoute { relay: string; id: string; hostToken: string; clientToken: string }
-export type ConnectPhase = "disabled" | "connecting" | "connected" | "offline";
+export type ConnectPhase = ConnectStatus["phase"];
 
 /** The host makes outbound TLS connections only. Reconnect preserves the registered route. */
 export class ConnectHostTunnel {
@@ -61,6 +62,18 @@ export class ConnectHostTunnel {
     const control = openRelay(this.route.relay, "host", this.route.id, this.route.hostToken, undefined, this.tlsOptions);
     this.control = control;
     let live = true;
+    let failureDetail: string | undefined;
+    control.on("unexpected-response", (_request, response) => {
+      const status = response.statusCode;
+      response.destroy();
+      if (status === 401 || status === 403) {
+        this.close();
+        this.publish("removed", `The relay no longer accepts this machine's registration (HTTP ${status}). Remove the saved registration and register again in Settings → Connections → Tau Connect.`);
+      } else {
+        failureDetail = `The relay refused the connection (HTTP ${status}). Reconnecting to Tau Connect…`;
+        control.terminate();
+      }
+    });
     control.on("pong", () => { live = true; });
     control.once("open", () => {
       if (this.closed) { control.terminate(); return; }
@@ -82,12 +95,12 @@ export class ConnectHostTunnel {
         peer.on("close", () => this.connections.delete(close));
       });
     });
-    control.on("error", () => { if (!this.closed) this.publish("offline", "The relay could not be reached or rejected this machine. Check its address and registration."); });
+    control.on("error", () => { if (!this.closed) this.publish("offline", failureDetail ?? "The relay could not be reached. Check its address and registration."); });
     control.on("close", () => {
       clearInterval(this.heartbeat);
       for (const close of this.connections) close(); this.connections.clear();
       if (this.closed) return;
-      this.publish("offline", "Reconnecting to Tau Connect…");
+      this.publish("offline", failureDetail ?? "Reconnecting to Tau Connect…");
       this.timer = setTimeout(() => this.start(), Math.min(30_000, 1_000 * 2 ** Math.min(this.attempts++, 5)));
       this.timer.unref();
     });

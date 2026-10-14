@@ -63,3 +63,51 @@ it("keeps registration and pairing management from a paired remote device", asyn
   const methods = createConnectMethods(() => undefined);
   await expect(methods["connect-configure"]!([input], { ...NO_JOB_CONTEXT, principal: { kind: "workbench-client", pairedClient: "device", local: true } })).rejects.toThrow();
 });
+
+it.each([502, 503, 504])("reports HTTP %i as a relay failure, keeps diagnostics and permits another registration", async (status) => {
+  const traceId = "0123456789abcdef0123456789abcdef";
+  const requested = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(new Response("gateway error", { status, headers: { traceparent: `00-${traceId}-0123456789abcdef-01`, "x-request-id": "request-123" } }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 201 }));
+  const listen = vi.fn(async () => listener()); const userData = dir();
+  const service = new HostConnect({ userData, host: { id: "host", name: "Machine" }, listen, createLink: () => ({ code: "x" }), fetch: requested, tunnel: stubTunnel });
+  const error = await service.configure(input).catch((cause: Error) => cause);
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toMatch(status === 504 ? /timed out.*try again/iu : /relay.*try again/iu);
+  expect((error as Error).message).not.toMatch(/token/iu);
+  expect((error as Error).message).toContain(`HTTP ${status}`);
+  expect((error as Error).message).toContain(traceId);
+  expect((error as Error).message).toContain("request-123");
+  expect(listen).not.toHaveBeenCalled(); expect(existsSync(join(userData, "connect.json"))).toBe(false);
+  expect(await service.configure(input)).toMatchObject({ phase: "connected" });
+  await service.close();
+});
+
+it.each([401, 403, 429, 500])("reserves enrollment-token advice for registration HTTP %i authentication failures", async (status) => {
+  const service = new HostConnect({ userData: dir(), host: { id: "host", name: "Machine" }, listen: async () => listener(), createLink: () => ({ code: "x" }), fetch: vi.fn(async () => new Response(null, { status })), tunnel: stubTunnel });
+  const error = await service.configure(input).catch((cause: Error) => cause);
+  if (status === 401 || status === 403) expect((error as Error).message).toMatch(/enrollment token/iu);
+  else expect((error as Error).message).not.toMatch(/token/iu);
+  expect((error as Error).message).toContain(String(status));
+  await service.close();
+});
+
+it.each(["TimeoutError", "AbortError"])("distinguishes a local %s from an HTTP gateway timeout", async (name) => {
+  const cause = new DOMException("request interrupted", name);
+  const service = new HostConnect({ userData: dir(), host: { id: "host", name: "Machine" }, listen: async () => listener(), createLink: () => ({ code: "x" }), fetch: vi.fn(async () => { throw cause; }), tunnel: stubTunnel });
+  const error = await service.configure(input).catch((failure: Error) => failure);
+  expect((error as Error).message).toMatch(name === "TimeoutError" ? /timed out.*before.*response/iu : /cancelled.*before.*response/iu);
+  expect((error as Error).message).not.toMatch(/HTTP|token/u);
+  expect(error).toHaveProperty("cause", cause);
+  await service.close();
+});
+
+it("forgets a route the relay removed without asking the relay to revoke it", async () => {
+  const requests: string[] = [];
+  const removedTunnel = (_route: unknown, _port: number, publish: (phase: "removed", detail: string) => void) => ({ start: () => publish("removed", "gone"), close: vi.fn() });
+  const service = new HostConnect({ userData: dir(), host: { id: "host", name: "Machine" }, listen: async () => listener(), createLink: () => ({ code: "x" }), fetch: vi.fn(async (_url, init) => { requests.push(init?.method ?? "GET"); return init?.method === "POST" ? new Response(JSON.stringify(config), { status: 201 }) : new Response(null, { status: 401 }); }), tunnel: removedTunnel });
+  expect(await service.configure(input)).toMatchObject({ phase: "removed" });
+  expect(await service.remove()).toEqual({ phase: "disabled" });
+  expect(requests).toEqual(["POST"]);
+  await service.close();
+});
