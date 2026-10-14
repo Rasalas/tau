@@ -358,15 +358,21 @@ describe("working section", () => {
     expect(view(["a", "b"])).toEqual(["b", "a"]);
   });
 
-  it("drops what it remembers for threads no longer listed", () => {
+  it("keeps the stamps of a thread a filter hides, and stamps it afresh when it comes back to work", () => {
     let at = NOW;
     const clock = createWorkingClock(() => at);
-    clock.observe([thread("a")], new Set(["a"]));
+    clock.observe([thread("a"), thread("b")], new Set(["a", "b"]), { a: NOW - 5, b: NOW - 9 });
     at = NOW + 1;
+    clock.observe([thread("b")], new Set(["b"]));
+    clock.observe([thread("a"), thread("b")], new Set(["a", "b"]));
+    expect(clock.workingSince("a")).toBe(NOW - 5);
+    at = NOW + 2;
     clock.observe([thread("a")], new Set());
-    expect(clock.returnedAt("a")).toBe(NOW + 1);
-    clock.observe([], new Set());
-    expect(clock.returnedAt("a")).toBeUndefined();
+    expect(clock.returnedAt("a")).toBe(NOW + 2);
+    expect(clock.workingSince("a")).toBeUndefined();
+    at = NOW + 3;
+    clock.observe([thread("a")], new Set(["a"]));
+    expect(clock.workingSince("a")).toBe(NOW + 3);
   });
 });
 

@@ -27,19 +27,16 @@ export function createWorkingClock(now: () => number = Date.now): ObservedWorkin
         since.clear();
         return;
       }
-      const present = new Set(listed);
-      for (const map of [returned, since]) for (const id of map.keys()) if (!present.has(id)) map.delete(id);
+      // A thread a filter hides keeps its stamps, so the order holds when it shows again.
       const at = now();
-      for (const id of working) {
-        if (!present.has(id) || since.has(id)) continue;
-        // Wakes and runs ending inside the section keep the row in place; only a new entry moves it.
-        since.set(id, last === null ? baseline?.(id) ?? at : at);
-        returned.delete(id);
-      }
-      for (const id of last ?? []) {
-        if (present.has(id) && !working.has(id)) {
+      for (const id of listed) {
+        if (!working.has(id)) {
+          if (last?.has(id)) returned.set(id, at);
           since.delete(id);
-          returned.set(id, at);
+        } else if (!since.has(id)) {
+          // Wakes and runs ending inside the section keep the row in place; only a new entry moves it.
+          since.set(id, last === null ? baseline?.(id) ?? at : at);
+          returned.delete(id);
         }
       }
       last = working;
