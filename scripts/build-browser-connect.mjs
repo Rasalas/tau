@@ -1,7 +1,7 @@
 // Rebuild the separately shipped browser TLS adapter from its locked Rust sources.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,23 +9,37 @@ const root = fileURLToPath(new URL("../browser-connect/", import.meta.url));
 const cargo = process.env.TAU_CONNECT_CARGO ?? "cargo";
 const bindgen = process.env.TAU_CONNECT_WASM_BINDGEN ?? "wasm-bindgen";
 const env = { ...process.env };
-// Apple's ar discards WASM objects. Rust's llvm-tools component supplies a
-// compatible archiver without requiring a separately installed LLVM package.
-if (process.platform === "darwin" && !env.AR_wasm32_unknown_unknown) {
-  const sysroot = execFileSync(process.env.TAU_CONNECT_RUSTC ?? "rustc", ["--print", "sysroot"], { env, encoding: "utf8" }).trim();
-  const host = execFileSync(process.env.TAU_CONNECT_RUSTC ?? "rustc", ["-vV"], { env, encoding: "utf8" }).match(/^host: (.+)$/mu)?.[1];
-  env.AR_wasm32_unknown_unknown = join(sysroot, "lib", "rustlib", host, "bin", "llvm-ar");
-}
-execFileSync(cargo, ["build", "--locked", "--release", "--target", "wasm32-unknown-unknown", "--jobs", "1"], { cwd: root, env, stdio: "inherit" });
+const rustc = process.env.TAU_CONNECT_RUSTC ?? "rustc";
+const rustInfo = execFileSync(rustc, ["-vV"], { cwd: root, env, encoding: "utf8" });
+if (!/^release: 1\.98\.1$/mu.test(rustInfo)) throw new Error("Use Rust 1.98.1 to reproduce the browser adapter.");
+const sysroot = execFileSync(rustc, ["--print", "sysroot"], { cwd: root, env, encoding: "utf8" }).trim();
+// ring compiles C too; system Clang versions produce different WASM bytes.
+const sdk = env.WASI_SDK_PATH;
+if (!sdk) throw new Error("Set WASI_SDK_PATH to WASI SDK 27.0.");
+env.CC_wasm32_unknown_unknown = join(sdk, "bin", "clang");
+env.AR_wasm32_unknown_unknown = join(sdk, "bin", "llvm-ar");
+const clangInfo = execFileSync(env.CC_wasm32_unknown_unknown, ["--version"], { env, encoding: "utf8" });
+if (!clangInfo.startsWith("clang version 20.1.8-wasi-sdk (https://github.com/llvm/llvm-project 87f0227cb60147a26a1eeb4fb06e3b505e9c7261)\n")) throw new Error("Use the official WASI SDK 27.0 C compiler.");
 const metadata = JSON.parse(execFileSync(cargo, ["metadata", "--locked", "--format-version", "1", "--filter-platform", "wasm32-unknown-unknown"], { cwd: root, env, encoding: "utf8" }));
 const version = metadata.packages.find((pkg) => pkg.name === "wasm-bindgen").version;
-if (!execFileSync(bindgen, ["--version"], { encoding: "utf8" }).includes(version)) throw new Error(`Use wasm-bindgen-cli ${version}, matching Cargo.lock.`);
+if (execFileSync(bindgen, ["--version"], { env, encoding: "utf8" }).trim() !== `wasm-bindgen ${version}`) throw new Error(`Use wasm-bindgen-cli ${version}, matching Cargo.lock.`);
+// Panic locations retain source paths even with debug sections stripped.
+const remaps = new Map([[root.replace(/\/$/u, ""), "/tau/browser-connect"], [await realpath(root), "/tau/browser-connect"], [sysroot, "/rust-toolchain"]]);
+for (const pkg of metadata.packages) {
+  const registry = pkg.manifest_path.match(/^(.*\/registry\/src\/[^/]+)\//u)?.[1];
+  if (registry) remaps.set(registry, "/cargo/registry/src");
+}
+const flags = [...remaps].map(([from, to]) => `--remap-path-prefix=${from}=${to}`);
+// A matching cfg entry adds to the target's entropy flags in .cargo/config.toml.
+const config = `target.'cfg(target_arch = "wasm32")'.rustflags = ${JSON.stringify(flags)}`;
+execFileSync(cargo, ["--config", config, "build", "--locked", "--release", "--target", "wasm32-unknown-unknown", "--jobs", "2"], { cwd: root, env, stdio: "inherit" });
 execFileSync(bindgen, [join(root, "target/wasm32-unknown-unknown/release/tau_browser_connect.wasm"), "--target", "web", "--out-dir", join(root, "pkg")], { env, stdio: "inherit" });
 const licenses = [];
-for (const pkg of metadata.packages.sort((a, b) => a.name.localeCompare(b.name))) {
+for (const pkg of metadata.packages.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
   if (pkg.name === "tau-browser-connect") continue;
   const folder = join(pkg.manifest_path, "..");
   const files = (await readdir(folder, { recursive: true })).filter((file) => /(^|\/)(LICENSE[^/]*|COPYING[^/]*|COPYRIGHT[^/]*)$/iu.test(file));
+  files.sort();
   const texts = [];
   for (const file of files) { try { texts.push(`${file}\n${await readFile(join(folder, file), "utf8")}`); } catch { /* A directory named LICENSE is covered by its child files. */ } }
   if (!texts.length) {
@@ -33,7 +47,7 @@ for (const pkg of metadata.packages.sort((a, b) => a.name.localeCompare(b.name))
     // archive. Preserve it from a sibling crate in the same upstream repository.
     for (const sibling of metadata.packages.filter((candidate) => candidate.name !== pkg.name && candidate.repository === pkg.repository && candidate.license?.replaceAll("/", " OR ") === pkg.license?.replaceAll("/", " OR "))) {
       const parent = join(sibling.manifest_path, "..");
-      for (const file of await readdir(parent)) if (/^(LICENSE|COPYING|COPYRIGHT)/iu.test(file)) {
+      for (const file of (await readdir(parent)).sort()) if (/^(LICENSE|COPYING|COPYRIGHT)/iu.test(file)) {
         try { texts.push(`${sibling.name}/${file}\n${await readFile(join(parent, file), "utf8")}`); } catch { /* directories */ }
       }
       if (texts.length) break;

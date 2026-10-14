@@ -15,3 +15,11 @@ describe("browserConnectHash", () => {
     }
   });
 });
+
+describe("browser adapter reproducibility", () => {
+  it("ships canonical dependency paths instead of the builder's Cargo home", () => {
+    const wasm = readFileSync(new URL("../browser-connect/pkg/tau_browser_connect_bg.wasm", import.meta.url)).toString("latin1");
+    expect(wasm.includes("/cargo/registry/src/ring-0.17.14/")).toBe(true);
+    expect(/\/(?:Users|home|tmp|private|Volumes)\//u.test(wasm)).toBe(false);
+  });
+});
