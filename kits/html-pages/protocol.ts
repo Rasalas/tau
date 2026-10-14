@@ -20,7 +20,7 @@ export const PREVIEW_LINKS_SERVICE = "tau.preview/links";
 
 export interface PreviewLinksService {
   /** Opens `url` in the Preview and answers true, or answers false when the system browser is the place and the caller opens it. */
-  open(url: string, event: { metaKey: boolean; ctrlKey: boolean }, actions: { openPanel(id: string): void }): boolean;
+  open(url: string, event: { metaKey: boolean; ctrlKey: boolean; altKey?: boolean }, actions: { openPanel(id: string): void }): boolean;
 }
 
 export const HTML_PAGE_LIMITS = {

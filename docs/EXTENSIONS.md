@@ -2019,12 +2019,12 @@ Preview profile as the target, and answers the import's result, or `undefined`
 when the user closed the dialog. The user still picks the browser and clicks
 Import; that click is the consent, and no agent tool can import cookies
 ([browser-cookie-import.md](browser-cookie-import.md)). Preview Kit also publishes
-`tau.preview/links`: `open(url, { metaKey, ctrlKey }, actions)` opens `url` in the
-Preview and answers `true` when Settings → Preview → "Open links from a thread
-in" says so, and answers `false` when ⌘ or Ctrl was held, the link is not a web
-page or the setting names the system browser, where the caller opens it. HTML
-Pages Kit sends a page's links through it and falls back to
-`actions.openExternal` when Preview Kit is off. Terminal Kit publishes
+`tau.preview/links`: `open(url, { metaKey, ctrlKey, altKey? }, actions)` opens
+`url` in the Preview and answers `true` when Settings → Preview → "Open links from a thread
+in" says so, and answers `false` when ⌘, Ctrl or Alt/Option was held, the link
+is not a web page or the setting names the system browser, where the caller opens it. Optional
+`altKey` is supported in API 1.62.0. HTML Pages Kit sends a page's links through
+it and falls back to `actions.openExternal` when Preview Kit is off. Terminal Kit publishes
 `tau.terminal/run` (new in API 1.11.0): `run({ command, label? }, actions?)`
 opens a shell in a tab of its own, shows the Terminal panel, types the command
 with `; exit` after it and answers `{ id, exitCode? }` once the shell ended —

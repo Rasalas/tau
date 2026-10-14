@@ -9,6 +9,11 @@ import { DEFAULT_PREVIEW_DEFAULTS } from "./viewport.js";
 afterEach(() => { document.body.innerHTML = ""; });
 
 describe("where a link opens", () => {
+  it.each(["app", "system"] as const)("sends an Option click to the system browser when the preference is %s", (preference) => {
+    const option = { metaKey: false, ctrlKey: false, altKey: true };
+    expect(resolveLinkTarget("https://example.com", option, preference)).toBe("system");
+  });
+
   it("opens web links in the Preview only when asked, and never with ⌘ or Ctrl", () => {
     const plain = { metaKey: false, ctrlKey: false };
     expect(resolveLinkTarget("https://example.com", plain, "app")).toBe("app");
@@ -22,7 +27,7 @@ describe("where a link opens", () => {
     document.body.innerHTML = `<div class="markdown"><a id="in" href="https://example.com/a" target="_blank">a</a></div><a id="out" href="https://example.com/b">b</a>`;
     const open = vi.fn();
     let target: "app" | "system" = "app";
-    const stop = followLinkTarget(() => target, open);
+    const stop = followLinkTarget(() => target, open, vi.fn());
     const click = (id: string, init: MouseEventInit = {}) => {
       const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, ...init });
       document.getElementById(id)!.dispatchEvent(event);

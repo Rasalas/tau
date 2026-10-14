@@ -427,14 +427,14 @@ export interface PreviewHold {
 
 /**
  * Where a link clicked outside the transcript opens, by the same rule as a
- * link in a reply: Settings → Preview → "Open links from a thread in", and ⌘ or
- * Ctrl-click always goes to the system browser. Another kit copies this type.
+ * link in a reply: Settings → Preview → "Open links from a thread in", and ⌘,
+ * Ctrl or Alt/Option-click always goes to the system browser. Another kit copies this type.
  */
 export const PREVIEW_LINKS_SERVICE = "tau.preview/links";
 
 export interface PreviewLinksService {
   /** Opens `url` in the Preview and answers true, or answers false when the link belongs to the system browser and the caller opens it. */
-  open(url: string, event: { metaKey: boolean; ctrlKey: boolean }, actions: { openPanel(id: string): void }): boolean;
+  open(url: string, event: { metaKey: boolean; ctrlKey: boolean; altKey?: boolean }, actions: { openPanel(id: string): void }): boolean;
 }
 
 /**

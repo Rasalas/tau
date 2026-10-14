@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import type { WorkbenchActions } from "tau";
 import previewExtension from "./desktop.js";
 import { EMPTY_PREVIEW_STATE, PREVIEW_BROWSER_SERVICE, PREVIEW_HOST_EXTENSION_ID, PREVIEW_LINKS_SERVICE, type PreviewBrowserService, type PreviewLinksService } from "./protocol.js";
 import { PREVIEW_SETTINGS } from "./settings.js";
-import { notePanelShown, togglePreviewPanel } from "./store.js";
+import { notePanelShown, togglePreviewPanel, workbenchActions } from "./store.js";
 
 describe("Preview browser service", () => {
   it("opens the panel and navigates for another kit, and is withdrawn with the kit", async () => {
@@ -35,6 +36,39 @@ describe("Preview browser service", () => {
 });
 
 describe("Preview links service", () => {
+  it.each(["app", "system"] as const)("opens Option-clicked reply links externally without a download when the preference is %s", (target) => {
+    const invoke = vi.fn(async () => EMPTY_PREVIEW_STATE);
+    const { registry, preferences } = createKitHarness(invoke);
+    preferences.setValue(PREVIEW_HOST_EXTENSION_ID, PREVIEW_SETTINGS.linkTarget, target);
+    const actions = { openPanel: vi.fn(), openExternal: vi.fn() };
+    workbenchActions.set(actions as unknown as WorkbenchActions);
+    document.body.innerHTML = `<div class="markdown"><a href="https://example.com/a" target="_blank"><span>Link</span></a></div>`;
+    const click = (init: MouseEventInit = {}) => {
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, altKey: true, ...init });
+      document.querySelector("span")!.dispatchEvent(event);
+      return event;
+    };
+    registry.activate(previewExtension);
+    try {
+      expect(click({ button: 1 }).defaultPrevented).toBe(false);
+      const handled = new MouseEvent("click", { bubbles: true, cancelable: true, altKey: true });
+      handled.preventDefault();
+      document.querySelector("span")!.dispatchEvent(handled);
+      expect(actions.openExternal).not.toHaveBeenCalled();
+      expect(click().defaultPrevented).toBe(true);
+      expect(actions.openExternal).toHaveBeenCalledExactlyOnceWith("https://example.com/a");
+      expect(actions.openPanel).not.toHaveBeenCalled();
+      expect(invoke).not.toHaveBeenCalled();
+      registry.deactivate(previewExtension.id);
+      expect(click().defaultPrevented).toBe(false);
+      expect(actions.openExternal).toHaveBeenCalledTimes(1);
+    } finally {
+      registry.deactivate(previewExtension.id);
+      workbenchActions.set(undefined);
+      document.body.innerHTML = "";
+    }
+  });
+
   function linksWith(target: "app" | "system" | undefined) {
     const invoke = vi.fn(async () => EMPTY_PREVIEW_STATE);
     const { registry, preferences } = createKitHarness(invoke);
@@ -61,10 +95,11 @@ describe("Preview links service", () => {
     }
   });
 
-  it("sends a ⌘ or Ctrl click and any other scheme to the system browser, and is withdrawn with the kit", () => {
+  it("sends modifier clicks and any other scheme to the system browser, and is withdrawn with the kit", () => {
     const asked = linksWith("app");
     expect(asked.links().open("https://example.com/a", { metaKey: true, ctrlKey: false }, asked)).toBe(false);
     expect(asked.links().open("https://example.com/a", { metaKey: false, ctrlKey: true }, asked)).toBe(false);
+    expect(asked.links().open("https://example.com/a", { metaKey: false, ctrlKey: false, altKey: true }, asked)).toBe(false);
     expect(asked.links().open("mailto:a@b.c", plain, asked)).toBe(false);
     expect(asked.openPanel).not.toHaveBeenCalled();
     asked.registry.deactivate(previewExtension.id);
