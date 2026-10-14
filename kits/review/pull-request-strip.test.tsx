@@ -8,7 +8,10 @@ import { PULL_REQUEST_TAB, THREAD_PULL_REQUESTS_TAB, type PullRequestCheck, type
 import { RequestLinks } from "./request-links.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import PullRequestStrip from "./pull-request-strip.js";
-import { STRIP_OPTION, StripDismissals, stripRequests } from "./pull-request-strip-logic.js";
+import { STRIP_OPTION, StripDismissals, checksPulse, stripRequests, watchTally, watchedRequests } from "./pull-request-strip-logic.js";
+import { PullRequestWatchFeed } from "./pr-watch-client.js";
+import { parseRequestUrl } from "./pull-request-json.js";
+import type { PullRequestWatch, WatchSnapshot } from "./pr-watch-protocol.js";
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 
@@ -41,13 +44,13 @@ const link = (number: number, extra: Partial<ThreadPullRequestLink> = {}): Threa
   source: "agent", linkedAt: number, title: `Change ${number}`, state: "open", ...extra,
 });
 
-function setup({ branch, links = [], draftPending = false, empty = false, live, unlinked = false }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean; live?: PullRequestClient; unlinked?: boolean } = {}) {
+function setup({ branch, links = [], draftPending = false, empty = false, live, unlinked = false, watches }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean; live?: PullRequestClient; unlinked?: boolean; watches?: PullRequestWatchFeed } = {}) {
   let changed: ((threadId: string) => void) | undefined;
   let current = unlinked ? [] : links.length ? links : branch ? [link(branch.number, { ...branch })] : [];
   const client = { links: vi.fn(async () => current), onLinksChanged: (listener: (threadId: string) => void) => { changed = listener; return () => undefined; } };
   let currentBranch = branch;
   const load = vi.fn(async () => currentBranch);
-  const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}) };
+  const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}), ...(watches ? { watches } : {}) };
   const actions = { activeThread: () => ({ sessionId: "t1", cwd: "/work", draftPending }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
   const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : [{ id: "m1" }] } as unknown as HostSnapshot;
   const view = render(<><RequestLinks actions={actions} /><PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} /></>);
@@ -387,4 +390,99 @@ it("does not present an unlinked branch PR as this thread's association", async 
   const { load } = setup({ branch: { ...BRANCH, state: "merged" }, unlinked: true });
   await waitFor(() => expect(load).toHaveBeenCalled());
   expect(screen.queryByRole("button", { name: /Open pull request/ })).toBeNull();
+});
+
+const snapshotAt = (head: string, checks: WatchSnapshot["checks"] = "pending"): WatchSnapshot => ({ state: "OPEN", head, checks, failed: [], comments: "0", conflict: false });
+const watchOf = (number: number, extra: Partial<PullRequestWatch> = {}): PullRequestWatch => ({
+  threadId: "t1", ref: parseRequestUrl(link(number).url)!, status: "watching", startedAt: number, wakes: 0, commentStreak: 0, baseline: snapshotAt("a"), ...extra,
+});
+
+/** A watch feed whose host answers `watches` and pushes what `emit` gives it. */
+function watchFeed(watches: PullRequestWatch[]) {
+  let push: ((value: unknown) => void) | undefined;
+  let current = watches;
+  const invoke = vi.fn(async (command: string, input?: unknown) => {
+    if (command === "watch-stop") current = current.map((watch) => watch.ref.url === (input as { url: string }).url ? { ...watch, status: "ended" as const } : watch);
+    return { watches: current, canManage: true };
+  });
+  const feed = new PullRequestWatchFeed({ invoke, onEvent: (_name: string, listener: (value: unknown) => void) => { push = listener; return () => undefined; } } as never);
+  return { feed, invoke, emit: (next: PullRequestWatch[]) => { current = next; act(() => push?.(next)); } };
+}
+
+describe("the thread's watched requests", () => {
+  it("lists every other watch under the first request, in the order it started, from the link where there is one", () => {
+    const primary = stripRequests(undefined, [link(345, { linkedAt: 9 }), link(331, { linkedAt: 1 })])!;
+    const rows = watchedRequests(primary.primary, primary.others, [watchOf(331, { startedAt: 2 }), watchOf(345), watchOf(12, { startedAt: 1 }), watchOf(40, { status: "ended" }), watchOf(41, { threadId: "t2" })], "t1");
+    expect(rows.map(({ request }) => [request.number, request.title])).toEqual([[12, undefined], [331, "Change 331"]]);
+  });
+
+  it("moves its pulse on a push, new counts, or what the watch read; not on a later read of the same state", () => {
+    const request = { ...stripRequests(undefined, [link(1, { headSha: "a" })])!.primary };
+    const pulse = checksPulse(request, watchOf(1));
+    expect(checksPulse(request, watchOf(1, { lastReadAt: 99 }))).toBe(pulse);
+    expect(checksPulse({ ...request, headSha: "b" }, watchOf(1))).not.toBe(pulse);
+    expect(checksPulse(request, watchOf(1, { baseline: snapshotAt("b") }))).not.toBe(pulse);
+    expect(checksPulse(request, watchOf(1, { baseline: snapshotAt("a", "done") }))).not.toBe(pulse);
+    expect(checksPulse(request, watchOf(1, { status: "ended", baseline: snapshotAt("c") }))).toBe(checksPulse(request));
+  });
+
+  it("draws a row per watched request with its own watch, and drops it when the watch stops", async () => {
+    const { feed, emit } = watchFeed([watchOf(331), watchOf(345)]);
+    setup({ links: [link(345, { linkedAt: 9 }), link(331, { linkedAt: 1 }), link(332, { linkedAt: 2 })], watches: feed });
+    expect(await screen.findByRole("group", { name: "2 pull requests" })).toBeTruthy();
+    // There from the first draw: no arrival.
+    expect(document.querySelector(".review-pr-strip.arriving")).toBeNull();
+    emit([watchOf(331), watchOf(345), watchOf(332)]);
+    await waitFor(() => expect(document.querySelector(".review-pr-strip.arriving")?.textContent).toContain("#332"));
+    emit([watchOf(331), watchOf(345)]);
+    await waitFor(() => expect(document.querySelector(".review-pr-strip.leaving")).toBeNull());
+    expect(screen.getByRole("button", { name: /^Open pull request #345/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Open pull request #331/u })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Watching for PR #345" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Watching for PR #331" })).toBeTruthy();
+    // +N counts only the links no row shows: #332 alone.
+    expect(screen.getByRole("button", { name: "View all 3 linked requests" }).textContent).toBe("+1");
+    emit([watchOf(331, { status: "ended" }), watchOf(345)]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Open pull request #331/u })).toBeNull());
+    // It folds away hidden from assistive technology, then goes.
+    expect(document.querySelector(".review-pr-strip.leaving[aria-hidden=true]")).not.toBeNull();
+    await waitFor(() => expect(document.querySelector(".review-pr-strip.leaving")).toBeNull());
+    expect(screen.queryByRole("group", { name: /pull requests/u })).toBeNull();
+  });
+
+  it("tallies folded watches worst first, and leaves out one without checks", () => {
+    const failed = { ...snapshotAt("a", "done"), failed: [{ id: "1", name: "smoke" }] };
+    expect(watchTally([watchOf(1, { baseline: snapshotAt("a", "done") }), watchOf(2, { baseline: failed }), watchOf(3), watchOf(4, { baseline: snapshotAt("a", "none") }), watchOf(5, { status: "unreadable" }), watchOf(6, { baseline: snapshotAt("b", "done") })]))
+      .toEqual([{ tone: "failed", count: 1 }, { tone: "unreadable", count: 1 }, { tone: "pending", count: 1 }, { tone: "passed", count: 2 }]);
+  });
+
+  it("folds watches past the third into one line that says where they stand, and unfolds them", async () => {
+    const numbers = [11, 12, 13, 14, 15];
+    const failed = { ...snapshotAt("a", "done"), failed: [{ id: "1", name: "smoke" }] };
+    const { feed } = watchFeed(numbers.map((number) => watchOf(number, number === 15 ? { baseline: failed } : {})));
+    setup({ links: [link(1, { linkedAt: 99 }), ...numbers.map((number) => link(number))], watches: feed });
+    const fold = await screen.findByRole("button", { name: "2 more watched: 1 failed, 1 running" });
+    expect(fold.classList.contains("failed")).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Open pull request #14/u })).toBeNull();
+    expect(screen.getByRole("button", { name: "View all 6 linked requests" }).textContent).toBe("+2");
+    fireEvent.click(fold);
+    expect(screen.getByRole("button", { name: /^Open pull request #15/u })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(screen.queryByRole("button", { name: /^Open pull request #15/u })).toBeNull();
+  });
+
+  it("reads finished checks again when the watch sees a push, and keeps the old ones on the chip meanwhile", async () => {
+    let finish!: (checks: PullRequestCheck[]) => void;
+    const checks = vi.fn()
+      .mockResolvedValueOnce([{ name: "CI", status: "failed" }])
+      .mockImplementationOnce(() => new Promise<PullRequestCheck[]>((resolve) => { finish = resolve; }));
+    const { feed, emit } = watchFeed([watchOf(331, { baseline: snapshotAt("a", "done") })]);
+    setup({ links: [link(331)], live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient, watches: feed });
+    await screen.findByRole("img", { name: "Checks: Other checks failed" });
+    emit([watchOf(331, { baseline: snapshotAt("b") })]);
+    await waitFor(() => expect(checks).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("img", { name: "Checks: Other checks failed" })).toBeTruthy();
+    await act(async () => { finish([{ name: "CI", status: "pending" }]); });
+    expect(await screen.findByRole("img", { name: "Checks: Other checks running" })).toBeTruthy();
+  });
 });

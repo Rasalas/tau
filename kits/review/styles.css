@@ -663,6 +663,58 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
   border: 0; border-radius: var(--radius-sm); background: none; color: inherit; opacity: .7; cursor: pointer;
 }
 .review-pr-strip-hide:hover { opacity: 1; background: color-mix(in srgb, var(--strip-tone) 16%, transparent); }
+/* The thread's watched requests under the first: one stack, each row tinted by its own state. */
+.review-pr-strips { display: flex; flex-direction: column; box-sizing: border-box; width: 100%; max-width: var(--content-max, 780px); margin: 0 auto; }
+.review-pr-strips > :not(:first-child) { margin-top: -1px; border-top-left-radius: 0; border-top-right-radius: 0; }
+.review-pr-strips > :not(:last-child) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.review-pr-strips > .review-pr-strip:not(:first-child) .review-pr-strip-open { height: 30px; }
+.review-pr-strips > .review-pr-strip:not(:first-child) span.review-pr-strip-hide { visibility: hidden; }
+.review-pr-strips-fold {
+  padding: 5px 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--stage);
+  color: var(--muted); font: var(--text-xs) var(--sans); text-align: left; cursor: pointer;
+}
+.review-pr-strips-fold { display: flex; align-items: center; gap: 10px; }
+.review-pr-strips-fold.failed { border-color: color-mix(in srgb, var(--fail) 30%, transparent); }
+.review-pr-strips-fold:hover { color: var(--ink); background: var(--hover); }
+.review-pr-strips-tally { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; }
+.review-pr-strips-tally.failed { color: var(--fail); }
+.review-pr-strips-tally.unreadable, .review-pr-strips-tally.pending { color: var(--warn); }
+.review-pr-strips-tally.passed { color: var(--ready); }
+/* A watched row folds open when its watch starts, staggered when the fold opens, and folds away when it ends. */
+@keyframes review-strip-row-in { from { max-height: 0; opacity: 0; overflow: hidden; } to { max-height: 34px; opacity: 1; overflow: hidden; } }
+@keyframes review-strip-row-out { from { max-height: 34px; opacity: 1; overflow: hidden; } to { max-height: 0; opacity: 0; overflow: hidden; border-width: 0; } }
+/* `--arrive` is the row's place among those arriving together; the row sets it inline. */
+.review-pr-strip.arriving {
+  --arrive: 0;
+  animation: review-strip-row-in var(--motion) var(--ease) backwards; animation-delay: calc(var(--arrive) * 40ms);
+}
+.review-pr-strip.leaving { animation: review-strip-row-out var(--motion) var(--ease) forwards; pointer-events: none; }
+/* A changed check outcome pops once with a ring in its colour. */
+@keyframes review-strip-checks-settle {
+  from { transform: scale(.7); box-shadow: 0 0 0 0 color-mix(in srgb, var(--settle-tone) 50%, transparent); }
+  60% { transform: scale(1.08); }
+  to { transform: none; box-shadow: 0 0 0 7px transparent; }
+}
+.review-pr-strip-checks.settled {
+  --settle-tone: var(--strip-tone);
+  border-radius: 999px; animation: review-strip-checks-settle var(--motion-slow) var(--ease);
+}
+.review-pr-strip-checks.settled[data-tone=failed] {
+  --settle-tone: var(--fail);
+}
+.review-pr-strip-checks.settled[data-tone=pending] {
+  --settle-tone: var(--warn);
+}
+.review-pr-strip-checks.settled[data-tone=passed] {
+  --settle-tone: var(--ready);
+}
+/* Five rows of 30px and their shared borders. */
+.review-pr-strips-scroll { display: flex; flex-direction: column; max-height: 146px; margin-top: -1px; overflow-y: auto; overscroll-behavior: contain; }
+.review-pr-strips-scroll > .review-pr-strip { flex: none; border-radius: 0; }
+.review-pr-strips-scroll > .review-pr-strip:not(:first-child) { margin-top: -1px; }
+.review-pr-strips-scroll .review-pr-strip-open { height: 30px; }
+.review-pr-strips-scroll span.review-pr-strip-hide { visibility: hidden; }
+.review-pr-strips-fold:focus-visible { outline: 1px solid var(--focus); outline-offset: -2px; }
 
 /* The local pull request: the branch before a request exists. */
 .lpr-view .pr-head-row { gap: 8px; min-height: 36px; }
@@ -1295,8 +1347,9 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 
 
 .review-thread-outcome { width: 100%; margin: 0 auto; }
-.review-thread-outcome > .review-pr-strip { width: 100%; }
-.review-thread-outcome:has(.review-settlement-strip) > .review-pr-strip:first-child:not(:last-child) { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.review-thread-outcome > .review-pr-strip, .review-thread-outcome > .review-pr-strips { width: 100%; }
+.review-thread-outcome:has(.review-settlement-strip) > .review-pr-strip:first-child:not(:last-child),
+.review-thread-outcome:has(.review-settlement-strip) > .review-pr-strips:first-child:not(:last-child) > :last-child { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .review-thread-outcome > .review-settlement-strip:not(:first-child) { border-top-left-radius: 0; border-top-right-radius: 0; }
 .review-settlement-strip { --strip-tone: var(--muted); padding: 8px 12px; gap: 8px; }
 .review-settlement-strip > span { flex: 1; min-width: 0; }
@@ -1313,6 +1366,9 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .review-pr-watch:disabled { opacity: .5; cursor: default; }
 .review-pr-watch.watching { color: var(--working); }
 .review-pr-watch.unreadable { color: var(--warn); }
+/* The watch looked: the eye shuts for a moment. */
+@keyframes review-watch-blink { 0%, 100% { scale: 1 1; } 45%, 55% { scale: 1 .12; } }
+.review-pr-watch svg.blink { animation: review-watch-blink 280ms var(--ease); }
 .review-pr-watch-popover { width: min(320px, calc(100vw - 32px)); padding: 14px; color: var(--ink); background: var(--float); }
 .review-pr-watch-popover h3 { margin: 0 0 8px; font-size: var(--text-sm); font-weight: 500; }
 .review-pr-watch-popover p { margin: 0 0 10px; color: var(--muted); font: var(--text-xs)/1.55 var(--sans); }

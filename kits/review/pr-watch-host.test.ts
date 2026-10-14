@@ -315,7 +315,8 @@ it("does not forgive persistent unrelated errors before and after quota suspensi
   expect((await h.list()).watches[0]?.status).toBe("unreadable");
   h.advance(10 * 60_000);
   await vi.waitFor(async () => expect((await h.list()).watches[0]?.status).toBe("ended"));
-  expect(h.send).toHaveBeenCalledOnce();
+  // The watch ends before its wake is saved and admitted.
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledOnce());
 });
 it("detects same-count check replacements and resets the failed-check baseline on force push", () => {
   const before = { ...initial, failed: [{ id: "1", name: "test" }] };

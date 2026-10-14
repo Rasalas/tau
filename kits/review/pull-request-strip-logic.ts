@@ -1,6 +1,7 @@
 import type { ClientStorage, UiReviewRequestChecks } from "tau";
 import type { RequestService, ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
 import { parseRequestUrl } from "./pull-request-json.js";
+import type { PullRequestWatch } from "./pr-watch-protocol.js";
 
 /** Review Kit's option "Show the pull request above the composer", on by default. */
 export const STRIP_OPTION = "pull-request-strip";
@@ -17,6 +18,8 @@ export interface StripRequest {
   title?: string;
   state: StripState;
   headRef?: string;
+  /** The head commit as last read; a push changes it. */
+  headSha?: string;
   checks?: UiReviewRequestChecks;
   /** When the thread linked it; absent for the branch's own request. */
   linkedAt?: number;
@@ -36,6 +39,7 @@ function fromBranch(request: ReviewRequest): StripRequest {
     ...(ref ? { host: ref.host, repo: ref.repo } : {}),
     ...(request.title ? { title: request.title } : {}),
     ...(request.headRef ? { headRef: request.headRef } : {}),
+    ...(request.headSha ? { headSha: request.headSha } : {}),
     ...(request.checks ? { checks: request.checks } : {}),
   };
 }
@@ -45,6 +49,7 @@ function fromLink(link: ThreadPullRequestLink): StripRequest {
     url: link.url, number: link.number, service: link.service, host: link.host, repo: link.repo, state: stateOf(link.state, link.draft), linkedAt: link.linkedAt,
     ...(link.title ? { title: link.title } : {}),
     ...(link.headRef ? { headRef: link.headRef } : {}),
+    ...(link.headSha ? { headSha: link.headSha } : {}),
   };
 }
 
@@ -69,6 +74,52 @@ export function stripRequests(branch: ReviewRequest | undefined, links: readonly
     || (b.linkedAt ?? 0) - (a.linkedAt ?? 0));
   const [primary, ...others] = ranked;
   return primary ? { primary, others } : undefined;
+}
+
+/** A watch that still reads its request: watching, or briefly unable to read the host. */
+export const liveWatch = (watch: PullRequestWatch | undefined): watch is PullRequestWatch => Boolean(watch && watch.status !== "ended");
+
+/**
+ * The rows under the strip's first one: every other request the thread
+ * watches, in the order it started watching them. The thread links what it
+ * watches, so a row normally draws from the link; until the links arrive, from
+ * the watch.
+ */
+export function watchedRequests(primary: StripRequest, others: readonly StripRequest[], watches: readonly PullRequestWatch[], threadId: string): { request: StripRequest; watch: PullRequestWatch }[] {
+  return watches
+    .filter((watch) => watch.threadId === threadId && liveWatch(watch) && watch.ref.url !== primary.url)
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .map((watch) => ({
+      watch,
+      request: others.find((other) => other.url === watch.ref.url)
+        ?? { url: watch.ref.url, number: watch.ref.number, service: watch.ref.service, host: watch.ref.host, repo: watch.ref.repo, state: "open" },
+    }));
+}
+
+export type WatchTone = "failed" | "pending" | "passed" | "unreadable";
+
+/** Where folded watches stand at their last read, worst first; a watch without checks counts nowhere. */
+export function watchTally(watches: readonly PullRequestWatch[]): { tone: WatchTone; count: number }[] {
+  const tones = watches.map((watch): WatchTone | undefined => {
+    const read = watch.baseline;
+    if (watch.status === "unreadable") return "unreadable";
+    if (read?.failed?.length) return "failed";
+    return read?.checks === "pending" ? "pending" : read?.checks === "done" ? "passed" : undefined;
+  });
+  return (["failed", "unreadable", "pending", "passed"] as const)
+    .map((tone) => ({ tone, count: tones.filter((value) => value === tone).length }))
+    .filter(({ count }) => count > 0);
+}
+
+/**
+ * What changes when the request's checks may have: its head and check counts,
+ * and what its watch read last minute. The chip reads the checks again when it
+ * changes, so a push after green checks shows the new run.
+ */
+export function checksPulse(request: StripRequest, watch?: PullRequestWatch): string {
+  const { checks } = request, read = liveWatch(watch) ? watch.baseline : undefined;
+  return JSON.stringify([request.state, request.headSha, checks?.passed, checks?.failed, checks?.pending, checks?.total,
+    read?.head, read?.checks, read?.failed?.map((check) => check.id)]);
 }
 
 /** What a hidden strip stays hidden for: the same request in the same state. */
