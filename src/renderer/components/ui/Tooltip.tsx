@@ -1,5 +1,7 @@
 import { cloneElement, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
+import { useHostClient } from "../../host-client-context";
+import { windowControlsArea } from "../WindowControlsInset";
 import { openedByKeyboard } from "./focus";
 import { placeFloating, viewportSize, type FloatingSide } from "./floating";
 
@@ -87,6 +89,7 @@ export function TooltipLayer() {
   const [shown, setShown] = useState<Shown>();
   const shownRef = useRef<Shown | undefined>(undefined);
   const popup = useRef<HTMLDivElement>(null);
+  const platform = useHostClient()?.platform;
 
   useEffect(() => {
     let timer: number | undefined;
@@ -216,11 +219,12 @@ export function TooltipLayer() {
     element.style.left = "0px";
     element.style.top = "0px";
     const size = element.getBoundingClientRect();
-    const placed = placeFloating(shown.target.getBoundingClientRect(), size, viewportSize(), { side: shown.side, offset: 6 });
+    const avoid = windowControlsArea(platform);
+    const placed = placeFloating(shown.target.getBoundingClientRect(), size, viewportSize(), { side: shown.side, offset: 6, ...(avoid ? { avoid } : {}) });
     element.style.left = `${placed.left}px`;
     element.style.top = `${placed.top}px`;
     element.dataset.side = placed.side;
-  }, [shown]);
+  }, [shown, platform]);
 
   if (!shown) return null;
   return createPortal(

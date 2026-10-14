@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HostClientProvider } from "../../host-client-context";
+import { createFakeHostClient } from "../../test-support/fake-host-client";
 import { installPointerEvents } from "../../test-support/pointer-events";
 import { Tooltip, TooltipLayer, TOOLTIP_DELAY_MS, TOOLTIP_GROUP_MS, TOOLTIP_LONG_PRESS_MS, tooltipProps } from "./Tooltip";
 
@@ -176,5 +178,45 @@ describe("TooltipLayer", () => {
     expect(screen.getByRole("tooltip").textContent).toContain("Rewind");
     expect(fits()).toBe(true);
     rect.mockRestore();
+  });
+
+  describe("beside the macOS traffic lights", () => {
+    // A row just below the window's top left: its tooltip would open above it, over the lights.
+    const place = (platform: string, zoom?: string) => {
+      const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        const box = this.getAttribute("role") === "tooltip" ? { left: 0, top: 0, width: 100, height: 28 } : { left: 100, top: 45, width: 28, height: 28 };
+        return { ...box, right: box.left + box.width, bottom: box.top + box.height, x: box.left, y: box.top, toJSON: () => ({}) };
+      });
+      if (zoom) document.documentElement.style.setProperty("--page-zoom", zoom);
+      render(
+        <HostClientProvider client={createFakeHostClient({ platform })}>
+          <TooltipLayer />
+          <button type="button" {...tooltipProps("Open thread")}>Row</button>
+        </HostClientProvider>,
+      );
+      fireEvent.pointerOver(screen.getByRole("button", { name: "Row" }));
+      wait(TOOLTIP_DELAY_MS);
+      const tooltip = screen.getByRole("tooltip");
+      rect.mockRestore();
+      document.documentElement.style.removeProperty("--page-zoom");
+      return tooltip;
+    };
+
+    it("opens below a trigger whose tooltip would cover the lights", () => {
+      const tooltip = place("darwin");
+      expect(tooltip.dataset.side).toBe("bottom");
+      expect(tooltip.style.top).toBe("79px");
+    });
+
+    it("keeps the side it had on a platform without overlay buttons", () => {
+      const tooltip = place("linux");
+      expect(tooltip.dataset.side).toBe("top");
+      expect(tooltip.style.top).toBe("11px");
+    });
+
+    it("measures the lights in native pixels when the page is zoomed", () => {
+      // At 2x the lights cover 40x20 page pixels: the tooltip (64 to 164, 11 to 39) is clear of them at the top.
+      expect(place("darwin", "2").dataset.side).toBe("top");
+    });
   });
 });
