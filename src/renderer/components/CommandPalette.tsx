@@ -321,7 +321,7 @@ export function CommandPalette({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
             placeholder={level ? level.menu.placeholder ?? "Search…" : "Search threads, files and commands…"}
-            aria-label={level ? level.menu.title : "Command"}
+            aria-label={level ? level.menu.title : "Search threads, files and commands"}
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={layout.count > 0}

@@ -49,7 +49,7 @@ function setup() {
     },
   });
   render(<CommandPalette open commands={[]} actions={actions} registry={registry} onClose={() => undefined} />);
-  const input = screen.getByRole("combobox", { name: "Command" });
+  const input = screen.getByRole("combobox", { name: "Search threads, files and commands" });
   const rows = () => [...document.querySelectorAll(".palette-results button")].map((row) => row.textContent);
   const heads = () => [...document.querySelectorAll(".palette-head")].map((head) => head.textContent);
   return { actions, input, pending, signals, rows, heads, opened };
@@ -65,6 +65,13 @@ describe("command palette sources", () => {
     expect(opened).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: "Enter" });
     expect(opened).toHaveBeenCalledWith(actions);
+  });
+
+  it("names its search box after what the placeholder says it searches, inside a dialog called Command palette", () => {
+    const { input } = setup();
+    expect(input.getAttribute("placeholder")).toBe("Search threads, files and commands…");
+    expect(input.getAttribute("aria-label")).toBe("Search threads, files and commands");
+    expect(screen.getByRole("dialog", { name: "Command palette" })).toBeTruthy();
   });
 
   it("shows a source's rows as they arrive under its heading, in source order, with core's Settings rows among the commands", async () => {
@@ -111,7 +118,7 @@ describe("command palette focus", () => {
     trigger.focus();
     const focusComposer = vi.fn();
     const view = render(<Toggle open focusComposer={focusComposer} />);
-    act(() => { screen.getByRole("combobox", { name: "Command" }).focus(); });
+    act(() => { screen.getByRole("combobox", { name: "Search threads, files and commands" }).focus(); });
     view.rerender(<Toggle open={false} focusComposer={focusComposer} />);
     expect(document.activeElement).toBe(trigger);
     expect(focusComposer).not.toHaveBeenCalled();
@@ -121,7 +128,7 @@ describe("command palette focus", () => {
   it("gives it to the composer when nothing had it", () => {
     const focusComposer = vi.fn();
     const view = render(<Toggle open focusComposer={focusComposer} />);
-    act(() => { screen.getByRole("combobox", { name: "Command" }).focus(); });
+    act(() => { screen.getByRole("combobox", { name: "Search threads, files and commands" }).focus(); });
     view.rerender(<Toggle open={false} focusComposer={focusComposer} />);
     expect(focusComposer).toHaveBeenCalledTimes(1);
   });
@@ -130,7 +137,7 @@ describe("command palette focus", () => {
     const onClose = vi.fn();
     const actions = { notify: vi.fn(), focusComposer: vi.fn() } as unknown as WorkbenchActions;
     render(<CommandPalette open commands={[]} actions={actions} onClose={onClose} />);
-    const input = screen.getByRole("combobox", { name: "Command" });
+    const input = screen.getByRole("combobox", { name: "Search threads, files and commands" });
     act(() => { input.focus(); });
     // jsdom lays out no rows, so the field is the only stop and Tab stays on it.
     fireEvent.keyDown(input, { key: "Tab" });
@@ -168,7 +175,7 @@ describe("command palette levels", () => {
     const command = themes(chosen);
     const onClose = vi.fn();
     render(<CommandPalette open commands={[command]} actions={actions()} onClose={onClose} />);
-    const root = screen.getByRole("combobox", { name: "Command" });
+    const root = screen.getByRole("combobox", { name: "Search threads, files and commands" });
     fireEvent.change(root, { target: { value: "theme" } });
     fireEvent.keyDown(root, { key: "Enter" });
     expect(command.run).not.toHaveBeenCalled();
@@ -185,8 +192,8 @@ describe("command palette levels", () => {
 
   it("goes back with Backspace on an empty field, the back button and the breadcrumb, giving each level its query back", async () => {
     render(<CommandPalette open commands={[themes(vi.fn())]} actions={actions()} onClose={() => undefined} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Command" }), { target: { value: "theme" } });
-    fireEvent.keyDown(screen.getByRole("combobox", { name: "Command" }), { key: "Enter" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Search threads, files and commands" }), { target: { value: "theme" } });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Search threads, files and commands" }), { key: "Enter" });
     fireEvent.change(screen.getByRole("combobox", { name: "Change theme" }), { target: { value: "more" } });
     fireEvent.keyDown(screen.getByRole("combobox", { name: "Change theme" }), { key: "Enter" });
     await act(async () => undefined);
@@ -203,7 +210,7 @@ describe("command palette levels", () => {
     expect(screen.getByRole("combobox", { name: "Change theme" })).toHaveProperty("value", "more");
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByRole("combobox", { name: "Command" })).toHaveProperty("value", "theme");
+    expect(screen.getByRole("combobox", { name: "Search threads, files and commands" })).toHaveProperty("value", "theme");
     expect(screen.queryByRole("navigation", { name: "Palette levels" })).toBeNull();
   });
 
@@ -295,7 +302,7 @@ describe("command palette on a Read-only device", () => {
       { id: "shared", label: "Save as the host's theme", run: () => chosen("shared") },
     ] } };
     const { input } = setupReadOnly([theme, { ...entry("fixture.model", "Set model…", "Look"), submenu: { title: "Set model", items: () => [] } }], undefined, "fixture.model");
-    expect(screen.getByRole("combobox", { name: "Command" })).toBe(input);
+    expect(screen.getByRole("combobox", { name: "Search threads, files and commands" })).toBe(input);
     fireEvent.keyDown(input, { key: "Enter" });
     expect(labels()).toEqual(["Dark", "Save as the host's theme"]);
     expect(buttons()[1]!.getAttribute("aria-disabled")).toBe("true");
@@ -341,7 +348,7 @@ describe("command palette scopes", () => {
     });
     const pin: PaletteCommand = { id: "fixture.pin", label: "Pin thread", group: "Thread", extensionId: "fixture", extensionName: "Fixture", access: "read", run: vi.fn() };
     render(<CommandPalette open commands={[pin]} actions={actions} registry={registry} onClose={() => undefined} />);
-    const input = screen.getByRole("combobox", { name: "Command" });
+    const input = screen.getByRole("combobox", { name: "Search threads, files and commands" });
     const heads = () => [...document.querySelectorAll(".palette-head")].map((head) => head.textContent);
     const pressed = () => screen.getAllByRole("button", { pressed: true }).map((tab) => tab.textContent);
     return { asked, input, heads, pressed, opened, staged, pin, actions };
@@ -401,7 +408,7 @@ describe("command palette semantics", () => {
 
   it("is a combobox over a listbox of options, and the arrows move the active option", () => {
     render(<CommandPalette open commands={[command("a", "Pin thread"), command("b", "Next thread", "Thread", "read")]} actions={actions()} shortcutFor={(id) => id === "b" ? "⌘J" : undefined} onClose={() => undefined} />);
-    const input = screen.getByRole("combobox", { name: "Command" });
+    const input = screen.getByRole("combobox", { name: "Search threads, files and commands" });
     const list = screen.getByRole("listbox", { name: "Results" });
     expect(input.getAttribute("aria-controls")).toBe(list.id);
     expect(input.getAttribute("aria-expanded")).toBe("true");
@@ -444,7 +451,7 @@ describe("command palette semantics", () => {
 
   it("drops the listbox and collapses the combobox when nothing matches", () => {
     render(<CommandPalette open commands={[command("a", "Pin thread")]} actions={actions()} onClose={() => undefined} />);
-    const input = screen.getByRole("combobox", { name: "Command" });
+    const input = screen.getByRole("combobox", { name: "Search threads, files and commands" });
     fireEvent.change(input, { target: { value: "zzz" } });
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(input.getAttribute("aria-expanded")).toBe("false");
