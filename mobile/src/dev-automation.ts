@@ -1,5 +1,6 @@
 import type { DeviceInfo } from "./native";
 import { NativeSocket, type SocketBridge } from "./native-socket";
+import { observeListPaint } from "./dev-measure";
 
 /**
  * Development builds only (`vite build --mode development`): a socket to
@@ -9,6 +10,7 @@ import { NativeSocket, type SocketBridge } from "./native-socket";
  */
 export function startAutomation(bridge: SocketBridge, device: DeviceInfo, port: number): void {
   if (!device.virtual) return;
+  observeListPaint();
   installHelpers();
   const host = device.platform === "android" ? "10.0.2.2" : "127.0.0.1";
   const connect = () => {

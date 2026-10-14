@@ -70,8 +70,11 @@ async function boot(): Promise<void> {
   };
   const launch = await App.getLaunchUrl().catch(() => undefined);
   const initial = (launch?.url ? linkRoute(launch.url) : undefined) ?? readRoute(window.location.search);
+  if (TAU_AUTOMATION_PORT) {
+    const { startAutomation } = await import("./dev-automation");
+    startAutomation(bridge, device, Number(TAU_AUTOMATION_PORT));
+  }
   createRoot(document.getElementById("root")!).render(<StrictMode><Shell context={context} initial={initial} /></StrictMode>);
-  if (TAU_AUTOMATION_PORT) void import("./dev-automation").then(({ startAutomation }) => startAutomation(bridge, device, Number(TAU_AUTOMATION_PORT)));
 }
 
 /** The app could not even start: say so on screen instead of staying blank. */

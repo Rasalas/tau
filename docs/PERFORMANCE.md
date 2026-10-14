@@ -1450,6 +1450,15 @@ What guards it, in `npm test`: `kits/usage/scan-memory.test.ts` reads 400,000 re
 
 The code that remembers the navigation's pages lives in the browser client (`src/web/page-catalog.tsx`); a window loads its packages from disk and has only the slot for it. On `fix/0.7.14` with K91, K93 and K94 the desktop build's total gzip is 499,738 of 500,000 bytes (499,507 before K92; initial JavaScript 792,813 of 800,000), the browser client's 505,099 of 510,000 (initial stylesheet 139,554 of 140,000).
 
+### Android emulator cold start and thread opening
+
+The [mobile measurement runbook](mobile-emulator-measurement.md) measures native
+launch, the usable thread list and first/repeated opens of synthetic short and
+long threads in `tau_play_review`. It writes raw samples and a dated Markdown
+table. The tool was added for review ticket 62; measured times are pending the
+owner's run on a quiet machine. Emulator results will remain separate from the
+desktop Chromium phone approximation above and physical-device evidence.
+
 ## Comparison harness
 
 `scripts/compare/` runs Tau and a reference app side by side on the same machine, with the same data and the same agent turn. No model is involved. Both apps talk to Codex through `codex app-server`, so the harness puts a stand-in `codex` on each app's path (`fake-codex.mjs`). The stand-in answers the handshake, account and model calls. On every `turn/start` it replays one recorded turn at a fixed 16 ms per event. Each app streams that turn through its own Codex integration, host or server, transport and renderer. The reference app's numbers only calibrate Tau's; the budgets below are Tau's own.
