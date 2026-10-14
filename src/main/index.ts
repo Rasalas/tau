@@ -630,8 +630,8 @@ async function loadWindowHalves(): Promise<void> {
   await windowHost.announceHalves().catch((error: unknown) => hostLog.warn("window-extension.announce.failed", error));
 }
 
-/** The machine list, a connection to each machine, and the page's trust in their certificates (ADR 0025). */
-async function startEnvironments(local: WindowHost): Promise<void> {
+/** Installs the page's machine policy before it opens a socket; catalog and route restoration follow later. */
+function prepareEnvironments(local: WindowHost): void {
   // The name Bonjour and this machine's host give it too; the host name is only an address.
   const name = machineDisplayName();
   environments = new WindowEnvironments({
@@ -665,7 +665,6 @@ async function startEnvironments(local: WindowHost): Promise<void> {
   });
   environments.setLocalHost(local.hostUrl, local.hostToken);
   installEnvironmentSession(session.defaultSession, environments, () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : undefined);
-  await environments.start().catch((error: unknown) => hostLog.error("environments.start.failed", error));
 }
 
 /** Points the page at another machine's host, or back at this one's. */
@@ -968,8 +967,9 @@ if (primaryInstance) app.whenReady().then(async () => {
       exposePiSessionLockExtension();
       await startLocalHost();
     },
+    prepareMachines: () => { if (windowHost && !remoteHostUrl) prepareEnvironments(windowHost); },
     connectWindow: () => inProcessHost ? Promise.resolve() : pointWindowAtHost(),
-    restoreMachines: async () => { if (windowHost && !remoteHostUrl) await startEnvironments(windowHost); },
+    restoreMachines: async () => { await environments?.start(); },
     onRestoreError: (error) => hostLog.error("environments.start.failed", error),
   }));
   await hostReady;
