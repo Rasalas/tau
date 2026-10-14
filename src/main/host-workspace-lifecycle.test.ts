@@ -65,8 +65,11 @@ async function hostWithHooks(order: string[]): Promise<{ host: PiHost; internals
   internals.publication.activeUpdates = async () => ({ version: 1, updates: [] });
   internals.attached = { session: { attach: async () => false, detach: () => undefined, owns: () => false } };
   internals.initialSessionManager = async () => ({ getSessionFile: () => "/other.jsonl" });
-  internals.runtimes = { open: async () => idleThread("other", "/other"), settleOpening: async () => undefined };
-  internals.liveThreadForPath = () => undefined;
+  internals.runtimes = {
+    open: async () => idleThread("other", "/other"),
+    liveForPath: () => undefined,
+    settleOpening: async () => undefined,
+  };
   internals.activateThread = async () => true;
   internals.logReplacement = () => undefined;
   return { host, internals };

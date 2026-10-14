@@ -111,6 +111,8 @@ describe("the esbuild redirect", () => {
 
   it("every module of the host that imports esbuild is listed here", () => {
     const users = readdirSync(import.meta.dirname, { recursive: true, encoding: "utf8" })
+      // Test worker builds run in Node, outside the packaged host.
+      .filter((name) => !/^test-support[/\\]/u.test(name))
       .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
       .filter((name) => read(name).includes('from "esbuild"'));
     expect(users.sort()).toEqual([...importers].sort());
