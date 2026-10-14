@@ -5652,6 +5652,12 @@ finishes. Clients supply a `requestId` to correlate progress and ignore old
 requests. An ambiguous update failure requires a successful state check before
 another update is sent; the aggregate never automatically replays updates.
 
+In API 1.63.0, Machines also exposes `runtime-tools-update-selected` with a
+required `{ kinds: string[] }` for reviewed update plans. It updates only the
+selected programs. An older machine rejects that command rather than silently
+updating every program. See [Update everything](host-updates.md#update-everything-from-the-desktop)
+for the order and failure handling of the desktop plan.
+
 API 1.48.0 also adds an optional runtime backend restart capability and the
 optional workbench `restartAgentSession` action, preserving the thread's
 conversation while refreshing the runtime session. Optional

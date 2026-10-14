@@ -12,6 +12,7 @@ import { createRunOnSource, RunOnDefaultRow } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 import { createMachineToolsSection } from "./runtime-tools-section.js";
 import { createPhoneMachinesPage } from "./phone-machines.js";
+import { createUpdatePlanSection } from "./update-plan-section.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -79,6 +80,8 @@ export const environmentsExtension: DesktopExtension = {
     // A client without a window process (a browser, a phone) has no machines.
     const environments = context.environments;
     if (!environments) return;
+    context.registerSettingsSection({ id: "environments.update-everything", page: MACHINES_SETTINGS_PAGE, profiles: ["desktop"],
+      Component: createUpdatePlanSection(environments), rows: [{ id: "setting-update-everything", label: "Update everything", keywords: ["tools", "machines", "app", "updates", "restart"] }] });
     let machineImport: MachineImportService | undefined;
     const listeners = new Set<() => void>();
     context.useService<MachineImportService>(MACHINE_IMPORT_SERVICE, (service) => {
