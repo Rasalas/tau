@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderView, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
+import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
+import { renderKitSettingsPage } from "../../src/renderer/test-support/kit-settings-page.js";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { AntigravityProviderCard, AntigravitySignInLink, SEARCH_ROWS, antigravityExtension, signInLinks } from "./desktop.js";
 import { ANTIGRAVITY_INSTALL_EVENT, type AntigravityInstallEvent } from "./protocol.js";
+
+const render = (ui: Parameters<typeof renderView>[0]) => renderView(ui, { wrapper: TestProviders });
 
 afterEach(() => { cleanup(); signInLinks.clear(); });
 
@@ -18,6 +22,24 @@ function hostStub(invoke: (command: string, input?: unknown) => Promise<unknown>
 }
 
 describe("Antigravity desktop extension", () => {
+  it("saves custom model IDs from the runtime card and ignores blank lines", async () => {
+    const { registry } = createKitHarness(async (_id, command) => command === "status" ? { installed: false } : command === "sign-in-state" ? { methods: [], account: { signedIn: false } } : undefined);
+    registry.activate(antigravityExtension);
+    const page = registry.getSettingsPages().find((entry) => entry.id === "antigravity.settings")!;
+    const key = "tau.antigravity.customModels";
+    const { updates } = renderKitSettingsPage(page.Component, { host: { values: { [key]: "gateway/existing" } } });
+    const field = await screen.findByRole("textbox", { name: "Custom models" });
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe("gateway/existing"));
+    fireEvent.change(field, { target: { value: " gateway/one \n \n gateway/two\n\n" } });
+    expect(updates).toEqual([]);
+    fireEvent.blur(field);
+    await waitFor(() => expect(updates).toEqual([{ values: { [key]: "gateway/one\ngateway/two" } }]));
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe("gateway/one\ngateway/two"));
+    fireEvent.change(field, { target: { value: " \n\n" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(updates.at(-1)).toEqual({ values: { [key]: "" } }));
+  });
+
   it("keeps runtime identification out of the status line", () => {
     const { registry } = createKitHarness();
     registry.activate(antigravityExtension);

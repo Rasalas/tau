@@ -46,8 +46,24 @@ What works on both: sessions resumed by id, streamed text, reasoning and tool ca
 
 ## Custom models for ACP runtimes
 
-To use an ID an ACP agent has not advertised yet, add it to the runtime
-extension's `customModels` value in this machine's `~/.tau/config.json`:
+Open **Settings → Runtimes**, choose Cursor, Grok or Antigravity, and enter
+one model ID per line in **Custom models**. The field saves when you leave it
+or press ⌘Return on macOS, Ctrl+Return elsewhere. Empty lines and repeated
+IDs are ignored. Each list applies to every instance of that runtime on
+this machine.
+
+After saving, choose **Refresh models** in the model picker. The refreshed
+catalog and sessions started after saving use the new list without restarting
+Tau. Existing sessions keep the model list they read at startup; start a new
+thread to use an added ID there.
+
+The picker uses the ID as the model's name. Only explicitly listed IDs bypass
+the local model check; the agent decides whether it can run them, and its
+error is shown if it refuses. Modes and reasoning options still accept only
+the agent's advertised choices.
+
+Alternatively, set the same values in this machine's `~/.tau/config.json`,
+using `\n` between IDs in each string:
 
 ```json
 {
@@ -58,15 +74,6 @@ extension's `customModels` value in this machine's `~/.tau/config.json`:
   }
 }
 ```
-
-Keep only the entries for the runtimes you use. Separate multiple IDs with
-`\n` in the string. Blank lines are ignored. Each list applies to every
-instance of that runtime on this machine. Restart Tau after editing it.
-The picker includes these IDs alongside the advertised models, using the ID
-as the name. Only explicitly listed IDs bypass the local model check;
-the agent decides whether it can run them, and its error is shown if it
-refuses. Other unlisted IDs remain subject to the local check. Modes and
-reasoning options still accept only the agent's advertised choices.
 
 ## Keeping the CLIs current
 
