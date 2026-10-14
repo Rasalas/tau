@@ -5,6 +5,26 @@ import type { HostConnectionState } from "./host-connection";
 
 afterEach(() => vi.useRealTimers());
 
+it("silently retries a dropped read by code even before a connection-state callback arrives", async () => {
+  vi.useFakeTimers();
+  const bootstrap = vi.fn()
+    .mockRejectedValueOnce(Object.assign(new Error("A replacement link is opening."), { code: "connection-dropped" }))
+    .mockResolvedValue({} as HostBootstrap);
+  const applyBootstrap = vi.fn(() => true);
+  const onError = vi.fn();
+  const stop = followWorkbenchBootstrap({
+    bootstrap, onConnectionState: () => () => {}, watchThread: () => () => {}, limitPushesToWatched: () => {},
+  }, {
+    history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true } as never,
+    threads: { getSnapshot: () => ({}), subscribe: () => () => {} } as never,
+    applyBootstrap,
+  }, onError);
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(applyBootstrap).toHaveBeenCalledOnce();
+  expect(onError).not.toHaveBeenCalled();
+  stop();
+});
+
 it.each([3_000, 30_000])("retries an initial load timed out after %d ms without notifying the user", async (timeoutMs) => {
   vi.useFakeTimers();
   const bootstrap = vi.fn()

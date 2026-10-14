@@ -12,6 +12,7 @@ import {
 import type { HostTransport } from "./host-transport-client.js";
 import { ConnectionTimers, type ConnectionTimer } from "./connection-timers.js";
 import type { HostLink, HostWake, HostWakeSource } from "./host-link.js";
+import { ConnectionDroppedError } from "./connection-dropped-error.js";
 
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
@@ -171,10 +172,10 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     flush();
   };
 
-  const failPending = (message: string): void => {
+  const failPending = (error: Error): void => {
     for (const request of pending.values()) {
       timers.cancel(request.timer);
-      request.reject(new Error(message));
+      request.reject(error);
     }
     pending.clear();
     // A caller that saw rejection may retry. Its old queued write must never run later.
@@ -206,7 +207,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
     socket = undefined;
     needsRecovery = true;
     if (code === 1013 && reason === "resync required") needsResync = true;
-    failPending("The connection to the machine dropped.");
+    failPending(new ConnectionDroppedError());
     for (const listener of closeListeners) listener();
     if (closed) return;
     // Anything short of an explicit refusal (a malformed frame included) keeps the token and retries.
@@ -474,7 +475,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
       timers.cancel(retryTimer);
       stopTimers();
       timers.close();
-      failPending(`The connection to the machine was closed (${HOST_ERROR.cancelled}).`);
+      failPending(new Error(`The connection to the machine was closed (${HOST_ERROR.cancelled}).`));
       setLink({ phase: "closed" });
       socket?.close();
     },
