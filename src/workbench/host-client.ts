@@ -84,10 +84,13 @@ export interface HostClient {
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Parks a message in the thread's host-kept queue; it leaves when the thread's turn ends. */
-  queueMessage(sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft): Promise<{ id: string }>;
+  /** With `deliverAt` (epoch ms, API 1.64.0) the message is planned: it leaves at that time instead of after the turn. */
+  queueMessage(sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft, deliverAt?: number): Promise<{ id: string }>;
   /** Takes queued messages back out, in full: one by id, or all of them. */
   takeQueued(sessionId: string, id?: string): Promise<UiQueuedPrompt[]>;
   moveQueued(sessionId: string, id: string, toIndex: number): Promise<void>;
+  /** Plans a waiting message for another time; `undefined` puts it in the line of the queue (API 1.64.0). */
+  planQueued(sessionId: string, id: string, deliverAt: number | undefined): Promise<void>;
   /** Continues a thread a provider limit stopped: now, at the reset, or cancels the scheduled resume. */
   resumeLimited(sessionId: string, when: "now" | "reset" | "cancel"): Promise<void>;
   /** A thread's native goal (API 1.52.0); `set` needs the objective. */
@@ -377,9 +380,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     followUp: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
       callLong<void>("follow-up", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     abort: (sessionId) => call<void>("abort", [sessionId]),
-    queueMessage: (sessionId, text, attachments, skillDraft) => call<{ id: string }>("queue-message", [sessionId, text, attachments, skillDraft]),
+    queueMessage: (sessionId, text, attachments, skillDraft, deliverAt) => call<{ id: string }>("queue-message", deliverAt === undefined ? [sessionId, text, attachments, skillDraft] : [sessionId, text, attachments, skillDraft ?? null, deliverAt]),
     takeQueued: (sessionId, id) => call<UiQueuedPrompt[]>("take-queued", [sessionId, id]),
     moveQueued: (sessionId, id, toIndex) => call<void>("move-queued", [sessionId, id, toIndex]),
+    planQueued: (sessionId, id, deliverAt) => call<void>("plan-queued", [sessionId, id, deliverAt ?? null]),
     resumeLimited: (sessionId, when) => call<void>("resume-limited", [sessionId, when]),
     threadGoal: (sessionId, action, objective) => call<void>("thread-goal", objective === undefined ? [sessionId, action] : [sessionId, action, objective]),
     stopBackground: (sessionId, taskId) => call<void>("thread-background-stop", taskId === undefined ? [sessionId] : [sessionId, taskId]),
