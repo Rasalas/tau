@@ -17,6 +17,8 @@ import { useThreadStore } from "../workbench-context";
 import { Sheet } from "../deferred-surfaces";
 import { TouchThreadList, type TouchThreadListProps } from "./TouchThreadList";
 import { useThreadListSources } from "./thread-list-sources";
+
+export { compactListOrder } from "./compact-list-order";
 import "./touch.css";
 import { Part, partName } from "../customization";
 
