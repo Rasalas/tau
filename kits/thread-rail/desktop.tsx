@@ -137,7 +137,7 @@ function inactiveChoices(current: number | undefined): Array<{ value: string; la
 
 /** What the Settings search finds in Threads' Rail card; each id is a row's anchor. */
 export const THREAD_RAIL_ROWS = [
-  { id: "setting-thread-rail-workingSection", label: "Separate working threads", keywords: ["working", "running", "attention"] },
+  { id: "setting-thread-rail-workingSection", label: "Working section (beta)", keywords: ["working", "running", "monitoring", "attention", "inbox", "separate working threads"] },
   { id: "setting-thread-rail-inactive", label: "Settle after a quiet spell", keywords: ["settle", "inactive", "idle", "days", "auto settle", "settle automatically"] },
   { id: "setting-thread-rail-onMerged", label: "When its pull request merges", keywords: ["settle", "merged", "pull request", "merge request", "worktree"] },
   { id: "setting-thread-rail-onClosed", label: "When its pull request is closed", keywords: ["settle", "closed", "pull request", "merge request"] },
@@ -182,7 +182,7 @@ function createRailRows(store: RailStore, update: (settings: Partial<Record<keyo
     );
     return (
       <>
-        {toggle("workingSection", "Separate working threads", "Show running threads in Working until they finish or need your attention.")}
+        {toggle("workingSection", "Working section (beta)", "Fold working and monitoring threads into a Working section. They return to the top of the list when they need you.")}
         <SettingRow
           id="setting-thread-rail-inactive"
           title="Settle after a quiet spell"
@@ -456,6 +456,8 @@ export const threadRailExtension: DesktopExtension = {
         return () => { if (titles === value) titles = undefined; };
       }),
       context.registerModelSelection(selection),
+      // The phone's and tablet's list follow the same Working section (API 1.64.0); an older client ignores it.
+      context.registerThreadListLayout?.({ id: "thread-rail.layout", subscribe: store.subscribe, working: () => store.getState().settings.workingSection === true }) ?? (() => undefined),
       context.registerRegion({ id: "thread-rail.settled-note", placement: "composer-above", order: 90, profiles: ["desktop", "web", "compact"], Component: createSettledNote(store, organizer.toggleSettledById) }),
       // The rail's dialogs and undo offer; on the desktop the workspace sidebar mounts them, elsewhere this does.
       context.registerRegion({ id: "thread-rail.layer", placement: "composer-below", order: 99, profiles: ["web", "compact"], Component: ({ actions }: RegionProps) => (organizer.Layer ? <organizer.Layer actions={actions} /> : null) }),
@@ -466,7 +468,7 @@ export const threadRailExtension: DesktopExtension = {
       }),
       // Threads' Rail and Ask first cards (API 1.61.0); the page the rail had before opens Threads.
       context.registerSettingsSection({
-        id: "thread-rail.rail", page: "threads", card: "rail", order: 10, profiles: ["desktop", "web"], replaces: ["thread-rail.settings"], rows: THREAD_RAIL_ROWS,
+        id: "thread-rail.rail", page: "threads", card: "rail", order: 10, profiles: ["desktop", "web", "compact"], replaces: ["thread-rail.settings"], rows: THREAD_RAIL_ROWS,
         Component: createRailRows(store, async (settings) => {
           const request = { epoch: store.getState().publication?.epoch };
           store.set(await context.host.invoke("settings", settings), request);

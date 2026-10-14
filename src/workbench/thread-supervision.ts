@@ -2,6 +2,7 @@ import { displayRuntime, type UiProject, type UiSession, type UiThreadUsage } fr
 import { EMPTY_SNAPSHOT, type ThreadActivitySnapshot } from "./thread-store";
 import type { DraftThread } from "./draft-threads";
 import { attentionMarkIds, markedRowStatus, threadRowStatus, type ThreadRowMark, type ThreadRowStatus } from "./thread-row-status";
+import type { ObservedWorkingClock } from "./working-clock";
 
 /**
  * What a thread is doing right now, in the words a supervisor needs: a phone
@@ -99,7 +100,7 @@ export function threadSupervisionRows(
   return rows.slice(0, limit);
 }
 
-export type ThreadListSection = "pinned" | "active" | "settled";
+export type ThreadListSection = "pinned" | "active" | "working" | "settled";
 
 export interface ThreadListGroup {
   id: ThreadListSection;
@@ -123,12 +124,26 @@ export interface ThreadListOptions extends ThreadOrganization {
   marks?: Readonly<Record<string, ThreadRowMark>>;
   /** Row ids top to bottom as the list last drew them: those rows keep that order in their group, new ones follow. */
   held?: readonly string[];
+  /**
+   * Set while the Working section is on: working and monitoring threads fold
+   * into it, newest sent first, and the active threads go newest first by when
+   * each came back. The list observes the clock with every call.
+   */
+  working?: ObservedWorkingClock;
 }
 
-/** Another machine's thread as a list row: asking, running or idle, as far as that machine's list says. */
-export function outsideRow({ key, session, running, waiting, settled }: { key: string; session: UiSession; running?: boolean; waiting?: boolean; settled?: boolean }): ThreadSupervisionRow {
+/** A row the Working section takes: not pinned or settled, and running or waiting on work that wakes it. */
+export function inWorkingSection(row: ThreadSupervisionRow): boolean {
+  return !row.pinned && !row.settled && (row.state.activity === "working" || row.state.activity === "background");
+}
+
+/** Another machine's thread as a list row: asking, running, waiting on work there or idle, as far as that machine's list says. */
+export function outsideRow({ key, session, running, waiting, background, settled }: { key: string; session: UiSession; running?: boolean; waiting?: boolean; background?: boolean; settled?: boolean }): ThreadSupervisionRow {
   const ids = (on?: boolean) => on ? [session.id] : [];
-  return { ...rowFor(session, { ...EMPTY_SNAPSHOT, waitingThreadIds: ids(waiting), runningThreadIds: ids(running) }, { settled: ids(settled) }), id: key };
+  const row = { ...rowFor(session, { ...EMPTY_SNAPSHOT, waitingThreadIds: ids(waiting), runningThreadIds: ids(running) }, { settled: ids(settled) }), id: key };
+  return background && row.state.activity === "idle"
+    ? { ...row, state: { activity: "background", label: "Waiting", hint: "Work on its machine wakes it again." } }
+    : row;
 }
 
 /** A thread belongs to a project by its id, or by its path where one side has no id. */
@@ -142,7 +157,7 @@ export const THREAD_LIST_PAGE: Record<"active" | "settled", number> = { active: 
 
 /**
  * The compact thread list: pinned threads, then the active
- * ones worst first, then a shelf of settled ones by recency. A thread an agent
+ * ones worst first (with `working`, by return, then the Working group), then a shelf of settled ones by recency. A thread an agent
  * spawned stays with its parent (the Agents panel lists it) unless it asks the
  * user something.
  */
@@ -156,7 +171,7 @@ export function threadListGroups(
   const live = asking.length ? { ...activity, waitingThreadIds: [...activity.waitingThreadIds, ...asking] } : activity;
   const query = options.query?.trim().toLowerCase();
   const project = options.project;
-  const rows = threads
+  const listedRows = threads
     .filter((thread) => !thread.parentThreadId || live.waitingThreadIds.includes(thread.id))
     // A session nobody wrote in yet (the one a host opens at start) is no thread to list.
     .filter((thread) => listed(thread, live))
@@ -165,11 +180,20 @@ export function threadListGroups(
       const row = rowFor(thread, live, options);
       return marks[thread.id] ? { ...row, state: markedRowStatus(row.state, marks[thread.id]) } : row;
     })
-    .concat(options.extra ?? [])
-    .filter((row) => !query || [row.title, row.projectName, row.projectLabel ?? ""].some((text) => text.toLowerCase().includes(query)));
+    .concat(options.extra ?? []);
+  const clock = options.working;
+  if (clock) clock.observe(listedRows.map((row) => row.id), new Set(listedRows.filter(inWorkingSection).map((row) => row.id)), (id) => listedRows.find((row) => row.id === id)?.startedAt);
+  const rows = listedRows.filter((row) => !query || [row.title, row.projectName, row.projectLabel ?? ""].some((text) => text.toLowerCase().includes(query)));
   const keep = keepHeld(options.held);
   const pinned = keep(rows.filter((row) => row.pinned && !row.settled).sort(worstFirst));
-  const active = keep(rows.filter((row) => !row.pinned && !row.settled).sort(worstFirst));
+  const unpinned = rows.filter((row) => !row.pinned && !row.settled);
+  // As T3 Code's Working beta: a thread that comes back lands on top, and Working keeps the order work was sent in.
+  const returned = (row: ThreadSupervisionRow) => Math.max(row.modifiedAt, clock?.returnedAt(row.id) ?? 0);
+  const sent = (row: ThreadSupervisionRow) => clock?.workingSince(row.id) ?? row.modifiedAt;
+  const active = keep(clock
+    ? unpinned.filter((row) => !inWorkingSection(row)).sort((left, right) => returned(right) - returned(left) || left.id.localeCompare(right.id))
+    : unpinned.sort(worstFirst));
+  const working = clock ? keep(unpinned.filter(inWorkingSection).sort((left, right) => sent(right) - sent(left) || left.id.localeCompare(right.id))) : [];
   const settled = keep(rows.filter((row) => row.settled).sort((left, right) => right.modifiedAt - left.modifiedAt));
   const page = (id: "active" | "settled", list: ThreadSupervisionRow[]) => {
     const shown = options.shown?.[id] ?? THREAD_LIST_PAGE[id];
@@ -178,6 +202,7 @@ export function threadListGroups(
   const groups: ThreadListGroup[] = [];
   if (pinned.length > 0) groups.push({ id: "pinned", label: "Pinned", rows: pinned, hidden: 0 });
   if (active.length > 0) groups.push({ id: "active", label: "", ...page("active", active) });
+  if (working.length > 0) groups.push({ id: "working", label: "Working", rows: working, hidden: 0 });
   if (settled.length > 0) groups.push({ id: "settled", label: "Settled", ...page("settled", settled) });
   return groups;
 }

@@ -795,10 +795,11 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
   onLookIn(thread: RailExternalThread): void;
   onToggleSettled?(thread: RailExternalThread): void;
 }) {
-  const { session, machine, unavailable, opening, running, settled } = thread;
+  const { session, machine, unavailable, opening, running, settled, background } = thread;
   const age = sessionAge(session.modifiedAt);
-  const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : settled ? "settled" : "idle";
-  const label = opening ? "Opening…" : unavailable ? (running ? "Paused · offline" : "Offline") : running ? "Working" : undefined;
+  const waits = background && !running && !settled;
+  const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : waits ? "background" : settled ? "settled" : "idle";
+  const label = opening ? "Opening…" : unavailable ? (running ? "Paused · offline" : "Offline") : running ? "Working" : waits ? "Waiting" : undefined;
   const lookIn = thread.lookIn && !unavailable && !opening
     ? <button type="button" aria-label={`Look in on ${session.title} here`} {...tooltipProps("Read it in a tab here; the window stays on this machine")} onClick={() => onLookIn(thread)}><Eye size={13} /></button>
     : undefined;
@@ -812,7 +813,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
         age={age}
         activity={activity}
         {...(label ? { activityLabel: label } : {})}
-        {...(unavailable ? { activityHint: unavailable } : {})}
+        {...(unavailable ? { activityHint: unavailable } : waits ? { activityHint: `Work on ${machine.name} wakes it again.` } : {})}
         hoverCard
         actions={lookIn}
         {...(onToggleSettled && thread.toggleSettled && !unavailable && !opening ? { onToggleSettled: () => onToggleSettled(thread) } : {})}
@@ -995,7 +996,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   ), [threads, lineage.parents, liveKey, projectFilter]);
   const sections = useMemo(
     () => organizer
-      ? organizer.sections(matching, { ...activityState, waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarkIds(rowStatuses)] })
+      ? organizer.sections(matching, {
+        ...activityState,
+        waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarkIds(rowStatuses)],
+        backgroundThreadIds: matching.filter((session) => markedRowStatus(threadRowStatus(session.id, activityState, session), rowStatuses[session.id]).activity === "background").map((session) => session.id),
+      })
       : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf),
     // The organizer's version says when the same threads would land elsewhere.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -1023,7 +1028,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     const working: UiSession[] = [];
     for (const thread of outside.values()) {
       const target = thread.settled && shelfIndex >= 0 ? settled
-        : workingIndex >= 0 && thread.running && !thread.waiting && !thread.unavailable && !thread.session.turnError && !thread.session.runtimeError && !thread.session.limit && !thread.session.interrupted ? working : active;
+        : workingIndex >= 0 && (thread.running || thread.background) && !thread.waiting && !thread.unavailable && !thread.session.turnError && !thread.session.runtimeError && !thread.session.limit && !thread.session.interrupted ? working : active;
       target.push(thread.session);
     }
     return [active, settled, working];

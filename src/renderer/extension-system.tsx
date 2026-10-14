@@ -405,6 +405,8 @@ export interface ThreadListEntry {
   running?: boolean;
   /** Waits for an answer there (API 1.35.0). */
   waiting?: boolean;
+  /** Work there wakes it again, such as a background task or a watched pull request (API 1.64.0). */
+  background?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;
   /** On the settled shelf rather than among the active threads. */
@@ -429,6 +431,17 @@ export interface ThreadListAccessoryContribution {
   id: string;
   /** `settled`: the row is on the settled shelf. Draws nothing when it has nothing to say. */
   Component: ComponentType<{ session: UiSession; settled: boolean }>;
+}
+
+/**
+ * A kit's say over the compact list's sections (API 1.64.0). While any layout
+ * answers `working()` true, working and monitoring threads fold into a Working
+ * group, and the active threads go newest first by when each came back.
+ */
+export interface ThreadListLayout {
+  id: string;
+  subscribe(listener: () => void): () => void;
+  working(): boolean;
 }
 
 /** The thread of another machine a look-in tab shows, for a `look-in` region (API 1.15.0). */
@@ -1787,6 +1800,8 @@ export interface DesktopExtensionContext {
   registerThreadListSource(source: ThreadListSource): () => void;
   /** Marks on the rows of a phone's or tablet's thread list: the rail's accessories (new after API 1.59.0). */
   registerThreadListAccessory(accessory: ThreadListAccessoryContribution): () => void;
+  /** The compact list's sections, such as Thread Rail's Working section (API 1.64.0). */
+  registerThreadListLayout(layout: ThreadListLayout): () => void;
   registerCommand(command: CommandContribution): () => void;
   /** Rows the command palette asks for as the user types, beside the commands. */
   registerPaletteSource(source: PaletteSourceContribution): () => void;
@@ -1985,6 +2000,7 @@ export class ExtensionRegistry {
   private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
   private threadListSources = new Map<string, Owned<ThreadListSource>>();
   private threadListAccessories = new Map<string, Owned<ThreadListAccessoryContribution>>();
+  private threadListLayouts = new Map<string, Owned<ThreadListLayout>>();
   private commands = new Map<string, Owned<CommandContribution>>();
   private paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
   private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
@@ -2373,6 +2389,10 @@ export class ExtensionRegistry {
         note("thread list accessories");
         return this.register(this.threadListAccessories, accessory.id, { ...accessory, ...owner }, disposers);
       },
+      registerThreadListLayout: (layout) => {
+        note("thread list layouts");
+        return this.register(this.threadListLayouts, layout.id, { ...layout, ...owner }, disposers);
+      },
       registerCommand: (command) =>
         this.register(this.commands, command.id, { ...command, ...owner }, disposers),
       registerPaletteSource: (source) => {
@@ -2733,6 +2753,10 @@ export class ExtensionRegistry {
 
   getThreadListAccessories(): Array<Owned<ThreadListAccessoryContribution>> {
     return this.sorted("thread-list-accessories", this.threadListAccessories, false);
+  }
+
+  getThreadListLayouts(): Array<Owned<ThreadListLayout>> {
+    return this.sorted("thread-list-layouts", this.threadListLayouts, false);
   }
 
   getCommands(): Array<Owned<CommandContribution>> {

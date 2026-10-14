@@ -184,6 +184,7 @@ export type {
   RegionProps,
   RegionContribution,
   ThreadListAccessoryContribution,
+  ThreadListLayout,
   ThreadListEntry,
   ThreadListPlace,
   ThreadListSource,

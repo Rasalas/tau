@@ -139,7 +139,7 @@ export interface RailOrganizer {
   isLoading?(): boolean;
   subscribe(listener: () => void): () => void;
   getVersion(): number;
-  sections(threads: readonly UiSession[], activity?: { runningThreadIds: readonly string[]; waitingThreadIds: readonly string[]; failedThreadIds: readonly string[] }): Array<{ id: string; label?: string; threads: readonly UiSession[]; shelf?: boolean; collapsed?: boolean; settled?: boolean }>;
+  sections(threads: readonly UiSession[], activity?: { runningThreadIds: readonly string[]; waitingThreadIds: readonly string[]; failedThreadIds: readonly string[]; backgroundThreadIds?: readonly string[]; runningStartedAt?: Readonly<Record<string, number>> }): Array<{ id: string; label?: string; threads: readonly UiSession[]; shelf?: boolean; collapsed?: boolean; settled?: boolean }>;
   /** `shortcut` names a command's chord, for an item that runs one. */
   menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;

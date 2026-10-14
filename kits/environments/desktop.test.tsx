@@ -280,7 +280,35 @@ describe("the other machines' threads in the rail", () => {
     await act(async () => undefined);
     expect(invokeExtension).toHaveBeenCalledWith("studio", "tau.thread-rail", "patch", { patches: { s1: expect.objectContaining({ settledBy: "user", settledAt: expect.any(Number) }) } });
     // The same list is not read again.
-    expect(readExtension).toHaveBeenCalledTimes(1);
+    expect(readExtension.mock.calls.filter((call: unknown[]) => call[1] === "tau.thread-rail")).toHaveLength(1);
+    stop();
+  });
+
+  it("marks threads that wait on work on their machine: a background task there or a watched pull request", async () => {
+    const busy = machine("studio", { threads: [
+      { id: "s1", path: "/s/1", title: "Watch", projectName: "api", modifiedAt: 5 },
+      { id: "s2", path: "/s/2", title: "Task", projectName: "api", modifiedAt: 4, background: true },
+      { id: "s3", path: "/s/3", title: "Idle", projectName: "api", modifiedAt: 3 },
+    ] });
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, busy], secureStorage: true });
+    const readExtension = vi.fn(async (_machine: string, extension: string) => extension === "tau.review"
+      ? { watches: [{ threadId: "s1", status: "watching" }, { threadId: "s3", status: "ended" }] }
+      : { threads: {}, settings: {} });
+    const source = createMachineThreads({ ...base, readExtension });
+    const stop = source.subscribe(() => undefined);
+    await act(async () => undefined);
+    expect(readExtension).toHaveBeenCalledWith("studio", "tau.review", "watch-list");
+    expect(source.threads().filter((thread) => thread.background).map((thread) => thread.key)).toEqual(["machine:studio:s1", "machine:studio:s2"]);
+    stop();
+  });
+
+  it("reads no watches from a machine without Review Kit", async () => {
+    const { environments: base } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const readExtension = vi.fn(async (_machine: string, extension: string) => { if (extension === "tau.review") throw new Error("no such extension"); return { threads: {} }; });
+    const source = createMachineThreads({ ...base, readExtension });
+    const stop = source.subscribe(() => undefined);
+    await act(async () => undefined);
+    expect(source.threads().some((thread) => thread.background)).toBe(false);
     stop();
   });
 

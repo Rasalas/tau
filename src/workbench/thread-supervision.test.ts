@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { UiSession } from "../shared/contracts";
 import { ThreadStore, type ThreadActivitySnapshot } from "./thread-store";
-import { threadAge, threadListDrafts, threadListGroups, threadListOrder, threadSupervisionRows, threadSupervisionStatus } from "./thread-supervision";
+import { outsideRow, threadAge, threadListDrafts, threadListGroups, threadListOrder, threadSupervisionRows, threadSupervisionStatus } from "./thread-supervision";
+import { createWorkingClock } from "./working-clock";
 
 function thread(id: string, modifiedAt: number, title = id): UiSession {
   return { id, path: `/p/${id}`, title, modifiedAt, projectPath: "/p", projectName: "p", messageCount: 1 };
@@ -145,6 +146,60 @@ describe("the compact thread list", () => {
     expect(threadAge(now - 3 * 3_600_000, now)).toBe("3h");
     expect(threadAge(now - 2 * 86_400_000, now)).toBe("2d");
     expect(threadAge(now - 21 * 86_400_000, now)).toBe("21d");
+  });
+});
+
+describe("the compact list's Working group", () => {
+  const ids = (groups: ReturnType<typeof threadListGroups>) => groups.map((group) => [group.id, group.rows.map((row) => row.id)]);
+
+  it("folds running and monitoring threads, keeps pins and questions out, and brings a returning thread to the top", () => {
+    let at = 1_000;
+    const working = createWorkingClock(() => at);
+    const threads = [thread("old", 10), thread("mid", 20), thread("new", 30), thread("pin", 40), thread("ask", 5)];
+    const marks = { mid: { label: "Waiting", tone: "background" as const } };
+    const view = (running: string[], waiting: string[] = []) =>
+      ids(threadListGroups(threads, { ...idle, runningThreadIds: running, waitingThreadIds: waiting }, { pinned: ["pin"], marks, working }));
+    expect(view(["old", "pin"], ["ask"])).toEqual([
+      ["pinned", ["pin"]],
+      ["active", ["new", "ask"]],
+      ["working", ["mid", "old"]],
+    ]);
+    at = 2_000;
+    // `old` finished after `new` was last touched: it lands on top.
+    expect(view([], ["ask"])).toEqual([
+      ["pinned", ["pin"]],
+      ["active", ["old", "new", "ask"]],
+      ["working", ["mid"]],
+    ]);
+    at = 3_000;
+    expect(view(["new"], ["ask"])[2]).toEqual(["working", ["new", "mid"]]);
+  });
+
+  it("keeps the order work was sent in while a run ends and wakes inside it, and lets a search keep the stamps", () => {
+    let at = 1_000;
+    const working = createWorkingClock(() => at);
+    const threads = [thread("a", 10), thread("b", 20)];
+    const marks = { a: { label: "Waiting", tone: "background" as const } };
+    const view = (running: string[], query?: string) =>
+      threadListGroups(threads, { ...idle, runningThreadIds: running, runningStartedAt: { a: 500, b: 400 } }, { marks, working, ...(query ? { query } : {}) }).find((group) => group.id === "working")?.rows.map((row) => row.id);
+    expect(view(["a", "b"])).toEqual(["a", "b"]);
+    at = 2_000;
+    expect(view(["b"])).toEqual(["a", "b"]);
+    expect(view(["b"], "b")).toEqual(["b"]);
+    expect(view(["a", "b"])).toEqual(["a", "b"]);
+  });
+
+  it("shows another machine's waiting thread as background work and folds it", () => {
+    const session = thread("x", 10);
+    const row = outsideRow({ key: "machine:m:x", session, background: true });
+    expect(row.state).toMatchObject({ activity: "background", label: "Waiting" });
+    expect(outsideRow({ key: "machine:m:x", session, background: true, running: true }).state.activity).toBe("working");
+    const groups = threadListGroups([], idle, { extra: [row], working: createWorkingClock() });
+    expect(ids(groups)).toEqual([["working", ["machine:m:x"]]]);
+  });
+
+  it("stays off without a clock", () => {
+    expect(ids(threadListGroups([thread("a", 10)], { ...idle, runningThreadIds: ["a"] }))).toEqual([["active", ["a"]]]);
   });
 });
 

@@ -1,3 +1,4 @@
+import { backgroundHoldsRun } from "./background-work.js";
 import type { ThreadBackendKind, ThreadIndexSnapshot, UiThreadUsage } from "./contracts.js";
 import type { PairingEndpoint, UiHostEndpointKind } from "./connections.js";
 
@@ -23,6 +24,8 @@ export interface UiEnvironmentThread {
   running?: boolean;
   /** A question there waits for an answer; set where the client follows that machine's questions. */
   waiting?: boolean;
+  /** Its runtime there still runs work that wakes it again (API 1.64.0). */
+  background?: boolean;
   /** As that machine's index lists them, so its rail row reads like one of this machine's. */
   projectLabel?: string;
   usage?: UiThreadUsage;
@@ -295,6 +298,7 @@ export function environmentThreads(index: ThreadIndexSnapshot, running: Readonly
       };
       if (session.workspaceId) thread.workspaceId = session.workspaceId;
       if (running.has(session.id)) thread.running = true;
+      if (backgroundHoldsRun(session.background)) thread.background = true;
       if (session.projectLabel) thread.projectLabel = session.projectLabel;
       if (session.usage) thread.usage = session.usage;
       if (session.backendKind) thread.backendKind = session.backendKind;

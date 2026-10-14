@@ -29,7 +29,8 @@ import { useThreadStore } from "../workbench-context";
 import { ActionSheet, type SheetAction } from "./ActionSheet";
 import { SwipeRow, type SwipeAction } from "./SwipeRow";
 import { useSteadyRows } from "./steady-rows";
-import { useThreadListSources } from "./thread-list-sources";
+import { useThreadListSources, useThreadListWorking } from "./thread-list-sources";
+import { createWorkingClock } from "../../workbench/working-clock";
 
 /** Finished threads keep a Done badge until settled, regardless of whether they have been read. */
 function RowTime({ row }: { row: ThreadSupervisionRow }) {
@@ -44,6 +45,11 @@ function RowTime({ row }: { row: ThreadSupervisionRow }) {
 
 /** Whether this client has the settled shelf open; open is the default, the design's. */
 export const SETTLED_OPEN_KEY = "tau.thread-list.settled-open.v1";
+/** Whether this client has the Working shelf open; folded is the default, as T3 Code's. */
+export const WORKING_OPEN_KEY = "tau.thread-list.working-open.v1";
+
+// Module scope keeps the order across screens that unmount the list.
+const workingClock = createWorkingClock();
 
 /** The branch every checkout starts on says nothing on a row, as on the desktop rail. */
 const DEFAULT_BRANCHES = new Set(["main", "master"]);
@@ -96,6 +102,12 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     clientStorage.set(SETTLED_OPEN_KEY, String(!open));
     return !open;
   });
+  const [workingOpen, setWorkingOpen] = useState(() => clientStorage.get(WORKING_OPEN_KEY) === "true");
+  const toggleWorking = () => setWorkingOpen((open) => {
+    clientStorage.set(WORKING_OPEN_KEY, String(!open));
+    return !open;
+  });
+  const workingSection = useThreadListWorking(registry);
   const outside = useThreadListSources(registry);
   // Another machine's projects are other projects; the filter keeps those of the same name.
   const extra = useMemo(() => project ? outside.rows.filter((row) => row.projectName === project.name) : outside.rows, [outside.rows, project]);
@@ -103,10 +115,10 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   // Runs reorder the list all the time; under a finger, a tap would open whichever row slid there.
   const steady = useSteadyRows();
   const { held } = steady;
-  const groups = useMemo(
-    () => threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, extra, marks, ...(project ? { project } : {}), ...(held ? { held } : {}) }),
-    [current, extra, held, marks, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads],
-  );
+  const groups = useMemo(() => {
+    if (!workingSection) workingClock.observe([], null);
+    return threadListGroups(snapshot.threads, current, { pinned: pinnedThreadIds, settled: settledThreadIds, shown, extra, marks, ...(project ? { project } : {}), ...(held ? { held } : {}), ...(workingSection ? { working: workingClock } : {}) });
+  }, [current, extra, held, marks, pinnedThreadIds, project, settledThreadIds, shown, snapshot.threads, workingSection]);
   const accessories = registry.getThreadListAccessories();
   const rowCommands = registry.getCommandsFor("thread-row");
   const runCommand = (id: string, threadId: string) => {
@@ -183,6 +195,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
     : { ...value, active: value.active + THREAD_LIST_PAGE.active });
   const settled = groups.find((group) => group.id === "settled");
   const pinned = groups.find((group) => group.id === "pinned");
+  const working = groups.find((group) => group.id === "working");
   const draftSheetActions = (draft: DraftThread): SheetAction[] => [
     { id: "open", label: "Open draft", Icon: SquarePen, run: () => actions.openDraft?.(draft.draftId) },
     ...(actions.discardDraft ? [{ id: "discard", label: "Discard draft", Icon: Trash2, destructive: true, run: () => actions.discardDraft?.(draft.draftId) }] : []),
@@ -196,8 +209,16 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
         <ul className="touch-thread-list" aria-label="Threads">
           {pinned ? <GroupRows group={pinned} {...rowProps} onMore={more(pinned)} /> : null}
           {drafts.map((draft) => <DraftListRow key={draft.draftId} draft={draft} onOpen={(id) => actions.openDraft?.(id)} onSheet={setDraftSheet} />)}
-          {groups.filter((group) => group !== settled && group !== pinned).map((group) => <GroupRows key={group.id} group={group} {...rowProps} onMore={more(group)} />)}
+          {groups.filter((group) => group !== settled && group !== pinned && group !== working).map((group) => <GroupRows key={group.id} group={group} {...rowProps} onMore={more(group)} />)}
         </ul>
+        {working ? <div className="touch-thread-shelf">
+          <button type="button" className="touch-thread-shelf-toggle" aria-expanded={workingOpen} onClick={toggleWorking}>
+            <span>{`Working · ${working.rows.length}`}</span><ChevronDown size={14} aria-hidden />
+          </button>
+          {workingOpen ? <ul className="touch-thread-list" aria-label="Working threads">
+            <GroupRows group={{ ...working, label: "" }} {...rowProps} onMore={more(working)} />
+          </ul> : null}
+        </div> : null}
         {settled ? <div className="touch-thread-shelf">
           <button type="button" className="touch-thread-shelf-toggle" aria-expanded={settledOpen} onClick={toggleSettled}>
             <span>{`Settled · ${settledCount}`}</span><ChevronDown size={14} aria-hidden />

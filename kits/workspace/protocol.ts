@@ -623,6 +623,8 @@ export interface RailExternalThread {
   running?: boolean;
   /** A question or approval needs attention on its home machine. */
   waiting?: boolean;
+  /** Work on its home machine wakes it again: a background task or a watched pull request. */
+  background?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;
   /** Where it runs: an icon just before the cost, the name as tooltip. */
@@ -755,8 +757,8 @@ export interface ThreadRailOrganizer {
   subscribe(listener: () => void): () => void;
   /** Moves whenever `sections` would answer differently for the same threads. */
   getVersion(): number;
-  /** `threads` is what the rail would show, searched and newest first. */
-  sections(threads: readonly UiSession[], activity?: { runningThreadIds: readonly string[]; waitingThreadIds: readonly string[]; failedThreadIds: readonly string[] }): ThreadRailSection[];
+  /** `threads` is what the rail would show, searched and newest first; `backgroundThreadIds` rows wait on work that wakes them. */
+  sections(threads: readonly UiSession[], activity?: { runningThreadIds: readonly string[]; waitingThreadIds: readonly string[]; failedThreadIds: readonly string[]; backgroundThreadIds?: readonly string[]; runningStartedAt?: Readonly<Record<string, number>> }): ThreadRailSection[];
   /** A row's right-click menu; `lookup` gives chords for its hints and the commands offered on a thread. */
   menu(session: UiSession, lookup?: ThreadMenuLookup): MenuSection[];
   runMenu(session: UiSession, itemId: string, actions: WorkbenchActions): void;
