@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeWindow, type FakeWindow } from "./fake-electron-window.js";
+import { createRemotePreviewSurface } from "./remote-surface.js";
 
 interface FakeImage {
   size: { width: number; height: number };
@@ -23,9 +24,13 @@ const electron = vi.hoisted(() => ({
   window: undefined as unknown as FakeWindow,
   contents: undefined as unknown as {
     capturePage: ReturnType<typeof vi.fn>;
-    debugger: { isAttached(): boolean; attach: ReturnType<typeof vi.fn>; sendCommand: ReturnType<typeof vi.fn> };
+    setBackgroundThrottling: ReturnType<typeof vi.fn>;
+    debugger: { isAttached(): boolean; attach: ReturnType<typeof vi.fn>; detach: ReturnType<typeof vi.fn>; sendCommand: ReturnType<typeof vi.fn> };
   } & Record<string, unknown>,
   createFromBuffer: vi.fn(),
+  webPreferences: {} as { backgroundThrottling?: boolean },
+  backgroundThrottling: true,
+  recorder: { start: vi.fn(), take: vi.fn(), stop: vi.fn(), dispose: vi.fn() },
   stages: [] as FakeWindow[],
   clipboardText: vi.fn(),
   clipboardWrite: vi.fn(async () => undefined),
@@ -35,7 +40,9 @@ vi.mock("electron", async () => {
   const { fakeView, fakeWindow: stageWindow } = await import("./fake-electron-window.js");
   return {
     WebContentsView: class {
-      constructor() {
+      constructor(options: { webPreferences: { backgroundThrottling?: boolean } }) {
+        electron.webPreferences = options.webPreferences;
+        electron.backgroundThrottling = options.webPreferences.backgroundThrottling !== false;
         return Object.assign(fakeView(), { webContents: electron.contents });
       }
     },
@@ -62,6 +69,8 @@ vi.mock("electron", async () => {
   };
 });
 
+vi.mock("./recorder.js", () => ({ PreviewRecorder: class { constructor() { return electron.recorder; } } }));
+
 const { default: activatePreviewWindowHalf, createElectronPreviewSurface, cropToView, deviceOverride } = await import("./view.js");
 
 const surface = () => createElectronPreviewSurface({ partition: "", onChange: () => undefined, workspaceRoot: () => "", log: () => undefined })!;
@@ -72,6 +81,8 @@ beforeEach(() => {
   electron.window = fakeWindow();
   electron.openExternal.mockClear();
   electron.clipboardText.mockClear();
+  electron.recorder.start.mockReset().mockResolvedValue({ chunks: [], mimeType: "video/webm" });
+  electron.recorder.stop.mockReset().mockResolvedValue({ chunks: [], mimeType: "video/webm" });
   electron.contents = {
     on: vi.fn(),
     once: vi.fn(),
@@ -84,11 +95,13 @@ beforeEach(() => {
     isLoading: () => false,
     navigationHistory: { canGoBack: () => false, canGoForward: () => false },
     close: vi.fn(),
+    setBackgroundThrottling: vi.fn((allowed: boolean) => { electron.backgroundThrottling = allowed; }),
     // What Electron does for a view that never reached the screen.
     capturePage: vi.fn(async () => { throw new Error("Current display surface not available for capture"); }),
     debugger: {
       isAttached: () => attached,
       attach: vi.fn(() => { attached = true; }),
+      detach: vi.fn(() => { attached = false; }),
       sendCommand: vi.fn(async () => ({ data: Buffer.from("shot").toString("base64") })),
     },
   };
@@ -96,6 +109,17 @@ beforeEach(() => {
 });
 
 describe("a preview call without a drawable window", () => {
+  it("passes observation demand through the kit's window half", async () => {
+    const half = activatePreviewWindowHalf({ id: "tau.preview", invokeHost: vi.fn(), log: vi.fn() });
+    const remote = createRemotePreviewSurface({ partition: "", onChange: vi.fn(), workspaceRoot: () => "", log: vi.fn() }, async (command, input) => half.handle(command, input));
+    await remote.open();
+    remote.setObserved!(true);
+    await vi.waitFor(() => expect(electron.backgroundThrottling).toBe(false));
+    remote.setObserved!(false);
+    await vi.waitFor(() => expect(electron.backgroundThrottling).toBe(true));
+    half.dispose?.();
+  });
+
   it("explains how to enable a host-rendered preview instead of retrying another client's window", () => {
     electron.window = undefined as unknown as FakeWindow;
     const half = activatePreviewWindowHalf({ id: "tau.preview", invokeHost: vi.fn(), log: vi.fn() });
@@ -143,6 +167,100 @@ describe("the preview surface's capture", () => {
 });
 
 describe("a hidden view's screenshot", () => {
+  it("leaves an unused hidden preview throttled", () => {
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 800, height: 600 }, false);
+    expect(electron.backgroundThrottling).toBe(true);
+    view.destroy();
+  });
+
+  it("keeps overlapping captures awake until the last one finishes", async () => {
+    const finish: Array<(value: { data: string }) => void> = [];
+    electron.contents.debugger.sendCommand.mockImplementation(() => new Promise((resolve) => { finish.push(resolve); }));
+    const view = surface();
+    const first = view.capture(640);
+    const second = view.capture(640);
+    await vi.waitFor(() => expect(finish).toHaveLength(2));
+    expect(electron.backgroundThrottling).toBe(false);
+    finish[0]!({ data: "c2hvdA==" });
+    await first;
+    expect(electron.backgroundThrottling).toBe(false);
+    finish[1]!({ data: "c2hvdA==" });
+    await second;
+    expect(electron.backgroundThrottling).toBe(true);
+    view.destroy();
+  });
+
+  it("restores throttling after a capture times out", async () => {
+    vi.useFakeTimers();
+    const view = surface();
+    try {
+      electron.contents.debugger.sendCommand.mockImplementation(() => new Promise(() => undefined));
+      const answer = view.capture(640).catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await answer).toEqual(new Error("The hidden page did not paint."));
+      expect(electron.backgroundThrottling).toBe(true);
+    } finally {
+      view.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an observed hidden page awake and follows window visibility", () => {
+    const view = surface();
+    view.place({ x: 0, y: 0, width: 800, height: 600 }, true);
+    view.setObserved!(true);
+    expect(electron.backgroundThrottling).toBe(true);
+    electron.window.minimized = true;
+    electron.window.emit("minimize");
+    expect(electron.backgroundThrottling).toBe(false);
+    view.setObserved!(false);
+    expect(electron.backgroundThrottling).toBe(true);
+    view.destroy();
+  });
+
+  it("keeps frames running for a recording, then restores throttling on stop or start failure", async () => {
+    const view = surface();
+    await view.record("start");
+    expect(electron.backgroundThrottling).toBe(false);
+    await view.capture(640);
+    expect(electron.backgroundThrottling).toBe(false);
+    await view.record("stop");
+    expect(electron.backgroundThrottling).toBe(true);
+    electron.recorder.start.mockRejectedValueOnce(new Error("recorder refused"));
+    await expect(view.record("start")).rejects.toThrow("recorder refused");
+    expect(electron.backgroundThrottling).toBe(true);
+    view.destroy();
+  });
+
+  it.each([true, false])("keeps producing frames while its parent window is visible=%s", async (visible) => {
+    vi.useFakeTimers();
+    let view: ReturnType<typeof surface> | undefined;
+    try {
+      electron.window.visible = visible;
+      // Model Chromium withholding hidden frames while background throttling is enabled.
+      electron.contents.debugger.sendCommand.mockImplementation(async () => {
+        if (electron.backgroundThrottling) return new Promise(() => undefined);
+        return { data: Buffer.from("shot").toString("base64") };
+      });
+      view = surface();
+      view.place({ x: 0, y: 0, width: 1_280, height: 800 }, false);
+      const answer = view.capture(640, undefined, true).then((shot) => ({ shot }), (error: unknown) => ({ error }));
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(await answer).toMatchObject({ shot: { width: 640, height: 400 } });
+      expect(electron.backgroundThrottling).toBe(true);
+      expect(electron.contents.capturePage).not.toHaveBeenCalled();
+      expect(electron.window.visible).toBe(visible);
+      expect(electron.window.contentView.children.every((child) => !child.visible)).toBe(true);
+      expect(electron.stages.every((stage) => !stage.visible)).toBe(true);
+    } finally {
+      view?.destroy();
+      vi.useRealTimers();
+    }
+  });
+
   it("asks again when the first request hangs, as a view hidden in a painting window needs", async () => {
     vi.useFakeTimers();
     try {

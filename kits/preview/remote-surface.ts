@@ -54,6 +54,7 @@ export function createRemotePreviewSurface(
     accept: (next: PreviewSnapshot) => { apply(next); },
     zoomFactor: () => snapshot.zoomFactor,
     place: (rect: PreviewRect, visible: boolean, device) => send("place", { rect, visible, ...(device ? { device } : {}) }),
+    setObserved: (observed) => send("observed", { observed }),
     load: async (url: string, timeoutMs: number) => { await run("load", { url, timeoutMs }); },
     navigate: (action) => send("navigate", { action }),
     setZoom: (factor: number) => send("zoom", { factor }),

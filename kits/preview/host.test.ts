@@ -76,6 +76,30 @@ async function activate(createSurface: (options: PreviewSurfaceOptions) => Promi
   return { ...context, tools, call, text };
 }
 
+describe("preview observation", () => {
+  it("does not start a missing window just to release observation demand", async () => {
+    let window: string | undefined = "w1";
+    const callClient = vi.fn(async () => undefined);
+    const registry = await activateHostKit(createPreviewHostExtension(async (options) => {
+      const made = fakeSurface({ setObserved: (observed) => { void options.callClient!("observed", { observed }); } });
+      return made.surface;
+    }), {
+      stateDir: "/state",
+      registerRuntimeExtension: () => () => undefined,
+      registerTurnObserver: () => () => undefined,
+      clientWindow: () => window,
+      callClient,
+    });
+    await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:3000" });
+    await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "hold", { on: true });
+    callClient.mockClear();
+    window = undefined;
+    await registry.invoke(PREVIEW_HOST_EXTENSION_ID, "hold", { on: false });
+    expect(callClient).not.toHaveBeenCalled();
+    registry.deactivate(PREVIEW_HOST_EXTENSION_ID);
+  });
+});
+
 describe("preview bounds", () => {
   it("turns the panel's CSS rectangle into window pixels", () => {
     expect(previewRect({ x: 10.4, y: 20.6, width: 300, height: 200, visible: true }, 1)).toEqual({ x: 10, y: 21, width: 300, height: 200 });

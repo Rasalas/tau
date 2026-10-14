@@ -61,6 +61,24 @@ drawable window is retried; other errors fail immediately. The log records that
 error, the window unit's pid and running state, and the wait until a successful
 open. The frame check still proves the page was drawn.
 
+Hidden previews temporarily disable Electron's [background throttling](https://github.com/electron/electron/blob/v44.4.4/docs/api/structures/web-preferences.md#L80-L86)
+while capturing, recording, held by the user, driven by a browser agent, or
+watched through frame requests. Viewer demand expires after 15 s without a
+frame or input request. Once demand ends, throttling returns, including after
+capture failures; visible previews keep their normal behaviour. The regression
+tests model withheld hidden frames; the real Linux smoke remains necessary.
+Capture and smoke budgets stay at 5 s and 30 s.
+
+The 2026-10-14 failures in [PR 328](https://github.com/Rasalas/tau/actions/runs/38613153994/job/116022310743),
+[PR 329](https://github.com/Rasalas/tau/actions/runs/38614326047/job/116026140250)
+and [PR 336](https://github.com/Rasalas/tau/actions/runs/38617100022/job/116035781071)
+all reached a running Xvfb and an opened preview on X11 before the first
+5 s capture expired, then exhausted the 30 s frame budget. PR 328's
+[successful rerun](https://github.com/Rasalas/tau/actions/runs/38613153994/job/116024830893)
+also lost its first capture, then got a frame on the next call. These logs
+point to hidden-page frame production rather than display startup; verify the
+fix with the Linux smoke before treating the compositor behaviour as proven.
+
 Cleanup scans `/proc` for surviving group members and descendants, including
 detached processes whose environment or arguments name the smoke's temporary
 HOME or userData. It checks PID start times before signaling, rescans during

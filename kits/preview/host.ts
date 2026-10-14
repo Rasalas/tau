@@ -56,7 +56,7 @@ import { DEFAULT_PREVIEW_DEFAULTS, fitViewport, readAppearance, readDefaults, re
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
 import { pageInput, previewFocusKind, readPreviewInput, type PreviewPageInput } from "./remote-input.js";
 import { pinnedWindowCalls } from "../_host-window/pinned-calls.js";
-import { DeviceLayout, readPreviewViewer, type PreviewDeviceMetrics } from "./device-layout.js";
+import { DeviceLayout, VIEWER_STALE_MS, readPreviewViewer, type PreviewDeviceMetrics } from "./device-layout.js";
 
 /** Where the view is drawn inside the window, in device-independent pixels. */
 export interface PreviewRect {
@@ -78,6 +78,8 @@ export interface PreviewSurface {
   zoomFactor(): number;
   /** With `device`, the page is laid out for that device's screen whatever the rectangle; without, for the rectangle. */
   place(rect: PreviewRect, visible: boolean, device?: PreviewDeviceMetrics): void;
+  /** Keeps a hidden page painting while a viewer, user or browser agent needs it. */
+  setObserved?(observed: boolean): void;
   load(url: string, timeoutMs: number): Promise<void>;
   navigate(action: "back" | "forward" | "reload" | "hard-reload"): void;
   /** The page's own zoom, kept across its navigations. */
@@ -344,6 +346,8 @@ class PreviewController implements PreviewToolController {
   private readonly window: ReturnType<typeof pinnedWindowCalls>;
 
   private liveCapture: { maxWidth: number; at: number; frame: Promise<{ id: string; data: string; width: number; height: number; url: string } | null> } | undefined;
+  private viewerTimer: ReturnType<typeof setTimeout> | undefined;
+  private observed: boolean | undefined;
 
   private readonly layout = new DeviceLayout(() => {
     this.liveCapture = undefined;
@@ -370,6 +374,8 @@ class PreviewController implements PreviewToolController {
     if (!view?.open) return;
     const url = view.state().url;
     await view.open();
+    this.observed = undefined;
+    this.updateObservation();
     this.place();
     if (url) await view.load(url, LOAD_TIMEOUT_MS);
   }
@@ -377,6 +383,8 @@ class PreviewController implements PreviewToolController {
   /** The kit's window half, in the window that holds the view. */
   async windowCall(command: string, input?: unknown): Promise<unknown> {
     try {
+      // Demand updates alone must not restart a stopped display window.
+      if (command === "observed" && this.context.services.clientWindow && this.context.services.clientWindow() === undefined) return undefined;
       const answer = await this.window.call(command, input);
       this.windowCallFoundNone = false;
       this.windowCannotDraw = false;
@@ -437,6 +445,8 @@ class PreviewController implements PreviewToolController {
       throw new Error(NO_DESKTOP);
     }
     this.view = created;
+    this.observed = undefined;
+    this.updateObservation();
     this.place();
     if (this.appearance !== "system") await created.setAppearance(this.appearance).catch(() => undefined);
     return created;
@@ -535,6 +545,9 @@ class PreviewController implements PreviewToolController {
     this.view = undefined;
     this.window.release();
     this.layout.dispose();
+    clearTimeout(this.viewerTimer);
+    this.viewerTimer = undefined;
+    this.observed = undefined;
     this.liveCapture = undefined;
     this.agentActions = [];
     this.publish();
@@ -549,6 +562,7 @@ class PreviewController implements PreviewToolController {
   }
 
   publish(): void {
+    this.updateObservation();
     const state = this.state();
     // A navigation took the annotation layer, the agent's cursor and the input overlay with the page.
     if (state.url !== this.shownUrl) {
@@ -662,6 +676,24 @@ class PreviewController implements PreviewToolController {
     if (this.mini.drive(threadId, source)) this.publish();
   }
 
+  private updateObservation(): void {
+    if (!this.view) return;
+    const observed = this.held || this.mini.driver()?.source === "browser" || this.viewerTimer !== undefined;
+    if (observed === this.observed) return;
+    this.observed = observed;
+    this.view.setObserved?.(observed);
+  }
+
+  private noteViewer(): void {
+    clearTimeout(this.viewerTimer);
+    this.viewerTimer = setTimeout(() => {
+      this.viewerTimer = undefined;
+      this.updateObservation();
+    }, VIEWER_STALE_MS);
+    this.viewerTimer.unref?.();
+    this.updateObservation();
+  }
+
   releaseDriver(threadId: string): void {
     if (this.mini.release(threadId)) this.publish();
   }
@@ -681,6 +713,7 @@ class PreviewController implements PreviewToolController {
   async miniFrame(): Promise<PreviewFrame | null> {
     const view = this.view;
     if (!view || !view.state().url) return null;
+    this.noteViewer();
     const shot = await view.capture(MINI_FRAME_WIDTH, undefined, true);
     return { data: shot.base64, width: shot.width, height: shot.height };
   }
@@ -696,6 +729,7 @@ class PreviewController implements PreviewToolController {
     const maxWidth = Math.round(Math.min(LIVE_FRAME_WIDTH.max, Math.max(LIVE_FRAME_WIDTH.min, asked)));
     const view = this.view;
     if (!view || !view.state().url) return null;
+    this.noteViewer();
     const viewer = readPreviewViewer(fields.viewer);
     if (viewer && this.viewport.mode === "fill" && this.mayLayOut(call)) this.layout.watch(viewer, this.viewerName(call), previewVisible(this.bounds));
     const recent = this.liveCapture;
@@ -718,6 +752,7 @@ class PreviewController implements PreviewToolController {
     const input = readPreviewInput(raw);
     const surface = await this.loadedPage("sending it input");
     if (!surface.input) throw new Error("This preview cannot take input from another device.");
+    this.noteViewer();
     await surface.input(pageInput(input, surface.viewport()));
     this.liveCapture = undefined;
     const focus = await surface.evaluate(pageCall(previewFocusKind), true).catch(() => "none");
@@ -837,6 +872,7 @@ class PreviewController implements PreviewToolController {
 
   async hold(input: unknown): Promise<void> {
     this.held = (input as { on?: unknown } | undefined)?.on === true;
+    this.updateObservation();
     this.heldUrl = "";
     if (this.held) this.publish();
     else await this.view?.evaluate(pageCall(previewSecretNote, false), true).catch(() => undefined);

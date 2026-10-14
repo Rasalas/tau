@@ -113,6 +113,22 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
   const errors: string[] = [];
   let destroyed = false;
   let recorder: PreviewRecorder | undefined;
+  let observed = false;
+  let recording = false;
+  let captures = 0;
+  let throttled = true;
+  const updateThrottling = (): void => {
+    if (destroyed || contents.isDestroyed()) return;
+    const needsFrames = observed || recording || captures > 0;
+    const next = placement.onScreen() || !needsFrames;
+    if (next === throttled) return;
+    contents.setBackgroundThrottling(next);
+    throttled = next;
+  };
+  window.on("minimize", updateThrottling);
+  window.on("hide", updateThrottling);
+  window.on("restore", updateThrottling);
+  window.on("show", updateThrottling);
   let pageZoom = 1;
   let appearance: PreviewAppearance = "system";
   const note = (message: string): void => {
@@ -271,6 +287,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
       const key = next ? JSON.stringify(next) : "";
       if (key === deviceKey) {
         placement.place(rect, visible, device !== undefined);
+        updateThrottling();
         return;
       }
       deviceKey = key;
@@ -278,8 +295,18 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
       const token = ++placing;
       emulation = emulation.then(() => emulate(next)).catch((error: unknown) => note(`device layout: ${error instanceof Error ? error.message : String(error)}`));
       // Shown only once the page has the layout for it, so the window never draws the other one.
-      void emulation.then(() => { if (!destroyed && token === placing) placement.place(rect, visible, next !== undefined); });
+      void emulation.then(() => {
+        if (!destroyed && token === placing) {
+          placement.place(rect, visible, next !== undefined);
+          updateThrottling();
+        }
+      });
       if (!visible) placement.place(rect, visible, next !== undefined);
+      updateThrottling();
+    },
+    setObserved(next) {
+      observed = next;
+      updateThrottling();
     },
     async load(url: string, timeoutMs: number) {
       const settled = new Promise<void>((resolve) => {
@@ -344,26 +371,46 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
     },
     async capture(maxWidth: number, rect?: PreviewRect, jpeg?: boolean) {
       await emulation;
-      // A view on screen shows a device's layout scaled; the protocol's screenshot has it at its own size.
-      const image = placement.onScreen() && !device ? await (rect ? contents.capturePage(rect) : contents.capturePage()) : await captureHidden(rect, jpeg);
-      const size = image.getSize();
-      const scaled = size.width > maxWidth
-        ? image.resize({ width: maxWidth, height: Math.max(1, Math.round(size.height * (maxWidth / size.width))), quality: jpeg ? "better" : "good" })
-        : image;
-      const final = scaled.getSize();
-      return { base64: (jpeg ? scaled.toJPEG(72) : scaled.toPNG()).toString("base64"), width: final.width, height: final.height };
+      captures += 1;
+      updateThrottling();
+      try {
+        // A view on screen shows a device's layout scaled; the protocol's screenshot has it at its own size.
+        const image = placement.onScreen() && !device ? await (rect ? contents.capturePage(rect) : contents.capturePage()) : await captureHidden(rect, jpeg);
+        const size = image.getSize();
+        const scaled = size.width > maxWidth
+          ? image.resize({ width: maxWidth, height: Math.max(1, Math.round(size.height * (maxWidth / size.width))), quality: jpeg ? "better" : "good" })
+          : image;
+        const final = scaled.getSize();
+        return { base64: (jpeg ? scaled.toJPEG(72) : scaled.toPNG()).toString("base64"), width: final.width, height: final.height };
+      } finally {
+        captures -= 1;
+        updateThrottling();
+      }
     },
     async record(action, recordOptions) {
       if (destroyed) throw new Error("The preview is closed.");
       if (action === "start") {
         recorder ??= new PreviewRecorder(contents, recordOptions);
-        return recorder.start();
+        recording = true;
+        updateThrottling();
+        try {
+          return await recorder.start();
+        } catch (error) {
+          recording = false;
+          updateThrottling();
+          throw error;
+        }
       }
       const active = recorder;
       if (!active) return { chunks: [], mimeType: "video/webm" };
       if (action === "take") return active.take();
       recorder = undefined;
-      return active.stop();
+      try {
+        return await active.stop();
+      } finally {
+        recording = false;
+        updateThrottling();
+      }
     },
     async input(event: PreviewPageInput) {
       if (destroyed) throw new Error("The preview is closed.");
@@ -384,6 +431,10 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
       recorder = undefined;
       if (contents.debugger.isAttached()) contents.debugger.detach();
       window.off("closed", closeWithWindow);
+      window.off("minimize", updateThrottling);
+      window.off("hide", updateThrottling);
+      window.off("restore", updateThrottling);
+      window.off("show", updateThrottling);
       placement.destroy();
       if (!contents.isDestroyed()) contents.close();
       options.log("preview.closed");
@@ -506,6 +557,9 @@ export default function activatePreviewWindowHalf(context: WindowExtensionContex
           return snapshot(open());
         case "place":
           open().place(options.rect as PreviewRect, options.visible === true, readDevice(options.device));
+          return snapshot(open());
+        case "observed":
+          open().setObserved!(options.observed === true);
           return snapshot(open());
         case "load":
           return open().load(String(options.url ?? ""), Number(options.timeoutMs ?? 15_000)).then(() => snapshot(surface!));

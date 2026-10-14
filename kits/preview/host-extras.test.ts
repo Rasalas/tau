@@ -22,9 +22,11 @@ function surface() {
   const records: Array<{ action: string; frameRate?: number }> = [];
   const captures: boolean[] = [];
   const navigations: string[] = [];
+  const observed = vi.fn();
   const fake: PreviewSurface = {
     zoomFactor: () => 1,
     place: (rect) => { placed.push(rect); },
+    setObserved: observed,
     load: async (next) => { url = next; },
     navigate: (action) => { navigations.push(action); },
     setZoom: (factor) => { zooms.push(factor); },
@@ -38,9 +40,10 @@ function surface() {
     capture: async (_width, _rect, jpeg) => { captures.push(jpeg === true); return { base64: "SlBH", width: 640, height: 480 }; },
     record: async (action, options) => { records.push({ action, ...(options?.frameRate ? { frameRate: options.frameRate } : {}) }); return { chunks: [], mimeType: "video/webm" }; },
     pressKey: () => undefined,
+    input: vi.fn(async () => undefined),
     destroy: () => undefined,
   };
-  return { fake, placed, zooms, appearances, evaluated, records, captures, navigations };
+  return { fake, placed, zooms, appearances, evaluated, records, captures, navigations, observed };
 }
 
 interface FakeConfig {
@@ -229,6 +232,48 @@ describe("profiles and recent pages", () => {
 });
 
 describe("a page the user holds", () => {
+  it("keeps frame demand while held or driven by a browser agent, but not a screen agent", async () => {
+    const kit = await activate();
+    await kit.invoke("open", { url: "http://localhost:3000" });
+    expect(kit.observed).toHaveBeenLastCalledWith(false);
+    await kit.invoke("hold", { on: true });
+    expect(kit.observed).toHaveBeenLastCalledWith(true);
+    await kit.toolsOf("t1")("preview_status");
+    await kit.invoke("hold", { on: false });
+    expect(kit.observed).toHaveBeenLastCalledWith(true);
+    await kit.observers[0]!.ended!("t1", "turn", "completed");
+    expect(kit.observed).toHaveBeenLastCalledWith(false);
+    kit.observers[0]!.toolEnded!("t2", { id: "x", name: "computer_use_click", args: {}, status: "done", startedAt: 0 }, "/project");
+    expect(kit.observed).toHaveBeenLastCalledWith(false);
+    kit.registry.deactivate(PREVIEW_HOST_EXTENSION_ID);
+  });
+
+  it("renews viewer demand from frame requests and drops it when requests stop", async () => {
+    const kit = await activate();
+    await kit.invoke("open", { url: "http://localhost:3000" });
+    vi.useFakeTimers();
+    try {
+      await kit.invoke("live-frame", { maxWidth: 640 });
+      expect(kit.observed).toHaveBeenLastCalledWith(true);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await kit.invoke("mini-frame");
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(kit.observed).toHaveBeenLastCalledWith(true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(kit.observed).toHaveBeenLastCalledWith(false);
+      await kit.invoke("input", { kind: "key", key: "Enter" });
+      expect(kit.observed).toHaveBeenLastCalledWith(true);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(kit.observed).toHaveBeenLastCalledWith(false);
+      await kit.invoke("live-frame", {});
+      await kit.invoke("close");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      kit.registry.deactivate(PREVIEW_HOST_EXTENSION_ID);
+      vi.useRealTimers();
+    }
+  });
+
   it("puts the password note on the page and on the next one, and takes it off at the end", async () => {
     const kit = await activate();
     await kit.invoke("open", { url: "http://localhost:3000/login" });
