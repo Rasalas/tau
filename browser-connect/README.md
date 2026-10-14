@@ -37,8 +37,15 @@ The build requires exactly Rust 1.98.1, WASI SDK 27.0 and the matching binding
 CLI. It remaps checkout, registry and sysroot paths before compilation, including
 panic locations retained in stripped WASM. License inputs are sorted before writing;
 the manifest contains only versions and content hashes. No `wasm-opt` pass runs.
-CI rebuilds on Ubuntu 24.04 and macOS and compares every generated file against
-`pkg/` with `git diff --exit-code -- browser-connect/pkg`.
+The committed `pkg/` is the build of an x86_64 Linux host (CI's `ubuntu-24.04`).
+With the same pinned tools, builds on one kind of host are byte-identical
+whatever their paths. Builds on another kind of host are not: an Apple Silicon
+Mac lays out the same code differently (observed 2026-10-14 with identical
+tools and sources). CI rebuilds on Ubuntu 24.04 and compares every generated
+file with `git diff --exit-code -- browser-connect/pkg`. When it differs, the
+job uploads its rebuild as the `browser-connect-pkg` artifact. After a source
+change, take `pkg/` from that artifact, or from a manual run of the workflow,
+rather than from a Mac build.
 
 To check path independence locally, build in two separate checkouts with their
 own target directories and different `CARGO_HOME` paths, then compare `pkg/`

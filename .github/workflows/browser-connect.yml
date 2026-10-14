@@ -19,16 +19,8 @@ concurrency:
 
 jobs:
   rebuild:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            sdk: x86_64-linux
-            sha256: b7d4d944c88503e4f21d84af07ac293e3440b1b6210bfd7fe78e0afd92c23bc2
-          - os: macos-15
-            sdk: arm64-macos
-            sha256: 055c3dc2766772c38e71a05d353e35c322c7b2c6458a36a26a836f9808a550f8
-    runs-on: ${{ matrix.os }}
+    # The committed package is this runner's build; other build hosts lay out the code differently.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -41,9 +33,9 @@ jobs:
       - run: npm ci
       - name: Install adapter tools
         run: |
-          sdk="wasi-sdk-27.0-${{ matrix.sdk }}"
+          sdk=wasi-sdk-27.0-x86_64-linux
           curl --fail --location --silent --show-error "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-27/$sdk.tar.gz" -o "$RUNNER_TEMP/wasi-sdk.tar.gz"
-          echo "${{ matrix.sha256 }}  $RUNNER_TEMP/wasi-sdk.tar.gz" | shasum -a 256 -c -
+          echo "b7d4d944c88503e4f21d84af07ac293e3440b1b6210bfd7fe78e0afd92c23bc2  $RUNNER_TEMP/wasi-sdk.tar.gz" | shasum -a 256 -c -
           tar -xzf "$RUNNER_TEMP/wasi-sdk.tar.gz" -C "$RUNNER_TEMP"
           echo "WASI_SDK_PATH=$RUNNER_TEMP/$sdk" >> "$GITHUB_ENV"
           rustup toolchain install 1.98.1 --profile minimal --target wasm32-unknown-unknown
@@ -55,11 +47,11 @@ jobs:
           npm run build:browser-connect
           git diff --exit-code -- browser-connect/pkg
           npm test -- src/web/connect vite/browser-connect.test.ts --maxWorkers=2
-      - name: Keep the rebuilt package for comparison
+      - name: Keep the rebuilt package, the source of a new pkg/
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: browser-connect-${{ matrix.sdk }}
+          name: browser-connect-pkg
           path: |
             browser-connect/pkg
             browser-connect/target/wasm32-unknown-unknown/release/tau_browser_connect.wasm
