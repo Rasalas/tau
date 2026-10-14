@@ -236,7 +236,8 @@ export class CodexAppServer {
   }
 
   async startThread(params: { cwd: string; model?: string; serviceTier?: string | null; policy: CodexPolicy; ephemeral?: boolean; baseInstructions?: string }): Promise<CodexThreadInfo> {
-    let config: Record<string, unknown> | undefined;
+    // Give cold optional servers time to enter the first turn's tool catalog.
+    let config: Record<string, unknown> = { mcp_optional_startup_grace_ms: 10_000 };
     if (params.ephemeral) {
       const result = await this.connection.request<{ config: { mcp_servers?: Record<string, unknown> } }>("config/read", { includeLayers: false, cwd: params.cwd }, { timeoutMs: this.timeouts.requestMs });
       // Empty tables merge with the user's servers, so disable each effective entry.
@@ -251,7 +252,8 @@ export class CodexAppServer {
       approvalPolicy: params.policy.approvalPolicy,
       approvalsReviewer: params.policy.approvalsReviewer ?? "user",
       sandbox: params.policy.sandbox,
-      ...(params.ephemeral ? { ephemeral: true, config, developerInstructions: "Return the requested text only. Do not use tools or inspect the workspace." } : {}),
+      config,
+      ...(params.ephemeral ? { ephemeral: true, developerInstructions: "Return the requested text only. Do not use tools or inspect the workspace." } : {}),
       ...(params.baseInstructions ? { baseInstructions: params.baseInstructions } : {}),
       ...(params.model ? { model: params.model } : {}),
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
@@ -267,6 +269,7 @@ export class CodexAppServer {
       approvalsReviewer: params.policy.approvalsReviewer ?? "user",
       sandbox: params.policy.sandbox,
       excludeTurns: true,
+      config: { mcp_optional_startup_grace_ms: 10_000 },
       ...(params.model ? { model: params.model } : {}),
       ...(params.serviceTier !== undefined ? { serviceTier: params.serviceTier } : {}),
     }, { timeoutMs: this.timeouts.requestMs });
