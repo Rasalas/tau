@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { NewThreadClaimEvent, UiModel, UiSession, WorkbenchActions } from "tau";
 import { createKitHarness, setHostClient, ToastStore, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -901,18 +901,30 @@ describe("parking the thread on screen", () => {
 
 
 describe("Working transitions", () => {
-  it("follows live start, question, answer, failure and completion without changing saved placement", async () => {
-    const { organizer, current } = setup({ initial: { threads: { a: { order: 2 }, b: { order: 1 } }, settings: { onMerged: true, onClosed: false, workingSection: true } } });
+  it("folds running and monitoring threads and brings a returning one to the top without changing saved placement", async () => {
+    let clock = Date.now();
+    const time = vi.spyOn(Date, "now").mockImplementation(() => clock += 1_000);
+    onTestFinished(() => time.mockRestore());
+    const { organizer, current } = setup({ initial: { threads: { a: { order: 1 }, b: { order: 2 } }, settings: { onMerged: true, onClosed: false, workingSection: true } } });
     await flush();
-    const threads = [thread("a"), thread("b")];
-    const sections = (running: string[], waiting: string[] = [], failed: string[] = []) => organizer().sections(threads, { runningThreadIds: running, waitingThreadIds: waiting, failedThreadIds: failed });
+    const threads = [thread("a", 1), thread("b", 2)];
+    const sections = (running: string[], waiting: string[] = [], failed: string[] = [], background: string[] = []) =>
+      organizer().sections(threads, { runningThreadIds: running, waitingThreadIds: waiting, failedThreadIds: failed, backgroundThreadIds: background });
     const ids = (list: ReturnType<typeof sections>, section: string) => list.find((entry) => entry.id === section)?.threads.map((entry) => entry.id);
+    // Ordered by when each thread came back, not by the saved ranks.
     expect(ids(sections([]), "active")).toEqual(["b", "a"]);
     expect(ids(sections(["a"]), "working")).toEqual(["a"]);
-    expect(ids(sections(["a"], ["a"]), "active")).toEqual(["b", "a"]);
+    // A question takes it out of Working, onto the top.
+    expect(ids(sections(["a"], ["a"]), "active")).toEqual(["a", "b"]);
     expect(ids(sections(["a"]), "working")).toEqual(["a"]);
-    expect(ids(sections(["a"], [], ["a"]), "active")).toEqual(["b", "a"]);
+    expect(ids(sections(["a"], [], ["a"]), "active")).toEqual(["a", "b"]);
+    expect(ids(sections(["b"]), "working")).toEqual(["b"]);
     expect(ids(sections([]), "active")).toEqual(["b", "a"]);
-    expect(current().threads).toEqual({ a: { order: 2 }, b: { order: 1 } });
+    // Background work that wakes the thread keeps it in Working.
+    expect(ids(sections([], [], [], ["a"]), "working")).toEqual(["a"]);
+    expect(organizer().dropLabel("b", { sectionId: "active" })).toBeUndefined();
+    expect(organizer().dropLabel("b", { sectionId: "pinned" })).toBe("Pin");
+    expect(organizer().menu(thread("b")).flatMap((section) => section.items).some((item) => item.id === "move")).toBe(false);
+    expect(current().threads).toEqual({ a: { order: 1 }, b: { order: 2 } });
   });
 });

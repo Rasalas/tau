@@ -995,7 +995,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   ), [threads, lineage.parents, liveKey, projectFilter]);
   const sections = useMemo(
     () => organizer
-      ? organizer.sections(matching, { ...activityState, waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarkIds(rowStatuses)] })
+      ? organizer.sections(matching, {
+        ...activityState,
+        waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarkIds(rowStatuses)],
+        backgroundThreadIds: matching.filter((session) => markedRowStatus(threadRowStatus(session.id, activityState, session), rowStatuses[session.id]).activity === "background").map((session) => session.id),
+      })
       : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf),
     // The organizer's version says when the same threads would land elsewhere.
     // oxlint-disable-next-line react-hooks/exhaustive-deps

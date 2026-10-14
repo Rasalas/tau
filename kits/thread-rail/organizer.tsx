@@ -4,9 +4,11 @@ import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, 
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
+  createWorkingClock,
   dropLabel,
   dropPatches,
   fallbackThread,
+  inWorkingSection,
   inversePatch,
   nextActiveThread,
   pinPatch,
@@ -90,7 +92,14 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   const { send, undo } = port;
   type Change = { threadId: string; patch: ThreadMetaPatch; kind?: UndoKind; action?: UndoAction };
   let last: RailSections = EMPTY;
+  const clock = createWorkingClock(now);
   const meta = (threadId: string) => store.getState().threads[threadId];
+  // With the Working section on, the active list is ordered by time, so a row there cannot be moved by hand.
+  const byTime = (section: string) => section === "active" && store.getState().settings.workingSection === true;
+  const labelOf = (threadId: string, sectionId: string) => {
+    const from = sectionOf(meta(threadId), now());
+    return byTime(from) && byTime(sectionId) ? undefined : dropLabel(from, sectionId);
+  };
 
   /** Sends the patches and, for an action the notice offers back, what takes them back. */
   const change = (patches: Record<string, ThreadMetaPatch>, record?: { threadId: string; kind: UndoKind; action: UndoAction }) => {
@@ -166,8 +175,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     void change({ [threadId]: WAKE_PATCH });
   };
   const drop = (threadId: string, target: RailDrop) => {
-    const label = dropLabel(sectionOf(meta(threadId), now()), target.sectionId);
-    const patches = dropPatches(store.getState(), last, threadId, target, now());
+    const label = labelOf(threadId, target.sectionId);
+    const patches = label && dropPatches(store.getState(), last, threadId, target, now());
     if (!patches) return;
     if (label === "Settle") { parkAndMove([threadId], store.actions, () => change(patches, { threadId, kind: "settle", action: "Settled" })); return; }
     void change(patches, label === "Unpin" ? { threadId, kind: "pin", action: "Unpinned" } : undefined);
@@ -175,7 +184,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   /** One step up or down within the thread's own section. */
   const step = (threadId: string, direction: -1 | 1) => {
     const section = sectionOf(meta(threadId), now());
-    if (section !== "pinned" && section !== "active") return;
+    if ((section !== "pinned" && section !== "active") || byTime(section)) return;
     const list = (section === "active" && last.working.some((thread) => thread.id === threadId) ? last.working : last[section]).map((thread) => thread.id);
     const index = list.indexOf(threadId);
     const target = index + direction;
@@ -347,13 +356,17 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
     isLoading: () => !store.loaded,
     sections(threads, activity) {
       const blocked = new Set([...(activity?.waitingThreadIds ?? []), ...(activity?.failedThreadIds ?? [])]);
-      const working = new Set((activity?.runningThreadIds ?? [...store.running]).filter((id) => !blocked.has(id)));
-      last = railSections(threads, store.getState(), now(), working);
+      const busy = [...(activity?.runningThreadIds ?? store.running), ...(activity?.backgroundThreadIds ?? [])];
+      const working = new Set(busy.filter((id) => !blocked.has(id)));
+      const state = store.getState();
+      const at = now();
+      clock.observe(threads, state.settings.workingSection ? new Set(threads.filter((thread) => inWorkingSection(thread, state, at, working)).map((thread) => thread.id)) : null, activity?.runningStartedAt);
+      last = railSections(threads, state, at, working, clock);
       store.displayed = [...last.pinned, ...last.active, ...last.working];
       return [
         { id: "pinned", label: "Pinned", threads: last.pinned },
         { id: "active", threads: last.active },
-        ...(store.getState().settings.workingSection ? [{ id: "working", label: "Working", shelf: true, collapsed: true, threads: last.working }] : []),
+        ...(state.settings.workingSection ? [{ id: "working", label: "Working", shelf: true, collapsed: true, threads: last.working }] : []),
         { id: "snoozed", label: "Snoozed", shelf: true, collapsed: true, threads: last.snoozed },
         { id: "settled", label: "Settled", shelf: true, collapsed: false, settled: true, threads: last.settled },
       ];
@@ -399,7 +412,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
               }],
             },
             current?.pinned ? { id: "unpin", label: "Unpin thread", ...glyph(PinOff), ...chord(lookup, "thread.pin") } : { id: "pin", label: "Pin thread", ...glyph(Pin), ...chord(lookup, "thread.pin") },
-            ...(settled || snoozed ? [] : [{
+            ...(settled || snoozed || byTime(section) ? [] : [{
               id: "move",
               label: "Move",
               ...glyph(ArrowUpDown),
@@ -536,7 +549,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       }
     },
     toggleSettled: (session) => toggleSettledById(session.id),
-    dropLabel: (threadId, target) => dropLabel(sectionOf(meta(threadId), now()), target.sectionId),
+    dropLabel: (threadId, target) => labelOf(threadId, target.sectionId),
     drop,
     Layer,
     togglePin,

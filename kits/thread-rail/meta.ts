@@ -124,16 +124,70 @@ function withSiblingsTogether(threads: UiSession[], state: RailState): UiSession
   return ordered;
 }
 
+/** Whether the thread folds into the Working section: an active row that runs or waits on background work, and nothing asks for the user. */
+export function inWorkingSection(thread: UiSession, state: RailState, now: number, working: ReadonlySet<string>): boolean {
+  return state.settings.workingSection === true && working.has(thread.id) && sectionOf(state.threads[thread.id], now) === "active"
+    && !thread.turnError && !thread.runtimeError && !thread.interrupted && !thread.limit;
+}
+
+/** When this client saw a thread enter and leave the Working section; the host stamps neither. */
+export interface WorkingClock {
+  returnedAt(threadId: string): number | undefined;
+  workingSince(threadId: string): number | undefined;
+}
+
+/**
+ * Remembers when each thread entered and left the Working section. Pass the
+ * threads in it on every rebuild, or null while the section is off. The first
+ * call only takes a baseline, so turning the section on never reshuffles the list.
+ */
+export function createWorkingClock(now: () => number): WorkingClock & {
+  observe(threads: readonly UiSession[], working: ReadonlySet<string> | null, startedAt?: Readonly<Record<string, number>>): void;
+} {
+  let last: ReadonlySet<string> | null = null;
+  const returned = new Map<string, number>();
+  const since = new Map<string, number>();
+  return {
+    observe(threads, working, startedAt = {}) {
+      if (working === null) {
+        last = null;
+        returned.clear();
+        since.clear();
+        return;
+      }
+      const present = new Set(threads.map((thread) => thread.id));
+      for (const map of [returned, since]) for (const id of map.keys()) if (!present.has(id)) map.delete(id);
+      const at = now();
+      for (const thread of threads) {
+        if (!working.has(thread.id) || since.has(thread.id)) continue;
+        // Wakes and runs ending inside the section keep the row in place; only a new entry moves it.
+        since.set(thread.id, last === null ? startedAt[thread.id] ?? thread.modifiedAt : at);
+        returned.delete(thread.id);
+      }
+      for (const id of last ?? []) {
+        if (present.has(id) && !working.has(id)) {
+          since.delete(id);
+          returned.set(id, at);
+        }
+      }
+      last = working;
+    },
+    returnedAt: (threadId) => returned.get(threadId),
+    workingSince: (threadId) => since.get(threadId),
+  };
+}
+
 /**
  * Splits the rail's threads into its four sections, each in its own order:
  * pins by rank; active threads by when they began or came back, above the ones the user arranged;
  * snoozed threads by when they wake; settled threads latest first.
+ * With the Working section on, active threads go newest first by when they last came back
+ * to the user, and Working lists the thread last sent work first.
  */
-export function railSections(threads: readonly UiSession[], state: RailState, now: number, working: ReadonlySet<string> = new Set()): RailSections {
+export function railSections(threads: readonly UiSession[], state: RailState, now: number, working: ReadonlySet<string> = new Set(), clock?: WorkingClock): RailSections {
   const sections: RailSections = { pinned: [], active: [], working: [], snoozed: [], settled: [], archived: [] };
   for (const thread of threads) {
-    const section = sectionOf(state.threads[thread.id], now);
-    sections[section === "active" && state.settings.workingSection && working.has(thread.id) && !thread.turnError && !thread.runtimeError && !thread.interrupted && !thread.limit ? "working" : section].push(thread);
+    sections[inWorkingSection(thread, state, now, working) ? "working" : sectionOf(state.threads[thread.id], now)].push(thread);
   }
   const meta = (thread: UiSession): ThreadMeta => state.threads[thread.id] ?? {};
   const rank = (value: number | undefined) => value ?? Number.NEGATIVE_INFINITY;
@@ -145,9 +199,17 @@ export function railSections(threads: readonly UiSession[], state: RailState, no
   const anchor = (thread: UiSession) => Math.max(thread.createdAt ?? thread.modifiedAt, meta(thread).keptAt ?? 0);
   const byPlace = (left: UiSession, right: UiSession) =>
     rank(meta(left).order) - rank(meta(right).order) || (meta(left).order === undefined && meta(right).order === undefined ? anchor(right) - anchor(left) : 0);
-  sections.active.sort(byPlace);
+  if (state.settings.workingSection) {
+    // As T3 Code's Working beta; the saved order comes back when the section is off.
+    const returned = (thread: UiSession) => Math.max(anchor(thread), thread.modifiedAt, clock?.returnedAt(thread.id) ?? 0);
+    const sent = (thread: UiSession) => clock?.workingSince(thread.id) ?? thread.createdAt ?? thread.modifiedAt;
+    sections.active.sort((left, right) => returned(right) - returned(left) || left.id.localeCompare(right.id));
+    sections.working.sort((left, right) => sent(right) - sent(left) || left.id.localeCompare(right.id));
+  } else {
+    sections.active.sort(byPlace);
+    sections.working.sort(byPlace);
+  }
   sections.active = withSiblingsTogether(sections.active, state);
-  sections.working.sort(byPlace);
   sections.working = withSiblingsTogether(sections.working, state);
   sections.snoozed.sort((left, right) => (meta(left).snoozedUntil ?? 0) - (meta(right).snoozedUntil ?? 0));
   sections.settled.sort((left, right) => (meta(right).settledAt ?? 0) - (meta(left).settledAt ?? 0) || byRecency(left, right));

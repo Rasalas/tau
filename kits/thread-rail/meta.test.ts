@@ -19,6 +19,7 @@ import {
   snoozePatch,
   snoozePresets,
   sweepPatches,
+  createWorkingClock,
   unsettlePatch,
 } from "./meta.js";
 import type { RailState, ThreadMeta } from "./protocol.js";
@@ -290,19 +291,18 @@ describe("archive and undo", () => {
 
 
 describe("working section", () => {
-  it("is opt-in, preserves parking precedence and returns to the saved order after completion", () => {
+  it("is opt-in and preserves parking precedence", () => {
     const threads = ["a", "b", "pin", "snooze", "settled", "archive"].map((id) => thread(id));
     const saved = state({ a: { order: 2 }, b: { order: 1 }, pin: { pinned: true }, snooze: { snoozedUntil: NOW + 100 }, settled: { settledAt: NOW }, archive: { archivedAt: NOW } });
     const running = new Set(threads.map((entry) => entry.id));
     expect(ids(railSections(threads, saved, NOW, running).working)).toEqual([]);
     const opted = { ...saved, settings: { ...saved.settings, workingSection: true } };
     const during = railSections(threads, opted, NOW, running);
-    expect(ids(during.working)).toEqual(["b", "a"]);
+    expect(ids(during.working).sort()).toEqual(["a", "b"]);
     expect(ids(during.pinned)).toEqual(["pin"]);
     expect(ids(during.snoozed)).toEqual(["snooze"]);
     expect(ids(during.settled)).toEqual(["settled"]);
     expect(ids(during.archived)).toEqual(["archive"]);
-    expect(ids(railSections(threads, opted, NOW).active)).toEqual(["b", "a"]);
     expect(decodeState(JSON.parse(JSON.stringify(opted)))).toEqual(opted);
   });
 
@@ -310,7 +310,63 @@ describe("working section", () => {
     const threads = [ { ...thread("error"), turnError: "failed" }, { ...thread("runtime"), runtimeError: "offline" }, { ...thread("interrupted"), interrupted: true } ];
     const sections = railSections(threads, state({}, { workingSection: true }), NOW, new Set(threads.map((entry) => entry.id)));
     expect(sections.working).toEqual([]);
-    expect(ids(sections.active)).toEqual(["error", "runtime", "interrupted"]);
+    expect(ids(sections.active).sort()).toEqual(["error", "interrupted", "runtime"]);
+  });
+
+  it("orders the active list by return while on and the saved order when off", () => {
+    let at = NOW;
+    const clock = createWorkingClock(() => at);
+    const threads = [thread("old", NOW - 300), thread("mid", NOW - 200), thread("new", NOW - 100)];
+    const saved = state({ old: { order: 0 }, mid: { order: 1 }, new: { order: 2 } }, { workingSection: true });
+    const view = (running: string[]) => {
+      const working = new Set(running);
+      clock.observe(threads, working, {});
+      return railSections(threads, saved, at, working, clock);
+    };
+    expect(ids(view([]).active)).toEqual(["new", "mid", "old"]);
+    at = NOW + 10;
+    expect(ids(view(["old"]).active)).toEqual(["new", "mid"]);
+    at = NOW + 20;
+    // Background work ending reaches no session file; the client's clock still puts it on top.
+    expect(ids(view([]).active)).toEqual(["old", "new", "mid"]);
+    expect(clock.returnedAt("old")).toBe(NOW + 20);
+    const off = { ...saved, settings: { ...saved.settings, workingSection: false } };
+    clock.observe(threads, null);
+    expect(ids(railSections(threads, off, at, new Set(), clock).active)).toEqual(["old", "mid", "new"]);
+    expect(clock.returnedAt("old")).toBeUndefined();
+  });
+
+  it("lists Working by when work was sent, and a wake inside it does not move a row", () => {
+    let at = NOW;
+    const clock = createWorkingClock(() => at);
+    const threads = [thread("a", NOW - 500), thread("b", NOW - 400)];
+    const opted = state({}, { workingSection: true });
+    const view = (running: string[], startedAt: Record<string, number> = {}) => {
+      const working = new Set(running);
+      clock.observe(threads, working, startedAt);
+      return ids(railSections(threads, opted, at, working, clock).working);
+    };
+    // The baseline takes the host's run start, so turning the section on does not reshuffle it.
+    expect(view(["a", "b"], { a: NOW - 50, b: NOW - 60 })).toEqual(["a", "b"]);
+    at = NOW + 10;
+    expect(view(["a"])).toEqual(["a"]);
+    at = NOW + 20;
+    expect(view(["a", "b"])).toEqual(["b", "a"]);
+    // `a` keeps its place while its run ends and a watched request wakes it again.
+    at = NOW + 30;
+    threads[0] = { ...threads[0]!, modifiedAt: NOW + 30 };
+    expect(view(["a", "b"])).toEqual(["b", "a"]);
+  });
+
+  it("drops what it remembers for threads no longer listed", () => {
+    let at = NOW;
+    const clock = createWorkingClock(() => at);
+    clock.observe([thread("a")], new Set(["a"]));
+    at = NOW + 1;
+    clock.observe([thread("a")], new Set());
+    expect(clock.returnedAt("a")).toBe(NOW + 1);
+    clock.observe([], new Set());
+    expect(clock.returnedAt("a")).toBeUndefined();
   });
 });
 
@@ -321,5 +377,6 @@ it("keeps working ranks when an attention row is manually reordered", () => {
   const sections = railSections(threads, initial, NOW, new Set(["busy"]));
   const patches = dropPatches(initial, sections, "b", { sectionId: "active", beforeThreadId: "a" }, NOW)!;
   const reordered = applyPatches(initial, patches);
-  expect(ids(railSections(threads, reordered, NOW).active)).toEqual(["b", "a", "busy"]);
+  const off = { ...reordered, settings: { ...reordered.settings, workingSection: false } };
+  expect(ids(railSections(threads, off, NOW).active)).toEqual(["b", "a", "busy"]);
 });
