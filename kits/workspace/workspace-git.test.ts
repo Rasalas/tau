@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, rmdir, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -308,6 +308,71 @@ describe("large diff bounds", () => {
  * "this one test is expensive".
  */
 describe("immutable turn snapshots", () => {
+  it.each([
+    ["clean", false], ["read-tree", false], ["clean", true], ["read-tree", true],
+  ] as const)("keeps a nested Windows workspace after %s with rollback=%s", async (removedBy, rollback) => {
+    const root = await mkdtemp(join(tmpdir(), "tau-restore-nested-"));
+    const cwd = join(root, "nested", "workspace");
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      await writeFile(join(root, "outside.txt"), "outside\n");
+      execFileSync("git", ["add", "."], { cwd: root });
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "fixture"], { cwd: root });
+      await mkdir(cwd, { recursive: true });
+      const empty = await createWorkspaceSnapshot(cwd, { namespace: "empty/turn", phase: "before" });
+      await createWorkspaceSnapshot(cwd, { namespace: "empty/turn", phase: "after" });
+      await writeFile(join(cwd, "current.txt"), "unsaved\n");
+      await createWorkspaceSnapshot(cwd, { namespace: "full/turn", phase: "before" });
+      const full = await createWorkspaceSnapshot(cwd, { namespace: "full/turn", phase: "after" });
+      const target = rollback && removedBy === "read-tree" ? "full" : "empty";
+      const backup = target === "empty" ? "full" : "empty";
+      if (backup === "empty") await rm(join(cwd, "current.txt"));
+      const phases: string[] = [];
+      const runGit = async (path: string, args: string[], maxBuffer?: number): Promise<string> => {
+        // Real Git supplies the trees; only Windows directory removal is simulated.
+        await stat(path);
+        if (rollback && removedBy === "clean" && args[0] === "read-tree" && args.at(-1) === empty.treeId) {
+          await rm(path, { recursive: true, force: true });
+          throw new Error("simulated restore write failure");
+        }
+        const output = execFileSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd: path, encoding: "utf8", maxBuffer });
+        if (args[0] === "clean" && removedBy === "clean") await rm(path, { recursive: true, force: true });
+        if (args[0] === "read-tree" && removedBy === "read-tree" && args.at(-1) === empty.treeId) {
+          await rmdir(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+        }
+        return output;
+      };
+      Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+      const restore = restoreWorkspaceSnapshot(cwd, turnSnapshotRef(target, "turn", "after"), {
+        target: { sessionId: target, turnId: "turn" },
+        rollback: { sessionId: backup, turnId: "turn" },
+        runGit,
+        onPhase: async (phase) => {
+          phases.push(phase);
+          if (phase !== "rolling-back") expect((await stat(cwd)).isDirectory()).toBe(true);
+          if (rollback && removedBy === "read-tree" && phase === "applied") throw new Error("simulated post-apply failure");
+        },
+      });
+      if (rollback) await expect(restore).rejects.toThrow(/original workspace was restored.*simulated (restore write|post-apply) failure/u);
+      else await restore;
+      expect((await stat(cwd)).isDirectory()).toBe(true);
+      if (rollback && removedBy === "clean") {
+        expect(await readFile(join(cwd, "current.txt"), "utf8")).toBe("unsaved\n");
+        expect(full.treeId).not.toBe(empty.treeId);
+      } else {
+        await expect(stat(join(cwd, "current.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      }
+      expect(phases).toEqual(rollback
+        ? ["apply-started", "cleaned", ...(removedBy === "read-tree" ? ["applied"] : []), "rolling-back"]
+        : ["apply-started", "cleaned", "applied"]);
+      expect(await readFile(join(root, "outside.txt"), "utf8")).toBe("outside\n");
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 90_000);
+
   it("restores a verified Git checkpoint and can replay the backup", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tau-restore-snapshots-"));
     try {
