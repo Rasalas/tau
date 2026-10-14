@@ -55,3 +55,12 @@ jobs:
           npm run build:browser-connect
           git diff --exit-code -- browser-connect/pkg
           npm test -- src/web/connect vite/browser-connect.test.ts --maxWorkers=2
+      - name: Keep the rebuilt package for comparison
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-connect-${{ matrix.sdk }}
+          path: |
+            browser-connect/pkg
+            browser-connect/target/wasm32-unknown-unknown/release/tau_browser_connect.wasm
+          retention-days: 7
