@@ -2,7 +2,7 @@ function stats(values) {
   return `median ${values.median.toFixed(1)}ms, p95 ${values.p95.toFixed(1)}ms, max ${values.maximum.toFixed(1)}ms`;
 }
 
-export function evaluateRendererBudgets(report, budgets) {
+export function evaluateRendererBudgets(report, budgets, { timings = true } = {}) {
   const failures = [];
   const scenarios = report.scenarios ?? [];
   const scenarioIds = new Set(scenarios.map((scenario) => scenario.id));
@@ -31,7 +31,7 @@ export function evaluateRendererBudgets(report, budgets) {
     for (const [label, actual, budget, unit, distribution] of measurements) {
       if (!Number.isFinite(actual)) {
         failures.push(`${scenario.id} ${label} was not reported by the renderer fixture`);
-      } else if (budget !== undefined && actual > budget) {
+      } else if ((timings || unit !== "ms") && budget !== undefined && actual > budget) {
         const value = unit ? actual.toFixed(1) : actual;
         const detail = distribution && [distribution.median, distribution.p95, distribution.maximum].every(Number.isFinite)
           ? ` (${stats(distribution)})`

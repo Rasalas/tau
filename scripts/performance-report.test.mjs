@@ -225,6 +225,31 @@ describe("performance report checks", () => {
     expect(failures).toHaveLength(5);
   });
 
+  it("keeps DOM limits and complete measurements mandatory when renderer timings are advisory", () => {
+    const scenario = {
+      id: "shared-runner", longTaskObserverSupported: true,
+      frameIntervalsMs: { p95: 100 }, mountDurationsMs: { p95: 100 },
+      longTasksMs: { maximum: 100 }, updateDurationsMs: { p95: 100 }, domNodes: 9_000,
+    };
+    const budgets = { rendererFrameP95Ms: 24, rendererMountP95Ms: 24, rendererLongTaskMs: 50, rendererCommitP95Ms: 24, rendererDomNodes: 5_000, rendererRequiredScenarios: ["shared-runner"] };
+    const structural = { timings: false };
+    expect(evaluateRendererBudgets({ scenarios: [scenario] }, budgets, structural)).toEqual(["shared-runner DOM nodes 9000 > 5000"]);
+    expect(evaluateRendererBudgets({ scenarios: [{ ...scenario, domNodes: 100 }] }, budgets, structural)).toEqual([]);
+    expect(evaluateRendererBudgets({ scenarios: [{ ...scenario, domNodes: 100, frameIntervalsMs: undefined }] }, budgets, structural)).toEqual(["shared-runner frame p95 was not reported by the renderer fixture"]);
+    expect(evaluateRendererBudgets({ scenarios: [] }, budgets, structural)).toEqual(["shared-runner was not reported by the renderer fixture"]);
+  });
+
+  it("keeps paint readiness, external requests and blur checks mandatory when start timings are advisory", () => {
+    const budgets = { firstPaintMs: 100, externalNetworkRequests: 0, overlayCompositionMs: 4 };
+    const report = { firstPaintMs: 9_000, externalRequests: [], overlayComposition: { components: { panel: { backdropBlur: false, measuredMs: 100 } } } };
+    expect(evaluateStartBudgets(report, budgets, { timings: false })).toEqual([]);
+    expect(evaluateStartBudgets({ ...report, firstPaintMs: undefined }, budgets, { timings: false })).toContain("firstPaintMs was not reported by the browser fixture");
+    expect(evaluateStartBudgets({ ...report, externalRequests: undefined }, budgets, { timings: false })).toContain("externalRequests was not reported by the browser fixture");
+    expect(evaluateStartBudgets({ ...report, externalRequests: [{}], overlayComposition: { components: { panel: { backdropBlur: true, measuredMs: 100 } } } }, budgets, { timings: false })).toEqual([
+      "externalNetworkRequests 1 > budget 0", "panel uses backdrop blur above the tested fallback",
+    ]);
+  });
+
   it("fails a stream end that reparses the whole message in one commit", () => {
     const scenario = {
       id: "markdown-fenced-stream-150kb",

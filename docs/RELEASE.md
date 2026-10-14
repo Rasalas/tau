@@ -1085,7 +1085,7 @@ from a fork runs with a read-only token and no secret.
 | Workflow | Runs on | Jobs |
 |---|---|---|
 | `ci.yml` | pull requests, pushes to `main` | `checks` (lint, typecheck, build), `test (1/3)` to `test (3/3)` (the suite in three shards), `smoke` |
-| `performance.yml` | pull requests, pushes to `main` | build and Git budgets and host budgets block; renderer and start timings are advisory ([PERFORMANCE.md](PERFORMANCE.md)) |
+| `performance.yml` | pull requests, pushes to `main` | build, Git, host, session storage and paging budgets block; renderer and start structural checks block, their timings remain advisory ([PERFORMANCE.md](PERFORMANCE.md)) |
 | `release.yml` | `v*.*.*` tags, the nightly schedule, dispatch | above |
 | `pages.yml` | pushes to `main` that touch `site/`, `docs/` and the rest the website builds from | builds the site without write access, then deploys it to GitHub Pages |
 | `windows.yml` | dispatch only | the Windows checks ([windows.md](windows.md)) |

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ExtensionUiPrompt, UiMessage, UiTurnActivityEntry } from "../shared/contracts";
 import { ThreadViewStore } from "../workbench/thread-view-store";
 import { TranscriptViewport } from "./components/TranscriptViewport";
@@ -40,25 +40,42 @@ export default function ActivityStreamScenario({ turns, historyEntries, bytes, u
     recoverThread: done, copyToolOutput: done, loadToolOutput: done, abort: noop,
   });
   const scrollRef = useRef<HTMLDivElement>(null);
+  const committedUpdate = useRef<(() => void) | undefined>(undefined);
+  useLayoutEffect(() => {
+    const acknowledge = committedUpdate.current;
+    committedUpdate.current = undefined;
+    acknowledge?.();
+  }, [transcript.revision]);
 
   useEffect(() => {
     let stopped = false;
     let tick = 0;
     let sent = 0;
     const initialLength = store.getTranscript().messages.at(-1)!.text.length;
-    const step = () => {
+    const step = async () => {
       if (stopped) return;
       if (tick === updates) { onFinished(store.getTranscript().messages.at(-1)!.text.length - initialLength); return; }
       const next = Math.floor(bytes * (tick + 1) / updates);
-      onTick(tick);
+      // Zero is the parent's initial tick. Every requested update must change
+      // it so production React's commit measurement includes the first one.
+      onTick(tick + 1);
+      const committed = new Promise<void>((resolve) => { committedUpdate.current = resolve; });
       store.dispatch({ type: "assistant-delta", sessionId: SESSION, id: `message-${turns * 2 - 1}`, delta: "x".repeat(next - sent) });
       store.flushAssistantDeltas();
+      // Frame scheduling alone does not acknowledge a React commit. Await the
+      // rendered transcript revision before sending more data or finishing.
+      await committed;
+      if (stopped) return;
       sent = next;
       tick += 1;
       requestAnimationFrame(step);
     };
     requestAnimationFrame(() => requestAnimationFrame(step));
-    return () => { stopped = true; };
+    return () => {
+      stopped = true;
+      committedUpdate.current?.();
+      committedUpdate.current = undefined;
+    };
   }, [bytes, onFinished, onTick, store, turns, updates]);
 
   const anchor = transcript.messages[8];

@@ -15,7 +15,8 @@ const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
 const fixture = JSON.parse(await readFile(join(ROOT, "benchmarks", "renderer-fixtures.json"), "utf8"));
 const budgets = JSON.parse(await readFile(join(ROOT, "scripts", "performance-budgets.json"), "utf8"));
 const args = process.argv.slice(2);
-const check = args.includes("--check");
+const structuralOnly = args.includes("--check-structural") && !args.includes("--check");
+const check = args.includes("--check") || structuralOnly;
 // Reuses the renderer from an earlier run; without one it is built all the same.
 const skipBuild = args.includes("--no-build");
 const outputArg = args.find((arg) => !arg.startsWith("--"));
@@ -291,7 +292,11 @@ for (const scenario of report.scenarios) {
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
 
-const failures = check ? evaluateRendererBudgets(report, budgets) : [];
+const failures = check ? evaluateRendererBudgets(report, budgets, { timings: !structuralOnly }) : [];
+if (structuralOnly) {
+  const warnings = evaluateRendererBudgets(report, budgets).filter((failure) => !failures.includes(failure));
+  if (warnings.length > 0) console.warn(`Renderer timing budgets (advisory):\n${warnings.map((warning) => `- ${warning}`).join("\n")}`);
+}
 console.log(`Renderer report: ${outputPath}`);
 if (failures.length > 0) {
   console.error(`Renderer budget failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);

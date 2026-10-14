@@ -322,8 +322,8 @@ Initial local targets:
 - the end of a 150 KB fenced stream commits in under 16 ms at p95 (`rendererStreamEndCommitMs`, scenario `markdown-fenced-stream-150kb`, since 2026-09-23)
 - renderer mount work below 24 ms mount p95, with the transcript setup exception documented below
 - host benchmark sampling since 2026-09-05: each report starts the host three times (`TAU_HOST_BENCH_RUNS`); only the first start of a process is cold (later hosts reuse the SDK resource cache: 2.0 s versus 60 ms on the development machine), so the bootstrap budget compares the median of three cold starts, each the first start of a fresh child process (`cold`, with the three values in `coldSamples`, since 2026-10-13: a single start swung between 427 and 1,405 ms with the load of the runner's host), while median, p95 and maximum of the hosts in the benchmark process stay in the report; switch scenarios keep their p95 over all samples, now interpolated like the renderer benchmark. The full-mode cold budget is 2500 ms (`hostBootstrapFullMs`): with extension binding off the critical path the whole cold start is SDK resource loading, 1.1 to 2.0 s locally and 2.0 s on the GitHub runner
-- CI split on 2026-09-05: CI gates lint, typecheck, and tests; the GitHub performance workflow gates build, Git, and host budgets. The renderer and start budgets run under software rendering on the shared runner and are advisory there (published as artifacts, never blocking). `npm run performance:ci` on a development machine remains the complete gate. Before this split the workflow had never passed on GitHub
-- CI on GitHub-hosted runners since 0.7.14: the performance workflow runs on `ubuntu-24.04` with two blocking steps, build and Git budgets, then host budgets; renderer and start stay advisory. Sizes and counts do not depend on the machine, timings do. The tightest blocking timings measured on the old self-hosted runner were the build time (20.5 of 30 s) and the safe-mode cold bootstrap (549 of 1,000 ms); a two-core hosted runner took 2.0 s for the full-mode cold bootstrap (budget 2,500 ms) in early September. The build time flaked there first, in the slower eastus regions; since K157 it is compared at reference speed and against the recent main runs ("Build time on shared runners" below), so a rerun is no longer the remedy. If other timings flake, the next step is a mode of the `evaluate*Budgets` functions that turns timing violations into warnings and keeps structural ones fatal; `npm run performance:ci` on a quiet machine stays the timing gate.
+- CI split on 2026-09-05: CI gates lint, typecheck, and tests; the GitHub performance workflow gates build, Git, and host budgets. Renderer and start reports were initially entirely advisory. Since 2026-10-13, session storage and paging budgets and renderer/start structural checks block too; only their timing overruns remain advisory. `npm run performance:ci` on a development machine remains the complete gate. Before this split the workflow had never passed on GitHub.
+- CI on GitHub-hosted runners since 0.7.14: the performance workflow runs on `ubuntu-24.04`. Sizes and counts do not depend on the machine, timings do. The tightest blocking timings measured on the old self-hosted runner were the build time (20.5 of 30 s) and the safe-mode cold bootstrap (549 of 1,000 ms); a two-core hosted runner took 2.0 s for the full-mode cold bootstrap (budget 2,500 ms) in early September. The build time flaked there first, in the slower eastus regions; since K157 it is compared at reference speed and against the recent main runs ("Build time on shared runners" below). Renderer and start use `--check-structural` on shared runners; `npm run performance:ci` on a quiet machine stays the timing gate.
 - build budgets recalibrated on 2026-09-05: the initial script had grown to 1.62 MB because the icon set shared with extension packages was bundled as a namespace import; it is now a lazy 935 KB chunk fetched only when a workspace has packages, and the initial script is 721 KB (221 KB gzip). The initial JavaScript budget is 800 KB raw with the 275 KB gzip budget unchanged, the CSS budgets follow the 128 KB stylesheet (140 KB raw, 30 KB gzip), the total budgets include the lazy icon chunk (1.9 MB raw, 500 KB gzip), and the build-time budget allows a CI runner (20 s; raised to 30 s on 2026-09-06 after the Agents, Preview and cost work took the shared runner to 20.7 s — the build takes 7–10 s on a development machine, and the budget only guards against a runaway build, not a regression in output size)
 - license headers deduplicated on 2026-09-22, budgets unchanged: every icon module carries the same license comment, and the minifier kept all 1,722 copies, 294 KB of the icon chunk. `vite/legal-comments.ts` now keeps the first copy of each legal comment per chunk. Total JavaScript went from 1,900,561 to 1,584,805 bytes (gzip 479,758 to 474,747), the icon chunk from 935 KB to 631 KB and the initial script from 749 KB to 740 KB (227 KB gzip). The browser client's total went down to 1,577,244 bytes (472,681 gzip). Gzip is now the tighter of the two total budgets
 - kit bundles are outside these budgets: `scripts/build-report.mjs` measures `dist/` only, and `scripts/build-kits.mjs` writes each kit's desktop half to `dist-kits/<id>/desktop.js`, one ES module that the renderer imports when the kit activates (whitespace-minified since K121, syntax-minified with dependencies' local names shortened since K158; see "Script and kit headroom, 0.7.15" and "Kit headroom, 0.7.25"). Since ticket G05 (2026-09-25) its map sits beside it in `desktop.js.map` instead of inline, and `kitDesktopJavascriptBytes` holds the sum of these files to 3,100,000 bytes (2,931,174 measured on 2026-09-30; lowered from 4,000,000 once K121's whitespace minification left a million bytes unused; see "Start-up after first paint" below). Files Kit's CodeMirror 6 editor (2026-09-23) took its bundle from 140,806 bytes (42,623 gzip; 38,875 without the map) to 4,847,915 (1,301,657 gzip; 1,427,626 and 380,419 gzip without the map), and left the renderer's own assets unchanged. CodeMirror and each language mode are evaluated on the first open of a file that needs them; that first open measured 24 ms from the click to highlighted text in the isolated instance, and compiling the module about 16 ms under Node (9 ms without the map, which is two thirds of the bytes)
@@ -1883,3 +1883,119 @@ the normal global test teardown fails its process scan. The recorded local
 verification used a temporary config in `.scratch/rv56-verification/` that
 preserves the test setup and omits that teardown; no repository test
 configuration was changed.
+
+## Session writes, persisted paging and extension updates, 2026-10-13
+
+Codex, Claude Code, OpenCode and ACP session stores now write only the supplied
+thread IDs or runtime model lists. A store keeps a small versioned layout marker
+at its original path and atomic JSON records under `<path>.records/`, keyed by
+the SHA-256 of the ID. Deletions write tombstones. The existing process lock
+serializes writers, so updating independent IDs cannot overwrite another
+process's changes. Updates to the same ID still replace that thread's record.
+
+The first load migrates the old snapshot with up to eight concurrent writes,
+preserves it as an owner-only `<path>.legacy` backup and publishes the new marker
+last. An interrupted migration retries from the original snapshot. A published
+marker with a missing record directory fails instead of accepting an empty
+store. Newer schemas remain protected from writes. Older builds cannot write
+the new layout; the legacy backup is a migration snapshot, not a current copy.
+Startup still reads all records, and changing a thread still rewrites that
+thread's full transcript. This removes writes proportional to unrelated history;
+it does not introduce incremental writes within one large thread.
+
+A separate 1,000-thread startup probe (42.2 MB, five fresh loads, alongside the
+renderer benchmark) measured a median 35.3 ms for the old snapshot and 126.8 ms
+for the migrated records, excluding migration. The many individual reads add
+startup work; bounded parallel reads are a remaining option for larger stores.
+
+Persisted Pi transcripts use a shared reader. Files up to 256 KiB use bounded
+asynchronous reads and the SDK already loaded in the host. Larger files parse
+and project in a lazy worker. A cached turn index serves subsequent pages
+without reparsing or mapping the entire history. Cache keys include file
+identity, size, modification and change times, thread presentation inputs and
+extension pins. Pin providers remain in the host; their revision invalidates
+both live and persisted projections. Reads detect file changes during loading
+and retry at most twice.
+
+The reader retains up to four small and four worker snapshots, with a combined
+64 MiB serialized raw-plus-projected payload limit (up to 2 MiB for the small
+cache). This is not a JavaScript heap limit: transient parsing, object overhead
+and pin-provider transfers use additional memory. Oversized snapshots are
+served without retention and parse again on the next request. The worker exits
+after 30 seconds without work, so its next request pays startup again.
+
+Extension registration changes have a separate subscription from live data.
+Thread rows and status notify only that thread; marks, lineage, project icons,
+provider icons and problems each have their own channel. Historical transcript
+caches follow registration changes rather than unrelated live updates. The
+legacy subscription still receives every update for compatibility. Regression
+tests publish 50 unrelated updates and verify that App and Composer do not
+render again while changes to the visible thread still appear.
+
+Host turn control now owns abort preparation, interruption reconciliation,
+recovery publication and continuation. Runtime lifecycle owns reopening and
+offscreen adoption. Their factory wires these modules directly, removing the
+corresponding callbacks through PiHost; the visible activation hooks remain
+explicit.
+
+The real-app check also exposed a startup ordering bug: the host page connected
+before the local socket Origin policy was installed, leaving the desktop
+permanently refused. Startup now installs that synchronous policy before loading
+the host page, while catalog and saved-route restoration remain deferred. The
+first page still appears before host preparation.
+
+The synthetic session fixture uses 10, 100 and 1,000 threads with 40 messages
+each, and Pi histories of 200, 2,000 and 20,000 entries. Messages contain about
+1 KB of text. Local measurements on this worktree are observational, not timing
+guarantees. The after column includes two runs, alongside focused checks:
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Title change, 1,000 threads, median | 210.2 ms | 8.5–10.9 ms |
+| Bytes rewritten by that change | 42.3 MiB | 44,388 bytes |
+| Older page, 20,000 entries | 50.6 ms | 0.2–0.3 ms median |
+| First page, 200 entries | 0.7 ms | 3.1–3.5 ms |
+
+The new one-time migration of the 1,000-thread fixture took 5.7 seconds. The
+first worker request (2,000 entries) took 295–462 ms; the subsequent cold read of
+20,000 entries took 113–158 ms. Worker startup and cold parsing remain real costs,
+but large histories no longer perform that work on the host event loop. Warm
+pages returned 40 messages with no new parse or full-history projection.
+
+```sh
+npm run benchmark:sessions -- --check
+```
+
+The command writes `reports/session-performance-report.json`. Its blocking
+budgets require one changed record of at most 64 KiB for the title fixture,
+40-message pages, no warm rebuild or remapping, the 64 MiB cache bound and no
+worker startup for the small fixture. Timings, including migration and worker
+startup, are reported separately.
+
+Performance CI also runs renderer and start reports with `--check-structural`.
+Missing measurements, failed scenarios, excess DOM, startup network requests
+and forbidden blur remain failures; timing overruns are printed as advisory
+warnings. `--check` still enforces timing budgets for controlled local runs.
+Removing step-wide `continue-on-error` makes crashes and structural regressions
+block the workflow while timing overruns remain advisory.
+
+The activity-stream fixture acknowledges each committed transcript revision
+before sending the next update. Its tick starts at one, so production React's
+fallback measurement counts the first update as well. The 40-update sanity
+budget is unchanged. The long-message fixture waits for the updated message's
+full content after expansion, rather than measuring lazy Markdown's loading
+placeholder one frame after the click.
+
+Verification covered the affected persistence, lifecycle, transcript and
+renderer tests, relevant typechecks, lint, desktop/web builds and build budgets.
+An isolated Tau instance displayed the 2,000-entry fixture, accepted composer
+input and connected without an Origin refusal after the startup fix. The
+compiled transcript worker served two distinct 40-message pages with one index
+build. The instance and its host were stopped after verification.
+
+All 17 renderer scenarios passed the structural gate, as did the start report.
+Four renderer timing warnings remain in this local run: activity-stream mount
+p95 29.2 ms (24 ms budget), and long-user-message frame p95 83.3 ms (24 ms),
+mount p95 136.4 ms (24 ms) and maximum long task 96.0 ms (50 ms). These changes
+do not bring those rendering costs within their timing budgets. The full
+measurements are in `reports/renderer-ci-report.json`.
