@@ -12,7 +12,7 @@ import { APPS, assertOwnedRoot, freePort, resetRunFromTemplate, saveTemplate } f
 import { click, connect, evaluate, insertText, pressEnter, waitFor, waitForPage } from "./cdp.mjs";
 import { openForbiddenFiles } from "./isolation.mjs";
 import { FIND_SCROLLER, INSTALL_PROBE, PAINT_TIMINGS, START_BLANK_SAMPLER, STOP_BLANK_SAMPLER, STOP_RECORDING, startRecording } from "./page-probe.mjs";
-import { descendants, processTable, stopTree, treeMemory } from "./processes.mjs";
+import { descendants, measureIdleCpu, processTable, stopTree, treeMemory } from "./processes.mjs";
 import { writeCodexSessions, sessionPlan } from "./sessions-fixture.mjs";
 import { aggregateRuns, frameStats, longTaskStats, round } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
@@ -56,6 +56,8 @@ export function parseArgs(argv) {
   if (options.largeThread) options.apps = ["tau"];
   for (const id of options.apps) if (!APPS[id]) throw new Error(`unknown app ${id} (known: ${Object.keys(APPS).join(", ")})`);
   if (!Number.isInteger(options.runs) || options.runs < 1) throw new Error("--runs must be a positive integer");
+  if (!Number.isInteger(options.warmup) || options.warmup < 0) throw new Error("--warmup must be a non-negative integer");
+  if (!Number.isFinite(options.idleMs) || options.idleMs <= 0) throw new Error("--idle-ms must be positive");
   return options;
 }
 
@@ -239,6 +241,7 @@ async function measureRun(app, root, options, turn) {
     await session.send("Network.enable");
     const wire = wireCounter(session);
     await wait(options.idleMs);
+    const idleCpu = await measureIdleCpu([child.pid], options.idleMs);
     const idleMemory = await memory(session, child.pid);
     const processes = checkIsolation(child.pid, app.label);
 
@@ -255,7 +258,7 @@ async function measureRun(app, root, options, turn) {
     await wait(options.idleMs);
     const afterTurnMemory = await memory(session, child.pid);
     checkIsolation(child.pid, app.label);
-    return { loadAtStart, startup, idleMemory, openLarge: { ms: openLargeMs, history, wire: openLargeWire }, scroll, replay, afterTurnMemory, processes };
+    return { loadAtStart, startup, idleCpu, idleMemory, openLarge: { ms: openLargeMs, history, wire: openLargeWire }, scroll, replay, afterTurnMemory, processes };
   } finally {
     session.close();
     const stopped = await stopTree([child.pid]);
@@ -474,6 +477,19 @@ async function measureLargeThreadRun(app, root, options) {
   return { loadAtStart, entries, open, startup };
 }
 
+/**
+ * Quits the app through CDP so Chromium flushes its storage; SIGTERM drops
+ * localStorage writes up to 20 s old, such as the wizard clearing its resume key.
+ */
+async function quitGracefully(child, port, timeoutMs = 20_000) {
+  const exited = new Promise((resolvePromise) => child.once("exit", () => resolvePromise(true)));
+  const browser = await connect((await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()).webSocketDebuggerUrl);
+  browser.send("Browser.close").catch(() => undefined);
+  const closed = await Promise.race([exited, wait(timeoutMs).then(() => false)]);
+  browser.close();
+  if (!closed) console.warn("[compare] the app did not quit on its own; stopping it");
+}
+
 /** Imports the session fixture through the app's onboarding and saves the profile as the template. `plan` sizes the fixture. */
 export async function seed(app, root, turnFile, plan = {}) {
   rmSync(app.paths(root).run, { recursive: true, force: true });
@@ -481,15 +497,18 @@ export async function seed(app, root, turnFile, plan = {}) {
   const paths = app.prepare(root);
   writeFileSync(join(root, "turn.json"), turnFile);
   const written = writeCodexSessions(paths.sessionsHome, { cwd: paths.workspace, ...plan });
-  const { child, session } = await start(app, root, {});
+  const { child, port, session } = await start(app, root, {});
+  const tree = [child.pid];
   try {
     await app.seed(session, { clickWhenReady, waitFor, evaluate, expectedThreads: written.length });
     checkIsolation(child.pid, app.label);
     // Let both apps persist what the import wrote before the profile is copied.
     await wait(3_000);
+    tree.push(...descendants(processTable(), [child.pid]).map((row) => row.pid));
+    await quitGracefully(child, port);
   } finally {
     session.close();
-    await stopTree([child.pid]);
+    await stopTree(tree);
   }
   saveTemplate(app, root);
   writeFileSync(join(root, "fixture.json"), `${JSON.stringify(sessionPlan(plan))}\n`);
@@ -524,6 +543,9 @@ export function markdownTable(report) {
     ["first paint (ms)", "startup.firstPaintMs"],
     ["rail + composer ready (ms)", "startup.interactiveMs"],
     ["first paint → rail + composer ready (ms)", "startup.paintToReadyMs"],
+    ["idle CPU, whole tree (% of one core)", "idleCpu.totalPercent"],
+    ["idle CPU, host/server (% of one core)", "idleCpu.byRolePercent.backend"],
+    ["idle CPU, renderer (% of one core)", "idleCpu.byRolePercent.renderer"],
     ["memory idle, whole tree (MiB)", "idleMemory.totalMiB"],
     ["memory idle, host/server process (MiB)", "idleMemory.byRoleMiB.backend"],
     ["footprint idle, whole tree (MiB, macOS)", "idleMemory.footprintMiB"],
@@ -625,7 +647,7 @@ async function main() {
     for (const id of run % 2 ? [...options.apps].reverse() : options.apps) {
       const warmup = run < options.warmup;
       const label = `${APPS[id].label} ${warmup ? "warmup" : `run ${run - options.warmup + 1}/${options.runs}`}`;
-      const result = options.threadSwitch ? { loadAtStart: round(loadavg()[0]) } : await measureRun(APPS[id], roots[id], options, turn);
+      const result = options.threadSwitch ? {} : await measureRun(APPS[id], roots[id], options, turn);
       if (!options.threadSwitch) console.log(`[compare] ${label}: ready ${result.startup.interactiveMs} ms, stream p95 ${result.replay.streamFrames.p95} ms, end ${result.replay.endVisibleMs} ms`);
       const switched = await measureThreadSwitchRun(APPS[id], roots[id], options);
       result.threadSwitch = switched.threadSwitch;

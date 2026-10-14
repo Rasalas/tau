@@ -1,0 +1,857 @@
+{
+  "schemaVersion": 1,
+  "measuredFrom": "2026-10-14T09:44:33.758Z",
+  "measuredThrough": "2026-10-14T09:51:38.199Z",
+  "machine": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "chip": "Apple M4",
+    "memoryGiB": 16,
+    "logicalCores": 10,
+    "modelIdentifier": "Mac16,10"
+  },
+  "apps": {
+    "tau": {
+      "app": "Tau",
+      "commit": "91c07dd638e311805464be658ec6b249cbfe1dbb",
+      "version": "0.7.42",
+      "electron": "44.4.4",
+      "build": "npm run build (production bundles, unpackaged Electron)"
+    },
+    "reference": {
+      "app": "T3 Code (Alpha)",
+      "commit": "7b6d90757415f7897bac1a39e42cfb1331c97ee5",
+      "version": "0.0.45",
+      "electron": "44.4.5",
+      "build": "vp run build:desktop (production bundles, unpackaged Electron, no launcher bundle)"
+    }
+  },
+  "window": {
+    "width": 1440,
+    "height": 900
+  },
+  "fixture": [
+    {
+      "title": "Large thread: transcript scroll fixture",
+      "turns": 100,
+      "heavy": true
+    },
+    {
+      "title": "Small thread 1: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 2: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 3: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 4: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Medium thread: switch fixture",
+      "turns": 30,
+      "heavy": true
+    },
+    {
+      "title": "Long thread: switch fixture",
+      "turns": 100,
+      "heavy": true
+    }
+  ],
+  "turn": {
+    "events": 899,
+    "textBytes": 151490,
+    "fences": 20,
+    "tools": 6,
+    "outputBytes": 1005000,
+    "durationMs": 14384,
+    "parameters": {
+      "answerBytes": 150000,
+      "codeBlocks": 20,
+      "bigOutputBytes": 1000000,
+      "smallCommands": 5,
+      "textDeltaChars": 200,
+      "outputChunkBytes": 8192,
+      "intervalMs": 16,
+      "thinkingChars": 0
+    }
+  },
+  "sources": [
+    {
+      "file": "compare-full.json",
+      "generatedAt": "2026-10-14T09:44:33.758Z",
+      "options": {
+        "apps": [
+          "tau",
+          "reference"
+        ],
+        "runs": 9,
+        "warmup": 1,
+        "seed": false,
+        "check": false,
+        "out": "reports/compare-full.json",
+        "idleMs": 10000,
+        "scrollSteps": 60,
+        "largeThread": false,
+        "threadSwitch": false
+      },
+      "loads": {
+        "tau": {
+          "runs": 9,
+          "start": {
+            "n": 9,
+            "median": 6.2,
+            "min": 4.3,
+            "max": 8.9
+          },
+          "switch": {
+            "n": 9,
+            "median": 6.2,
+            "min": 4.4,
+            "max": 10.6
+          },
+          "completeCpuWindows": 9
+        },
+        "reference": {
+          "runs": 9,
+          "start": {
+            "n": 9,
+            "median": 5.4,
+            "min": 3.9,
+            "max": 9.7
+          },
+          "switch": {
+            "n": 9,
+            "median": 6.7,
+            "min": 4.3,
+            "max": 9.1
+          },
+          "completeCpuWindows": 9
+        }
+      }
+    },
+    {
+      "file": "compare-switch.json",
+      "generatedAt": "2026-10-14T09:51:38.199Z",
+      "options": {
+        "apps": [
+          "tau",
+          "reference"
+        ],
+        "runs": 5,
+        "warmup": 1,
+        "seed": false,
+        "check": false,
+        "out": "reports/compare-switch.json",
+        "idleMs": 10000,
+        "scrollSteps": 60,
+        "largeThread": false,
+        "threadSwitch": true
+      },
+      "loads": {
+        "tau": {
+          "runs": 5,
+          "start": null,
+          "switch": {
+            "n": 5,
+            "median": 5.6,
+            "min": 5.3,
+            "max": 6.5
+          },
+          "completeCpuWindows": 0
+        },
+        "reference": {
+          "runs": 5,
+          "start": null,
+          "switch": {
+            "n": 5,
+            "median": 6.2,
+            "min": 4.8,
+            "max": 6.9
+          },
+          "completeCpuWindows": 0
+        }
+      }
+    }
+  ],
+  "metrics": {
+    "tau": {
+      "startup.interactiveMs": {
+        "n": 9,
+        "median": 2937,
+        "min": 2533,
+        "max": 3319
+      },
+      "startup.firstPaintMs": {
+        "n": 9,
+        "median": 1227.1,
+        "min": 636,
+        "max": 1611.7
+      },
+      "threadSwitch.codex.short.cold.visibleMs": {
+        "n": 14,
+        "median": 50.65,
+        "min": 33.2,
+        "max": 71.2
+      },
+      "threadSwitch.codex.short.cold.settledMs": {
+        "n": 14,
+        "median": 51.1,
+        "min": 44.1,
+        "max": 97.9
+      },
+      "threadSwitch.codex.medium.cold.visibleMs": {
+        "n": 14,
+        "median": 90.7,
+        "min": 75.9,
+        "max": 105
+      },
+      "threadSwitch.codex.medium.cold.settledMs": {
+        "n": 14,
+        "median": 97.25,
+        "min": 84.5,
+        "max": 130.5
+      },
+      "threadSwitch.codex.long.cold.visibleMs": {
+        "n": 14,
+        "median": 78.15,
+        "min": 73.2,
+        "max": 92.5
+      },
+      "threadSwitch.codex.long.cold.settledMs": {
+        "n": 14,
+        "median": 95.65,
+        "min": 79,
+        "max": 148.2
+      },
+      "threadSwitch.codex.short.warm.visibleMs": {
+        "n": 42,
+        "median": 27.5,
+        "min": 21.4,
+        "max": 44.5
+      },
+      "threadSwitch.codex.short.warm.settledMs": {
+        "n": 42,
+        "median": 31.75,
+        "min": 28.4,
+        "max": 44.5
+      },
+      "threadSwitch.codex.medium.warm.visibleMs": {
+        "n": 42,
+        "median": 70,
+        "min": 36.5,
+        "max": 91
+      },
+      "threadSwitch.codex.medium.warm.settledMs": {
+        "n": 42,
+        "median": 79.1,
+        "min": 61.9,
+        "max": 91
+      },
+      "threadSwitch.codex.long.warm.visibleMs": {
+        "n": 42,
+        "median": 30.1,
+        "min": 21.4,
+        "max": 45.8
+      },
+      "threadSwitch.codex.long.warm.settledMs": {
+        "n": 42,
+        "median": 65.15,
+        "min": 60.8,
+        "max": 96.1
+      },
+      "threadSwitch.pi.short.cold.visibleMs": {
+        "n": 14,
+        "median": 46.55,
+        "min": 44.7,
+        "max": 49.5
+      },
+      "threadSwitch.pi.short.cold.settledMs": {
+        "n": 14,
+        "median": 46.55,
+        "min": 44.7,
+        "max": 49.5
+      },
+      "threadSwitch.pi.medium.cold.visibleMs": {
+        "n": 14,
+        "median": 60.65,
+        "min": 56.6,
+        "max": 82
+      },
+      "threadSwitch.pi.medium.cold.settledMs": {
+        "n": 14,
+        "median": 145.15,
+        "min": 110.9,
+        "max": 195.1
+      },
+      "threadSwitch.pi.long.cold.visibleMs": {
+        "n": 14,
+        "median": 127.95,
+        "min": 114.1,
+        "max": 190.6
+      },
+      "threadSwitch.pi.long.cold.settledMs": {
+        "n": 14,
+        "median": 131.3,
+        "min": 114.1,
+        "max": 190.6
+      },
+      "threadSwitch.pi.short.warm.visibleMs": {
+        "n": 42,
+        "median": 31.2,
+        "min": 23.5,
+        "max": 49.2
+      },
+      "threadSwitch.pi.short.warm.settledMs": {
+        "n": 42,
+        "median": 31.3,
+        "min": 26.1,
+        "max": 49.2
+      },
+      "threadSwitch.pi.medium.warm.visibleMs": {
+        "n": 42,
+        "median": 43.35,
+        "min": 37.4,
+        "max": 61
+      },
+      "threadSwitch.pi.medium.warm.settledMs": {
+        "n": 42,
+        "median": 80,
+        "min": 75,
+        "max": 113.9
+      },
+      "threadSwitch.pi.long.warm.visibleMs": {
+        "n": 42,
+        "median": 27.55,
+        "min": 20.2,
+        "max": 43.7
+      },
+      "threadSwitch.pi.long.warm.settledMs": {
+        "n": 42,
+        "median": 79,
+        "min": 64.5,
+        "max": 98.3
+      },
+      "replay.firstTextMs": {
+        "n": 9,
+        "median": 251.2,
+        "min": 233.4,
+        "max": 308.6
+      },
+      "replay.endVisibleMs": {
+        "n": 9,
+        "median": 14641.3,
+        "min": 14620.4,
+        "max": 14706.8
+      },
+      "replay.replayMs": {
+        "n": 9,
+        "median": 14384,
+        "min": 14384,
+        "max": 14384
+      },
+      "replay.streamFrames.frames": {
+        "n": 9,
+        "median": 865,
+        "min": 858,
+        "max": 874
+      },
+      "replay.streamFrames.p50": {
+        "n": 9,
+        "median": 16.7,
+        "min": 16.7,
+        "max": 16.7
+      },
+      "replay.streamFrames.p95": {
+        "n": 9,
+        "median": 18.3,
+        "min": 18.2,
+        "max": 18.4
+      },
+      "replay.streamFrames.p99": {
+        "n": 9,
+        "median": 32.5,
+        "min": 18.6,
+        "max": 33.3
+      },
+      "replay.streamFrames.max": {
+        "n": 9,
+        "median": 49.1,
+        "min": 33.3,
+        "max": 51
+      },
+      "replay.streamFrames.dropped": {
+        "n": 9,
+        "median": 3,
+        "min": 0,
+        "max": 9
+      },
+      "replay.streamLongTasks.count": {
+        "n": 9,
+        "median": 1,
+        "min": 0,
+        "max": 1
+      },
+      "replay.streamLongTasks.totalMs": {
+        "n": 9,
+        "median": 52,
+        "min": 0,
+        "max": 57
+      },
+      "replay.streamLongTasks.maxMs": {
+        "n": 9,
+        "median": 52,
+        "min": 0,
+        "max": 57
+      },
+      "replay.afterEndLongTasks.totalMs": {
+        "n": 9,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "replay.wire.received": {
+        "n": 9,
+        "median": 297,
+        "min": 296,
+        "max": 298
+      },
+      "replay.wire.receivedKiB": {
+        "n": 9,
+        "median": 353.5,
+        "min": 350,
+        "max": 353.9
+      },
+      "replay.wire.sent": {
+        "n": 9,
+        "median": 16,
+        "min": 16,
+        "max": 16
+      },
+      "replay.wire.sentKiB": {
+        "n": 9,
+        "median": 3.1,
+        "min": 3.1,
+        "max": 3.1
+      },
+      "replay.wire.httpRequests": {
+        "n": 9,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "replay.wire.httpKiB": {
+        "n": 9,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "idleCpu.windowMs": {
+        "n": 9,
+        "median": 10054.8,
+        "min": 10038.52,
+        "max": 10083.41
+      },
+      "idleCpu.totalMs": {
+        "n": 9,
+        "median": 520,
+        "min": 300,
+        "max": 680
+      },
+      "idleCpu.totalPercent": {
+        "n": 9,
+        "median": 5.17,
+        "min": 2.98,
+        "max": 6.75
+      },
+      "idleCpu.byRoleMs.main": {
+        "n": 9,
+        "median": 10,
+        "min": 0,
+        "max": 20
+      },
+      "idleCpu.byRolePercent.main": {
+        "n": 9,
+        "median": 0.1,
+        "min": 0,
+        "max": 0.2
+      },
+      "idleCpu.byRoleMs.backend": {
+        "n": 9,
+        "median": 40,
+        "min": 20,
+        "max": 50
+      },
+      "idleCpu.byRolePercent.backend": {
+        "n": 9,
+        "median": 0.4,
+        "min": 0.2,
+        "max": 0.5
+      },
+      "idleCpu.byRoleMs.renderer": {
+        "n": 9,
+        "median": 310,
+        "min": 180,
+        "max": 400
+      },
+      "idleCpu.byRolePercent.renderer": {
+        "n": 9,
+        "median": 3.08,
+        "min": 1.79,
+        "max": 3.97
+      },
+      "idleCpu.byRoleMs.gpu": {
+        "n": 9,
+        "median": 160,
+        "min": 100,
+        "max": 220
+      },
+      "idleCpu.byRolePercent.gpu": {
+        "n": 9,
+        "median": 1.59,
+        "min": 0.99,
+        "max": 2.18
+      },
+      "idleCpu.byRoleMs.utility": {
+        "n": 9,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "idleCpu.byRolePercent.utility": {
+        "n": 9,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "idleCpu.byRoleMs.other": null,
+      "idleCpu.byRolePercent.other": null,
+      "loadAtStart": {
+        "n": 9,
+        "median": 6.2,
+        "min": 4.3,
+        "max": 8.9
+      },
+      "switchLoadAtStart": {
+        "n": 14,
+        "median": 5.7,
+        "min": 4.4,
+        "max": 10.6
+      }
+    },
+    "reference": {
+      "startup.interactiveMs": {
+        "n": 9,
+        "median": 7867,
+        "min": 7278,
+        "max": 8271
+      },
+      "startup.firstPaintMs": {
+        "n": 9,
+        "median": 7169.4,
+        "min": 6795.7,
+        "max": 7532
+      },
+      "threadSwitch.codex.short.cold.visibleMs": {
+        "n": 14,
+        "median": 67.9,
+        "min": 60,
+        "max": 83.9
+      },
+      "threadSwitch.codex.short.cold.settledMs": {
+        "n": 14,
+        "median": 67.9,
+        "min": 60,
+        "max": 83.9
+      },
+      "threadSwitch.codex.medium.cold.visibleMs": {
+        "n": 14,
+        "median": 107.1,
+        "min": 100.2,
+        "max": 114.8
+      },
+      "threadSwitch.codex.medium.cold.settledMs": {
+        "n": 14,
+        "median": 113.15,
+        "min": 108.8,
+        "max": 131.2
+      },
+      "threadSwitch.codex.long.cold.visibleMs": {
+        "n": 14,
+        "median": 72.15,
+        "min": 65.2,
+        "max": 130.3
+      },
+      "threadSwitch.codex.long.cold.settledMs": {
+        "n": 14,
+        "median": 72.15,
+        "min": 65.2,
+        "max": 130.3
+      },
+      "threadSwitch.codex.short.warm.visibleMs": {
+        "n": 42,
+        "median": 49.2,
+        "min": 40.2,
+        "max": 76.3
+      },
+      "threadSwitch.codex.short.warm.settledMs": {
+        "n": 42,
+        "median": 49.2,
+        "min": 40.2,
+        "max": 76.3
+      },
+      "threadSwitch.codex.medium.warm.visibleMs": {
+        "n": 42,
+        "median": 58.15,
+        "min": 47.6,
+        "max": 88.6
+      },
+      "threadSwitch.codex.medium.warm.settledMs": {
+        "n": 42,
+        "median": 58.15,
+        "min": 47.6,
+        "max": 88.6
+      },
+      "threadSwitch.codex.long.warm.visibleMs": {
+        "n": 42,
+        "median": 52.9,
+        "min": 41.2,
+        "max": 73.1
+      },
+      "threadSwitch.codex.long.warm.settledMs": {
+        "n": 42,
+        "median": 52.9,
+        "min": 41.2,
+        "max": 73.1
+      },
+      "threadSwitch.pi.short.cold.visibleMs": null,
+      "threadSwitch.pi.short.cold.settledMs": null,
+      "threadSwitch.pi.medium.cold.visibleMs": null,
+      "threadSwitch.pi.medium.cold.settledMs": null,
+      "threadSwitch.pi.long.cold.visibleMs": null,
+      "threadSwitch.pi.long.cold.settledMs": null,
+      "threadSwitch.pi.short.warm.visibleMs": null,
+      "threadSwitch.pi.short.warm.settledMs": null,
+      "threadSwitch.pi.medium.warm.visibleMs": null,
+      "threadSwitch.pi.medium.warm.settledMs": null,
+      "threadSwitch.pi.long.warm.visibleMs": null,
+      "threadSwitch.pi.long.warm.settledMs": null,
+      "replay.firstTextMs": {
+        "n": 9,
+        "median": 320.6,
+        "min": 293.3,
+        "max": 386
+      },
+      "replay.endVisibleMs": {
+        "n": 9,
+        "median": 15019.3,
+        "min": 14976.6,
+        "max": 15181.4
+      },
+      "replay.replayMs": {
+        "n": 9,
+        "median": 14384,
+        "min": 14384,
+        "max": 14384
+      },
+      "replay.streamFrames.frames": {
+        "n": 9,
+        "median": 883,
+        "min": 864,
+        "max": 886
+      },
+      "replay.streamFrames.p50": {
+        "n": 9,
+        "median": 16.7,
+        "min": 16.7,
+        "max": 16.7
+      },
+      "replay.streamFrames.p95": {
+        "n": 9,
+        "median": 18.3,
+        "min": 18.2,
+        "max": 18.4
+      },
+      "replay.streamFrames.p99": {
+        "n": 9,
+        "median": 18.6,
+        "min": 18.6,
+        "max": 18.6
+      },
+      "replay.streamFrames.max": {
+        "n": 9,
+        "median": 18.7,
+        "min": 18.7,
+        "max": 335.2
+      },
+      "replay.streamFrames.dropped": {
+        "n": 9,
+        "median": 0,
+        "min": 0,
+        "max": 2
+      },
+      "replay.streamLongTasks.count": {
+        "n": 9,
+        "median": 1,
+        "min": 1,
+        "max": 1
+      },
+      "replay.streamLongTasks.totalMs": {
+        "n": 9,
+        "median": 309,
+        "min": 294,
+        "max": 403
+      },
+      "replay.streamLongTasks.maxMs": {
+        "n": 9,
+        "median": 309,
+        "min": 294,
+        "max": 403
+      },
+      "replay.afterEndLongTasks.totalMs": {
+        "n": 9,
+        "median": 54,
+        "min": 52,
+        "max": 80
+      },
+      "replay.wire.received": {
+        "n": 9,
+        "median": 63,
+        "min": 62,
+        "max": 63
+      },
+      "replay.wire.receivedKiB": {
+        "n": 9,
+        "median": 414,
+        "min": 412,
+        "max": 414
+      },
+      "replay.wire.sent": {
+        "n": 9,
+        "median": 70,
+        "min": 69,
+        "max": 70
+      },
+      "replay.wire.sentKiB": {
+        "n": 9,
+        "median": 6.4,
+        "min": 6.4,
+        "max": 6.4
+      },
+      "replay.wire.httpRequests": {
+        "n": 9,
+        "median": 10,
+        "min": 9,
+        "max": 10
+      },
+      "replay.wire.httpKiB": {
+        "n": 9,
+        "median": 1.4,
+        "min": 1.3,
+        "max": 1.4
+      },
+      "idleCpu.windowMs": {
+        "n": 9,
+        "median": 10054.34,
+        "min": 10046.95,
+        "max": 10067.71
+      },
+      "idleCpu.totalMs": {
+        "n": 9,
+        "median": 600,
+        "min": 350,
+        "max": 790
+      },
+      "idleCpu.totalPercent": {
+        "n": 9,
+        "median": 5.97,
+        "min": 3.48,
+        "max": 7.86
+      },
+      "idleCpu.byRoleMs.main": {
+        "n": 9,
+        "median": 20,
+        "min": 10,
+        "max": 50
+      },
+      "idleCpu.byRolePercent.main": {
+        "n": 9,
+        "median": 0.2,
+        "min": 0.1,
+        "max": 0.5
+      },
+      "idleCpu.byRoleMs.backend": {
+        "n": 9,
+        "median": 30,
+        "min": 20,
+        "max": 40
+      },
+      "idleCpu.byRolePercent.backend": {
+        "n": 9,
+        "median": 0.3,
+        "min": 0.2,
+        "max": 0.4
+      },
+      "idleCpu.byRoleMs.renderer": {
+        "n": 9,
+        "median": 350,
+        "min": 210,
+        "max": 470
+      },
+      "idleCpu.byRolePercent.renderer": {
+        "n": 9,
+        "median": 3.48,
+        "min": 2.09,
+        "max": 4.68
+      },
+      "idleCpu.byRoleMs.gpu": {
+        "n": 9,
+        "median": 190,
+        "min": 110,
+        "max": 250
+      },
+      "idleCpu.byRolePercent.gpu": {
+        "n": 9,
+        "median": 1.89,
+        "min": 1.09,
+        "max": 2.48
+      },
+      "idleCpu.byRoleMs.utility": {
+        "n": 9,
+        "median": 10,
+        "min": 0,
+        "max": 10
+      },
+      "idleCpu.byRolePercent.utility": {
+        "n": 9,
+        "median": 0.1,
+        "min": 0,
+        "max": 0.1
+      },
+      "idleCpu.byRoleMs.other": null,
+      "idleCpu.byRolePercent.other": null,
+      "loadAtStart": {
+        "n": 9,
+        "median": 5.4,
+        "min": 3.9,
+        "max": 9.7
+      },
+      "switchLoadAtStart": {
+        "n": 14,
+        "median": 6.45,
+        "min": 4.3,
+        "max": 9.1
+      }
+    }
+  },
+  "warnings": []
+}

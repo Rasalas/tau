@@ -68,6 +68,7 @@
     "benchmark:git": "npm run build && node scripts/git-benchmark.mjs",
     "benchmark:git:check": "node scripts/git-benchmark.mjs --check",
     "benchmark:compare": "node scripts/compare/run.mjs",
+    "benchmark:compare:summary": "node scripts/compare/summary.mjs",
     "compare:screens": "node scripts/compare/screens/run.mjs",
     "screenshots": "node scripts/screenshots/run.mjs",
     "screenshots:site": "node scripts/screenshots/run.mjs --out site/assets --format webp --theme both",
