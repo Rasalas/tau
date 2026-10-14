@@ -1468,6 +1468,9 @@ The code that remembers the navigation's pages lives in the browser client (`src
   - Two threads only the switch launch opens (since ticket K38): a medium one of 30 turns and a long one of 100, both shaped like the large one.
   - Text only: both importers drop tool calls, and both keep at most 200 messages. The large thread is therefore 100 turns, not the plan's 1,000.
 - **Seeding** happens once per app (`--seed`). The harness drives each onboarding over CDP, then copies the resulting profile. Every run starts from a fresh copy of that profile at the same path.
+  - Tau's wizard ends on "… is ready"; the harness presses "Start a thread", which leaves the wizard. It then quits the app through CDP, not with a signal, so the wizard's "I am still open" key reaches the profile (a killed process loses localStorage writes up to 20 s old, and the copied profile reopens the wizard on every start).
+  - Tau's profile gets an offline Pi provider (`models.json`, a dead local address, no turn runs through it). With Pi signed out and Codex ready, opening an uncached Pi thread from the rail ends on a blank Codex draft, and the Pi switches of the switch launch never show their thread.
+  - The rail also lists the workspace's unsent draft; "ready" counts imported threads only.
 - **One run** does the following, in order:
   1. Cold start to first paint and to "ready". Ready means the rail lists the imported threads and the composer is mounted; imported threads filed under a collapsed shelf count.
   2. After 5 s settling, CPU time of the whole process tree over another 5 s idle, then memory.
@@ -1560,10 +1563,52 @@ stay "not measured", so older reports cannot supply idle-CPU evidence. Timing
 and idle CPU remain evidence, not new CI gates. Keep the raw JSON files locally
 for inspection; commit the condensed pair after checking its provenance.
 
-The preparation and exact quiet-machine commands for review ticket 61 are in
-[the comparison runbook](performance/compare-runbook.md). No app or measurement
-run was started during that preparation. A current checked-in Tau vs. T3
-measurement remains pending until those runs are performed.
+### Taking the comparison
+
+1. Check out the Tau commit to measure and run `npm run build`. Build the reference app's production bundles (desktop and server packages) in a clone at a fixed commit, outside this repository and never from an installed copy, and point `COMPARE_REFERENCE_SOURCE` at it. `COMPARE_TAU_ROOT` and `COMPARE_REFERENCE_ROOT` name one profile directory each under `/tmp`; a root is a profile, not a checkout.
+2. Stop other work on the machine and wait until the one-minute load average is below about 8. Each report records the load at every launch.
+3. Seed once, then measure. The seed run also measures once; leave its report out of the summary.
+
+   ```
+   npm run benchmark:compare -- --apps tau,reference --seed --runs 1 --warmup 0 --idle-ms 10000 --out reports/compare-seed.json
+   npm run benchmark:compare -- --apps tau,reference --runs 9 --warmup 1 --idle-ms 10000 --out reports/compare-full.json
+   npm run benchmark:compare -- --apps tau,reference --thread-switch --runs 5 --warmup 1 --idle-ms 10000 --out reports/compare-switch.json
+   npm run benchmark:compare:summary -- reports/compare-full.json reports/compare-switch.json --out docs/performance/compare-<date>
+   ```
+
+4. Check the summary's commits, load ranges and sample counts, then commit the `.md` and `.json` pair. The raw reports stay in the ignored `reports/` directory.
+
+The fixture is seven imported text threads of at most 100 turns, no saved remote machines and no shell rc file. It cannot show startup with an unreachable saved machine or every large-thread case; the 1,000-session host benchmark and the renderer scenarios are separate. Idle CPU is the second 10 s after 10 s of settling, measured on the whole process tree; the second launch of each run opens the starter thread and switches cold and warm. The seed, the nine-run full report and the five-run switch report took about 45 minutes together.
+
+### Tau and the reference app (2026-10-14)
+
+Full tables, spans and sample counts: [performance/compare-2026-10-14.md](performance/compare-2026-10-14.md) (and `.json`). Medians; the span is minimum to maximum.
+
+- **Machine:** Apple M4 `Mac16,10`, 16 GiB, 10 cores. The machine was in use, not idle: the one-minute load average was 4–11 at the launches (median 6.2 at Tau's, 5.4 at the reference app's), so treat differences of a few milliseconds with care.
+- **Tau:** `91c07dd63`, version 0.7.42 (application code as of `d1d113e02`), Electron 44.4.4. **Reference app:** commit `7b6d90757415`, version 0.0.45, Electron 44.4.5. Both are production bundles run unpackaged from a seeded profile, not installed builds. Tau's profile carries an offline Pi provider (see "What runs"); the reference app runs Codex only.
+- **Runs:** one warm-up and nine measured runs per app (start, turn and idle CPU, n = 9), plus five more launches that only switch threads (14 cold and 42 warm switches per thread size). Window 1440×900 at DPR 2.
+
+| metric | Tau | reference app |
+| --- | ---: | ---: |
+| start: spawn to rail and composer (ms) | 2,937 [2,533–3,319] | 7,867 [7,278–8,271] |
+| start: spawn to first paint (ms) | 1,227 [636–1,612] | 7,169 [6,796–7,532] |
+| switch cold, short / medium / long thread, visible (ms) | 51 / 91 / 78 | 68 / 107 / 72 |
+| switch warm, short / medium / long thread, visible (ms) | 28 / 70 / 30 | 49 / 58 / 53 |
+| turn: first text visible (ms) | 251 [233–309] | 321 [293–386] |
+| turn: last text visible after submit (ms; the replay lasts 14,384) | 14,641 [14,620–14,707] | 15,019 [14,977–15,181] |
+| stream: frame p99 (ms) | 32.5 [18.6–33.3] | 18.6 [18.6–18.6] |
+| stream: dropped frames per turn | 3 [0–9] | 0 [0–2] |
+| stream: long task time per turn (ms) | 52 [0–57] | 309 [294–403] |
+| idle CPU, whole tree (% of one core) | 5.2 [3.0–6.8] | 6.0 [3.5–7.9] |
+| turn: messages received / sent | 297 / 16 | 63 / 70 |
+| turn: KiB received | 354 | 414 |
+
+- **Where Tau is ahead.** Start, by a wide margin (2.9 s against 7.9 s to a usable rail). Cold switches to the short and medium threads, warm switches to the short and long ones (16–23 ms sooner). First text and the last delta come 70 and 380 ms sooner. One long task per turn of at most 57 ms where the reference app has 294–403 ms in every run, and three runs of the reference app with a 283–335 ms frame. Idle CPU is the same within the spans, mostly renderer and GPU in both.
+- **Where Tau is slower.**
+  - Smoothness while streaming. Tau's p99 frame is 32.5 ms against 18.6 ms in the reference app, and it drops 3 frames per turn (median; 0–9) where the reference app drops none in six runs and one or two in three. Tau's longest frame is 33–51 ms in every run; the reference app's is 19 ms in six runs.
+  - Thread switches. Warm medium thread: 70 against 58 ms to first rows (about 12 ms later) and 79 against 58 ms until nothing moves any more. Cold long thread: 78 against 72 ms (the spans overlap) and 96 against 72 ms until settled. Warm long thread settled: 65 against 53 ms. The transcript still changes after Tau's first paint; the reference app's has stopped by then.
+  - Messages. Tau receives 4.7 times as many messages per turn (297 against 63), at fewer bytes.
+- **Not established.** Idle CPU is one 10 s window ten seconds after the start; it says nothing about a window left open for hours. Seven text threads and a stand-in agent are not a user's profile; a reachable or unreachable saved machine, real shell startup files, a packaged build's start and large tool-heavy threads in the reference app are not covered.
 
 ### First results (2026-09-23)
 
