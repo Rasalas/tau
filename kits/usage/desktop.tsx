@@ -7,7 +7,7 @@ import { createJuicebarChoices } from "./juicebar-choices.js";
 import { Juicebars } from "./juicebars-view.js";
 import { createLimitsFeed } from "./limits-feed.js";
 import { UsagePage } from "./page.js";
-import { USAGE_EXTENSION_ID, USAGE_PAGE } from "./protocol.js";
+import { sharedLimits, USAGE_EXTENSION_ID, USAGE_LIMITS_DATA, USAGE_PAGE } from "./protocol.js";
 import { createWayLine } from "./way-line.js";
 
 /** Usage is a page of the app: the juicebars at the sidebar's foot (in a phone's top bar) and the palette open it. */
@@ -48,6 +48,9 @@ export const usageExtension: DesktopExtension = {
 
     // What the plan has left, after the highlighted row's facts in the model picker; never a mark on a row.
     plugin.registerModelBadge({ id: "usage.plan-left", profiles: ["desktop", "web", "compact"], applies: () => false, label: "Plan", WayLine: createWayLine(feed, choices) });
+
+    // The plans' windows for the user's own scripts (ADR 0042); reading starts the feed like the bars do.
+    plugin.provideService(USAGE_LIMITS_DATA, { shared: true, subscribe: feed.subscribe, getSnapshot: () => sharedLimits(feed.getSnapshot()) });
 
     plugin.registerCommand({
       id: "usage.open",

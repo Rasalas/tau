@@ -62,6 +62,8 @@ export interface WorkbenchActions {
   /** With `menu`, on the level of the command of that id that has a `submenu` (API 1.12.0). */
   openCommandPalette(options?: { menu?: string }): void;
   openSettings(page?: string): void;
+  /** Leaves Settings for what it covered (API 1.62.0). */
+  closeSettings?(): void;
   /**
    * A new thread's draft in the project on screen, else where the host last worked, else through the picker (API 1.25.0).
    * With `workspace`, in that project, and nothing when the window does not know it yet; with `pick`, through the picker.

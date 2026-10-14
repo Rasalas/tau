@@ -30,9 +30,10 @@ export interface KitHarness {
  * Kits live outside `src/`, so this, `workspaceHostStub` and
  * `createFakeHostClient` are the only renderer modules their tests reach for.
  */
-export function createKitHarness(invoke?: HostExtensionBridge["invoke"], profile?: ClientProfile, platform?: Partial<Platform>): KitHarness {
+/** `bridge` adds the rest of the host bridge, `resourceUrl` say, for a kit that draws a frame. */
+export function createKitHarness(invoke?: HostExtensionBridge["invoke"], profile?: ClientProfile, platform?: Partial<Platform>, bridge?: Omit<HostExtensionBridge, "invoke">): KitHarness {
   const preferences = new PreferencesStore();
-  const registry = new ExtensionRegistry({ invoke: invoke ?? (async () => undefined) }, {
+  const registry = new ExtensionRegistry({ ...bridge, invoke: invoke ?? (async () => undefined) }, {
     preferences,
     ...(profile ? { profile } : {}),
     ...(platform ? { platform: () => platform as Platform } : {}),

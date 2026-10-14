@@ -196,6 +196,29 @@ export interface UsageLimitSample {
   account: UsageLimitAccount;
 }
 
+/** What Usage lends user scripts as shared data (ADR 0042): `tau.data(USAGE_LIMITS_DATA, …)`. */
+export const USAGE_LIMITS_DATA = "tau.usage/limits";
+
+export interface SharedUsageLimits {
+  checkedAt: number;
+  accounts: Array<{ runtime: string; label: string; plan?: string; machine?: string; windows: Array<{ id: string; kind: UsageLimitWindow["kind"]; label: string; usedPercent: number; resetsAt?: number }> }>;
+}
+
+/** The plan windows as a script reads them: no identities, no management links, no history. */
+export function sharedLimits(limits: UsageLimitsSummary | undefined): SharedUsageLimits | null {
+  if (!limits) return null;
+  return {
+    checkedAt: limits.checkedAt,
+    accounts: limits.accounts.map((account) => ({
+      runtime: account.runtime,
+      label: account.label,
+      ...(account.plan ? { plan: account.plan } : {}),
+      ...(account.machine ? { machine: account.machine } : {}),
+      windows: account.windows.map((window) => ({ id: window.id, kind: window.kind, label: window.label, usedPercent: window.usedPercent, ...(window.resetsAt === undefined ? {} : { resetsAt: window.resetsAt }) })),
+    })),
+  };
+}
+
 export interface UsageLimitsSummary {
   checkedAt: number;
   accounts: UsageLimitAccount[];

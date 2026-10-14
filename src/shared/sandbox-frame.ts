@@ -94,9 +94,10 @@ export function frameAllowAttribute(permissions: SandboxFramePermissions | undef
   return features.join("; ");
 }
 
-export function clampFrameHeight(height: number): number {
+/** `min` (API 1.62.0) lets a small part, a bar in a row, go below 80 px; never below 1. */
+export function clampFrameHeight(height: number, min = FRAME_MIN_HEIGHT): number {
   if (!Number.isFinite(height)) return FRAME_DEFAULT_HEIGHT;
-  return Math.round(Math.min(FRAME_MAX_HEIGHT, Math.max(FRAME_MIN_HEIGHT, height)));
+  return Math.round(Math.min(FRAME_MAX_HEIGHT, Math.max(Math.max(1, min), height)));
 }
 
 /**
