@@ -63,6 +63,14 @@ tokens are random and separate. The host keeps its registration in
 `<userData>/connect.json`, mode 0600, like its host token. It resumes the route
 after a restart and reconnects after network changes or relay outages.
 
+If the relay rejects the saved registration with HTTP 401 or 403, Tau stops
+reconnecting and shows "Removed from relay". Choose "Register again" in
+Settings → Connections → Tau Connect to remove the saved registration, then
+register the machine again. HTTP 504 during registration means the relay timed
+out; try again later. Other HTTP failures retain their status, and errors show
+the relay's trace or request ID when supplied. A local timeout or cancellation
+is reported separately from an HTTP response.
+
 Copy the Tau Connect pairing link and paste it into Settings → Machines on the
 other desktop, or Add machine on a phone. The phone also scans a QR code containing
 the link and opens `tau-connect:` links from another app. Allow the request on the host after comparing the six digits.

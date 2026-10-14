@@ -34,10 +34,10 @@ export function ConnectSettings({ onNotify }: { onNotify(message: string, level?
       <label className="machine-add-field"><span>Enrollment token</span><input aria-label="Enrollment token" type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} disabled={busy} required /></label>
       <Button type="submit" busy={busy}>Register this machine</Button>
     </form> : <>
-      <p role="status">{status.phase === "connected" ? "Connected" : status.phase === "connecting" ? "Connecting…" : "Offline"} · {status.relay}</p>
+      <p role="status">{status.phase === "connected" ? "Connected" : status.phase === "connecting" ? "Connecting…" : status.phase === "removed" ? "Removed from relay" : "Offline"} · {status.relay}</p>
       {status.detail ? <p>{status.detail}</p> : null}
       <Button disabled={busy || status.phase !== "connected"} onClick={() => void run(async () => { const { link } = await client!.createConnectLink!(); await client!.copyText(link); onNotify("Tau Connect pairing link copied. Paste it in Settings → Machines on the other desktop."); })}>Copy pairing link</Button>
-      <Button disabled={busy} onClick={() => void run(async () => { const next = await client!.removeConnect!(); setStatus(next); onNotify(next.detail ?? "Tau Connect disconnected and its relay route was revoked."); })}>Disconnect</Button>
+      <Button disabled={busy} onClick={() => void run(async () => { const next = await client!.removeConnect!(); if (status.phase === "removed") setRelay(status.relay ?? ""); setStatus(next); onNotify(next.detail ?? "Tau Connect disconnected and its relay route was revoked."); })}>{status.phase === "removed" ? "Register again" : "Disconnect"}</Button>
     </>}
     {problem ? <p role="alert">{problem}</p> : null}
   </SettingsSection>;
