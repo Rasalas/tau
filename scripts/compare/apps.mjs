@@ -88,6 +88,18 @@ function gitHead(dir) {
   try { return execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(); } catch { return "unknown"; }
 }
 
+/**
+ * An offline provider for Pi; no turn runs through it. With Pi signed out and Codex ready,
+ * opening an uncached Pi thread from the rail ends on a blank Codex draft instead of the thread.
+ */
+function writePiProvider(agentDir) {
+  mkdirSync(agentDir, { recursive: true });
+  const provider = { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "offline", models: [{ id: "harness-offline" }] };
+  writeFileSync(join(agentDir, "models.json"), `${JSON.stringify({ providers: { harness: provider } }, null, 2)}\n`);
+}
+
+const IMPORTED_ROW = "article.thread-row:not(.thread-draft-row)";
+
 export const tau = {
   id: "tau",
   label: "Tau",
@@ -114,6 +126,7 @@ export const tau = {
     writeCodexShim(root);
     gitInit(paths.workspace);
     writeFileSync(join(paths.run, "tau-config.json"), "{}\n");
+    writePiProvider(join(paths.run, "home", ".pi", "agent"));
     return { ...paths, sessionsHome: paths.importSessions };
   },
   env(root) {
@@ -145,7 +158,8 @@ export const tau = {
     return child;
   },
   isAppPage: (target) => /\/dist\/index\.html/u.test(target.url),
-  ready: (threads) => `!!document.querySelector("textarea") && document.querySelectorAll("article.thread-row").length >= ${threads}`,
+  // The workspace's unsent draft is a rail row too, but not an imported thread.
+  ready: (threads) => `!!document.querySelector("textarea") && document.querySelectorAll("${IMPORTED_ROW}").length >= ${threads}`,
   async revealThreads() {},
   /**
    * A thread opens with its newest 10 turns; older ones come 20 at a time as
@@ -174,7 +188,7 @@ export const tau = {
     messageRow: "#thread-transcript [data-message-id]",
     running: "button.send-button.stop",
   },
-  /** Onboarding: Continue → add the workspace project → import every conversation. */
+  /** Onboarding: Continue → add the workspace project (skipped when it is one already) → import every conversation → "Start a thread". */
   async seed(session, { clickWhenReady, waitFor, expectedThreads }) {
     const dialog = "section.onboarding-dialog button";
     const step = `(() => { const labels = [...document.querySelectorAll(${JSON.stringify(dialog)})].map((b) => b.textContent.trim()); `
@@ -189,8 +203,11 @@ export const tau = {
     }
     await clickWhenReady(session, dialog, /^Select all$/u, { timeoutMs: 3_000 }).catch(() => undefined);
     await clickWhenReady(session, dialog, new RegExp(`^Import ${expectedThreads} conversations`, "u"), { timeoutMs: 60_000 });
+    // The wizard ends on "<agent> is ready" and keeps covering the rail until it is left.
+    await clickWhenReady(session, dialog, /^Start a thread$/u, { timeoutMs: 60_000 });
+    await waitFor(session, `!document.querySelector("section.onboarding-dialog")`, { timeoutMs: 30_000 });
     // A long rail shows its first rows and folds the rest behind "show N more".
-    await waitFor(session, `(() => { const rows = document.querySelectorAll("article.thread-row").length; return rows >= ${expectedThreads} || (rows >= 12 && /show \\d+ more/.test(document.body.textContent)); })()`, { timeoutMs: 120_000 });
+    await waitFor(session, `(() => { const rows = document.querySelectorAll(${JSON.stringify(IMPORTED_ROW)}).length; return rows >= ${expectedThreads} || (rows >= 12 && /show \\d+ more/.test(document.body.textContent)); })()`, { timeoutMs: 120_000 });
   },
 };
 

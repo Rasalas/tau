@@ -450,3 +450,31 @@ describe("a seeding step that never comes", () => {
       .toBe('no section.onboarding-dialog; the page reads "Tau New thread"');
   });
 });
+
+describe("Tau's profile and rail", () => {
+  it("counts imported threads for ready, not the workspace's unsent draft", () => {
+    const rows = (count) => ({
+      querySelector: (selector) => (selector === "textarea" ? {} : null),
+      querySelectorAll: (selector) => {
+        expect(selector).toContain(":not(.thread-draft-row)");
+        return Array.from({ length: count }, () => ({}));
+      },
+    });
+    expect(runInNewContext(APPS.tau.ready(7), { document: rows(7) })).toBe(true);
+    expect(runInNewContext(APPS.tau.ready(7), { document: rows(6) })).toBe(false);
+  });
+
+  it("gives Pi an offline provider, so a switch to its threads does not end on a Codex draft", () => {
+    const root = mkdtempSync(join(realpathSync(tmpdir()), "compare-profile-"));
+    try {
+      const paths = APPS.tau.prepare(root);
+      const file = join(paths.run, "home", ".pi", "agent", "models.json");
+      const { providers } = JSON.parse(readFileSync(file, "utf8"));
+      const [provider] = Object.values(providers);
+      expect(provider.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:/u);
+      expect(APPS.tau.env(root).PI_CODING_AGENT_DIR).toBe(join(paths.run, "home", ".pi", "agent"));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -477,6 +477,19 @@ async function measureLargeThreadRun(app, root, options) {
   return { loadAtStart, entries, open, startup };
 }
 
+/**
+ * Quits the app through CDP so Chromium flushes its storage; SIGTERM drops
+ * localStorage writes up to 20 s old, such as the wizard clearing its resume key.
+ */
+async function quitGracefully(child, port, timeoutMs = 20_000) {
+  const exited = new Promise((resolvePromise) => child.once("exit", () => resolvePromise(true)));
+  const browser = await connect((await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()).webSocketDebuggerUrl);
+  browser.send("Browser.close").catch(() => undefined);
+  const closed = await Promise.race([exited, wait(timeoutMs).then(() => false)]);
+  browser.close();
+  if (!closed) console.warn("[compare] the app did not quit on its own; stopping it");
+}
+
 /** Imports the session fixture through the app's onboarding and saves the profile as the template. `plan` sizes the fixture. */
 export async function seed(app, root, turnFile, plan = {}) {
   rmSync(app.paths(root).run, { recursive: true, force: true });
@@ -484,15 +497,18 @@ export async function seed(app, root, turnFile, plan = {}) {
   const paths = app.prepare(root);
   writeFileSync(join(root, "turn.json"), turnFile);
   const written = writeCodexSessions(paths.sessionsHome, { cwd: paths.workspace, ...plan });
-  const { child, session } = await start(app, root, {});
+  const { child, port, session } = await start(app, root, {});
+  const tree = [child.pid];
   try {
     await app.seed(session, { clickWhenReady, waitFor, evaluate, expectedThreads: written.length });
     checkIsolation(child.pid, app.label);
     // Let both apps persist what the import wrote before the profile is copied.
     await wait(3_000);
+    tree.push(...descendants(processTable(), [child.pid]).map((row) => row.pid));
+    await quitGracefully(child, port);
   } finally {
     session.close();
-    await stopTree([child.pid]);
+    await stopTree(tree);
   }
   saveTemplate(app, root);
   writeFileSync(join(root, "fixture.json"), `${JSON.stringify(sessionPlan(plan))}\n`);
