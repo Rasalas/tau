@@ -108,7 +108,7 @@ export { ToolRun } from "../components/ToolRun";
 export { ClientEnvironmentProvider, electronClientEnvironment } from "../client-environment";
 export { ClientStorageProvider } from "../client-storage-context";
 export { createMemoryStorage, getClientStorage, setClientStorage } from "../../workbench/client-storage";
-export { createNewThreadDraft, writeNewThreadDraft } from "../../workbench/draft-store";
+export { createNewThreadDraft, readNewThreadDraft, writeNewThreadDraft } from "../../workbench/draft-store";
 export { threadStageKey } from "../../workbench/storage-keys";
 export { stageOwner } from "../../workbench/thread-stages";
 export { createNewThreadRequestId, displayRuntime } from "../../shared/contracts";

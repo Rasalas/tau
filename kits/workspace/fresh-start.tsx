@@ -24,8 +24,21 @@ export function FreshStart({ snapshot, actions }: RegionProps) {
   const store = useWorkspaceStore();
   // The host keeps an empty session open from the start; the rail lists none without a message.
   const empty = useSyncExternalStore(threads.subscribe, () => threads.getSnapshot().threads.every((thread) => thread.messageCount === 0));
-  // The new-thread chord opens a draft; then the composer is back.
-  const idle = empty && !actions.activeThread()?.draftPending;
+  const drafts = useSyncExternalStore(threads.subscribeToDrafts, threads.getDrafts);
+  const draft = drafts.find((candidate) => candidate.active);
+  const active = actions.activeThread();
+  const ready = useReadyRuntimes(snapshot, empty);
+  const [firstDraft, setFirstDraft] = useState<{ id: string; replacement: boolean }>();
+  useEffect(() => {
+    if (!active?.draftPending || !draft || firstDraft) return;
+    // The first draft may replace an unready startup runtime without a user choosing to start.
+    const replacement = empty && ready?.some((backend) => backend.kind === active?.backendKind) === true
+      && !ready.some((backend) => backend.kind === (snapshot?.backendKind ?? "pi"));
+    setFirstDraft({ id: draft.draftId, replacement });
+  }, [active?.backendKind, active?.draftPending, draft, empty, firstDraft, ready, snapshot?.backendKind]);
+  // A new draft or any input ends the start page; the empty startup replacement does not.
+  const idle = empty && (!active?.draftPending || (firstDraft?.replacement && firstDraft.id === draft?.draftId
+    && !draft.preview && !draft.attachments && !draft.submitting));
   // The answer is for one project: another one on screen (a folder just opened) is asked again.
   const workspace = snapshot?.workspaceId ?? snapshot?.cwd;
   const [asked, setAsked] = useState<{ workspace: string | undefined; plain: boolean }>();
@@ -38,7 +51,6 @@ export function FreshStart({ snapshot, actions }: RegionProps) {
   }, [idle, store, workspace]);
   const [starting, setStarting] = useState(false);
   const fresh = idle && asked !== undefined && asked.workspace === workspace && asked.plain;
-  const ready = useReadyRuntimes(snapshot, fresh);
   if (!fresh) return null;
   const startWithoutProject = () => {
     setStarting(true);
