@@ -27,7 +27,8 @@ export function askToShare(statistics: UsageStatistics, actions: Pick<WorkbenchA
     id: "usage-statistics:ask",
     type: "question",
     title: "Share usage statistics?",
-    description: "Helps count how many installations use Tau. A random device ID, active days, app version, platform and release channel go to Torben Buck's self-hosted Matomo; never prompts, files or projects.",
+    // Details opens the full list of what is sent.
+    description: "Counts this installation with a random ID and active days; never prompts or files.",
     timeoutMs: 0,
     actions: [
       { label: "Details", opens: true, keepOpen: true, run: () => actions.openSettings("general#setting-share-usage-statistics") },
