@@ -3811,6 +3811,56 @@ on the phone with their own icons and tooltips. Call it as
 `registerThreadListAccessory?.(…)`: a phone whose bundle predates it ignores the call, and the
 kit's `engines.api` stays where it was, so that phone keeps the kit.
 
+### Parts and customizations: `registerCustomizations` (API 1.62.0)
+
+Every region, status item, panel, page, sidebar module and composer control is
+a **part** with a name, and the user may hide, reorder, move or replace any of
+them ([ADR 0042](adr/0042-the-user-customizes-every-part-by-name.md)). A name is
+`<kind>:<id>`, a component a page carries besides its body `<kind>:<id>/<Field>`:
+
+| Kind | Name | Fields |
+|---|---|---|
+| region | `region:usage.juicebars` | |
+| status item | `status:<id>` | |
+| panel | `panel:<id>` | |
+| page | `page:usage` | `page:usage/Summary`, `page:usage/Sidebar` |
+| sidebar module | `sidebar:<id>` | |
+| composer control | `composer-control:<id>` | |
+
+`partName(kind, id, field?)` builds one. Core draws each part inside
+`<tau-part data-tau-part="<name>">`, which draws no box (`display: contents`):
+a user style hides a part with `[data-tau-part="…"] { display: none }` and
+styles what it holds with `[data-tau-part="…"] > *`. A kit that draws another
+kit's component itself (Workspace Kit draws a page's `Summary` in the sidebar's
+foot) wraps it in `Part` from `tau`, so it is named there too. A contribution's
+id is therefore API: renaming one breaks the user's customizations of it.
+
+`context.registerCustomizations(layer)` hands core the user's changes:
+`layer.getSnapshot()` answers `{ hidden?, order?, placement?, replaced? }`,
+each keyed by part name, and `layer.subscribe` reports a change. Core applies
+the last layer registered wherever it lists contributions: a hidden part is left
+out (a hidden `Summary` leaves the page, and the foot falls back to the page's
+figure or icon), `order` and a region's `placement` override the kit's, and a
+component in `replaced` is drawn instead of the original with the original's
+props plus `Original` (`ReplacementProps<P>`). Customize Kit
+(`kits/customize/`) is the one layer Tau ships. `context.customizableParts()`
+lists every part on this client with what the layer does to it, and
+`context.onPartsChanged(listener)` reports parts coming and going. Hooks, gates,
+send modes, keybindings, tool cards and core's own surfaces are not parts.
+
+**Data for the user's scripts.** A user script runs on the sandbox frame and
+reads what a kit lends it with `tau.data(id, callback)`. A kit lends a value by
+providing a service of the `SharedData` shape, `{ shared: true, getSnapshot(),
+subscribe(listener) }`, whose snapshot is plain data; Customize Kit hands no
+other service to a script. Usage lends its plan windows as `tau.usage/limits`
+(`{ checkedAt, accounts: [{ runtime, label, plan?, windows: [{ id, kind,
+label, usedPercent, resetsAt? }] }] }`, or `null` before the first reading).
+A script also has `tau.openPage(id, params?)` and `tau.runCommand(id)`, which
+runs only from a click in the script.
+
+`SandboxFrame` takes `minHeight` (API 1.62.0) for a frame inside a row, and
+`WorkbenchActions.closeSettings()` leaves Settings.
+
 ### Who is attached: `services.clients`
 
 `services.clients` is ungated — it answers `count()` and takes an observer

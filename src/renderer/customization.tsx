@@ -1,10 +1,10 @@
-import type { ComponentType, DetailedHTMLProps, HTMLAttributes, ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { RegionPlacement } from "./extension-system";
 
 declare module "react" {
   namespace JSX {
     interface IntrinsicElements {
-      "tau-part": DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & { "data-tau-part": string };
+      "tau-part": { "data-tau-part": string; children?: import("react").ReactNode };
     }
   }
 }
