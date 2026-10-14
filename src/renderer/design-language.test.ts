@@ -47,7 +47,7 @@ describe("the workbench design language", () => {
 
   it("heads the rail with the project filter and quiet search and plus icons", () => {
     expect(rule(WORKSPACE, ".sidebar-action")).toMatch(/background: transparent/u);
-    expect(rule(WORKSPACE, ".window-inset .rail-head-actions")).toMatch(/-webkit-app-region: no-drag/u);
+    expect(rule(WORKSPACE, ".rail-head-actions")).toMatch(/-webkit-app-region: no-drag/u);
     expect(rule(WORKSPACE, ".session-rail")).not.toMatch(/border/u);
   });
 

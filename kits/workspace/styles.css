@@ -72,7 +72,7 @@
 
 /* The project filter says what the list shows; search and "+" are quiet icons beside it. */
 .rail-head { display: flex; align-items: center; gap: var(--space-2); min-height: 30px; }
-.rail-head-actions { margin-left: auto; display: flex; flex: none; gap: 2px; }
+.rail-head-actions { margin-left: auto; display: flex; flex: none; gap: 2px; -webkit-app-region: no-drag; }
 .rail-head-actions > .sidebar-action { width: 28px; height: 28px; }
 .rail-head > .sidebar-toggle { width: 28px; height: 28px; margin-left: -6px; }
 /* The toggle shares the new-thread button's right edge, centred on the traffic lights 26 px down. */
