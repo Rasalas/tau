@@ -4,6 +4,7 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
+import { isDeepStrictEqual } from "node:util";
 import { readPersistedJson, tryProcessLock, writePersistedJson, type PersistedJsonLogger } from "tau/host-extension";
 import { sessionStoreSqliteWorkerMain, type SqliteChanges, type SqliteSessionChange, type SqliteStoreRead } from "./session-store-persistence-worker.js";
 
@@ -120,8 +121,12 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
         if (!data) throw new Error(`Invalid SQLite session: ${row.id}`);
         sessions.push(...data.sessions);
         const record = data.sessions[0] as T & { messages?: unknown[]; usageTurns?: unknown[] };
+        const storedUsage = (row.raw as { sessions: Array<{ usageTurns?: unknown[] }> }).sessions[0]?.usageTurns ?? [];
+        // A decoder may migrate cumulative counters into deltas. Only unchanged
+        // rows may reuse decoded identities; migrated rows must be written back.
+        const usage = isDeepStrictEqual(storedUsage, record?.usageTurns ?? []) ? record?.usageTurns ?? [] : storedUsage;
         if (record && !this.snapshots.has(row.id)) this.snapshots.set(row.id, { revision: row.revision, messages: record.messages,
-          count: record.messages?.length ?? 0, usage: record.usageTurns?.slice() ?? [], start: row.usageStart, next: row.usageNext });
+          count: record.messages?.length ?? 0, usage: usage.slice(), start: row.usageStart, next: row.usageNext });
       }
       for (const row of loaded.models) {
         const entries = this.options.decode(row.raw)?.models?.[row.id];

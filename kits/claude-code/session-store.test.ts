@@ -361,6 +361,38 @@ describe("ClaudeRuntimeSessionStore.defaultPath", () => {
   });
 });
 
+describe("usage accounting migration", () => {
+  it("recovers old live cumulative rows, persists the baseline, and never converts them twice", async () => {
+    const { filePath } = await temporaryStore();
+    const row = (at: number, inputTokens: number, costUsd: number) => ({ provider: "anthropic", model: "opus", billing: "subscription", inputTokens, outputTokens: 10, cacheReadTokens: 1_000, cacheWriteTokens: 0, totalTokens: inputTokens + 1_010, costUsd, turns: 1, at });
+    await mkdir(join(filePath, ".."), { recursive: true });
+    await writeFile(filePath, JSON.stringify({ version: 1, sessions: [{
+      tauThreadId: "old", claudeSessionId: "123e4567-e89b-42d3-a456-426614174000", cwd: "/repo", started: true, messages: [], lastAttemptAt: 1, updatedAt: 2,
+      usageTurns: [row(1, 100, 10), row(2, 150, 15)],
+    }] }));
+    const store = makeSessionStore({ filePath });
+    const recovered = (await store.get("old"))!;
+    expect(recovered.usage).toMatchObject({ costUsd: 15, inputTokens: 150, cacheReadTokens: 1_000, turns: 2 });
+    expect(recovered.usageAccounting).toBe("delta");
+    expect(recovered.usageTurns?.map((turn) => turn.costUsd)).toEqual([10, 5]);
+    expect(recovered.usageSnapshot?.[0]).toMatchObject({ costUsd: 15, inputTokens: 150 });
+    await store.setTitle("old", "/repo", "Updated", "renamed");
+    const reloaded = (await makeSessionStore({ filePath }).get("old"))!;
+    expect(reloaded.usageTurns).toEqual(recovered.usageTurns);
+    expect(reloaded.usageSnapshot).toEqual(recovered.usageSnapshot);
+  });
+
+  it("leaves imported per-response usage alone", async () => {
+    const { filePath } = await temporaryStore();
+    const store = makeSessionStore({ filePath });
+    const tally = { inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 110, costUsd: 1, turns: 1 };
+    const [id] = await store.adopt([{ claudeSessionId: "123e4567-e89b-42d3-a456-426614174000", cwd: "/repo", title: "Imported", messages: [], updatedAt: 2, usageTurns: [{ ...tally, at: 1 }, { ...tally, at: 2 }] }]);
+    const reloaded = makeSessionStore({ filePath });
+    await reloaded.load();
+    expect(reloaded.talliesOf(id!)[0]).toMatchObject({ costUsd: 2, totalTokens: 220 });
+  });
+});
+
 describe("the model a thread ran on", () => {
   it("survives a reload without pinning the thread to it", async () => {
     const { filePath } = await temporaryStore();

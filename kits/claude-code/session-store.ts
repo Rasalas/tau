@@ -1,8 +1,9 @@
 import { chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, parseSkillEnvelope, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
+import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, parseSkillEnvelope, readUsageTurns, unpricedUsage, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
 import { SessionStorePersistence, sessionMessageIndex } from "../_shared/session-store-persistence.js";
+import { recoverUsageTurns } from "./sdk-usage.js";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
 const CURRENT_VERSION = 1;
@@ -51,6 +52,10 @@ export interface ClaudeRuntimeSessionRecord {
   usage?: UiThreadUsage;
   /** Each turn's tokens per model, dated; threads from before turns were kept have only `usage`. */
   usageTurns?: UsageTurn[];
+  /** Turn rows contain deltas, not cumulative SDK snapshots. Imports also use this format. */
+  usageAccounting?: "delta";
+  /** The last SDK counters, kept separately so a resumed CLI does not bill its history again. */
+  usageSnapshot?: UsageTally[];
   /** The context the last turn left, so a thread opened later still knows its size and age. */
   contextUsage?: UiContextUsage;
   /** The model and effort the user chose for this thread; the CLI's defaults otherwise. */
@@ -277,6 +282,16 @@ function storedUsage(value: unknown): UiThreadUsage | undefined {
   return usage as UiThreadUsage;
 }
 
+function storedSnapshot(value: unknown): UsageTally[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((item: unknown) => {
+    const usage = storedUsage(item);
+    if (!usage) return [];
+    const model = item as { provider?: unknown; model?: unknown };
+    return [{ ...usage, ...(boundedString(model.provider, MAX_ID_LENGTH) ? { provider: boundedString(model.provider, MAX_ID_LENGTH) } : {}), ...(boundedString(model.model, MAX_ID_LENGTH) ? { model: boundedString(model.model, MAX_ID_LENGTH) } : {}) }];
+  });
+}
+
 function storedContextUsage(value: unknown): UiContextUsage | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Record<string, unknown>;
@@ -318,7 +333,7 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     : undefined;
   const instance = instanceOf(item.instance);
   const createdAt = typeof item.createdAt === "number" && Number.isFinite(item.createdAt) ? item.createdAt : messages[0]?.timestamp;
-  return {
+  const record: ClaudeRuntimeSessionRecord = {
     backendKind: "claude-code",
     tauThreadId,
     ...(instance ? { instance } : {}),
@@ -339,6 +354,8 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(titleSource ? { titleSource } : {}),
     ...(storedUsage(item.usage) ? { usage: storedUsage(item.usage) } : {}),
     ...(readUsageTurns(item.usageTurns) ? { usageTurns: readUsageTurns(item.usageTurns) } : {}),
+    ...(item.usageAccounting === "delta" ? { usageAccounting: "delta" as const } : {}),
+    ...(storedSnapshot(item.usageSnapshot) ? { usageSnapshot: storedSnapshot(item.usageSnapshot) } : {}),
     ...(storedContextUsage(item.contextUsage) ? { contextUsage: storedContextUsage(item.contextUsage) } : {}),
     ...(boundedString(item.model, MAX_ID_LENGTH) ? { model: boundedString(item.model, MAX_ID_LENGTH) } : {}),
     ...(boundedString(item.effort, 16) ? { effort: boundedString(item.effort, 16) } : {}),
@@ -349,6 +366,14 @@ function storedRecord(value: unknown): ClaudeRuntimeSessionRecord | undefined {
     ...(createdAt !== undefined ? { createdAt } : {}),
     updatedAt,
   };
+  if (record.usageAccounting !== "delta" && record.lastAttemptAt !== undefined && record.usageTurns?.length) {
+    const recovered = recoverUsageTurns(record.usageTurns);
+    record.usageTurns = recovered.turns;
+    record.usageSnapshot = recovered.snapshot;
+    record.usage = unpricedUsage(mergeTallies(recovered.turns));
+    record.usageAccounting = "delta";
+  }
+  return record;
 }
 
 function cloneMessage(message: ClaudeStoredMessage): ClaudeStoredMessage {
@@ -376,6 +401,7 @@ function cloneRecord(record: ClaudeRuntimeSessionRecord): ClaudeRuntimeSessionRe
     messages: record.messages.map(cloneMessage),
     ...(record.usage ? { usage: { ...record.usage } } : {}),
     ...(record.usageTurns ? { usageTurns: record.usageTurns.map((turn) => ({ ...turn })) } : {}),
+    ...(record.usageSnapshot ? { usageSnapshot: record.usageSnapshot.map((tally) => ({ ...tally })) } : {}),
     ...(record.contextUsage ? { contextUsage: { ...record.contextUsage } } : {}),
     ...(record.tools ? { tools: [...record.tools] } : {}),
     ...(record.goal ? { goal: { ...record.goal } } : {}),
@@ -556,6 +582,7 @@ export class ClaudeRuntimeSessionStore {
       attemptCount: 0,
       createFallbackUsed: false,
       messages: [],
+      usageAccounting: "delta",
       createdAt: this.now(),
       updatedAt: this.now(),
     };
@@ -645,11 +672,13 @@ export class ClaudeRuntimeSessionStore {
   }
 
   /** Replaces the thread's running total; the backend sums turns itself. */
-  async recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turns: readonly UsageTurn[] = []): Promise<void> {
+  async recordUsage(tauThreadId: string, cwd: string, usage: UiThreadUsage, turns: readonly UsageTurn[] = [], snapshot?: readonly UsageTally[]): Promise<void> {
     await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);
     if (!record) return;
     record.usage = { ...usage };
+    record.usageAccounting = "delta";
+    if (snapshot) record.usageSnapshot = snapshot.map((tally) => ({ ...tally }));
     for (const turn of turns) record.usageTurns = appendUsageTurn(record.usageTurns ?? [], { ...turn });
     record.updatedAt = this.now();
     await this.persist(tauThreadId);
@@ -758,6 +787,7 @@ export class ClaudeRuntimeSessionStore {
         cwd: session.cwd,
         started: true,
         attempted: true,
+        usageAccounting: "delta",
         attemptCount: 1,
         createFallbackUsed: false,
         lastAttemptOutcome: "started",

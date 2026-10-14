@@ -16,7 +16,7 @@ const WORKSPACE = process.cwd();
 const commands: UiComposerCommand[] = [{ name: "skill:tdd", source: "skill", description: "Test first" }];
 const SESSION = "123e4567-e89b-42d3-a456-426614174000";
 const frame = <T extends object>(value: T): SDKMessage => ({ uuid: "u", session_id: SESSION, ...value }) as unknown as SDKMessage;
-const init = () => frame({ type: "system", subtype: "init", model: "claude-opus-5" });
+const init = (version = "2.1.263") => frame({ type: "system", subtype: "init", model: "claude-opus-5", claude_code_version: version });
 const result = (text: string, extra: object = {}) => frame({
   type: "result", subtype: "success", is_error: false, num_turns: 2, result: text, total_cost_usd: 0.1,
   usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
@@ -102,7 +102,7 @@ function fakeSession(input: ClaudeSessionInput, script: Script) {
   return session as unknown as ClaudeSdkSession & typeof session;
 }
 
-function scriptedAdapter(filePath: string, script: Script) {
+function scriptedAdapter(filePath: string, script: Script, version = "2.1.263") {
   const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath });
   const opened: ClaudeSessionInput[] = [];
   const sessions: ReturnType<typeof fakeSession>[] = [];
@@ -110,13 +110,53 @@ function scriptedAdapter(filePath: string, script: Script) {
     opened.push(input);
     const session = fakeSession(input, script);
     sessions.push(session);
-    queueMicrotask(() => input.onMessage(init()));
+    queueMicrotask(() => input.onMessage(init(version)));
     return session;
   });
   return { adapter, opened, sessions };
 }
 
 describe("thread runtime backends", () => {
+  it("keeps the cumulative baseline across a resumed CLI and a reloaded store", async () => {
+    const { filePath, store } = await scratchStore();
+    let calls = 0;
+    const { adapter } = scriptedAdapter(filePath, () => [result("done", {
+      total_cost_usd: ++calls * 0.1,
+      modelUsage: { "claude-opus-5": { inputTokens: calls * 100, outputTokens: calls * 10, cacheReadInputTokens: calls * 1_000, cacheCreationInputTokens: 0, costUSD: calls * 0.1, contextWindow: 200_000 } },
+    })], "2.1.277");
+    const first = new ClaudeThreadRuntimeBackend("resume-usage", WORKSPACE, { adapter, store, commands, projectName: "repo" });
+    await first.start("create");
+    await first.prompt({ text: "first", delivery: "prompt" });
+    await first.prompt({ text: "second", delivery: "prompt" });
+    await first.dispose();
+    const resumed = new ClaudeThreadRuntimeBackend("resume-usage", WORKSPACE, { adapter, store: new ClaudeRuntimeSessionStore({ filePath }), commands, projectName: "repo" });
+    try {
+      await resumed.start("resume");
+      await resumed.prompt({ text: "third", delivery: "prompt" });
+      expect(resumed.catalogView().usage).toMatchObject({ costUsd: expect.closeTo(0.3, 10), inputTokens: 300, cacheReadTokens: 3_000, turns: 3 });
+    } finally { await resumed.dispose(); }
+  });
+  it("counts cumulative results once, including unchanged native subagent totals", async () => {
+    const { filePath, store } = await scratchStore();
+    let count = 0;
+    const { adapter } = scriptedAdapter(filePath, () => [result("done", {
+      total_cost_usd: ++count === 1 ? 12 : 17,
+      modelUsage: {
+        "claude-opus-5": { inputTokens: count === 1 ? 100 : 150, outputTokens: 10, cacheReadInputTokens: count === 1 ? 1_000 : 1_500, cacheCreationInputTokens: 0, costUSD: count === 1 ? 10 : 15, contextWindow: 200_000 },
+        "claude-sonnet-5": { inputTokens: 20, outputTokens: 5, cacheReadInputTokens: 200, cacheCreationInputTokens: 0, costUSD: 2, contextWindow: 200_000 },
+      },
+    })]);
+    const backend = new ClaudeThreadRuntimeBackend("cumulative", WORKSPACE, { adapter, store, commands, projectName: "repo" });
+    try {
+      await backend.start("create");
+      await backend.prompt({ text: "first", delivery: "prompt" });
+      await backend.prompt({ text: "second", delivery: "prompt" });
+      expect(backend.catalogView().usage).toMatchObject({ costUsd: 17, cacheReadTokens: 1_700, turns: 2 });
+      const saved = (await store.get("cumulative"))!;
+      expect(saved.usage).toMatchObject({ costUsd: 17, cacheReadTokens: 1_700 });
+      expect(saved.usageTurns?.filter((row) => row.model === "claude-sonnet-5").reduce((sum, row) => sum + row.costUsd, 0)).toBe(2);
+    } finally { await backend.dispose(); }
+  });
   it.each([
     { source: "assistant", detail: "Failed to authenticate. API Error: 403 Your organization does not have access to this model." },
     { source: "child", detail: "Failed to authenticate: permission denied for this model." },
@@ -386,7 +426,18 @@ describe("thread runtime backends", () => {
 
   it("streams a Claude turn as Tau events, persists the exchange and its usage, and restores both", async () => {
     const { filePath, store } = await scratchStore();
-    const { adapter, opened, sessions } = scriptedAdapter(filePath, (content) => turn(`Claude: ${String(content)}`));
+    let process: ClaudeSessionInput | undefined;
+    let calls = 0;
+    const { adapter, opened, sessions } = scriptedAdapter(filePath, (content, _priority, input) => {
+      if (input !== process) { process = input; calls = 0; }
+      calls += 1;
+      const frames = turn(`Claude: ${String(content)}`);
+      frames[frames.length - 1] = result(`Claude: ${String(content)}`, {
+        total_cost_usd: 0.1 * calls,
+        modelUsage: { "claude-opus-5": { inputTokens: 100 * calls, outputTokens: 10 * calls, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0.1 * calls, contextWindow: 200000 } },
+      });
+      return frames;
+    });
     const events: ThreadRuntimeEvent[] = [];
     let streamingWhileLive: boolean | undefined;
     const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, {

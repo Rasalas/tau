@@ -55,6 +55,7 @@ import {
 import { EFFORT_LEVELS, apiKeyBilling, probeBilling, uiModel, versionedModelName, type EffortLevel } from "./probe.js";
 import { assertClaudePermissionPolicySupported, runtimePermissionPolicy, type ClaudeCodeAgentRuntimeAdapter, type ClaudeNetworkLimit, type ClaudeTurnHooks } from "./runtime-adapter.js";
 import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
+import { ClaudeUsage } from "./sdk-usage.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeBackgroundTasks } from "./background-tasks.js";
 import { ClaudeRuntimeSessionStore, usageTurnsOf, type ClaudeStoredGoal } from "./session-store.js";
@@ -153,6 +154,8 @@ interface Turn {
   text: string;
   /** A `/compact` or `/goal clear` Tau sent; the composer's queue never lists it. */
   compaction?: boolean;
+  /** modelUsage carries cumulative tokens; usage alone counts only this turn's main loop. */
+  cumulativeUsage?: boolean;
   /** A turn the CLI began on its own, e.g. when a background agent finished; no send waits on it. */
   unprompted?: boolean;
   reportedTasks?: string[];
@@ -181,6 +184,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private title?: string;
   private titleSource?: ThreadTitleSource;
   private usage: UiThreadUsage = SdkTurnTranslator.emptyUsage();
+  private sdkUsage = new ClaudeUsage();
   /** Each finished turn's tokens per model; `usage` is their running total. */
   private usageTurns: UsageTurn[] = [];
   /** Turns settled but not written yet; `persistUsage` writes them with the total. */
@@ -312,6 +316,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.titleSource = record.titleSource;
     if (record.usage) this.usage = { ...record.usage };
     this.usageTurns = usageTurnsOf(record);
+    this.sdkUsage = new ClaudeUsage(record.usageSnapshot);
     this.chosenModel = record.model;
     this.chosenEffort = effortLevel(record.effort);
     this.mode = record.mode ?? DEFAULT_MODE;
@@ -613,6 +618,10 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private authenticationSettled = false;
 
   private onFrame(frame: Parameters<SdkTurnTranslator["push"]>[0], unclaimed = false): void {
+    if (frame.type === "system" && frame.subtype === "init") {
+      this.sdkUsage.beginProcess(frame.claude_code_version, this.live?.resumed ?? false);
+    }
+    if (frame.type === "conversation_reset") this.sdkUsage.reset();
     // Not in the SDK's message union, but the query stream passes it on (sdk.d.ts `SDKActiveGoalMessage`).
     if ((frame as { type: string }).type === "active_goal") {
       this.onActiveGoal((frame as unknown as { value: { condition: string; iterations: number; last_reason?: string } | null }).value);
@@ -651,6 +660,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       }
       return;
     }
+    if (frame.type === "result") turn.cumulativeUsage = Object.keys(frame.modelUsage ?? {}).length > 0;
     const events = turn.translator.push(frame);
     for (const event of events) this.handleEvent(event);
     if (frame.type !== "result" || !turn.translator.outcome) return;
@@ -680,10 +690,12 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.noteFacts(turn.translator.facts);
     if (turn.translator.facts.rateLimits?.length) this.options.onRateLimits?.(turn.translator.facts.rateLimits);
     if (outcome) {
-      this.usage = addUsage(this.usage, outcome.usage);
+      const tallies = turn.cumulativeUsage ? this.sdkUsage.take(outcome.tallies) : outcome.tallies;
+      const delta = unpricedUsage(tallies) ?? SdkTurnTranslator.emptyUsage();
+      this.usage = addUsage(this.usage, delta);
       const billing = this.billing ?? this.options.billing?.() ?? apiKeyBilling(turn.translator.facts.apiKeySource);
       const at = this.now();
-      for (const tally of outcome.tallies) {
+      for (const tally of tallies) {
         const dated: UsageTurn = { ...tally, ...(billing ? { billing } : {}), at };
         this.usageTurns = appendUsageTurn(this.usageTurns, dated);
         this.unsavedTurns.push(dated);
@@ -870,7 +882,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private async persistUsage(): Promise<void> {
     if (this.usage.turns === 0) return;
     const turns = this.unsavedTurns.splice(0);
-    await this.store.recordUsage(this.threadId, this.cwd, this.usage, turns);
+    await this.store.recordUsage(this.threadId, this.cwd, this.usage, turns, this.sdkUsage.snapshot());
   }
 
   /** Claude's questions during a turn go to the workbench; without a dialog surface the SDK gets none. */

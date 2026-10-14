@@ -317,3 +317,22 @@ it("detects changed published chunk text during an interrupted migration with an
   await expect(makeStore(filePath).load()).rejects.toThrow("changed after SQLite migration");
   expect(query(filePath, (db) => db.prepare("SELECT payload FROM messages").get()?.payload)).toBe('"original"');
 });
+
+it("persists usage normalization from an existing SQLite record before marking it migrated", async () => {
+  const { filePath } = await fixture();
+  const original = makeStore(filePath);
+  await original.write({ sessions: [{ id: "thread", record: { tauThreadId: "thread", messages: [], usageTurns: [{ cost: 10 }, { cost: 15 }] } }] });
+  await original.dispose();
+  const migrated = new SessionStorePersistence<Record, string>({ filePath, version: 1, immutableUsageTurns: true,
+    decode: (value) => {
+      const data = value as { sessions: Record[] };
+      return { sessions: data.sessions.map((record) => record.title === "migrated" ? record : {
+        ...record, title: "migrated", usageTurns: [{ cost: 10 }, { cost: 5 }],
+      }) };
+    } });
+  stores.push(migrated);
+  const record = (await migrated.load())!.sessions[0]!;
+  await migrated.write({ sessions: [{ id: "thread", record, appendOnly: true }] });
+  await migrated.dispose();
+  expect((await makeStore(filePath).load())!.sessions[0]!.usageTurns).toEqual([{ cost: 10 }, { cost: 5 }]);
+});
