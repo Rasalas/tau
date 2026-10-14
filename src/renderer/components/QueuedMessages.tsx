@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
-import { ArrowUp, ChevronDown, ChevronUp, Clock, GripVertical, X } from "lucide-react";
+import { AlarmClock, ArrowUp, ChevronDown, ChevronUp, Clock, GripVertical, Pencil, X } from "lucide-react";
 import type { UiQueuedMessage } from "../../shared/contracts";
+import { PlanSheet } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
+import { shortWhen } from "./when-pick";
 import { WakeIcon } from "./WakeLine";
 
 /** A wake waits as one quiet row; the arrow sends it like a queued message, and dropping it puts nothing in the composer. */
@@ -19,11 +21,13 @@ function QueuedWake({ entry, held, streaming, onSend, onDrop }: { entry: UiQueue
 
 /**
  * Messages sent during a run wait at the end of the conversation as dashed
- * bubbles: the arrow sends one now, the X puts it back into
- * the composer. The up/down buttons and grip (or ⌥↑/⌥↓ on it) reorder them. The host keeps
- * the queue, so it survives a restart; a restored one is held for the user.
+ * bubbles: the arrow sends one now, the pencil or a click on its text puts it
+ * back into the composer to edit. A planned one shows its time; a click on the
+ * time plans it for another. The up/down buttons and grip (or ⌥↑/⌥↓ on it)
+ * reorder them. The host keeps the queue, so it survives a restart; a restored
+ * one is held for the user.
  */
-export function QueuedMessages({ queue, streaming, held = false, steerShortcut, onSteer, onReturn, onReorder }: {
+export function QueuedMessages({ queue, streaming, held = false, steerShortcut, onSteer, onReturn, onReorder, onPlan }: {
   queue: readonly UiQueuedMessage[];
   streaming: boolean;
   /** A restart, a stop or a limit held the queue: nothing leaves until the user sends. */
@@ -33,17 +37,24 @@ export function QueuedMessages({ queue, streaming, held = false, steerShortcut, 
   onSteer(id: string): void;
   onReturn(id: string): void;
   onReorder(id: string, toIndex: number): void;
+  /** Gives a waiting message another time (API 1.64.0). */
+  onPlan?(id: string, deliverAt: number): void;
 }) {
   // Only a drag that starts on the grip reorders; text drags inside a bubble do not.
   const armed = useRef<string | undefined>(undefined);
   const [dragging, setDragging] = useState<string>();
+  const [planning, setPlanning] = useState<UiQueuedMessage>();
   if (queue.length === 0) return null;
   return (
+    <>
     <ol className="queued-messages" aria-label="Queued messages">
       {queue.map((entry, index) => {
         if (entry.wake) return <QueuedWake key={entry.id} entry={entry as UiQueuedMessage & { wake: NonNullable<UiQueuedMessage["wake"]> }} held={held} streaming={streaming} onSend={() => onSteer(entry.id)} onDrop={() => onReturn(entry.id)} />;
         const files = entry.attachments;
-        const status = held
+        const planned = entry.deliverAt !== undefined;
+        const status = planned
+          ? `Planned: sends ${new Date(entry.deliverAt!).toLocaleString([], { weekday: "long", hour: "2-digit", minute: "2-digit" })}${onPlan ? "; click to change the time" : ""}`
+          : held
           ? "Held: sends after your next message, or send it now"
           : index === 0
             ? streaming ? "Sends when the turn ends" : "Sends next"
@@ -52,7 +63,7 @@ export function QueuedMessages({ queue, streaming, held = false, steerShortcut, 
         return (
           <li
             key={entry.id}
-            className={`queued-message${dragging === entry.id ? " dragging" : ""}`}
+            className={`queued-message${planned ? " planned" : ""}${dragging === entry.id ? " dragging" : ""}`}
             draggable
             onDragStart={(event) => {
               if (armed.current !== entry.id) { event.preventDefault(); return; }
@@ -70,7 +81,7 @@ export function QueuedMessages({ queue, streaming, held = false, steerShortcut, 
             }}
             onDragEnd={() => { armed.current = undefined; setDragging(undefined); }}
           >
-            {entry.text.trim() ? <p>{entry.text.trim()}</p> : null}
+            {entry.text.trim() ? <p className="queued-message-text" onClick={() => { if (!window.getSelection()?.toString()) onReturn(entry.id); }}>{entry.text.trim()}</p> : null}
             {files > 0 ? <small>{files} attachment{files === 1 ? "" : "s"}</small> : null}
             <footer>
               <button
@@ -94,18 +105,32 @@ export function QueuedMessages({ queue, streaming, held = false, steerShortcut, 
                   <ChevronDown size={14} />
                 </button>
               </> : null}
-              <span className="queued-message-status" {...tooltipProps(status)}><Clock size={12} />{held ? "Held" : "Queued"}{entry.fromThreadId ? " · from another thread" : ""}</span>
+              {planned ? (
+                <button type="button" className="queued-message-status queued-message-when" disabled={!onPlan} {...tooltipProps(status)} onClick={() => setPlanning(entry)}>
+                  <AlarmClock size={12} />{shortWhen(entry.deliverAt!, Date.now())}
+                </button>
+              ) : <span className="queued-message-status" {...tooltipProps(status)}><Clock size={12} />{held ? "Held" : "Queued"}{entry.fromThreadId ? " · from another thread" : ""}</span>}
               <span className="spacer" />
               <button type="button" aria-label="Send now" {...tooltipProps(send, index === 0 && steerShortcut ? { shortcut: steerShortcut } : undefined)} onClick={() => onSteer(entry.id)}>
                 <ArrowUp size={14} />
               </button>
-              <button type="button" aria-label="Cancel and return to the composer" {...tooltipProps("Cancel and return to the composer")} onClick={() => onReturn(entry.id)}>
-                <X size={14} />
+              <button type="button" aria-label="Edit in the composer" {...tooltipProps("Edit in the composer")} onClick={() => onReturn(entry.id)}>
+                <Pencil size={13} />
               </button>
             </footer>
           </li>
         );
       })}
     </ol>
+    {planning && onPlan ? (
+      <PlanSheet
+        title="Change the time"
+        confirmLabel="Save"
+        draft={{ text: planning.text, attachments: planning.attachments }}
+        onPlan={(at) => { setPlanning(undefined); onPlan(planning.id, at); }}
+        onClose={() => setPlanning(undefined)}
+      />
+    ) : null}
+    </>
   );
 }

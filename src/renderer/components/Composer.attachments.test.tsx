@@ -76,7 +76,9 @@ describe("Composer attachments", () => {
     await screen.findByRole("button", { name: "Preview shot.png" });
     const draft = screen.getByPlaceholderText(delivery ? /Steer, or queue/u : /Ask anything/u) as HTMLTextAreaElement;
     typeAfterChips(draft, "look at this");
-    fireEvent.keyDown(draft, { key: "Enter", metaKey: delivery === "steer" });
+    // Enter steers a running turn; a follow-up goes through the send menu.
+    fireEvent.keyDown(draft, { key: "Enter", metaKey: delivery === "followUp" });
+    if (delivery === "followUp") fireEvent.keyDown(await screen.findByRole("menuitem", { name: /Queue after this turn/u }), { key: "Enter" });
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit.mock.calls[0]?.[1]).toEqual([{ kind: "image", name: "shot.png", mimeType: "image/png", data: btoa("fitted"), size: 6 }]);
     expect(onSubmit.mock.calls[0]?.[2]).toBe(delivery);

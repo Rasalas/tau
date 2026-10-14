@@ -220,7 +220,8 @@ describe("Settings → Keybindings as an editor", () => {
     expect(within(screen.getByRole("region", { name: "Stage" })).getByText("Split terminal")).toBeTruthy();
     const conversation = screen.getByRole("region", { name: "Conversation" });
     expect(within(conversation).getByText("Send").closest(".keybinding-row")?.querySelector(".keycaps")?.getAttribute("aria-label")).toBe("↵");
-    expect(within(conversation).getByText("Steer while running").closest(".keybinding-row")?.querySelector(".keycaps")?.getAttribute("aria-label")).toBe("Ctrl+↵");
+    expect(within(conversation).getByText("Steer while running").closest(".keybinding-row")?.querySelector(".keycaps")?.getAttribute("aria-label")).toBe("↵");
+    expect(within(conversation).getByText("Send menu: queue, steer or plan").closest(".keybinding-row")?.querySelector(".keycaps")?.getAttribute("aria-label")).toBe("Ctrl+↵");
     expect(within(conversation).getByText("New line")).toBeTruthy();
   });
 });

@@ -807,8 +807,8 @@ export interface ComposerSendModeContribution extends ProfileScoped {
 
 /** What a planner's tab in the Plan sheet gets (API 1.64.0). */
 export interface ComposerPlannerProps {
-  /** The draft as Send would take it. */
-  draft: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft };
+  /** The draft's text, with its chips as plain text, and how many files wait beside it. */
+  draft: { text: string; attachments: number };
   /** The thread the composer writes to. */
   snapshot: HostSnapshot;
   actions: WorkbenchActions | undefined;

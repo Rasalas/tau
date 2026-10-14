@@ -281,11 +281,13 @@ export interface WorkbenchComposer {
   queue: readonly UiQueuedMessage[];
   holds: number;
   prompts: ExtensionUiPrompt[];
-  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer" | "alternate", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
+  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: import("./submission-queue").SubmitDelivery, skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
   abort(sessionId?: string): void;
   cancelQueued(id: string): void;
   steerQueued(id: string): void;
   reorderQueue(id: string, toIndex: number): void;
+  /** Gives a waiting message another time; `undefined` puts it in the line of the queue. */
+  planQueued(id: string, deliverAt: number | undefined): void;
   /** Takes a queued message back into the composer. */
   returnQueued(id: string): void;
   setModel(provider: string, id: string): Promise<void>;
@@ -1181,7 +1183,7 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
   const onForkMessage = useCallback((message: UiMessage, turn?: TranscriptTurn) => void forkMessage(message, turn), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const { readOnly } = useHostCapabilities();
-  const { queue, steerQueued, returnQueued, reorderQueue } = composer;
+  const { queue, steerQueued, returnQueued, reorderQueue, planQueued } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
   const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
   const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
@@ -1201,8 +1203,8 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
       ? <LiveStatus label={liveStatusLabel} />
       : thinking ? <LiveStatus startedAt={runStartedAt} /> : undefined;
     if (pendingNewThread || queue.length === 0) return status;
-    return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [liveStatusLabel, pendingNewThread, queue, queueHeld, reorderQueue, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut]);
+    return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} onPlan={planQueued} /></>;
+  }, [liveStatusLabel, pendingNewThread, planQueued, queue, queueHeld, reorderQueue, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     showControl={!pendingNewThread && messages.length > 0}

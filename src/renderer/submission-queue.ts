@@ -4,7 +4,12 @@ export interface QueuedSubmissionItem {
   text: string;
   attachments: UiPromptAttachment[];
   skillDraft?: UiSkillDraft;
+  /** Planned: the host sends it at this time (epoch ms). */
+  deliverAt?: number;
 }
+
+/** Where a message goes: steered, queued, a plain prompt with the modifier held, or planned for a time. */
+export type SubmitDelivery = "followUp" | "steer" | "alternate" | { deliverAt: number };
 
 export interface ShouldQueueSubmissionInput {
   isPendingNewThread: boolean;

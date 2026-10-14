@@ -126,15 +126,15 @@ describe("a send that cannot go yet", () => {
 describe("the send button while a turn runs", () => {
   it("draws a queue for a follow-up and a turn for a steer, and the tooltip says the same", () => {
     renderComposer({ streaming: true });
-    expect(iconOf(sendButton())).toBe("lucide-list-plus");
-    expect(sendButton().dataset.tooltip).toMatch(/^Queue after this turn/u);
+    expect(iconOf(sendButton())).toBe("lucide-corner-up-right");
+    expect(sendButton().dataset.tooltip).toMatch(/^Steer this turn/u);
     cleanup();
 
     const registry = new ExtensionRegistry();
-    registry.activate({ id: "steering", name: "Steering", activate(context) { context.registerPromptHook({ id: "steering.hook", streamingDelivery: () => "steer" }); } });
+    registry.activate({ id: "queueing", name: "Queueing", activate(context) { context.registerPromptHook({ id: "queueing.hook", streamingDelivery: () => "followUp" }); } });
     renderComposer({ streaming: true, registry });
-    expect(iconOf(sendButton())).toBe("lucide-corner-up-right");
-    expect(sendButton().dataset.tooltip).toMatch(/^Steer this turn/u);
+    expect(iconOf(sendButton())).toBe("lucide-list-plus");
+    expect(sendButton().dataset.tooltip).toMatch(/^Queue after this turn/u);
   });
 });
 

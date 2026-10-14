@@ -17,9 +17,13 @@ import type { ComposerInlineContext, ComposerInlineContribution, DocumentSourceC
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
 import { plainChipText } from "./composer-chip-token";
+import type { SubmitDelivery } from "../submission-queue";
 
-/** `alternate` is a plain send with the modifier held, which an extension may claim for a new thread. */
-export type ComposerDelivery = "followUp" | "steer" | "alternate";
+/**
+ * `alternate` is a plain send with the modifier held, which an extension may
+ * claim for a new thread; `{ deliverAt }` plans the message into the thread's queue.
+ */
+export type ComposerDelivery = SubmitDelivery;
 
 const NO_INLINES: readonly ComposerInlineContribution[] = [];
 

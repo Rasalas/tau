@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { CalendarDays, Check, ChevronRight } from "lucide-react";
 import { useClientStorage } from "../../client-storage-context";
 import { isImeComposing } from "../../keybindings";
@@ -11,11 +11,13 @@ import "./when-picker.css";
  * `rememberKey` (`rememberWhenPick`) when that row is still offered. ↑↓ move,
  * Enter confirms; a double click confirms a row.
  */
-export function WhenPicker({ presets, rememberKey, label, now = Date.now, onChange, onConfirm }: {
+export function WhenPicker({ presets, rememberKey, label, now = Date.now, autoFocus = false, onChange, onConfirm }: {
   presets: readonly WhenPreset[];
   rememberKey?: string;
   label: string;
   now?(): number;
+  /** The list takes focus when it appears, as a dialog's first field. */
+  autoFocus?: boolean;
   /** The time picked and its row; `at` is undefined while a date of the user's own is not in the future. */
   onChange(at: number | undefined, pick: WhenPick): void;
   onConfirm?(): void;
@@ -34,6 +36,8 @@ export function WhenPicker({ presets, rememberKey, label, now = Date.now, onChan
   const at = pick === CUSTOM_WHEN
     ? (() => { const value = new Date(custom).getTime(); return Number.isFinite(value) && value > now() ? value : undefined; })()
     : presets.find((preset) => preset.id === pick)?.at;
+  // Before the dialog's own effect, which then leaves the focus here; React's autoFocus skips a div.
+  useLayoutEffect(() => { if (autoFocus) list.current?.focus({ preventScroll: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   useEffect(() => { onChangeRef.current(at, pick); }, [at, pick]);

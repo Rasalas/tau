@@ -93,7 +93,7 @@ body[data-profile="compact"] .send-button.send-mode { width: auto; padding: 0 14
 body[data-profile="compact"] .send-split.with-options > .send-mode { padding-right: 10px; border-radius: 999px 0 0 999px; }
 body[data-profile="compact"] .send-button.send-mode-options { width: 36px; border-radius: 0 999px 999px 0; }
 /* A finger gets the ring and the square, not the desktop's word. */
-body[data-profile="compact"] .send-button.stop { margin-right: 8px; padding: 0; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-control); }
+body[data-profile="compact"] .send-button.stop { margin-right: 8px; padding: 0; border-radius: 50%; }
 body[data-profile="compact"] .send-button.stop > span { display: none; }
 body[data-profile="compact"] .send-button.stop > i { display: block; width: 9px; height: 9px; background: currentColor; border-radius: 2px; }
 /* A phone keeps model and reasoning in view while it answers (design 1n); the card's Skip or Decline ends the wait, and stop comes back. */

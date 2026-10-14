@@ -274,11 +274,13 @@ function ComposerKeys({ registry, mac, onOpen }: { registry: ExtensionRegistry; 
   const modSends = sendShortcut === "mod-enter";
   const send = modSends ? "mod+enter" : "enter";
   const other = modSends ? "mod+shift+enter" : "mod+enter";
-  const steers = registry.streamingDelivery() === "steer";
+  // Steering is the default; the other chord opens the send menu on the other delivery.
+  const steers = (registry.streamingDelivery() ?? "steer") === "steer";
   const rows: Array<[string, string]> = [
     ["Send", send],
     ["Steer while running", steers ? send : other],
     ["Queue a follow-up", steers ? other : send],
+    ["Send menu: queue, steer or plan", other],
     ["New line", modSends ? "enter" : "shift+enter"],
   ];
   return <>{rows.map(([label, keys]) => (

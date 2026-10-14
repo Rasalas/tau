@@ -86,7 +86,7 @@ export { useContextMenu } from "./components/ui/ContextMenu";
 export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
 // A list of times to pick one from, as Snooze and the composer's Plan sheet show it (API 1.64.0).
 export { WhenPicker } from "./deferred-surfaces";
-export { CUSTOM_WHEN, rememberWhenPick, shortWhen, type WhenPick, type WhenPreset } from "./components/when-pick";
+export { CUSTOM_WHEN, readWhenPick, rememberWhenPick, shortWhen, type WhenPick, type WhenPreset } from "./components/when-pick";
 // Core's image and video viewer (API 1.63.0).
 export { AttachmentLightbox } from "./deferred-surfaces";
 export type { AttachmentImage } from "./components/MessageImages";
