@@ -8,8 +8,8 @@ export interface FooterMeasurement {
   /** Width the row may fill. */
   available: number;
   gap: number;
-  /** Items that always stay, such as the model chip, at their natural width. */
-  fixed: readonly number[];
+  /** Items that always stay; `icon` is their width with the lead controls collapsed. */
+  fixed: readonly FooterBlockWidths[];
   /** Lead controls that shrink to their icons, all at once and before anything else folds. */
   lead?: readonly FooterBlockWidths[];
   /** The blocks that may shrink, in row order; the last one shrinks first. */
@@ -32,7 +32,7 @@ const SLACK_PX = 1;
 function widthAt(input: FooterMeasurement, layout: FooterLayout): number {
   const lead = input.lead ?? [];
   const visible = input.blocks.length - layout.hidden;
-  let width = input.fixed.reduce((sum, value) => sum + value, 0);
+  let width = input.fixed.reduce((sum, value) => sum + (layout.leadIcons ? value.icon : value.natural), 0);
   for (const entry of lead) width += layout.leadIcons ? entry.icon : entry.natural;
   for (let index = 0; index < visible; index += 1) {
     const block = input.blocks[index]!;
