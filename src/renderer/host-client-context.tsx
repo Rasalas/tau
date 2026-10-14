@@ -33,3 +33,8 @@ export function getHostClient(): HostClient | undefined {
 export function hostAvailable(): boolean {
   return Boolean(ambientClient);
 }
+
+/** The active machine's connection state outside React, or undefined without a client. API 1.63.0. */
+export function hostConnectionState() {
+  return ambientClient?.getConnectionState();
+}

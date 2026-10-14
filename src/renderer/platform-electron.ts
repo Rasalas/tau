@@ -3,6 +3,7 @@ import { createHostClient, type HostClient } from "../workbench/host-client";
 import { HostConnection, type HostTransport } from "../workbench/host-connection";
 import type { Platform, PlatformAttention } from "../workbench/platform";
 import { createPlatformEnvironments } from "../workbench/environments";
+import { clearEnvironmentStorage } from "./browser-storage";
 import type { ClientPlatformPorts } from "./client-platform";
 
 /**
@@ -34,6 +35,7 @@ export function createElectronHostClient(api: TauDesktopApi): { client: HostClie
  */
 export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
   const client = ports.client;
+  const environments = client ? createPlatformEnvironments(client, environmentOptions()) : undefined;
   const files = {
     openInEditor: ports.openInEditor,
     ...(client ? { shareFile: (path: string) => client.shareFile(path) } : {}),
@@ -59,7 +61,14 @@ export function createElectronPlatform(ports: ClientPlatformPorts): Platform {
     // Drawn by the window's process: `Menu.popup`.
     ...(client ? { contextMenu: { show: (entries, point) => client.showContextMenu(entries, point) } } : {}),
     // The window's process keeps the list; a host in this process refuses it and the list stays empty.
-    ...(client ? { environments: createPlatformEnvironments(client, environmentOptions()) } : {}),
+    ...(environments ? { environments: {
+      ...environments,
+      remove: async (id: string) => {
+        // Removing the machine on screen can unload this page before the reply.
+        clearEnvironmentStorage(id);
+        await environments.remove(id);
+      },
+    } } : {}),
   };
 }
 

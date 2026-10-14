@@ -1992,7 +1992,8 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
-| `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
+| `hostConnectionState` | API 1.63.0: the active machine's current connection state outside React (`connected`, `reconnecting`, `resyncing`, `refused`), or `undefined` without a host client. Subscribe through `context.events.on("host-connection", …)` for changes. Treat every state except `connected` as unavailable for writes. |
+| `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. API 1.63.0: a `host:` key opts into machine-scoped storage on desktop windows too. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
 | `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`, API 1.38.0: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
@@ -3547,6 +3548,19 @@ the runtimes Tau ships (`kits/usage/protocol.ts`):
 |---|---|---|
 | `tau.usage/limits-source` | `usage-limits { refresh? }` → `{ accounts: UsageLimitAccount[] }` | Shows the accounts' windows under Limits, in the juicebars and in `tau.usage/limits`, with the kit's name as the source. |
 | `tau.usage/threads-source` | `usage` → `{ backend, threads: BackendUsageThread[] }` | Counts the threads' tokens and cost under the runtime `backend` names. |
+
+### Reading saved pull requests offline
+
+Review Kit keeps the last eight list queries and twelve opened requests in this
+client's storage for that machine. It saves request details, conversations, checks
+and diffs before later visits, shows them before a live read, and refreshes on
+reconnect. Each saved request shows the oldest read time of its retained data.
+Lists show their own read time. Offline writes are disabled with a reason and
+refused before dispatch, including dialogs opened while connected.
+The cache holds at most 4 MiB of UTF-16 text per machine, with a 1 MiB limit per
+response; older entries are evicted and larger responses stay live-only.
+Authentication and upload results are never cached. Forgetting a saved machine
+in Settings clears its cache on the desktop and phone.
 
 ### What Reviews asks of other kits
 

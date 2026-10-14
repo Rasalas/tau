@@ -328,7 +328,7 @@ export function environmentProjects(index: ThreadIndexSnapshot): UiEnvironmentPr
  */
 export function environmentStorageKey(key: string, environment: string | undefined, hostKeys: readonly string[]): string {
   if (!environment) return key;
-  return hostKeys.some((hostKey) => key === hostKey || key.startsWith(`${hostKey}:`)) ? `${key}@${environment}` : key;
+  return key.startsWith("host:") || hostKeys.some((hostKey) => key === hostKey || key.startsWith(`${hostKey}:`)) ? `${key}@${environment}` : key;
 }
 
 /** `open`'s target: an arrival, or a thread named by its id there. */

@@ -21,6 +21,7 @@ import { PullRequestTimeline } from "./pull-request-timeline.js";
 import { commentFilter, filterTimelineComments, setCommentFilter } from "./comment-filter.js";
 import { CommentFilterMenu } from "./comment-filter-menu.js";
 import { usePullRequest, WHITESPACE_OPTION_ID, type PullRequestViewShared } from "./pull-request-view.js";
+import { RequestCacheNotice } from "./pull-request-offline.js";
 import { usePullRequestWrites } from "./pull-request-writes.js";
 import { RequestStateIcon } from "./request-state-icon.js";
 import type { RowRequests } from "./requests.js";
@@ -56,9 +57,10 @@ export function RemoteReviewDetail(props: RemoteProps) {
   const { data, refresh } = pr;
   const noun = shortNoun(params.service);
   const sign = providerInfo(params.service).sign;
-  if (data.detail) return <RequestMediaProvider client={client} request={data.detail.ref}><RemoteBody {...props} pr={pr} detail={data.detail} /></RequestMediaProvider>;
+  if (data.detail) return <RequestMediaProvider client={client} request={data.detail.ref}><RequestCacheNotice client={client} at={client.cache?.savedAt(params.url)} /><RemoteBody {...props} pr={pr} detail={data.detail} /></RequestMediaProvider>;
   return (
     <div className="rvd rvd-loading-page" aria-label={`${noun} ${sign}${params.number}`}>
+      <RequestCacheNotice client={client} />
       {data.detailError ? (
         <div className="pr-unavailable" role="alert">
           <strong>Could not load the {providerInfo(params.service).noun}</strong>
@@ -75,7 +77,7 @@ export function RemoteReviewDetail(props: RemoteProps) {
 
 function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: side, back, pr, detail }: RemoteProps & { pr: ReturnType<typeof usePullRequest>; detail: PullRequestDetail }) {
   const { data, setData, refresh, loadThreads, loadFiles, loadDetail, loadChecks, markViewed } = pr;
-  const writes = usePullRequestWrites();
+  const writes = usePullRequestWrites(client);
   const pending = useSyncExternalStore(shared.pending.subscribe, () => shared.pending.comments(params.url));
   useSyncExternalStore(shared.preferences.subscribe, shared.preferences.getSnapshot, shared.preferences.getSnapshot);
   const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
@@ -168,7 +170,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
     turns: detail.commits.map((commit) => commit.headline || "Untitled commit"),
     notes,
     sendLabel: "Submit review",
-    ...(!writes.review && !writes.comment ? { sendDisabled: READ_ONLY_REASON } : {}),
+    ...(!writes.review && !writes.comment ? { sendDisabled: writes.reason ?? READ_ONLY_REASON } : {}),
     ...(active ? { active } : {}),
   }), [active, data.files, detail.commits, notes, ordered, params.url, totals.files, writes.comment, writes.review]);
   useEffect(() => {
@@ -282,7 +284,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
                 const entry = ordered.find((candidate) => candidate.path === file.path);
                 if (!entry) return null;
                 return (
-                  <label className={`rvd-viewed${entry.viewed === "dismissed" ? " dismissed" : ""}`} {...tooltipProps(!writes.viewed ? READ_ONLY_REASON : entry.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : undefined)}>
+                  <label className={`rvd-viewed${entry.viewed === "dismissed" ? " dismissed" : ""}`} {...tooltipProps(!writes.viewed ? writes.reason ?? READ_ONLY_REASON : entry.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : undefined)}>
                     <input type="checkbox" checked={entry.viewed === "viewed"} disabled={!writes.viewed} onChange={() => void toggleViewed(entry)} />
                     {entry.viewed === "dismissed" ? "Changed" : "Viewed"}
                   </label>

@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, PreferencesStore, StageTabHandle, UiReviewRequest, WorkbenchActions } from "tau";
 import { PendingReviewStore } from "./pending-review.js";
 import type { ComposerContextChips, PullRequestDetail, PullRequestFiles, PullRequestStack } from "./protocol.js";
+import { PullRequestCache, OFFLINE_REASON } from "./pull-request-cache.js";
+import { pullRequestClient } from "./pull-request-client.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubDetail, parseGitHubThreads, parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 import type { PullRequestTabParams } from "./pull-request-logic.js";
@@ -626,4 +628,65 @@ describe("the pull-request view's Guide tab", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open kits/package.json in Code" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Code" }).getAttribute("aria-selected")).toBe("true"));
   });
+});
+
+
+describe("saved request display", () => {
+  it("shows saved details and diffs offline, disables writes, and refreshes after reconnect", async () => {
+    const storage = memoryStorage();
+    const cache = new PullRequestCache(storage);
+    const detail = await fakeClient().view(REF.url);
+    const files = await fakeClient().files(REF.url);
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "pr-view") return detail;
+      if (command === "pr-files") return files;
+      if (command === "pr-stack") return null;
+      if (command === "pr-pipeline") return {};
+      return [];
+    });
+    const client = pullRequestClient({ invoke, onEvent: () => () => undefined }, cache);
+    await client.view(REF.url);
+    await client.files(REF.url);
+    cache.setConnected(false);
+    invoke.mockClear();
+    renderView(client);
+    await screen.findByRole("heading", { name: detail.title });
+    expect((await screen.findByText(/As of/)).textContent).toContain(OFFLINE_REASON);
+    const merge = await screen.findByRole("button", { name: /Auto-merge \(squash and merge\)/u });
+    expect((merge as HTMLButtonElement).disabled).toBe(true);
+    expect(merge.getAttribute("data-tooltip")).toBe(OFFLINE_REASON);
+    fireEvent.click(screen.getByRole("tab", { name: /Code/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /output\.ts/u }));
+    await waitFor(() => expect(document.querySelectorAll(".diff-row").length).toBeGreaterThan(0));
+    expect(invoke).not.toHaveBeenCalled();
+    invoke.mockImplementation(async (command: string) => command === "pr-view" ? { ...detail, title: "Refreshed request" } : command === "pr-files" ? files : command === "pr-pipeline" ? {} : command === "pr-stack" ? null : []);
+    act(() => cache.setConnected(true));
+    await screen.findByRole("heading", { name: "Refreshed request" });
+    await waitFor(() => expect((merge as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText(OFFLINE_REASON)).toBeNull();
+  });
+
+  it("draws a saved detail while the live RPC is still pending", async () => {
+    const cache = new PullRequestCache(memoryStorage());
+    const detail = await fakeClient().view(REF.url);
+    const transport = { invoke: vi.fn(async () => detail), onEvent: () => () => undefined };
+    await pullRequestClient(transport, cache).view(REF.url);
+    transport.invoke.mockImplementation(() => new Promise(() => undefined));
+    renderView(pullRequestClient(transport, cache));
+    await screen.findByRole("heading", { name: detail.title });
+    expect((await screen.findByText(/As of/)).textContent).toContain("Saved on this device");
+  });
+});
+
+
+it("disables a merge confirmation that was opened before the machine disconnected", async () => {
+  const cache = new PullRequestCache(memoryStorage());
+  renderView(fakeClient({ cache }));
+  fireEvent.click(await screen.findByRole("button", { name: /Auto-merge \(squash and merge\)/u }));
+  const dialog = await screen.findByRole("dialog", { name: "Enable auto-merge?" });
+  const confirm = within(dialog).getByRole("button", { name: "Enable auto-merge" }) as HTMLButtonElement;
+  await waitFor(() => expect(confirm.disabled).toBe(false));
+  act(() => cache.setConnected(false));
+  await within(dialog).findByText(OFFLINE_REASON);
+  expect(confirm.disabled).toBe(true);
 });
