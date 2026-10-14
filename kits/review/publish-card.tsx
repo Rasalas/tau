@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Check, Circle, Sparkles, X } from "lucide-react";
 import { Dialog, errorMessage, FileKindIcon, Spinner, tooltipProps, type HostExtensionClient, type PreferencesStore, type RegionProps, type ToastHandle, type UiFileDiff, type WorkbenchActions } from "tau";
-import { chosenWritingModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
+import { chosenWritingModel, followRequestTemplate, writingEffort, writingInstructions } from "./commit-messages.js";
 import type { LocalRequestClient } from "./local-request-client.js";
 import { providerInfo, type ReviewRequestStatus, type WorkspaceStoreApi } from "./protocol.js";
 import { openPullRequest } from "./pull-request-open.js";
@@ -113,6 +113,7 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
         ...(model ? { model } : {}),
         ...(prefer ? { prefer } : {}),
         ...(instructions ? { instructions } : {}),
+        ...(writingEffort(parts.preferences) ? { thinkingLevel: writingEffort(parts.preferences) } : {}),
         ...(followRequestTemplate(parts.preferences) ? {} : { template: false }),
         ...(commit.trim() && !commitDone ? { pending: { message: commit, files: files.map(({ path, added, removed }) => ({ path, added, removed })) } } : {}),
       });

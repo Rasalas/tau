@@ -169,6 +169,7 @@ interface PendingIntent {
   clientRequestId?: string;
   /** A revision the worktree starts from instead of the parent's state. */
   startAt?: string;
+  thinkingLevel?: string;
 }
 
 interface CompletionNotice {
@@ -201,7 +202,8 @@ function decodeIntent(value: unknown): PendingIntent | undefined {
   return { version: 1, id: item.id, prompt: item.prompt, workspace: item.workspace, ...(typeof item.runtime === "string" ? { runtime: item.runtime } : {}), ...(definition ? { definition } : {}),
     ...(typeof machine.id === "string" && typeof machine.name === "string" ? { machine: { id: machine.id, name: machine.name } } : {}),
     ...(typeof item.clientRequestId === "string" ? { clientRequestId: item.clientRequestId } : {}),
-    ...(typeof item.startAt === "string" && item.startAt ? { startAt: item.startAt } : {}) };
+    ...(typeof item.startAt === "string" && item.startAt ? { startAt: item.startAt } : {}),
+    ...(typeof item.thinkingLevel === "string" && item.thinkingLevel ? { thinkingLevel: item.thinkingLevel } : {}) };
 }
 
 function decodeNotice(value: unknown): CompletionNotice | undefined {
@@ -446,7 +448,7 @@ export function createAgentsHostExtension(options: {
         // save queued during an ACK must see its committed or retained notice.
         const writing = pendingSave.then(() => {
           const links = book.state().links.flatMap((link): StoredAgentLink[] => link.threadId || link.machine?.link || prompts.has(link.id) ? [{
-            ...(link.threadId ? { threadId: link.threadId } : link.machine?.link ? { remote: { id: link.id, machine: { id: link.machine.id, name: link.machine.name, link: link.machine.link } } } : { pending: { version: 1, id: link.id, prompt: prompts.get(link.id)!, workspace: wanted.get(link.id) ?? "shared", runtime: runtimes.get(link.id) ?? "pi", ...(definitions.has(link.id) ? { definition: definitions.get(link.id)! } : {}), ...(link.machine ? { machine: link.machine } : {}), ...(intentKeys.has(link.id) ? { clientRequestId: intentKeys.get(link.id)! } : {}), ...(startPoints.has(link.id) ? { startAt: startPoints.get(link.id)! } : {}) } }),
+            ...(link.threadId ? { threadId: link.threadId } : link.machine?.link ? { remote: { id: link.id, machine: { id: link.machine.id, name: link.machine.name, link: link.machine.link } } } : { pending: { version: 1, id: link.id, prompt: prompts.get(link.id)!, workspace: wanted.get(link.id) ?? "shared", runtime: runtimes.get(link.id) ?? "pi", ...(definitions.has(link.id) ? { definition: definitions.get(link.id)! } : {}), ...(link.machine ? { machine: link.machine } : {}), ...(intentKeys.has(link.id) ? { clientRequestId: intentKeys.get(link.id)! } : {}), ...(startPoints.has(link.id) ? { startAt: startPoints.get(link.id)! } : {}), ...(requestedEfforts.has(link.id) ? { thinkingLevel: requestedEfforts.get(link.id)! } : {}) } }),
             id: link.id,
             ...(link.model ? { model: link.model } : {}),
             ...(link.runtime ? { runtime: link.runtime } : {}),
@@ -598,6 +600,7 @@ export function createAgentsHostExtension(options: {
       const runtimes = new Map<string, string>();
       /** The revision a queued agent's worktree starts from, for a spawn that names one. */
       const startPoints = new Map<string, string>();
+      const requestedEfforts = new Map<string, string>();
       /** What each queued agent asked for, until its thread is built. */
       const wanted = new Map<string, AgentWorkspaceMode>();
       const runGit: AgentGitRunner = (cwd, args, gitOptions) => {
@@ -684,6 +687,7 @@ export function createAgentsHostExtension(options: {
             cwd: workspace?.path ?? agent.projectPath,
             prompt: definition && !piRuntime ? firstMessageWithPersona(definition, prompt) : prompt,
             title: agent.title,
+            ...(requestedEfforts.has(agent.id) ? { thinkingLevel: requestedEfforts.get(agent.id)! } : {}),
             ...(agent.model ? { model: parseModel(agent.model) } : {}),
             backend: runtimes.get(agent.id) ?? definition?.runtime ?? "pi",
             // Pi's tools are narrowed by this kit's runtime extension; another runtime narrows its own or refuses.
@@ -723,6 +727,7 @@ export function createAgentsHostExtension(options: {
           definitions.delete(agent.id);
           runtimes.delete(agent.id);
           startPoints.delete(agent.id);
+          requestedEfforts.delete(agent.id);
           if (--starting === 0) acceptedEarly.clear();
         }
       };
@@ -743,6 +748,7 @@ export function createAgentsHostExtension(options: {
             cwd: agent.projectPath,
             prompt: definition ? firstMessageWithPersona(definition, prompt) : prompt,
             title: agent.title,
+            ...(requestedEfforts.has(agent.id) ? { thinkingLevel: requestedEfforts.get(agent.id)! } : {}),
             ...(agent.model ? { model: parseModel(agent.model) } : {}),
             backend: runtimes.get(agent.id) ?? definition?.runtime ?? "pi",
             parentThreadId: agent.parentThreadId,
@@ -760,6 +766,7 @@ export function createAgentsHostExtension(options: {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
           runtimes.delete(agent.id);
+          requestedEfforts.delete(agent.id);
           if (--starting === 0) acceptedEarly.clear();
         }
       };
@@ -830,7 +837,7 @@ export function createAgentsHostExtension(options: {
         });
       };
 
-      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread", extra: { definition?: AgentDefinition; startAt?: string } = {}) => {
+      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread", extra: { definition?: AgentDefinition; startAt?: string; thinkingLevel?: string } = {}) => {
         const request = decodeSpawnRequest(input);
         const depth = await depthOf(parent.sessionId);
         const projectPath = await resolveProject(request.projectPath, parent.cwd);
@@ -871,6 +878,7 @@ export function createAgentsHostExtension(options: {
         runtimes.set(id, runtime);
         if (definition) definitions.set(id, definition);
         if (extra.startAt) startPoints.set(id, extra.startAt);
+        if (extra.thinkingLevel) requestedEfforts.set(id, extra.thinkingLevel);
         // A child writes by default, and two writers in one checkout collide;
         // a project that is not a repository has nowhere else to go.
         const mode: AgentWorkspaceMode = choice.machine ? "worktree"
@@ -903,7 +911,7 @@ export function createAgentsHostExtension(options: {
         admitting.add(id);
         // Never acknowledge a pending handle whose complete intent is only in RAM.
         try { await persistLinks(); } catch (error) {
-          book.forget(id); prompts.delete(id); definitions.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id); startPoints.delete(id);
+          book.forget(id); prompts.delete(id); definitions.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id); startPoints.delete(id); requestedEfforts.delete(id);
           throw error;
         } finally { admitting.delete(id); }
         if (claimSlot(id)) await startAgent(book.linkFor(id)!);
@@ -1230,6 +1238,7 @@ export function createAgentsHostExtension(options: {
           prompts.delete(link.id);
           definitions.delete(link.id);
           runtimes.delete(link.id);
+          requestedEfforts.delete(link.id);
           wanted.delete(link.id);
           held.delete(link.id);
           intentKeys.delete(link.id);
@@ -1736,8 +1745,9 @@ export function createAgentsHostExtension(options: {
           };
           const startAt = typeof fields.startAt === "string" && /^[0-9a-f]{7,64}$/iu.test(fields.startAt) ? fields.startAt : undefined;
           if (fields.startAt !== undefined && !startAt) throw new HostCommandError("startAt must be a commit id.");
+          const thinkingLevel = typeof fields.thinkingLevel === "string" && fields.thinkingLevel.trim() ? fields.thinkingLevel.trim() : undefined;
           const source = typeof fields.source === "string" && fields.source ? fields.source.slice(0, 64) : "tau.review";
-          return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt: fields.prompt, title: fields.title, model: fields.model, workspace: "worktree" }, undefined, source, { definition, ...(startAt ? { startAt } : {}) });
+          return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt: fields.prompt, title: fields.title, model: fields.model, workspace: "worktree" }, undefined, source, { definition, ...(startAt ? { startAt } : {}), ...(thinkingLevel ? { thinkingLevel } : {}) });
         }, { long: true, callers: [REVIEW_KIT_ID] }),
       ];
 
@@ -1756,6 +1766,7 @@ export function createAgentsHostExtension(options: {
           runtimes.set(intent.id, intent.runtime ?? intent.definition?.runtime ?? "pi");
           wanted.set(intent.id, intent.workspace);
           if (intent.startAt) startPoints.set(intent.id, intent.startAt);
+          if (intent.thinkingLevel) requestedEfforts.set(intent.id, intent.thinkingLevel);
           if (intent.definition) definitions.set(intent.id, intent.definition);
           held.add(intent.id);
           if (intent.clientRequestId) {

@@ -1601,6 +1601,15 @@ approval with each permission in plain words, a failure with the next step,
 the options it declared and links to the pages it adds, what it may do and how
 it is isolated, and its version, source, signature and id.
 
+A `kind: "model"` option may declare `thinkingLevelValue: "my-effort"`
+(API 1.63.0). Its row offers the selected model's Pi catalog levels and stores
+one under that value id beside the existing `provider/id` model value. No
+stored effort means "Default effort". Models without reasoning show no effort
+control; changing or clearing the model resets the effort. The extension passes
+that value to its run only when the selected model supports it. Review's writers
+allow 16,384 output tokens and two minutes with active reasoning, so thinking
+does not consume the old short-text limit; default and off keep that limit.
+
 On and off is the host's choice, not a device's: the switch writes
 `disabledExtensions` in the host's config, and every client connected to that
 host follows it at once. The host pushes `config-changed` after each write,
@@ -2812,6 +2821,13 @@ runtime's catalog reports what the same vendor's subscription serves (Codex's
 their `apiModelId`), a subscription offer missing from it is left out; with no
 such report Pi's list stands. The vendor is the provider or the provider Pi
 names its subscription route after (`openai-codex` is `openai`'s).
+
+`CompletionRequest.thinkingLevel` (API 1.63.0) optionally selects reasoning
+for a short answer, both streamed and returned at once. Pi checks it against
+the resolved model's supported levels before passing it to the provider;
+unsupported values and omitted effort retain the previous default. `off`
+uses the provider's request without reasoning.
+
 `smallCompletionModel(services, prefer, options?)` from `tau/host-extension` (API
 1.11.0) picks a small model from it — `isSmallModel(id)` knows the tiers by id
 (`haiku`, `mini`, `flash`, `luna`, …) — same
@@ -3590,8 +3606,12 @@ Review Kit's guided reviews (ADR 0034) are the first caller; the commands name
 
 | Command | What it does |
 |---|---|
-| `spawn { parentThreadId, prompt, definition, title?, model?, startAt?, source? }` | Starts a child of an open thread in a worktree. `definition` is `{ name, description?, systemPrompt, tools?, access?, runtime?, model? }`, the fields of a `.tau/agents/` file carried by the caller instead of read from the project (`access` only narrows, `tools` is the thread's allowlist, Pi names). `startAt` is a commit the worktree starts from instead of the parent's HEAD and uncommitted work; it must be in the repository already (fetch it first) and a queued spawn keeps it across a restart. `source` becomes the link's `spawnedBy`, so the panel and the thread index know who started it; unlike `tau_spawn_thread` it does not make the parent wait for the child's result. Answers like `tau_spawn_thread`. |
+| `spawn { parentThreadId, prompt, definition, title?, model?, thinkingLevel?, startAt?, source? }` | Starts a child of an open thread in a worktree. `definition` is `{ name, description?, systemPrompt, tools?, access?, runtime?, model? }`, the fields of a `.tau/agents/` file carried by the caller instead of read from the project (`access` only narrows, `tools` is the thread's allowlist, Pi names). `startAt` is a commit the worktree starts from instead of the parent's HEAD and uncommitted work; it must be in the repository already (fetch it first) and a queued spawn keeps it across a restart. `source` becomes the link's `spawnedBy`, so the panel and the thread index know who started it; unlike `tau_spawn_thread` it does not make the parent wait for the child's result. Answers like `tau_spawn_thread`. |
 | `stop-agent { threadId }`, `discard-changes { threadId, force? }` | The panel's two row actions. Local discard rereads the child's changes and refuses files, commits or index changes unless `force: true` is explicit. Before removing the worktree and branch, it retains the working tree, index and HEAD history under `refs/tau/discarded/<id>`; the returned `detail` names that ref. Inspection, retention and removal failures propagate. |
+
+`spawn.thinkingLevel` (API 1.63.0) selects the child's reasoning level before
+its first prompt. The caller checks the chosen model's runtime catalog;
+a queued child retains the level across a restart.
 
 Since API 1.61.0, `tau_apply_thread_changes` uses the same local discard policy with
 `{ threadId, discard: true }` and optional `force: true`. Recovery refs have no automatic

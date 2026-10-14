@@ -95,6 +95,8 @@ export interface ShellCommandResult {
 }
 
 export interface CompletionRequest {
+  /** Optional reasoning level; unsupported values use the model default. API 1.63.0. */
+  thinkingLevel?: string;
   system: string;
   prompt: string;
   maxTokens?: number;

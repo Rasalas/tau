@@ -22,6 +22,7 @@ interface Options {
   message?: string;
   suggest?: () => Promise<string | undefined>;
   describe?: LocalRequestClient["describe"];
+  values?: Record<string, string>;
 }
 
 function setup(options: Options = {}) {
@@ -40,7 +41,7 @@ function setup(options: Options = {}) {
   const client = { describe: vi.fn(options.describe ?? (async () => ({ title: "Preview the request", body: "Both texts first.", base: "main", generated: true }))) } as unknown as LocalRequestClient;
   const reader = { fileDiff: vi.fn(async (path: string) => ({ path, added: 2, removed: 1, hunks: [] })), changes: vi.fn() } as unknown as WorkspaceChangesReader;
   const rows = { set: vi.fn() } as unknown as RowRequests;
-  const parts: PublishParts = { store: () => store, workspace, requests, client, changes: reader, rows, preferences };
+  const parts: PublishParts = { store: () => store, workspace, requests, client, changes: reader, rows, preferences: options.values ? { ...preferences, value: (_id, key) => options.values?.[key] } as PreferencesStore : preferences };
   const publishing = new RequestPublishing();
   const dismiss = vi.fn();
   const actions = { toast: vi.fn(() => ({ id: "publish-error", dismiss, update: vi.fn() })), notify: vi.fn(), activeThread: () => ({ sessionId: "t1", cwd: "/work", model: { provider: "openai", id: "gpt" }, draftPending: false }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
@@ -53,6 +54,11 @@ function setup(options: Options = {}) {
 const card = () => screen.findByRole("dialog", { name: "Commit, push & PR" });
 
 describe("the Commit, push & PR card", () => {
+  it("uses the writer effort for the request description", async () => {
+    const { client } = setup({ values: { "commit-model": "test/writer", "commit-effort": "high" } });
+    await waitFor(() => expect(client.describe).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: "test", id: "writer" }, thinkingLevel: "high" })));
+  });
+
   it.each(["fatal", "error"])("shows only the %s reason and keeps the full Git output for copying", async (prefix) => {
     const { workspace, actions, dismiss } = setup();
     const output = `Command failed: /usr/bin/git -c core.quotePath=false -c core.fsmonitor=false push --set-upstream origin HEAD:refs/heads/feat/card\n${prefix}: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n`;
