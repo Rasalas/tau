@@ -302,7 +302,8 @@ export default function App() {
       host: workbenchSession,
       enqueueFollowUp: async (threadId, item) => {
         if (!clientRef.current) throw new Error("Queued messages need a connection to the machine.");
-        await clientRef.current.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
+        if (item.deliverAt === undefined) await clientRef.current.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
+        else await clientRef.current.queueMessage(threadId, item.text, item.attachments, item.skillDraft, item.deliverAt);
       },
     };
     return deferredSubmission(ports);
@@ -313,7 +314,7 @@ export default function App() {
   );
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
   const currentActions = useCallback(() => actionsRef.current, []);
-  const { queue, cancelQueued, steerQueued, reorderQueue, returnQueued, steerQueuedMessage } = useFollowUpQueue({
+  const { queue, cancelQueued, steerQueued, reorderQueue, planQueued, returnQueued, steerQueuedMessage } = useFollowUpQueue({
     client,
     threads: threadStore,
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
@@ -674,13 +675,13 @@ export default function App() {
     controlRef: composerControlRef,
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
-    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue, returnQueued,
+    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue, planQueued, returnQueued,
     setModel: setComposerModel, setThinking: setComposerThinking,
     selectRuntime: selectDraftRuntime, carryModel: newThreadController.carryToNextDraft,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
-    conversationPrompts, queue, reorderQueue, returnQueued, setComposerModel, setComposerThinking, steerQueued, submitPrompt,
+    conversationPrompts, queue, planQueued, reorderQueue, returnQueued, setComposerModel, setComposerThinking, steerQueued, submitPrompt,
     selectDraftRuntime, newThreadController,
   ]);
 

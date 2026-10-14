@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composerEnter, sendBlockReason, sendHint, sendShortcutFor } from "./composer-send-keys";
+import { composerEnter, enterChord, sendBlockReason, sendHint, sendShortcutFor } from "./composer-send-keys";
 
 const enter = (overrides: Partial<Parameters<typeof composerEnter>[0]> = {}) =>
   composerEnter({ shift: false, mod: false, shortcut: "enter", text: "hi", streaming: false, base: "followUp", ...overrides });
@@ -69,5 +69,21 @@ describe("sendBlockReason", () => {
     expect(sendBlockReason({ ...idle, asking: true })).toMatch(/^The agent is asking something/u);
     expect(sendBlockReason({ ...idle, busyLabel: "Compacting…", sending: true })).toBe("Compacting…");
     expect(sendBlockReason({ ...idle, sending: true })).toBe("Still sending the previous message.");
+  });
+});
+
+describe("enterChord", () => {
+  const chord = (input: Partial<Parameters<typeof enterChord>[0]> = {}) => enterChord({ shift: false, mod: false, shortcut: "enter", text: "hi", ...input });
+  it("tells the send chord from the alternate one that opens the send menu", () => {
+    expect(chord()).toBe("send");
+    expect(chord({ shift: true })).toBe("newline");
+    expect(chord({ mod: true })).toBe("alternate");
+    expect(chord({ shortcut: "mod-enter" })).toBe("newline");
+    expect(chord({ shortcut: "mod-enter", mod: true })).toBe("send");
+    expect(chord({ shortcut: "mod-enter", mod: true, shift: true })).toBe("alternate");
+  });
+  it("names the menu in the send button's tooltip", () => {
+    expect(sendHint("enter", true, "steer", false, true).hint).toBe("Steer this turn ↵ — ⌘↵ queue or plan, ⌥↑ dequeues");
+    expect(sendHint("enter", false, "steer", false, true).hint).toBe("Send ↵ — ⇧↵ newline, ⌘↵ plan, $ skills, / commands, @ files");
   });
 });

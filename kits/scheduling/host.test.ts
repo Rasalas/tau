@@ -350,3 +350,39 @@ it("resolves missing access on older records through the Access kit before admis
   expect(h.access).toHaveBeenCalledWith({ threadId: "thread-1", level: "auto" }, expect.anything());
   expect(await h.call("list")).toMatchObject({ jobs: [{ config: { accessLevel: "auto" } }] });
 });
+
+it("repeats a cron schedule in its own time zone and holds a missed occurrence like a daily one", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-14T08:00:00Z"));
+  const h = await harness();
+  for (const invalid of [
+    { ...config, schedule: { kind: "cron", expression: "0 9 * *", timezone: "Europe/Berlin" } },
+    { ...config, schedule: { kind: "cron", expression: "0 9 * * 1", timezone: "Mars/Olympus" } },
+    { ...config, schedule: { kind: "cron", expression: "0 9 * * 1" } },
+    { ...config, schedule: { kind: "cron", expression: "0 9 * * 1", timezone: "UTC", time: "09:00" } },
+    { ...config, schedule: { kind: "cron", expression: "1,".repeat(120), timezone: "UTC" } },
+  ]) await expect(h.call("create", invalid)).rejects.toThrow();
+  await expect(h.call("create", { ...config, schedule: { kind: "cron", expression: "0 9 * * 9", timezone: "UTC" } })).rejects.toThrow('day of week field "9"');
+  // Wednesday 10:00 in Berlin: Friday 09:00 CEST is next, then 09:30.
+  const job = await h.call("create", { ...config, schedule: { kind: "cron", expression: " 0,30  9 * * 1,3,5", timezone: "Europe/Berlin" } }) as { id: string };
+  expect(job).toMatchObject({ config: { schedule: { kind: "cron", expression: "0,30 9 * * 1,3,5", timezone: "Europe/Berlin" } }, nextAt: "2026-10-16T07:00:00.000Z" });
+  await h.call("enable", { id: job.id }); await h.call("set-enabled", { enabled: true });
+  await vi.advanceTimersByTimeAsync(47 * 3_600_000);
+  await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "running", nextAt: "2026-10-16T07:30:00.000Z" }] }));
+  expect(h.threads).toHaveLength(1);
+  // The turn outlives 09:30, so that occurrence is held, not replayed.
+  await vi.advanceTimersByTimeAsync(45 * 60_000);
+  await h.end("thread-1");
+  expect(await h.call("list")).toMatchObject({ jobs: [{ status: "held", nextAt: "2026-10-16T07:30:00.000Z" }] });
+  expect(h.threads).toHaveLength(1);
+  // Skipping moves to the next future occurrence, after the clocks went back: 09:00 CET.
+  vi.setSystemTime(new Date("2026-10-28T12:00:00Z"));
+  await h.call("resolve", { id: job.id, decision: "skip" });
+  expect(await h.call("list")).toMatchObject({ jobs: [{ status: "ready", enabled: true, nextAt: "2026-10-30T08:00:00.000Z" }] });
+});
+
+it("leaves a cron schedule that never matches without a next run", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-14T08:00:00Z"));
+  const h = await harness();
+  const job = await h.call("create", { ...config, schedule: { kind: "cron", expression: "0 0 30 2 *", timezone: "UTC" } }) as { nextAt?: string };
+  expect(job.nextAt).toBeUndefined();
+});

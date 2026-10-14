@@ -1,10 +1,10 @@
 {
   "id": "tau.scheduling",
   "name": "Scheduling",
-  "description": "Saved prompts started at a time or by a signed webhook, with explicit recovery and private signature keys.",
+  "description": "Saved prompts started at a time, on a repeating local schedule or by a signed webhook, with explicit recovery and private signature keys.",
   "icon": "CalendarClock",
   "version": "1.0.0",
-  "engines": { "api": "^1.61.0" },
+  "engines": { "api": "^1.65.0" },
   "permissions": ["sessions", "workspace:read", "network", "process", "runtime:extend"],
   "isolation": "in-process",
   "host": "./host.ts",

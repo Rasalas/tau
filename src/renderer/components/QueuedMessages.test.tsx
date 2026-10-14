@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiQueuedMessage } from "../../shared/contracts";
 import { QueuedMessages } from "./QueuedMessages";
+import { TestProviders } from "../test-support/test-providers";
 
 afterEach(cleanup);
 
@@ -25,7 +26,7 @@ describe("QueuedMessages", () => {
 
     fireEvent.click(within(rows[1]!).getByRole("button", { name: "Send now" }));
     expect(onSteer).toHaveBeenCalledWith("second");
-    fireEvent.click(within(rows[0]!).getByRole("button", { name: "Cancel and return to the composer" }));
+    fireEvent.click(within(rows[0]!).getByRole("button", { name: "Edit in the composer" }));
     expect(onReturn).toHaveBeenCalledWith("first");
 
     fireEvent.keyDown(within(rows[0]!).getByRole("button", { name: /Reorder queued message 1/u }), { key: "ArrowDown", altKey: true });
@@ -53,6 +54,26 @@ describe("QueuedMessages", () => {
     expect(onReorder).toHaveBeenLastCalledWith("second", 0);
     fireEvent.click(within(rows[1]!).getByRole("button", { name: "Move queued message down" }));
     expect(onReorder).toHaveBeenLastCalledWith("second", 2);
+  });
+
+  it("shows a planned message's time, plans it for another and edits its text on a click", async () => {
+    const onPlan = vi.fn();
+    const onReturn = vi.fn();
+    const at = new Date();
+    at.setDate(at.getDate() + 1);
+    at.setHours(9, 0, 0, 0);
+    render(<TestProviders><QueuedMessages queue={[{ ...queued("plan", "check the build"), deliverAt: at.getTime() }]} streaming={false} onSteer={vi.fn()} onReturn={onReturn} onReorder={vi.fn()} onPlan={onPlan} /></TestProviders>);
+    const row = screen.getByRole("listitem");
+    expect(row.className).toContain("planned");
+    fireEvent.click(within(row).getByText("check the build"));
+    expect(onReturn).toHaveBeenCalledWith("plan");
+
+    fireEvent.click(within(row).getByRole("button", { name: /09:00/u }));
+    const sheet = await screen.findByRole("dialog", { name: "Change the time" });
+    fireEvent.click(await within(sheet).findByRole("option", { name: /Tomorrow afternoon/u }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Save" }));
+    at.setHours(14);
+    await waitFor(() => expect(onPlan).toHaveBeenCalledWith("plan", at.getTime()));
   });
 
   it("says when a restored or stopped queue waits for the user", () => {

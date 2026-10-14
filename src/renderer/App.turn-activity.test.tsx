@@ -43,6 +43,13 @@ function hostQueue(client: FakeHostClient) {
   return { items, publish, deliverHead };
 }
 
+/** Queues a follow-up while a turn runs: Enter steers, so it goes through the send menu (⌘↵, then ↵ on Queue). */
+async function queueFollowUp(composer: HTMLElement, text: string) {
+  fireEvent.change(composer, { target: { value: text } });
+  fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
+  fireEvent.keyDown(await screen.findByRole("menuitem", { name: /Queue after this turn/u }), { key: "Enter" });
+}
+
 describe("last-turn activity", () => {
   let client: FakeHostClient;
 
@@ -473,7 +480,7 @@ describe("last-turn activity", () => {
     expect(screen.queryByText("Completed")).toBeNull();
   });
 
-  it("parks an Enter follow-up in the host's queue and draws what the host keeps", async () => {
+  it("parks a follow-up in the host's queue and draws what the host keeps", async () => {
     const followUp = vi.fn(async () => undefined);
     const sendPrompt = vi.fn(async () => undefined);
     client.followUp = followUp;
@@ -484,8 +491,7 @@ describe("last-turn activity", () => {
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
-    fireEvent.change(composer, { target: { value: "after this turn" } });
-    fireEvent.keyDown(composer, { key: "Enter" });
+    await queueFollowUp(composer, "after this turn");
 
     await waitFor(() => expect(screen.getByRole("listitem").textContent).toContain("after this turn"));
     expect(client.queueMessage).toHaveBeenCalledWith("session", "after this turn", [], undefined);
@@ -526,11 +532,9 @@ describe("last-turn activity", () => {
     act(() => client.emit({ type: "agent-status", sessionId: "session", running: true }));
 
     const composer = screen.getByPlaceholderText(/queue a follow-up/u);
-    fireEvent.change(composer, { target: { value: "first" } });
-    fireEvent.keyDown(composer, { key: "Enter" });
+    await queueFollowUp(composer, "first");
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
-    fireEvent.change(composer, { target: { value: "second" } });
-    fireEvent.keyDown(composer, { key: "Enter" });
+    await queueFollowUp(composer, "second");
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
 
     fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
@@ -554,11 +558,10 @@ describe("last-turn activity", () => {
 
     const composer = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
     for (const [index, text] of ["first", "second", "third"].entries()) {
-      fireEvent.change(composer, { target: { value: text } });
-      fireEvent.keyDown(composer, { key: "Enter" });
+      await queueFollowUp(composer, text);
       await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(index + 1));
     }
-    fireEvent.click(within(screen.getAllByRole("listitem")[1]!).getByRole("button", { name: "Cancel and return to the composer" }));
+    fireEvent.click(within(screen.getAllByRole("listitem")[1]!).getByRole("button", { name: "Edit in the composer" }));
     await waitFor(() => expect(composer.value).toBe("second"));
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
 
@@ -569,7 +572,7 @@ describe("last-turn activity", () => {
     expect(sendPrompt).not.toHaveBeenCalled();
   });
 
-  it("steers with Cmd+Enter and shows the message in the transcript immediately", async () => {
+  it("steers with Enter and shows the message in the transcript immediately", async () => {
     const steer = vi.fn(async () => undefined);
     client.followUp = vi.fn(async () => undefined);
     client.steer = steer;
@@ -579,7 +582,7 @@ describe("last-turn activity", () => {
 
     const composer = screen.getByPlaceholderText(/queue a follow-up/u);
     fireEvent.change(composer, { target: { value: "use this now" } });
-    fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
+    fireEvent.keyDown(composer, { key: "Enter" });
 
     await waitFor(() => expect(steer).toHaveBeenCalledWith(
       "use this now",

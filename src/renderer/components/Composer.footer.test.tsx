@@ -128,7 +128,7 @@ describe("the composer's slim footer", () => {
     renderFooter();
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
     const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "More composer controls", "Context 20 percent used", "Attach files", "Send"]);
+    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "More composer controls", "Context 20 percent used", "Attach files", "Queue or plan", "Send"]);
     // The ring keeps its percentage in the accessible label and the details.
     expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("");
     fireEvent.click(screen.getByLabelText("More composer controls"));
@@ -146,7 +146,7 @@ describe("the composer's slim footer", () => {
     renderFooter();
     const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    expect(send.dataset.tooltip).toMatch(/⇧↵ newline, \$ skills, \/ commands, @ files/u);
+    expect(send.dataset.tooltip).toMatch(/⇧↵ newline, ⌘↵ plan, \$ skills, \/ commands, @ files/u);
     fireEvent.change(screen.getByPlaceholderText("Ask anything, or hand it work…"), { target: { value: "go" } });
     expect(send.disabled).toBe(false);
   });

@@ -409,6 +409,8 @@ export interface UiQueuedMessage {
   fromThreadId?: string;
   /** Set when something other than the user woke the thread; Stop drops it. New in API 1.52.0. */
   wake?: UiWake;
+  /** Planned: it leaves at this time (epoch ms), not when the turn ends (API 1.65.0). */
+  deliverAt?: number;
 }
 
 /**
@@ -462,6 +464,8 @@ export interface UiQueuedPrompt {
   skillDraft?: UiSkillDraft;
   /** A wake taken out is dropped, never put into the composer. */
   wake?: UiWake;
+  /** When a planned message was due to leave (API 1.65.0). */
+  deliverAt?: number;
 }
 
 /** A thread its provider stopped at a usage or rate limit. */

@@ -44,6 +44,7 @@ function defaults(): HostClient {
     queueMessage: async () => ({ id: "queued-1" }),
     takeQueued: async () => [],
     moveQueued: async () => undefined,
+    planQueued: async () => undefined,
     resumeLimited: async () => undefined,
     threadGoal: async () => undefined,
     stopBackground: async () => undefined,

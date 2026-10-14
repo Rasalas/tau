@@ -2,7 +2,7 @@ import { useState, useSyncExternalStore, type ComponentType } from "react";
 import { CalendarClock, Pencil, Play, SlidersHorizontal } from "lucide-react";
 import { errorMessage, tooltipProps, type RegionProps, type WorkbenchActions } from "tau";
 import { needsDecision, type SchedulingFeed } from "./feed.js";
-import { busyJob, statusText } from "./job-summary.js";
+import { busyJob, scheduleText, statusText } from "./job-summary.js";
 import type { Job, ManagementState } from "./protocol.js";
 
 /** The project followed by Workspace Kit, and its contribution seam. */
@@ -18,8 +18,10 @@ function summary(job: Job, enabled: boolean): string {
   if (!job.enabled) return "Off";
   const schedule = job.config.schedule;
   if (schedule.kind === "webhook") return "Waiting for signed delivery";
-  const next = job.nextAt ? new Date(job.nextAt).toLocaleString([], { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " UTC" : "no future run";
-  return schedule.kind === "daily" ? `Daily at ${schedule.time} UTC · next ${next}` : next;
+  const zone = schedule.kind === "cron" ? schedule.timezone : "UTC";
+  const suffix = zone === "UTC" ? " UTC" : zone === Intl.DateTimeFormat().resolvedOptions().timeZone ? "" : ` ${zone}`;
+  const next = job.nextAt ? new Date(job.nextAt).toLocaleString([], { timeZone: zone, weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + suffix : "no future run";
+  return schedule.kind === "daily" ? `Daily at ${schedule.time} UTC · next ${next}` : schedule.kind === "cron" ? `${scheduleText(schedule)} · next ${next}` : next;
 }
 
 function SummaryRow({ job, state, feed, actions }: { job: Job; state: ManagementState; feed: SchedulingFeed; actions: WorkbenchActions }) {

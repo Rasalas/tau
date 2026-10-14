@@ -5,6 +5,8 @@ page and command palette let the owning host create, edit and run saved prompts.
 The editor combines configuration and enablement in one form; host-created jobs
 start disabled. Jobs are grouped by Needs you, Running, Scheduled and Off.
 Paired devices can inspect the page but cannot change or run jobs.
+The composer's Plan sheet gets a Repeat tab from the kit; see
+[Repeat from the composer](#repeat-from-the-composer).
 
 Each run calls `sessions.start` with the saved local workspace, runtime backend,
 name and prompt. The result is an ordinary thread titled `Scheduled: <name>`.
@@ -54,7 +56,26 @@ For a one-off, replace `schedule` with
 `{ "kind": "once", "at": "2026-10-04T09:00:00Z" }`. Timestamps require an
 explicit `Z`, seconds, and an optional three-digit millisecond component.
 Daily times are `HH:mm` in UTC only. The editor shows the corresponding local time; daily execution remains fixed
-in UTC through daylight-saving changes. `backend` is the chosen local runtime kind, including an instance
+in UTC through daylight-saving changes.
+
+For a repeating schedule in a local time zone, use
+`{ "kind": "cron", "expression": "0 9 * * 1,3,5", "timezone": "Europe/Berlin" }`.
+The expression has five fields: minute (0–59), hour (0–23), day of month
+(1–31), month (1–12) and day of week (0–7, where 0 and 7 are Sunday). A field
+is `*`, a number, a range `1-5`, a list `1,3,5` or a step `*/15`, `9-17/2`,
+`5/20`; month and day names are not accepted. As in Vixie cron, when both day
+fields are restricted a day matches either one (`0 0 13 * 5` runs on the 13th
+and on Fridays); when either starts with `*`, a day must match both. The
+expression is at most 200 characters and is saved with single spaces.
+`timezone` is an IANA zone the host's `Intl.DateTimeFormat` accepts; the
+composer and editor send the device's own zone.
+
+Cron times follow the zone's clocks. A local time that does not exist when
+clocks spring forward is skipped; a time that happens twice when they fall back
+runs once, at its first instant. An hourly expression therefore runs 23 times
+on the spring day and 24 times, not 25, on the autumn day. The kit looks five
+years ahead; an expression with no match in that window (`0 0 30 2 *`) has no
+next run and never starts. `backend` is the chosen local runtime kind, including an instance
 such as `codex@work`. Core refuses an unavailable backend at start; the kit
 never substitutes another runtime. Models follow that runtime's host defaults.
 
@@ -74,18 +95,40 @@ manual run even for a disabled job, but scheduling must be on. A one-off is
 consumed when its intent is saved. Repeating `run` after completion deliberately
 creates another thread; management commands are not retry-keyed.
 
+## Repeat from the composer
+
+The kit registers a composer planner (API 1.65.0), shown as the Repeat tab of
+the Plan sheet beside core's Once. It reads "Every [hour|day|week|month] at
+[09:00]", with day toggles for a week and a day of the month for a month, then
+the next three runs in local time and a collapsed Cron disclosure. Editing the
+expression there updates the controls; one they cannot show reads as Custom,
+with a sentence where one fits or the expression itself. An invalid expression
+or one that never runs shows its reason and disables Plan. The Automations
+editor offers the same builder as "Repeat", so a planned job can be viewed and
+changed there.
+
+Plan creates a job with the draft as its prompt and the first line, at most 60
+characters, as its name ("Planned message" for none). The workspace is the
+thread's `cwd` and the backend its `backendKind`, as the editor's defaults for
+the active thread; a new worktree for each run, 60 minutes, and the new-thread
+access default. It then enables the job. When automations are off the button
+reads "Turn on and plan" and also calls `set-enabled`. A paired device sees why
+it cannot plan. Attachments stay with the thread; the automation gets the text
+only. The tab remembers the last expression planned on the device under the
+client-storage key `scheduling.repeat-last`.
+
 ## Missed and uncertain work
 
 On activation, any due occurrence is `held`, not replayed. Turning scheduling
 on or enabling an overdue job also holds it. A live timer more than 60 seconds
 late holds its occurrence. A smaller delay tolerates normal event-loop jitter.
-A daily run that lasts beyond its next occurrence holds that occurrence when
-it finishes. There is no backlog or catch-up queue.
+A daily or cron run that lasts beyond its next occurrence holds that
+occurrence when it finishes. There is no backlog or catch-up queue.
 
 For a held or failed job, `resolve` with `skip` discards the occurrence. A daily
-job keeps its enablement and moves to the next future UTC time. A one-off stays
+or cron job keeps its enablement and moves to its next future occurrence. A one-off stays
 disabled with no next occurrence. `resolve` with `run` deliberately starts one
-prompt now, with the next daily occurrence in the future.
+prompt now, with the next daily or cron occurrence in the future.
 
 The kit writes an atomic start intent before calling `sessions.start`. A
 restart turns every `starting` or `running` record into `uncertain`, even if

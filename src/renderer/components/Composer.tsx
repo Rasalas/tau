@@ -3,7 +3,7 @@ import { useCompactForm } from "../use-layout-profile";
 
 import { useClientEnvironment } from "../client-environment";
 import { lazy, Suspense, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ArrowUp, ChevronDown, CornerUpRight, ListPlus, Lock, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
+import { AlarmClock, ArrowUp, ChevronDown, CornerUpRight, ListPlus, Lock, Image, Folder, Paperclip, Shrink, Sparkles, Terminal, Undo2, Zap } from "lucide-react";
 import type {
   ExtensionUiPrompt,
   HostSnapshot,
@@ -18,7 +18,8 @@ import type {
 } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
-import { Popover, AttachmentLightbox, ComposerMenuItem, ComposerMenuPopover, ExtensionPrompt, ThinkingMenu } from "../deferred-surfaces";
+import { Popover, AttachmentLightbox, ComposerMenuItem, ComposerMenuPopover, ComposerSendChooser, ExtensionPrompt, PlanSheet, ThinkingMenu } from "../deferred-surfaces";
+import { sendChoices, type SendChoice } from "./composer-send-choice";
 import { tooltipProps } from "./ui/Tooltip";
 import { contextChoices, formatTokens, modelFamily, modelKey, offeringKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
@@ -67,7 +68,7 @@ import {
 import type { ChipLayerApi } from "./ComposerChipLayer";
 import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterControls";
-import { composerEnter, sendBlockReason, sendHint, sendShortcutFor } from "./composer-send-keys";
+import { composerEnter, enterChord, sendBlockReason, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
 import { takePasteAsText } from "../paste-as-text";
 import { isImeComposing } from "../keybindings";
@@ -671,6 +672,10 @@ export function Composer({
   const sendModeBusyHere = sendModeBusy?.scope === attachmentScope && activeScopeSnapshot.submissionPending ? sendModeBusy : undefined;
   const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
   const sendOptionsAnchor = useRef<HTMLDivElement>(null);
+  // The send menu (design C2) opens on the choice its trigger stands for; Plan opens the sheet.
+  const [chooser, setChooser] = useState<SendChoice>();
+  const [planning, setPlanning] = useState(false);
+  const sendButton = useRef<HTMLButtonElement>(null);
   // The context windows of the model in use: its `[1m]` twin and the like, with the catalog's sizes once asked.
   const inUse = modelSelectionAvailable ? snapshot?.model : undefined;
   const twins = inUse ? snapshot!.models.filter((model) => model.provider === inUse.provider && modelFamily(model) === modelFamily(inUse)) : [];
@@ -724,6 +729,11 @@ export function Composer({
   const answerHasFiles = Boolean(answerable && prompt && promptTakesFiles(prompt) && (attachments.length > 0 || inlineHasContent));
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean, plain?: boolean) => void>(() => {});
   const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
+  // "2 queued", "1 planned", or both: a planned message does not wait for the turn.
+  const plannedCount = queue.filter((entry) => entry.deliverAt !== undefined).length;
+  const queuedLabel = [queue.length > plannedCount ? `${queue.length - plannedCount} queued` : "", plannedCount > 0 ? `${plannedCount} planned` : ""].filter(Boolean).join(" · ");
+  // The send menu and Plan belong to a thread that exists, outside a question and a kit's send mode.
+  const canChoose = !newThread && !draftOnOtherRuntime && Boolean(snapshot) && !answerable && !readOnly && !mobileComposer && !(sendMode || sendModeBusyHere);
   // Why sending is held now: the button's tooltip says it, and a key pressed anyway gets it as a notice.
   const sendReason = held && holdReason ? holdReason : sendBlockReason({
     held,
@@ -848,8 +858,9 @@ export function Composer({
   };
 
   const handleDequeue = useCallback(() => {
-    if (queue.length === 0) return;
-    const head = queue[0];
+    // A planned message keeps its time; ⌥↑ takes the next one that waits for the turn.
+    const head = queue.find((entry) => entry.deliverAt === undefined);
+    if (!head) return;
     onCancelQueued(head.id);
     const restored = head.text ? (text ? (text.endsWith("\n") ? text + head.text : text + "\n" + head.text) : head.text) : text;
     updateDraft(restored);
@@ -863,7 +874,8 @@ export function Composer({
   const isVimEnabled = Boolean(prefSnapshot.vimMode);
   // A touch screen's send button names no chord; which keyboard types decides what Enter does, when it is pressed.
   const [touchKeyboard] = useState(primaryPointerIsTouch);
-  const streamingBase = registry?.streamingDelivery() ?? "followUp";
+  // Steering is the default; a kit may answer otherwise (Prompt Tools' "queue" setting).
+  const streamingBase = registry?.streamingDelivery() ?? "steer";
   const inlineKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const { key, shiftKey, altKey, metaKey, ctrlKey, currentTarget } = event;
     const keyEvent = { key, shiftKey, altKey, metaKey, ctrlKey, text, selectionStart: currentTarget.selectionStart, selectionEnd: currentTarget.selectionEnd };
@@ -954,8 +966,8 @@ export function Composer({
       />,
     }] : []),
     ...(queue.length > 0 && !newThread ? [{ id: "queued", end: true, rank: 2, node: onOpenQueue
-      ? <button type="button" className="composer-queued" {...tooltipProps("Show the queued messages")} onClick={onOpenQueue}>{queue.length} queued</button>
-      : <span className="composer-queued">{queue.length} queued</span> }] : []),
+      ? <button type="button" className="composer-queued" {...tooltipProps("Show the queued messages")} onClick={onOpenQueue}>{queuedLabel}</button>
+      : <span className="composer-queued">{queuedLabel}</span> }] : []),
   ];
 
   const attachmentControl = (
@@ -1183,12 +1195,19 @@ export function Composer({
               }
               // ⌘⇧↵ (`thread.steerQueuedMessage`) sends the oldest queued message and leaves the draft;
               // ⌘↵ on an empty field does the same.
-              if (now && queue[0] && !answerable && (event.shiftKey || (!text.trim() && attachments.length === 0 && !inlineHasContent))) {
+              const waiting = queue.find((entry) => entry.deliverAt === undefined);
+              if (now && waiting && !answerable && (event.shiftKey || (!text.trim() && attachments.length === 0 && !inlineHasContent))) {
                 event.preventDefault();
-                onSteerQueued(queue[0].id);
+                onSteerQueued(waiting.id);
                 return;
               }
               const shortcut = sendShortcutFor(prefSnapshot.sendShortcut, { touch: touchKeyboard, onScreen: onScreenKeyboardShown() });
+              // On a thread the alternate chord opens the send menu on the other delivery; Enter there does it.
+              if (canChoose && hasDraft && enterChord({ shift: event.shiftKey, mod: now, shortcut, text }) === "alternate") {
+                event.preventDefault();
+                setChooser(streaming ? (streamingBase === "steer" ? "queue" : "steer") : "send");
+                return;
+              }
               const enter = composerEnter({ shift: event.shiftKey, mod: now, shortcut, text, streaming, base: streamingBase });
               if (enter === "newline") return;
               event.preventDefault();
@@ -1314,7 +1333,21 @@ export function Composer({
 
           {!mobileComposer ? attachmentControl : null}
 
-          {/* Send is the row's one round button (design 1a); Stop is a quiet word before it, never in its place. */}
+          {/* Plan, then Stop while a turn runs, then Send: round, as the composer's corners (design C2). */}
+          {canChoose ? (
+            <button
+              type="button"
+              className={`composer-plan-button${chooser ? " open" : ""}`}
+              aria-label="Queue or plan"
+              aria-haspopup="menu"
+              aria-expanded={chooser !== undefined}
+              {...tooltipProps(streaming ? "Steer, queue or plan" : "Send now or plan", { shortcut: prefSnapshot.sendShortcut === "mod-enter" ? "⌘⇧↵" : "⌘↵" })}
+              onClick={() => setChooser((open) => open ? undefined : "plan")}
+            >
+              <AlarmClock size={14} aria-hidden="true" />
+              <ChevronDown size={12} aria-hidden="true" />
+            </button>
+          ) : null}
           {streaming ? (
             <button className={`send-button stop${answerable ? " answering" : ""}`} {...tooltipProps(stopHint ?? "Stop the run", { shortcut: registry?.keybindingLabel?.("runtime.abort") })} aria-label={stopHint ?? "Stop the run"} onClick={onAbort}><i /><span>Stop</span></button>
           ) : null}
@@ -1359,12 +1392,13 @@ export function Composer({
             const typedAnswer = answerable && (Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled)));
             const { label, hint } = answerable
               ? { label: typedAnswer ? "Send answer" : promptSubmit?.label ?? "Send answer", hint: undefined }
-              : sendHint(prefSnapshot.sendShortcut ?? "enter", streaming, streamingBase, touchKeyboard);
+              : sendHint(prefSnapshot.sendShortcut ?? "enter", streaming, streamingBase, touchKeyboard, canChoose);
             const unanswered = answerable && !typedAnswer && (promptSubmit?.disabled ?? true);
             // Sending, queueing and steering look different: a ring while the message goes out, a list for the queue, a turn for a steer.
             const SendIcon = !streaming || answerable ? ArrowUp : streamingBase === "steer" ? CornerUpRight : ListPlus;
             return (
               <button
+                ref={sendButton}
                 className="send-button"
                 {...tooltipProps(sendReason ?? (unanswered ? "Pick an answer, or type one." : undefined) ?? hint ?? label)}
                 aria-label={label}
@@ -1439,6 +1473,31 @@ export function Composer({
           onSpeed={speed.set}
           keys={{ open: registry?.keybindingLabel?.("composer.effort"), cycle: registry?.keybindingLabel?.("runtime.cycle-thinking") }}
           onClose={() => setThinkingOpen(false)}
+        />
+      ) : null}
+      {chooser && canChoose ? (
+        <ComposerSendChooser
+          anchor={sendButton}
+          choices={sendChoices(streaming, true)}
+          initial={chooser}
+          disabledReason={sendReason ?? (hasDraft ? undefined : "Write a message first.")}
+          onClose={() => setChooser(undefined)}
+          onChoose={(choice) => {
+            setChooser(undefined);
+            if (choice === "plan") setPlanning(true);
+            else submitCurrent(choice === "steer" ? "steer" : choice === "queue" ? "followUp" : undefined);
+          }}
+        />
+      ) : null}
+      {planning && snapshot ? (
+        <PlanSheet
+          draft={{ text: plainChipText(text, false), attachments: attachments.length }}
+          snapshot={snapshot}
+          planners={registry?.getComposerPlanners?.() ?? []}
+          actions={shellContext?.actions}
+          onClose={() => { setPlanning(false); textareaRef.current?.focus(); }}
+          onPlan={(at) => { setPlanning(false); submitCurrent({ deliverAt: at }); }}
+          onPlanned={(summary) => { setPlanning(false); updateDraft(""); onNotify?.(`Planned: ${summary}.`, "info"); }}
         />
       ) : null}
       {sendOptionsOpen && sendMode?.options?.length && !sendModeBusyHere ? (

@@ -204,6 +204,13 @@ function decodePromptArgs(method: string, params: readonly unknown[]) {
   };
 }
 
+/** A planned message's time: epoch ms, or nothing for one that waits for the turn. */
+function decodeDeliverAt(channel: string, value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error(`${channel}: deliverAt must be a time in epoch milliseconds.`);
+  return value;
+}
+
 function decodeIndex(channel: string, field: string, value: unknown): number {
   if (typeof value !== "number" || !Number.isInteger(value)) throw new Error(`${channel}: ${field} must be an integer.`);
   return value;
@@ -289,22 +296,31 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     },
     "queue-message": async (params) => {
       const sessionId = decodeString("queue-message", "sessionId", params[0]);
-      const skillDraft = decodeUiSkillDraft("queue-message", "skillDraft", params[3]);
+      // A planned message without a skill sends null in its place.
+      const skillDraft = decodeUiSkillDraft("queue-message", "skillDraft", params[3] ?? undefined);
+      const deliverAt = decodeDeliverAt("queue-message", params[4]);
       const queued = await (await host()).queue.submit(sessionId, {
         text: decodeText("queue-message", "text", params[1]),
         attachments: decodeUiPromptAttachments("queue-message", "attachments", params[2]) ?? [],
         ...(skillDraft ? { skillDraft } : {}),
+        ...(deliverAt !== undefined ? { deliverAt } : {}),
       });
       return { id: queued.id };
     },
     "take-queued": async (params) => (await host()).queue.take(
       decodeString("take-queued", "sessionId", params[0]),
       decodeOptionalString("take-queued", "id", params[1]),
-    ).map(({ id, text, attachments, skillDraft, wake }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}) })),
+    ).map(({ id, text, attachments, skillDraft, wake, deliverAt }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}), ...(deliverAt !== undefined ? { deliverAt } : {}) })),
     "move-queued": async (params) => (await host()).queue.move(
       decodeString("move-queued", "sessionId", params[0]),
       decodeString("move-queued", "id", params[1]),
       decodeIndex("move-queued", "toIndex", params[2]),
+    ),
+    // A waiting message gets another time, or with none joins the line of the queue (API 1.65.0).
+    "plan-queued": async (params) => (await host()).queue.reschedule(
+      decodeString("plan-queued", "sessionId", params[0]),
+      decodeString("plan-queued", "id", params[1]),
+      decodeDeliverAt("plan-queued", params[2]),
     ),
     // A thread a provider limit stopped: continue it now, when the limit resets, or not by itself after all.
     "resume-limited": async (params) => {

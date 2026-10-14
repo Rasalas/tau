@@ -132,3 +132,19 @@ it("keeps a saved access choice when the new-thread default differs", async () =
   await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("update", expect.objectContaining({ config: expect.objectContaining({ accessLevel: "read-only" }) })));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit automation" })).toBeNull());
 });
+
+it("creates a repeating automation in local time and shows an existing one with its sentence", async () => {
+  const repeating = { ...job, config: { ...job.config, schedule: { kind: "cron" as const, expression: "0 9 * * 1-5", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } } };
+  const h = setup({ jobs: [repeating] });
+  expect(await screen.findByText(/Every weekday at 09:00/u)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "New automation" }));
+  const dialog = await screen.findByRole("dialog", { name: "New automation" });
+  fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Monthly report" } });
+  fireEvent.change(within(dialog).getByLabelText("Prompt"), { target: { value: "Summarize" } });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "When" }), { target: { value: "cron" } });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Repeat every" }), { target: { value: "month" } });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Day of month" }), { target: { value: "15" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("create", expect.objectContaining({ name: "Monthly report", schedule: { kind: "cron", expression: "0 9 15 * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } })));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New automation" })).toBeNull());
+});

@@ -39,13 +39,28 @@ export function composerEnter(input: {
   return { delivery: alternate === (input.base === "steer") ? "followUp" : "steer" };
 }
 
-/** What the send button does now: its label, and on a keyboard its tooltip with the chords around it. */
-export function sendHint(shortcut: SendShortcut, streaming: boolean, base: StreamingDelivery, touch = false): { label: string; hint: string } {
+/**
+ * Which chord an Enter is: a newline, the send chord, or the alternate one
+ * (⌘ when Enter sends, ⇧ when ⌘Enter does), which opens the send menu on a thread.
+ */
+export function enterChord(input: { shift: boolean; mod: boolean; shortcut: SendShortcut; text: string }): "newline" | "send" | "alternate" {
+  const modifier = needsModifier(input.shortcut, input.text);
+  if (modifier ? !input.mod : input.shift) return "newline";
+  return (modifier ? input.shift : input.mod) ? "alternate" : "send";
+}
+
+/**
+ * What the send button does now: its label, and on a keyboard its tooltip
+ * with the chords around it. With `chooser` the alternate chord opens the
+ * send menu, on the other delivery, instead of sending it at once.
+ */
+export function sendHint(shortcut: SendShortcut, streaming: boolean, base: StreamingDelivery, touch = false, chooser = false): { label: string; hint: string } {
   const label = !streaming ? "Send" : base === "steer" ? "Steer this turn" : "Queue after this turn";
   if (touch) return { label, hint: label };
   const send = shortcut === "mod-enter" ? "⌘↵" : "↵";
   const other = shortcut === "mod-enter" ? "⌘⇧↵" : "⌘↵";
-  if (!streaming) return { label, hint: `Send ${send} — ${shortcut === "mod-enter" ? "↵" : "⇧↵"} newline, $ skills, / commands, @ files` };
+  if (!streaming) return { label, hint: `Send ${send} — ${shortcut === "mod-enter" ? "↵" : "⇧↵"} newline, ${chooser ? `${other} plan, ` : ""}$ skills, / commands, @ files` };
+  if (chooser) return { label, hint: `${label} ${send} — ${other} ${base === "steer" ? "queue" : "steer"} or plan, ⌥↑ dequeues` };
   return {
     label,
     hint: base === "steer"

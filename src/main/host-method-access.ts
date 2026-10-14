@@ -29,6 +29,7 @@ export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?
   "queue-message": { label: "queued a message", thread: 0 },
   "take-queued": { label: "took a queued message", thread: 0 },
   "move-queued": { label: "reordered queued messages", thread: 0 },
+  "plan-queued": { label: "planned a queued message", thread: 0 },
   "resume-limited": { label: "resumed a thread after a limit", thread: 0 },
   "abort": { label: "stopped a run", thread: 0 },
   "thread-goal": { label: "changed a goal", thread: 0 },
