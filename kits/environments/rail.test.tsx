@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PlatformEnvironments, UiEnvironment, UiSession } from "tau";
 import { ThreadStore } from "../../src/renderer/test-support/kit-harness.js";
-import { createMachineCardRow, createMachineThreads } from "./rail.js";
+import { createMachineCardRow, createMachineThreads, proxyMark } from "./rail.js";
 import { AGENTS_EVENT, type AgentMachines } from "./protocol.js";
 
 afterEach(cleanup);
@@ -98,5 +98,34 @@ describe("machine rows alongside the own index", () => {
     expect(await screen.findByText("Rex")).toBeTruthy();
     rendered.rerender(<MachineRow session={proxy} external Row={({ children }) => <div>{children}</div>} />);
     await waitFor(() => expect(screen.queryByText("Rex")).toBeNull());
+  });
+});
+
+describe("row states of another machine's threads this host lists as proxies", () => {
+  const rex = { name: "rex" };
+  const thread = { id: "t", path: "/t", title: "T", projectName: "api", modifiedAt: 1 };
+
+  it("say what the machine reports: a question first, then a run, then work that wakes it", () => {
+    expect(proxyMark(rex, thread, false)).toBeUndefined();
+    expect(proxyMark(rex, { ...thread, background: true }, false)).toMatchObject({ label: "Waiting", tone: "background" });
+    expect(proxyMark(rex, thread, true)).toMatchObject({ label: "Waiting", tone: "background" });
+    expect(proxyMark(rex, { ...thread, running: true, background: true }, true)).toMatchObject({ label: "Working", tone: "working" });
+    expect(proxyMark(rex, { ...thread, running: true, waiting: true }, false)).toEqual({ label: "Question", hint: "Waits for an answer on rex." });
+  });
+
+  it("mark the proxies of a machine whose agents this host pairs, by the proxy's id", async () => {
+    const { environments, host } = fixture();
+    const snapshot = environments.getSnapshot() as { environments: UiEnvironment[] };
+    const rexMachine = snapshot.environments.find((machine) => machine.id === "rex")!;
+    rexMachine.threads = [{ ...rexMachine.threads[0]!, running: true }, { id: "idle", path: "/rex/idle", title: "Idle", projectName: "api", modifiedAt: 1 }];
+    const source = createMachineThreads(environments, host);
+    const stop = source.subscribe(vi.fn());
+    try {
+      await waitFor(() => expect(source.marks()).toEqual({ "rex~rex-thread": expect.objectContaining({ label: "Working", tone: "working" }) }));
+      const first = source.marks();
+      expect(source.threads().map((row) => row.machine.name)).toEqual(["external"]);
+      // The same object while nothing changed.
+      expect(source.marks()).toBe(first);
+    } finally { stop(); }
   });
 });
