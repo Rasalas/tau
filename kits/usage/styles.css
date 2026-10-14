@@ -70,7 +70,7 @@
 /* By provider and By project: name, threads, figure; a provider's bar after its name. */
 .usage-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
 .usage-table { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; font-size: calc(var(--text-sm) - .5px); }
-.usage-table-head, .usage-table li { display: grid; grid-template-columns: minmax(0, 1fr) 56px 72px; gap: 10px; align-items: center; }
+.usage-table-head, .usage-table li { display: grid; grid-template-columns: minmax(0, 1fr) 56px max-content; gap: 10px; align-items: center; }
 .usage-table-head { padding: 2px 0 6px; color: var(--muted); font-size: calc(var(--text-xs) - 1px); }
 .usage-table-head > span + span, .usage-table-threads, .usage-table-value { text-align: right; }
 .usage-table > ol { margin: 0; padding: 0; list-style: none; }
@@ -79,7 +79,7 @@
 .usage-table-name > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-table-name > .provider-icon-stack { flex: none; margin: 0; }
 .usage-project-icon { flex: none; }
-.usage-table-bar { flex: none; width: 120px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--track); }
+.usage-table-bar { flex: 0 1 auto; width: 120px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--track); }
 .usage-table-bar > i { display: block; height: 100%; background: var(--acid); }
 .usage-table-threads, .usage-table-value { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-table-threads { color: var(--ink-3); }
@@ -193,6 +193,7 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
 .usage-section > .usage-calendar { align-self: flex-start; }
 .usage-calendar {
   --usage-cell: 12px;
+  max-width: 100%; overflow-x: auto;
   margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .usage-calendar > figcaption { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: var(--text-xs); }
 .usage-calendar > figcaption > b { color: var(--ink-2); font-weight: 600; }
@@ -235,8 +236,8 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
 .usage-number { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Tau's own rankings under the limits: models and threads, as the design's tables. */
-.usage-ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 4px; }
-.usage-table[data-counts="false"] :is(.usage-table-head, li) { grid-template-columns: minmax(0, 1fr) 72px; }
+.usage-ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; margin-top: 4px; }
+.usage-table[data-counts="false"] :is(.usage-table-head, li) { grid-template-columns: minmax(0, 1fr) max-content; }
 /* A pair of marks takes the fanned stack's width, so names line up. */
 .usage-ranks .usage-table-name > .provider-icon-stack { width: 33px; }
 .usage-ranks .usage-table-name > .provider-icon-stack.single { justify-content: center; }
@@ -287,8 +288,8 @@ body[data-profile="compact"] .usage-show-in-sidebar > button { min-height: var(-
   .usage-stat { padding: 12px 14px; }
   .usage-stat-value { margin-top: 3px; font-size: calc(var(--text-display) - 2px); }
   .usage-history, .usage-table { padding-inline: 14px; }
-  .usage-table-head, .usage-table li { grid-template-columns: minmax(0, 1fr) 64px; gap: 8px; }
-  .usage-table-head > :nth-child(2), .usage-table-threads { display: none; }
+  .usage-table-head, .usage-table li { grid-template-columns: minmax(0, 1fr) max-content; gap: 8px; }
+  .usage-table:not([data-counts="false"]) .usage-table-head > :nth-child(2), .usage-table-threads { display: none; }
   .usage-table-bar { width: 80px; }
   .usage-accounts { grid-template-columns: minmax(0, 1fr); }
   .usage-account { padding: 16px; }

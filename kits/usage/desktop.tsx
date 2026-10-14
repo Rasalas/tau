@@ -27,6 +27,7 @@ export const usageExtension: DesktopExtension = {
       profiles: ["desktop", "web", "compact"],
       Icon: ChartColumn,
       order: 20,
+      phoneTab: false,
       layout: "wide",
       keywords: ["cost", "tokens", "limits", "billing", "forecast"],
       // Only the plans' bars stay visible before Settings; money lives on Usage.
@@ -36,7 +37,7 @@ export const usageExtension: DesktopExtension = {
       Sidebar: () => <UsageSidebar view={view} />,
     });
 
-    // A phone has no sidebar foot: the bars sit in its top bar, beside Settings; a tablet's foot draws `Summary`.
+    // A phone opens Usage from the bars before its search and menu; a tablet's foot draws `Summary`.
     plugin.registerRegion({
       id: "usage.juicebars",
       placement: "thread-list-title",

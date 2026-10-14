@@ -109,6 +109,18 @@ function renderPage(invoke: (command: string, input?: unknown) => Promise<unknow
 }
 
 describe("Usage page", () => {
+  it.each([
+    [357_840_600_000, "357.8B tok"],
+    [1_400_000_000_000, "1.4T tok"],
+  ])("keeps %i plan tokens compact in every ranking", async (totalTokens, label) => {
+    renderPage(answers(() => summary({ entries: [entry({ totalTokens, billing: "subscription", costUsd: 0, apiValueUsd: 1 })] })));
+    for (const title of ["By provider", "By project", "Models"]) {
+      const table = within(await screen.findByRole("region", { name: title }));
+      await table.findByText(label, { selector: ".usage-table li .usage-table-value" });
+    }
+    expect(await within(threadList()).findByText(label, { selector: ".usage-table-value" })).toBeTruthy();
+  });
+
   it("shows the provider forecast with runtime filters, independently of the chart period", async () => {
     renderPage(answers(() => summary({ entries: [
       entry({ day: LAST - 1, backend: "opencode", provider: "openrouter", billing: "free", costUsd: 0, apiEquivalentUsd: 7 }),

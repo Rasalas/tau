@@ -1,5 +1,5 @@
 /* A bottom sheet (Sheet): the dialog pinned to the bottom edge, its content scrolling under the header. */
-.dialog-backdrop:has(> .touch-sheet) { align-items: flex-end; padding: 0; }
+.dialog-backdrop:has(> .touch-sheet) { align-items: flex-end; padding: 0 0 var(--tau-keyboard-inset, 0px); }
 .touch-sheet {
   width: 100%; max-width: 520px; margin: 0 auto;
   max-height: calc(var(--tau-viewport-height, 100dvh) - 24px);

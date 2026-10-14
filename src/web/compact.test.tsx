@@ -486,10 +486,11 @@ describe("the web client at 400 px", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review" })).toBeNull());
   });
 
-  it("finds a thread from the search popover and starts a new one from the floating button", async () => {
+  it("finds a thread from the search sheet and starts a new one from the floating button", async () => {
     const client = renderCompactClient();
     const home = await screen.findByRole("region", { name: "Threads" });
     fireEvent.click(within(home).getByRole("button", { name: "Search threads" }));
+    expect((await screen.findByRole("dialog", { name: "Search threads" })).classList.contains("touch-sheet")).toBe(true);
     const field = await screen.findByRole("searchbox", { name: "Search threads" });
     await waitFor(() => expect(document.activeElement).toBe(field));
     fireEvent.change(field, { target: { value: "nothing like it" } });
@@ -505,10 +506,12 @@ describe("the web client at 400 px", () => {
     expect(within(again).getByRole("button", { name: "New thread" }).className).toBe("touch-fab");
   });
 
-  it("opens Settings from the bottom navigation as a list of sections, a page after a tap, and back", async () => {
+  it("opens Settings from More as a list of sections, a page after a tap, and back", async () => {
     renderCompactClient();
     await screen.findByRole("region", { name: "Threads" });
-    fireEvent.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("button", { name: "Settings" }));
+    expect(within(screen.getByRole("navigation", { name: "Main" })).queryByRole("button", { name: "Settings" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Settings" }));
     const settings = await screen.findByRole("dialog", { name: "Settings" });
     expect(settings.dataset.view).toBe("sections");
     // A main page: the bar is under it and there is no Close.
@@ -524,13 +527,16 @@ describe("the web client at 400 px", () => {
     expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
   });
 
-  it("opens Settings from the gear in the list's top bar too, the bottom navigation's tab marked", async () => {
+  it("opens About directly from More in the list's top bar", async () => {
     renderCompactClient();
     const home = await screen.findByRole("region", { name: "Threads" });
-    fireEvent.click(within(home.querySelector<HTMLElement>(".brand-head")!).getByRole("button", { name: "Settings" }));
+    fireEvent.click(within(home.querySelector<HTMLElement>(".brand-head")!).getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "About Tau" }));
     const settings = await screen.findByRole("dialog", { name: "Settings" });
-    expect(settings.dataset.view).toBe("sections");
-    expect(within(within(settings).getByRole("navigation", { name: "Main" })).getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
+    expect(settings.dataset.view).toBe("page");
+    await waitFor(() => expect(param("settings")).toBe("about"));
+    await waitFor(() => expect(settings.querySelector(".about-page")).toBeTruthy());
+    expect(within(settings).queryByRole("navigation", { name: "Main" })).toBeNull();
   });
 
   it("names the host a native shell put on screen and runs the shell's own action from More", async () => {
@@ -651,11 +657,17 @@ describe("a phone with no thread open", () => {
 });
 
 describe("a phone's thread list as design 1m, 1x and 2p draw it", () => {
-  it("heads the list with the search field and the project pill, and puts a branchless row's marks on its title line", async () => {
+  it("heads the list with search, filter and More icons, and puts a branchless row's marks on its title line", async () => {
     renderHome([probe]);
     const home = await screen.findByRole("region", { name: "Threads" });
     const search = within(home).getByRole("button", { name: "Search threads" });
-    expect(search.closest(".search-head")).toBeTruthy();
+    const header = home.querySelector<HTMLElement>(".brand-head")!;
+    expect(within(header).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Search threads", "Filter threads by project", "More"]);
+    expect(search.classList.contains("touch-icon-button")).toBe(true);
+    fireEvent.click(within(header).getByRole("button", { name: "Filter threads by project" }));
+    expect((await screen.findByRole("dialog", { name: "Show threads of" })).classList.contains("touch-sheet")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Show threads of" })).toBeNull());
     expect(within(home).queryByRole("heading", { name: "Threads" })).toBeNull();
     const row = rowNamed("Ship the web client");
     expect(row.querySelector(".touch-title-line .thread-meta-end")).toBeTruthy();
@@ -824,13 +836,13 @@ describe("a page's summary on a phone and a tablet", () => {
     expect(within(list).queryByRole("button", { name: "Title bars" })).toBeNull();
   });
 
-  it("sits in a phone's top bar, between the mark and Settings, over the search field", async () => {
+  it("sits in a phone's top bar before search, filter and More", async () => {
     renderCompactClient({}, [summaryProbe]);
     const home = await screen.findByRole("region", { name: "Threads" });
     const bar = (await within(home).findByRole("button", { name: "Title bars" })).closest<HTMLElement>(".brand-head")!;
     expect(bar.querySelector(".tau-mark")).toBeTruthy();
-    expect(within(bar).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["Title bars", "Settings"]);
-    expect(bar.nextElementSibling?.classList.contains("search-head")).toBe(true);
+    expect(within(bar).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["Title bars", "Search threads", "Filter threads by project", "More"]);
+    expect(home.querySelectorAll(".touch-home-head .touch-browser-header")).toHaveLength(1);
     expect(home.querySelector(".touch-browser-body .region-thread-list-title")).toBeNull();
     expect(within(home).queryByRole("button", { name: "Plan bars" })).toBeNull();
   });
@@ -1117,10 +1129,10 @@ const tab = (label: string) => within(bar()!).getByRole("button", { name: label 
 const param = (name: string) => new URL(window.location.href).searchParams.get(name);
 
 describe("a phone's home and bottom navigation", () => {
-  it("has the bar on its list: Threads, the pages a phone may show in their order, Settings", async () => {
+  it("has the bar on its list: Threads and the pages a phone may show in their order", async () => {
     renderCompactClient({}, [pageProbe]);
     await screen.findByRole("region", { name: "Threads" });
-    await waitFor(() => expect(within(bar()!).getAllByRole("button").map((button) => button.textContent)).toEqual(["Threads", "Pull requests", "Usage", "Settings"]));
+    await waitFor(() => expect(within(bar()!).getAllByRole("button").map((button) => button.textContent)).toEqual(["Threads", "Pull requests", "Usage"]));
     expect(tab("Threads").getAttribute("aria-current")).toBe("page");
   });
 
@@ -1183,7 +1195,8 @@ describe("a phone's home and bottom navigation", () => {
     renderCompactClient({}, [pageProbe]);
     await screen.findByRole("region", { name: "Threads" });
     await waitFor(() => expect(bar()).toBeTruthy());
-    fireEvent.click(tab("Settings"));
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Settings" }));
     const settings = await screen.findByRole("dialog", { name: "Settings" });
     await waitFor(() => expect(param("settings")).toBe(""));
     fireEvent.click(within(settings).getByRole("button", { name: /^About Tau/u }));

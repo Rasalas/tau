@@ -1,9 +1,14 @@
-/** Tokens the way the composer writes them: 842, 12.3k, 1.4M. */
+/** Compact token counts, through billions (B) and trillions (T). */
 export function formatTokens(tokens: number): string {
-  const value = Math.max(0, Math.round(tokens));
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-  return String(value);
+  let value = Math.max(0, Math.round(tokens));
+  const units = ["", "k", "M", "B", "T"];
+  let unit = 0;
+  // Promote before rounding would produce a four-digit count such as 1000.0M.
+  while (value >= 999.95 && unit < units.length - 1) {
+    value /= 1_000;
+    unit += 1;
+  }
+  return unit === 0 ? String(value) : `${value.toFixed(1)}${units[unit]}`;
 }
 
 /** How far into the window the clock is, 0–1, or undefined when its length or reset is unknown. */

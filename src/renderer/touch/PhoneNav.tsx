@@ -1,4 +1,4 @@
-import { MessagesSquare, Settings } from "lucide-react";
+import { MessagesSquare } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ExtensionRegistry } from "../extension-system";
 import { PanelIcon, type PanelIconComponent } from "../components/PanelIcon";
@@ -6,7 +6,7 @@ import { sameTab, type PhoneTab } from "../../workbench/phone-route";
 import { pageCatalog } from "./page-catalog-slot";
 import "./phone-nav.css";
 
-/** Five destinations at most: home, three pages, Settings. */
+/** Threads and up to three app pages; Settings opens from the header. */
 const MAX_PAGES = 3;
 
 export interface PhoneNavItem {
@@ -18,18 +18,19 @@ export interface PhoneNavItem {
 }
 
 /**
- * Threads first, the app pages that claim a phone in their order, Settings
- * last. While the packages are still loading, the remembered pages stand in
+ * Threads first, then the app pages that claim a phone in their order.
+ * While the packages are still loading, the remembered pages stand in
  * for the ones not registered yet.
  */
 export function phoneNavItems(registry: Pick<ExtensionRegistry, "getPages"> & Partial<Pick<ExtensionRegistry, "isLoadingExtensions">>): PhoneNavItem[] {
-  const live = registry.getPages().map((page): PhoneNavItem => ({ tab: { kind: "page", page: page.id }, label: page.label, Icon: page.Icon, useBadge: page.useBadge }));
+  const registered = registry.getPages();
+  const hidden = new Set(registered.filter((page) => page.phoneTab === false).map((page) => page.id));
+  const live = registered.map((page): PhoneNavItem => ({ tab: { kind: "page", page: page.id }, label: page.label, Icon: page.Icon, useBadge: page.useBadge }));
   const catalog = pageCatalog();
   const pages = catalog && registry.isLoadingExtensions?.() ? catalog.read(live) : live;
   return [
     { tab: { kind: "threads" }, label: "Threads", Icon: MessagesSquare },
-    ...pages.slice(0, MAX_PAGES),
-    { tab: { kind: "settings" }, label: "Settings", Icon: Settings },
+    ...pages.filter((item) => item.tab.kind !== "page" || !hidden.has(item.tab.page)).slice(0, MAX_PAGES),
   ];
 }
 

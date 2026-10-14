@@ -36,10 +36,12 @@ describe("the juicebars on top of a phone's thread list", () => {
     return openPage;
   };
 
-  it("draws nothing until a plan has a window, then each account once with only its bars; a tap opens the limits", () => {
+  it("opens Usage without plan bars, then shows each account once; a tap on its bars opens the limits", () => {
     const feed = createLimitsFeed(host(undefined));
     const openPage = renderStrip(feed);
-    expect(screen.queryByRole("button")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    expect(openPage).toHaveBeenCalledWith("usage");
+    openPage.mockClear();
     const limits: UsageLimitsSummary = {
       checkedAt: NOW,
       accounts: [
@@ -67,6 +69,7 @@ describe("the juicebars on top of a phone's thread list", () => {
     const phone = createKitHarness(undefined, "compact");
     phone.registry.activate(usageExtension);
     expect(phone.registry.getRegions("thread-list-title").map((region) => region.id)).toEqual(["usage.juicebars"]);
+    expect(phone.registry.getPages().find((page) => page.id === "usage")?.phoneTab).toBe(false);
   });
 
   it("reads the other paired hosts' limits through the phone's machines", async () => {

@@ -1416,8 +1416,10 @@ chords still run, and Escape leaves it once no dialog, menu or popover over it
 takes the key. On a phone (`compact` without the split list)
 the page is a screen of its own, addressed as `?page=<id>`: a link opens it.
 The first three pages that claim `compact` are destinations of the phone's
-bottom navigation, beside Threads and Settings, so a page for a phone keeps its
-label short. The navigation remembers them, label and drawn icon, so on the next
+bottom navigation beside Threads, so a page for a phone keeps its label short.
+Set `phoneTab: false` when another visible entry opens the page, as Usage's
+juicebars do in the header. Settings opens from the header's More menu.
+The navigation remembers its pages, label and drawn icon, so on the next
 start they are there before the packages load; one opened then shows "Loading…"
 until its package registers it (`ExtensionRegistry.isLoadingExtensions()`). A
 package whose page draws a host's answer does well to draw the last one it had

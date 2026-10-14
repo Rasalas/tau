@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, Ellipsis, Folder, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
+import { Check, ChevronLeft, Ellipsis, Folder, Info, ListFilter, MonitorSmartphone, Plus, Search, Settings, X } from "lucide-react";
 import type { UiProject } from "../../shared/contracts";
 import { errorMessage } from "../../workbench/error-message";
 import { rootLast } from "../../workbench/new-thread-project";
@@ -24,13 +24,9 @@ export { TouchThreadList };
 const SEARCH_RESULTS = 20;
 
 /**
- * The thread list with its own header, after the user's mobile rules: search
- * and an overflow menu at the top right as popovers at their buttons, the
- * project filter as an icon between them (the desktop rail's), and a new thread as the floating
- * button at the bottom right. `home` is a phone's start page, with the bottom
- * navigation under it and a top bar over the search as the desktop's sidebar has it:
- * the mark at the left, kits' bars and Settings at the right; `sidebar` is the list
- * beside the thread on a tablet, where the new thread stays in the header as on a desktop.
+ * A phone's top bar: the mark, kits' bars, search and project-filter sheets,
+ * then More for Settings and shell actions. New thread floats over the list.
+ * A tablet keeps its title and New thread in the sidebar's header.
  */
 export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, projects = [], onProjectChange, ...list }: TouchThreadListProps & {
   variant: "home" | "sidebar";
@@ -52,41 +48,39 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
 
   // What kits put over the list: another machine's state.
   const head = <Region registry={list.registry} placement="thread-list-head" actions={list.actions} />;
-  const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} /> : null;
+  const filter = onProjectChange ? <ProjectFilter projects={projects} project={list.project} onChange={onProjectChange} alwaysShown={screen} /> : null;
   const toggleSearch = () => setPopover(popover === "search" ? undefined : "search");
+  const search = <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-haspopup="dialog" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={toggleSearch}><Search size={20} /></button>;
   const more = <button ref={menuButton} type="button" className="touch-icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={popover === "menu"} {...tooltipProps("More", { side: "bottom" })} onClick={() => setPopover(popover === "menu" ? undefined : "menu")}><Ellipsis size={20} /></button>;
-  // More stays only for the shell's own actions.
   const header = screen ? <header className="touch-home-head">
     <div className="touch-browser-header brand-head">
       <TauMark className="touch-brand-mark" />
       <span className="spacer" />
       <Region registry={list.registry} placement="thread-list-title" actions={list.actions} />
-      <button type="button" className="touch-icon-button" aria-label="Settings" {...tooltipProps("Settings", { side: "bottom" })} onClick={() => onOpenSettings()}><Settings size={20} /></button>
-    </div>
-    <div className="touch-browser-header search-head">
-      <button ref={searchButton} type="button" className="touch-search-open" aria-expanded={popover === "search"} onClick={toggleSearch}><Search size={16} aria-hidden />Search threads</button>
-      {filter}
-      {shell?.actions?.length ? more : null}
+      <div className="touch-header-actions">{search}{filter}{more}</div>
     </div>
   </header> : <header className="touch-browser-header">
     <strong>Threads</strong>
     <span className="spacer" />
-    <button ref={searchButton} type="button" className="touch-icon-button" aria-label="Search threads" aria-expanded={popover === "search"} {...tooltipProps("Search threads", { side: "bottom" })} onClick={toggleSearch}><Search size={19} /></button>
+    {search}
     {filter}
     {more}
     {readOnly ? null : <button type="button" className="touch-icon-button" aria-label="New thread" {...tooltipProps("New thread", { side: "bottom" })} onClick={onNewThread}><Plus size={20} /></button>}
   </header>;
 
+  const searchContent = <ThreadSearch registry={list.registry} onOpen={(row, entry) => { setPopover(undefined); if (entry) entry.open(list.actions); else list.onOpen(row); }} />;
   const popovers = <>
-    {popover === "search" ? <Popover anchor={searchButton} side="bottom" align={screen ? "start" : "end"} label="Search threads" className="touch-popover touch-search" onClose={() => setPopover(undefined)}>
-      <ThreadSearch registry={list.registry} onOpen={(row, entry) => { setPopover(undefined); if (entry) entry.open(list.actions); else list.onOpen(row); }} />
+    {popover === "search" ? screen ? <Sheet title="Search threads" className="touch-search" onClose={() => setPopover(undefined)}>
+      {searchContent}
+    </Sheet> : <Popover anchor={searchButton} side="bottom" align="end" label="Search threads" className="touch-popover touch-search" onClose={() => setPopover(undefined)}>
+      {searchContent}
     </Popover> : null}
     {popover === "menu" ? <Popover anchor={menuButton} side="bottom" align="end" label="More" className="touch-popover touch-menu" onClose={() => setPopover(undefined)}>
       <div role="menu" aria-label="More">
         {/* Which host a native shell is on: said here, not over the list. */}
         {shell?.hostLabel ? <p className="touch-menu-context">On {shell.hostLabel}</p> : null}
-        {/* A phone's top bar has Settings already. */}
-        {screen ? null : <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings(); }}><Settings size={17} />Settings</button>}
+        <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings(); }}><Settings size={17} />Settings</button>
+        <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings("about"); }}><Info size={17} />About Tau</button>
         <button type="button" role="menuitem" onClick={() => { setPopover(undefined); onOpenSettings("connections"); }}><MonitorSmartphone size={17} />Connections</button>
         {shell?.actions?.map((action) => <button key={action.id} type="button" role="menuitem" onClick={() => { setPopover(undefined); action.run(); }}>{action.Icon ? <action.Icon size={17} /> : null}{action.label}</button>)}
       </div>
@@ -156,28 +150,26 @@ function TabletFooter({ registry, actions, onOpenSettings }: Pick<TouchThreadLis
 
 /**
  * Which project's threads the list shows: an icon in the header that opens a
- * sheet, a folder for all of them and the project's tile while one is chosen.
- * The sheet's first row shows every project again. One project needs no filter.
+ * sheet. The active filter is marked and names its project for assistive technology.
+ * The sheet's first row shows every project again.
  */
-function ProjectFilter({ projects, project, onChange }: {
+function ProjectFilter({ projects, project, onChange, alwaysShown = false }: {
   projects: readonly UiProject[];
   project: UiProject | undefined;
   onChange(project: UiProject | undefined): void;
+  alwaysShown?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const field = useRef<HTMLInputElement>(null);
   const search = query.trim().toLocaleLowerCase();
   const matching = rootLast(projects).filter((candidate) => `${candidate.name} ${candidate.displayPath ?? candidate.path}`.toLocaleLowerCase().includes(search));
-  if (projects.length < 2 && !project) return null;
+  if (!alwaysShown && projects.length < 2 && !project) return null;
   const same = (candidate: UiProject) => candidate.path === project?.path;
   const label = project ? `Filter threads by project: ${project.name}` : "Filter threads by project";
   return <>
-    <button type="button" className="touch-icon-button touch-project-filter" aria-haspopup="dialog" aria-label={label} {...tooltipProps(label, { side: "bottom" })} onClick={() => { setQuery(""); setOpen(true); }}>
-      {project
-        ? <ProjectIcon project={project} className="touch-project-tile" />
-        : <Folder size={19} aria-hidden="true" />}
-      <ChevronDown size={14} aria-hidden="true" />
+    <button type="button" className="touch-icon-button touch-project-filter" data-active={Boolean(project) || undefined} aria-haspopup="dialog" aria-expanded={open} aria-label={label} {...tooltipProps(label, { side: "bottom" })} onClick={() => { setQuery(""); setOpen(true); }}>
+      <ListFilter size={20} aria-hidden="true" />
     </button>
     {open ? <Sheet title="Show threads of" className="project-filter-sheet" onClose={() => setOpen(false)}>
       <label className="touch-search-field">
@@ -202,7 +194,7 @@ function ProjectFilter({ projects, project, onChange }: {
   </>;
 }
 
-/** The search popover: a field with the focus, and the threads it finds by title, project or label, other machines' too. */
+/** A focused search field and threads matching title, project or label, other machines' too. */
 function ThreadSearch({ registry, onOpen }: { registry: ExtensionRegistry; onOpen(row: ThreadSupervisionRow, entry?: ThreadListEntry): void }) {
   const store = useThreadStore();
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
