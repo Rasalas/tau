@@ -184,13 +184,13 @@ Outputs use a UTC timestamp, so earlier runs are never overwritten:
 
 Inspect both files, check the load and any skipped targets, and add environmental notes
 to the Markdown: host machine and CPU architecture, emulator hardware (cores, memory,
-graphics mode) and competing work. Reports are ignored by default, so add the JSON
-explicitly, then add a short dated paragraph to the phone section of
+graphics mode) and competing work. `reports/` stays ignored; copy the raw JSON next to
+its Markdown, then add a short dated paragraph to the phone section of
 [PERFORMANCE.md](PERFORMANCE.md):
 
 ```sh
-git add -f reports/mobile-<timestamp>.json
-git add docs/performance/mobile-emulator-<timestamp>.md docs/PERFORMANCE.md
+cp reports/mobile-<timestamp>.json docs/performance/mobile-emulator-<timestamp>.json
+git add docs/performance/mobile-emulator-<timestamp>.* docs/PERFORMANCE.md
 git commit -m "docs(perf): check in Android emulator start and thread timings"
 ```
 

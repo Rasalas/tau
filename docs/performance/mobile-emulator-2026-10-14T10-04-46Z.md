@@ -34,4 +34,4 @@ Cold means force-stop with paired storage and bundle caches retained. The host s
 
 WebView timings use performance.timeOrigin and performance.now. Paint is estimated by requestAnimationFrame followed by a task, with visibility and hit testing. Launch-to-observed includes bridge polling and transport latency and is an upper bound. These are emulator measurements, not physical device evidence.
 
-Runbook: [mobile emulator measurement](../mobile-emulator-measurement.md). Raw samples include warm-up rounds in the corresponding reports/mobile-*.json.
+Runbook: [mobile emulator measurement](../mobile-emulator-measurement.md). Raw samples, warm-up rounds included, are in the JSON file of the same name.

@@ -1484,8 +1484,8 @@ From the launch command to an observed usable list took 2.1 to 2.4 s at the medi
 within about 250 ms; single samples vary by up to 5 s while Spotlight and a security
 scan ran on the Mac during the second run. The first open costs about the same for
 3 and for 40 turns, and a repeated open in the same process is 30 to 90 ms. Raw
-samples, warm-ups included, are in `reports/mobile-2026-10-14T10-04-46Z.json` and
-`reports/mobile-2026-10-14T10-06-55Z.json`, with the generated tables in
+samples, warm-ups included, are in `docs/performance/mobile-emulator-2026-10-14T10-04-46Z.json` and
+`docs/performance/mobile-emulator-2026-10-14T10-06-55Z.json`, with the generated tables in
 `docs/performance/mobile-emulator-2026-10-14T10-04-46Z.md` and
 `docs/performance/mobile-emulator-2026-10-14T10-06-55Z.md`. Physical-device
 evidence is still missing, and the desktop Chromium phone approximation above stays a
