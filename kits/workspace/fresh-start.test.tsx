@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiRuntimeCatalog } from "tau";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
@@ -8,7 +8,11 @@ import { workspaceHostStub } from "../../src/renderer/test-support/workspace-hos
 import { createMemoryStorage, readNewThreadDraft, setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { workspaceExtension } from "./desktop.js";
 
-afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
+afterEach(() => {
+  cleanup(); setHostClient(undefined); setClientStorage(undefined);
+  window.history.replaceState({}, "", "/");
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+});
 
 interface Start {
   isRepo: boolean;
@@ -17,15 +21,28 @@ interface Start {
   info?: Record<string, unknown>;
   /** Whether the start folder is already a listed project. */
   listed?: boolean;
+  privateWorkspace?: boolean;
   /** The runtimes the host offers and what each one's catalog says; absent: Pi alone, with the model above. */
   runtimes?: Array<{ backend: { kind: string; label: string }; catalog?: Omit<UiRuntimeCatalog, "kind" | "thinkingLevels"> }>;
 }
 
-/** A window on the host's empty start session in `/home/me`, with `messageCount` messages in its only thread. */
-function start({ isRepo, messageCount, info, listed = true, runtimes }: Start) {
-  const openProject = vi.fn(async () => ({ version: 1 as const, updates: [] }));
-  const createScratch = vi.fn(async () => ({ workspaceId: "ws:scratch", displayPath: "/state/scratch/1" }));
-  const getWorkspaceInfo = vi.fn(async () => ({ root: "/home/me", isRepo, isDirty: false, worktrees: [], refs: [], ...info }));
+/** A window on the host's startup session or its private workspace. */
+function start({ isRepo, messageCount, info, listed = true, privateWorkspace = false, runtimes }: Start) {
+  const scratchPath = "/state/scratch/3445961b-07a0-49eb-bcb5-36e722c37630";
+  let scratchOpened = privateWorkspace;
+  const scratchThread = { id: "scratch", path: "/scratch.jsonl", title: "New thread", modifiedAt: 2, projectPath: scratchPath, workspaceId: "ws:scratch", projectName: "No project", projectless: true, messageCount: privateWorkspace ? messageCount : 0 };
+  const openProject = vi.fn(async () => {
+    scratchOpened = true;
+    return { version: 1 as const, updates: [
+      { version: 1 as const, type: "thread-index" as const, index: { projects: [], sessions: [scratchThread] } },
+      { version: 1 as const, type: "thread-detail" as const, detail: { sessionId: "scratch", messages: [], isStreaming: false, activeTools: [] } },
+      { version: 1 as const, type: "project" as const, project: { cwd: scratchPath, workspaceId: "ws:scratch" } },
+    ] };
+  });
+  const createScratch = vi.fn(async () => ({ workspaceId: "ws:scratch", displayPath: scratchPath }));
+  const getWorkspaceInfo = vi.fn(async () => scratchOpened
+    ? { root: scratchPath, isRepo: false, isDirty: false, worktrees: [], refs: [], projectless: true }
+    : { root: "/home/me", isRepo, isDirty: false, worktrees: [], refs: [], ...info });
   const runtimeCatalogs = vi.fn(async () => (runtimes ?? []).flatMap(({ backend, catalog }) => catalog ? [{ kind: backend.kind, thinkingLevels: {}, ...catalog }] : []));
   const newSession = vi.fn(async () => ({ version: 1 as const, updates: [], submission: { accepted: true as const } }));
   const model = { provider: "anthropic", id: "haiku", name: "Haiku" };
@@ -33,15 +50,15 @@ function start({ isRepo, messageCount, info, listed = true, runtimes }: Start) {
     bootstrap: async () => ({
       version: 1,
       threadIndex: {
-        projects: listed ? [{ path: "/home/me", name: "me", lastOpenedAt: 1 }] : [],
-        sessions: [{ id: "start", path: "/start.jsonl", title: "New thread", modifiedAt: 1, projectPath: "/home/me", projectName: "me", messageCount }],
+        projects: listed && !privateWorkspace ? [{ path: "/home/me", name: "me", lastOpenedAt: 1 }] : [],
+        sessions: privateWorkspace ? [scratchThread] : [{ id: "start", path: "/start.jsonl", title: "New thread", modifiedAt: 1, projectPath: "/home/me", projectName: "me", messageCount }],
       },
-      detail: { sessionId: "start", messages: [], isStreaming: false, activeTools: [] },
+      detail: { sessionId: privateWorkspace ? "scratch" : "start", messages: privateWorkspace && messageCount > 0 ? [{ id: "first", role: "user" as const, text: "Hello", timestamp: 3 }] : [], isStreaming: false, activeTools: [] },
       catalog: {
-        sessionId: "start", models: runtimes ? runtimes.find(({ backend }) => backend.kind === "pi")?.catalog?.models ?? [] : [model], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true,
+        sessionId: privateWorkspace ? "scratch" : "start", models: runtimes ? runtimes.find(({ backend }) => backend.kind === "pi")?.catalog?.models ?? [] : [model], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true,
         ...(runtimes ? { backendKind: "pi", runtimeBackends: runtimes.map((runtime) => runtime.backend) } : {}),
       },
-      project: { cwd: "/home/me" },
+      project: privateWorkspace ? { cwd: scratchPath, workspaceId: "ws:scratch" } : { cwd: "/home/me" },
     }),
     runtimeCatalogs,
     runtimeCatalog: async (kind) => (await runtimeCatalogs()).find((catalog) => catalog.kind === kind),
@@ -122,6 +139,8 @@ describe("a fresh install (2a)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start without a project" }));
     await waitFor(() => expect(openProject).toHaveBeenCalledWith("ws:scratch"));
     expect(createScratch).toHaveBeenCalledTimes(1);
+    const heading = await screen.findByRole("heading", { name: "What should No project do next?" });
+    expect(within(heading.parentElement!).getByRole("button", { name: "Change project, current project No project" })).toBeTruthy();
   });
 
   it("does not ask for a project in the private folder it started in", async () => {
@@ -129,6 +148,25 @@ describe("a fresh install (2a)", () => {
     await waitFor(() => expect(getWorkspaceInfo).toHaveBeenCalled());
     await act(async () => undefined);
     expect(document.querySelector(".fresh-start")).toBeNull();
+  });
+
+  it("uses the same private workspace name on a phone", async () => {
+    window.history.replaceState({}, "", "/?profile=compact&thread=scratch");
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    start({ isRepo: false, messageCount: 0, privateWorkspace: true });
+    expect(await screen.findByRole("button", { name: "Change project, current project No project" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /What should we build.*No project/u })).toBeTruthy();
+  });
+
+  it("names a reopened private workspace in the thread header and sidebar", async () => {
+    // Give the virtual thread list a viewport in jsdom.
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(768);
+    const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1024);
+    try {
+      start({ isRepo: false, messageCount: 1, privateWorkspace: true });
+      expect(await screen.findByRole("button", { name: "New thread in No project" })).toBeTruthy();
+      await waitFor(() => expect(document.querySelector(".session-rail")?.textContent).toContain("No project"));
+    } finally { height.mockRestore(); width.mockRestore(); }
   });
 
   it("calls any folder a project, as the folder picker does", async () => {
