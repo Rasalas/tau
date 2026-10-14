@@ -5,6 +5,25 @@ import { createThreadTitlesHostExtension } from "./host.js";
 import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_FAILED_EVENT, TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT } from "./protocol.js";
 
 describe("Thread Title Generator host extension", () => {
+  it("generates a title with the thread model on a custom endpoint and preserves an explicit choice", async () => {
+    const own = { provider: "openai", id: "custom-text" };
+    const small = { provider: "openai", id: "builtin-mini", name: "Small", completionPreference: "configured" as const };
+    const setThreadTitle = vi.fn(async () => undefined);
+    const complete = vi.fn(async (_request, model) => {
+      if (model?.id !== own.id) throw new Error("Unknown model at gateway");
+      return "Queue repair";
+    });
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread({ model: own }), complete, setThreadTitle,
+      completionModels: async () => [small, { ...own, name: "Custom", completionPreference: "default" }],
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { prompt: "Fix the queue" })).resolves.toEqual({ title: "Queue repair" });
+    expect(setThreadTitle).toHaveBeenCalledWith("s1", "Queue repair", "generated");
+    expect(complete).toHaveBeenCalledOnce();
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider: small.provider, modelId: small.id, prompt: "Fix the queue" })).rejects.toThrow("Unknown model at gateway");
+    expect(complete).toHaveBeenLastCalledWith(expect.anything(), { provider: small.provider, id: small.id });
+  });
+
   const piThread = (overrides: Partial<Record<string, unknown>> = {}) => ({
     sessionId: "s1",
     backendKind: "pi",
