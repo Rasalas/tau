@@ -22,9 +22,9 @@ it.each([
   renderApp(client, { extensions: [machines] });
   await screen.findByRole("button", { name: "Send" });
   act(() => client.emit({ type: "error", message }));
-  const action = await screen.findByRole("button", { name: "Machines" });
-  const toast = action.closest(".toast-item")!;
-  expect(toast.querySelectorAll(".toast-actions button")).toHaveLength(1);
+  const action = await screen.findByRole("button", { name: `Machines: ${message}` });
+  expect(action.classList.contains("toast-open")).toBe(true);
+  expect(action.closest(".toast-item")!.querySelectorAll(".toast-actions button")).toHaveLength(0);
   fireEvent.click(action);
   expect(await screen.findByText("Machine settings target")).toBeTruthy();
 });
@@ -35,5 +35,5 @@ it("leaves ordinary errors on their existing toast without a Machines action", a
   await screen.findByRole("button", { name: "Send" });
   act(() => client.emit({ type: "error", message: "rex is not reachable right now." }));
   expect(await screen.findByText("rex is not reachable right now.")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Machines" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Machines\b/ })).toBeNull();
 });
