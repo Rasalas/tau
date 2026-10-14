@@ -59,8 +59,8 @@ it("starts a first thread on the one runtime that is ready, though Pi has no pro
   expect(preparePrompt).toHaveBeenCalledWith("hello", undefined, undefined, "acme", "/project");
 });
 
-it("holds the first prompt back and leads to Providers while no runtime is set up", async () => {
-  const { client, preparePrompt, newSession } = hostWith({ models: [], status: "sign-in-required", note: "Acme is not signed in." });
+it.each(["sign-in-required", "not-installed"] as const)("holds the first prompt back and leads to Providers when the runtime is %s", async (status) => {
+  const { client, preparePrompt, newSession } = hostWith({ models: [], status });
   const view = renderApp(client);
   await screen.findByRole("heading", { name: /do next\?$/ });
   expect(await screen.findByText("No provider is set up yet")).toBeTruthy();
