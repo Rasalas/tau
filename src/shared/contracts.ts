@@ -192,6 +192,8 @@ export interface UiModel {
   provider: string;
   id: string;
   name: string;
+  /** A completion offer on a custom endpoint; `default` also names the configured default there. */
+  completionPreference?: "configured" | "default";
   /** Reached through a consumer-subscription login the runtime performs, not an API key. */
   login?: "subscription";
   /**

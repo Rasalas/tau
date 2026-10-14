@@ -2,6 +2,27 @@ import { describe, expect, it } from "vitest";
 import { isSmallModel, reachableCompletionModels, sameVendor, smallCompletionModel } from "./small-completion-model.js";
 
 describe("the small model for a kit's small job", () => {
+  it("prefers the configured model on a custom endpoint over inherited small offers", async () => {
+    const own = { provider: "openai", id: "custom-text" };
+    const services = { completionModels: async () => [
+      { provider: "openai", id: "builtin-mini", name: "Small", completionPreference: "configured" as const },
+      { ...own, name: "Custom", completionPreference: "default" as const },
+      { provider: "other", id: "other-mini", name: "Other small" },
+    ] };
+    await expect(smallCompletionModel(services, own)).resolves.toEqual(own);
+    await expect(smallCompletionModel(services, undefined)).resolves.toEqual(own);
+    await expect(smallCompletionModel(services, { provider: "unavailable", id: "text" })).resolves.toEqual(own);
+  });
+
+  it("keeps normal small-model selection when the preferred offer has no custom endpoint", async () => {
+    const services = { completionModels: async () => [
+      { provider: "openai", id: "custom-text", name: "Custom", completionPreference: "default" as const },
+      { provider: "other", id: "text", name: "Text" },
+      { provider: "other", id: "text-mini", name: "Small" },
+    ] };
+    await expect(smallCompletionModel(services, { provider: "other", id: "text" })).resolves.toEqual({ provider: "other", id: "text-mini" });
+  });
+
   it("uses the newest reachable small model of the same vendor, regardless of the thread's generation or catalog order", async () => {
     const models = { completionModels: async () => [
       { provider: "anthropic", id: "claude-haiku-4-5-20251001", name: "Old Haiku" },

@@ -2818,7 +2818,14 @@ names its subscription route after (`openai-codex` is `openai`'s).
 provider first, then the same vendor under another name (a Codex thread's
 `openai` is Pi's `openai-codex`). Since API 1.54.0 it picks the newest available
 generation within a small tier and prefers Luna over OpenAI's older mini/nano
-tiers. Explicit extension model settings still win. It returns `undefined` when none is small, which
+tiers. API 1.63.0 adds optional `UiModel.completionPreference` to the host's
+completion catalog. `configured` marks an offer on an overridden built-in
+provider endpoint; `default` also identifies the configured default there.
+The helper prefers the matching thread model on that endpoint, or its default
+when the thread model is absent from the catalog, before looking for a small
+model. Pi retains built-in offers after an endpoint override even when the
+endpoint does not serve them. The endpoint URL stays on the host.
+Explicit extension model settings still win. It returns `undefined` when none is small, which
 leaves `complete` on the default. With `{ elsePrefer: true }` (API 1.12.0) it
 answers `prefer` itself instead, where `complete` runs that model under the
 same vendor. Thread Title Generator and Worktree Names take the model their

@@ -1,4 +1,5 @@
 import { SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { UiModel } from "../shared/contracts.js";
 import type { HostThread } from "./host-extensions.js";
 import { modelAttribution } from "./model-attribution.js";
@@ -8,6 +9,11 @@ import type { PiModelData } from "./model-price-book.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
 import { requireCapability, type CompletionRequest, type ThreadRuntimeBackend } from "./runtime-types.js";
 import { reachableCompletionModels, type ReportedModels } from "./small-completion-model.js";
+
+const builtinEndpoints = new Map(getBuiltinProviders().map((provider) => [
+  provider as string,
+  new Set(getBuiltinModels(provider).map((model) => model.baseUrl.replace(/\/+$/u, ""))),
+]));
 
 /** Exposes a runtime's short requests and native titles through the host facade. */
 export function hostThreadCompletionServices(backend: ThreadRuntimeBackend): Pick<HostThread, "complete" | "modelApi" | "nativeTitle" | "completionModels"> {
@@ -46,10 +52,14 @@ export class HostCompletions {
   /** What `complete` can be asked for: the user's own catalog, whichever runtime owns the visible thread. */
   async models(): Promise<UiModel[]> {
     const runtime = await this.runtime();
-    const offers = (await runtime.getAvailable()).map((model) => ({
+    const defaultModel = this.resolve(runtime, undefined);
+    const offers = (await runtime.getAvailable()).map((model): UiModel => ({
       provider: model.provider,
       id: model.id,
       name: model.name ?? model.id,
+      // Pi keeps built-in offers after an endpoint override; their availability is unverified.
+      ...(model.baseUrl && builtinEndpoints.has(model.provider) && !builtinEndpoints.get(model.provider)!.has(model.baseUrl.replace(/\/+$/u, ""))
+        ? { completionPreference: model.provider === defaultModel?.provider && model.id === defaultModel?.id ? "default" : "configured" } : {}),
       ...(modelLogin(runtime, model.provider) ? { login: "subscription" as const } : {}),
     }));
     return reachableCompletionModels(offers, await this.options.reports?.().catch(() => []) ?? []);

@@ -95,6 +95,16 @@ async function harness(fixture: Fixture = {}) {
 const body = `## Summary\nIt saves.\n\n## Screenshots\n\n${evidenceToken(BEFORE)}\n${evidenceToken(AFTER)}\n`;
 
 describe("the local pull request's host commands", () => {
+  it("writes a description with the configured model on a custom endpoint", async () => {
+    const own = { provider: "openai", id: "custom-text" };
+    const { invoke, complete } = await harness({ models: [
+      { provider: "openai", id: "builtin-mini", name: "Small", completionPreference: "configured" },
+      { ...own, name: "Custom", completionPreference: "default" },
+    ] });
+    await expect(invoke("local-pr-describe", { prefer: own })).resolves.toMatchObject({ title: "Save the page", generated: true });
+    expect(complete).toHaveBeenCalledWith(expect.anything(), own);
+  });
+
   it("names the branch's commits and reads the pictures of the checkout's threads", async () => {
     const { invoke } = await harness();
     await expect(invoke("local-pr")).resolves.toMatchObject({ branch: "feature/pr", base: "main", forkedAt: 5_000, commits: [{ sha: "c2", author: "Ada" }, { sha: "c1" }] });
