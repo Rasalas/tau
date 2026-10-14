@@ -6,7 +6,7 @@ import { loadavg } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
-import { parseOptions, parseStartOutput, selectTargets, summarize, markdown } from "./measure-results.mjs";
+import { parseOptions, parseStartOutput, parseWebView, selectTargets, summarize, markdown } from "./measure-results.mjs";
 import { defaultTargets, seedFixtures } from "./measure-fixtures.mjs";
 import { expression, listState, backToList, openThread } from "./measure-probes.mjs";
 import { readTestHost, testHostDir } from "../../scripts/tau-test-host.mjs";
@@ -75,7 +75,7 @@ async function measure(options) {
   const report = {
     schema: 1, date: new Date().toISOString(), runs: options.runs, warmup: options.warmup,
     commit: run("git", ["rev-parse", "HEAD"]), dirty: Boolean(run("git", ["status", "--porcelain", "--untracked-files=normal"])),
-    app, device: { serial: options.serial, avd, api: adb("shell", "getprop", "ro.build.version.sdk"), image: adb("shell", "getprop", "ro.build.fingerprint"), android: adb("shell", "getprop", "ro.build.version.release"), model: adb("shell", "getprop", "ro.product.model"), emulator: run("emulator", ["-version"]).split(/\r?\n/u)[0] },
+    app, device: { serial: options.serial, avd, api: adb("shell", "getprop", "ro.build.version.sdk"), image: adb("shell", "getprop", "ro.build.fingerprint"), android: adb("shell", "getprop", "ro.build.version.release"), model: adb("shell", "getprop", "ro.product.model"), webview: parseWebView(adb("shell", "dumpsys", "webviewupdate")), emulator: run("emulator", ["-version"]).split(/\r?\n/u)[0] },
     load: { before: run("uptime", []), beforeAverages: loadavg() },
     targets: selected, skipped, samples: [],
   };

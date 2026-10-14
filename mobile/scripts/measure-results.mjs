@@ -6,6 +6,12 @@ export function parseStartOutput(output) {
   return Number(match[1]);
 }
 
+/** The system WebView renders the app; a Play image can replace it after boot. */
+export function parseWebView(output) {
+  const match = /Current WebView package \(name, version\):\s*\(([^,)]+),\s*([^)\s]+)\)/u.exec(output);
+  return match ? `${match[1]} ${match[2]}` : undefined;
+}
+
 export function statistics(values) {
   if (!values.length || values.some((value) => typeof value !== "number" || !Number.isFinite(value) || value < 0)) throw new Error("Missing or invalid timing sample");
   const sorted = [...values].sort((a, b) => a - b);
@@ -64,7 +70,7 @@ export function markdown(report) {
     "",
     `Source commit: \`${report.commit}\`${report.dirty ? " with local changes" : ""}. App ${report.app.version}, build ${report.app.build}.`,
     `APK SHA-256: \`${report.app.apkSha256}\`.`,
-    `AVD: ${report.device.avd}. API ${report.device.api}. Image: \`${report.device.image}\`.`,
+    `AVD: ${report.device.avd}. API ${report.device.api}. Image: \`${report.device.image}\`.${report.device.webview ? ` WebView: ${report.device.webview}.` : ""}`,
     `Rounds per target: ${report.runs} + ${report.warmup} warm-up. Warm-up excluded from statistics. Each target gets its own cold start.`,
     "",
     "| Thread | Metric, ms | Median | Min–max | Samples |",

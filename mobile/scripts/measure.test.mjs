@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runInNewContext } from "node:vm";
-import { parseStartOutput, statistics, summarize, markdown, parseOptions, selectTargets } from "./measure-results.mjs";
+import { parseStartOutput, parseWebView, statistics, summarize, markdown, parseOptions, selectTargets } from "./measure-results.mjs";
 import { expression, openThread } from "./measure-probes.mjs";
 
 describe("Android launch output", () => {
@@ -56,11 +56,18 @@ describe("options and target selection", () => {
   });
 });
 
+it("names the WebView package that renders the app", () => {
+  expect(parseWebView("Current WebView Update Service state\n  Current WebView package (name, version): (com.google.android.webview, 154.0.8037.106)\n")).toBe("com.google.android.webview 154.0.8037.106");
+  expect(parseWebView("Current WebView package (name, version): (null, null)")).toBe("null null");
+  expect(parseWebView("no match")).toBeUndefined();
+});
+
 it("writes an evidence summary with provenance and measurement limits", () => {
-  const report = { date: "2026-10-14T12:00:00Z", commit: "abc123", dirty: false, runs: 5, warmup: 1, device: { avd: "tau_play_review", api: "36", image: "sdk/image" }, app: { version: "0.7.41", build: "74100", apkSha256: "deadbeef" }, load: { before: "load averages: 2.1 2.2 2.3", after: "load averages: 2.4 2.5 2.6" }, skipped: [{ size: "long", reason: "Thread absent from list" }], summary: { short: { nativeStart: statistics([100, 200]), listPaint: statistics([300, 400]), observedStart: statistics([500, 600]), coldOpen: statistics([50, 60]), warmOpen: statistics([20, 30]) } } };
+  const report = { date: "2026-10-14T12:00:00Z", commit: "abc123", dirty: false, runs: 5, warmup: 1, device: { avd: "tau_play_review", api: "36", image: "sdk/image", webview: "com.google.android.webview 154.0" }, app: { version: "0.7.41", build: "74100", apkSha256: "deadbeef" }, load: { before: "load averages: 2.1 2.2 2.3", after: "load averages: 2.4 2.5 2.6" }, skipped: [{ size: "long", reason: "Thread absent from list" }], summary: { short: { nativeStart: statistics([100, 200]), listPaint: statistics([300, 400]), observedStart: statistics([500, 600]), coldOpen: statistics([50, 60]), warmOpen: statistics([20, 30]) } } };
   const text = markdown(report);
   expect(text).toContain("abc123");
   expect(text).toContain("36");
+  expect(text).toContain("WebView: com.google.android.webview 154.0");
   expect(text).toContain("150.0 | 100.0–200.0 | 2");
   expect(text).toContain("Warm-up excluded");
   expect(text).toContain("Thread absent from list");
