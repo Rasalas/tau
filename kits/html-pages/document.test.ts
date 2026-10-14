@@ -116,6 +116,12 @@ describe("preparePageDocument", () => {
     expect(out.endsWith("<body>hi</body></html>")).toBe(true);
   });
 
+  it("hands images to the card and points at them", () => {
+    const out = preparePageDocument("<p>x</p>");
+    for (const method of ["tau/open-images", "tau/list-images", "tau/notifications/page-media"]) expect(out).toContain(method);
+    expect(style(out)).toContain("cursor:zoom-in");
+  });
+
   it("takes a fragment as it is and falls back for variables the client did not send", () => {
     const out = preparePageDocument("<p>x</p>");
     expect(out.startsWith("<meta charset")).toBe(true);

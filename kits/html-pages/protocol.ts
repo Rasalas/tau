@@ -26,6 +26,16 @@ export const HTML_PAGE_LIMITS = {
   defaultMaxHeight: 720,
 } as const;
 
+/** What a page and its card say about images, besides the MCP Apps size and link messages. */
+export const PAGE_MESSAGES = {
+  /** Page → card: whether the page shows only images and text. */
+  media: "tau/notifications/page-media",
+  /** Page → card, on a click: the page's images and the one clicked. */
+  openImages: "tau/open-images",
+  /** Card → page, a request: the page's images, for Expand. */
+  listImages: "tau/list-images",
+} as const;
+
 const MCP_TAU_PREFIX = "mcp__tau__";
 
 /** Whether a tool run is this kit's tool, whichever runtime reported it. */
