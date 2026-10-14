@@ -4,7 +4,7 @@ export type BundleDigest = (source: string) => Promise<string>;
 
 export const DESKTOP_BUNDLE_REJECTION_MESSAGES = {
   missing: "This machine's extension is not included in this app.",
-  changed: "This machine's extension uses a different version from this app.",
+  changed: "This machine runs another version of this extension; install the same Tau version on both.",
 } as const;
 
 /** Maps carry installation paths, so only the final map directive is omitted. */

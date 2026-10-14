@@ -59,7 +59,7 @@ describe("runtime desktop extensions", () => {
     expect(importModule).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledTimes(2);
     expect(toast.mock.calls.map(([options]) => ({ title: options.title, description: options.description }))).toEqual([
-      { title: "test.shipped/desktop.js interface not loaded", description: "This machine's extension uses a different version from this app." },
+      { title: "test.shipped/desktop.js interface not loaded", description: "This machine runs another version of this extension; install the same Tau version on both." },
       { title: "test.unknown/desktop.js interface not loaded", description: "This machine's extension is not included in this app." },
     ]);
     await new RuntimeExtensions(new ExtensionRegistry(), { ...h, toast }).sync("/first-project");
