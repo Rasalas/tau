@@ -4,7 +4,7 @@ This disclosure was incorporated into the [public Tau privacy policy](https://tb
 
 ## Deutsch
 
-Die Desktop-App bietet eine freiwillige Nutzungsstatistik. Sie ist zunächst ausgeschaltet. Unter Einstellungen → Usage statistics → Share usage statistics kannst du für dieses Gerät entscheiden, ob du teilnimmst. Die Android- und iOS-App sowie der Browserclient senden diese Statistik nicht.
+Die Desktop-App bietet eine freiwillige Nutzungsstatistik. Sie ist zunächst ausgeschaltet. Nach dem ersten Prompt fragt die App einmal, ob du teilnehmen möchtest; vor deiner Zustimmung wird nichts gesendet. Unter Einstellungen → General → Privacy → Share usage statistics kannst du deine Wahl für dieses Gerät jederzeit ändern. Die Android- und iOS-App sowie der Browserclient senden diese Statistik nicht.
 
 Wenn du einschaltest, erzeugt Tau eine zufällige Statistik-ID und speichert sie zusammen mit deiner Wahl auf diesem Gerät. Bei Aktivität berichtet Tau über die interaktive Nutzung und angenommene Composer-Prompts. Diese Meldungen sind auf dem Gerät je UTC-Tag begrenzt. Mehrere Fenster oder Verbindungsfehler können erneute Meldungen verursachen; Matomo zählt die ID im gewählten Zeitraum nur einmal. Ein in die Warteschlange aufgenommener Prompt zählt bereits als angenommen, auch wenn er später nicht ausgeführt wird. Die Meldungen enthalten die Statistik-ID, die Art der Aktivität, die App-Version, die Plattform und den Releasekanal. Der Server ergänzt den Empfangszeitpunkt. Prompttexte, Dateien, Projektnamen, Providerkonten und andere Kontoidentitäten sind nicht Bestandteil dieser Meldungen.
 
@@ -16,7 +16,7 @@ Die Einstellungen zeigen deine Statistik-ID auch nach dem Ausschalten. Wenn du f
 
 ## English
 
-The desktop app offers voluntary usage statistics, initially turned off. In Settings → General → Privacy → Share usage statistics you can choose whether this device participates. The Android and iOS apps and the browser client do not send these statistics.
+The desktop app offers voluntary usage statistics, initially turned off. After the first prompt the app asks once whether you want to participate; nothing is sent before you agree. In Settings → General → Privacy → Share usage statistics you can change this device's choice at any time. The Android and iOS apps and the browser client do not send these statistics.
 
 When you turn reporting on, Tau generates a random statistics ID and stores it with your choice on this device. On activity Tau reports interactive use and accepted composer prompts. These reports are limited locally per UTC day. Multiple windows or connection failures can cause repeated reports; Matomo counts the ID once within the selected period. A prompt accepted into a queue counts even if it is never run. Reports contain the statistics ID, activity type, app version, platform and release channel. The server adds the time received. They do not include prompt text, files, project names, provider accounts or other account identities.
 

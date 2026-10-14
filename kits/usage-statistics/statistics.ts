@@ -9,6 +9,8 @@ const RETRY_MS = 5 * 60_000;
 
 interface State {
   enabled: boolean;
+  /** Set by any explicit choice, so the one-time question never comes back. */
+  answered?: boolean;
   error?: string;
   id?: string;
   day?: string;
@@ -28,7 +30,7 @@ function read(storage: ClientStorage | undefined): State {
     const value = JSON.parse(storage?.get(STATISTICS_KEY) ?? "null");
     const id = typeof value?.id === "string" && /^[0-9a-f]{16}$/u.test(value.id) ? value.id : undefined;
     const day = typeof value?.day === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value.day) ? value.day : undefined;
-    return { enabled: value?.enabled === true && Boolean(id), id, day, sent: Array.isArray(value?.sent) ? ACTIVITIES.filter((event) => value.sent.includes(event)) : [] };
+    return { enabled: value?.enabled === true && Boolean(id), answered: value?.answered === true || undefined, id, day, sent: Array.isArray(value?.sent) ? ACTIVITIES.filter((event) => value.sent.includes(event)) : [] };
   } catch {
     return { enabled: false, sent: [] };
   }
@@ -69,6 +71,7 @@ export class UsageStatistics {
   private retryAt = new Map<Activity, number>();
   private revision = 0;
   private unavailable = false;
+  private asked = false;
 
   constructor(private readonly storage: ClientStorage | undefined, private readonly send: SendActivity = sendActivity,
     private readonly now: () => number = Date.now, private readonly newId: () => string = randomId) {
@@ -95,7 +98,7 @@ export class UsageStatistics {
 
   setEnabled = (enabled: boolean): void => {
     this.refresh();
-    const next = { ...this.state, error: undefined, enabled, ...(enabled && !this.state.id ? { id: this.newId() } : {}) };
+    const next = { ...this.state, error: undefined, enabled, answered: true, ...(enabled && !this.state.id ? { id: this.newId() } : {}) };
     if (!enabled) this.cancel();
     // If durable storage fails, no consent is assumed and nothing is sent.
     try {
@@ -111,6 +114,14 @@ export class UsageStatistics {
     this.unavailable = false;
     this.state = next;
     this.listeners.forEach((listener) => listener());
+  };
+
+  /** True once per window for an installed release whose device never chose; the caller then asks. */
+  claimQuestion = (): boolean => {
+    this.refresh();
+    if (this.asked || !this.release || this.unavailable || this.state.enabled || this.state.answered) return false;
+    this.asked = true;
+    return true;
   };
 
   record = (event: Activity): void => {

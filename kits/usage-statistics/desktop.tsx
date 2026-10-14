@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { getClientStorage, SettingRow, Switch, useClientEnvironment, type DesktopExtension } from "tau";
+import { getClientStorage, SettingRow, Switch, useClientEnvironment, type DesktopExtension, type RegionProps, type WorkbenchActions } from "tau";
 import { UsageStatistics } from "./statistics.js";
 
 /** General's Privacy card: the one choice about this device, and what taking part sends. */
@@ -20,7 +20,29 @@ export function StatisticsSettings({ statistics }: { statistics: UsageStatistics
   </>;
 }
 
-export function StatisticsActivity({ statistics }: { statistics: UsageStatistics }) {
+/** Asked once per window until this device chose; closed unanswered, the next window asks again. */
+export function askToShare(statistics: UsageStatistics, actions: Pick<WorkbenchActions, "toast" | "openSettings">): void {
+  if (!actions.toast || !statistics.claimQuestion()) return;
+  actions.toast({
+    id: "usage-statistics:ask",
+    type: "question",
+    title: "Share usage statistics?",
+    description: "Helps count how many installations use Tau. A random device ID, active days, app version, platform and release channel go to Torben Buck's self-hosted Matomo; never prompts, files or projects.",
+    timeoutMs: 0,
+    actions: [
+      { label: "Details", opens: true, keepOpen: true, run: () => actions.openSettings("general#setting-share-usage-statistics") },
+      { label: "Don't share", run: () => statistics.setEnabled(false) },
+      // The prompt that brought the question was accepted before the choice; it counts once shared.
+      { label: "Share", run: () => { statistics.setEnabled(true); statistics.record("human_prompt_accepted"); } },
+    ],
+  });
+}
+
+export function StatisticsActivity({ statistics, actions, onPrompt }: {
+  statistics: UsageStatistics;
+  actions?: Pick<WorkbenchActions, "toast" | "openSettings">;
+  onPrompt?: (listener: () => void) => () => void;
+}) {
   const { release } = useClientEnvironment();
   useEffect(() => {
     const stop = statistics.start(release);
@@ -37,6 +59,7 @@ export function StatisticsActivity({ statistics }: { statistics: UsageStatistics
       stop();
     };
   }, [release, statistics]);
+  useEffect(() => actions && onPrompt?.(() => askToShare(statistics, actions)), [actions, onPrompt, statistics]);
   return null;
 }
 
@@ -45,7 +68,8 @@ const extension: DesktopExtension = {
   activate(context) {
     const statistics = new UsageStatistics(getClientStorage());
     context.events.on("prompt-accepted", () => statistics.record("human_prompt_accepted"));
-    context.registerRegion({ id: "usage-statistics.activity", placement: "composer-above", profiles: ["desktop"], Component: () => <StatisticsActivity statistics={statistics} /> });
+    const onPrompt = (listener: () => void) => context.events.on("prompt-accepted", listener);
+    context.registerRegion({ id: "usage-statistics.activity", placement: "composer-above", profiles: ["desktop"], Component: ({ actions }: RegionProps) => <StatisticsActivity statistics={statistics} actions={actions} onPrompt={onPrompt} /> });
     // General's Privacy card (API 1.61.0); the page it had before opens General.
     context.registerSettingsSection({
       id: "usage-statistics.privacy", page: "general", card: "privacy", order: 10, profiles: ["desktop"], replaces: ["usage-statistics.settings"],
