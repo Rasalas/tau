@@ -1,0 +1,276 @@
+{
+  "schema": 1,
+  "date": "2026-10-14T10:04:46.150Z",
+  "runs": 5,
+  "warmup": 1,
+  "commit": "c0da75997db539bfde20593733ebf120568ccb8c",
+  "dirty": false,
+  "app": {
+    "version": "0.7.42",
+    "build": "74200",
+    "apkSha256": "937dc0f3de93552c96c67627953038fb72d74784d459863665735258ade3e626"
+  },
+  "device": {
+    "serial": "emulator-5554",
+    "avd": "tau_play_review",
+    "api": "36",
+    "image": "google/sdk_gphone64_arm64/emu64a:16/BP22.250325.006/13344233:user/release-keys",
+    "android": "16",
+    "model": "sdk_gphone64_arm64",
+    "webview": "com.google.android.webview 154.0.8037.106",
+    "emulator": "Android emulator version 35.5.10.0 (build_id 13402964) (CL:N/A)"
+  },
+  "load": {
+    "before": "12:04  up 7 days, 12:22, 2 users, load averages: 8.17 9.44 8.46",
+    "beforeAverages": [
+      8.16748046875,
+      9.44287109375,
+      8.46044921875
+    ],
+    "after": "12:05  up 7 days, 12:23, 2 users, load averages: 15.39 11.38 9.24",
+    "afterAverages": [
+      15.38818359375,
+      11.38330078125,
+      9.2421875
+    ]
+  },
+  "targets": [
+    {
+      "size": "short",
+      "title": "Short Pi switch thread",
+      "text": "Short Pi switch thread: turn 3 is done",
+      "turns": 3
+    },
+    {
+      "size": "long",
+      "title": "Long Pi switch thread",
+      "text": "Long Pi switch thread: turn 40 is done",
+      "turns": 40
+    }
+  ],
+  "skipped": [],
+  "samples": [
+    {
+      "round": 0,
+      "warmup": true,
+      "size": "short",
+      "launch": {
+        "totalMs": 876,
+        "listPaintMs": 1046.5999999999767,
+        "observedMs": 2065.6634590000003,
+        "timeOrigin": 1791972287511.4
+      },
+      "coldMs": 952.0999999999767,
+      "warmMs": 39.5
+    },
+    {
+      "round": 0,
+      "warmup": true,
+      "size": "long",
+      "launch": {
+        "totalMs": 1192,
+        "listPaintMs": 1114.7000000000116,
+        "observedMs": 2442.9962079999996,
+        "timeOrigin": 1791972291292.4
+      },
+      "coldMs": 1030.9000000000233,
+      "warmMs": 38.09999999997672
+    },
+    {
+      "round": 1,
+      "warmup": false,
+      "size": "short",
+      "launch": {
+        "totalMs": 1078,
+        "listPaintMs": 1140.4000000000233,
+        "observedMs": 2351.5396249999994,
+        "timeOrigin": 1791972295278.8
+      },
+      "coldMs": 741.1000000000349,
+      "warmMs": 31.20000000001164
+    },
+    {
+      "round": 1,
+      "warmup": false,
+      "size": "long",
+      "launch": {
+        "totalMs": 1107,
+        "listPaintMs": 1302.3000000000466,
+        "observedMs": 2469.8635830000003,
+        "timeOrigin": 1791972298896.1
+      },
+      "coldMs": 987.1000000000349,
+      "warmMs": 35.29999999998836
+    },
+    {
+      "round": 2,
+      "warmup": false,
+      "size": "short",
+      "launch": {
+        "totalMs": 1343,
+        "listPaintMs": 1143.2999999999884,
+        "observedMs": 2621.246041999999,
+        "timeOrigin": 1791972303648.7
+      },
+      "coldMs": 2369.2999999999884,
+      "warmMs": 28.099999999976717
+    },
+    {
+      "round": 2,
+      "warmup": false,
+      "size": "long",
+      "launch": {
+        "totalMs": 1740,
+        "listPaintMs": 1632.2999999999884,
+        "observedMs": 3850.626375,
+        "timeOrigin": 1791972309974.6
+      },
+      "coldMs": 1362.399999999965,
+      "warmMs": 61.40000000002328
+    },
+    {
+      "round": 3,
+      "warmup": false,
+      "size": "short",
+      "launch": {
+        "totalMs": 1406,
+        "listPaintMs": 1148.5999999999767,
+        "observedMs": 2675.727415999998,
+        "timeOrigin": 1791972315440.7
+      },
+      "coldMs": 931,
+      "warmMs": 46
+    },
+    {
+      "round": 3,
+      "warmup": false,
+      "size": "long",
+      "launch": {
+        "totalMs": 898,
+        "listPaintMs": 948.5,
+        "observedMs": 2081.440541,
+        "timeOrigin": 1791972319110.9
+      },
+      "coldMs": 969.3000000000466,
+      "warmMs": 48.59999999997672
+    },
+    {
+      "round": 4,
+      "warmup": false,
+      "size": "short",
+      "launch": {
+        "totalMs": 1004,
+        "listPaintMs": 1019.2999999999884,
+        "observedMs": 2064.9057079999984,
+        "timeOrigin": 1791972322661.1
+      },
+      "coldMs": 913.5999999999767,
+      "warmMs": 22
+    },
+    {
+      "round": 4,
+      "warmup": false,
+      "size": "long",
+      "launch": {
+        "totalMs": 804,
+        "listPaintMs": 1100,
+        "observedMs": 1755.1520420000015,
+        "timeOrigin": 1791972325836.7
+      },
+      "coldMs": 1004.3999999999651,
+      "warmMs": 80.20000000001164
+    },
+    {
+      "round": 5,
+      "warmup": false,
+      "size": "short",
+      "launch": {
+        "totalMs": 1069,
+        "listPaintMs": 929.1000000000349,
+        "observedMs": 2226.4577080000017,
+        "timeOrigin": 1791972329856.7
+      },
+      "coldMs": 1036.2000000000116,
+      "warmMs": 35.600000000034925
+    },
+    {
+      "round": 5,
+      "warmup": false,
+      "size": "long",
+      "launch": {
+        "totalMs": 917,
+        "listPaintMs": 951.4000000000233,
+        "observedMs": 2046.4963330000028,
+        "timeOrigin": 1791972333257
+      },
+      "coldMs": 1251.4000000000233,
+      "warmMs": 48.399999999965075
+    }
+  ],
+  "summary": {
+    "short": {
+      "nativeStart": {
+        "count": 5,
+        "median": 1078,
+        "min": 1004,
+        "max": 1406
+      },
+      "listPaint": {
+        "count": 5,
+        "median": 1140.4000000000233,
+        "min": 929.1000000000349,
+        "max": 1148.5999999999767
+      },
+      "observedStart": {
+        "count": 5,
+        "median": 2351.5396249999994,
+        "min": 2064.9057079999984,
+        "max": 2675.727415999998
+      },
+      "coldOpen": {
+        "count": 5,
+        "median": 931,
+        "min": 741.1000000000349,
+        "max": 2369.2999999999884
+      },
+      "warmOpen": {
+        "count": 5,
+        "median": 31.20000000001164,
+        "min": 22,
+        "max": 46
+      }
+    },
+    "long": {
+      "nativeStart": {
+        "count": 5,
+        "median": 917,
+        "min": 804,
+        "max": 1740
+      },
+      "listPaint": {
+        "count": 5,
+        "median": 1100,
+        "min": 948.5,
+        "max": 1632.2999999999884
+      },
+      "observedStart": {
+        "count": 5,
+        "median": 2081.440541,
+        "min": 1755.1520420000015,
+        "max": 3850.626375
+      },
+      "coldOpen": {
+        "count": 5,
+        "median": 1004.3999999999651,
+        "min": 969.3000000000466,
+        "max": 1362.399999999965
+      },
+      "warmOpen": {
+        "count": 5,
+        "median": 48.59999999997672,
+        "min": 35.29999999998836,
+        "max": 80.20000000001164
+      }
+    }
+  }
+}

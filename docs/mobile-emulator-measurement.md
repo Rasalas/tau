@@ -70,11 +70,19 @@ emulator -avd tau_play_review -port 5554 -no-snapshot -no-boot-anim \
 tau_measure_emulator_pid=$!
 adb -s emulator-5554 wait-for-device
 while [ "$(adb -s emulator-5554 shell getprop sys.boot_completed | tr -d '\r')" != 1 ]; do sleep 1; done
+adb -s emulator-5554 shell pm disable-user --user 0 com.android.vending
 adb -s emulator-5554 install -r mobile/android/app/build/outputs/apk/debug/app-debug.apk
 adb -s emulator-5554 reverse tcp:9488 tcp:9488
 adb -s emulator-5554 shell am start -W -n de.tbuck.tau/.MainActivity
 node mobile/scripts/sim.mjs wait-for 'text().length > 0' 60000
 ```
+
+The image has the Play Store, which updates Chrome, Play services and the system
+WebView in the background for several minutes after boot. That keeps the emulator at
+several cores, and a WebView update restarts the app (`stop com.google.android.webview
+due to installPackageLI` in `adb logcat`). Disabling the Play Store right after boot
+prevents it. The AVD's data partition is temporary, so the change is gone at the next
+boot and has to be repeated. The report names the WebView version in use.
 
 Port 9488 is reversed so the app can reach the isolated host's loopback listener. The
 automation bridge reaches the Mac at `10.0.2.2:9477`. Only one virtual app should connect
@@ -124,15 +132,23 @@ seeding.
 
 ## Measure
 
-A fresh boot, install and pairing keep the machine and the emulator busy for several
-minutes (dex optimization, bootstrap). Wait until the one-minute load is low and the
-emulator process is idle, for example below 8 on a Mac that normally idles around 5, and
-lower is better. Then run:
+A fresh boot, install and pairing keep the machine and the emulator busy for a few
+minutes (dex optimization, bootstrap, system updates). Wait until the one-minute load is
+low and the emulator is idle (`adb -s emulator-5554 shell top -b -n 1 -m 5` shows mostly
+idle cores); the emulator itself adds three to four cores of load while it works, so the
+load after a run is higher than before. The tool needs the app open on the thread list,
+so launch it and wait for a thread row first. Then run:
 
 ```sh
+adb -s emulator-5554 shell am start -W -n de.tbuck.tau/.MainActivity
+node mobile/scripts/sim.mjs wait-for '!!document.querySelector(".touch-browser.home .touch-thread-open")' 60000
 uptime
 node mobile/scripts/measure.mjs --test-host mobile-measure --runs 5 --warmup 1
 ```
+
+A run of 5 + 1 rounds takes about two minutes. Background work on the Mac (Spotlight
+indexing, security scans, other apps) shows up as single slow samples, so repeat the run
+and compare medians rather than trusting one.
 
 Equivalent npm entry point: `npm --prefix mobile run measure -- --test-host
 mobile-measure --runs 5 --warmup 1`. `--serial` selects another emulator serial; `--avd`
