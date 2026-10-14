@@ -2,6 +2,16 @@ import { spawn, type ChildProcess } from "node:child_process";
 export interface ProcessResult { stdout: string; stderr: string }
 export type Run = (command: string, args: string[], options?: { timeout?: number; signal?: AbortSignal }) => Promise<ProcessResult>;
 const MAX_OUTPUT = 8 * 1024 * 1024;
+function failureMessage(stdout: string): string | undefined {
+  try {
+    const result = JSON.parse(stdout) as { success?: unknown; error?: { message?: unknown; hint?: unknown; details?: { reason?: unknown; startError?: unknown; hint?: unknown } } } | null;
+    if (result?.success !== false || typeof result.error?.message !== "string" || !result.error.message.trim()) return;
+    const { message, hint, details } = result.error;
+    const lines = [message, details?.reason, details?.startError, hint ?? details?.hint]
+      .filter((value): value is string => typeof value === "string" && !!value.trim()).map((value) => value.trim());
+    return [...new Set(lines)].join("\n");
+  } catch { return; }
+}
 export const run: Run = (command, args, options = {}) => new Promise((resolve, reject) => {
   const env: NodeJS.ProcessEnv = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
   for (const key of ["AGENT_DEVICE_DAEMON_BASE_URL", "AGENT_DEVICE_DAEMON_AUTH_TOKEN", "AGENT_DEVICE_CONFIG"]) delete env[key];
@@ -21,7 +31,7 @@ export const run: Run = (command, args, options = {}) => new Promise((resolve, r
   child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); if (stdout.length > MAX_OUTPUT) finish(new Error("Device output exceeded its limit.")); });
   child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); if (stderr.length > MAX_OUTPUT) finish(new Error("Device output exceeded its limit.")); });
   child.on("error", finish);
-  child.on("exit", (code) => finish(code === 0 ? undefined : new Error(stderr.trim() || `Device command exited ${String(code)}.`)));
+  child.on("close", (code) => finish(code === 0 ? undefined : new Error(failureMessage(stdout) || stderr.trim() || `Device command exited ${String(code)}.`)));
 });
 /** Quote each SSH argument. SSH executes its command through the remote login shell. */
 export const quote = (value: string): string => "'" + value.replaceAll("'", "'\"'\"'") + "'";

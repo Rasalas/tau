@@ -1,0 +1,15 @@
+{
+  "success": false,
+  "error": {
+    "code": "COMMAND_FAILED",
+    "message": "Failed to start daemon",
+    "hint": "Retry with --debug and check daemon diagnostics logs. Confirm no daemon is running before removing stale metadata in /tmp/tau-device-state.",
+    "details": {
+      "kind": "daemon_startup_failed",
+      "stateDir": "/tmp/tau-device-state",
+      "startError": "daemon process 12345 exited before readiness with code 1",
+      "metadataState": { "hasInfo": false, "hasLock": false },
+      "daemonLogTail": "Private diagnostic output"
+    }
+  }
+}
