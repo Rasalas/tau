@@ -263,7 +263,7 @@ On October 12 the desktop budget for total gzipped JavaScript rises from 512,000
 
 Later on October 12 the desktop budget rises again, from 520,000 to 540,000 bytes, and the browser budget from 532,000 to 552,000. The sandbox frame with MCP Apps and the whole-thread find with quote chips put the desktop build at 520,419 and the browser build at 531,781 bytes; the rest of the T3 Code parity round (guided reviews, side questions, skills) is still to land, so the raise leaves room for it once instead of a raise per change. The initial JavaScript and CSS budgets hold (227,661 and 26,990 bytes gzipped on the desktop).
 
-On October 14 the browser's initial CSS budget rises from 147,000 to 148,000 bytes. Main's browser build sat 4 bytes below it (146,996), and a narrow chat column now shrinks the access chip to its lock and drops the model's and the reasoning's chevrons, so nothing in the composer row overlaps; those rules add 87 bytes to the initial stylesheet. The desktop build measures 146,933 bytes, and its 147,000-byte budget holds.
+On October 14 the initial CSS budgets rise from 147,000 to 148,000 bytes, desktop and browser alike. Main's browser build sat 4 bytes below its budget (146,996). A narrow chat column now shrinks the access chip to its lock and drops the model's and the reasoning's chevrons, so nothing in the composer row overlaps; those rules add 87 bytes, and the find bar's clearance and small fixes from the same app check about as many again. The raise leaves room for them once instead of a raise per change.
 
 ## Request weight of the kits' tools
 
