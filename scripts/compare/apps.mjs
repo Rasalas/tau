@@ -85,7 +85,7 @@ function electronVersion(packageDir) {
 }
 
 function gitHead(dir) {
-  try { return execFileSync("git", ["-C", dir, "rev-parse", "--short=10", "HEAD"], { encoding: "utf8" }).trim(); } catch { return "unknown"; }
+  try { return execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(); } catch { return "unknown"; }
 }
 
 export const tau = {

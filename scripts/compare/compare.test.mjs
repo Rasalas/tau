@@ -269,6 +269,11 @@ describe("stats and reporting", () => {
     expect(() => parseArgs(["--nope"])).toThrow(/unknown flag/u);
     expect(() => parseArgs(["--apps", "vscode"])).toThrow(/unknown app/u);
     expect(parseArgs(["--large-thread", "--apps", "tau,reference"])).toMatchObject({ largeThread: true, apps: ["tau"] });
+    for (const args of [["--idle-ms", "0"], ["--idle-ms", "NaN"], ["--warmup", "-1"], ["--warmup", "0.5"]]) expect(() => parseArgs(args)).toThrow();
+  });
+
+  it("records the full source commit for reproducible comparison reports", () => {
+    expect(APPS.tau.describe().commit).toMatch(/^[0-9a-f]{40}$/u);
   });
 
   it("renders a side-by-side table from a report", () => {

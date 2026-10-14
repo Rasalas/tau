@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Bundle-only renderer fixture. Real app startup is measured by compare/run.mjs.
+
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
 const REPORT_PATH = join(ROOT, "reports", "start-report.json");
@@ -53,6 +55,7 @@ async function main() {
   const measurements = runFixture();
   const report = {
     schemaVersion: 1,
+    measurement: "renderer-bundle-fixture",
     generatedAt: new Date().toISOString(),
     firstPaintMs: measurements.firstPaintMs,
     firstContentfulPaintMs: measurements.firstContentfulPaintMs,
@@ -80,7 +83,7 @@ async function main() {
       process.exitCode = 1;
     }
   }
-  console.log(`Start report: ${REPORT_PATH}`);
+  console.log(`Renderer bundle report: ${REPORT_PATH}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) await main();

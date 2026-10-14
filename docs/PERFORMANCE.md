@@ -1470,7 +1470,7 @@ The code that remembers the navigation's pages lives in the browser client (`src
 - **Seeding** happens once per app (`--seed`). The harness drives each onboarding over CDP, then copies the resulting profile. Every run starts from a fresh copy of that profile at the same path.
 - **One run** does the following, in order:
   1. Cold start to first paint and to "ready". Ready means the rail lists the imported threads and the composer is mounted; imported threads filed under a collapsed shelf count.
-  2. Memory of the whole process tree after 5 s idle.
+  2. After 5 s settling, CPU time of the whole process tree over another 5 s idle, then memory.
   3. Opening the large thread.
   4. In Tau only, loading the rest of the thread's history. Tau opens a thread with its newest 10 turns and loads older ones 20 at a time as the reader reaches the top. The harness wheels up at the top until no older turns are left, so both apps scroll the same thread.
   5. 60 wheel notches of 240 px up, then 60 down.
@@ -1511,6 +1511,26 @@ The reference app runs from its own clone and never touches an installed copy or
 
 ### Running it
 
+The harness measures the real production app entries for both apps, including
+their host/server startup, restored profile and imported thread list.
+`startup.interactiveMs` starts before launch and stops when the rail and composer
+are mounted. This is an app-start measurement from a copied, seeded profile;
+it does not flush OS disk caches or measure first-time onboarding. `start:report`
+remains a renderer bundle fixture: it loads `dist/index.html` in a standalone
+window without the app launcher, preload or host. Its paint times start at page
+navigation and cannot establish spawn-to-interactive performance.
+
+`idleCpu` samples cumulative user + system CPU time with `ps` after the settling
+wait and again after `--idle-ms` milliseconds, 5,000 by default. It reports the
+actual window, CPU milliseconds and percent of one core for the entire app tree
+and separately for main, backend, renderer, GPU, utility and other processes.
+The replay CLI is excluded. A missing root, process churn between snapshots,
+PID reuse or a regressed counter marks the window incomplete; its CPU values
+are omitted from aggregates. Processes that start and exit entirely between
+snapshots are not captured. BSD `ps` resolves time to 10 ms; procps may resolve
+only whole seconds, so use a longer window for very low CPU loads. The
+`--thread-switch` launch alone does not measure startup, streaming or idle CPU.
+
 ```
 npm run build                                   # Tau
 npm run benchmark:compare -- --seed             # first time: import the fixture in each app
@@ -1520,6 +1540,30 @@ npm run benchmark:compare -- --thread-switch --runs 5 --warmup 1 [--apps <list>]
 ```
 
 The report is written to `reports/compare-<timestamp>.json` (ignored by Git; the runs below were not kept in the repository) and holds every run, the machine class, both commits and the fixture parameters. The table is printed at the end. `--check` holds Tau's medians to `scripts/compare/budgets.json`: the per-turn transfer (398 KiB, about 15 % above the measurement after D22, and 328 messages received and 12 sent, about 15 % above the measurement after E31) and, on macOS, the host process's idle footprint (200 MiB). Lower a budget when Tau gets leaner; never raise it. The check runs Tau alone: `--apps tau --check`. `COMPARE_TAU_ROOT=/tmp/<name>` gives a checkout its own Tau profile root, so two worktrees can run the harness at once. Seeding writes the session plan beside the template (`fixture.json`), and a run refuses a root seeded with another plan: after K38 added two threads, every root needs `--seed` once. Every run rewrites `<root>/bin/codex` to start the running checkout's stand-in, so a root seeded from another worktree stays usable after that worktree is gone.
+
+### Keeping comparison evidence
+
+`npm run benchmark:compare:summary -- <report.json> [<report.json> ...]`
+writes `docs/performance/compare-<measurement-date>.md` and `.json`, both eligible
+for Git. `--out <path-stem>` chooses another destination. It pools raw measured
+runs, including switch-only reports, and records medians, minima, maxima and
+sample counts for each app. Warm switches use the individual raw switches;
+older reports with only switch summaries get an explicit warning. Frame
+percentiles describe each turn, then the summary describes their spread across
+turns. End-visible time is measured from submit to the final sentinel, not to
+runtime completion.
+
+The pair retains the machine class, both app commits and builds, fixture,
+dates, warm-up counts and load ranges per source. Mixing machines, commits,
+builds, fixtures, viewports or idle windows is rejected. Missing measurements
+stay "not measured", so older reports cannot supply idle-CPU evidence. Timing
+and idle CPU remain evidence, not new CI gates. Keep the raw JSON files locally
+for inspection; commit the condensed pair after checking its provenance.
+
+The preparation and exact quiet-machine commands for review ticket 61 are in
+[the comparison runbook](performance/compare-runbook.md). No app or measurement
+run was started during that preparation. A current checked-in Tau vs. T3
+measurement remains pending until those runs are performed.
 
 ### First results (2026-09-23)
 
