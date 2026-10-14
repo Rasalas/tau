@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readSessionFile } from "./session-read.js";
-import type { UiComposerCommand, UiMessage, UiToolOutputReadResult } from "../shared/contracts.js";
-import type { TranscriptPage } from "../shared/host-protocol.js";
+import type { UiComposerCommand, UiMessage, UiToolOutputReadResult, UiTaskProgressEntry, UiTurnActivityEntry } from "../shared/contracts.js";
+import { normalizeTranscriptCursorBoundaries, type TranscriptPage } from "../shared/host-protocol.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
@@ -14,12 +14,15 @@ import {
   turnActivityHistoryFromMessages,
   type MessageMappingOptions,
 } from "./host-messages.js";
-import { localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
+import { localTranscriptCursorPolicy, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
+import { startsTurn } from "../shared/message-turns.js";
+import { hostCursorAtLocalIndex } from "./transcript-cursor.js";
 import { branchRecords } from "./thread-projection.js";
 
 /** What the reader is told when the file behind a thread cannot be opened. */
 export const MISSING_SESSION_FILE = "That thread's session file is gone. It may have been deleted.";
+export const PERSISTED_TRANSCRIPT_CHANGED = "That thread's session file changed while it was being read. Try again.";
 export const UNREADABLE_SESSION_FILE = "That thread's session file could not be read.";
 
 /**
@@ -58,6 +61,8 @@ export interface PersistedTranscriptOptions {
   skillCommands: readonly UiComposerCommand[];
   /** Entry pins extensions contribute; they see a file, not a runtime. */
   pins?: (thread: HostThread) => ReadonlySet<string>;
+  /** Changes when the host registers or removes pin providers. */
+  pinsRevision?: string | number;
 }
 
 /** The branch of a persisted session; every failure reads as a missing transcript. */
@@ -81,10 +86,17 @@ export class PersistedThreadTranscript {
   private readonly sessionId: string;
   private readonly records: unknown[];
   private readonly mapping: MessageMappingOptions;
+  readonly entries: readonly unknown[];
+  private mapped?: UiMessage[];
+  private users: number[] = [];
+  private turnNumbers = new Map<number, number>();
+  private tasks = new Map<string, UiTaskProgressEntry[]>();
+  private activities = new Map<string, UiTurnActivityEntry[]>();
 
-  constructor(thread: PersistedThreadInfo, options: PersistedTranscriptOptions) {
+  constructor(thread: PersistedThreadInfo, options: PersistedTranscriptOptions, entriesFromWorker?: readonly unknown[]) {
     this.sessionId = thread.sessionId;
-    const entries = openBranch(thread.path);
+    const entries = entriesFromWorker ?? openBranch(thread.path);
+    this.entries = entries;
     this.records = branchRecords(entries, knownSkillNames(options.skillCommands)).map(({ record }) => record);
     const unpinned: MessageMappingOptions = {
       runtimeAdapter: options.runtimeAdapter,
@@ -97,18 +109,60 @@ export class PersistedThreadTranscript {
   }
 
   messages(): UiMessage[] {
-    return this.messagesWith(this.mapping);
+    if (!this.mapped) {
+      this.mapped = this.messagesWith(this.mapping);
+      let turn = 0;
+      this.mapped.forEach((message, index) => {
+        if (message.role === "user") this.users.push(index);
+        if (startsTurn(message)) this.turnNumbers.set(index, ++turn);
+      });
+      for (const entry of taskProgressHistoryFromMessages(this.records)) {
+        const key = entry.anchorMessageId ?? "";
+        this.tasks.set(key, [...(this.tasks.get(key) ?? []), entry]);
+      }
+      for (const entry of turnActivityHistoryFromMessages(this.records)) {
+        const key = entry.anchorMessageId ?? "";
+        this.activities.set(key, [...(this.activities.get(key) ?? []), entry]);
+      }
+    }
+    return this.mapped;
   }
 
   page(cursor?: HostTranscriptCursor): TranscriptPage {
-    return localTranscriptPage(
-      this.sessionId,
-      this.messages(),
-      taskProgressHistoryFromMessages(this.records),
-      turnActivityHistoryFromMessages(this.records),
-      true,
-      cursor,
-    );
+    const messages = this.messages();
+    const end = cursor === undefined ? messages.length : localTranscriptCursorPolicy.indexFromCursor(cursor, messages.length);
+    // Binary search the user-turn index instead of walking the prefix on every page.
+    let low = 0;
+    let high = this.users.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (this.users[middle]! < end) low = middle + 1;
+      else high = middle;
+    }
+    const user = Math.max(0, low - 20);
+    const start = low === 0 ? end : this.users[user]!;
+    const window = messages.slice(start, end);
+    const numbered = window.findIndex(startsTurn);
+    if (start > 0 && numbered >= 0) window[numbered] = { ...window[numbered]!, turnNumber: this.turnNumbers.get(start + numbered) };
+    const taskHistory = [...(this.tasks.get("") ?? [])];
+    const activityHistory = [...(this.activities.get("") ?? [])];
+    const ids = new Set(window.flatMap((message) => [message.id, ...(message.sourceEntryId ? [message.sourceEntryId] : [])]));
+    for (const id of ids) {
+      taskHistory.push(...(this.tasks.get(id) ?? []));
+      activityHistory.push(...(this.activities.get(id) ?? []));
+    }
+    const page = localTranscriptPage(this.sessionId, window, taskHistory, activityHistory, true);
+    const olderCursor = user > 0 ? hostCursorAtLocalIndex(start) : undefined;
+    return {
+      ...page,
+      ...(olderCursor ? { olderCursor } : {}),
+      hasMore: user > 0,
+      historyCompleteness: user > 0 ? "has-more" : "complete",
+      ...(olderCursor && window.find((message) => message.role === "user") ? {
+        cursorBeforeMessageId: window.find((message) => message.role === "user")!.id,
+        cursorBoundaries: normalizeTranscriptCursorBoundaries(undefined, window.find((message) => message.role === "user")!.id, olderCursor),
+      } : {}),
+    };
   }
 
   toolOutput(toolCallId: string): UiToolOutputReadResult | undefined {
@@ -126,7 +180,7 @@ export class PersistedThreadTranscript {
  * The thread a pin provider sees for a session that has no runtime: its
  * entries and its identity, and nothing that would need one.
  */
-function fileOnlyThread(
+export function fileOnlyThread(
   thread: PersistedThreadInfo,
   entries: readonly unknown[],
   messages: () => UiMessage[],

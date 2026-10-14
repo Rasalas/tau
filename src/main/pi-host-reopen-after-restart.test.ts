@@ -90,7 +90,7 @@ function restartedHost() {
   internals.index.refreshShell = async () => {};
   internals.index.startRecovery = () => {};
   internals.trash.start = () => {};
-  internals.reconcileInterruptedTurns = async () => {};
+  internals.sessionControl.reconcile = async () => {};
   internals.catalogs.start = () => {};
   internals.prewarm.scheduleThreads = () => {};
   internals.prewarm.scheduleSpare = () => {};
