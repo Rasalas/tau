@@ -30,6 +30,8 @@ export const STORAGE_KEYS = {
   reviewSidebarWidth: "tau:review-sidebar-width",
   reviewSidebarOpen: "tau:review-sidebar-open",
   composerFold: "tau:composer-fold",
+  /** Whether a Markdown file in the file tab opens rendered; "off" shows its source. */
+  markdownRendered: "tau:markdown-rendered",
   spine: "tau:spine",
 } as const;
 
