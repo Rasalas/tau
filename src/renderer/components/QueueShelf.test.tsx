@@ -8,7 +8,7 @@ import { TestProviders } from "../test-support/test-providers";
 afterEach(cleanup);
 
 const queued = (id: string, text: string, extra: Partial<UiQueuedMessage> = {}): UiQueuedMessage => ({ id, text, attachments: 0, ...extra });
-const handlers = () => ({ onSteer: vi.fn(), onEdit: vi.fn(), onRemove: vi.fn(), onMoveToFront: vi.fn(), onPlan: vi.fn() });
+const handlers = () => ({ onSteer: vi.fn(), onEdit: vi.fn(), onRemove: vi.fn(), onReorder: vi.fn(), onPlan: vi.fn() });
 
 describe("QueueShelf", () => {
   it("draws nothing without a queue", () => {
@@ -46,7 +46,7 @@ describe("QueueShelf", () => {
     const rows = screen.getAllByRole("listitem");
     expect(rows.map((row) => row.querySelector(".queue-shelf-row-text")?.textContent)).toEqual(["two", "three"]);
     fireEvent.click(within(rows[1]!).getByRole("button", { name: /Move to front/u }));
-    expect(on.onMoveToFront).toHaveBeenCalledWith("third");
+    expect(on.onReorder).toHaveBeenCalledWith("third", 0);
     fireEvent.click(within(rows[0]!).getByRole("button", { name: /^Send$/u }));
     expect(on.onSteer).toHaveBeenCalledWith("second");
     fireEvent.click(within(rows[0]!).getByRole("button", { name: "Remove from the queue" }));

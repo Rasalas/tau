@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { AlarmClock, ArrowUp, ArrowUpToLine, ChevronDown, CornerUpRight, ListPlus, Pencil, X } from "lucide-react";
 import type { UiQueuedMessage } from "../../shared/contracts";
 import { PlanSheet } from "../deferred-surfaces";
 import { tooltipProps } from "./ui/Tooltip";
 import { shortWhen } from "./when-pick";
 import { WakeIcon } from "./WakeLine";
+import { WorkbenchShellContext } from "../workbench-context";
 import "./queue-shelf.css";
 
 /** What waits, in the order it leaves: the line of the queue, then planned messages by their time. */
@@ -25,20 +26,23 @@ const preview = (entry: UiQueuedMessage) => entry.wake?.label ?? (entry.text.tri
  * time plans it for another. The host keeps the queue, so it survives a
  * restart; a restored one is held until the user sends.
  */
-export function QueueShelf({ queue, streaming, held = false, steerShortcut, onSteer, onEdit, onRemove, onMoveToFront, onPlan }: {
+export function QueueShelf({ queue, streaming, held = false, steerShortcut: shortcut, onSteer, onEdit, onRemove, onReorder, onPlan }: {
   queue: readonly UiQueuedMessage[];
   streaming: boolean;
   /** A restart, a stop or a limit held the queue: nothing in its line leaves until the user sends. */
   held?: boolean;
-  /** The label of `thread.steerQueuedMessage`, for the message that leaves next. */
-  steerShortcut?: string;
+  /** The label of `thread.steerQueuedMessage`, for the message that leaves next; the workbench's own by default. */
+  steerShortcut?: string | undefined;
   onSteer(id: string): void;
   /** Takes it back into the composer. */
   onEdit(id: string): void;
   onRemove(id: string): void;
-  onMoveToFront(id: string): void;
-  onPlan?(id: string, deliverAt: number): void;
+  /** Move to front calls it with index 0. */
+  onReorder?: ((id: string, toIndex: number) => void) | undefined;
+  onPlan?: ((id: string, deliverAt: number) => void) | undefined;
 }) {
+  const shell = useContext(WorkbenchShellContext);
+  const steerShortcut = shortcut ?? shell?.registry.keybindingLabel("thread.steerQueuedMessage");
   const [open, setOpen] = useState(false);
   const [planning, setPlanning] = useState<UiQueuedMessage>();
   const ordered = queueOrder(queue);
@@ -90,7 +94,7 @@ export function QueueShelf({ queue, streaming, held = false, steerShortcut, onSt
                 <span className="queue-shelf-row-text" {...(entry.wake ? {} : { onClick: () => onEdit(entry.id) })}>{preview(entry)}</span>
                 <small className={entry.deliverAt !== undefined ? "planned" : ""}>{entry.deliverAt !== undefined ? shortWhen(entry.deliverAt, now) : "after that"}</small>
                 <span className="queue-shelf-row-actions">
-                  {inLine ? <button type="button" className="queue-shelf-action" onClick={() => onMoveToFront(entry.id)}><ArrowUpToLine size={13} aria-hidden="true" />Move to front</button> : null}
+                  {inLine && onReorder ? <button type="button" className="queue-shelf-action" onClick={() => onReorder(entry.id, 0)}><ArrowUpToLine size={13} aria-hidden="true" />Move to front</button> : null}
                   {plan ? <button type="button" className="queue-shelf-action" onClick={plan}>Change time</button> : null}
                   <button type="button" className="queue-shelf-action primary" onClick={() => onSteer(entry.id)}><SendIcon size={13} aria-hidden="true" />{streaming ? "Steer" : "Send"}</button>
                   <button type="button" className="queue-shelf-icon" aria-label={entry.wake ? "Drop this wake" : "Remove from the queue"} onClick={() => onRemove(entry.id)}><X size={14} /></button>

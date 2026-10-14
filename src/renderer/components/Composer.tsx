@@ -19,7 +19,7 @@ import type {
 import { WorkbenchShellContext } from "../workbench-context";
 import { ContextMeter, type ContextBreakdown } from "./ContextMeter";
 import { Popover, AttachmentLightbox, ComposerMenuItem, ComposerMenuPopover, ComposerSendChooser, ExtensionPrompt, PlanSheet, QueueShelf, ThinkingMenu } from "../deferred-surfaces";
-import { sendChoices, type SendChoice } from "./composer-send-choice";
+import type { SendChoice } from "./composer-send-choice";
 import { tooltipProps } from "./ui/Tooltip";
 import { contextChoices, formatTokens, modelFamily, modelKey, offeringKey } from "./model-offerings";
 import { ProviderIconStack } from "./ProviderIconStack";
@@ -1006,17 +1006,7 @@ export function Composer({
       <div className="composer-surface" data-composer-surface="true">
       {/* What waits, as a tab over the composer (design G1); a question and the composer tuck over it. */}
       {queue.length > 0 && !newThread ? (
-        <QueueShelf
-          queue={queue}
-          streaming={streaming}
-          held={queueHeld}
-          {...(registry?.keybindingLabel?.("thread.steerQueuedMessage") ? { steerShortcut: registry.keybindingLabel("thread.steerQueuedMessage") } : {})}
-          onSteer={onSteerQueued}
-          onEdit={(id) => onReturnQueued ? onReturnQueued(id) : onCancelQueued(id)}
-          onRemove={onCancelQueued}
-          onMoveToFront={(id) => onReorderQueue?.(id, 0)}
-          {...(onPlanQueued ? { onPlan: onPlanQueued } : {})}
-        />
+        <QueueShelf queue={queue} streaming={streaming} held={queueHeld} onSteer={onSteerQueued} onEdit={onReturnQueued ?? onCancelQueued} onRemove={onCancelQueued} onReorder={onReorderQueue} onPlan={onPlanQueued} />
       ) : null}
       {prompt ? (() => {
         // An extension that recognises the prompt draws it; core draws the four dialogs.
@@ -1494,7 +1484,7 @@ export function Composer({
       {chooser && canChoose ? (
         <ComposerSendChooser
           anchor={sendButton}
-          choices={sendChoices(streaming, true)}
+          streaming={streaming}
           initial={chooser}
           disabledReason={sendReason ?? (hasDraft ? undefined : "Write a message first.")}
           onClose={() => setChooser(undefined)}

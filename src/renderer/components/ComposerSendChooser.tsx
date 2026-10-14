@@ -3,7 +3,7 @@ import { AlarmClock, ArrowUp, CornerUpRight, ListPlus, type LucideIcon } from "l
 import { Popover } from "./ui/Dialog";
 import { isImeComposing } from "../keybindings";
 import "./composer-send-chooser.css";
-import type { SendChoice } from "./composer-send-choice";
+import { sendChoices, type SendChoice } from "./composer-send-choice";
 
 
 const CHOICES: Record<SendChoice, { label: string; detail: string; Icon: LucideIcon }> = {
@@ -18,15 +18,17 @@ const CHOICES: Record<SendChoice, { label: string; detail: string; Icon: LucideI
  * chord that opened it does it, Escape closes it. It opens on `initial`, the
  * choice the chord stands for, so the chord twice still does what it always did.
  */
-export function ComposerSendChooser({ anchor, choices, initial, disabledReason, onChoose, onClose }: {
+export function ComposerSendChooser({ anchor, streaming, initial, disabledReason, onChoose, onClose }: {
   anchor: RefObject<HTMLElement | null>;
-  choices: readonly SendChoice[];
+  /** A turn runs: steer and queue; at rest, send. Plan comes last either way. */
+  streaming: boolean;
   initial: SendChoice;
   /** Why nothing can go yet, such as an empty draft; Plan stays open to it. */
   disabledReason?: string | undefined;
   onChoose(choice: SendChoice): void;
   onClose(): void;
 }) {
+  const choices = sendChoices(streaming, true);
   const [active, setActive] = useState(() => Math.max(0, choices.indexOf(initial)));
   const rows = useRef<Array<HTMLButtonElement | null>>([]);
   useLayoutEffect(() => { rows.current[active]?.focus({ preventScroll: true }); }, [active]);
