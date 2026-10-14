@@ -464,7 +464,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     }
   };
 
-  return <div className={`transcript-viewport${showTurnNavigation ? " with-turn-navigation" : ""}`}>
+  return <div className={`transcript-viewport${showTurnNavigation ? " with-turn-navigation" : ""}${searchOpen ? " with-find" : ""}`}>
     {showTurnNavigation ? (
       <TranscriptTurnNavigation
         entries={turnEntries}
