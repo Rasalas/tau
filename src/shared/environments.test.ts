@@ -103,6 +103,16 @@ describe("a machine's thread list", () => {
     expect(drafts.map((thread) => thread.id)).toEqual(["busy"]);
   });
 
+  it("marks a thread whose runtime there still runs work that wakes it", () => {
+    const task = { id: "t", kind: "monitor" as const, label: "CI" };
+    const listed = environmentThreads({ projects: [], sessions: [
+      session("held", 3, { background: [task] }),
+      session("released", 2, { background: [{ ...task, blocksCompletion: false }] }),
+      session("plain", 1),
+    ] }, new Set());
+    expect(listed.map((thread) => [thread.id, thread.background ?? false])).toEqual([["held", true], ["released", false], ["plain", false]]);
+  });
+
   it("names its projects most recent first", () => {
     const projects = environmentProjects({
       sessions: [],

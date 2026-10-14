@@ -9,17 +9,29 @@ const noSubscription = () => () => undefined;
 const REASON_REFRESH_MS = 30_000;
 /** Thread Rail Kit keeps each machine's pins and settled shelf on that machine (`kits/thread-rail`); a kit never imports another. */
 const THREAD_RAIL_EXTENSION_ID = "tau.thread-rail";
-const NOTHING_SETTLED: ReadonlySet<string> = new Set();
+/** Review Kit keeps each machine's pull request watches on that machine (`kits/review/pr-watch-host.ts`). */
+const REVIEW_EXTENSION_ID = "tau.review";
+const NO_THREADS: ReadonlySet<string> = new Set();
 
 /** The threads Thread Rail's `state` says are settled. */
 export function settledIn(state: unknown): ReadonlySet<string> {
   const threads = state && typeof state === "object" ? (state as { threads?: unknown }).threads : undefined;
-  if (!threads || typeof threads !== "object") return NOTHING_SETTLED;
+  if (!threads || typeof threads !== "object") return NO_THREADS;
   const settled = new Set<string>();
   for (const [id, meta] of Object.entries(threads as Record<string, unknown>)) {
     if (meta && typeof meta === "object" && typeof (meta as { settledAt?: unknown }).settledAt === "number") settled.add(id);
   }
   return settled;
+}
+
+/** The threads Review Kit's `watch-list` says still watch a pull request. */
+export function watchingIn(state: unknown): ReadonlySet<string> {
+  const watches = state && typeof state === "object" ? (state as { watches?: unknown }).watches : undefined;
+  if (!Array.isArray(watches)) return NO_THREADS;
+  return new Set(watches.flatMap((watch: unknown) => {
+    const { threadId, status } = (watch && typeof watch === "object" ? watch : {}) as { threadId?: unknown; status?: unknown };
+    return typeof threadId === "string" && status === "watching" ? [threadId] : [];
+  }));
 }
 
 /** Thread Rail's patch that settles a thread, or takes it back (`settlePatch`, `unsettlePatch` in `kits/thread-rail/meta.ts`). */
@@ -75,6 +87,8 @@ export interface MachineRailThread {
   running?: boolean;
   /** A question waits there; the phone's list shows it as one. */
   waiting?: boolean;
+  /** Work there wakes it again: a background task or a watched pull request. */
+  background?: boolean;
   opening?: boolean;
   machine: { name: string; icon: ReactNode };
   unavailable?: string;
@@ -125,6 +139,25 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
   // Each machine's settled shelf, read from its Thread Rail Kit, and the list it was read for.
   const shelves = new Map<string, { signature: string; settled: ReadonlySet<string> }>();
   const reading = new Set<string>();
+  // Each machine's threads that watch a pull request; a stopped watch changes no thread, so they are read again after a while too.
+  const watching = new Map<string, { signature: string; at: number; ids: ReadonlySet<string> }>();
+  const readWatches = (machine: UiEnvironment, now: number) => {
+    const read = environments.readExtension;
+    const key = `watches:${machine.id}`;
+    if (!read || machine.status !== "connected" || reading.has(key)) return;
+    const signature = listSignature(machine);
+    const last = watching.get(machine.id);
+    if (last?.signature === signature && now - last.at < REASON_REFRESH_MS) return;
+    reading.add(key);
+    void read(machine.id, REVIEW_EXTENSION_ID, "watch-list").then(
+      (state) => { watching.set(machine.id, { signature, at: Date.now(), ids: watchingIn(state) }); },
+      // No Review Kit there, or an older one: no thread watches anything as far as this rail knows.
+      () => { watching.set(machine.id, { signature, at: Date.now(), ids: NO_THREADS }); },
+    ).finally(() => {
+      reading.delete(key);
+      changed();
+    });
+  };
 
   const readShelf = (machine: UiEnvironment) => {
     const read = environments.readExtension;
@@ -135,7 +168,7 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
     void read(machine.id, THREAD_RAIL_EXTENSION_ID, "state").then(
       (state) => { shelves.set(machine.id, { signature, settled: settledIn(state) }); },
       // No Thread Rail Kit there, or an older one: nothing is settled there as far as this rail knows.
-      () => { shelves.set(machine.id, { signature, settled: shelves.get(machine.id)?.settled ?? NOTHING_SETTLED }); },
+      () => { shelves.set(machine.id, { signature, settled: shelves.get(machine.id)?.settled ?? NO_THREADS }); },
     ).finally(() => {
       reading.delete(machine.id);
       changed();
@@ -146,7 +179,7 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
     const invoke = environments.invokeExtension;
     if (!invoke) return;
     const before = shelves.get(machine.id);
-    const settled = new Set(before?.settled ?? NOTHING_SETTLED);
+    const settled = new Set(before?.settled ?? NO_THREADS);
     if (settle) settled.add(threadId); else settled.delete(threadId);
     // Shown at once; the machine's answer is its whole shelf again.
     shelves.set(machine.id, { signature: before?.signature ?? "", settled });
@@ -175,7 +208,9 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
       // Threads this machine's sub-agents run there show in the Agents panel, not here.
       const subagents = agentThreadsSource.threadsOn(machine.id);
       readShelf(machine);
-      const shelf = shelves.get(machine.id)?.settled ?? NOTHING_SETTLED;
+      readWatches(machine, now);
+      const shelf = shelves.get(machine.id)?.settled ?? NO_THREADS;
+      const watches = watching.get(machine.id)?.ids ?? NO_THREADS;
       const settles = Boolean(environments.invokeExtension && shelves.has(machine.id) && !machine.readOnly);
       for (const thread of machine.threads) {
         if (subagents?.has(thread.id)) continue;
@@ -189,6 +224,7 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
           ...(project?.icon ? { projectIcon: project.icon } : {}),
           ...(thread.running ? { running: true } : {}),
           ...(thread.waiting ? { waiting: true } : {}),
+          ...(thread.background || watches.has(thread.id) ? { background: true } : {}),
           ...(settled ? { settled: true } : {}),
           ...(settles ? { toggleSettled: (actions: WorkbenchActions) => toggleSettled(machine, thread.id, !settled, actions) } : {}),
           ...(opening === session.id ? { opening: true } : {}),

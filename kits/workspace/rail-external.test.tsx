@@ -224,3 +224,17 @@ it("moves remote work back to attention for a question, completion or disconnect
   act(() => outside.set([remote("r1", 40, { running: true, unavailable: "Disconnected" })]));
   await waitFor(() => expect(titles(rail)).toEqual(["Remote r1", "Thread a"]));
 });
+
+it("keeps remote work in Working while it waits on its machine, and says so on the row", async () => {
+  const { rail, outside } = await renderRail([remote("r1", 40, { background: true })], [session("a", 30)], true);
+  const working = () => rail.querySelector(".rail-section-working");
+  await waitFor(() => expect(working()?.textContent).toContain("Working"));
+  fireEvent.click(within(working() as HTMLElement).getByRole("button", { expanded: false }));
+  const row = (await within(working() as HTMLElement).findByText("Remote r1")).closest(".thread-row") as HTMLElement;
+  expect(row.textContent).toContain("Waiting");
+  expect(titles(rail)).toEqual(["Thread a"]);
+  act(() => outside.set([remote("r1", 40, { background: true, waiting: true })]));
+  await waitFor(() => expect(titles(rail)).toEqual(["Remote r1", "Thread a"]));
+  act(() => outside.set([remote("r1", 40)]));
+  await waitFor(() => expect(titles(rail)).toEqual(["Remote r1", "Thread a"]));
+});

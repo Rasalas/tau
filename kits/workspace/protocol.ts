@@ -623,6 +623,8 @@ export interface RailExternalThread {
   running?: boolean;
   /** A question or approval needs attention on its home machine. */
   waiting?: boolean;
+  /** Work on its home machine wakes it again: a background task or a watched pull request. */
+  background?: boolean;
   /** Set while `open` is under way. */
   opening?: boolean;
   /** Where it runs: an icon just before the cost, the name as tooltip. */
