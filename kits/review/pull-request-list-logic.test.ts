@@ -6,6 +6,7 @@ import { parseGitHubList } from "./pull-request-list-json.js";
 import {
   arrangeList,
   decodeListPreferences,
+  decodeSavedNarrowing,
   groupByRepository,
   listFacets,
   matchesListFilters,
@@ -130,6 +131,13 @@ describe("the list's parts", () => {
   it("keeps each remembered control that is valid and drops the rest", () => {
     expect(decodeListPreferences('{"state":"merged","sort":"sideways","involvement":"authored","draft":"hide"}')).toEqual({ state: "merged", involvement: "authored", sort: "ready", draft: "hide" });
     expect(decodeListPreferences("not json")).toEqual({ state: "open", involvement: "all", sort: "ready" });
+  });
+
+  it("keeps the saved project, labels, author and host that are text and drops the rest", () => {
+    expect(decodeSavedNarrowing('{"project":"/cli","labels":["go",7,""],"author":"mona","host":3}')).toEqual({ project: "/cli", labels: ["go"], author: "mona" });
+    expect(decodeSavedNarrowing("null")).toEqual({ labels: [] });
+    expect(decodeSavedNarrowing("not json")).toEqual({ labels: [] });
+    expect(decodeSavedNarrowing(undefined)).toEqual({ labels: [] });
   });
 });
 

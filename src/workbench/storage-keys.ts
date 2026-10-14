@@ -31,6 +31,8 @@ export const STORAGE_KEYS = {
   reviewSidebarOpen: "tau:review-sidebar-open",
   composerFold: "tau:composer-fold",
   spine: "tau:spine",
+  /** The project a touch client's thread list is narrowed to (a path on that host). */
+  touchProject: "tau:touch-project",
 } as const;
 
 /**
@@ -48,6 +50,7 @@ export const HOST_STORAGE_KEYS: readonly string[] = [
   STORAGE_KEYS.turnActivityCache,
   STORAGE_KEYS.unavailableExtensions,
   STORAGE_KEYS.threadTurnActivity,
+  STORAGE_KEYS.touchProject,
 ];
 
 /** `tau.stage.v1:<workspace>`, the old per-project stage; `workspace` is a workspace id, or a path from a host that mints none. */

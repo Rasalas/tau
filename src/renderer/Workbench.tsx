@@ -372,8 +372,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const compactRef = useRef({ compact, split, stacked: false, maximized: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
-  // The project the touch thread list is narrowed to; a new thread from it starts there.
-  const [touchProjectPath, setTouchProjectPath] = useState<string>();
+  // The project the touch thread list is narrowed to; a new thread from it starts there. A path no project has anymore shows all.
+  const [touchProjectPath, setTouchProjectPath] = useState(() => clientStorage.get(STORAGE_KEYS.touchProject) ?? undefined);
   const touchProject = touchProjectPath === undefined ? undefined : projects.find((project) => project.path === touchProjectPath);
   // A phone's home is its thread list; a chat, a page or Settings is a screen over it.
   const phone = compact && !split;
@@ -571,7 +571,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     onStop: (row: { id: string }) => composer.abort(row.id),
     project: touchProject,
     projects,
-    onProjectChange: (project: UiProject | undefined) => setTouchProjectPath(project?.path),
+    onProjectChange: (project: UiProject | undefined) => {
+      setTouchProjectPath(project?.path);
+      if (project) clientStorage.set(STORAGE_KEYS.touchProject, project.path);
+      else clientStorage.remove(STORAGE_KEYS.touchProject);
+    },
     onNewThread: startTouchThread,
     onOpenSettings: (page?: string) => (phone ? phoneNav.openSettings(page) : actions.openSettings(page)),
   };
