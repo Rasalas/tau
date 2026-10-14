@@ -683,6 +683,20 @@ Without the method, core keeps using `loadFile` for workspace-relative links
 and rejects external paths. Writes and Git
 operations remain workspace-confined.
 
+In API 1.62.0, Workspace Kit tries a missing relative transcript file in the
+same repository's main checkout when the thread runs in a linked worktree.
+`UiFileContent.mainCheckoutPath` names that checkout; the file's `path` is the
+absolute path actually read. The preview header says "Read only · from the
+main checkout" and omits write commands and the external editor action.
+`loadMedia` may return `mainCheckoutPath` and `resolvedPath` for the same header
+on audio, video and PDF previews. Missing-file errors name all checked paths.
+Transcript links with a trailing `:12` keep their source line while the reader
+resolves the file path without that suffix.
+The fallback never applies to saves or Git operations. Device reads require
+an already admitted main checkout and repeat the canonical-path protection
+check there. Absolute device links retain the explicit workspace boundary
+from ADR 0037; the local owner's existing external-link reads remain available.
+
 A kind's `render` gets the same project as a fourth argument,
 `render(params, handle, actions, from)` with `from: DocumentOrigin` (new in API
 1.26.0), so a tab that reads or writes files does so in the project whose stage

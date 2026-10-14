@@ -1,5 +1,6 @@
 import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { activeTab, openFileTab, stageTabPath, type StageState, type StageTab, type WorkspaceResourceOrigin } from "../workbench/stage";
+import { linkedFileLocation } from "../shared/linked-file-path";
 import { resourceRelativePath } from "./workspace-resource-context";
 
 /** Resource readers are not authority for commands against another project's files. */
@@ -20,7 +21,8 @@ export function useWorkspaceResourceNavigation({ stage, setStage, workspace, sou
   reveal: RefObject<() => void>;
 }) {
   const openWorkspaceFile = useCallback((path: string, origin: WorkspaceResourceOrigin | null) => {
-    setStage((current) => openFileTab(current, path, { resourceOrigin: origin, localWorkspace: workspace }));
+    const location = linkedFileLocation(path);
+    setStage((current) => openFileTab(current, location.path, { line: location.line, resourceOrigin: origin, localWorkspace: workspace }));
     reveal.current();
   }, [setStage, workspace, reveal]);
   const activeDocumentPath = stageTabPath(actionableStageTab(activeTab(stage), workspace, sourceId));

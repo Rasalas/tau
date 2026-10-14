@@ -39,6 +39,8 @@ function Probe() { captured = useWorkspaceResources(); return <button onClick={(
 describe("transcript-bound workspace resource contract", () => {
   it("keeps external host links and makes in-workspace links relative", () => {
     expect(transcriptFilePath("/history/src/same.ts", "/history/")).toBe("src/same.ts");
+    expect(transcriptFilePath("/history/src/same.ts:12", "/history/")).toBe("src/same.ts:12");
+    expect(transcriptFilePath("same.ts:12", "/history/")).toBe("same.ts:12");
     expect(transcriptFilePath("C:\\history\\src\\same.ts", "C:\\history")).toBe("src/same.ts");
     expect(transcriptFilePath("/history-other/src/same.ts", "/history")).toBe("/history-other/src/same.ts");
     expect(transcriptFilePath("/history/../secret.ts", "/history")).toBe("../secret.ts");
@@ -69,6 +71,21 @@ describe("transcript-bound workspace resource contract", () => {
     await expect(bindWorkspaceFileLoader(documents, null)(linked)).rejects.toThrow("unavailable");
     expect(loadLinkedFile).toHaveBeenCalledTimes(2);
   });
+  it("opens Markdown source-line links with their transcript origin", async () => {
+    const { value, open } = context(source(vi.fn()));
+    render(<HostClientProvider client={createFakeHostClient()}><WorkbenchContext.Provider value={value}>
+      <WorkspaceResourceProvider sessionId="history" workspace="ws-history" displayPath="/history">
+        <Markdown>{"[Report](.scratch/report.md:12) and [Source](file.ts:12) and `.scratch/report.md:12`"}</Markdown>
+      </WorkspaceResourceProvider>
+    </WorkbenchContext.Provider></HostClientProvider>);
+    fireEvent.click(await screen.findByRole("link", { name: "Report" }));
+    expect(open).toHaveBeenLastCalledWith(".scratch/report.md:12", origin);
+    fireEvent.click(await screen.findByRole("link", { name: "Source" }));
+    expect(open).toHaveBeenLastCalledWith("file.ts:12", origin);
+    fireEvent.click(await screen.findByRole("button", { name: "Open .scratch/report.md:12" }));
+    expect(open).toHaveBeenLastCalledWith(".scratch/report.md:12", origin);
+  });
+
   it("binds same relative path to two distinct opaque workspaces and captures sources", async () => {
     const loadA = vi.fn(async (_path, from) => content(`file in ${from?.workspace}`));
     const firstSource = source(loadA);

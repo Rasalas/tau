@@ -531,6 +531,76 @@ describe("Workspace Kit host extension", () => {
     await expect(host.readFile("/etc/passwd", "ws-origin")).rejects.toThrow();
     await expect(host.readFile(".scratch/missing.md", "ws-origin")).rejects.toThrow();
   });
+  it("reads missing relative links from the main checkout, preserving worktree precedence and write scope", async () => {
+    const root = await workspace();
+    const main = join(root, "main");
+    const tree = join(root, "tree");
+    await mkdir(main);
+    const git = (...args: string[]) => execFileSync("git", ["-C", main, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgSign=false", ...args]);
+    git("init", "-q", "-b", "main");
+    await writeFile(join(main, ".gitignore"), ".scratch/\n");
+    git("add", ".gitignore");
+    git("commit", "-qm", "initial");
+    git("worktree", "add", "-qb", "topic", tree);
+    await mkdir(join(main, ".scratch"));
+    await writeFile(join(main, ".scratch/report.md"), "main checkout report\n");
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=", "base64");
+    await writeFile(join(main, ".scratch/image.png"), png);
+    await writeFile(join(main, ".scratch/movie.mp4"), "media fixture");
+    const publish = vi.fn(() => "/resource/movie");
+    let mainAdmitted = true;
+    const registry = await activated(tree, {
+      knownWorkspacePath: async (id) => {
+        if (id === "ws-tree") return tree;
+        if (id === main && mainAdmitted) return main;
+        throw new Error("Unknown workspace");
+      },
+      browserResources: { publish, release: vi.fn() } as unknown as HostExtensionServices["browserResources"],
+    });
+    const read = (path: string) => registry.invoke("tau.workspace", "read-linked-file", { path, workspace: "ws-tree" });
+    try {
+      await expect(read(".scratch/report.md")).resolves.toMatchObject({ path: join(main, ".scratch/report.md"), text: "main checkout report\n", mainCheckoutPath: main });
+      await expect(read(".scratch/image.png")).resolves.toMatchObject({ kind: "image", mainCheckoutPath: main });
+      await expect(registry.invoke("tau.workspace", "publish-linked-media", { path: ".scratch/movie.mp4", workspace: "ws-tree" })).resolves.toMatchObject({ mainCheckoutPath: main });
+      await expect(read(".scratch/missing.md")).rejects.toThrow(join(tree, ".scratch/missing.md"));
+      await expect(read(".scratch/missing.md")).rejects.toThrow(join(main, ".scratch/missing.md"));
+      await expect(read(join(tree, ".scratch/report.md"))).rejects.toThrow(join(tree, ".scratch/report.md"));
+      await expect(read(join(main, ".scratch/report.md"))).resolves.toMatchObject({ text: "main checkout report\n" });
+      await expect(registry.invoke("tau.workspace", "write-file", { workspace: "ws-tree", relPath: "../main/.scratch/report.md", text: "overwritten" })).rejects.toThrow();
+      expect(await readFile(join(main, ".scratch/report.md"), "utf8")).toBe("main checkout report\n");
+      vi.mocked(homedir).mockReturnValue(root);
+      const device = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+      const deviceRead = (path: string) => registry.invoke("tau.workspace", "read-linked-file", { path, workspace: "ws-tree" }, device);
+      await expect(deviceRead(".scratch/report.md")).resolves.toMatchObject({ text: "main checkout report\n", mainCheckoutPath: main });
+      await expect(registry.invoke("tau.workspace", "publish-linked-media", { path: ".scratch/movie.mp4", workspace: "ws-tree" }, device)).resolves.toMatchObject({ mainCheckoutPath: main });
+      await expect(deviceRead(join(main, ".scratch/report.md"))).rejects.toMatchObject({ code: "forbidden" });
+      mainAdmitted = false;
+      await expect(deviceRead(".scratch/report.md")).rejects.toMatchObject({ code: "forbidden" });
+      mainAdmitted = true;
+      await writeFile(join(root, "outside.md"), "outside");
+      await symlink(join(root, "outside.md"), join(main, ".scratch/outside.md"));
+      await expect(deviceRead(".scratch/outside.md")).rejects.toMatchObject({ code: "forbidden" });
+      await mkdir(join(root, ".protected"));
+      await writeFile(join(root, ".protected/secret"), "fixture secret");
+      await symlink(join(root, ".protected/secret"), join(main, ".scratch/secret.md"));
+      await expect(deviceRead(".scratch/secret.md")).rejects.toMatchObject({ code: "forbidden" });
+      await symlink(join(main, ".git/config"), join(main, ".scratch/config.md"));
+      await expect(deviceRead(".scratch/config.md")).rejects.toMatchObject({ code: "forbidden" });
+      await mkdir(join(tree, "nested"));
+      await mkdir(join(main, "nested"));
+      await writeFile(join(main, "nested/report.md"), "nested report");
+      const nested = await activated(join(tree, "nested"));
+      try {
+        await expect(nested.invoke("tau.workspace", "read-linked-file", { path: "report.md", workspace: join(tree, "nested") })).resolves.toMatchObject({ text: "nested report", path: join(main, "nested/report.md") });
+      } finally { await nested.deactivate("tau.workspace"); }
+      await mkdir(join(tree, ".scratch"));
+      await expect(registry.invoke("tau.workspace", "write-file", { workspace: "ws-tree", relPath: ".scratch/report.md", text: "worktree report", expectedMtimeMs: null })).resolves.toMatchObject({ status: "written" });
+      expect(await readFile(join(main, ".scratch/report.md"), "utf8")).toBe("main checkout report\n");
+      await expect(read(".scratch/report.md")).resolves.toMatchObject({ path: join(tree, ".scratch/report.md"), text: "worktree report" });
+      expect(await read(".scratch/report.md")).not.toHaveProperty("mainCheckoutPath");
+    } finally { await registry.deactivate("tau.workspace"); }
+  });
+
   it("reads linked files outside the transcript workspace on its host without widening workspace writes", async () => {
     const root = await workspace();
     const origin = join(root, "project with spaces");

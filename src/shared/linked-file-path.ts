@@ -5,3 +5,10 @@ export function linkedFilePath(path: string): string {
   }
   return path.replace(/\\/gu, "/").replace(/^\.\//u, "");
 }
+
+/** A trailing source-line reference belongs to navigation, not the filesystem name. */
+export function linkedFileLocation(value: string): { path: string; line?: number } {
+  const match = /^(.*):([1-9]\d*)$/u.exec(value);
+  const line = match ? Number(match[2]) : undefined;
+  return match && Number.isSafeInteger(line) ? { path: match[1], line } : { path: value };
+}

@@ -1,3 +1,4 @@
+import { linkedFileLocation } from "../../shared/linked-file-path";
 import { Fragment, createContext, memo, useContext, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import type { HLJSApi, LanguageFn } from "highlight.js";
 import { Check, Copy, WrapText } from "lucide-react";
@@ -358,9 +359,9 @@ const FILE_IN_CODE = /^[\w@-][\w@.-]*\.(?:[cm]?[jt]sx?|json|md|css|html|py|rs|go
 
 /** The file name an inline code span names, when it reads as a workspace path. */
 export function inlineCodeFile(text: string): string | undefined {
-  const path = text.replace(/\\/gu, "/");
+  const { path, line } = linkedFileLocation(text.replace(/\\/gu, "/"));
   if (!PATH_IN_CODE.test(path) && !FILE_IN_CODE.test(path)) return undefined;
-  return path.slice(path.lastIndexOf("/") + 1);
+  return path.slice(path.lastIndexOf("/") + 1) + (line ? `:${line}` : "");
 }
 
 const COMPONENTS: MarkdownComponents = {
