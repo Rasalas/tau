@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
 import { PullRequestCache, OFFLINE_REASON } from "./pull-request-cache.js";
 import { pullRequestClient } from "./pull-request-client.js";
-import { createMemoryStorage } from "../../src/renderer/test-support/kit-harness.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { listNarrowings } from "./pull-request-list-filters.js";
