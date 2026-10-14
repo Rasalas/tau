@@ -79,7 +79,7 @@ describe("JumpToLatestButton", () => {
 });
 
 describe("the floating arrow's styles", () => {
-  const BARE = ".region-composer-controls:not(:has(> :not(.jump-to-latest-float)))";
+  const BARE = ".region-composer-controls:not(:has(> :not(.jump-to-latest-float, tau-part:empty)))";
   async function rules() {
     const css = (await readFile(resolve(__dirname, "../styles.css"), "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
     const found: Array<{ selector: string; body: string }> = [];
