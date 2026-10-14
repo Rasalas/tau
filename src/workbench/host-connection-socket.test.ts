@@ -11,6 +11,10 @@ import {
   createSocketHostTransport,
 } from "./host-connection-socket";
 import type { HostWake } from "./host-link";
+import { ThreadViewStore } from "./thread-view-store";
+import { ToastStore } from "./toast-store";
+import { errorMessage } from "./error-message";
+import { showNoticesAsToasts } from "../renderer/use-workbench-toasts";
 
 /** A socket that opens, carries frames and drops exactly when the test says so. */
 class FakeSocket {
@@ -331,6 +335,72 @@ async function liveClient(options: { heartbeat?: boolean } = {}) {
 }
 
 describe("socket host client on a mobile network", () => {
+  it("merges dropped requests and jobs into one temporary notice and removes it on socket open", async () => {
+    const { connection, client, first, wake } = await liveClient();
+    const view = new ThreadViewStore();
+    const toasts = new ToastStore();
+    const stop = showNoticesAsToasts(view, toasts, undefined, client);
+    const report = (error: unknown) => {
+      expect(error).toMatchObject({ code: "connection-dropped" });
+      view.setNotice(`Could not finish: ${errorMessage(error)}`, "error");
+    };
+    const calls = [client.renameThread("new title").catch(report), client.setThinkingLevel("high").catch(report)];
+    const job = connection.runJob("slow-write").catch(report);
+    const start = first.frames().find((frame) => frame.type === "request" && (frame.request as { method: string }).method === "start-job")!;
+    first.deliver({ type: "response", response: { id: (start.request as { id: string }).id, result: { jobId: "job-1" } } });
+    await vi.advanceTimersByTimeAsync(0);
+    const startingJob = connection.runJob("another-write").catch(report);
+    first.drop();
+    await Promise.all([...calls, job, startingJob]);
+    try {
+      expect(toasts.getToasts()).toEqual([expect.objectContaining({ type: "info", timeoutMs: 5_000, description: "The connection to the machine dropped." })]);
+      wake("online");
+      const next = FakeSocket.opened[1]!;
+      next.accept();
+      expect(toasts.getToasts()).toEqual([]);
+      await vi.advanceTimersByTimeAsync(0);
+      answerHello(next, helloReply(1));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(connection.getState()).toBe("connected");
+      expect(next.frames().filter((frame) => frame.type === "request")).toEqual([]);
+    } finally { stop(); toasts.dispose(); connection.close(); }
+  });
+
+  it("expires a drop notice while reconnect is still waiting and keeps real failures", async () => {
+    const { connection, client, first } = await liveClient();
+    const view = new ThreadViewStore();
+    const toasts = new ToastStore();
+    const stop = showNoticesAsToasts(view, toasts, undefined, client);
+    view.setNotice("The file could not be saved.", "error");
+    const pending = client.renameThread("new title").catch((error: unknown) => view.setNotice(String(error), "error"));
+    first.drop();
+    await pending;
+    try {
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(toasts.getToasts()).toEqual([expect.objectContaining({ type: "error", description: "The file could not be saved." })]);
+    } finally { stop(); toasts.dispose(); connection.close(); }
+  });
+
+  it("does not restore a drop toast when its caller reports the error after reconnect", async () => {
+    const { connection, client, first, wake } = await liveClient();
+    const view = new ThreadViewStore();
+    const toasts = new ToastStore();
+    const stop = showNoticesAsToasts(view, toasts, undefined, client);
+    const pending = client.renameThread("new title").catch((error: unknown) => error);
+    first.drop();
+    const error = await pending;
+    wake("online");
+    const next = FakeSocket.opened[1]!;
+    next.accept();
+    await vi.advanceTimersByTimeAsync(0);
+    answerHello(next, helloReply(1));
+    await vi.advanceTimersByTimeAsync(0);
+    try {
+      view.setNotice(errorMessage(error), "error");
+      expect(toasts.getToasts()).toEqual([]);
+    } finally { stop(); toasts.dispose(); connection.close(); }
+  });
+
   it("fetches a fresh bootstrap after the host drops a slow client", async () => {
     const { connection, first, wake } = await liveClient();
     first.deliver({ type: "push", push: { seq: 1, event: logEvent("before") } });

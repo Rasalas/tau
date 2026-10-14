@@ -288,7 +288,7 @@ describe("host connection", () => {
     await Promise.resolve();
     await Promise.resolve();
     await vi.waitFor(() => expect(rejected).toHaveBeenCalledOnce());
-    expect(rejected.mock.calls[0]![0]).toMatchObject({ code: "failed" });
+    expect(rejected.mock.calls[0]![0]).toMatchObject({ code: stop === "drop" ? "connection-dropped" : "failed" });
     await job;
     connection.close();
   });

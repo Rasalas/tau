@@ -17,6 +17,7 @@ import {
 import type { HostLink } from "./host-link";
 import { MessageTextStream } from "./message-text-stream";
 import { ToolOutputStream, isWireEvent } from "./tool-output-stream";
+import { ConnectionDroppedError } from "../shared/connection-dropped-error";
 
 /**
  * `reconnecting` means pushes are missing; `resyncing` means the state is being
@@ -97,7 +98,7 @@ export class HostConnection {
   constructor(private readonly transport: HostTransport) {
     transport.onPush((push) => this.receive(push));
     transport.onClose?.(() => {
-      this.failJobs("The connection to the machine dropped before the job finished.");
+      this.failJobs(ConnectionDroppedError.job());
       if (!this.closed && this.refusal === undefined) this.setState("reconnecting");
     });
     transport.onOpen?.(() => {
@@ -453,8 +454,8 @@ export class HostConnection {
     return reply;
   }
 
-  private failJobs(message: string): void {
-    const error = new HostRequestError(message, HOST_ERROR.failed);
+  private failJobs(failure: string | Error): void {
+    const error = typeof failure === "string" ? new HostRequestError(failure, HOST_ERROR.failed) : failure;
     for (const job of [...this.jobs.values(), ...this.startingJobs]) job.reject(error);
     this.jobs.clear();
     this.startingJobs.clear();
@@ -466,7 +467,7 @@ export class HostConnection {
     this.toolOutputs.clear();
     this.messageTexts.clear();
     // Their `job-done` may be among the pushes skipped; waiting for it could last forever.
-    this.failJobs("The link to the machine was reset before the job finished.");
+    this.failJobs(ConnectionDroppedError.reset());
     await this.resync();
     this.resyncPending = false;
   }

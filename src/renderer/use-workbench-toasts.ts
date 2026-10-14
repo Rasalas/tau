@@ -1,16 +1,29 @@
 import { useEffect, useRef } from "react";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
-import type { ToastStore } from "../workbench/toast-store";
+import type { ToastHandle, ToastStore } from "../workbench/toast-store";
+import type { HostClient } from "../workbench/host-client";
+import { CONNECTION_DROPPED_MESSAGE, isConnectionDroppedNotice } from "../shared/connection-dropped-error";
+import { useHostClient } from "./host-client-context";
 import type { AppUpdate } from "./app-update";
 import { noticeHeadline, plainNoticeText } from "./components/notice-text";
 import { isMachineUpdateNotice } from "../shared/machine-compatibility";
 
 /** Every notice as a toast: the headline to read, the whole text to copy when it failed or was cut short. An error stays until dismissed. */
-export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, openMachines?: () => void): () => void {
-  return view.subscribeToNotice(() => {
+export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, openMachines?: () => void,
+  client?: Pick<HostClient, "getConnectionLink" | "onConnectionLink">): () => void {
+  let dropped: ToastHandle | undefined;
+  const dismissDropped = () => { dropped?.dismiss(); dropped = undefined; };
+  const stopLink = client?.onConnectionLink((link) => { if (link.phase === "open") dismissDropped(); });
+  const stopNotices = view.subscribeToNotice(() => {
     const notice = view.getNotice();
     if (!notice) return;
     const message = plainNoticeText(notice.message);
+    if (isConnectionDroppedNotice(message)) {
+      // A caller may report an old rejection after the replacement socket opened.
+      if (client?.getConnectionLink()?.phase === "open") return;
+      dropped = toasts.show({ id: "notice:connection-dropped", type: "info", description: CONNECTION_DROPPED_MESSAGE, timeoutMs: 5_000 });
+      return;
+    }
     const headline = noticeHeadline(message);
     toasts.show({
       // The same text again restarts its toast rather than stacking a copy.
@@ -21,6 +34,7 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, o
       ...(notice.level !== "info" || headline !== message.trim() ? { copyText: message } : {}),
     });
   });
+  return () => { stopNotices(); stopLink?.(); dismissDropped(); };
 }
 
 /**
@@ -34,10 +48,11 @@ export function useWorkbenchToasts({ view, toasts, update, openMachines }: {
   update?: AppUpdate | undefined;
   openMachines?: () => void;
 }): void {
+  const client = useHostClient();
   const machines = useRef(openMachines);
   machines.current = openMachines;
   const hasMachines = !!openMachines;
-  useEffect(() => showNoticesAsToasts(view, toasts, hasMachines ? () => machines.current?.() : undefined), [toasts, view, hasMachines]);
+  useEffect(() => showNoticesAsToasts(view, toasts, hasMachines ? () => machines.current?.() : undefined, client), [toasts, view, hasMachines, client]);
   const install = useRef(update?.install);
   install.current = update?.install;
   const { version, phase, progress } = update ?? {};

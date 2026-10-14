@@ -1,12 +1,39 @@
 // @vitest-environment jsdom
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadViewStore } from "../workbench/thread-view-store";
 import { ToastStore } from "../workbench/toast-store";
 import type { AppUpdate } from "./app-update";
 import { useWorkbenchToasts } from "./use-workbench-toasts";
+import { HostClientProvider } from "./host-client-context";
+import { createFakeHostClient } from "./test-support/fake-host-client";
+import type { HostLink } from "../workbench/host-link";
 
 afterEach(cleanup);
+
+it("binds the transient notice to the workbench's current client and releases its listener", () => {
+  const toasts = new ToastStore();
+  const view = new ThreadViewStore();
+  let link: HostLink = { phase: "waiting", attempts: 1 };
+  const listeners = new Set<(link: HostLink) => void>();
+  const client = createFakeHostClient({
+    getConnectionLink: () => link,
+    onConnectionLink: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+  });
+  const { unmount } = renderHook(() => useWorkbenchToasts({ view, toasts }), {
+    wrapper: ({ children }) => <HostClientProvider client={client}>{children}</HostClientProvider>,
+  });
+  act(() => view.setNotice("The connection to the machine dropped.", "error"));
+  expect(toasts.getToasts()).toHaveLength(1);
+  act(() => {
+    link = { phase: "open", attempts: 0 };
+    for (const listener of listeners) listener(link);
+  });
+  expect(toasts.getToasts()).toEqual([]);
+  unmount();
+  expect(listeners.size).toBe(0);
+  toasts.dispose();
+});
 
 describe("the update toast", () => {
   it("offers Restart, then follows the install until the quit, and stays up throughout (K161)", () => {

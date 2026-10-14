@@ -212,6 +212,13 @@ one host call and a notice. It imports no React, no Electron and no browser
 global, and `src/workbench/workbench-boundary.test.ts` fails on any of them.
 Where it needs the view side it names a port, never a class.
 
+A dropped socket rejects pending requests and jobs with `connection-dropped`.
+Initial bootstrap reads retry silently; writes are never resent. The notice
+bridge combines interruptions into one five-second info toast and dismisses it
+when the socket opens, including errors reported late by callers. Existing
+text-only notice ports recognize the transport's fixed interruption sentences,
+also inside an action's message, without adding an extension API.
+
 `src/renderer/` is the React binding of that client, and `Platform`
 (`src/workbench/platform.ts`) is what the client needs of the machine it runs
 on: clipboard, `openExternal`, `files` (only where the host's paths are this

@@ -1,6 +1,7 @@
 import { errorMessage } from "./error-message";
 import type { HostBootstrap } from "../shared/contracts";
 import { HOST_ERROR } from "../shared/host-transport";
+import { isConnectionDropped } from "../shared/connection-dropped-error";
 import type { HostClient } from "./host-client";
 import { followShownThread } from "./shown-thread";
 import type { WorkbenchSession } from "./workbench-session";
@@ -43,7 +44,7 @@ export function followWorkbenchBootstrap(
       // This read retries by itself. Timeouts and an old connection's late
       // failures belong to recovery, rather than the user's notification stack.
       const timeout = error instanceof Error && "code" in error && error.code === HOST_ERROR.timeout;
-      if (!disposed && connected && generation === connectionGeneration && !timeout
+      if (!disposed && connected && generation === connectionGeneration && !timeout && !isConnectionDropped(error)
         && workbench.history.isCurrentBootstrap(request)) onError(errorMessage(error));
     }).finally(() => {
       loading = false;
