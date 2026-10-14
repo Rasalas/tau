@@ -870,7 +870,9 @@ Prepared prompt links use the existing window channel in API 1.62.0. The
 window queues up to ten bounded `tau://new` URLs from OS launches and emits
 `window-shell { kind: "links-available" }`. Once the workbench is ready it
 calls `window-action { kind: "take-links" }`, which drains that queue. The
-renderer parses and places text in a draft; the window never submits it.
+renderer keeps only the event and route receiver in its initial script. A link
+loads the parser, draft placement and confirmation through a dynamic import;
+the window never submits it.
 There is no new host method, extension export or service. See
 [prepared prompt links](prompt-links.md) for the URL format and confirmation.
 

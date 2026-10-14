@@ -59,6 +59,14 @@ describe("deferred surfaces", () => {
     expect(startupGraph().has(controls)).toBe(false);
   });
 
+  it("loads prepared prompt processing only after a link arrives", () => {
+    const graph = startupGraph();
+    expect(graph.has(join(SRC, "renderer/PromptLinkReceiver.tsx"))).toBe(true);
+    for (const path of ["renderer/PromptLinkHandler.tsx", "renderer/prompt-link-flow.ts", "shared/prompt-links.ts"]) {
+      expect(graph.has(join(SRC, path)), path).toBe(false);
+    }
+  });
+
   it("leave the kit API to the kits", () => {
     // `loadTauApi` imports it before the first bundle request.
     const api = startupGraph().get(join(SRC, "renderer/extension-api.ts"));

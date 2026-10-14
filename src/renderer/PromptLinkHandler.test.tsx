@@ -8,7 +8,9 @@ import type { Platform } from "../workbench/platform";
 import type { ClientStorage } from "../workbench/client-storage";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { createMemoryStorage } from "../workbench/client-storage";
-import { PromptLinkHandler, openPromptLink } from "./PromptLinkHandler";
+import { Markdown } from "./components/Markdown";
+import { PromptLinkReceiver } from "./PromptLinkReceiver";
+import { openPromptLink } from "./prompt-link-event";
 import { HostClientProvider } from "./host-client-context";
 import { PlatformProvider } from "./platform-context";
 import { createFakeHostClient } from "./test-support/fake-host-client";
@@ -27,7 +29,7 @@ function setup(text = "", native: string[] = [], options: { environments?: Platf
   const client = createFakeHostClient({ windowAction: async (action) => action.kind === "take-links" ? native.splice(0) : undefined });
   const platform = { ...options, storage: options.storage ?? createMemoryStorage(), clipboard: { writeText: async () => {} }, openExternal: vi.fn(), importModule: async () => ({}) };
   render(<StrictMode><HostClientProvider client={client}><PlatformProvider platform={platform}>
-    <PromptLinkHandler actions={actions} threads={threads} scope="draft:1" />
+    <PromptLinkReceiver actions={actions} threads={threads} scope="draft:1" />
   </PlatformProvider></HostClientProvider></StrictMode>);
   return { actions, client, setComposerDraft, submitPrompt };
 }
@@ -75,4 +77,22 @@ it("carries the prompt through a desktop machine switch before placing it", asyn
   await waitFor(() => expect(second.setComposerDraft).toHaveBeenCalledWith("Remote"));
   expect(storage.get(STORAGE_KEYS.promptLinkArrival)).toBeNull();
   expect(second.submitPrompt).not.toHaveBeenCalled();
+});
+
+
+it("keeps native links queued while the workflow chunk loads", async () => {
+  const { setComposerDraft, submitPrompt } = setup("", ["tau://new?prompt=First", "tau://new?prompt=Second"]);
+  await waitFor(() => expect(setComposerDraft).toHaveBeenCalledWith("First"));
+  fireEvent.click(await screen.findByRole("button", { name: "Replace text" }));
+  await waitFor(() => expect(setComposerDraft).toHaveBeenCalledWith("Second"));
+  expect(setComposerDraft).toHaveBeenCalledTimes(2);
+  expect(submitPrompt).not.toHaveBeenCalled();
+});
+
+it("opens prepared text from a chat link through the small event bridge", async () => {
+  const { setComposerDraft, submitPrompt } = setup();
+  render(<Markdown>{"[Prepare](tau://new?prompt=Chat)"}</Markdown>);
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare" }));
+  await waitFor(() => expect(setComposerDraft).toHaveBeenCalledWith("Chat"));
+  expect(submitPrompt).not.toHaveBeenCalled();
 });

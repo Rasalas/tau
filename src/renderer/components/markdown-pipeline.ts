@@ -8,7 +8,7 @@ import { gfmFromMarkdown } from "mdast-util-gfm";
 import { newlineToBreak } from "mdast-util-newline-to-break";
 import { gfm } from "micromark-extension-gfm";
 import { normalizeUri } from "micromark-util-sanitize-uri";
-import { parsePromptLink } from "../../shared/prompt-links";
+import { isPromptLinkUrl } from "../prompt-link-event";
 import { parseThreadLink } from "../../shared/thread-links";
 
 /*
@@ -35,7 +35,7 @@ const SAFE_PROTOCOL = /^(https?|ircs?|mailto|xmpp)$/iu;
 
 /** Keeps relative URLs, safe protocols and links to a thread; anything else (`javascript:`) becomes empty. */
 export function safeUrl(value: string): string {
-  if (parsePromptLink(value) || parseThreadLink(value)) return value;
+  if (isPromptLinkUrl(value) || parseThreadLink(value)) return value;
   if (/^[\w@.-]+\.[A-Za-z0-9]{1,8}:[1-9]\d*$/u.test(value)) return `./${value}`;
   const colon = value.indexOf(":");
   if (colon === -1) return value;
