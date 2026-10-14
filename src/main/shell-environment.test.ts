@@ -72,6 +72,30 @@ describe("installShellEnvironment", () => {
     expect(result.pathSource).toBe("launchctl");
   });
 
+  it.runIf(posix).each([undefined, "inherited-diff"])("keeps the shell's mise record with PATH over %s", async (inheritedDiff) => {
+    const env: NodeJS.ProcessEnv = { PATH: "/usr/bin", SHELL: "/bin/sh", __MISE_DIFF: inheritedDiff };
+    let probe: string | undefined;
+    const result = await installShellEnvironment({
+      env,
+      platform: "linux",
+      run: async (_command, args) => {
+        probe = args[1];
+        return answer({ PATH: "/wrappers:/mise/installs/tool/bin:/usr/bin", __MISE_DIFF: "shell-diff" });
+      },
+    });
+    expect(env.PATH).toBe("/wrappers:/mise/installs/tool/bin:/usr/bin");
+    expect(env["__MISE_DIFF"]).toBe("shell-diff");
+    expect(probe).toContain("printenv __MISE_DIFF || true");
+    expect(result.installed).toContain("__MISE_DIFF");
+  });
+
+  it.runIf(posix)("removes a stale mise record when the shell PATH has none", async () => {
+    const env: NodeJS.ProcessEnv = { PATH: "/usr/bin", SHELL: "/bin/sh", __MISE_DIFF: "stale-diff" };
+    await installShellEnvironment({ env, platform: "linux", run: async () => answer({ PATH: "/fresh/bin:/usr/bin" }) });
+    expect(env.PATH).toBe("/fresh/bin:/usr/bin");
+    expect(env["__MISE_DIFF"]).toBeUndefined();
+  });
+
   it("survives a shell that fails or hangs", async () => {
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin", SHELL: "/bin/sh" };
     const result = await installShellEnvironment({ env, platform: "linux", run: async () => { throw new Error("timed out"); } });
