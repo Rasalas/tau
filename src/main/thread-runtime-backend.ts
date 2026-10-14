@@ -322,7 +322,8 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       try {
         await this.session.prompt(text, {
           images,
-          streamingBehavior: input.queued ? "followUp" : undefined,
+          // Native work may start during preparation; let the runtime queue it.
+          streamingBehavior: "followUp",
           ...(input.onAdmitted ? { preflightResult: () => {
             admitted = true;
             input.onAdmitted?.(true);

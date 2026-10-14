@@ -467,6 +467,49 @@ describe("PiHost admission settlement contracts", () => {
 });
 
 describe("PiHost prompt preflight", () => {
+  it.each([true, false])("queues a normal prompt when native work starts after preparation, journal=%s", async (journal) => {
+    const queueFollowUp = vi.fn(async (_text: string, _images?: unknown) => undefined);
+    const queueSteer = vi.fn(async () => undefined);
+    const session = {
+      model: { input: ["text"] },
+      isStreaming: false,
+      _runInputHandlers: async (text: string) => ({ text }),
+      _expandSkillCommand: (text: string) => text,
+      promptTemplates: [],
+      _queueFollowUp: queueFollowUp,
+      _queueSteer: queueSteer,
+      prompt: (text: string, options?: PromptOptions) =>
+        AgentSession.prototype.prompt.call(session as never, text, options),
+    };
+    const runtime = piPromptThread(session);
+    if (!journal) delete runtime.backend.capabilities.journal;
+    const deliver = runtime.backend.prompt;
+    const backendAdmitted = vi.fn();
+    runtime.backend.prompt = (input) => {
+      expect(input.queued).not.toBe(true);
+      expect(session.isStreaming).toBe(false);
+      const run = deliver({ ...input, onAdmitted: (...args) => {
+        backendAdmitted(...args);
+        input.onAdmitted?.(...args);
+      } });
+      // Native work starts during the backend's asynchronous preparation.
+      session.isStreaming = true;
+      return run;
+    };
+    const emit = vi.fn();
+    const host = new PiHost("/repo", emit, {} as never, true, false);
+    await adoptThread(host, { threadId: "session", cwd: "/repo", runtime });
+    const admitted = vi.fn();
+
+    await expect(host.prompt("hello", [], "session", admitted)).resolves.toBeUndefined();
+
+    expect(queueFollowUp).toHaveBeenCalledExactlyOnceWith("hello", undefined);
+    expect(queueSteer).not.toHaveBeenCalled();
+    expect(backendAdmitted).toHaveBeenCalledExactlyOnceWith(true);
+    expect(admitted).toHaveBeenCalledExactlyOnceWith({ accepted: true });
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+  });
+
   it.each(["started", "queued", "handled"] as const)("resolves after SDK preflight %s and reports later run errors", async (disposition) => {
     let rejectRun!: (error: Error) => void;
     const run = new Promise<void>((_resolve, reject) => { rejectRun = reject; });
