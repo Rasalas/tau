@@ -5,9 +5,11 @@ import { pathToFileURL } from "node:url";
 import { readWorkbenchSourceRoot } from "./workbench-source.js";
 import { backgroundModeRequested } from "./background-mode.js";
 import { appIdentity } from "./app-identity.js";
+import { configureEarlyLinuxStartup } from "./linux-startup.js";
 
 // First thing, before the workbench's modules load: until then the Dock shows a test instance.
 if (process.platform === "darwin" && backgroundModeRequested(process.env)) app.setActivationPolicy("accessory");
+configureEarlyLinuxStartup(app.commandLine);
 
 const userData = process.env.TAU_USER_DATA || join(app.getPath("appData"), appIdentity().userDataFolder);
 const ignoreSource = process.env.TAU_IGNORE_WORKBENCH_SOURCE === "1" || process.env.TAU_NO_EXTENSIONS === "1";

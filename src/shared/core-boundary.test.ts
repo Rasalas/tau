@@ -54,6 +54,7 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./desktop-startup.js", "./compile-cache.js",
+  "./linux-startup.js", // Chromium workarounds applied before asynchronous desktop startup.
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
   // The `tau` command linked from Settings → General.
   "./command-line.js",
