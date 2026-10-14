@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { CustomizablePart, WorkbenchActions } from "tau";
-import { CUSTOMIZE_SETTINGS_PAGE } from "./settings.js";
+import { CUSTOMIZE_SETTINGS_PAGE, partRowId } from "./settings.js";
 
 /** Whether the picker is on; the command turns it on, a pick or Escape off. */
 export function createPickerState() {
@@ -56,7 +56,7 @@ export function Picker({ state, actions, parts }: { state: PickerState; actions:
       event.stopPropagation();
       const part = partAt(document.elementFromPoint(event.clientX, event.clientY));
       state.set(false);
-      if (part?.dataset.tauPart) actions.openSettings(`${CUSTOMIZE_SETTINGS_PAGE}#${encodeURIComponent(part.dataset.tauPart)}`);
+      if (part?.dataset.tauPart) actions.openSettings(`${CUSTOMIZE_SETTINGS_PAGE}#${partRowId(part.dataset.tauPart)}`);
     };
     const key = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
