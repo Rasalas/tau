@@ -8,10 +8,12 @@ import {
   createMemoryStorage,
   HOST_CAPABILITY,
   HostClientProvider,
+  KitShell,
   PreferencesStore,
   RendererServicesProvider,
   setHostClient,
 } from "../../src/renderer/test-support/kit-harness.js";
+import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { withWorkspaceStore } from "./store-context.js";
 import { TitleActionsRow, WorkspaceEditorButton, WorkspaceTitleActions, WorkspaceStageContext } from "./title.js";
@@ -57,7 +59,9 @@ function setup(info = workspace(), draftPending = false, localFiles = true, leve
     <HostClientProvider client={client}>
       <ClientStorageProvider storage={createMemoryStorage()}>
         <RendererServicesProvider services={{ preferences }}>
-          <TitleActions actions={{ activeStageTab: () => ({ id: "panel:review.diff", kind: "panel", panelId: "review.diff", preview: false }) } as WorkbenchActions} />
+          <KitShell><TestThreadStore threads={[]}>
+            <TitleActions actions={{ activeStageTab: () => ({ id: "panel:review.diff", kind: "panel", panelId: "review.diff", preview: false }) } as WorkbenchActions} />
+          </TestThreadStore></KitShell>
         </RendererServicesProvider>
       </ClientStorageProvider>
     </HostClientProvider>,

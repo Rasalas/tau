@@ -3,9 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, describe, expect, it } from "vitest";
 import { usePreferences, type HostSnapshot, type PreferencesStore, type UiThreadUsage, type WorkbenchActions } from "tau";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
-import { ExtensionRegistry } from "../../src/renderer/extension-system.js";
-import { ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/workbench-context.js";
-import { ThreadStore } from "../../src/workbench/thread-store.js";
+import { createKitHarness, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { ThreadCostRow } from "./thread-cost-row.js";
 
 const usage: UiThreadUsage = {
@@ -23,7 +21,7 @@ afterEach(cleanup);
 function renderRow(spent: UiThreadUsage | undefined, store = new ThreadStore()): PreferencesStore {
   let preferences: PreferencesStore | undefined;
   const Capture = () => { preferences = usePreferences(); return null; };
-  const registry = new ExtensionRegistry();
+  const { registry } = createKitHarness();
   render(<TestProviders><ThreadStoreContext.Provider value={store}><WorkbenchShellContext.Provider value={{ registry }}>
     <Capture />
     <ThreadCostRow snapshot={{ sessionId: "a", usage: spent } as HostSnapshot} actions={{} as WorkbenchActions} />
