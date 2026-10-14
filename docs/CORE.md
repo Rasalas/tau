@@ -164,6 +164,14 @@ Workbench
   every runtime from then on — so a turn in flight keeps the code it started
   with while host commands and panels change at once
 
+- **Linux desktop startup** (`src/main/linux-startup.ts`): before the launcher's
+  first await, a native Wayland Hyprland session disables
+  `WaylandWpColorManagerV1` only for the known stock 0.48.0 through 0.50.1 releases.
+  `hyprctl version -j` must match the release version, tag and commit, with a clean
+  build. The probe has a one-second timeout; failed or unknown probes preserve
+  the default. Explicit feature overrides take precedence, and other disabled
+  features remain in the merged command-line switch.
+
 ### The workbench and its client
 
 The workbench is always a client of a host in another process. The window
