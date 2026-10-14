@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { AlertCircle, FileText, GitPullRequest, Paperclip, Quote, X } from "lucide-react";
+import { THREAD_PULL_REQUESTS_SERVICE, type ThreadPullRequestsService } from "tau";
 import type {
   ComposerChipDetailProps,
   ComposerInlineChip,
@@ -239,6 +240,11 @@ const composerContext: DesktopExtension = {
       workspace = value;
       return () => { if (workspace === value) workspace = undefined; };
     });
+    let pullRequests: ThreadPullRequestsService | undefined;
+    context.useService<ThreadPullRequestsService>(THREAD_PULL_REQUESTS_SERVICE, (value) => {
+      pullRequests = value;
+      return () => { if (pullRequests === value) pullRequests = undefined; };
+    });
     const cwdFor = (inline: ComposerInlineContext) => workspace?.getSnapshot().cwd ?? inline.snapshot?.cwd;
 
     // Uploads the connection lost for good, started again once the host is back.
@@ -317,12 +323,25 @@ const composerContext: DesktopExtension = {
           char: "#",
           label: "Pull requests",
           search: async (query, inline): Promise<ComposerTriggerItem[]> => {
+            const sessionId = inline.snapshot?.sessionId;
+            const linked: PullRequestSummary[] = (sessionId ? pullRequests?.forThread(sessionId) ?? [] : []).map((pr) => ({
+              number: pr.number, title: pr.title ?? pr.repo, url: pr.url,
+              ...(pr.headRef ? { branch: pr.headRef } : {}), ...(pr.draft ? { draft: true } : {}),
+            }));
             const cwd = cwdFor(inline);
-            if (!cwd) return [];
+            let listed: PullRequestSummary[] = [];
+            if (cwd) {
+              try { listed = await host("list-pull-requests", { cwd }); }
+              catch (error) { if (!linked.length) throw error; }
+            }
             const needle = query.toLowerCase();
-            const list = await host("list-pull-requests", { cwd });
-            return list
-              .filter((pr) => !needle || String(pr.number).startsWith(needle) || pr.title.toLowerCase().includes(needle))
+            const seen = new Set<string>();
+            return [...linked, ...listed]
+              .filter((pr) => {
+                if (seen.has(pr.url)) return false;
+                seen.add(pr.url);
+                return !needle || String(pr.number).startsWith(needle) || pr.title.toLowerCase().includes(needle);
+              })
               .map((pr) => ({ id: JSON.stringify(pr), label: `${requestNumberOf(pr.url, pr.number)} ${pr.title}`, ...(pr.branch ? { description: pr.branch } : {}), ...(pr.draft ? { hint: "draft" } : {}) }));
           },
           select: (item, _query, inline) => {
