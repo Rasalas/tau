@@ -23,8 +23,7 @@ import { threadCostLabel } from "./cost-format";
 import { retryPrompt } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
 import { declareRuntimeMarks } from "./runtime-marks";
-import { PairingRequestWatcher, QueuedMessages } from "./deferred-surfaces";
-import { revealQueuedMessages } from "./queue-reveal";
+import { PairingRequestWatcher } from "./deferred-surfaces";
 import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";
@@ -633,7 +632,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     if (phone) phoneNav.openSettings(card ?? "providers");
     else actions.openSettings(card ?? "providers");
   }, [actions, phone, phoneNav.openSettings, registry]);
-  const openQueue = useCallback(() => revealQueuedMessages(thread.transcriptRef.current), [thread.transcriptRef]);
 
   const conversationComposer = <ConversationComposer
     current={contentCurrent}
@@ -649,7 +647,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     openProviders={openProviders}
     threadStore={threadStore}
     floating={floating}
-    onOpenQueue={openQueue}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -1197,9 +1194,7 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
   const onForkMessage = useCallback((message: UiMessage, turn?: TranscriptTurn) => void forkMessage(message, turn), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const { readOnly } = useHostCapabilities();
-  const { queue, steerQueued, returnQueued, reorderQueue, planQueued } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
-  const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
   const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
   // Stable across deltas, like the callbacks above.
   const latestMessages = useRef(messages);
@@ -1211,14 +1206,10 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
   }, [submit]);
   // The composer's bar retries a failed turn, and says when a limit resets.
   const limit = pendingNewThread || running ? undefined : shell?.limit;
-  const queueHeld = shell?.queueHeld === true;
-  const liveStatus = useMemo(() => {
-    const status = liveStatusLabel !== undefined
-      ? <LiveStatus label={liveStatusLabel} />
-      : thinking ? <LiveStatus startedAt={runStartedAt} /> : undefined;
-    if (pendingNewThread || queue.length === 0) return status;
-    return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} onPlan={planQueued} /></>;
-  }, [liveStatusLabel, pendingNewThread, planQueued, queue, queueHeld, reorderQueue, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut]);
+  // What waits is drawn over the composer (QueueShelf), not at the end of the transcript.
+  const liveStatus = useMemo(() => liveStatusLabel !== undefined
+    ? <LiveStatus label={liveStatusLabel} />
+    : thinking ? <LiveStatus startedAt={runStartedAt} /> : undefined, [liveStatusLabel, runStartedAt, thinking]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     showControl={!pendingNewThread && messages.length > 0}
@@ -1252,10 +1243,9 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
 });
 
 /** The context meter reads token estimates at its displayed precision. */
-const ConversationComposer = memo(function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating, onOpenQueue, current = true }: {
+const ConversationComposer = memo(function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating, current = true }: {
   current?: boolean;
   view: ThreadViewStore;
-  onOpenQueue(): void;
   floating?: boolean;
   threadStore: ThreadStore;
   lead?: React.ReactNode;
@@ -1286,7 +1276,7 @@ const ConversationComposer = memo(function ConversationComposer({ view, composer
   const setup = draftKind ? newThreadSetup(draftKind, snapshot, catalogs) : undefined;
   const {
     scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
-    cancelQueued, steerQueued, setModel, setThinking, answerUiPrompt, compactContext,
+    cancelQueued, steerQueued, returnQueued, reorderQueue, planQueued, setModel, setThinking, answerUiPrompt, compactContext,
   } = composer;
   const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
   const { readOnly } = useHostCapabilities();
@@ -1333,7 +1323,10 @@ const ConversationComposer = memo(function ConversationComposer({ view, composer
     onAbort={() => abort(snapshot?.sessionId)}
     onCancelQueued={cancelQueued}
     onSteerQueued={steerQueued}
-    onOpenQueue={onOpenQueue}
+    queueHeld={shell?.queueHeld === true}
+    onReturnQueued={returnQueued}
+    onReorderQueue={reorderQueue}
+    onPlanQueued={planQueued}
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}

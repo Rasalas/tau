@@ -1262,43 +1262,6 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .turn-error-line.recovered > svg { color: var(--faint); }
 
 /* Messages waiting for the run: dashed user bubbles at the end of the conversation. */
-.queued-messages { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-.queued-message {
-  max-width: 78%; min-width: 220px; padding: 10px 12px 6px 14px;
-  border: 1px dashed var(--line-strong); border-radius: 14px 14px 4px 14px;
-  color: var(--ink-3); font-size: var(--text-md); line-height: 1.55;
-}
-.queued-message.dragging { opacity: .45; }
-.queued-message > p { margin: 0; white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
-.queued-message > small { display: block; margin-top: 4px; font-size: var(--text-xs); color: var(--muted-2); }
-.queued-message > footer { display: flex; align-items: center; gap: 2px; margin-top: 6px; color: var(--muted-2); font-size: var(--text-xs); }
-.queued-message > footer .spacer { flex: 1; }
-.queued-message > footer button {
-  width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm);
-  background: transparent; color: var(--muted); cursor: pointer;
-}
-.queued-message > footer button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
-.queued-message > footer button:disabled { opacity: .35; cursor: default; }
-.queued-message-grip { cursor: grab; color: var(--faint); }
-.queued-message.dragging .queued-message-grip { cursor: grabbing; }
-.queued-message-status { display: inline-flex; align-items: center; gap: 4px; margin-left: 2px; }
-/* A planned message: its time is a button that plans it for another; its text opens it in the composer. */
-.queued-message > p.queued-message-text { cursor: pointer; }
-.queued-message > footer button.queued-message-when { width: auto; display: inline-flex; gap: 4px; padding: 0 7px; border-radius: var(--radius-pill); color: var(--acid-text); font: var(--text-xs) var(--sans); }
-.queued-message > footer button.queued-message-when:hover:not(:disabled) { background: var(--acid-chip); color: var(--acid-text); }
-/* A wake waits as one quiet row, never a bubble of the user's. */
-.queued-message.queued-wake {
-  min-width: 0; max-width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
-  border-radius: 10px; font-size: var(--text-sm); line-height: 1.3;
-}
-.queued-wake-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
-.queued-wake > .queued-message-status { flex: none; color: var(--faint); font-size: var(--text-xs); }
-.queued-wake > button {
-  flex: none; display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--muted); cursor: pointer;
-}
-.queued-wake > button:hover { background: var(--raised); color: var(--ink); }
-@media (pointer: coarse) { .queued-wake > button { width: var(--touch-target); height: var(--touch-target); } }
 
 /* --------------------------------------------------------------- tasks */
 
@@ -1464,7 +1427,7 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .composer-fast { flex: none; margin-left: -2px; color: var(--warn); }
 /* A choice cost the thread its level or Fast: one line above the composer, with Undo (K142, design D). */
 .composer-adjusted {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 12px;
+  position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 12px;
   border: 1px solid var(--line-float); border-radius: 10px; background: var(--float); box-shadow: var(--elevation-1);
   font-size: var(--text-sm); color: var(--ink-2);
 }
@@ -1545,9 +1508,6 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
   background: conic-gradient(var(--muted) 0 var(--used), var(--line-control) var(--used) 100%);
 }
 .context-dial > i { width: 10px; height: 10px; border-radius: 50%; background: var(--field); }
-.composer-queued { padding-right: 6px; color: var(--muted); font-size: var(--text-2xs); white-space: nowrap; }
-button.composer-queued { border: 0; background: none; font-family: inherit; cursor: pointer; }
-button.composer-queued:hover { color: var(--ink); text-decoration: underline; }
 .context-popover {
   position: absolute; bottom: 28px; right: -52px; width: 252px; z-index: 30;
   display: flex; flex-direction: column; gap: 10px;
@@ -1690,8 +1650,9 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .prompt-arrival-note { max-width: var(--content-max); margin: 0 auto; padding: 0 14px 14px; background: var(--field); color: var(--muted); font: 12px/1.4 var(--sans); }
 /* The question and the composer under it read as one filled card, a hairline between them (design 1c/1n). */
 /* Leave 5 px below the footer after the composer's 9 px overlap. */
+/* Positioned, so it paints over the queue's tab tucked under it (QueueShelf). */
 .extension-prompt {
-  max-width: var(--content-max); margin: 0 auto; padding: 10px 10px 14px; display: flex; flex-direction: column; gap: 6px;
+  position: relative; max-width: var(--content-max); margin: 0 auto; padding: 10px 10px 14px; display: flex; flex-direction: column; gap: 6px;
   border: 1px solid transparent; border-bottom: 0;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-md);
 }
