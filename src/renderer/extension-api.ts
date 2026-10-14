@@ -87,6 +87,9 @@ export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
 // One sandboxed frame for documents a host serves (ADR 0032), and the colour scheme it follows.
 export { SandboxFrame, type SandboxFrameHandle, type SandboxFrameProps } from "./components/SandboxFrame";
+// Parts by name, and the layer that hides, orders, moves and replaces them (API 1.62.0, ADR 0042).
+export { Part, partName, PART_FIELDS } from "./customization";
+export type { CustomizablePart, CustomizationLayer, Customizations, PartKind, ReplacementProps } from "./customization";
 export { useColorScheme } from "./use-color-scheme";
 export { FRAME_DEFAULT_HEIGHT, FRAME_MAX_HEIGHT, FRAME_MIN_HEIGHT, clampFrameHeight, frameAllowAttribute } from "../shared/sandbox-frame";
 export type { FrameColorScheme, SandboxFrameCsp, SandboxFramePermissions } from "../shared/sandbox-frame";

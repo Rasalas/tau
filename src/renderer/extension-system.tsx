@@ -43,6 +43,7 @@ import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 import { providerIconKey } from "./runtime-marks";
+import { CustomizationState, partName, PART_FIELDS, type CustomizablePart, type CustomizationLayer, type PartKind } from "./customization";
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -1760,6 +1761,15 @@ export interface DesktopExtensionContext {
    * which runs when the provider withdraws or this extension deactivates.
    */
   useService<T>(id: string, use: (value: T) => (() => void) | void): () => void;
+  /**
+   * The user's changes to other extensions' parts, by part name (API 1.62.0,
+   * ADR 0042). One layer applies, the last one registered.
+   */
+  registerCustomizations(layer: CustomizationLayer): () => void;
+  /** Every part on offer on this client, drawn or customized away (API 1.62.0). */
+  customizableParts(): CustomizablePart[];
+  /** Runs when parts come or go or the layer changes (API 1.62.0). */
+  onPartsChanged(listener: () => void): () => void;
   registerSidebar(contribution: SidebarContribution): () => void;
   registerProjectSource(source: ProjectSourceContribution): () => void;
   /** Threads of elsewhere in a phone's or tablet's thread list, beside this host's (API 1.30.0). */
@@ -1993,6 +2003,9 @@ export class ExtensionRegistry {
   /** The last failure per extension entry path; an entry that builds again drops out. */
   private readonly loadFailures = new Map<string, string>();
   private sortedCache = new Map<string, { version: number; value: unknown[] }>();
+  private readonly customization = new CustomizationState();
+  /** The layers in the order they came; the last one applies. */
+  private customizationLayers: Array<{ layer: CustomizationLayer; extensionId: string }> = [];
 
   /**
    * Records a renderable contribution and answers whether this client draws it.
@@ -2290,6 +2303,29 @@ export class ExtensionRegistry {
         disposers.push(dispose);
         return dispose;
       },
+      registerCustomizations: (layer) => {
+        note("customizations");
+        const entry = { layer, extensionId: extension.id };
+        this.customizationLayers.push(entry);
+        const unsubscribe = layer.subscribe(() => { if (this.customizationLayers.at(-1) === entry) this.applyCustomizations(); });
+        this.applyCustomizations();
+        let done = false;
+        const dispose = () => {
+          if (done) return;
+          done = true;
+          unsubscribe();
+          this.customizationLayers = this.customizationLayers.filter((held) => held !== entry);
+          this.applyCustomizations();
+        };
+        disposers.push(dispose);
+        return dispose;
+      },
+      customizableParts: () => this.getCustomizableParts(),
+      onPartsChanged: (listener) => {
+        const dispose = this.subscribeRegistrations(listener);
+        disposers.push(dispose);
+        return dispose;
+      },
       registerSidebar: (contribution) => {
         if (!this.scopeToProfile(owner, "sidebar", contribution.id, undefined, contribution)) return noContribution;
         note("sidebar");
@@ -2491,7 +2527,7 @@ export class ExtensionRegistry {
   }
 
   getPanels(): Array<Owned<PanelContribution>> {
-    return this.sorted("panels", this.panels);
+    return this.customized("panel", this.panels);
   }
 
   /** The kind that draws a stage tab, while the extension offering it is active. */
@@ -2511,11 +2547,11 @@ export class ExtensionRegistry {
 
   /** Pages of the app extensions added, in `order`. */
   getPages(): Array<Owned<PageContribution>> {
-    return this.sorted("pages", this.pages);
+    return this.customized("page", this.pages);
   }
 
   getPage(id: string | undefined): Owned<PageContribution> | undefined {
-    return id ? this.pages.get(id) : undefined;
+    return id ? this.getPages().find((page) => page.id === id) : undefined;
   }
 
   /** Sections packages added to one of core's Settings pages, in `order`. */
@@ -2604,13 +2640,13 @@ export class ExtensionRegistry {
     const key = `regions:placed:${placement}`;
     const cached = this.sortedCache.get(key);
     if (cached?.version === this.version) return cached.value as Array<Owned<RegionContribution>>;
-    const value = this.sorted(`regions:${placement}`, this.regions).filter((region) => region.placement === placement);
+    const value = this.customized("region", this.regions).filter((region) => region.placement === placement);
     this.sortedCache.set(key, { version: this.version, value });
     return value;
   }
 
   getStatusItems(): Array<Owned<StatusItemContribution>> {
-    return this.sorted("status-items", this.statusItems);
+    return this.customized("status", this.statusItems);
   }
 
   getOverlay(id: string | undefined): Owned<OverlayContribution> | undefined {
@@ -2631,7 +2667,7 @@ export class ExtensionRegistry {
   }
 
   getComposerControls(): Array<Owned<ComposerControlContribution>> {
-    return this.sorted("composer-controls", this.composerControls);
+    return this.customized("composer-control", this.composerControls);
   }
 
   getComposerInlines(): Array<Owned<ComposerInlineContribution>> {
@@ -2655,7 +2691,7 @@ export class ExtensionRegistry {
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
-    return this.sorted("sidebar", this.sidebarContributions);
+    return this.customized("sidebar", this.sidebarContributions);
   }
 
   getProjectSources(): Array<Owned<ProjectSourceContribution>> {
@@ -3159,6 +3195,55 @@ export class ExtensionRegistry {
     );
     this.sortedCache.set(key, { version: this.version, value });
     return value;
+  }
+
+  /** A kind's contributions as the user customized them, in their (possibly overridden) order. */
+  private customized<T extends { id: string; order?: number }>(kind: PartKind, map: Map<string, T>): T[] {
+    const key = `customized:${kind}`;
+    const cached = this.sortedCache.get(key);
+    if (cached?.version === this.version) return cached.value as T[];
+    const value = this.customization.apply(kind, [...map.values()]);
+    value.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    this.sortedCache.set(key, { version: this.version, value });
+    return value;
+  }
+
+  private applyCustomizations(): void {
+    this.customization.set(this.customizationLayers.at(-1)?.layer.getSnapshot());
+    this.changed();
+  }
+
+  /** Every part on offer on this client, with what the layer does to it. */
+  getCustomizableParts(): CustomizablePart[] {
+    const parts: CustomizablePart[] = [];
+    const add = (kind: PartKind, items: Iterable<Owned<{ id: string; label?: string; placement?: unknown }>>) => {
+      for (const item of items) {
+        const label = item.label ?? item.id;
+        const part = (name: string, field?: string): CustomizablePart => ({
+          name,
+          kind,
+          id: item.id,
+          ...(field ? { field } : {}),
+          label: field ? `${label} · ${field}` : label,
+          extensionId: item.extensionId,
+          extensionName: item.extensionName,
+          hidden: this.customization.isHidden(name),
+          replaced: this.customization.isReplaced(name),
+          ...(kind === "region" && typeof item.placement === "string" ? { placement: item.placement as RegionPlacement } : {}),
+        });
+        parts.push(part(partName(kind, item.id)));
+        for (const field of PART_FIELDS[kind]) {
+          if ((item as unknown as Record<string, unknown>)[field]) parts.push(part(partName(kind, item.id, field), field));
+        }
+      }
+    };
+    add("region", this.regions.values());
+    add("status", this.statusItems.values());
+    add("panel", this.panels.values());
+    add("page", this.pages.values());
+    add("sidebar", this.sidebarContributions.values());
+    add("composer-control", this.composerControls.values());
+    return parts;
   }
 
   private changed(): void {

@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronLeft } from "lucide-react";
 import type { ExtensionRegistry, PageProps, WorkbenchActions } from "../extension-system";
 import type { AppPageStore } from "../../workbench/app-page-store";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "../components/LazyFeature";
+import { Part, partName } from "../customization";
 import { WindowControlsInset } from "../components/WindowControlsInset";
 import { openOverlays } from "../keybinding-context";
 import { SettingsPageActionSlot } from "../settings/page-action";
@@ -34,11 +35,13 @@ export function PageSidebar({ registry, store, actions }: { registry: ExtensionR
     <nav className="settings-nav page-sidebar" aria-label={page.label} data-page-sidebar={page.id}>
       <button type="button" className="settings-back settings-back-top" onClick={store.close}><ChevronLeft size={15} /><span>Back to thread</span></button>
       <div className="page-sidebar-body">
-        <LazyFeatureBoundary label={`${page.id} sidebar`} extensionId={page.extensionId} extensionName={page.extensionName} registry={registry} onNotify={actions.notify}>
-          <Suspense fallback={<LazyFeatureFallback label={page.label} />}>
-            <Sidebar {...props} params={state.views.at(-1)?.params ?? {}} />
-          </Suspense>
-        </LazyFeatureBoundary>
+        <Part name={partName("page", page.id, "Sidebar")}>
+          <LazyFeatureBoundary label={`${page.id} sidebar`} extensionId={page.extensionId} extensionName={page.extensionName} registry={registry} onNotify={actions.notify}>
+            <Suspense fallback={<LazyFeatureFallback label={page.label} />}>
+              <Sidebar {...props} params={state.views.at(-1)?.params ?? {}} />
+            </Suspense>
+          </LazyFeatureBoundary>
+        </Part>
       </div>
       <div className="settings-nav-footer">
         <button type="button" className="settings-back" onClick={store.close}><ChevronLeft size={15} /><span>Back to thread</span></button>
@@ -147,18 +150,19 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
             {fill ? null : head}
             <SettingsPageActionSlot.Provider value={actionSlot}>
               {page ? (
-                <LazyFeatureBoundary
-                  key={page.id}
-                  label={page.id}
-                  extensionId={page.extensionId}
-                  extensionName={page.extensionName}
-                  registry={registry}
-                  onNotify={actions.notify}
-                >
-                  <Suspense fallback={<LazyFeatureFallback label={page.label} />}>
-                    <page.Component {...props} params={view?.params ?? {}} />
-                  </Suspense>
-                </LazyFeatureBoundary>
+                <Part key={page.id} name={partName("page", page.id)}>
+                  <LazyFeatureBoundary
+                    label={page.id}
+                    extensionId={page.extensionId}
+                    extensionName={page.extensionName}
+                    registry={registry}
+                    onNotify={actions.notify}
+                  >
+                    <Suspense fallback={<LazyFeatureFallback label={page.label} />}>
+                      <page.Component {...props} params={view?.params ?? {}} />
+                    </Suspense>
+                  </LazyFeatureBoundary>
+                </Part>
               ) : coming ? <LazyFeatureFallback label={label} /> : (
                 <p className="lede">This page is gone; its extension may have been turned off.</p>
               )}

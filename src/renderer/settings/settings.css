@@ -128,8 +128,8 @@
   color: var(--muted); font-size: calc(var(--text-sm) + .5px); line-height: 1.45;
 }
 /* An older kit's page names itself in an h3; the head already does. */
-.settings-content > .settings-page > h3:first-child { display: none; }
-.settings-content > .settings-page > h3:first-child + * { margin-top: 0; }
+.settings-content > :is(.settings-page, tau-part > .settings-page) > h3:first-child { display: none; }
+.settings-content > :is(.settings-page, tau-part > .settings-page) > h3:first-child + * { margin-top: 0; }
 
 .settings-page { min-width: 0; }
 .settings-page h3 { margin: 0; font-size: var(--text-lg); font-weight: 700; }

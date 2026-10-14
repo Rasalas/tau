@@ -31,6 +31,7 @@ import { useComposerSendMode } from "./composer-send-mode";
 import { PromptSubmitContext, type PromptSubmitAction } from "./prompt-submit";
 import { usePromptArrival } from "./use-prompt-arrival";
 import { LazyFeatureBoundary } from "./LazyFeature";
+import { Part, partName } from "../customization";
 import { useHostCapabilities } from "../use-host-capabilities";
 import { IMAGE_INPUT_UNAVAILABLE_MESSAGE } from "../../shared/thread-drop";
 import { promptTakesFiles } from "../../shared/extension-prompt-options";
@@ -926,15 +927,17 @@ export function Composer({
       </button>
     ) }] : []),
     ...composerControls.filter((control) => control.placement === undefined || control.placement === "toolbar").map((control) => ({ id: control.id, menuOnly: true, node: (
-      <LazyFeatureBoundary
-        label={control.id}
-        extensionId={control.extensionId}
-        extensionName={control.extensionName}
-        registry={registry}
-        onNotify={onNotify}
-      >
-        <control.Component snapshot={snapshot} actions={shellContext?.actions} />
-      </LazyFeatureBoundary>
+      <Part name={partName("composer-control", control.id)}>
+        <LazyFeatureBoundary
+          label={control.id}
+          extensionId={control.extensionId}
+          extensionName={control.extensionName}
+          registry={registry}
+          onNotify={onNotify}
+        >
+          <control.Component snapshot={snapshot} actions={shellContext?.actions} />
+        </LazyFeatureBoundary>
+      </Part>
     ) })),
     ...(contextUsage ? [{
       id: "context",
@@ -1222,9 +1225,11 @@ export function Composer({
             leading={<>
               {mobileComposer ? attachmentControl : null}
               {leadControls.map((control) => (
-                <LazyFeatureBoundary key={control.id} label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}>
-                  <control.Component snapshot={snapshot} actions={shellContext?.actions} />
-                </LazyFeatureBoundary>
+                <Part key={control.id} name={partName("composer-control", control.id)}>
+                  <LazyFeatureBoundary label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}>
+                    <control.Component snapshot={snapshot} actions={shellContext?.actions} />
+                  </LazyFeatureBoundary>
+                </Part>
               ))}
               {lead}
               {leadControls.length > 0 || lead ? <span className="composer-lead-rule" aria-hidden /> : null}
@@ -1262,16 +1267,17 @@ export function Composer({
             </>}
             blocks={mobileComposer ? [] : footerBlocks}
             menu={!mobileComposer && menuControls.length > 0 ? menuControls.map((control) => (
-              <LazyFeatureBoundary
-                key={control.id}
-                label={control.id}
-                extensionId={control.extensionId}
-                extensionName={control.extensionName}
-                registry={registry}
-                onNotify={onNotify}
-              >
-                <control.Component snapshot={snapshot} actions={shellContext?.actions} />
-              </LazyFeatureBoundary>
+              <Part key={control.id} name={partName("composer-control", control.id)}>
+                <LazyFeatureBoundary
+                  label={control.id}
+                  extensionId={control.extensionId}
+                  extensionName={control.extensionName}
+                  registry={registry}
+                  onNotify={onNotify}
+                >
+                  <control.Component snapshot={snapshot} actions={shellContext?.actions} />
+                </LazyFeatureBoundary>
+              </Part>
             )) : undefined}
             menuShortcuts={menuShortcuts}
           />
@@ -1405,7 +1411,7 @@ export function Composer({
             multiSelect={gatedModelSet}
             extraSettings={mobileComposer ? <>
             {footerBlocks.filter((block) => block.id !== "reasoning").map((block) => <div key={block.id}>{block.menuNode ?? block.node}</div>)}
-            {menuControls.map((control) => <LazyFeatureBoundary key={control.id} label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}><control.Component snapshot={snapshot} actions={shellContext?.actions} /></LazyFeatureBoundary>)}
+            {menuControls.map((control) => <Part key={control.id} name={partName("composer-control", control.id)}><LazyFeatureBoundary label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}><control.Component snapshot={snapshot} actions={shellContext?.actions} /></LazyFeatureBoundary></Part>)}
             </> : undefined}
             {...(thinkingChoosable ? { thinkingSummary, onOpenThinking: () => { setModelPickerOpen(false); setThinkingOpen(true); } } : {})}
             anchor={modelChipRef}

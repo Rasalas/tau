@@ -2,6 +2,7 @@ import { Suspense, useSyncExternalStore, type ReactNode } from "react";
 import type { ExtensionRegistry, LookInRegionContext, RegionPlacement, RegionProps, TranscriptTurn, WorkbenchActions } from "../extension-system";
 import type { HostSnapshot } from "../../shared/contracts";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./LazyFeature";
+import { Part, partName } from "../customization";
 
 interface RegionHostProps {
   workspaceSummary?: RegionProps["workspaceSummary"];
@@ -25,8 +26,8 @@ export function Region({ registry, placement, snapshot, actions, lookIn, turn, w
   const drawn = <>
     {lead}
     {regions.map((region) => (
+      <Part key={region.id} name={partName("region", region.id)}>
       <LazyFeatureBoundary
-        key={region.id}
         label={region.id}
         extensionId={region.extensionId}
         extensionName={region.extensionName}
@@ -37,6 +38,7 @@ export function Region({ registry, placement, snapshot, actions, lookIn, turn, w
           <region.Component snapshot={snapshot} actions={actions} {...(workspaceSummary ? { workspaceSummary } : {})} {...(workspacePreviewAvailable !== undefined ? { workspacePreviewAvailable } : {})} {...(lookIn ? { lookIn } : {})} {...(turn ? { turn } : {})} />
         </Suspense>
       </LazyFeatureBoundary>
+      </Part>
     ))}
     {children}
   </>;
@@ -58,8 +60,8 @@ export function StatusLine({ registry, snapshot, actions }: Omit<RegionHostProps
   const side = (align: "left" | "right") => items
     .filter((item) => (item.align ?? "left") === align)
     .map((item) => (
+      <Part key={item.id} name={partName("status", item.id)}>
       <LazyFeatureBoundary
-        key={item.id}
         label={item.id}
         extensionId={item.extensionId}
         extensionName={item.extensionName}
@@ -70,6 +72,7 @@ export function StatusLine({ registry, snapshot, actions }: Omit<RegionHostProps
           <span className="status-item"><item.Component snapshot={snapshot} actions={actions} /></span>
         </Suspense>
       </LazyFeatureBoundary>
+      </Part>
     ));
   return (
     <footer className="status-line" aria-label="Status line">

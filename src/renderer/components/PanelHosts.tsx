@@ -4,6 +4,7 @@ import { Maximize2 } from "lucide-react";
 import type { ExtensionRegistry, PanelPlacement, PanelProps, WorkbenchActions } from "../extension-system";
 import { LazyFeatureBoundary, LazyFeatureFallback } from "./LazyFeature";
 import { tooltipProps } from "./ui/Tooltip";
+import { Part } from "../customization";
 
 export const MountedPanel = memo(function MountedPanel({
   Component,
@@ -15,6 +16,7 @@ export const MountedPanel = memo(function MountedPanel({
   registry,
   actions,
   onNotify,
+  part,
 }: {
   Component: ComponentType<PanelProps>;
   active: boolean;
@@ -25,9 +27,10 @@ export const MountedPanel = memo(function MountedPanel({
   registry?: ExtensionRegistry;
   actions: WorkbenchActions;
   onNotify?(message: string, level?: "info" | "warning" | "error"): void;
+  /** The panel's part name (ADR 0042). */
+  part?: string;
 }) {
-  return <div className={active ? "panel active" : "panel"}>
-    <LazyFeatureBoundary
+  const body = <LazyFeatureBoundary
       label={label.toLowerCase()}
       extensionId={extensionId}
       extensionName={extensionName}
@@ -37,7 +40,9 @@ export const MountedPanel = memo(function MountedPanel({
       <Suspense fallback={<LazyFeatureFallback label={label.toLowerCase()} />}>
         <Component active={active} extensionName={extensionName} actions={actions} {...(placement ? { placement } : {})} />
       </Suspense>
-    </LazyFeatureBoundary>
+    </LazyFeatureBoundary>;
+  return <div className={active ? "panel active" : "panel"}>
+    {part ? <Part name={part}>{body}</Part> : body}
   </div>;
 });
 
