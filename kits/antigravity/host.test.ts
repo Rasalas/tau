@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtension, HostMcpConnection, HostRuntimeBackendProvider, RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createAntigravityHostExtension from "./host.js";
+import { profileTokenPath } from "./profile.js";
 import { AntigravitySessionStore } from "./session-store.js";
 import type { AntigravitySessionLike } from "./thread-backend.js";
 
@@ -158,13 +159,31 @@ describe("Antigravity host half", () => {
     await expect(stranger.read!()).rejects.toThrow("Caller acme.stranger is not allowed to invoke tau.antigravity/usage.");
   });
 
-  it("offers a draft the models its last session named, and says when it knows none yet", async () => {
+  it.each([false, true])("with installed=%s, keeps a draft unavailable until installation and sign-in are ready", async (installed) => {
+    const { backends, registry, directory, openSession } = await harness(installed);
+    const provider = backends[0]!;
+    const status = installed ? "sign-in-required" : "not-installed";
+    await expect(provider.newThreadCatalog!()).resolves.toMatchObject({ status, models: [], thinkingLevels: {}, note: expect.any(String) });
+    const store = new AntigravitySessionStore({ filePath: AntigravitySessionStore.defaultPath(join(directory, "sessions")) });
+    await store.setModels([{ value: "stored-model", name: "Stored model" }]);
+    await expect(provider.newThreadCatalog!()).resolves.toMatchObject({ status, models: [] });
+    await expect(registry.invoke("tau.antigravity", "status")).resolves.toMatchObject(installed ? { installed: true, signedIn: false } : { installed: false });
+    await expect(registry.invoke("tau.antigravity", "sign-in-state")).resolves.toMatchObject({ account: { signedIn: false } });
+    expect(openSession).not.toHaveBeenCalled();
+  });
+
+  it("offers a signed-in draft the models its last session named, and hides them after sign-out", async () => {
     const { backends, directory } = await harness(true);
+    const token = profileTokenPath(join(directory, "state", "tau.antigravity"));
+    await mkdir(join(token, ".."), { recursive: true });
+    await writeFile(token, "{}");
     await expect(backends[0]!.newThreadCatalog!()).resolves.toEqual({ models: [], thinkingLevels: {}, note: "Antigravity names its models once a thread has started; choose one then." });
     const backend = await backends[0]!.open("agy-thread", directory, { resume: false }, { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined, ask: async () => ({ cancelled: true }) } as never);
     await backend.prompt({ text: "Reply with one word.", delivery: "prompt" }).catch(() => undefined);
     await backend.dispose();
     await expect(backends[0]!.newThreadCatalog!()).resolves.toEqual({ models: [{ provider: "google", id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" }], thinkingLevels: {} });
+    await rm(token);
+    await expect(backends[0]!.newThreadCatalog!()).resolves.toMatchObject({ status: "sign-in-required", models: [] });
   });
 
   it("lists what each thread cost from its store, without opening it", async () => {

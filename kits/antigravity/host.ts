@@ -170,6 +170,13 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         composerCommands: () => [],
         // The server names its models only in a session; a draft offers the ones the last session named.
         newThreadCatalog: async () => {
+          try {
+            await resolveExecutable();
+          } catch (error) {
+            return { models: [], thinkingLevels: {}, status: "not-installed", note: error instanceof Error ? error.message : String(error) };
+          }
+          const account = antigravityAccount(signInSettings.current, existsSync(profileTokenPath(services.stateDir)), env);
+          if (!account.signedIn) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: account.detail ?? "Sign in to this runtime first." };
           const models = (await store.listModels()).map((model) => ({ provider: antigravityModelProvider({ id: model.value, name: model.name }), id: model.value, name: model.name.trim() || model.value }));
           return models.length > 0
             ? { models, thinkingLevels: {} }
