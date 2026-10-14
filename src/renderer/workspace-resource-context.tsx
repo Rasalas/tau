@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import type { UiEditor, UiFileContent } from "../shared/workspace-kit-types";
-import { linkedFilePath } from "../shared/linked-file-path";
+import { linkedFileLocation, linkedFilePath } from "../shared/linked-file-path";
 import type { WorkspaceResourceOrigin } from "../workbench/stage";
 import type { DocumentSourceContribution } from "./extension-system";
 import { useHostClient } from "./host-client-context";
@@ -14,7 +14,7 @@ export interface WorkspaceResources {
   readonly available: boolean;
   readonly displayPath?: string;
   loadFile(relativePath: string): Promise<UiFileContent>;
-  loadMedia?(path: string): Promise<{ url: string; mimeType: string; release?: () => void }>;
+  loadMedia?(path: string): Promise<{ url: string; mimeType: string; release?: () => void; mainCheckoutPath?: string; resolvedPath?: string }>;
   loadVisualization?(relativePath: string, theme: "light" | "dark"): Promise<{ url: string; release?: () => void }>;
   openFile(relativePath: string): void;
   /** Where the host machine can show this thread's files; absent when it cannot (a phone, another machine's thread). */
@@ -44,7 +44,8 @@ export function resourceRelativePath(path: string): string {
 
 /** Keep external links as host paths; in-workspace links keep their relative tab names. */
 export function transcriptFilePath(path: string, displayPath: string | undefined): string {
-  const posix = linkedFilePath(path);
+  const location = linkedFileLocation(path);
+  const posix = linkedFilePath(location.path) + (location.line ? `:${location.line}` : "");
   if (!posix.startsWith("/") && !/^[A-Za-z]:\//u.test(posix)) return posix;
   const root = displayPath?.replace(/\\/gu, "/").replace(/\/+$/u, "");
   return root && posix.startsWith(`${root}/`) ? posix.slice(root.length + 1) : posix;

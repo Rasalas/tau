@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ComponentProps } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StageFileTab } from "../../workbench/stage";
@@ -6,6 +7,7 @@ import type { CommandContribution, WorkbenchActions } from "../extension-system"
 import { HostClientProvider } from "../host-client-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import { READ_ONLY_REASON } from "../use-host-capabilities";
+import type { UiFileContent } from "../../shared/workspace-kit-types";
 import { FileViewer } from "./FileViewer";
 
 afterEach(cleanup);
@@ -40,7 +42,7 @@ describe("FileViewer on a Read-only device", () => {
 });
 
 describe("FileViewer loading", () => {
-  const viewer = (loadFile: (path: string) => Promise<never>, onClose = vi.fn()) => render(
+  const viewer = (loadFile: (path: string) => Promise<UiFileContent>, onClose = vi.fn(), options: Partial<ComponentProps<typeof FileViewer>> = {}) => render(
     <HostClientProvider client={createFakeHostClient()}>
       <FileViewer
         tab={{ id: "file:/repo/src/a.ts", kind: "file", path: "/repo/src/a.ts", view: "source", preview: false }}
@@ -51,6 +53,7 @@ describe("FileViewer loading", () => {
         onChangeView={() => undefined}
         onOpenInEditor={() => undefined}
         onClose={onClose}
+        {...options}
       />
     </HostClientProvider>,
   );
@@ -64,10 +67,40 @@ describe("FileViewer loading", () => {
   it("names a file that is gone instead of showing the raw error, and closes its tab", async () => {
     const onClose = vi.fn();
     viewer(async () => { throw new Error("ENOENT: no such file or directory, stat '/repo/src/a.ts'"); }, onClose);
-    await screen.findByText("File not found");
+    await screen.findByText(/There is no file at \/repo\/src\/a.ts/u);
     expect(screen.queryByText(/ENOENT/u)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows every full path checked for a missing worktree link", async () => {
+    viewer(async () => { throw new Error("ENOENT: File not found. Checked /repo/tree/src/a.ts and /repo/main/src/a.ts."); });
+    await screen.findByText(/Checked \/repo\/tree\/src\/a.ts and \/repo\/main\/src\/a.ts/u);
+    expect(screen.queryByText(/any more/u)).toBeNull();
+  });
+
+  it("labels a main-checkout preview as read only in the header", async () => {
+    viewer(async () => ({ path: "/repo/main/src/a.ts", name: "a.ts", kind: "text", text: "main report", size: 11, mainCheckoutPath: "/repo/main" }), vi.fn(), {
+      editor: { name: "Editor", id: "editor" },
+      commands: [{ id: "edit", label: "Edit file", group: "Project", access: "write", run: vi.fn() }],
+      actions: { notify: vi.fn() } as unknown as WorkbenchActions,
+    });
+    const label = await screen.findByText(/from the main checkout/u);
+    expect(label.closest("header")).toBeTruthy();
+    expect(label.textContent).toContain("Read only");
+    expect(label.getAttribute("title")).toBe("/repo/main/src/a.ts");
+    expect(screen.queryByText("Edit file")).toBeNull();
+    expect(screen.queryByText("Open in Editor")).toBeNull();
+  });
+
+  it("labels linked media from the main checkout in the tab header", async () => {
+    viewer(async () => { throw new Error("Media should use its streaming loader"); }, vi.fn(), {
+      relativePath: "clip.mp4",
+      loadMedia: async () => ({ url: "blob:clip", mimeType: "video/mp4", mainCheckoutPath: "/repo/main", resolvedPath: "/repo/main/clip.mp4" }),
+    });
+    const label = await screen.findByText(/from the main checkout/u);
+    expect(label.closest("header")).toBeTruthy();
+    expect(label.getAttribute("title")).toBe("/repo/main/clip.mp4");
   });
 
   it("says the project is gone when the host no longer knows it", async () => {

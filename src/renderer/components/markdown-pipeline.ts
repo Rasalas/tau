@@ -35,6 +35,7 @@ const SAFE_PROTOCOL = /^(https?|ircs?|mailto|xmpp)$/iu;
 /** Keeps relative URLs, safe protocols and links to a thread; anything else (`javascript:`) becomes empty. */
 export function safeUrl(value: string): string {
   if (parseThreadLink(value)) return value;
+  if (/^[\w@.-]+\.[A-Za-z0-9]{1,8}:[1-9]\d*$/u.test(value)) return `./${value}`;
   const colon = value.indexOf(":");
   if (colon === -1) return value;
   for (const mark of ["/", "?", "#"]) {
