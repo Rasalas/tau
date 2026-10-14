@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, DesktopExtension, HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { reviewExtension } from "./desktop.js";
-import { THREAD_PULL_REQUESTS_TAB, type PullRequestCheck, type ReviewRequest, type ThreadPullRequestLink } from "./protocol.js";
+import { PULL_REQUEST_TAB, THREAD_PULL_REQUESTS_TAB, type PullRequestCheck, type ReviewRequest, type ThreadPullRequestLink } from "./protocol.js";
+import { RequestLinks } from "./request-links.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import PullRequestStrip from "./pull-request-strip.js";
 import { STRIP_OPTION, StripDismissals, stripRequests } from "./pull-request-strip-logic.js";
@@ -49,7 +50,7 @@ function setup({ branch, links = [], draftPending = false, empty = false, live, 
   const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}) };
   const actions = { activeThread: () => ({ sessionId: "t1", cwd: "/work", draftPending }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
   const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : [{ id: "m1" }] } as unknown as HostSnapshot;
-  const view = render(<PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} />);
+  const view = render(<><RequestLinks actions={actions} /><PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} /></>);
   const relink = (next: ThreadPullRequestLink[]) => { current = next; act(() => changed?.("t1")); };
   return { view, parts, actions, load, relink, externalLinks: (next: ThreadPullRequestLink[]) => { current = next; }, externalState: (state: ReviewRequest["state"]) => { if (currentBranch) { currentBranch = { ...currentBranch, state }; current = current.map((entry) => entry.url === currentBranch!.url ? { ...entry, state } : entry); } } };
 }
@@ -159,11 +160,40 @@ describe("the pull-request strip", () => {
     });
     expect(strip()!.querySelector(".review-pr-strip-number")!.textContent).toBe("#9");
     expect(more.textContent).toBe("+1");
-    expect(more.getAttribute("data-tooltip")).toBe("#7 Change 7 · merged");
+    expect(more.getAttribute("aria-haspopup")).toBe("dialog");
     expect(screen.getByRole("button", { name: /^Open pull request #9 .*1 more linked/u })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View all 2 linked requests" }));
     expect(actions.openStageTab).toHaveBeenCalledWith(THREAD_PULL_REQUESTS_TAB, { threadId: "t1", workspace: "/work" }, { key: "thread-pull-requests:t1" });
     expect(more.closest("button")?.parentElement?.closest("button")).toBeNull();
+  });
+
+  it("opens the rail's request popover on +N hover and lets the pointer enter its links", async () => {
+    const { actions } = setup({ links: [link(7, { state: "merged" }), link(9)] });
+    const more = await screen.findByRole("button", { name: "View all 2 linked requests" });
+    fireEvent.pointerEnter(more, { pointerType: "mouse" });
+    const popup = await screen.findByRole("dialog", { name: "Thread pull requests" });
+    expect(within(popup).getAllByRole("link")).toHaveLength(2);
+    const request = within(popup).getByRole("link", { name: "PR #7, merged: Change 7" });
+    fireEvent.pointerLeave(more, { pointerType: "mouse" });
+    fireEvent.pointerEnter(popup.firstElementChild!, { pointerType: "mouse" });
+    fireEvent.click(request);
+    expect(actions.openStageTab).toHaveBeenCalledWith(PULL_REQUEST_TAB, {
+      url: link(7).url, number: 7, service: "github", workspace: "/work",
+      fromThread: { threadId: "t1", workspace: "/work" },
+    }, { key: link(7).url });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread pull requests" })).toBeNull());
+  });
+
+  it("opens +N's popover with ArrowDown and closes it with Escape", async () => {
+    setup({ links: [link(7), link(9)] });
+    const more = await screen.findByRole("button", { name: "View all 2 linked requests" });
+    more.focus();
+    fireEvent.keyDown(more, { key: "ArrowDown" });
+    const popup = await screen.findByRole("dialog", { name: "Thread pull requests" });
+    await within(popup).findByRole("link", { name: "PR #9, open: Change 9" });
+    expect(document.activeElement).toBe(more);
+    fireEvent.keyDown(more, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread pull requests" })).toBeNull());
   });
 
   it("follows a link's state change, and × hides it until the state changes again", async () => {

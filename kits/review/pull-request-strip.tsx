@@ -3,11 +3,10 @@ import type { SettlementSource } from "./settlement.js";
 import { PublicationStrip } from "./publication-strip.js";
 import { PullRequestWatchControl } from "./pr-watch-control.js";
 import type { PullRequestWatchFeed } from "./pr-watch-client.js";
-import type { WatchState } from "./pr-watch-protocol.js";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
-import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps } from "tau";
-import { REVIEW_HOST_EXTENSION_ID, providerInfo, requestNumber, type PullRequestCheck } from "./protocol.js";
+import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps, type WorkbenchActions } from "tau";
+import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck, type ThreadPullRequestLink } from "./protocol.js";
 import { checksPipelines } from "./pipeline.js";
 import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
 import type { PullRequestClient } from "./pull-request-client.js";
@@ -19,6 +18,7 @@ import { useRequestLifecycle } from "./request-lifecycle.js";
 import { checksLabel, checksTone, type RowRequests } from "./requests.js";
 import { ServiceIcon } from "./service-icon.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
+import { useRequestPopover } from "./request-popover.js";
 
 export interface StripParts {
   settlement?: SettlementSource;
@@ -96,9 +96,18 @@ function StripChecks({ request, client, open }: { request: StripRequest; client:
   return <span className={`review-pr-strip-checks ${tone}`} {...tooltipProps(`Checks: ${live ? checksSummary(live) : checksLabel(request.checks)}`)}><ChecksIcon tone={tone} /></span>;
 }
 
-const otherLine = (request: StripRequest, watched: boolean) => [requestNumber(request.service, request.number), request.title ?? request.repo, "·", STATE_WORDS[request.state].toLowerCase(), watched ? "· watching" : ""].filter(Boolean).join(" ");
-const NO_WATCHES: WatchState = { watches: [] };
-const noWatches = () => () => undefined;
+function MoreLinkedRequests({ linked, primary, threadId, workspace, actions }: {
+  linked: readonly ThreadPullRequestLink[];
+  primary: StripRequest;
+  threadId: string;
+  workspace?: string;
+  actions: WorkbenchActions;
+}) {
+  const entries = linked.map((entry) => entry.url === primary.url ? { ...entry, state: primary.state, title: primary.title ?? entry.title, headRef: primary.headRef ?? entry.headRef } : entry);
+  const { anchor, close, triggerProps, popover } = useRequestPopover<HTMLButtonElement>(entries, { threadId, workspace, side: "top", align: "end" });
+  return <><button type="button" ref={anchor} className="review-pr-strip-more" aria-label={`View all ${entries.length} linked requests`} {...triggerProps}
+    onClick={() => { close(); openThreadPullRequests(actions, threadId, workspace); }}>+{entries.length - 1}</button>{popover}</>;
+}
 
 /**
  * The thread's pull or merge request over the composer: number, repository,
@@ -118,7 +127,6 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
   const tracked = Boolean(snapshot?.projectLabel && cwd);
   const branch = useSyncExternalStore(rows.subscribe, () => (tracked && cwd ? rows.get(cwd) : undefined));
   const linked = useSyncExternalStore(links.subscribe, () => links.get(threadId));
-  const watchState = useSyncExternalStore(parts.watches?.subscribe ?? noWatches, parts.watches?.get ?? (() => NO_WATCHES));
   const eligible = preferences.optionValue(REVIEW_HOST_EXTENSION_ID, STRIP_OPTION, true) !== false
     && Boolean(threadId && !thread?.draftPending && (snapshot?.isStreaming || (snapshot?.messages?.length ?? 0) > 0));
   const found = stripRequests(linked.some((entry) => entry.url === branch?.url) ? branch : undefined, linked);
@@ -155,7 +163,7 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
         <span className="review-pr-strip-fill" />
         {primary.state === "open" ? <StripChecks request={primary} client={parts.client} open={() => open("checks")} /> : null}
       </button>
-      {others.length > 0 ? <button type="button" className="review-pr-strip-more" aria-label={`View all ${others.length + 1} linked requests`} {...tooltipProps(others.map((other) => otherLine(other, watchState.watches.some((watch) => watch.threadId === threadId && watch.ref.url === other.url && watch.status !== "ended"))).join("\n"), { variant: "lines" })} onClick={() => openThreadPullRequests(actions, threadId, cwd)}>+{others.length}</button> : null}
+      {others.length > 0 ? <MoreLinkedRequests key={threadId} linked={linked} primary={primary} threadId={threadId} workspace={cwd} actions={actions} /> : null}
       {parts.watches ? <PullRequestWatchControl feed={parts.watches} threadId={threadId} request={primary} others={others} /> : null}
       <button type="button" className="review-pr-strip-hide" aria-label={`Hide ${info.short} ${info.sign}${primary.number} for this thread`} {...tooltipProps("Hide for this thread")}
         onClick={() => dismissals.hide(threadId, primary)}>
