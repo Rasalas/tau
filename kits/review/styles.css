@@ -1443,3 +1443,5 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .guide-bar .guide-bar-back { flex: 0 0 auto; padding: 0 18px; }
 .guide-bar .guide-bar-main { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
 .guide-bar button:disabled { opacity: .5; cursor: default; }
+
+.pr-cache-notice { flex: none; margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--muted); background: var(--stage); font: var(--text-xs)/1.5 var(--sans); }

@@ -36,3 +36,10 @@ export function createLocalStorageAdapter(environment?: string): ClientStorage {
     },
   };
 }
+
+
+/** Drop machine-owned extension data after the window forgets a saved machine. */
+export function clearEnvironmentStorage(environment: string): void {
+  const keys = Object.keys(localStorage).filter((key) => key.startsWith("host:") && key.endsWith(`@${environment}`));
+  for (const key of keys) localStorage.removeItem(key);
+}

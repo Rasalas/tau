@@ -67,8 +67,8 @@ export function PullRequestStackControl({ detail, client, actions, workspace, on
     },
     {
       items: [
-        { id: "merge", label: `Merge stack (${below.length})`, icon: <GitMerge size={13} />, disabled: mergeBlocked || !method || !writes.stack, ...(writes.stack ? {} : { description: READ_ONLY_REASON }) },
-        { id: "rebase", label: "Rebase stack", icon: <RefreshCw size={13} />, disabled: rebaseBlocked || !writes.stack, ...(writes.stack ? {} : { description: READ_ONLY_REASON }) },
+        { id: "merge", label: `Merge stack (${below.length})`, icon: <GitMerge size={13} />, disabled: mergeBlocked || !method || !writes.stack, ...(writes.stack ? {} : { description: writes.reason ?? READ_ONLY_REASON }) },
+        { id: "rebase", label: "Rebase stack", icon: <RefreshCw size={13} />, disabled: rebaseBlocked || !writes.stack, ...(writes.stack ? {} : { description: writes.reason ?? READ_ONLY_REASON }) },
         { id: "refresh", label: "Refresh the stack", icon: <RefreshCw size={13} /> },
       ],
     },
@@ -125,9 +125,10 @@ export function PullRequestStackControl({ detail, client, actions, workspace, on
             })}
           </ul>
           {error ? <p className="pr-error" role="alert">{error}</p> : null}
+          {!writes.stack ? <p role="status">{writes.reason ?? READ_ONLY_REASON}</p> : null}
           <footer>
             <button disabled={busy} onClick={() => setConfirm(undefined)}>Cancel</button>
-            <button className="primary" disabled={busy} onClick={() => void run()}>{busy ? "Working…" : confirm === "merge" ? "Merge stack" : "Rebase stack"}</button>
+            <button className="primary" disabled={busy || !writes.stack} onClick={() => void run()}>{busy ? "Working…" : confirm === "merge" ? "Merge stack" : "Rebase stack"}</button>
           </footer>
         </Dialog>,
         document.body,

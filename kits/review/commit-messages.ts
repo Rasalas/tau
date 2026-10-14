@@ -3,6 +3,7 @@ import { REVIEW_HOST_EXTENSION_ID, type CommitMessageStyle, type WorkspaceStoreA
 import { INSTRUCTIONS_OPTION, TEMPLATE_OPTION } from "./writing.js";
 
 const MODEL_OPTION = "commit-model";
+const EFFORT_OPTION = "commit-effort";
 const STYLE_OPTION = "commit-style";
 const AUTO_OPTION = "propose-message";
 
@@ -15,6 +16,11 @@ export function chosenWritingModel(preferences: PreferencesStore): { provider: s
 
 export function commitMessageModel(threadModel: { provider: string; id: string } | undefined, preferences: PreferencesStore): { provider: string; id: string } | undefined {
   return chosenWritingModel(preferences) ?? threadModel;
+}
+
+/** Effort belongs to the dedicated writer model; the thread fallback keeps its defaults. */
+export function writingEffort(preferences: PreferencesStore): string | undefined {
+  return chosenWritingModel(preferences) ? preferences.value(REVIEW_HOST_EXTENSION_ID, EFFORT_OPTION)?.trim() || undefined : undefined;
 }
 
 export function commitMessageStyle(preferences: PreferencesStore): CommitMessageStyle {
@@ -38,7 +44,7 @@ export function automaticCommitMessages(preferences: PreferencesStore): boolean 
 
 export const COMMIT_MESSAGE_OPTIONS: ExtensionOption[] = [
   { id: AUTO_OPTION, kind: "toggle", label: "Generate a commit message when review opens", defaultValue: true },
-  { id: MODEL_OPTION, kind: "model", label: "Model that writes commit messages" },
+  { id: MODEL_OPTION, kind: "model", thinkingLevelValue: EFFORT_OPTION, label: "Model that writes commit messages" },
   {
     id: STYLE_OPTION,
     kind: "select",
@@ -59,6 +65,7 @@ export function registerCommitMessages(plugin: DesktopExtensionContext, workspac
     const result = await plugin.host.invoke("suggest-commit-message", {
       provider: model.provider,
       modelId: model.id,
+      ...(writingEffort(plugin.preferences) ? { thinkingLevel: writingEffort(plugin.preferences) } : {}),
       style: commitMessageStyle(plugin.preferences),
       ...(writingInstructions(plugin.preferences) ? { instructions: writingInstructions(plugin.preferences) } : {}),
       branch: changes.branch,

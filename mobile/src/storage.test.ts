@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryStorage } from "../../src/workbench/client-storage";
+import { PullRequestCache } from "../../kits/review/pull-request-cache.js";
 import { clearHostStorage, hostStorage } from "./storage";
 
 describe("hostStorage", () => {
@@ -29,4 +30,18 @@ describe("hostStorage", () => {
     clearHostStorage(base, "a");
     expect(b.get("device:tau.usage.juicebars")).toBe("{\"x\":true}");
   });
+});
+
+
+it("removes saved request data only for the forgotten machine", async () => {
+  const base = createMemoryStorage();
+  const a = hostStorage(base, "a");
+  const b = hostStorage(base, "b");
+  const transport = { invoke: async () => ({ title: "Saved request" }), onEvent: () => () => undefined };
+  const input = { url: "https://github.com/acme/app/pull/1" };
+  await new PullRequestCache(a).invoke(transport, "pr-view", input);
+  await new PullRequestCache(b).invoke(transport, "pr-view", input);
+  clearHostStorage(base, "a");
+  expect(new PullRequestCache(a, false).peek("pr-view", input)).toBeUndefined();
+  expect(new PullRequestCache(b, false).peek("pr-view", input)?.value).toEqual({ title: "Saved request" });
 });

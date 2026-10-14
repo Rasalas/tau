@@ -187,6 +187,8 @@ export interface AgentThreadLink {
   /** Set for an agent that runs on another machine; it then has no `threadId` here. */
   machine?: AgentMachineRef;
   status: AgentThreadStatus;
+  /** Local run liveness, independent of a dialog that may outlive it. */
+  runActive?: boolean;
   /** Last tool the agent ran with its target (`edit src/a.ts`), for the panel's progress line. */
   lastTool?: string;
   /** Question the agent is holding on; the user answers it in the agent's thread. */

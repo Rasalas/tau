@@ -5,6 +5,8 @@ import type { ExtensionInspection, HostExtensionSummary, UiModel } from "../../s
 import type { ExtensionRegistry, ExtensionSummary, SettingsSectionProps } from "../extension-system";
 import { NETWORK_ADVISORY_NOTE, PERMISSION_NOTES, type ExtensionPermission } from "../../shared/extension-permissions";
 import { usePreferences } from "../renderer-services-context";
+import { catalogLevels } from "../../workbench/runtime-catalog-store";
+import { useRuntimeCatalog } from "../use-runtime-catalog";
 import { useHostClient } from "../host-client-context";
 import { useHostCapabilities } from "../use-host-capabilities";
 import { ModelPicker, modelKey } from "../components/ModelPicker";
@@ -36,16 +38,21 @@ export function permissionTitle(permission: string): string {
 }
 
 /** A model choice an extension declared; empty means the thread's own model. */
-function ModelOptionRow({ label, value, models, disabled, onChange }: {
+function ModelOptionRow({ label, value, models, disabled, thinkingLevel, onThinkingLevelChange, onChange }: {
   label: string;
   value?: string;
   models: readonly UiModel[];
   disabled: boolean;
+  thinkingLevel?: string | undefined;
+  onThinkingLevelChange?: ((value: string) => void) | undefined;
   onChange(value: string): void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerAnchor = useRef<HTMLButtonElement>(null);
   const chosen = value ? models.find((model) => modelKey(model) === value) : undefined;
+  const entry = useRuntimeCatalog(onThinkingLevelChange && chosen ? "pi" : undefined);
+  const levels = chosen && entry?.status === "ready" ? catalogLevels(entry.catalog, chosen) : [];
+  const supportsThinking = levels.some((level) => level !== "off");
   return (
     <div className="settings-row-inline">
       <button ref={pickerAnchor} type="button" className="settings-model-button" disabled={disabled} aria-label={`${label}: ${chosen?.name ?? "the thread's model"}`} onClick={() => setPickerOpen((open) => !open)}>
@@ -57,6 +64,11 @@ function ModelOptionRow({ label, value, models, disabled, onChange }: {
         <button type="button" className="tau-icon-button" disabled={disabled} aria-label={`Use the thread's model for ${label}`} {...tooltipProps("Use the thread's model")} onClick={() => onChange("")}>
           <X size={14} />
         </button>
+      ) : null}
+      {supportsThinking && onThinkingLevelChange ? (
+        <Select label={`Effort for ${label}`} value={levels.includes(thinkingLevel ?? "") ? thinkingLevel : ""} disabled={disabled}
+          options={[{ value: "", label: "Default effort" }, ...levels.map((level) => ({ value: level, label: level.charAt(0).toUpperCase() + level.slice(1) }))]}
+          onChange={onThinkingLevelChange} />
       ) : null}
       {pickerOpen ? (
         <ModelPicker models={models} activeKey={value} onSelect={(model) => onChange(modelKey(model))} onClose={() => setPickerOpen(false)} anchor={pickerAnchor} side="bottom" />
@@ -381,8 +393,13 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
                   label={option.label}
                   value={state.extensionValues[`${entry.id}.${option.id}`] || undefined}
                   models={models}
-                  disabled={!running}
-                  onChange={(value) => preferences.setValue(entry.id, option.id, value)}
+                  disabled={!running || readOnly}
+                  thinkingLevel={option.thinkingLevelValue ? state.extensionValues[`${entry.id}.${option.thinkingLevelValue}`] : undefined}
+                  onThinkingLevelChange={option.thinkingLevelValue ? (value) => preferences.setValue(entry.id, option.thinkingLevelValue!, value) : undefined}
+                  onChange={(value) => {
+                    if (option.thinkingLevelValue) preferences.setValue(entry.id, option.thinkingLevelValue, "");
+                    preferences.setValue(entry.id, option.id, value);
+                  }}
                 />} />
               );
             }

@@ -1,8 +1,12 @@
+import type { PullRequestClient } from "./pull-request-client.js";
+import { OFFLINE_REASON } from "./pull-request-cache.js";
+import { useRequestConnection } from "./pull-request-offline.js";
 import { useCommandAllowed } from "tau";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 
 /** What this device may change on a request; a Read-only device reads it only. */
 export interface PullRequestWrites {
+  reason?: string;
   comment: boolean;
   review: boolean;
   update: boolean;
@@ -21,11 +25,13 @@ export const ALL_WRITES: PullRequestWrites = {
   reviewers: true, labels: true, action: true, stack: true, link: true,
 };
 
-export function usePullRequestWrites(): PullRequestWrites {
+export function usePullRequestWrites(client?: PullRequestClient): PullRequestWrites {
+  const connected = useRequestConnection(client);
   // One hook per command, always all of them, in this order.
-  const allowed = (command: string) => useCommandAllowed(REVIEW_HOST_EXTENSION_ID, command);
+  const allowed = (command: string) => useCommandAllowed(REVIEW_HOST_EXTENSION_ID, command) && connected;
   const unlink = allowed("unlink-pr");
   return {
+    reason: connected ? undefined : OFFLINE_REASON,
     comment: allowed("pr-comment"),
     review: allowed("pr-review"),
     update: allowed("pr-update"),

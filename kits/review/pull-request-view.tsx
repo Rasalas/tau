@@ -22,6 +22,7 @@ import { ReviewComposer } from "./pull-request-review.js";
 import { PullRequestTimeline } from "./pull-request-timeline.js";
 import { commentFilter, filterTimelineComments, setCommentFilter } from "./comment-filter.js";
 import { CommentFilterMenu } from "./comment-filter-menu.js";
+import { RequestCacheNotice, useRequestConnection } from "./pull-request-offline.js";
 import { usePullRequestWrites } from "./pull-request-writes.js";
 import type { RowRequests } from "./requests.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
@@ -61,10 +62,16 @@ export interface PullRequestViewData {
  * the diff again whenever the detail says the request moved.
  */
 export function usePullRequest(client: PullRequestClient, url: string) {
-  const [data, setData] = useState<PullRequestViewData>({});
+  const connected = useRequestConnection(client);
+  const [data, setData] = useState<PullRequestViewData>(() => ({
+    detail: client.cache?.peek<PullRequestDetail>("pr-view", { url })?.value,
+    checks: client.cache?.peek<PullRequestCheck[]>("pr-checks", { url })?.value,
+    threads: client.cache?.peek<PullRequestThread[]>("pr-comments", { url })?.value,
+    files: client.cache?.peek<PullRequestFiles>("pr-files", { url })?.value,
+  }));
   const alive = useRef(true);
   const updatedAt = useRef<string | undefined>(undefined);
-  const filesWanted = useRef(false);
+  const filesWanted = useRef(Boolean(data.files));
   const lastRead = useRef(0);
   const patch = useCallback((next: Partial<PullRequestViewData>) => { if (alive.current) setData((current) => ({ ...current, ...next })); }, []);
 
@@ -107,6 +114,7 @@ export function usePullRequest(client: PullRequestClient, url: string) {
   useEffect(() => {
     alive.current = true;
     refresh(false);
+    if (!connected) return () => { alive.current = false; };
     const poll = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       lastRead.current = Date.now();
@@ -116,15 +124,15 @@ export function usePullRequest(client: PullRequestClient, url: string) {
     const onFocus = () => { if (Date.now() - lastRead.current > FOCUS_MIN_MS) refresh(true); };
     window.addEventListener("focus", onFocus);
     return () => { alive.current = false; window.clearInterval(poll); window.removeEventListener("focus", onFocus); };
-  }, [loadChecks, loadDetail, refresh]);
+  }, [connected, loadChecks, loadDetail, refresh]);
 
   const checks = data.checks ?? data.detail?.checks ?? [];
   const running = checks.some((check) => check.status === "pending");
   useEffect(() => {
-    if (!running) return;
+    if (!running || !connected) return;
     const poll = window.setInterval(() => { if (document.visibilityState === "visible") void loadChecks(); }, CHECKS_POLL_MS);
     return () => window.clearInterval(poll);
-  }, [loadChecks, running]);
+  }, [connected, loadChecks, running]);
 
   const markViewed = useCallback((path: string, viewed: PullRequestFile["viewed"]) => {
     if (!alive.current) return;
@@ -156,7 +164,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   shared: PullRequestViewShared;
 }) {
   const { data, setData, refresh, loadThreads, loadFiles, loadDetail, loadChecks, markViewed } = usePullRequest(client, params.url);
-  const writes = usePullRequestWrites();
+  const writes = usePullRequestWrites(client);
   const pending = useSyncExternalStore(shared.pending.subscribe, () => shared.pending.comments(params.url));
   useSyncExternalStore(shared.preferences.subscribe, shared.preferences.getSnapshot, shared.preferences.getSnapshot);
   const ignoreWhitespace = shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, false) === true;
@@ -262,6 +270,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
   if (!detail || !timelineView) {
     return (
       <div className="pr-view" aria-label={`${noun} ${sign}${params.number}`}>
+        <RequestCacheNotice client={client} />
         {back ? <header className="pr-head"><div className="pr-head-row">{back}</div></header> : null}
         {data.detailError ? (
           <div className="pr-unavailable" role="alert">
@@ -293,12 +302,13 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
     ...(detail.headRef ? [{ id: "view:copy-branch", label: "Copy branch name", icon: <GitBranch size={13} />, run: () => copy("branch", detail.headRef!, "Copied the branch name.") }] : []),
     ...(checkout ? [{ id: "view:copy-checkout", label: "Copy checkout command", icon: <Copy size={13} />, run: () => copy("checkout", checkout, "Copied the checkout command.") }] : []),
     { id: "view:composer", label: "Add to the composer", icon: <SquarePlus size={13} />, run: addToComposer },
-    ...(threadId ? [{ id: "view:link", label: linked ? "Unlink from this thread" : "Link to this thread", icon: linked ? <Link2Off size={13} /> : <Link2 size={13} />, ...(!writes.link ? { disabled: true, description: READ_ONLY_REASON } : {}), run: () => void toggleLink() }] : []),
+    ...(threadId ? [{ id: "view:link", label: linked ? "Unlink from this thread" : "Link to this thread", icon: linked ? <Link2Off size={13} /> : <Link2 size={13} />, ...(!writes.link ? { disabled: true, description: writes.reason ?? READ_ONLY_REASON } : {}), run: () => void toggleLink() }] : []),
   ] : [];
 
   return (
     <RequestMediaProvider client={client} request={detail.ref}>
     <div className="pr-view" aria-label={`${noun} ${sign}${detail.ref.number}`}>
+      <RequestCacheNotice client={client} at={client.cache?.savedAt(params.url)} />
       <header className={`pr-head ${condensed ? "condensed" : ""}`}>
         <div className="pr-head-row">
           {back}
@@ -316,7 +326,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               <SquarePlus size={13} />
             </button>
             {threadId ? (
-              <button className={`icon-button compact ${linked ? "active" : ""}`} aria-label={linked ? "Unlink from this thread" : "Link to this thread"} aria-pressed={linked} disabled={!writes.link} {...tooltipProps(!writes.link ? READ_ONLY_REASON : linked ? "Linked to this thread · click to unlink" : "Link to this thread")} onClick={() => void toggleLink()}>
+              <button className={`icon-button compact ${linked ? "active" : ""}`} aria-label={linked ? "Unlink from this thread" : "Link to this thread"} aria-pressed={linked} disabled={!writes.link} {...tooltipProps(!writes.link ? writes.reason ?? READ_ONLY_REASON : linked ? "Linked to this thread · click to unlink" : "Link to this thread")} onClick={() => void toggleLink()}>
                 {linked ? <Link2Off size={13} /> : <Link2 size={13} />}
               </button>
             ) : null}
@@ -332,7 +342,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
         </div>
         {condensed ? null : (
           <div className="pr-fold">
-            {editingTitle ? (
+            {editingTitle && writes.update ? (
               <TitleEditor initial={detail.title} onSave={async (title) => { await update({ title }); setEditingTitle(false); }} onCancel={() => setEditingTitle(false)} />
             ) : (
               <div className="pr-title-row">
@@ -500,10 +510,10 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
             <MessageSquarePlus size={18} aria-hidden="true" />
             <span>{pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review"}</span>
           </button>
-          {!writes.comment && !writes.review ? <small className="pr-comment-bar-reason">{READ_ONLY_REASON}</small> : null}
+          {!writes.comment && !writes.review ? <small className="pr-comment-bar-reason">{writes.reason ?? READ_ONLY_REASON}</small> : null}
         </footer>
       ) : (
-        <button className="pr-comment-fab" aria-label={`Comment on or review ${noun} ${sign}${detail.ref.number}`} disabled={!writes.comment && !writes.review} {...tooltipProps(!writes.comment && !writes.review ? READ_ONLY_REASON : pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review")} onClick={() => setComposing(true)}>
+        <button className="pr-comment-fab" aria-label={`Comment on or review ${noun} ${sign}${detail.ref.number}`} disabled={!writes.comment && !writes.review} {...tooltipProps(!writes.comment && !writes.review ? writes.reason ?? READ_ONLY_REASON : pending.length > 0 ? `Review · ${pending.length} pending` : "Comment or review")} onClick={() => setComposing(true)}>
           <MessageSquarePlus size={15} />
           {pending.length > 0 ? <span className="pr-fab-count">{pending.length}</span> : null}
         </button>

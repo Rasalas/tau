@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { HostCompletions } from "./host-completion.js";
+import { smallCompletionModel } from "./small-completion-model.js";
 import { isExpectedCommandError } from "./host-extension-errors.js";
 
 function makeCompletions(options: {
@@ -40,6 +41,49 @@ function runtime(completeSimple = answer("  A title  "), models: Array<{ provide
 }
 
 describe("HostCompletions", () => {
+  it("leaves ordinary endpoints and independently named providers on normal small-model selection", async () => {
+    const models = [
+      { provider: "openai", id: "text", name: "Text", baseUrl: "https://api.openai.com/v1/" },
+      { provider: "custom", id: "text", name: "Text", baseUrl: "https://gateway.invalid/v1" },
+    ];
+    const configuredRuntime = { ...runtime(answer("text"), models), getAvailable: async () => models };
+    const completions = makeCompletions({ runtime: configuredRuntime });
+    await expect(completions.models()).resolves.toEqual(models.map(({ baseUrl: _url, ...model }) => model));
+  });
+
+  it("completes small jobs on the configured model of an overridden built-in endpoint", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-custom-completion-"));
+    try {
+      await writeFile(join(dir, "models.json"), JSON.stringify({ providers: { openai: {
+        baseUrl: "https://gateway.invalid/v1", apiKey: "fixture-key", api: "openai-completions",
+        models: [{ id: "custom-text", name: "Custom text" }],
+      } } }));
+      const pi = await ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json"), refreshOnCreate: false });
+      await pi.refresh({ allowNetwork: false });
+      const complete = vi.spyOn(pi, "completeSimple").mockImplementation(async (model) => ({
+        role: "assistant", content: model.id === "custom-text" ? [{ type: "text", text: "Generated text" }] : [],
+        api: model.api, provider: model.provider, model: model.id,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: model.id === "custom-text" ? "stop" : "error", errorMessage: "Unknown model", timestamp: 0,
+      }));
+      const completions = new HostCompletions({ agentDir: dir, cwd: () => dir, createRuntime: async () => pi,
+        settings: () => ({ getDefaultProvider: () => "openai", getDefaultModel: () => "custom-text" }),
+      });
+      const catalog = await completions.models();
+      expect(catalog.some((model) => model.id.includes("mini"))).toBe(true);
+      expect(catalog.find((model) => model.id === "custom-text")).toMatchObject({ completionPreference: "default" });
+      const services = { completionModels: () => completions.models() };
+      for (const prefer of [{ provider: "openai", id: "custom-text" }, undefined]) {
+        const chosen = await smallCompletionModel(services, prefer, { elsePrefer: true });
+        expect(chosen).toEqual({ provider: "openai", id: "custom-text" });
+        await expect(completions.complete({ system: "s", prompt: "p" }, chosen)).resolves.toBe("Generated text");
+      }
+      expect(complete).toHaveBeenCalledTimes(2);
+      const inherited = catalog.find((model) => model.id.includes("mini"))!;
+      await expect(completions.complete({ system: "s", prompt: "p" }, inherited)).rejects.toThrow("Unknown model");
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   it("lists the user's own catalog, marking what a subscription login reaches", async () => {
     const runtimeWithLogins = {
       ...runtime(),

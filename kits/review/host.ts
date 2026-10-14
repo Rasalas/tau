@@ -5,6 +5,7 @@ import { registerRequestMedia } from "./request-media-host.js";
 import { createSourceControl, type SourceControlOptions } from "./provider-registry.js";
 import { registerProviderSettings } from "./provider-settings-host.js";
 import { registerPullRequestListCommands } from "./pull-request-list-host.js";
+import { modelEffort, writingBudget } from "./model-effort.js";
 import { withInstructions } from "./writing.js";
 import { registerPublishCommands } from "./publish-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
@@ -122,12 +123,14 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         const thread = services.thread();
         if (!thread) throw new HostCommandError("Pi runtime is not ready");
         services.log("commit-message.started", `${provider && modelId ? `${provider}/${modelId}` : "default model"} · ${style}`);
+        const effort = await modelEffort(services, provider && modelId ? `${provider}/${modelId}` : "", fields.thinkingLevel, thread.cwd);
         let answer: string;
         try {
           answer = await services.complete({
             system: withInstructions(SYSTEM_PROMPTS[style], fields.instructions),
             prompt: buildCommitPrompt({ branch: text(fields.branch), files, diffs }),
-            maxTokens: 220,
+            ...writingBudget(effort, 220),
+            ...(effort ? { thinkingLevel: effort } : {}),
           }, provider && modelId ? { provider, id: modelId } : undefined);
         } catch (error) {
           throw new HostCommandError(error instanceof Error ? error.message : String(error));

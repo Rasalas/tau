@@ -5,11 +5,12 @@ import { Type } from "typebox";
 import { decodeGuideStops, guideChangeOf, normalizeGuide } from "./guide-normalize.js";
 import { renderChangeList, renderFileDiff } from "./guide-diff.js";
 import {
-  GUIDE_AGENT, GUIDE_DIFF_TOOL, GUIDE_ENABLED_OPTION, GUIDE_EVENT, GUIDE_GET_COMMAND, GUIDE_INSTRUCTIONS_VALUE, GUIDE_MAX_REQUESTS, GUIDE_MODEL_VALUE,
+  GUIDE_AGENT, GUIDE_DIFF_TOOL, GUIDE_ENABLED_OPTION, GUIDE_EFFORT_VALUE, GUIDE_EVENT, GUIDE_GET_COMMAND, GUIDE_INSTRUCTIONS_VALUE, GUIDE_MAX_REQUESTS, GUIDE_MODEL_VALUE,
   GUIDE_SUBMIT_TOOL, GUIDE_WRITE_COMMAND, guideKey,
   type GuideEvent, type GuideResult, type GuideRun, type GuideWriteResult,
 } from "./guide-protocol.js";
 import { buildGuidePrompt, GUIDE_DEFINITION } from "./guide-prompt.js";
+import { modelEffort } from "./model-effort.js";
 import { GuideStore } from "./guide-store.js";
 import { projectRepository } from "./pull-request-list-host.js";
 import type { PullRequestReads } from "./pull-request-host.js";
@@ -104,6 +105,7 @@ export function registerGuides(
     return {
       enabled: read?.options[GUIDE_ENABLED_OPTION] === true,
       model: read?.values[GUIDE_MODEL_VALUE]?.trim() ?? "",
+      effort: read?.values[GUIDE_EFFORT_VALUE]?.trim() ?? "",
       instructions: read?.values[GUIDE_INSTRUCTIONS_VALUE]?.trim() ?? "",
     };
   };
@@ -214,9 +216,10 @@ export function registerGuides(
           settledReview: review, instructions: config.instructions,
           ...(stack && stack.size > 1 ? { stack: { position: stack.number, size: stack.size } } : {}),
         });
+        const effort = await modelEffort(services, config.model, config.effort, cwd);
         const started = await agentCall("spawn", {
           parentThreadId: via.parentThreadId, prompt, title: `Review guide for #${ref.number}`, startAt: run.headSha,
-          ...(config.model ? { model: config.model } : {}), source: "tau.review", definition: GUIDE_DEFINITION,
+          ...(config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition: GUIDE_DEFINITION,
         }) as { threadId: string; status?: string; error?: string };
         if (started.error) throw new Error(started.error);
         // A queued agent has no thread yet; its first tool call says which thread it is.

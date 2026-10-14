@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
+import { createElectronPlatform } from "./platform-electron";
+import { createFakeHostClient } from "./test-support/fake-host-client";
 import { STORAGE_KEYS, threadStageKey } from "../workbench/storage-keys";
 import { createLocalStorageAdapter } from "./browser-storage";
 
@@ -47,4 +49,34 @@ describe("client storage on a page that shows another machine", () => {
     expect(own.keys(`${STORAGE_KEYS.threadStage}:`)).toEqual([threadStageKey("thread:t1")]);
     expect(studio.keys(`${STORAGE_KEYS.threadStage}:`)).toEqual([threadStageKey("thread:t2")]);
   });
+});
+
+
+it("scopes extension keys marked for the host without sharing cached private requests", () => {
+  const key = "host:package.saved-requests.v1";
+  const own = createLocalStorageAdapter();
+  const studio = createLocalStorageAdapter("studio");
+  own.set(key, "local request");
+  studio.set(key, "studio request");
+  expect(own.get(key)).toBe("local request");
+  expect(studio.get(key)).toBe("studio request");
+  expect(createLocalStorageAdapter("attic").get(key)).toBeNull();
+  expect(own.keys("host:")).toEqual([key]);
+  expect(studio.keys("host:")).toEqual([key]);
+  studio.remove(key);
+  expect(own.get(key)).toBe("local request");
+});
+
+
+it("clears machine-owned extension data when the desktop forgets a saved machine", async () => {
+  const key = "host:package.saved-requests.v1";
+  const storage = createLocalStorageAdapter();
+  storage.set(key, "local");
+  createLocalStorageAdapter("studio").set(key, "studio");
+  createLocalStorageAdapter("attic").set(key, "attic");
+  const platform = createElectronPlatform({ storage, client: createFakeHostClient(), openInEditor: () => undefined, hasLocalFiles: () => true });
+  await platform.environments!.remove("studio");
+  expect(createLocalStorageAdapter("studio").get(key)).toBeNull();
+  expect(storage.get(key)).toBe("local");
+  expect(createLocalStorageAdapter("attic").get(key)).toBe("attic");
 });

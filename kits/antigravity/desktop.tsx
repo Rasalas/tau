@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
 import { Download, ExternalLink } from "lucide-react";
 import { Button, SettingRow, SettingsState, TextField, loadRuntimeInstanceUi, loadSignInUi, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type RegionProps, type SettingsPageProps, type WorkbenchActions } from "tau";
+import { CustomModelsSetting } from "../_acp/custom-models-setting.js";
 import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, type AntigravityInstallEvent, type AntigravitySignInEvent } from "./protocol.js";
 
 /** The sign-in link the host half last reported; the composer notice opens it and offers it again. */
@@ -100,11 +101,13 @@ export const ROWS = {
   project: "setting-antigravity-gcp-project",
   location: "setting-antigravity-gcp-location",
   configuration: "setting-antigravity-configuration",
+  customModels: "setting-antigravity-custom-models",
   executable: "setting-antigravity-executable",
 } as const;
 
 /** What the Settings search finds on the card. */
 export const SEARCH_ROWS = [
+  { id: ROWS.customModels, label: "Custom models", keywords: ["model ID", "gateway"] },
   { id: ROWS.runtime, label: "Antigravity runtime", keywords: ["antigravity", "install", "update", "version", "agy_acp_server", "download"] },
   { id: ROWS.account, label: "Antigravity sign-in", keywords: ["google", "sign in", "sign out", "login", "gemini", "api key"] },
   { id: ROWS.project, label: "Google Cloud project", keywords: ["gcp", "gemini enterprise", "agent platform", "vertex"] },
@@ -236,6 +239,7 @@ export function AntigravityProviderCard({ onNotify, host }: SettingsPageProps & 
         help="The agent runs with a Gemini home of Tau's own, so nothing it writes lands in yours. What passes through from ~/.gemini is your skills, linked into that home, and your MCP servers."
         description={`Your skills and MCP servers reach the agent. MCP servers: ${status?.mcpServers?.length ? status.mcpServers.join(", ") : "none configured"}.`}
       />
+      <CustomModelsSetting extensionId={ANTIGRAVITY_HOST_EXTENSION_ID} id={ROWS.customModels} />
       <CommandRow
         id={ROWS.executable}
         program="Antigravity server"

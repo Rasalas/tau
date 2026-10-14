@@ -49,6 +49,23 @@ describe("branch names from model answers", () => {
 });
 
 describe("Worktree Names host extension", () => {
+  it("names a branch with the configured model on a custom endpoint", async () => {
+    const own = { provider: "openai", id: "custom-text" };
+    const complete = vi.fn(async (_request, model) => {
+      if (model?.id !== own.id) throw new Error("Unknown model at gateway");
+      return "fix/queue";
+    });
+    const registry = await activateHostKit(createWorktreeNamesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => anyThread(), complete,
+      completionModels: async () => [
+        { provider: "openai", id: "builtin-mini", name: "Small", completionPreference: "configured" },
+        { ...own, name: "Custom", completionPreference: "default" },
+      ],
+    });
+    await expect(registry.invoke(WORKTREE_NAMES_HOST_EXTENSION_ID, "suggest", { prefer: own, description: "Fix the queue" })).resolves.toEqual({ branch: "fix/queue" });
+    expect(complete).toHaveBeenCalledWith(expect.anything(), own);
+  });
+
   const registryWith = (thread: HostThread | undefined, complete = vi.fn(async () => "x"), owner: "tau" | "pi" = "tau", models: Array<{ provider: string; id: string; name: string }> = []) =>
     activateHostKit(createWorktreeNamesHostExtension(), { runtimeOwner: () => owner, thread: () => thread, complete, completionModels: async () => models });
 

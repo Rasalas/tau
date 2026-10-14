@@ -29,7 +29,7 @@ const detail = (number: number, headSha: string): PullRequestDetail => ({
   additions: 4, deletions: 0, changedFiles: 2, reviewers: [], labels: [], commits: [{ oid: "abcdef1234", headline: "First commit", committedAt: "" }],
 } as unknown as PullRequestDetail);
 
-interface Options { enabled?: boolean; model?: string; instructions?: string; stateDir?: string; spawnStatus?: string }
+interface Options { enabled?: boolean; model?: string; effort?: string; levels?: string[]; instructions?: string; stateDir?: string; spawnStatus?: string }
 
 async function harness(options: Options = {}) {
   const stateDir = options.stateDir ?? await mkdtemp(join(tmpdir(), "tau-guides-"));
@@ -63,8 +63,9 @@ async function harness(options: Options = {}) {
     },
   }, {
     stateDir,
-    settings: async () => ({ options: { "review-guides": options.enabled ?? true }, values: { "review-guide-model": options.model ?? "", "review-guide-instructions": options.instructions ?? "" } }),
+    settings: async () => ({ options: { "review-guides": options.enabled ?? true }, values: { "review-guide-model": options.model ?? "", "review-guide-effort": options.effort ?? "", "review-guide-instructions": options.instructions ?? "" } }),
     thread: ((id: string) => id === "parent" ? { sessionId: "parent", cwd: "/repo" } : id === "guide-thread" ? { sessionId: id, cwd: "/wt", model: { provider: "anthropic", id: "haiku" } } : undefined) as never,
+    runtimeChoices: async () => [{ backend: { kind: "pi", label: "Pi" }, enabled: true, readiness: { kind: "pi", label: "Pi", state: "ready" }, catalog: { kind: "pi", models: [{ provider: "test", id: "guide", name: "Guide" }], thinkingLevels: { "test/guide": options.levels ?? ["off", "low", "high"] } } }],
     registerTurnObserver: (value) => { observer = value; return () => undefined; },
     mcp: { registerTools: (offer) => { mcp = offer as typeof mcp; return () => undefined; }, gate: () => () => undefined, registerInstructions: () => () => undefined, connect: async () => undefined },
     registerRuntimeExtension: (_name, setup) => { runtime = setup as typeof runtime; return () => undefined; },
@@ -122,6 +123,24 @@ describe("write", () => {
     expect(input.prompt).toContain("<pr_title>Title 42</pr_title>");
     expect(input.prompt).toContain("Short stops.");
     expect(h.events).toEqual([expect.objectContaining({ kind: "running", number: 42, parentThreadId: "parent" })]);
+  });
+
+  it("passes the configured effort to the guide run", async () => {
+    const h = await harness({ model: "test/guide", effort: "high" });
+    expect((await h.write()).outcome).toBe("started");
+    expect(h.spawn).toHaveBeenCalledWith(expect.objectContaining({ model: "test/guide", thinkingLevel: "high" }));
+  });
+
+  it.each([
+    { model: "test/guide" },
+    { model: "test/guide", effort: "invalid" },
+    { model: "test/guide", effort: "high", levels: ["off"] },
+    { model: "test/missing", effort: "high" },
+    { effort: "high" },
+  ])("keeps default effort for unsupported or absent selections %j", async (options) => {
+    const h = await harness(options);
+    expect((await h.write()).outcome).toBe("started");
+    expect(h.spawn.mock.calls[0]![0]).not.toHaveProperty("thinkingLevel");
   });
 
   it("joins a run for the same head and replaces one for an older head", async () => {

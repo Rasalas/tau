@@ -39,7 +39,7 @@ export type MergeConfirmKind = "merge" | "auto-merge" | "revert";
  * what happens in one sentence, the method where there is a choice, and
  * whether the branch goes too. Nothing reaches the host before the button.
  */
-export function MergeConfirm({ kind, service, short, number, base, branch, methods, method, onMethod, deleteBranch, onDeleteBranch, deleteOffered, busy, error, onConfirm, onCancel }: {
+export function MergeConfirm({ kind, service, short, number, base, branch, methods, method, onMethod, deleteBranch, onDeleteBranch, deleteOffered, busy, error, disabledReason, onConfirm, onCancel }: {
   kind: MergeConfirmKind;
   service: RequestService;
   short: string;
@@ -55,6 +55,7 @@ export function MergeConfirm({ kind, service, short, number, base, branch, metho
   deleteOffered: boolean;
   busy: boolean;
   error?: string;
+  disabledReason?: string;
   onConfirm(): void;
   onCancel(): void;
 }) {
@@ -97,9 +98,10 @@ export function MergeConfirm({ kind, service, short, number, base, branch, metho
         ) : null
       ) : null}
       {error ? <p className="pr-error" role="alert">{error}</p> : null}
+      {disabledReason ? <p role="status">{disabledReason}</p> : null}
       <footer>
         <button disabled={busy} onClick={onCancel}>Cancel</button>
-        <button className="primary" disabled={busy || (kind !== "revert" && !method)} onClick={onConfirm}>{busy ? "Working…" : confirm}</button>
+        <button className="primary" disabled={busy || Boolean(disabledReason) || (kind !== "revert" && !method)} onClick={onConfirm}>{busy ? "Working…" : confirm}</button>
       </footer>
     </Dialog>,
     document.body,

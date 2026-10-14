@@ -178,6 +178,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
 const CORE_ALLOWED_PACKAGES = new Set([
   "typebox", // Schemas for the runtime-neutral background control tool.
   "@earendil-works/pi-ai",
+  // Built-in endpoint data distinguishes provider overrides in the completion catalog.
+  "@earendil-works/pi-ai/providers/all",
   "@earendil-works/pi-ai/providers/opencode",
   "@earendil-works/pi-ai/providers/opencode-go",
   // Tool arguments over MCP are checked the way Pi checks them.

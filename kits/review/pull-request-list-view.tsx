@@ -20,6 +20,7 @@ import {
 import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type WorkbenchActions } from "tau";
 import { REVIEWS_PAGE } from "./local-reviews.js";
 import { providerInfo, requestNumber, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
+import { RequestCacheNotice, useRequestConnection } from "./pull-request-offline.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import {
   arrangeList,
@@ -284,7 +285,17 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   const [labels, setLabels] = useState<string[]>(saved?.labels ?? []);
   const [author, setAuthor] = useState(saved?.author);
   const [more, setMore] = useState<{ question: string; limit: number }>({ question: "", limit: PAGE });
-  const [list, setList] = useState<Listing>();
+  const connected = useRequestConnection(client);
+  const initialQuery = { state: preferences.state, limit: PAGE };
+  const [list, setList] = useState<Listing | undefined>(() => {
+    if (scope.kind === "all") {
+      const cached = client.cache?.peek<PullRequestLists>("pr-list-many", { ...initialQuery, workspaces: everyProject });
+      return cached ? mergedListing(cached.value) : undefined;
+    }
+    const cached = client.cache?.peek<PullRequestList>("pr-list", { ...initialQuery, ...(workspace ? { workspace } : {}) });
+    return cached ? singleListing(cached.value, workspace) : undefined;
+  });
+  const [savedAt, setSavedAt] = useState<number>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [menu, setMenu] = useState<"sort" | "filters" | "projects" | "sheet">();
@@ -321,12 +332,18 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     setLoading(true);
     try {
       const asking = { state: preferences.state, limit, ...(search ? { search } : {}) };
+      const command = scope.kind === "all" ? "pr-list-many" : "pr-list";
+      const input = scope.kind === "all" ? { ...asking, workspaces: everyProject } : { ...(workspace ? { workspace } : {}), ...asking };
+      const cached = client.cache?.peek<PullRequestList | PullRequestLists>(command, input);
+      if (client.cache) setList(cached ? (scope.kind === "all" ? mergedListing(cached.value as PullRequestLists) : singleListing(cached.value as PullRequestList, workspace)) : undefined);
+      setSavedAt(cached?.at);
       const next = scope.kind === "all"
         ? mergedListing(await client.listMany({ ...asking, workspaces: everyProject }))
         : singleListing(await client.list({ ...(workspace ? { workspace } : {}), ...asking }), workspace);
       if (request !== asked.current) return;
       if (!next) throw new Error("None of your projects has a repository with requests Tau can list.");
       setList(next);
+      setSavedAt(client.cache?.peek(command, input)?.at);
       setError(undefined);
     } catch (reason) {
       if (request === asked.current) setError(errorMessage(reason));
@@ -335,7 +352,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     }
   }, [client, everyProject, limit, preferences.state, scope.kind, search, workspace]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [connected, load]);
 
   useEffect(() => {
     if (!list || !handle) return;
@@ -491,6 +508,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
 
   return (
     <div className={`pr-list-view${onPage ? " on-page" : ""}`} aria-label="Pull requests">
+      <RequestCacheNotice client={client} at={savedAt} />
       {phone ? (
         <header className="pr-list-head phone">
           <div className="pr-list-bar">

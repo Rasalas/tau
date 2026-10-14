@@ -4,6 +4,7 @@ import { findEvidenceTokens, type LocalBranch, type LocalEvidence, type UploadPl
 import type { ReviewRequestContext, ReviewRequestDraft } from "./protocol.js";
 import type { SourceControl } from "./provider-registry.js";
 import { buildDraftPrompt, draftSystemPrompt, fallbackDraft, parseDraft, withPendingCommit } from "./requests-host.js";
+import { modelEffort, writingBudget } from "./model-effort.js";
 import { withInstructions } from "./writing.js";
 
 /** Threads one view reads pictures of, at most; the rest are the oldest. */
@@ -101,9 +102,10 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
       buildDraftPrompt(git),
       captions.length > 0 ? `Screenshots of the app taken while the change was made, embedded after the description; each caption names the action just before it. Mention what they show only where it helps a reviewer, never how they were taken, and add no image links:\n${captions.map((caption) => `- ${caption}`).join("\n")}` : "",
     ].filter(Boolean).join("\n\n");
+    const effort = await modelEffort(services, modelRef(fields.model) && model ? `${model.provider}/${model.id}` : "", fields.thinkingLevel, git.root);
     let answer: string;
     try {
-      answer = await services.complete({ system: withInstructions(draftSystemPrompt(info.noun), fields.instructions), prompt, maxTokens: 900 }, model);
+      answer = await services.complete({ system: withInstructions(draftSystemPrompt(info.noun), fields.instructions), prompt, ...writingBudget(effort, 900), ...(effort ? { thinkingLevel: effort } : {}) }, model);
     } catch (error) {
       services.log("local-request.describe-failed", message(error));
       throw new HostCommandError(`The description could not be written: ${message(error)}`);

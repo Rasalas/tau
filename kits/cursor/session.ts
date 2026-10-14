@@ -21,6 +21,7 @@ export interface CursorSessionOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
   clientVersion: string;
+  customModels?: readonly string[];
   spawn?(input: AcpSpawnInput): AcpProcess;
   onUpdate(update: AcpSessionUpdate): void;
   onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse>;
@@ -50,6 +51,7 @@ export async function openCursorSession(options: CursorSessionOptions): Promise<
     cwd: options.cwd,
     clientInfo: { name: CURSOR_CLIENT_NAME, version: options.clientVersion },
     clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, elicitation: { form: {} }, _meta: { parameterizedModelPicker: true } },
+    customModels: options.customModels,
     onUpdate: options.onUpdate,
     onPermission: options.onPermission,
     ...(options.onElicitation ? { onElicitation: options.onElicitation } : {}),

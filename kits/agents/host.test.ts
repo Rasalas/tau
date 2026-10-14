@@ -43,6 +43,7 @@ import {
 import { captureWorktreeTree, runAgentGit, type AgentGitRunner } from "../workspace/agent-worktrees.js";
 import { priorityPrefix, readAgentPriority } from "./priority.js";
 import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./threads.js";
+import { waitingBelow } from "./model.js";
 
 interface FakeTool {
   name: string;
@@ -1108,6 +1109,33 @@ describe("Agents Kit", () => {
       .resolves.toMatchObject({ status: "waiting", pendingToolPrompt: "Run rm -rf?" });
   });
 
+  it("counts an unanswered question below the parent only while its child runs", async () => {
+    const bench = await activated();
+    try {
+      const parent = bench.runtime("parent");
+      const handle = handleOf(await parent.call("tau_spawn_thread", { prompt: "go" }));
+      const child = bench.threads.get(handle)!;
+      await bench.notify("accepted", handle);
+      bench.runtime(handle).fire("ui_prompt_start", { kind: "input", title: "Which index?" });
+      child.idle = false;
+      expect(waitingBelow(await bench.state(), "parent").map((entry) => entry.threadId)).toEqual([handle]);
+
+      await parent.call("tau_send_to_thread", { threadId: handle, message: "Check the next table", mode: "queue" });
+      expect(waitingBelow(await bench.state(), "parent").map((entry) => entry.threadId)).toEqual([handle]);
+
+      child.streaming = false;
+      await bench.notify("ended", handle, "completed");
+      expect(waitingBelow(await bench.state(), "parent")).toEqual([]);
+      expect((await bench.state()).links[0]).toMatchObject({ pendingToolPrompt: "Which index?" });
+
+      // The queued turn starts with the same dialog still open.
+      await bench.notify("accepted", handle);
+      expect(waitingBelow(await bench.state(), "parent").map((entry) => entry.threadId)).toEqual([handle]);
+      await bench.notify("ended", handle, "failed");
+      expect(waitingBelow(await bench.state(), "parent")).toEqual([]);
+    } finally { await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID); }
+  });
+
   it("waits for the agent's turn to end and returns its final answer", async () => {
     const bench = await activated();
     const parent = bench.runtime("parent");
@@ -1634,16 +1662,40 @@ describe("Agents Kit spawn for another kit", () => {
     const bench = await activated({ runGit });
     bench.setProject(project);
     try {
-      const spawned = await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", title: "Guide", startAt: "abc1234", model: "anthropic/small-model", source: "tau.review", definition }) as { threadId: string; branch: string; agent: string };
+      const spawned = await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", title: "Guide", startAt: "abc1234", model: "anthropic/small-model", thinkingLevel: "high", source: "tau.review", definition }) as { threadId: string; branch: string; agent: string };
       expect(spawned).toMatchObject({ threadId: "child-1", agent: "pr-guide" });
       // The worktree starts from that commit, not from the parent's HEAD and uncommitted work.
       expect(calls.some(([, ...args]) => args.join(" ").startsWith(`worktree add -b ${spawned.branch}`) && args.at(-1) === "abc1234full")).toBe(true);
       expect(calls.some(([, ...args]) => args.join(" ").startsWith("commit-tree"))).toBe(false);
-      expect(bench.started[0]).toMatchObject({ title: "Guide", model: { provider: "anthropic", id: "small-model" }, parent: { threadId: "parent", details: expect.objectContaining({ spawnedBy: "tau.review", agent: "pr-guide", persona: expect.objectContaining({ name: "pr-guide", access: "read-only", tools: ["read", "submit_pull_request_guide"] }) }) } });
+      expect(bench.started[0]).toMatchObject({ title: "Guide", thinkingLevel: "high", model: { provider: "anthropic", id: "small-model" }, parent: { threadId: "parent", details: expect.objectContaining({ spawnedBy: "tau.review", agent: "pr-guide", persona: expect.objectContaining({ name: "pr-guide", access: "read-only", tools: ["read", "submit_pull_request_guide"] }) }) } });
       // No wake is owed to a parent that did not use its own tool.
       expect((await bench.state()).links[0]).toMatchObject({ spawnedBy: "tau.review" });
     } finally {
       await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
+  it("retains a queued child's effort across restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-spawn-effort-"));
+    const linksPath = join(directory, "links.json");
+    const settingsPath = join(directory, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
+    const first = await activated({ linksPath, settingsPath });
+    let second: Awaited<ReturnType<typeof activated>> | undefined;
+    try {
+      const parent = await first.mcpThread("parent");
+      await parent.call("tau_spawn_thread", { prompt: "Occupy capacity" });
+      const queued = await first.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", thinkingLevel: "high", model: "anthropic/small-model", definition }) as { threadId: string; status: string };
+      expect(queued.status).toBe("pending");
+      await first.registry().dispose();
+      second = await activated({ linksPath, settingsPath });
+      const recovered = await second.mcpThread("parent");
+      await recovered.call("tau_send_to_thread", { threadId: queued.threadId, message: "Continue", mode: "queue" });
+      expect(second.started[0]).toMatchObject({ thinkingLevel: "high", model: { provider: "anthropic", id: "small-model" } });
+    } finally {
+      await first.registry().dispose();
+      await second?.registry().dispose();
+      await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 

@@ -13,6 +13,7 @@ import {
   type SettingsPageProps,
   type WorkbenchActions,
 } from "tau";
+import { CustomModelsSetting } from "../_acp/custom-models-setting.js";
 import {
   GROK_BACKEND_KIND,
   GROK_HOME_VARIABLE,
@@ -202,6 +203,7 @@ export function GrokProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_I
           {(signedIn || apiKey) && models ? <SettingRow id={rows.models} title="Models" description={models} /> : null}
         </>
       ) : null}
+      <CustomModelsSetting extensionId={GROK_HOST_EXTENSION_ID} id={rows.customModels} />
       <CommandRow
         id={rows.executable}
         program={label}
@@ -232,13 +234,14 @@ export function GrokProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_I
 /** The element ids of an instance's rows; every instance's card sits on the same page, so each carries its id. */
 export function rowIds(instance: string) {
   const prefix = instance === DEFAULT_INSTANCE_ID ? "setting-grok" : `setting-grok-${instance}`;
-  return { prefix, program: `${prefix}-program`, account: `${prefix}-account`, models: `${prefix}-models`, executable: `${prefix}-executable`, setup: `${prefix}-setup` };
+  return { prefix, program: `${prefix}-program`, account: `${prefix}-account`, models: `${prefix}-models`, customModels: `${prefix}-custom-models`, executable: `${prefix}-executable`, setup: `${prefix}-setup` };
 }
 
 /** What the Settings search finds on an instance's card. */
 export function searchRows(instance: string, label: string) {
   const ids = rowIds(instance);
   return [
+    { id: ids.customModels, label: `${label} custom models`, keywords: ["model ID", "gateway"] },
     { id: ids.program, label: `${label} CLI`, keywords: ["grok", "grok build", "version", "install", "installed", "check"] },
     { id: ids.executable, label: `${label} executable`, keywords: ["grok", "path", "command", "binary"] },
     { id: ids.setup, label: `${label} instance setup`, keywords: ["grok", "instance", "home", "GROK_HOME", "environment", "arguments"] },

@@ -93,7 +93,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   const open = detail.state === "open";
   const mergeable = open && !detail.draft && methods.length > 0;
   const sections: MenuSection[] = extra.length > 0 ? [{ items: extra.map(({ run: _run, ...item }) => item) }] : [];
-  const refused = (allowed: boolean) => allowed ? {} : { disabled: true, description: READ_ONLY_REASON };
+  const refused = (allowed: boolean) => allowed ? {} : { disabled: true, description: writes.reason ?? READ_ONLY_REASON };
   const steps = [
     ...(mergeable && (primary === "auto-merge" || primary === "armed") ? [{ id: "merge-now", label: "Merge now", icon: <GitMerge size={13} /> }] : []),
     ...(open && detail.autoMerge && capabilities.autoMerge ? [{ id: "auto-merge-off", label: "Disable auto-merge", icon: <GitMerge size={13} /> }] : []),
@@ -125,11 +125,11 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
           <GitMerge size={11} aria-hidden="true" /> {armed}
         </span>
       ) : primary === "auto-merge" && confirmation.method ? (
-        <button className="pr-primary" disabled={!writes.action} {...tooltipProps(writes.action ? undefined : READ_ONLY_REASON)} onClick={() => confirmation.open("auto-merge")}>
+        <button className="pr-primary" disabled={!writes.action} {...tooltipProps(writes.action ? undefined : writes.reason ?? READ_ONLY_REASON)} onClick={() => confirmation.open("auto-merge")}>
           <GitMerge size={12} aria-hidden="true" /> Auto-merge ({METHOD_LABELS[confirmation.method].toLowerCase()})
         </button>
       ) : primary === "merge" && confirmation.method ? (
-        <button className="pr-primary" disabled={!writes.action} {...tooltipProps(writes.action ? undefined : READ_ONLY_REASON)} onClick={() => confirmation.open("merge")}>
+        <button className="pr-primary" disabled={!writes.action} {...tooltipProps(writes.action ? undefined : writes.reason ?? READ_ONLY_REASON)} onClick={() => confirmation.open("merge")}>
           <GitMerge size={12} aria-hidden="true" /> {METHOD_LABELS[confirmation.method]}{intoBase ? ` into ${detail.baseRef}` : ""}
         </button>
       ) : null}
@@ -156,6 +156,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
           deleteOffered={capabilities.deleteBranch && !(confirmation.kind === "auto-merge" && detail.ref.service === "github")}
           busy={confirmation.busy}
           {...(confirmation.error ? { error: confirmation.error } : {})}
+          disabledReason={writes.action ? undefined : writes.reason ?? READ_ONLY_REASON}
           onConfirm={() => void confirm()}
           onCancel={confirmation.close}
         />

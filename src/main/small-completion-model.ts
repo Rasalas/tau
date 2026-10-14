@@ -71,6 +71,7 @@ function compareGeneration(left: string, right: string): number {
  * the same provider first, then the same vendor under another name (a Codex
  * thread's `openai` is Pi's `openai-codex`), then the newest offered generation
  * within a small tier. Luna takes precedence over OpenAI's older mini/nano tiers.
+ * On an overridden endpoint, the configured thread model or default wins.
  * `undefined` when none is small, which leaves `complete` on the user's
  * default — or, with `elsePrefer`, on `prefer` itself where `complete` runs it.
  */
@@ -82,7 +83,10 @@ export async function smallCompletionModel(
   const catalog = await services.completionModels?.().catch(() => []) ?? [];
   const provider = (model: CompletionModelRef) => !prefer ? 0 : model.provider === prefer.provider ? 2 : sameVendor(model.provider, prefer.provider) ? 1 : 0;
   const closeness = (model: CompletionModelRef) => prefer ? provider(model) * 1_000 + sharedPrefix(model.id, prefer.id) : 0;
-  const pick = catalog
+  const configured = prefer ? catalog.find((model) => model.completionPreference && model.provider === prefer.provider && model.id === prefer.id) : undefined;
+  const defaultModel = !prefer || !catalog.some((model) => model.id === prefer.id && provider(model) > 0)
+    ? catalog.find((model) => model.completionPreference === "default") : undefined;
+  const pick = configured ?? defaultModel ?? catalog
     .filter((model) => isSmallModel(model.id))
     .sort((left, right) => {
       const vendor = provider(right) - provider(left);

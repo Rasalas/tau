@@ -10,6 +10,7 @@ import { terminalMenuChoice, terminalMenuSections } from "./context-menu.js";
 import { focusPane, isStaged } from "./layout.js";
 import { addExcerptToPrompt, openTerminalLink } from "./controller.js";
 import { forGround } from "./palette.js";
+import { scrollDragAtWindowEdge } from "./edge-scroll.js";
 import { TERMINAL_DATA_EVENT, type TerminalDataEvent, type UiTerminalSession } from "./protocol.js";
 
 /** Lines a view keeps; the host retains as many for a view that reattaches. */
@@ -210,6 +211,7 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
           callback(found.length > 0 ? found : undefined);
         },
       });
+      const stopEdgeScroll = scrollDragAtWindowEdge(instance, element);
       const selected = instance.onSelectionChange(() => setSelection(instance.hasSelection() ? instance.getSelection() : ""));
       let ready = false;
       // Replayed output may hold a program's terminal queries; xterm's answers
@@ -295,7 +297,7 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
         void readReplay().then(() => { if (!disposed) { refit(); takeFocus(); } });
       });
       cleanup = () => {
-        stop(); unwatch(); stopReconnect(); input.dispose(); links.dispose(); selected.dispose(); stopFocus(); stopTheme(); observer.disconnect();
+        stop(); unwatch(); stopReconnect(); input.dispose(); links.dispose(); stopEdgeScroll(); selected.dispose(); stopFocus(); stopTheme(); observer.disconnect();
         instance.textarea?.removeEventListener("focus", onFocus);
         touchRef.current?.attach(undefined);
         instance.dispose();

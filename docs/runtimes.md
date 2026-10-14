@@ -44,6 +44,37 @@ Tau speaks both server APIs: OpenCode 1 (from 1.14.19, tested with 1.18.32) and 
 
 What works on both: sessions resumed by id, streamed text, reasoning and tool cards, stop, steering a running turn, the plan mode as OpenCode's plan agent, Tau's access levels as the session's permission rules, permission requests and questions in the thread (also those of OpenCode's sub-agents), the models of every connected provider with price and reasoning variants, Tau's own MCP tools, and Onboarding's import of OpenCode's sessions. OpenCode 2 differences you can see: "Allow for this session" grants the rule to that session only (OpenCode 2 would keep an "always" for the project), and a declined command or dismissed question lets the model go on instead of ending the run. OpenCode 2 keeps its data in a new database that Usage does not read yet, so work done outside Tau with it is not counted.
 
+## Custom models for ACP runtimes
+
+Open **Settings → Runtimes**, choose Cursor, Grok or Antigravity, and enter
+one model ID per line in **Custom models**. The field saves when you leave it
+or press ⌘Return on macOS, Ctrl+Return elsewhere. Empty lines and repeated
+IDs are ignored. Each list applies to every instance of that runtime on
+this machine.
+
+After saving, choose **Refresh models** in the model picker. The refreshed
+catalog and sessions started after saving use the new list without restarting
+Tau. Existing sessions keep the model list they read at startup; start a new
+thread to use an added ID there.
+
+The picker uses the ID as the model's name. Only explicitly listed IDs bypass
+the local model check; the agent decides whether it can run them, and its
+error is shown if it refuses. Modes and reasoning options still accept only
+the agent's advertised choices.
+
+Alternatively, set the same values in this machine's `~/.tau/config.json`,
+using `\n` between IDs in each string:
+
+```json
+{
+  "values": {
+    "tau.cursor.customModels": "gateway/new-model",
+    "tau.grok.customModels": "gateway/new-model",
+    "tau.antigravity.customModels": "gateway/new-model"
+  }
+}
+```
+
 ## Keeping the CLIs current
 
 Settings → Runtimes lists, under **Agent tools**, each agent CLI Tau drives: its version, where it comes from and the command that updates it. Tau reads the source from where the executable really lives: a Homebrew formula or cask (only the formulae and casks each runtime names, and only with the `brew` of that prefix), a global npm, pnpm or bun install (the package's own folder in the path, so a global under a Homebrew-installed Node counts as npm's), or the program's own installer (the Agent SDK runtime's CLI under `~/.local/share`, `cursor-agent`, OpenCode's install script). Anything else, Grok Build's CLI among it for now, is shown as unknown and left to you.

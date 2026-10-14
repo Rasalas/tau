@@ -6,8 +6,10 @@ import { connectTerminalHost, terminalHostReconnected } from "./store.js";
 import { TerminalView } from "./view.js";
 import { TERMINAL_DATA_EVENT } from "./protocol.js";
 
-const { writes, calls, keyHandlers, menu } = vi.hoisted(() => ({
+const { writes, calls, keyHandlers, menu, drag } = vi.hoisted(() => ({
   menu: { show: undefined as unknown as (event: unknown, sections: unknown[]) => Promise<string | undefined> },
+  // What the fake xterm saw of a selection drag, and the mouse mode an application set.
+  drag: { seenY: [] as number[], tracking: "none" },
   writes: [] as string[],
   calls: [] as string[],
   keyHandlers: [] as Array<(event: KeyboardEvent) => boolean>,
@@ -22,8 +24,16 @@ vi.mock("@xterm/xterm", () => ({
     cols = 80;
     rows = 24;
     buffer = { active: { type: "normal", getLine: () => undefined } };
+    modes = { get mouseTrackingMode() { return drag.tracking; } };
     loadAddon() {}
-    open() {}
+    open(element: HTMLElement) {
+      // Like xterm: a screen element, and a document listener that reads the pointer.
+      element.append(Object.assign(document.createElement("div"), { className: "xterm-screen" }));
+      const seen = (event: MouseEvent) => { drag.seenY.push(event.clientY); };
+      document.addEventListener("mousemove", seen);
+      this.stopSeeing = () => document.removeEventListener("mousemove", seen);
+    }
+    stopSeeing = () => {};
     write(data: string, done?: () => void) { writes.push(data); done?.(); }
     onData() { return { dispose() {} }; }
     onSelectionChange() { return { dispose() {} }; }
@@ -35,7 +45,7 @@ vi.mock("@xterm/xterm", () => ({
     paste(text: string) { calls.push(`paste:${text}`); }
     focus() { calls.push("focus"); }
     getSelection() { return "picked"; }
-    dispose() {}
+    dispose() { this.stopSeeing(); }
   },
 }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
@@ -45,6 +55,8 @@ beforeEach(() => {
   writes.length = 0;
   calls.length = 0;
   keyHandlers.length = 0;
+  drag.seenY.length = 0;
+  drag.tracking = "none";
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 });
@@ -143,5 +155,58 @@ describe("a terminal's own navigation", () => {
     await waitFor(() => expect(show).toHaveBeenCalled());
     await Promise.resolve();
     expect(calls).toEqual([]);
+  });
+});
+
+describe("a selection drag at the window edge", () => {
+  // The screen fills a 768 px window, so the pointer cannot leave it below or above.
+  async function mounted() {
+    const fake = host();
+    disconnects.push(connectTerminalHost(fake.client));
+    const view = render(<TerminalView session={{ id: "remote-shell", label: "Rex", cols: 80, rows: 24 }} place="panel" />);
+    await waitFor(() => expect(view.container.querySelector(".xterm-screen")).not.toBeNull());
+    const screen = view.container.querySelector<HTMLElement>(".xterm-screen")!;
+    vi.spyOn(screen, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: window.innerHeight } as DOMRect);
+    return { surface: view.container.querySelector<HTMLElement>(".terminal-view")!, screen };
+  }
+  const move = (clientY: number, buttons = 1) => fireEvent.mouseMove(document.body, { clientY, buttons });
+
+  it("shows xterm a pointer outside its screen, farther the deeper it pushes, so it scrolls and extends the selection", async () => {
+    const { surface } = await mounted();
+    fireEvent.mouseDown(surface, { button: 0, buttons: 1, clientY: 300 });
+    move(window.innerHeight - 1);
+    move(window.innerHeight - 5);
+    move(6);
+    move(1);
+    const [bottomDeep, bottomShallow, topShallow, topDeep] = drag.seenY;
+    expect(bottomShallow).toBeGreaterThan(window.innerHeight);
+    expect(bottomDeep).toBeGreaterThan(bottomShallow!);
+    expect(topShallow).toBeLessThan(0);
+    expect(topDeep).toBeLessThan(topShallow!);
+  });
+
+  it("leaves the pointer alone away from the edge, without a drag, after the release and while an application has the mouse", async () => {
+    const { surface } = await mounted();
+    move(window.innerHeight - 1);
+    fireEvent.mouseDown(surface, { button: 0, buttons: 1, clientY: 300 });
+    move(window.innerHeight / 2);
+    fireEvent.mouseUp(document.body, { button: 0 });
+    fireEvent.mouseDown(surface, { button: 0, buttons: 1, clientY: 300 });
+    fireEvent.mouseUp(document.body, { button: 0 });
+    move(window.innerHeight - 1);
+    drag.tracking = "any";
+    fireEvent.mouseDown(surface, { button: 0, buttons: 1, clientY: 300 });
+    move(window.innerHeight - 1);
+    const edge = window.innerHeight - 1;
+    expect(drag.seenY).toEqual([edge, window.innerHeight / 2, edge, edge]);
+  });
+
+  it("leaves a terminal alone that has room below it, where xterm scrolls by itself", async () => {
+    const { surface, screen } = await mounted();
+    vi.spyOn(screen, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: window.innerHeight - 40 } as DOMRect);
+    fireEvent.mouseDown(surface, { button: 0, buttons: 1, clientY: 300 });
+    move(window.innerHeight - 45);
+    move(101);
+    expect(drag.seenY).toEqual([window.innerHeight - 45, 101]);
   });
 });

@@ -140,6 +140,7 @@ export const MACHINE_TOOLS_STATE = "machine-tools-state";
 export const MACHINE_TOOLS_UPDATE = "machine-tools-update";
 export const LOCAL_STATE = "runtime-tools-state";
 export const LOCAL_UPDATE = "runtime-tools-update";
+export const LOCAL_UPDATE_SELECTED = "runtime-tools-update-selected";
 
 export interface MachineTools {
   id: string;

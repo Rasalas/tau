@@ -22,6 +22,7 @@ import {
   type RuntimeToolVersion,
   type UiModelBilling,
 } from "tau/host-extension";
+import { customModelIds, withCustomModels } from "../_acp/custom-models.js";
 import type { AcpProcess, AcpSpawnInput } from "../_acp/client.js";
 import { withTauServer } from "../_acp/mcp.js";
 import type { AcpStoredModel } from "../_acp/session-store.js";
@@ -93,6 +94,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
     activate(context) {
       const services: HostExtensionServices = context.services;
       const env = options.env ?? process.env;
+      const customModels = async () => customModelIds((await services.settings?.())?.values.customModels);
       const storePath = GrokSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const store = new GrokSessionStore({ filePath: storePath });
       const activity = new TurnActivityStore({ directory: join(dirname(storePath), "grok-activity") });
@@ -152,6 +154,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           cwd: input.cwd,
           env: instanceEnv(id),
           clientVersion: options.clientVersion ?? "0.0.0",
+          customModels: await customModels(),
           ...(options.spawn ? { spawn: options.spawn } : {}),
           mcpServers: withTauServer([], tau),
           onUpdate: input.onUpdate,
@@ -217,7 +220,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           return { models: [], thinkingLevels: {}, status: "sign-in-required", note: "Grok is not signed in. Run grok login in a terminal, then open the picker again." };
         }
         await store.setModels(probe.models, id).catch(() => undefined);
-        return grokNewThreadCatalog(probe.models, { billing: billing(id), ...(probe.start ? { start: probe.start } : {}) });
+        return grokNewThreadCatalog(withCustomModels(probe.models, await customModels()), { billing: billing(id), ...(probe.start ? { start: probe.start } : {}) });
       };
 
       const providerFor = (id: string): HostRuntimeBackendProvider => {
@@ -251,7 +254,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
               activity,
               instance: id,
               openSession: (input) => open(id, input) as Promise<GrokSessionLike>,
-              storedModels: () => store.listModels(id),
+              storedModels: async () => withCustomModels(await store.listModels(id), await customModels()),
               billing: billing(id),
               ...(grokHome ? { grokHome } : {}),
               permissionLevel: thread.permissionLevel,

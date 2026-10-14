@@ -8,6 +8,22 @@ that is already authenticated. This page describes the design, the Linux
 update helper and the threat model. The user-facing summary is in
 [Install and run](install.md#updates).
 
+## Update everything from the desktop
+
+Settings → Machines → Update everything reviews known tool and Tau updates
+before sending any update requests. The plan uses the window's existing
+connections and each machine's update permissions. Disconnected, Read-only
+and unsupported machines show why their steps are skipped.
+
+Run update plan first finishes the selected tool updates on every machine,
+including queued updates, then updates remote machines. The window's own
+machine and app update last through the existing host updater. Each step
+shows its progress or error. Confirmed failures allow other steps to continue;
+an uncertain request prevents that machine's restart and the final app restart.
+The updater still waits for required background work and its results. After
+15 minutes without completion, the plan reports the unfinished step and stops
+waiting without retrying it. Leaving Settings keeps the plan running.
+
 ## Who checks, who installs
 
 The host process owns the machine's update state (`src/main/host-updater.ts`).

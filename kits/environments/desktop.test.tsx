@@ -209,6 +209,9 @@ describe("Machines Kit", () => {
     registry.activate({ id: "workspace-stub", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, { registerRailSection: registered, registerRailThreads: listed, registerThreadCardSection: card, registerDraftMachine: runOn }); } });
     registry.activate(environmentsExtension);
     expect(registry.getSettingsPages().map((page) => page.id)).toEqual(["environments.machines"]);
+    expect(registry.getSettingsSections(MACHINES_SETTINGS_PAGE)).toContainEqual(expect.objectContaining({
+      id: "environments.update-everything", rows: [expect.objectContaining({ id: "setting-update-everything" })],
+    }));
     expect(registry.getComposerControls()).toEqual([]);
     // A new thread's machine goes into Workspace Kit's Run-on pill (design 1k), not under the heading.
     expect(registry.getRegions("draft-actions")).toEqual([]);

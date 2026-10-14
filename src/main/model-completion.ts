@@ -1,4 +1,4 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, type ThinkingLevel, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { HostCommandError } from "./host-extension-errors.js";
 import type { CompletionRequest } from "./runtime-types.js";
@@ -45,7 +45,11 @@ export async function completeText(
   attribution: { sessionId: string; headers?: Record<string, string> },
 ): Promise<string> {
   const context = { systemPrompt: request.system, messages: [{ role: "user" as const, content: [{ type: "text" as const, text: request.prompt }], timestamp: Date.now() }] };
+  const levels = getSupportedThinkingLevels(model);
+  const reasoning = request.thinkingLevel && request.thinkingLevel !== "off" && levels.includes(request.thinkingLevel as ThinkingLevel)
+    ? request.thinkingLevel as ThinkingLevel : undefined;
   const options = {
+    ...(reasoning ? { reasoning } : {}),
     maxTokens: request.maxTokens ?? 48,
     cacheRetention: "none" as const,
     timeoutMs: request.timeoutMs ?? 30_000,

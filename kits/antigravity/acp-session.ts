@@ -34,6 +34,7 @@ export interface AntigravitySessionOptions {
   baseEnv: NodeJS.ProcessEnv;
   browser: string;
   clientVersion: string;
+  customModels?: readonly string[];
   authMethod?: AntigravityAuthMethod;
   /** The chosen method's credential from the user's environment; everything else Google-related is stripped. */
   credentials?: Readonly<Record<string, string>>;
@@ -80,6 +81,7 @@ export class AntigravitySession extends AcpAgentSession {
       cwd: options.cwd,
       clientInfo: { name: ANTIGRAVITY_CLIENT_NAME, version: options.clientVersion },
       clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false, elicitation: { form: {} } },
+      customModels: options.customModels,
       onUpdate: options.onUpdate,
       onPermission: options.onPermission,
       ...(options.onElicitation ? { onElicitation: options.onElicitation } : {}),

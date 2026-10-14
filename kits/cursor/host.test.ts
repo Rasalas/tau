@@ -23,7 +23,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function harness(options: { found?: boolean; env?: Record<string, string> } = {}) {
+async function harness(options: { customModels?: string; found?: boolean; env?: Record<string, string> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-cursor-host-"));
   directories.push(root);
   const log = join(root, "agent.log");
@@ -39,6 +39,7 @@ async function harness(options: { found?: boolean; env?: Record<string, string> 
     findCommand: (name) => (name === "cursor-agent" || name === FAKE_CLI) && options.found !== false ? FAKE_CLI : undefined,
     sessionsDir: join(root, "agent", "sessions"),
     stateDir: join(root, "state"),
+    settings: async () => ({ options: {}, values: { customModels: options.customModels ?? "" } }),
     noteSubprocess: () => undefined,
     registerRuntimeBackend: (provider) => {
       backends.push(provider);
@@ -61,6 +62,22 @@ function caller(id: string): HostExtension & { call?: (command: string, input?: 
 }
 
 describe("Cursor host half", () => {
+
+  it("offers configured custom models and sends the chosen ID to the agent", async () => {
+    const custom = "gateway/new-model";
+    const { provider, root, sent } = await harness({ customModels: `  ${custom}  \n${custom}\ndefault\n` });
+    expect((await provider.newThreadCatalog!())?.models.filter((model) => model.id === custom)).toHaveLength(1);
+    const backend = await provider.open("custom-thread", root, { resume: false }, context);
+    try {
+      expect((await backend.models()).some((model) => model.id === custom)).toBe(true);
+      await backend.capabilities.catalogWrite!.setModel("cursor", custom);
+      await expect(backend.capabilities.catalogWrite!.setModel("cursor", "gateway/typo")).rejects.toThrow(/offers no model/u);
+      await expect(backend.prompt({ text: "Hi", delivery: "prompt" })).resolves.toEqual({ assistantText: `pong from ${custom} in agent mode` });
+      expect((await backend.models()).some((model) => model.id === custom)).toBe(true);
+      expect((await sent()).filter((message) => message.method === "session/set_config_option" && message.params?.configId === "model").map((message) => message.params?.value)).toEqual([custom]);
+    } finally { await backend.dispose(); }
+  });
+
   it("registers a Cursor backend that asks for approvals, takes files and plans", async () => {
     const { provider } = await harness();
     expect(provider).toMatchObject({ kind: "cursor", label: "Cursor", order: 50, ownPlan: true });

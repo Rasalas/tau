@@ -1601,6 +1601,15 @@ approval with each permission in plain words, a failure with the next step,
 the options it declared and links to the pages it adds, what it may do and how
 it is isolated, and its version, source, signature and id.
 
+A `kind: "model"` option may declare `thinkingLevelValue: "my-effort"`
+(API 1.63.0). Its row offers the selected model's Pi catalog levels and stores
+one under that value id beside the existing `provider/id` model value. No
+stored effort means "Default effort". Models without reasoning show no effort
+control; changing or clearing the model resets the effort. The extension passes
+that value to its run only when the selected model supports it. Review's writers
+allow 16,384 output tokens and two minutes with active reasoning, so thinking
+does not consume the old short-text limit; default and off keep that limit.
+
 On and off is the host's choice, not a device's: the switch writes
 `disabledExtensions` in the host's config, and every client connected to that
 host follows it at once. The host pushes `config-changed` after each write,
@@ -1992,7 +2001,8 @@ It also exports the renderer's shared state and presentation:
 |---|---|
 | `usePreferences` | the same store as `context.preferences`, for a component rendered in a slot. |
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
-| `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
+| `hostConnectionState` | API 1.63.0: the active machine's current connection state outside React (`connected`, `reconnecting`, `resyncing`, `refused`), or `undefined` without a host client. Subscribe through `context.events.on("host-connection", …)` for changes. Treat every state except `connected` as unavailable for writes. |
+| `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. API 1.63.0: a `host:` key opts into machine-scoped storage on desktop windows too. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
 | `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`, API 1.38.0: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
@@ -2812,13 +2822,27 @@ runtime's catalog reports what the same vendor's subscription serves (Codex's
 their `apiModelId`), a subscription offer missing from it is left out; with no
 such report Pi's list stands. The vendor is the provider or the provider Pi
 names its subscription route after (`openai-codex` is `openai`'s).
+
+`CompletionRequest.thinkingLevel` (API 1.63.0) optionally selects reasoning
+for a short answer, both streamed and returned at once. Pi checks it against
+the resolved model's supported levels before passing it to the provider;
+unsupported values and omitted effort retain the previous default. `off`
+uses the provider's request without reasoning.
+
 `smallCompletionModel(services, prefer, options?)` from `tau/host-extension` (API
 1.11.0) picks a small model from it — `isSmallModel(id)` knows the tiers by id
 (`haiku`, `mini`, `flash`, `luna`, …) — same
 provider first, then the same vendor under another name (a Codex thread's
 `openai` is Pi's `openai-codex`). Since API 1.54.0 it picks the newest available
 generation within a small tier and prefers Luna over OpenAI's older mini/nano
-tiers. Explicit extension model settings still win. It returns `undefined` when none is small, which
+tiers. API 1.63.0 adds optional `UiModel.completionPreference` to the host's
+completion catalog. `configured` marks an offer on an overridden built-in
+provider endpoint; `default` also identifies the configured default there.
+The helper prefers the matching thread model on that endpoint, or its default
+when the thread model is absent from the catalog, before looking for a small
+model. Pi retains built-in offers after an endpoint override even when the
+endpoint does not serve them. The endpoint URL stays on the host.
+Explicit extension model settings still win. It returns `undefined` when none is small, which
 leaves `complete` on the default. With `{ elsePrefer: true }` (API 1.12.0) it
 answers `prefer` itself instead, where `complete` runs that model under the
 same vendor. Thread Title Generator and Worktree Names take the model their
@@ -3548,6 +3572,19 @@ the runtimes Tau ships (`kits/usage/protocol.ts`):
 | `tau.usage/limits-source` | `usage-limits { refresh? }` → `{ accounts: UsageLimitAccount[] }` | Shows the accounts' windows under Limits, in the juicebars and in `tau.usage/limits`, with the kit's name as the source. |
 | `tau.usage/threads-source` | `usage` → `{ backend, threads: BackendUsageThread[] }` | Counts the threads' tokens and cost under the runtime `backend` names. |
 
+### Reading saved pull requests offline
+
+Review Kit keeps the last eight list queries and twelve opened requests in this
+client's storage for that machine. It saves request details, conversations, checks
+and diffs before later visits, shows them before a live read, and refreshes on
+reconnect. Each saved request shows the oldest read time of its retained data.
+Lists show their own read time. Offline writes are disabled with a reason and
+refused before dispatch, including dialogs opened while connected.
+The cache holds at most 4 MiB of UTF-16 text per machine, with a 1 MiB limit per
+response; older entries are evicted and larger responses stay live-only.
+Authentication and upload results are never cached. Forgetting a saved machine
+in Settings clears its cache on the desktop and phone.
+
 ### What Reviews asks of other kits
 
 Review Kit's request lifecycle binds creation and merging to the checkout the
@@ -3590,8 +3627,12 @@ Review Kit's guided reviews (ADR 0034) are the first caller; the commands name
 
 | Command | What it does |
 |---|---|
-| `spawn { parentThreadId, prompt, definition, title?, model?, startAt?, source? }` | Starts a child of an open thread in a worktree. `definition` is `{ name, description?, systemPrompt, tools?, access?, runtime?, model? }`, the fields of a `.tau/agents/` file carried by the caller instead of read from the project (`access` only narrows, `tools` is the thread's allowlist, Pi names). `startAt` is a commit the worktree starts from instead of the parent's HEAD and uncommitted work; it must be in the repository already (fetch it first) and a queued spawn keeps it across a restart. `source` becomes the link's `spawnedBy`, so the panel and the thread index know who started it; unlike `tau_spawn_thread` it does not make the parent wait for the child's result. Answers like `tau_spawn_thread`. |
+| `spawn { parentThreadId, prompt, definition, title?, model?, thinkingLevel?, startAt?, source? }` | Starts a child of an open thread in a worktree. `definition` is `{ name, description?, systemPrompt, tools?, access?, runtime?, model? }`, the fields of a `.tau/agents/` file carried by the caller instead of read from the project (`access` only narrows, `tools` is the thread's allowlist, Pi names). `startAt` is a commit the worktree starts from instead of the parent's HEAD and uncommitted work; it must be in the repository already (fetch it first) and a queued spawn keeps it across a restart. `source` becomes the link's `spawnedBy`, so the panel and the thread index know who started it; unlike `tau_spawn_thread` it does not make the parent wait for the child's result. Answers like `tau_spawn_thread`. |
 | `stop-agent { threadId }`, `discard-changes { threadId, force? }` | The panel's two row actions. Local discard rereads the child's changes and refuses files, commits or index changes unless `force: true` is explicit. Before removing the worktree and branch, it retains the working tree, index and HEAD history under `refs/tau/discarded/<id>`; the returned `detail` names that ref. Inspection, retention and removal failures propagate. |
+
+`spawn.thinkingLevel` (API 1.63.0) selects the child's reasoning level before
+its first prompt. The caller checks the chosen model's runtime catalog;
+a queued child retains the level across a restart.
 
 Since API 1.61.0, `tau_apply_thread_changes` uses the same local discard policy with
 `{ threadId, discard: true }` and optional `force: true`. Recovery refs have no automatic
@@ -5610,6 +5651,12 @@ of the same name, with `{ requestId, machine }`, as each machine starts and
 finishes. Clients supply a `requestId` to correlate progress and ignore old
 requests. An ambiguous update failure requires a successful state check before
 another update is sent; the aggregate never automatically replays updates.
+
+In API 1.63.0, Machines also exposes `runtime-tools-update-selected` with a
+required `{ kinds: string[] }` for reviewed update plans. It updates only the
+selected programs. An older machine rejects that command rather than silently
+updating every program. See [Update everything](host-updates.md#update-everything-from-the-desktop)
+for the order and failure handling of the desktop plan.
 
 API 1.48.0 also adds an optional runtime backend restart capability and the
 optional workbench `restartAgentSession` action, preserving the thread's
