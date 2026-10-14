@@ -38,6 +38,16 @@ describe("cost formatting", () => {
     expect(formatTokens(842)).toBe("842");
     expect(formatTokens(12_300)).toBe("12.3k");
     expect(formatTokens(1_400_000)).toBe("1.4M");
+    expect(formatTokens(357_840_600_000)).toBe("357.8B");
+    expect(formatTokens(303_404_600_000)).toBe("303.4B");
+    expect(formatTokens(1_400_000_000_000)).toBe("1.4T");
+  });
+
+  it("promotes units when rounding would reach a thousand", () => {
+    expect(formatTokens(999_949)).toBe("999.9k");
+    expect(formatTokens(999_950)).toBe("1.0M");
+    expect(formatTokens(999_950_000)).toBe("1.0B");
+    expect(formatTokens(999_950_000_000)).toBe("1.0T");
   });
 
   it("expands into the split the money came from", () => {

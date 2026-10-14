@@ -16,9 +16,9 @@ afterEach(() => { cleanup(); setClientStorage(undefined); setPageCatalog(undefin
 const page = (id: string, label: string) => ({ id, label, Icon: ChartColumn, Component: () => null, extensionId: "x", extensionName: "x" });
 
 describe("the phone's bottom navigation", () => {
-  it("puts Threads first and Settings last, with three pages at most between", () => {
+  it("puts Threads first with three app pages at most, leaving Settings to the header", () => {
     const registry = { getPages: () => [page("a", "A"), page("b", "B"), page("c", "C"), page("d", "D")] };
-    expect(phoneNavItems(registry).map((item) => item.label)).toEqual(["Threads", "A", "B", "C", "Settings"]);
+    expect(phoneNavItems(registry).map((item) => item.label)).toEqual(["Threads", "A", "B", "C"]);
   });
 
   it("marks where the phone is and goes elsewhere on a tap", () => {
@@ -30,6 +30,13 @@ describe("the phone's bottom navigation", () => {
     expect(onSelect).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Threads" }));
     expect(onSelect).toHaveBeenCalledWith({ kind: "threads" });
+  });
+
+  it("leaves pages with another phone entry out, including remembered tabs while extensions load", () => {
+    storage.set("tau.page-catalog", JSON.stringify([{ id: "usage", label: "Usage" }, { id: "reviews", label: "Reviews" }]));
+    const registry = { getPages: () => [{ ...page("usage", "Usage"), phoneTab: false }, page("reviews", "Reviews")], isLoadingExtensions: () => true };
+    expect(phoneNavItems(registry).map((item) => item.label)).toEqual(["Threads", "Reviews"]);
+    expect(phoneNavItems({ ...registry, isLoadingExtensions: () => false }).map((item) => item.label)).toEqual(["Threads", "Reviews"]);
   });
 
   it("carries a page's count to its tab", () => {

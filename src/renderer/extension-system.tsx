@@ -958,6 +958,8 @@ export interface PageContribution extends ProfileScoped {
   description?: string;
   Icon?: PanelIconComponent;
   order?: number;
+  /** False when the page has another entry on a phone, such as the header's juicebars. Defaults to true. */
+  phoneTab?: boolean;
   /**
    * `readable`, the default, is Settings' reading column; `wide` a wider one;
    * `fill` hands the page the whole area to scroll itself, as a stage tab.
