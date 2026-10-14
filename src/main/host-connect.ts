@@ -131,7 +131,8 @@ export class HostConnect {
   }
   private async removeNow(): Promise<ConnectStatus> {
     let detail: string | undefined;
-    if (this.config && !await this.revoke(this.config)) detail = `Tau Connect stopped locally. The relay could not revoke route ${this.config.id}; delete it using the relay's administration token.`;
+    // A route the relay already removed has nothing left to revoke.
+    if (this.config && this.state.phase !== "removed" && !await this.revoke(this.config)) detail = `Tau Connect stopped locally. The relay could not revoke route ${this.config.id}; delete it using the relay's administration token.`;
     this.tunnel?.close(); this.tunnel = undefined;
     await this.listener?.close(); this.listener = undefined;
     await rm(this.path, { force: true });

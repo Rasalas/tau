@@ -101,3 +101,13 @@ it.each(["TimeoutError", "AbortError"])("distinguishes a local %s from an HTTP g
   expect(error).toHaveProperty("cause", cause);
   await service.close();
 });
+
+it("forgets a route the relay removed without asking the relay to revoke it", async () => {
+  const requests: string[] = [];
+  const removedTunnel = (_route: unknown, _port: number, publish: (phase: "removed", detail: string) => void) => ({ start: () => publish("removed", "gone"), close: vi.fn() });
+  const service = new HostConnect({ userData: dir(), host: { id: "host", name: "Machine" }, listen: async () => listener(), createLink: () => ({ code: "x" }), fetch: vi.fn(async (_url, init) => { requests.push(init?.method ?? "GET"); return init?.method === "POST" ? new Response(JSON.stringify(config), { status: 201 }) : new Response(null, { status: 401 }); }), tunnel: removedTunnel });
+  expect(await service.configure(input)).toMatchObject({ phase: "removed" });
+  expect(await service.remove()).toEqual({ phase: "disabled" });
+  expect(requests).toEqual(["POST"]);
+  await service.close();
+});
