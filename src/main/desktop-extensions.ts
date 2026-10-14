@@ -1,8 +1,8 @@
 // esbuild reads ESBUILD_BINARY_PATH while it loads, so this import comes first.
 import "./packaged-app.js";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
-import { build, transform, type Plugin } from "esbuild";
+import { basename, dirname, extname, join, resolve } from "node:path";
+import { build, transform, type BuildFailure, type Plugin } from "esbuild";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "../shared/contracts.js";
 import { MANIFEST_FILE, isThemeManifest, manifestIncompatibility, parseExtensionManifest, type ExtensionManifest } from "./extension-packages.js";
 import { readTrustedPublishers, trustedPublishersPath } from "./extension-signature.js";
@@ -209,8 +209,11 @@ const vendorNames: Plugin = {
 /** Compiles one extension entry to a self-contained ES module. */
 export async function bundleDesktopExtension(entry: string, options: BundleOptions): Promise<string> {
   const shared = new Set(Object.keys(options.sharedExports));
+  const workingDirectory = dirname(resolve(entry));
   const result = await build({
-    entryPoints: [entry],
+    // esbuild embeds module paths in initializer keys, even with whitespace minification.
+    absWorkingDir: workingDirectory,
+    entryPoints: [resolve(entry)],
     bundle: true,
     write: false,
     format: "esm",
@@ -239,6 +242,13 @@ export async function bundleDesktopExtension(entry: string, options: BundleOptio
         }));
       },
     }],
+  }).catch((error: BuildFailure) => {
+    // Diagnostic consumers resolve relative paths from the process's working directory.
+    for (const message of error.errors ?? []) {
+      const location = message.location;
+      if (location?.file && (!location.namespace || location.namespace === "file")) location.file = resolve(workingDirectory, location.file);
+    }
+    throw error;
   });
   return withoutGeneratedSources(result.outputFiles.map((file) => file.text).join("\n"));
 }

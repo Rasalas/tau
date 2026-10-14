@@ -4,6 +4,9 @@ import { ExtensionRegistry, type DesktopExtension } from "./extension-system";
 import type { DesktopExtensionLoadResult } from "../shared/contracts";
 import { DEFERRED_SHARED_MODULES, SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules";
 import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, loadTauApi, needsNewerClient, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
+import { DESKTOP_BUNDLE_REJECTION_MESSAGES, trustedDesktopBundles } from "../shared/trusted-desktop-bundles";
+import { createMemoryStorage } from "../workbench/client-storage";
+import { STORAGE_KEYS } from "../workbench/storage-keys";
 
 afterEach(() => {
   document.head.querySelectorAll("[data-tau-extension]").forEach((element) => element.remove());
@@ -42,6 +45,127 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
 }
 
 describe("runtime desktop extensions", () => {
+  describe("extensions this client turned away", () => {
+    /** A machine's extensions this client refuses: `changed` ones also ship here, with other code; `missing` ones do not. */
+    function refusing(changed: string[], missing: string[] = [], accepted: string[] = []) {
+      const shipped = (id: string) => ({ id, path: `/local/${id}/desktop.js`, scope: "bundled" as const, code: "export default {};", permissions: [] });
+      const remote = (id: string, code: string) => ({ ...shipped(id), path: `/machine/${id}/desktop.js`, code });
+      const toast = vi.fn();
+      const importModule = vi.fn(async () => ({}));
+      const bundles = [...changed.map((id) => remote(id, "changed();")), ...missing.map((id) => remote(id, "other();")), ...accepted.map((id) => remote(id, "export default {};"))];
+      const h: RuntimeExtensionHost = {
+        ...host([]).host,
+        toast,
+        importModule,
+        load: () => trustedDesktopBundles({ bundles, errors: [], skipped: [] }, [...changed, ...accepted].map(shipped), async (source) => source),
+      };
+      return { h, toast, importModule };
+    }
+    const lines = (toast: ReturnType<typeof vi.fn>) => toast.mock.calls.map(([options]) => `${options.title} | ${options.description}`);
+
+    it("shows one notice per load with three names and a count, and no details action", async () => {
+      const { h, toast, importModule } = refusing(["tau.terminal", "tau.files", "tau.agents", "tau.search", "tau.plan"]);
+      const runtime = new RuntimeExtensions(new ExtensionRegistry(), h);
+      await runtime.sync("/first-project");
+      await runtime.sync("/second-project");
+      await runtime.resync();
+      await runtime.resync(["tau.terminal", "tau.files"]);
+      expect(importModule).not.toHaveBeenCalled();
+      expect(lines(toast)).toEqual([
+        "Some extensions weren't loaded | The connected machine runs another version of Terminal, Files, Agents and 2 more; install the same Tau version on both.",
+      ]);
+      expect(toast.mock.calls[0]?.[0]).toMatchObject({ type: "warning", timeoutMs: 0 });
+      expect(toast.mock.calls[0]?.[0].actions).toBeUndefined();
+    });
+
+    it("tells another version from an extension this app does not include", async () => {
+      const toasts = async (changed: string[], missing: string[]) => {
+        const { h, toast } = refusing(changed, missing);
+        await new RuntimeExtensions(new ExtensionRegistry(), h).sync("/project");
+        return lines(toast);
+      };
+      expect(await toasts(["tau.html-pages"], [])).toEqual([
+        "An extension wasn't loaded | The connected machine runs another version of HTML Pages; install the same Tau version on both.",
+      ]);
+      expect(await toasts([], ["acme.weather", "acme.map_tiles"])).toEqual([
+        "Some extensions weren't loaded | This app does not include Weather and Map Tiles.",
+      ]);
+      expect(await toasts(["tau.terminal", "tau.files"], ["acme.weather"])).toEqual([
+        "Some extensions weren't loaded | The connected machine runs another version of Terminal and Files, and this app does not include Weather; install the same Tau version on both.",
+      ]);
+    });
+
+    it("keeps a failed build in a notice of its own", async () => {
+      const toast = vi.fn();
+      const h: RuntimeExtensionHost = {
+        ...host([]).host,
+        toast,
+        load: async () => ({
+          bundles: [],
+          errors: [
+            { path: "/k/my-kit/desktop.tsx", message: "desktop.tsx:3:7: boom" },
+            { path: "/machine/tau.terminal/desktop.js", message: DESKTOP_BUNDLE_REJECTION_MESSAGES.changed },
+          ],
+          skipped: [],
+        }),
+      };
+      await new RuntimeExtensions(new ExtensionRegistry(), h).sync("/project");
+      expect(lines(toast)).toEqual([
+        "my-kit/desktop.tsx did not build | desktop.tsx:3:7: boom. The version that was running stays.",
+        "An extension wasn't loaded | The connected machine runs another version of Terminal; install the same Tau version on both.",
+      ]);
+    });
+
+    it("stays closed once the user closed it, in a new run too, until another extension is turned away", async () => {
+      const storage = createMemoryStorage();
+      const run = async (changed: string[]) => {
+        const { h, toast } = refusing(changed);
+        await new RuntimeExtensions(new ExtensionRegistry(), { ...h, storage }).sync("/project");
+        return toast;
+      };
+      const first = await run(["tau.terminal", "tau.files"]);
+      expect(first).toHaveBeenCalledTimes(1);
+      // A run that ended with the notice still open asks again.
+      expect(await run(["tau.terminal", "tau.files"])).toHaveBeenCalledTimes(1);
+      expect(storage.get(STORAGE_KEYS.unavailableExtensions)).toBeNull();
+
+      first.mock.calls[0]?.[0].onClose();
+      expect(JSON.parse(storage.get(STORAGE_KEYS.unavailableExtensions) ?? "null")).toEqual(["tau.terminal", "tau.files"]);
+      expect(await run(["tau.terminal", "tau.files"])).not.toHaveBeenCalled();
+      expect(await run(["tau.files"])).not.toHaveBeenCalled();
+
+      const grown = await run(["tau.terminal", "tau.files", "tau.search"]);
+      expect(lines(grown)).toEqual(["An extension wasn't loaded | The connected machine runs another version of Search; install the same Tau version on both."]);
+      grown.mock.calls[0]?.[0].onClose();
+      expect(await run(["tau.terminal", "tau.files", "tau.search"])).not.toHaveBeenCalled();
+    });
+
+    it("names an extension again once it has loaded in between", async () => {
+      const storage = createMemoryStorage();
+      const run = async (changed: string[], accepted: string[] = []) => {
+        const { h, toast } = refusing(changed, [], accepted);
+        await new RuntimeExtensions(new ExtensionRegistry(), { ...h, storage }).sync("/project");
+        return toast;
+      };
+      (await run(["tau.terminal"])).mock.calls[0]?.[0].onClose();
+      expect(await run(["tau.terminal"])).not.toHaveBeenCalled();
+      expect(await run([], ["tau.terminal"])).not.toHaveBeenCalled();
+      expect(JSON.parse(storage.get(STORAGE_KEYS.unavailableExtensions) ?? "null")).toEqual([]);
+      expect(lines(await run(["tau.terminal"]))).toEqual([
+        "An extension wasn't loaded | The connected machine runs another version of Terminal; install the same Tau version on both.",
+      ]);
+    });
+
+    it("stays closed for the rest of the run when the machine has no store", async () => {
+      const { h, toast } = refusing(["tau.terminal"]);
+      const runtime = new RuntimeExtensions(new ExtensionRegistry(), h);
+      await runtime.sync("/project");
+      toast.mock.calls[0]?.[0].onClose();
+      await runtime.sync("/other-project");
+      expect(toast).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("rejects a module whose id differs from its package manifest", async () => {
     const activate = vi.fn();
     const { host: h, notify } = host([]);

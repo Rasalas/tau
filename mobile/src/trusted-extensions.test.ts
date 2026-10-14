@@ -22,7 +22,7 @@ describe("native phone extension loader", () => {
       const importModule = vi.fn();
       for (const bundle of loaded.bundles) importModule(bundle);
       expect(importModule).not.toHaveBeenCalled();
-      expect(loaded.errors[0]?.message).toContain("not included in this app");
+      expect(loaded.errors[0]?.message).toBe("This machine runs another version of this extension; install the same Tau version on both.");
     } finally { vi.unstubAllGlobals(); }
   });
 

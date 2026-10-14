@@ -130,6 +130,7 @@ export default function App() {
       isEnabled: (id) => preferences.isExtensionEnabled(id),
       notify: viewStore.setNotice,
       toast: (options) => workbenchSession.toasts.show(options),
+      storage: clientStorage,
       openSettings: (target) => actionsRef.current?.openSettings(target),
       log: (label, detail) => viewStore.addEvent(label, detail),
     });

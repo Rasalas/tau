@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { packageBuilds } from "./package-builds.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { bundleDesktopExtension, desktopExtensionLabel, listDesktopExtensionEntries, loadDesktopExtensions, isGeneratedOrVendored } from "./desktop-extensions.js";
+import { desktopBundleIdentity } from "../shared/trusted-desktop-bundles.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -17,6 +18,25 @@ async function scratch(): Promise<string> {
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 
 describe("desktop extension bundling", () => {
+  it("keeps a vendored terminal module's identity across installation locations", async () => {
+    const root = await scratch();
+    const identities: string[] = [];
+    for (const location of ["checkout", "installed/app.asar"]) {
+      const app = join(root, location);
+      const vendor = join(app, "node_modules/@xterm/xterm");
+      const kit = join(app, "kits/terminal");
+      await mkdir(join(vendor, "lib"), { recursive: true });
+      await mkdir(kit, { recursive: true });
+      for (const file of ["package.json", "lib/xterm.mjs"]) {
+        await copyFile(new URL(`../../node_modules/@xterm/xterm/${file}`, import.meta.url), join(vendor, file));
+      }
+      const entry = join(kit, "desktop.ts");
+      await writeFile(entry, 'export default { activate: async () => (await import("@xterm/xterm")).Terminal };');
+      identities.push(desktopBundleIdentity({ code: await bundleDesktopExtension(entry, { sharedExports: {} }) }));
+    }
+    expect(identities[0]).toBe(identities[1]);
+  });
+
   it("lists entry files and index folders, skipping tests and private names", async () => {
     const dir = await scratch();
     await writeFile(join(dir, "hello.tsx"), "export default {}");

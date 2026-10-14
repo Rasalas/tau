@@ -2,6 +2,11 @@ import type { DesktopExtensionBundle, DesktopExtensionLoadResult } from "./contr
 
 export type BundleDigest = (source: string) => Promise<string>;
 
+export const DESKTOP_BUNDLE_REJECTION_MESSAGES = {
+  missing: "This machine's extension is not included in this app.",
+  changed: "This machine runs another version of this extension; install the same Tau version on both.",
+} as const;
+
 /** Maps carry installation paths, so only the final map directive is omitted. */
 export function desktopBundleIdentity(bundle: Pick<DesktopExtensionBundle, "code" | "styles">): string {
   const code = bundle.code.replace(/\n\/\/# sourceMappingURL=[^\r\n\u2028\u2029]*\r?\n?$/u, "");
@@ -24,7 +29,7 @@ export async function trustedDesktopBundles(
     if (!remote.cached && shipped && await digest(desktopBundleIdentity(remote)) === shipped.hash) {
       bundles.push(shipped.bundle);
     } else {
-      errors.push({ path: remote.path, message: "This machine's extension is not included in this app. Its interface was not loaded." });
+      errors.push({ path: remote.path, message: DESKTOP_BUNDLE_REJECTION_MESSAGES[shipped ? "changed" : "missing"] });
     }
   }
   return { ...result, bundles, errors };

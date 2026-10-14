@@ -16,7 +16,10 @@ describe("remote desktop bundles", () => {
     for (const bundle of allowed.bundles) importModule(bundle);
     expect(importModule).not.toHaveBeenCalled();
     expect(allowed.errors).toHaveLength(2);
-    expect(allowed.errors[0]?.message).toContain("not included in this app");
+    expect(allowed.errors.map((error) => error.message)).toEqual([
+      "This machine runs another version of this extension; install the same Tau version on both.",
+      "This machine's extension is not included in this app.",
+    ]);
   });
 
   it("uses local code, styles and metadata after checking received bytes", async () => {
