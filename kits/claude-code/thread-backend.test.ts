@@ -117,6 +117,48 @@ function scriptedAdapter(filePath: string, script: Script) {
 }
 
 describe("thread runtime backends", () => {
+  it.each([
+    { source: "assistant", detail: "Failed to authenticate. API Error: 403 Your organization does not have access to this model." },
+    { source: "child", detail: "Failed to authenticate: permission denied for this model." },
+    { source: "result", detail: "Failed to authenticate: forbidden." },
+    { source: "result", detail: "Failed to authenticate: this model is not allowed." },
+    { source: "result", detail: "Failed to authenticate: your organization does not have access to this model." },
+    { source: "status", detail: "Failed to authenticate: request rejected by the organization." },
+    { source: "empty", detail: "Failed to authenticate: request rejected by the organization." },
+  ])("preserves the CLI permission error from $source and reuses the session: $detail", async ({ source, detail }) => {
+    const { filePath, store } = await scratchStore();
+    const signals: AbortSignal[] = [];
+    const query = ((params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
+      signals.push(params.options.abortController!.signal);
+      async function* run(): AsyncGenerator<SDKMessage> {
+        yield init();
+        for await (const message of params.prompt) {
+          if (message.message.content === "Retry") { yield result("Recovered", { user_message_uuids: [message.uuid] }); continue; }
+          if (source !== "result") yield frame({
+            type: "assistant", error: "authentication_failed", parent_tool_use_id: source === "child" ? "agent-call" : null,
+            message: { content: source === "empty" ? [] : [{ type: "text", text: source === "status" ? "Could not complete this request." : detail }] },
+          });
+          yield source === "result"
+            ? frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: [detail], usage: {}, user_message_uuids: [message.uuid] })
+            : result(detail, { is_error: true, api_error_status: 403, user_message_uuids: [message.uuid] });
+        }
+      }
+      return Object.assign(run(), { interrupt: async () => undefined }) as unknown as ReturnType<ClaudeQuery>;
+    }) as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath, query });
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+    try {
+      await backend.start("create");
+      await expect(backend.prompt({ text: "Try this model", delivery: "prompt" })).rejects.toThrow(detail);
+      expect(events).toContainEqual({ type: "turn-settled", status: "error", error: detail });
+      expect(JSON.stringify(events)).not.toMatch(/sign in again|auth login/iu);
+      expect(signals[0]!.aborted).toBe(false);
+      await expect(backend.prompt({ text: "Retry", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "Recovered" });
+      expect(signals).toHaveLength(1);
+    } finally { await backend.dispose(); }
+  });
+
   it.each(["parent", "child", "background", "result", "compact"])("stops native children and reports reauthentication to the parent after a %s auth failure, then resumes after login", async (source) => {
     const { filePath, store } = await scratchStore();
     const signals: AbortSignal[] = [];
