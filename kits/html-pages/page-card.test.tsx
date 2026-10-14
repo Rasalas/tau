@@ -5,8 +5,9 @@ import type { ToolCardProps, UiToolRun, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import htmlPages from "./desktop.js";
 import { createPageCard } from "./page-card.js";
-import { PageView } from "./page-view.js";
-import { HTML_PAGE_COMMANDS, HTML_PAGE_STAGE_TAB, type HtmlPageOpen } from "./protocol.js";
+import { holdPreviewLinks, openPageLink } from "./links.js";
+import { PageView, linkRequest } from "./page-view.js";
+import { HTML_PAGE_COMMANDS, HTML_PAGE_STAGE_TAB, PREVIEW_LINKS_SERVICE, type HtmlPageOpen, type PreviewLinksService } from "./protocol.js";
 
 const tool = (overrides: Partial<UiToolRun> = {}): UiToolRun => ({
   id: "call1", name: "mcp__tau__show_html_page", args: { title: "Totals" }, status: "done", startedAt: 1,
@@ -118,6 +119,30 @@ describe("HTML page card", () => {
     expect(await screen.findByRole("dialog", { name: "Window" })).toBeTruthy();
   });
 
+  it("lets Preview Kit decide where a link opens, and falls back to the system browser", async () => {
+    const { actions } = setup(async () => ready());
+    const iframe = await waitForFrame();
+    vi.spyOn(iframe.contentWindow!, "postMessage").mockImplementation(() => undefined);
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    iframe.focus();
+    const link = (id: string, params: object) => ({ jsonrpc: "2.0", id, method: "ui/open-link", params: { url: "https://example.com/doc", ...params } });
+    speak(iframe, { jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { height: 100 } });
+
+    const open = vi.fn<PreviewLinksService["open"]>((url, event) => !event.metaKey && !event.ctrlKey);
+    const release = holdPreviewLinks({ open });
+    speak(iframe, link("l1", {}));
+    expect(open).toHaveBeenLastCalledWith("https://example.com/doc", expect.objectContaining({ metaKey: false, ctrlKey: false }), actions);
+    expect(actions.openExternal).not.toHaveBeenCalled();
+    speak(iframe, link("l2", { metaKey: true }));
+    expect(open).toHaveBeenLastCalledWith("https://example.com/doc", expect.objectContaining({ metaKey: true }), actions);
+    expect(actions.openExternal).toHaveBeenCalledExactlyOnceWith("https://example.com/doc");
+
+    release();
+    speak(iframe, link("l3", {}));
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(actions.openExternal).toHaveBeenCalledTimes(2);
+  });
+
   it("says so when the page is gone, and shows a failed call's reason", async () => {
     setup(async () => ({ state: "missing" }));
     await screen.findByText("This page is no longer stored.");
@@ -170,6 +195,18 @@ describe("HTML page in a stage tab", () => {
   });
 });
 
+describe("link requests", () => {
+  const request = (params: unknown) => ({ jsonrpc: "2.0", id: "l1", method: "ui/open-link", params });
+
+  it("reads the url and the modifiers held, and refuses what is not a web link", () => {
+    expect(linkRequest(request({ url: "https://a.test/", metaKey: true, ctrlKey: "yes" }))).toEqual({ id: "l1", url: "https://a.test/", metaKey: true, ctrlKey: false });
+    expect(linkRequest(request({ url: "https://a.test/" }))).toMatchObject({ metaKey: false, ctrlKey: false });
+    expect(linkRequest(request({ url: "javascript:alert(1)" }))).toBeUndefined();
+    expect(linkRequest(request(undefined))).toBeUndefined();
+    expect(linkRequest({ ...request({ url: "https://a.test/" }), id: undefined })).toBeUndefined();
+  });
+});
+
 describe("HTML pages kit registration", () => {
   it("claims the tool under both of its names and registers the stage tab", () => {
     const { registry } = createKitHarness();
@@ -181,5 +218,21 @@ describe("HTML pages kit registration", () => {
     expect(registry.getStageTabKinds().map((kind) => kind.kind)).toEqual([HTML_PAGE_STAGE_TAB]);
     registry.deactivate(htmlPages.id);
     expect(registry.toolCardFor(tool({ name: "show_html_page" }))).toBeUndefined();
+  });
+
+  it("takes Preview Kit's link service while it is published, and lets go when it is withdrawn", () => {
+    const { registry } = createKitHarness();
+    const open = vi.fn<PreviewLinksService["open"]>(() => true);
+    registry.activate(htmlPages);
+    const provider = { id: "test.preview", name: "Preview stand-in", activate: (context: { provideService<T>(id: string, value: T): () => void }) => context.provideService<PreviewLinksService>(PREVIEW_LINKS_SERVICE, { open }) };
+    registry.activate(provider);
+    const actions = { openPanel: vi.fn(), openExternal: vi.fn() };
+    openPageLink("https://example.com/", { metaKey: false, ctrlKey: false }, actions);
+    expect(open).toHaveBeenCalledOnce();
+    expect(actions.openExternal).not.toHaveBeenCalled();
+    registry.deactivate(provider.id);
+    openPageLink("https://example.com/", { metaKey: false, ctrlKey: false }, actions);
+    expect(actions.openExternal).toHaveBeenCalledOnce();
+    registry.deactivate(htmlPages.id);
   });
 });

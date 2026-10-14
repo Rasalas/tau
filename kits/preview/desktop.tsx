@@ -3,7 +3,7 @@ import { Globe } from "lucide-react";
 import { cookieImportDialogs, createCookieImportLayer } from "./cookie-import-dialog.js";
 import { errorMessage, type DesktopExtension, type WorkbenchActions } from "tau";
 import { holdChipService } from "./attach.js";
-import { followLinkTarget } from "./link-target.js";
+import { followLinkTarget, resolveLinkTarget } from "./link-target.js";
 import { createMiniPlayerRegion } from "./mini-player.js";
 import { PREVIEW_SETTINGS, readLinkTarget } from "./settings.js";
 import { PREVIEW_SETTINGS_ROWS, PreviewSettingsPage } from "./settings-page.js";
@@ -12,10 +12,12 @@ import {
   PREVIEW_BROWSER_SERVICE,
   PREVIEW_COOKIE_IMPORT_SERVICE,
   PREVIEW_HOST_EXTENSION_ID,
+  PREVIEW_LINKS_SERVICE,
   PREVIEW_STATE_EVENT,
   type ComposerContextChips,
   type PreviewBrowserService,
   type PreviewCookieImportService,
+  type PreviewLinksService,
 } from "./protocol.js";
 import { DesktopPreviewPanel, createMiniBarRegion, createRemotePreviewPanel } from "./remote-panel.js";
 import { watchFrames, type LiveFrameAnswer, type LiveFrameSource } from "./live-frames.js";
@@ -123,13 +125,20 @@ export const previewExtension: DesktopExtension = {
       },
     });
     // A plain click on a link in a reply opens it here when Settings → Preview says so.
-    const stopLinks = followLinkTarget(
-      () => readLinkTarget(plugin.preferences.value(PREVIEW_HOST_EXTENSION_ID, PREVIEW_SETTINGS.linkTarget)),
-      (url) => {
-        previewView.set("browser");
-        void open(url, workbenchActions.get() ?? { openPanel: () => undefined });
+    const linkTarget = () => readLinkTarget(plugin.preferences.value(PREVIEW_HOST_EXTENSION_ID, PREVIEW_SETTINGS.linkTarget));
+    const openLink = (url: string, app: Pick<WorkbenchActions, "openPanel">) => {
+      previewView.set("browser");
+      void open(url, app);
+    };
+    const stopLinks = followLinkTarget(linkTarget, (url) => openLink(url, workbenchActions.get() ?? { openPanel: () => undefined }));
+    // Links that leave the transcript's text (an agent's page) follow the same setting.
+    plugin.provideService<PreviewLinksService>(PREVIEW_LINKS_SERVICE, {
+      open: (url, event, app) => {
+        if (resolveLinkTarget(url, event, linkTarget()) !== "app") return false;
+        openLink(url, app);
+        return true;
       },
-    );
+    });
     // Nothing imports cookies without the user's click on Import in this dialog.
     plugin.registerRegion({ id: "preview.cookie-import", placement: "title-bar", profiles: ["desktop"], Component: createCookieImportLayer(cookieImportDialogs, previewKit) });
     plugin.provideService<PreviewCookieImportService>(PREVIEW_COOKIE_IMPORT_SERVICE, {

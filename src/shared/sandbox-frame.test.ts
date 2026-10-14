@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   FRAME_DEFAULT_HEIGHT,
+  FRAME_KEYDOWN_MESSAGE,
+  FRAME_KEYS_MESSAGE,
   FRAME_MAX_HEIGHT,
   FRAME_MIN_HEIGHT,
   clampFrameHeight,
@@ -9,6 +11,7 @@ import {
   frameResponsePolicy,
   prepareFrameDocument,
   readFrameCsp,
+  readFrameKeyDown,
   readFramePermissions,
 } from "./sandbox-frame.js";
 
@@ -116,5 +119,117 @@ describe("frame height", () => {
     expect(clampFrameHeight(250.6)).toBe(251);
     expect(clampFrameHeight(Number.NaN)).toBe(FRAME_DEFAULT_HEIGHT);
     expect(clampFrameHeight(Number.POSITIVE_INFINITY)).toBe(FRAME_DEFAULT_HEIGHT);
+  });
+});
+
+describe("frame keys", () => {
+  it("reads a passed-on key and nothing else", () => {
+    const key = { type: FRAME_KEYDOWN_MESSAGE, key: "k", code: "KeyK", metaKey: true };
+    expect(readFrameKeyDown(key)).toEqual({ key: "k", code: "KeyK", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, repeat: false });
+    expect(readFrameKeyDown({ ...key, ctrlKey: "yes" })?.ctrlKey).toBe(false);
+    expect(readFrameKeyDown({ ...key, key: 1 })).toBeUndefined();
+    expect(readFrameKeyDown({ ...key, key: "" })).toBeUndefined();
+    expect(readFrameKeyDown({ ...key, key: "k".repeat(33) })).toBeUndefined();
+    expect(readFrameKeyDown({ ...key, type: "ui/open-link" })).toBeUndefined();
+    expect(readFrameKeyDown(null)).toBeUndefined();
+    expect(readFrameKeyDown("tau-sandbox-frame:keydown")).toBeUndefined();
+  });
+
+  it("puts the key script behind the scheme script and ahead of the app", () => {
+    const html = prepareFrameDocument("<p>app</p>", {});
+    const at = (needle: string) => html.indexOf(needle);
+    expect(at("colorScheme=")).toBeGreaterThan(0);
+    expect(at(FRAME_KEYDOWN_MESSAGE)).toBeGreaterThan(at("colorScheme="));
+    expect(at("document.cookie")).toBeGreaterThan(at(FRAME_KEYDOWN_MESSAGE));
+    expect(at("<p>app</p>")).toBeGreaterThan(at("document.cookie"));
+  });
+});
+
+/** The key script run against a stand-in window, with the capture and bubble order a browser dispatches in. */
+function keyedDocument() {
+  const html = prepareFrameDocument("<p></p>", {});
+  const code = [...html.matchAll(/<script>([^]*?)<\/script>/gu)].map((match) => match[1]!).find((script) => script.includes(FRAME_KEYDOWN_MESSAGE))!;
+  const listeners: Array<{ type: string; fn: (event: any) => void; capture: boolean }> = [];
+  const timers: Array<() => void> = [];
+  const parent = { postMessage: vi.fn() };
+  const page = {
+    parent,
+    addEventListener: (type: string, fn: (event: any) => void, capture?: boolean) => { listeners.push({ type, fn, capture: capture === true }); },
+    removeEventListener: (type: string, fn: (event: any) => void) => {
+      const at = listeners.findIndex((entry) => entry.type === type && entry.fn === fn);
+      if (at >= 0) listeners.splice(at, 1);
+    },
+  };
+  new Function("window", "setTimeout", code)(page, (run: () => void) => timers.push(run));
+  const dispatch = (type: string, event: object) => {
+    for (const entry of listeners.filter((candidate) => candidate.type === type && candidate.capture)) entry.fn(event);
+    for (const entry of listeners.filter((candidate) => candidate.type === type && !candidate.capture)) entry.fn(event);
+    timers.splice(0).forEach((run) => run());
+  };
+  const name = (chords: unknown, source: unknown = parent) => dispatch("message", { source, data: { type: FRAME_KEYS_MESSAGE, chords } });
+  const press = (init: Record<string, unknown> = {}, target: object = { tagName: "BODY" }) => {
+    const event = {
+      isTrusted: true, isComposing: false, keyCode: 0, key: "k", code: "KeyK", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, repeat: false,
+      defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, getModifierState: () => false, composedPath: () => [target], ...init,
+    };
+    dispatch("keydown", event);
+    return event;
+  };
+  return { parent, page, listeners, name, press };
+}
+
+const chord = (key: string, init: Record<string, unknown> = {}) => ({ key, metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, ...init });
+
+describe("frame key script", () => {
+  it("passes on a named chord, keeps it from the browser and sends the key", () => {
+    const frame = keyedDocument();
+    frame.name([chord("k")]);
+    const event = frame.press();
+    expect(event.defaultPrevented).toBe(true);
+    expect(frame.parent.postMessage).toHaveBeenCalledExactlyOnceWith(
+      { type: FRAME_KEYDOWN_MESSAGE, key: "k", code: "KeyK", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, repeat: false },
+      "*",
+    );
+    expect(frame.listeners.filter((entry) => entry.type === "keydown" && !entry.capture)).toEqual([]);
+  });
+
+  it("matches punctuation and digits by position, as the app does", () => {
+    const frame = keyedDocument();
+    frame.name([chord("]", { shiftKey: true }), chord("1", { altKey: true }), chord("j", { altKey: true })]);
+    frame.press({ key: "}", code: "BracketRight", shiftKey: true });
+    frame.press({ key: "¡", code: "Digit1", altKey: true });
+    frame.press({ key: "∆", code: "KeyJ", altKey: true });
+    expect(frame.parent.postMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves every other key to the page", () => {
+    const frame = keyedDocument();
+    frame.press();
+    frame.name([chord("k")]);
+    const kept = [
+      frame.press({ key: "c", code: "KeyC" }),
+      frame.press({ metaKey: false }),
+      frame.press({ metaKey: false, ctrlKey: true }),
+      frame.press({ shiftKey: true }),
+      frame.press({ isTrusted: false }),
+      frame.press({ isComposing: true }),
+      frame.press({ keyCode: 229 }),
+      frame.press({}, { tagName: "TEXTAREA" }),
+      frame.press({}, { tagName: "INPUT" }),
+      frame.press({}, { tagName: "DIV", isContentEditable: true }),
+    ];
+    expect(kept.every((event) => !event.defaultPrevented)).toBe(true);
+    expect(frame.parent.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not pass on a key the page handled, and hears the parent only", () => {
+    const frame = keyedDocument();
+    frame.name([chord("k")], { not: "the parent" });
+    frame.press();
+    expect(frame.parent.postMessage).not.toHaveBeenCalled();
+    frame.name([chord("k")]);
+    frame.page.addEventListener("keydown", (event: { preventDefault(): void }) => event.preventDefault());
+    frame.press();
+    expect(frame.parent.postMessage).not.toHaveBeenCalled();
   });
 });

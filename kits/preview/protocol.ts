@@ -426,6 +426,18 @@ export interface PreviewHold {
 }
 
 /**
+ * Where a link clicked outside the transcript opens, by the same rule as a
+ * link in a reply: Settings → Preview → "Open links from a thread in", and ⌘ or
+ * Ctrl-click always goes to the system browser. Another kit copies this type.
+ */
+export const PREVIEW_LINKS_SERVICE = "tau.preview/links";
+
+export interface PreviewLinksService {
+  /** Opens `url` in the Preview and answers true, or answers false when the link belongs to the system browser and the caller opens it. */
+  open(url: string, event: { metaKey: boolean; ctrlKey: boolean }, actions: { openPanel(id: string): void }): boolean;
+}
+
+/**
  * Opens the cookie import dialog for one site and profile, e.g. after the user
  * signed in in their own browser. The user still picks the browser and clicks
  * Import; that click is the consent. Answers `undefined` when closed without one.

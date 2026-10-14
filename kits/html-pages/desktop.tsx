@@ -1,8 +1,9 @@
 import { AppWindow } from "lucide-react";
 import type { DesktopExtension, DesktopExtensionContext, HostExtensionClient, WorkbenchActions } from "tau";
+import { holdPreviewLinks } from "./links.js";
 import { createPageCard } from "./page-card.js";
 import { PageView } from "./page-view.js";
-import { HTML_PAGES_EXTENSION_ID, HTML_PAGE_STAGE_TAB, isShowHtmlPage } from "./protocol.js";
+import { HTML_PAGES_EXTENSION_ID, HTML_PAGE_STAGE_TAB, PREVIEW_LINKS_SERVICE, isShowHtmlPage, type PreviewLinksService } from "./protocol.js";
 
 interface PageTabParams extends Record<string, unknown> {
   threadId: string;
@@ -20,6 +21,8 @@ const htmlPages: DesktopExtension = {
   name: "HTML Pages",
   activate(context: DesktopExtensionContext) {
     const disposers: Array<() => void> = [];
+    // A page's links follow Settings → Preview, as links in a reply do; without Preview Kit they open in the system browser.
+    disposers.push(context.useService<PreviewLinksService>(PREVIEW_LINKS_SERVICE, holdPreviewLinks));
     disposers.push(context.registerToolCard({
       id: "html-pages.page",
       match: (tool) => isShowHtmlPage(tool.name),

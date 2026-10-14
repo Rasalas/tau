@@ -12,6 +12,17 @@ export const HTML_PAGE_STAGE_TAB = "tau.html-pages.page";
 
 export const HTML_PAGE_COMMANDS = { open: "open", release: "release" } as const;
 
+/**
+ * Preview Kit's link service, copied rather than imported (a kit never imports
+ * another kit): the part a page's links use.
+ */
+export const PREVIEW_LINKS_SERVICE = "tau.preview/links";
+
+export interface PreviewLinksService {
+  /** Opens `url` in the Preview and answers true, or answers false when the system browser is the place and the caller opens it. */
+  open(url: string, event: { metaKey: boolean; ctrlKey: boolean }, actions: { openPanel(id: string): void }): boolean;
+}
+
 export const HTML_PAGE_LIMITS = {
   /** The document the agent writes or points at. */
   htmlBytes: 1024 * 1024,
