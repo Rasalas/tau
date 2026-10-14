@@ -1,5 +1,5 @@
 import { Bot, Brain, ChevronRight, EyeOff } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { splitMessageBlocks } from "./message-blocks";
 import type { UiMessage } from "../../shared/contracts";
@@ -15,6 +15,32 @@ import { parseAsyncActivity, type AsyncActivity } from "./MessageText";
 import type { RetriedError } from "../../workbench/transcript-state";
 import type { TranscriptTurn } from "../extension-system";
 
+/** Distance from the end, in px, that still counts as reading the newest text. */
+const LIVE_EDGE_PX = 4;
+
+/** Streamed thinking stays scrolled to its newest text until the reader scrolls up; a finished one never moves. */
+function ThinkingBody({ thinking, streaming }: { thinking: string; streaming?: boolean }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const atEnd = useRef(true);
+  // No deps: every streamed chunk re-renders this, and pinning before paint avoids a visible jump.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (streaming && atEnd.current && element) element.scrollTop = element.scrollHeight;
+  });
+  return (
+    <div
+      ref={scroller}
+      className="message-thinking-body"
+      onScroll={(event) => {
+        const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
+        atEnd.current = scrollHeight - scrollTop - clientHeight <= LIVE_EDGE_PX;
+      }}
+    >
+      <Markdown streaming={streaming}>{thinking}</Markdown>
+    </div>
+  );
+}
+
 /**
  * Thinking as one row before the answer: folded in a
  * focused transcript, open from detailed on. `onToggle` lets the transcript
@@ -24,7 +50,7 @@ function ThinkingDisclosure({ thinking, streaming, open, onToggle }: { thinking:
   return (
     <details className="message-thinking" open={open} onToggle={(event) => { const next = (event.target as HTMLDetailsElement).open; if (next !== open) onToggle(next); }}>
       <summary><Brain size={14} strokeWidth={1.8} /><span className={streaming ? "work-shine" : ""}>{streaming ? "Thinking" : "Thought"}</span><ChevronRight size={12} className="chev" /></summary>
-      {open ? <div className="message-thinking-body"><Markdown streaming={streaming}>{thinking}</Markdown></div> : null}
+      {open ? <ThinkingBody thinking={thinking} streaming={streaming} /> : null}
     </details>
   );
 }
