@@ -1,4 +1,4 @@
-import { useCallback, useState, type MouseEvent } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import {
   transcriptTurnNavigationHeight,
   transcriptTurnNavigationIndexFromPointer,
@@ -12,6 +12,8 @@ export interface TranscriptTurnNavigationProps {
   activeMessageId?: string;
   transcriptId: string;
   onSelect: (messageId: string) => void;
+  /** A wheel over the rail; it may cancel the event to scroll the transcript instead. */
+  onWheel?: (event: WheelEvent) => void;
 }
 
 /** A compact timeline minimap for the loaded user turns. */
@@ -20,7 +22,17 @@ export function TranscriptTurnNavigation({
   activeMessageId,
   transcriptId,
   onSelect,
+  onWheel,
 }: TranscriptTurnNavigationProps) {
+  const navRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const node = navRef.current;
+    if (!node || !onWheel) return;
+    // React's own wheel handlers are passive and could not cancel the scroll.
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [onWheel]);
+
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const activeIndex = entries.findIndex((entry) => entry.messageId === activeMessageId);
   const resolvedHoveredIndex = hoveredIndex !== null && hoveredIndex < entries.length
@@ -57,6 +69,7 @@ export function TranscriptTurnNavigation({
 
   return (
     <nav
+      ref={navRef}
       className="transcript-turn-navigation"
       aria-label="Transcript turns"
       aria-controls={transcriptId}

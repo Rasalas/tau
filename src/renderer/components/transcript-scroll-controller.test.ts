@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptNavigationState } from "../../workbench/transcript-navigation";
 import {
+  forwardWheelToTranscript,
   FrameLoop,
   JUMP_SHOW_DISTANCE_PX,
   jumpToLatestVisible,
@@ -494,6 +495,65 @@ describe("TranscriptScrollController", () => {
       expect(test.node.scrollTop).toBe(0);
       test.node.dispatchEvent(new WheelEvent("wheel", { deltaY: -120 }));
       expect(test.controller.mode).toBe("tail");
+    } finally {
+      test.dispose();
+    }
+  });
+});
+
+describe("a wheel forwarded from the turn rail", () => {
+  function wheelFromRail(init: WheelEventInit, listener?: (event: WheelEvent) => void) {
+    const test = harness(state(), 1_000, 200);
+    test.node.scrollTop = 400;
+    const seen: WheelEvent[] = [];
+    test.node.addEventListener("wheel", (event) => { seen.push(event); listener?.(event); });
+    const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
+    forwardWheelToTranscript(event, test.node);
+    return { test, event, seen };
+  }
+
+  it("reaches the transcript as its own wheel, so the reader leaves the tail", () => {
+    const { test, event, seen } = wheelFromRail({ deltaY: -120, clientY: 90 });
+    try {
+      expect(event.defaultPrevented).toBe(true);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.deltaY).toBe(-120);
+      expect(seen[0]!.clientY).toBe(90);
+      expect(test.controller.mode).toBe("free");
+      expect(test.node.scrollTop).toBe(280);
+    } finally {
+      test.dispose();
+    }
+  });
+
+  it.each([
+    { deltaMode: WheelEvent.DOM_DELTA_PIXEL, deltaY: 40, top: 440 },
+    { deltaMode: WheelEvent.DOM_DELTA_LINE, deltaY: 3, top: 448 },
+    { deltaMode: WheelEvent.DOM_DELTA_PAGE, deltaY: 1, top: 600 },
+  ])("converts delta mode $deltaMode to pixels", ({ deltaMode, deltaY, top }) => {
+    const { test } = wheelFromRail({ deltaY, deltaMode });
+    try {
+      expect(test.node.scrollTop).toBe(top);
+    } finally {
+      test.dispose();
+    }
+  });
+
+  it("leaves the scroll to a transcript listener that cancels the wheel", () => {
+    const { test } = wheelFromRail({ deltaY: 40 }, (event) => event.preventDefault());
+    try {
+      expect(test.node.scrollTop).toBe(400);
+    } finally {
+      test.dispose();
+    }
+  });
+
+  it.each([{ deltaY: 40, ctrlKey: true }, { deltaX: 40 }])("ignores pinch zoom and horizontal wheels: %j", (init) => {
+    const { test, event, seen } = wheelFromRail(init);
+    try {
+      expect(event.defaultPrevented).toBe(false);
+      expect(seen).toHaveLength(0);
+      expect(test.node.scrollTop).toBe(400);
     } finally {
       test.dispose();
     }
