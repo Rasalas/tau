@@ -39,10 +39,10 @@ const PREVIEW: RollbackPreview = {
   ],
 };
 
-function harness(options: { readOnly?: boolean; incomplete?: boolean } = {}) {
+function harness(options: { readOnly?: boolean; incomplete?: boolean; history?: ServerHistory } = {}) {
   const invoke = vi.fn(async (command: string, input?: unknown): Promise<unknown> => {
     const request = input as { threeWay?: boolean; seq?: number } | undefined;
-    if (command === "server-history") return options.incomplete ? { ...HISTORY, entries: [{ ...HISTORY.entries[0]!, deployment: { ...HISTORY.entries[0]!.deployment!, status: "incomplete" } }] } : HISTORY;
+    if (command === "server-history") return options.history ?? (options.incomplete ? { ...HISTORY, entries: [{ ...HISTORY.entries[0]!, deployment: { ...HISTORY.entries[0]!.deployment!, status: "incomplete" } }] } : HISTORY);
     if (command === "rollback-preview") {
       if (request?.seq === 2) return { targetId: "sftp-site-1", seq: 2, newer: [], threeWay: false, files: [{ path: "index.php", op: "modify", outcome: "upload" }] };
       return request?.threeWay ? { ...PREVIEW, threeWay: true, files: [{ ...PREVIEW.files[0]!, outcome: "upload", merged: true, reason: "Merged." }, PREVIEW.files[1]!] } : PREVIEW;
@@ -71,6 +71,13 @@ describe("the history tab", () => {
     await screen.findByText("incomplete upload");
     fireEvent.click(await screen.findByRole("button", { name: "Mark as checked" }));
     expect(h.invoke).toHaveBeenCalledWith("deployment-mark", { cwd: "/work/site", targetId: TARGET.targetId, seq: 2, checked: true });
+  });
+
+  it.each([[1, "1 file"], [2, "2 files"]])("counts the first read's files in the singular and the plural (%i)", async (added, text) => {
+    const first = { commit: "a".repeat(40), at, subject: "Read", kind: "read" as const, added, modified: 0, deleted: 0, files: [] };
+    harness({ history: { targetId: "sftp-site-1", truncated: false, entries: [first] } });
+    await flush();
+    expect(screen.getByText(text)).toBeTruthy();
   });
 
   it("shows each deployment's status, marks one checked and says when older history was cleaned up", async () => {

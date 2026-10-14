@@ -78,7 +78,7 @@ function Totals({ summary, excluded, into }: { summary: ScanSummary; excluded: r
   const totals = selectedTotals(summary, excluded);
   const left = normalizeExcluded(excluded);
   return <p className="servers-source-note">
-    {count(totals.files)} files · {formatBytes(totals.bytes)} {into}.
+    {files(totals.files)} · {formatBytes(totals.bytes)} {into}.
     {left.length ? <> Left on the server and written to {left.length === 1 ? "its" : "their"} ignore list: {left.map((path) => `${path}/`).join(", ")}.</> : null}
     {summary.skipped ? <> {count(summary.skipped)} links are not copied.</> : null}
   </p>;
@@ -97,8 +97,8 @@ function useProgress(host: HostExtensionClient, active: boolean): SyncProgress |
 
 function progressWords(progress: SyncProgress | undefined, fallback: string): string {
   if (!progress) return fallback;
-  if (progress.phase === "fetch" && progress.total) return `Downloading ${count(progress.done)} of ${count(progress.total)} files…`;
-  if (progress.phase === "list") return `Listing the server (${count(progress.done)} files)…`;
+  if (progress.phase === "fetch" && progress.total) return `Downloading ${count(progress.done)} of ${files(progress.total)}…`;
+  if (progress.phase === "list") return `Listing the server (${files(progress.done)})…`;
   if (progress.phase === "record" || progress.phase === "done") return "Making the first commit…";
   return fallback;
 }
@@ -179,7 +179,7 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
     });
     const opened = async (made: ProjectMade, what: string) => {
       onDone();
-      actions.notify(`${what}: ${count(made.files)} files in the first commit on ${made.branch}.`);
+      actions.notify(`${what}: ${files(made.files)} in the first commit on ${made.branch}.`);
       if (!await actions.openWorkspace(made.workspaceId)) actions.notify("The project could not be opened.", "error");
     };
     const create = (target: DraftServer, remotePath: string) => run("create", async () => {
@@ -287,9 +287,9 @@ export function createServerProjectSource({ host, baseDirectory }: ServerProject
                 <Folder size={15} /><span>{directory.name}</span>
               </button>
             ))}
-            {listing.directories.length === 0 ? <p className="servers-source-note">No folders here{listing.files ? `, ${count(listing.files)} files` : ""}.</p> : null}
+            {listing.directories.length === 0 ? <p className="servers-source-note">No folders here{listing.files ? `, ${files(listing.files)}` : ""}.</p> : null}
           </div>
-          <p className="servers-source-note">{serverName(step.server)} · <code>{listing.path}</code>{listing.files ? ` · ${count(listing.files)} files here` : ""}</p>
+          <p className="servers-source-note">{serverName(step.server)} · <code>{listing.path}</code>{listing.files ? ` · ${files(listing.files)} here` : ""}</p>
           {errorLine}
           <div className="servers-source-actions">
             <button type="button" onClick={() => setStep({ kind: "connect" })} disabled={Boolean(busy)}>Back</button>

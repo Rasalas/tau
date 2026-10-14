@@ -8,6 +8,7 @@ import {
   DRIFT_EVENT, decodeDriftState, undecidedDrift,
   type DriftFile, type DriftImport, type DriftImportResult, type DriftState, type DriftTarget,
 } from "./drift-protocol.js";
+import { plural } from "./plural.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 
 /** Each checkout's drift state as the host half last answered, refreshed on its `drift` event. */
@@ -100,7 +101,6 @@ export function useDrift(feed: DriftFeed, cwd: string | undefined): DriftState |
 
 const LETTERS: Record<DriftFile["change"], string> = { added: "A", modified: "M", deleted: "D" };
 const STATUS_WORDS: Record<DriftImport["status"], string> = { open: "Not merged", later: "Merge later", merged: "Merged", gone: "Branch deleted" };
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const shown = (target: Pick<DriftTarget, "context">, path: string) => (target.context ? `${target.context}/${path}` : path);
 
 function ago(iso: string): string {

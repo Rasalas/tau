@@ -219,6 +219,26 @@ describe("Onboarding in the workbench", () => {
       await screen.findByRole("heading", { name: "Your agents" });
     });
 
+    const checked = () => within(screen.getByRole("list", { name: "Setup progress" })).getAllByRole("button").map((step) => step.querySelector("svg") !== null);
+
+    it("shows no check on any step while no agent is ready", async () => {
+      const { answer } = firstStart({ acme: NOT_INSTALLED });
+      await screen.findAllByText("Not installed");
+      await waitFor(() => expect(answer).toHaveBeenCalledWith("tau.onboarding", "discover", undefined));
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByRole("heading", { name: "No agent is ready yet" });
+      expect(checked()).toEqual([false, false, false]);
+    });
+
+    it("checks every step behind the last screen once an agent is ready", async () => {
+      firstStart();
+      await screen.findByText("1.0.0 · Acme Team");
+      await waitFor(() => expect(screen.queryByText(/Looking for/)).toBeNull());
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByRole("heading", { name: "Acme is ready" });
+      expect(checked()).toEqual([true, true, true]);
+    });
+
     it("keeps Esc from ending setup while no agent is ready: it opens again on the next start", async () => {
       const { calls, storage } = firstStart({ acme: NOT_INSTALLED });
       await screen.findAllByText("Not installed");

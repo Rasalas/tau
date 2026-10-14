@@ -161,7 +161,9 @@ function StepShell({ title, description, children }: { title: string; descriptio
   </>;
 }
 
-function Steps({ current, disabled, skipped, onStep }: { current: number; disabled: boolean; skipped: readonly boolean[]; onStep(step: FlowState["step"]): void }) {
+/** A step behind the current one gets its check only once an agent is ready; until then setup is not done. */
+function Steps({ current, disabled, skipped, agentReady, onStep }: { current: number; disabled: boolean; skipped: readonly boolean[]; agentReady: boolean; onStep(step: FlowState["step"]): void }) {
+  const isDone = (index: number) => agentReady && index < current;
   return (
     <ol className="onboarding-steps" aria-label="Setup progress">
       {STEPS.map((label, index) => (
@@ -171,10 +173,10 @@ function Steps({ current, disabled, skipped, onStep }: { current: number; disabl
             disabled={disabled || index >= current || skipped[index] === true}
             aria-current={index === current ? "step" : undefined}
             aria-label={`${label}, step ${index + 1}`}
-            className={index === current ? "current" : index < current ? "done" : ""}
+            className={index === current ? "current" : isDone(index) ? "done" : ""}
             onClick={() => onStep(index as FlowState["step"])}
           >
-            <span className="onboarding-step-mark" aria-hidden="true">{index < current ? <Check size={12} /> : null}</span>
+            <span className="onboarding-step-mark" aria-hidden="true">{isDone(index) ? <Check size={12} /> : null}</span>
             <span>{label}</span>
           </button>
         </li>
@@ -545,7 +547,7 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
         <section ref={dialog} tabIndex={-1} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-heading">
           <h1 id="onboarding-heading" className="onboarding-sr">Set up Tau</h1>
           <Frame.Provider value={{
-            steps: <Steps current={state.step} disabled={Boolean(state.busy)} skipped={[false, empty.projects, empty.sessions]} onStep={(step) => flow.goTo(step)} />,
+            steps: <Steps current={state.step} disabled={Boolean(state.busy)} skipped={[false, empty.projects, empty.sessions]} agentReady={rows.some((row) => row.state === "ready")} onStep={(step) => flow.goTo(step)} />,
             note: state.terminal ? (
               <div className="onboarding-terminal-note" role="status">
                 <SquareTerminal size={13} /><span>{state.terminal} runs in a terminal. Setup comes back when it ends.</span>

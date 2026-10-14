@@ -677,6 +677,8 @@ body:not([data-profile="compact"]) .conversation-start .composer-frame textarea 
   mask-size: calc(100% - 8px) 100%, 8px 100%;
   mask-repeat: no-repeat;
 }
+/* The find bar (top 12px, about 32px high) floats over the transcript; its room is the scroller's top padding, so a reveal lands below it too. */
+.transcript-viewport.with-find .transcript { padding-top: max(calc(26px * var(--density)), 56px); }
 .transcript-search-bar {
   position: absolute; top: 12px; right: 24px; z-index: 10;
   display: flex; align-items: center; gap: 6px; padding: 4px 8px;

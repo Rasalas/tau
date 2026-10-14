@@ -1,4 +1,5 @@
 // Pure status logic both halves share: which state a target is in, and how it reads.
+import { plural } from "./plural.js";
 import type { DriftRow, PendingRow } from "./sync/protocol.js";
 import { SYNC_STATE_ORDER, type PendingUploadRow, type ServerSyncState, type TargetStatus } from "./view-protocol.js";
 
@@ -65,7 +66,7 @@ export function formatAddress(target: { protocol: string; username?: string; hos
   return `${target.protocol}://${user}${host || "?"}:${target.port}${target.remotePath.startsWith("/") ? "" : "/"}${target.remotePath}`;
 }
 
-const files = (count: number) => `${count} ${count === 1 ? "file" : "files"}`;
+const files = (count: number) => plural(count, "file");
 
 /** One sentence per target, for a tooltip and the rail. */
 export function statusSentence(target: Pick<TargetStatus, "state" | "pendingTotal" | "drift" | "conflicts" | "unreachable" | "unusable" | "checking">): string {

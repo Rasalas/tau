@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, GitMerge, History, Lock, RotateCcw, Trash2 } from "lucide-react";
 import { Empty, READ_ONLY_REASON, Skeleton, errorMessage, tooltipProps, useCommandAllowed, type WorkbenchActions } from "tau";
 import { deployCounts, planSummary } from "./deploy-protocol.js";
+import { plural } from "./plural.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { seqList, type RollbackFilePlan, type RollbackPreview, type RollbackResult } from "./rollback-protocol.js";
 import type { ServerViewParts } from "./server-view.js";
@@ -89,7 +90,7 @@ function HistoryList({ entries, truncated, active, busy, onFile, onRollBack, onM
                 {deployment ? <span className={`servers-file-tag status-${deployment.status}`}>{DEPLOYMENT_STATUS[deployment.status]}</span> : null}
                 <time dateTime={entry.at} {...tooltipProps(new Date(entry.at).toLocaleString())}>{ago(entry.at)}</time>
               </button>
-              <p className="servers-history-meta">{first ? `${entry.added} files` : entryCounts(entry)}{deployment && deploymentMeta(deployment, true) ? <> · {deploymentMeta(deployment, true)}</> : null}</p>
+              <p className="servers-history-meta">{first ? plural(entry.added, "file") : entryCounts(entry)}{deployment && deploymentMeta(deployment, true) ? <> · {deploymentMeta(deployment, true)}</> : null}</p>
               {expanded && deployment?.note ? <p className="servers-history-meta note">{deployment.note}</p> : null}
               {expanded && deployment ? <DeploymentActions deployment={deployment} busy={busy} onRollBack={() => onRollBack({ ...entry, deployment })} onMark={(checked) => onMark(deployment.seq, checked)} /> : null}
               {expanded && !first ? (
