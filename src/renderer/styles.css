@@ -1686,6 +1686,8 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .extension-prompt-pick { flex: none; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .extension-prompt-title, .extension-prompt-message { margin: 0; padding: 0 2px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .extension-prompt-message { color: var(--ink-3); max-height: min(240px, 40dvh); overflow-y: auto; overscroll-behavior: contain; }
+/* The question is Markdown so its links work; the card keeps its own type and line spacing. */
+.extension-prompt-title > .markdown:not(.markdown-inline), .extension-prompt-message > .markdown:not(.markdown-inline) { font-size: inherit; line-height: inherit; white-space: normal; }
 .extension-prompt-subject {
   display: block; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--sunken);
   font: calc(var(--text-xs) - .5px)/1.45 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; overscroll-behavior: contain;

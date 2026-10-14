@@ -1782,7 +1782,10 @@ for what the ask tool folds into a dialog's title and options —
 Since API 1.27.0 the frame draws the workbench design's card (1n). Its head
 says what it is — `kind` `"question"` (the default) or `"approval"` — then
 `from`, who asks, and `pick` (`"one"` or `"any"`) at the right; `title` is the
-question under it, and an approval's `message` is its subject in mono (a path,
+question under it (since API 1.62.0 a question's `title` and `message` are drawn
+as Markdown, so a link in them is clickable and follows Settings → Preview's
+link setting; the folded head keeps the plain `title`), and an approval's
+`message` is its subject in mono (a path,
 a command; core's card puts one of 48 characters or fewer in the head and
 a longer or multi-line one in a scrolling body). `hint` opens the foot ("Or
 type an answer below"), `footer` sits before the primary action, and
