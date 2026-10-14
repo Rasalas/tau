@@ -59,6 +59,17 @@ describe("From a server…", () => {
     expect(invoke).toHaveBeenCalledWith("tau.servers", "create-project", expect.objectContaining({ parent: "/w/.tau-dev/projects" }));
   });
 
+  it.each([[1, "1 file here"], [2, "2 files here"]])("counts the files of a browsed folder in the singular and the plural (%i)", async (files, text) => {
+    setup((command) => ({
+      "ssh-hosts": { configPath: "/test/ssh_config", hosts: ["fake"], problems: [] },
+      "draft-browse": { ...LISTING, files },
+    } as Record<string, unknown>)[command]);
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await flush();
+    expect(screen.getByText(new RegExp(`${text}$`, "u"))).toBeTruthy();
+  });
+
   it("connects to an ssh host, sizes the folder with uploads left out, and opens the project it made", async () => {
     const { invoke, actions, onDone, view } = setup((command) => ({
       "ssh-hosts": { configPath: "/test/ssh_config", hosts: ["fake"], problems: [] },

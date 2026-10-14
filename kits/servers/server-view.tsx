@@ -6,6 +6,7 @@ import {
 } from "tau";
 import { DriftPanel, type DriftFeed } from "./drift-view.js";
 import { HistoryPanel } from "./history-panel.js";
+import { plural } from "./plural.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
 import { StatusDot, openTarget, useServersStatus, type TargetTabParams } from "./status-parts.js";
@@ -103,7 +104,7 @@ export function useTargetActions(parts: ServerViewParts, actions: WorkbenchActio
     if (!targetId) return;
     run("git", async () => {
       const made = await parts.host.invoke("link-folder", { path: cwd, exclude: {}, download: false }) as { commit: string; files: number; branch: string };
-      actions.notify(`Git made: ${made.files} files of the server state on ${made.branch} (${made.commit.slice(0, 7)}). git status shows your local changes.`);
+      actions.notify(`Git made: ${plural(made.files, "file")} of the server state on ${made.branch} (${made.commit.slice(0, 7)}). git status shows your local changes.`);
       await parts.store.load(cwd, true);
       await parts.store.check(cwd, targetId);
     });
@@ -124,8 +125,8 @@ export function useTargetActions(parts: ServerViewParts, actions: WorkbenchActio
 export function progressWords(progress: SyncProgress | undefined): string {
   if (!progress) return "Starting…";
   if (progress.phase === "connect") return "Connecting…";
-  if (progress.phase === "list") return `Listing the server… ${progress.done} files`;
-  if (progress.phase === "fetch") return `Downloading ${progress.done} of ${progress.total ?? "?"} files…`;
+  if (progress.phase === "list") return `Listing the server… ${plural(progress.done, "file")}`;
+  if (progress.phase === "fetch") return `Downloading ${progress.done} of ${progress.total === undefined ? "? files" : plural(progress.total, "file")}…`;
   if (progress.phase === "record") return "Recording the mirror state…";
   return "Finishing…";
 }

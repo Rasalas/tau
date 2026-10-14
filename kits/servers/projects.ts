@@ -8,6 +8,7 @@ import {
   type DraftListing, type DraftServer, type FolderInspection, type ProjectMade,
 } from "./project-plan.js";
 import { SFTP_JSON_PATH, readSftpJson, readProfileChoices, readSftpJsonFile, renderSftpJson, writeSftpJson, type SftpJsonDraft, type SftpJsonTarget } from "./sftp-json.js";
+import { plural } from "./plural.js";
 import { parseManualTarget } from "./ssh-hosts.js";
 import type { ServerSsh } from "./ssh-service.js";
 import type { SshTarget } from "./ssh-target.js";
@@ -203,7 +204,7 @@ export class ServerProjects {
       const target = targets[0];
       if (!target?.usable) throw new HostCommandError("The new sftp.json names no server Tau can reach.");
       const downloaded = await this.options.sync.download({ cwd: path, targetId: target.id, exclude }, { gitRules: false });
-      if (downloaded.failed.length) throw new HostCommandError(`${downloaded.failed.length} files could not be downloaded, first ${downloaded.failed[0]!.path}: ${downloaded.failed[0]!.message}`);
+      if (downloaded.failed.length) throw new HostCommandError(`${plural(downloaded.failed.length, "file")} could not be downloaded, first ${downloaded.failed[0]!.path}: ${downloaded.failed[0]!.message}`);
       // A server without its own .gitignore gets Tau's; one with it keeps it as it is, and Git's own exclude file takes the rest.
       const serverGitignore = Boolean(await lstat(join(path, ".gitignore")).catch(() => undefined));
       if (!serverGitignore) {
