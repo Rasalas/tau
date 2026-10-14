@@ -136,7 +136,7 @@ function TabletPageButton({ page, actions }: { page: PageContribution; actions: 
 }
 
 function TabletFooter({ registry, actions, onOpenSettings }: Pick<TouchThreadListProps, "registry" | "actions"> & { onOpenSettings(page?: string): void }) {
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const { readOnly } = useHostCapabilities();
   const pages = registry.getPages();
   const open = useOpenPage();
@@ -208,7 +208,7 @@ function ThreadSearch({ registry, onOpen }: { registry: ExtensionRegistry; onOpe
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
   const outside = useThreadListSources(registry);
-  const marks = useSyncExternalStore(registry.subscribe, registry.getThreadRowMarks);
+  const marks = useSyncExternalStore(registry.subscribeMarks, registry.getThreadRowMarks);
   const [query, setQuery] = useState("");
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => { field.current?.focus(); }, []);

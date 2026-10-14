@@ -1,3 +1,4 @@
+import { useExtensionData } from "../../src/renderer/use-extension-data";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, PanelLeft, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
@@ -928,7 +929,8 @@ const SETTLED_STATUS: RailStatus = { activity: "settled", label: "Settled" };
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: SidebarContributionProps) {
   const { snapshot, registry } = useWorkbenchShell();
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
+  useExtensionData(registry, "lineage");
   const lineage = registry.getThreadLineage();
   const threadStore = useThreadStore();
   const workspace = useWorkspaceStore();
@@ -936,7 +938,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const railSections = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railSections);
   const railThreadSources = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railThreadSources);
   const ownMarks = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadRowStatuses);
-  const kitMarks = useSyncExternalStore(registry.subscribe, registry.getThreadRowMarks);
+  const kitMarks = useSyncExternalStore(registry.subscribeMarks, registry.getThreadRowMarks);
   // Marks set through this kit's store predate the core's; both draw alike.
   const rowStatuses = useMemo(() => ({ ...kitMarks, ...ownMarks }), [kitMarks, ownMarks]);
   const dropTargets = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().threadDropTargets);

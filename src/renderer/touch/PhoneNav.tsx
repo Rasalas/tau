@@ -35,7 +35,7 @@ export function phoneNavItems(registry: Pick<ExtensionRegistry, "getPages"> & Pa
 
 /** The bottom navigation of a workbench, following its registry and remembering its pages. */
 export function RegistryPhoneNav({ registry, current, onSelect }: { registry: ExtensionRegistry; current: PhoneTab; onSelect(tab: PhoneTab): void }) {
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const items = phoneNavItems(registry);
   const nav = useRef<HTMLElement>(null);
   const loading = registry.isLoadingExtensions();

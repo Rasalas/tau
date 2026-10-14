@@ -1,3 +1,4 @@
+import { useExtensionData } from "./use-extension-data";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ExtensionUiPrompt, HostSnapshot, UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../shared/contracts";
 import type { TranscriptDetail } from "../workbench/transcript-folding";
@@ -50,7 +51,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
     recoverThread, copyToolOutput, loadToolOutput, abortSessionId, abort,
   } = input;
   const { tools, toolAnchorId, turnActivityHistory } = useSyncExternalStore(viewStore.subscribeToTools, viewStore.getToolView);
-  const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const registryVersion = useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const activityTools = useMemo(() => tools.filter(isActivityTool), [tools]);
   const conversationActivityTools: readonly UiToolRun[] = pendingNewThread ? NO_TOOLS : activityTools;
   // A submitted prompt is visible before its run starts. Keep the previous
@@ -72,6 +73,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
   const { messages, activityRevision } = useSyncExternalStore(viewStore.subscribeToTranscript, viewStore.getTranscript);
   const messageIndex = useMemo(() => new ActivityMessageIndex(viewStore.getTranscript().messages), [viewStore, activityRevision]);
   const sessionId = conversationSnapshot?.sessionId;
+  const threadExtensionVersion = useExtensionData(registry, `thread:${sessionId ?? ""}`);
   // A thread opened again starts with every settled turn folded.
   const disclosures = useMemo(() => new WorkDisclosures(), [sessionId]);
   const historicalCache = useMemo(() => new WeakMap<UiTurnActivityEntry, {
@@ -173,7 +175,7 @@ export function useConversationActivities(input: ConversationActivityInput) {
       />,
     })),
     ...toolCardTranscriptRows(cardTools, messages, registry, actions),
-  ], [abort, abortSessionId, actions, cardTools, conversationActivityTools, prompts.length, replied, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, visibleToolAnchorId, messageIndex, messages]);
+  ], [abort, abortSessionId, actions, cardTools, conversationActivityTools, prompts.length, replied, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, threadExtensionVersion, extensionRows, visibleToolAnchorId, messageIndex, messages]);
 
   return { thinking, liveStatusLabel, transcriptActivities };
 }

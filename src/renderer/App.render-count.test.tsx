@@ -8,7 +8,7 @@ import { renderApp } from "./test-support/render-app";
 import { loadTauApi } from "./runtime-extensions";
 import { workspaceHostStub } from "./test-support/workspace-host-stub";
 import { useWorkbench } from "./workbench-context";
-import type { DesktopExtension } from "./extension-system";
+import type { DesktopExtensionContext, DesktopExtension } from "./extension-system";
 
 // App renders nothing but the workbench, so wrapping it counts App's own body.
 const appRenders = vi.hoisted(() => ({ count: 0 }));
@@ -92,6 +92,37 @@ describe("app render isolation", () => {
       }),
     });
     setHostClient(client);
+  });
+
+  it("isolates dynamic extension data from App and the composer while updating the active transcript", async () => {
+    let context!: DesktopExtensionContext;
+    let rows!: ReturnType<DesktopExtensionContext["registerTranscriptRows"]>;
+    const view = await renderLoadedApp(client, { extensions: [{ id: "data", name: "Data", activate(given) {
+      context = given;
+      rows = given.registerTranscriptRows("data-rows");
+    } }] });
+    await screen.findByText("hello");
+    const before = { app: appRenders.count, composer: composerRenders.count };
+    act(() => {
+      for (let index = 0; index < 50; index += 1) {
+        context.setLiveStatus("other", `Waiting ${index}`);
+        rows.setRows("other", [{ id: "other", content: <span>Other thread</span> }]);
+      }
+      context.setThreadRowStatuses({ other: { label: "Waiting" } });
+      context.setThreadLineage({ parents: { other: "parent" }, workingChildren: {} });
+      context.setProjectIcons({ "/project": "data:image/png;base64,a" });
+      context.setProviderIcons({ custom: "data:image/png;base64,a" });
+      context.setProblems([{ source: "Test", level: "warning", message: "A problem" }]);
+    });
+    expect(appRenders.count).toBe(before.app);
+    expect(composerRenders.count).toBe(before.composer);
+    expect(view.container.textContent).not.toContain("Other thread");
+    act(() => rows.setRows("session", [{ id: "own", content: <span>Active extension row</span> }]));
+    await screen.findByText("Active extension row");
+    expect(appRenders.count).toBe(before.app);
+    expect(composerRenders.count).toBe(before.composer);
+    act(() => rows.clear("session"));
+    expect(screen.queryByText("Active extension row")).toBeNull();
   });
 
   it("streams assistant text without re-rendering App, the workbench or the composer", async () => {

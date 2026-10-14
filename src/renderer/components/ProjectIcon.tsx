@@ -36,7 +36,7 @@ function useResolvedIcon(project: IconSubject | undefined, fallback?: string): {
   const store = useContext(ThreadStoreContext);
   const projects = useSyncExternalStore(store?.subscribeToProjects ?? noSubscribe, store?.getProjects ?? getNoProjects);
   const owner = project ? findProjectForSession(projects, { projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name }) : undefined;
-  const chosen = useSyncExternalStore(registry?.subscribe ?? noSubscribe, () =>
+  const chosen = useSyncExternalStore(registry?.subscribeProjectIcons ?? noSubscribe, () =>
     (project ? registry?.projectIcon(project) : undefined) ?? (owner ? registry?.projectIcon(owner) : undefined));
   return { image: chosen ?? fallback ?? project?.icon ?? owner?.icon, owner };
 }

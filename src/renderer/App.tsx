@@ -87,7 +87,7 @@ export default function App() {
     });
     return value;
   });
-  const registryVersion = useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const registryVersion = useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   // What this client can do with the machine it runs on. Everything in the
   // renderer that needs the clipboard, an editor or a module evaluation asks
   // this, never Electron; `src/workbench/` never asks at all.

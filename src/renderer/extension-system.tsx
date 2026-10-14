@@ -1980,6 +1980,13 @@ export class ExtensionRegistry {
   private activeExtensions = new Map<string, { extension: DesktopExtension; dispose: () => void }>();
   private listeners = new Set<() => void>();
   private version = 0;
+  private legacyVersion = 0;
+  private registrationListeners = new Set<() => void>();
+  private dataListeners = new Map<string, Set<() => void>>();
+  private dataVersions = new Map<string, number>();
+  private problemCache: Array<ExtensionProblem & ContributionOwner> | undefined;
+  private readonly emptyTranscriptRows: TranscriptRow[] = [];
+  private transcriptCache = new Map<string, TranscriptRow[]>();
   private loadingExtensions = false;
   /** The last failure per extension entry path; an entry that builds again drops out. */
   private readonly loadFailures = new Map<string, string>();
@@ -2149,39 +2156,40 @@ export class ExtensionRegistry {
       },
       setLiveStatus: (sessionId, label) => {
         const own = this.liveStatuses.get(extension.id) ?? new Map<string, string>();
+        if (own.get(sessionId) === label) return;
         if (label === undefined) own.delete(sessionId);
         else own.set(sessionId, label);
         if (own.size === 0) this.liveStatuses.delete(extension.id);
         else this.liveStatuses.set(extension.id, own);
-        this.changed();
+        this.dataChanged(`thread:${sessionId}`);
       },
       setThreadRowStatuses: (statuses) => {
         if (Object.keys(statuses).length) this.rowMarks.set(extension.id, statuses);
         else if (!this.rowMarks.delete(extension.id)) return;
-        this.changed();
+        this.dataChanged("marks");
       },
       setThreadLineage: (lineage) => {
         if (lineage) this.lineages.set(extension.id, lineage);
         else this.lineages.delete(extension.id);
-        this.changed();
+        this.dataChanged("lineage");
       },
       setProjectIcons: (icons) => {
         const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")));
         if (Object.keys(pictures).length > 0) this.projectIcons.set(extension.id, pictures);
         else if (!this.projectIcons.delete(extension.id)) return;
-        this.changed();
+        this.dataChanged("project-icons");
       },
       setProviderIcons: (icons) => {
         const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")).map(([id, image]) => [providerIconKey(id), image]));
         if (Object.keys(pictures).length > 0) this.providerIcons.set(extension.id, pictures);
         else if (!this.providerIcons.delete(extension.id)) return;
-        this.changed();
+        this.dataChanged("provider-icons");
       },
       setProblems: (problems) => {
         if (problems.length === 0 && !this.problems.has(extension.id)) return;
         if (problems.length === 0) this.problems.delete(extension.id);
         else this.problems.set(extension.id, problems.map((problem) => ({ ...problem, ...owner })));
-        this.changed();
+        this.dataChanged("problems");
       },
       registerTranscriptRows: (id, order = 0, options) => {
         if (!this.scopeToProfile(owner, "transcript rows", id, undefined, options)) return noTranscriptRows;
@@ -2190,7 +2198,9 @@ export class ExtensionRegistry {
         const source = { order, owner, bySession: new Map<string, readonly TranscriptRow[]>() };
         this.transcriptRows.set(id, source);
         const dispose = () => {
-          if (this.transcriptRows.get(id) === source) this.transcriptRows.delete(id);
+          if (this.transcriptRows.get(id) !== source) return;
+          this.transcriptRows.delete(id);
+          for (const sessionId of source.bySession.keys()) this.dataChanged(`thread:${sessionId}`, true);
           this.changed();
         };
         disposers.push(dispose);
@@ -2200,12 +2210,14 @@ export class ExtensionRegistry {
             if (this.transcriptRows.get(id) !== source) return;
             if (rows.length === 0) source.bySession.delete(sessionId);
             else source.bySession.set(sessionId, rows);
-            this.changed();
+            this.dataChanged(`thread:${sessionId}`, true);
           },
           clear: (sessionId) => {
+            if (this.transcriptRows.get(id) !== source) return;
+            const sessions = sessionId === undefined ? [...source.bySession.keys()] : [sessionId];
             if (sessionId === undefined) source.bySession.clear();
             else source.bySession.delete(sessionId);
-            this.changed();
+            for (const affectedSessionId of sessions) this.dataChanged(`thread:${affectedSessionId}`, true);
           },
           dispose,
         };
@@ -2442,12 +2454,15 @@ export class ExtensionRegistry {
     this.activeExtensions.delete(id);
     this.contributionKinds.delete(id);
     this.profiledContributions.delete(id);
+    const statusThreads = [...(this.liveStatuses.get(id)?.keys() ?? [])];
     this.liveStatuses.delete(id);
+    for (const sessionId of statusThreads) this.dataChanged(`thread:${sessionId}`);
     this.rowMarks.delete(id);
     this.lineages.delete(id);
     this.projectIcons.delete(id);
     this.providerIcons.delete(id);
     this.problems.delete(id);
+    for (const key of ["marks", "lineage", "project-icons", "provider-icons", "problems"]) this.dataChanged(key);
     this.changed();
     if (cleanupError) throw cleanupError;
   }
@@ -2520,8 +2535,8 @@ export class ExtensionRegistry {
 
   /** Every extension's row states by thread id; the same object until one changes. */
   getThreadRowMarks = (): Readonly<Record<string, ThreadRowMark<ReactNode>>> => {
-    if (this.mergedRowMarks?.version !== this.version) {
-      this.mergedRowMarks = { version: this.version, marks: Object.assign({}, ...this.rowMarks.values()) as Record<string, ThreadRowMark<ReactNode>> };
+    if (this.mergedRowMarks?.version !== (this.dataVersions.get("marks") ?? 0)) {
+      this.mergedRowMarks = { version: this.dataVersions.get("marks") ?? 0, marks: Object.assign({}, ...this.rowMarks.values()) as Record<string, ThreadRowMark<ReactNode>> };
     }
     return this.mergedRowMarks.marks;
   };
@@ -2538,7 +2553,7 @@ export class ExtensionRegistry {
 
   /** What the active extensions reported as wrong, in activation order. */
   getProblems(): Array<ExtensionProblem & ContributionOwner> {
-    return [...this.problems.values()].flat();
+    return this.problemCache ??= [...this.problems.values()].flat();
   }
 
   /** The picture an extension chose for a project, if any (`setProjectIcons`). */
@@ -2560,27 +2575,26 @@ export class ExtensionRegistry {
 
   /** Lineage of every extension, merged into one map the navigator can read. */
   getThreadLineage(): ThreadLineage {
-    if (this.lineageCache?.version === this.version) return this.lineageCache.value;
+    if (this.lineageCache?.version === (this.dataVersions.get("lineage") ?? 0)) return this.lineageCache.value;
     const value: ThreadLineage = this.lineages.size === 0
       ? EMPTY_THREAD_LINEAGE
       : [...this.lineages.values()].reduce((merged, lineage) => ({
         parents: { ...lineage.parents, ...merged.parents },
         workingChildren: { ...lineage.workingChildren, ...merged.workingChildren },
       }), EMPTY_THREAD_LINEAGE);
-    this.lineageCache = { version: this.version, value };
+    this.lineageCache = { version: this.dataVersions.get("lineage") ?? 0, value };
     return value;
   }
 
   /** Rows every extension published for one thread, sorted by source order; ids are namespaced by source. */
   getTranscriptRows(sessionId: string | undefined): TranscriptRow[] {
-    if (!sessionId) return [];
-    const key = `transcript-rows:${sessionId}`;
-    const cached = this.sortedCache.get(key);
-    if (cached?.version === this.version) return cached.value as TranscriptRow[];
+    if (!sessionId) return this.emptyTranscriptRows;
+    const cached = this.transcriptCache.get(sessionId);
+    if (cached) return cached;
     const value = [...this.transcriptRows.entries()]
       .sort(([, a], [, b]) => a.order - b.order)
       .flatMap(([id, source]) => (source.bySession.get(sessionId) ?? []).map((row) => ({ ...row, id: `${id}:${row.id}` })));
-    this.sortedCache.set(key, { version: this.version, value });
+    this.transcriptCache.set(sessionId, value);
     return value;
   }
 
@@ -3072,7 +3086,39 @@ export class ExtensionRegistry {
   };
 
   /** Cheap identity for useSyncExternalStore — changes whenever contributions change. */
-  getVersion = (): number => this.version;
+  getVersion = (): number => this.legacyVersion;
+
+  /** Static contributions and lifecycle changes, independent of extension data. */
+  getRegistrationVersion = (): number => this.version;
+  subscribeRegistrations = (listener: () => void): (() => void) => {
+    this.registrationListeners.add(listener);
+    return () => this.registrationListeners.delete(listener);
+  };
+
+  /** Dynamic data belongs to a domain, or to one thread's transcript and status. */
+  subscribeData = (key: string, listener: () => void): (() => void) => {
+    const listeners = this.dataListeners.get(key) ?? new Set<() => void>();
+    this.dataListeners.set(key, listeners);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size) this.dataListeners.delete(key);
+    };
+  };
+  getDataVersion = (key: string): number => this.dataVersions.get(key) ?? 0;
+
+  subscribeMarks = (listener: () => void) => this.subscribeData("marks", listener);
+  subscribeProjectIcons = (listener: () => void) => this.subscribeData("project-icons", listener);
+  subscribeProviderIcons = (listener: () => void) => this.subscribeData("provider-icons", listener);
+
+  private dataChanged(key: string, transcript = false): void {
+    this.dataVersions.set(key, this.getDataVersion(key) + 1);
+    if (key === "problems") this.problemCache = undefined;
+    if (transcript && key.startsWith("thread:")) this.transcriptCache.delete(key.slice(7));
+    this.dataListeners.get(key)?.forEach((listener) => listener());
+    this.legacyVersion += 1;
+    this.listeners.forEach((listener) => listener());
+  }
 
   private disposeAll(disposers: Array<() => void>): void {
     const errors: unknown[] = [];
@@ -3115,6 +3161,8 @@ export class ExtensionRegistry {
 
   private changed(): void {
     this.version += 1;
+    this.legacyVersion += 1;
+    this.registrationListeners.forEach((listener) => listener());
     this.listeners.forEach((listener) => listener());
   }
 }

@@ -255,7 +255,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
   const client = useHostClient();
   const preferences = usePreferences();
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const toggle = useExtensionSwitch(registry, onNotify, onHostHalves);
   const { readOnly } = useHostCapabilities();
   const summary = entry.summary;

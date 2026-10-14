@@ -65,7 +65,7 @@ export function ExtensionsPage({ entries, registry, loading, error, onOpen, onRe
   onHostHalves(halves: HostExtensionSummary[]): void;
   onChanged(): void;
 }) {
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const { readOnly } = useHostCapabilities();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");

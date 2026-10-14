@@ -74,7 +74,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const current = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
   const { pinnedThreadIds, settledThreadIds, showCosts } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const [shown, setShown] = useState(THREAD_LIST_PAGE);
   const [openRow, setOpenRow] = useState<string>();
   // A thread the host still has to load shows that it is opening; its chat comes once it is there.
@@ -99,7 +99,7 @@ export function TouchThreadList({ registry, actions, onOpen, onStop, onNewThread
   const outside = useThreadListSources(registry);
   // Another machine's projects are other projects; the filter keeps those of the same name.
   const extra = useMemo(() => project ? outside.rows.filter((row) => row.projectName === project.name) : outside.rows, [outside.rows, project]);
-  const marks = useSyncExternalStore(registry.subscribe, registry.getThreadRowMarks);
+  const marks = useSyncExternalStore(registry.subscribeMarks, registry.getThreadRowMarks);
   // Runs reorder the list all the time; under a finger, a tap would open whichever row slid there.
   const steady = useSteadyRows();
   const { held } = steady;

@@ -130,7 +130,7 @@ export function SettingsScreen({
   // Past an app page Settings was opened over, too.
   const onBackToThread = () => { onClose(); appPages?.close(); };
   const { disabledExtensions } = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
-  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
   const [levels] = useState(() => new ConfigLayersStore(client, () => void preferences.syncFromHost()));
   const project = currentProject(snapshot, projects);
   useEffect(() => { levels.setProject(project); }, [levels, project?.workspaceId, project?.label]);

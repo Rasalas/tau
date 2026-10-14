@@ -111,7 +111,7 @@ const noSubscribe = () => () => undefined;
 /** A kit's picture for a provider Tau has no mark for (`setProviderIcons`). */
 function useProviderPicture(value: string | undefined): string | undefined {
   const registry = useContext(WorkbenchShellContext)?.registry;
-  return useSyncExternalStore(registry?.subscribe ?? noSubscribe, () => (value ? registry?.providerIcon(value) : undefined));
+  return useSyncExternalStore(registry?.subscribeProviderIcons ?? noSubscribe, () => (value ? registry?.providerIcon(value) : undefined));
 }
 
 function ProviderIcon({ identity, layer, value }: { identity: ProviderIdentity; layer: "model" | "runtime"; value?: string | undefined }) {

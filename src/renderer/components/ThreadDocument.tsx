@@ -1,3 +1,4 @@
+import { useExtensionData } from "../use-extension-data";
 import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { Bot } from "lucide-react";
 import type { UiMessage } from "../../shared/contracts";
@@ -50,6 +51,7 @@ export function ThreadDocument({ sessionId, loadThread, onTakeOver, registry }: 
   registry?: ExtensionRegistry;
 }) {
   const store = useThreadStore();
+  useExtensionData(registry, "lineage");
   const session = useThreadShell(sessionId);
   const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
   const streaming = activity.runningThreadIds.includes(sessionId);
