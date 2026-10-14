@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { HostExtensionClient } from "tau";
 import { HostClientProvider } from "../../src/renderer/test-support/kit-harness.js";
@@ -69,7 +69,23 @@ it("on a row of its own, lists only its PR and starts it in one click though the
   await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(start);
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("watch-start", { threadId: "a", url: request.url }));
-  fireEvent.click(await screen.findByRole("button", { name: "Watching for PR #42" }));
+  const watching = await screen.findByRole("button", { name: "Watching for PR #42" });
+  await waitFor(() => expect((watching as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(watching);
   await screen.findByRole("button", { name: "Stop watching PR #42" });
   expect(screen.queryByText("#43")).toBeNull();
+});
+it("is an eye that names its state in the tooltip, and in words only when GitHub cannot be read", async () => {
+  setup(true, [watch]);
+  const watching = await screen.findByRole("button", { name: "Watching for PR #42" });
+  expect(watching.textContent).toBe("");
+  expect(watching.getAttribute("data-tooltip")).toBe("#42 · Watching · not read yet");
+  cleanup();
+  setup(true, [{ ...watch, status: "ended" }]);
+  const ended = await screen.findByRole("button", { name: "Watch ended for PR #42" });
+  expect(ended.textContent).toBe("");
+  expect(ended.getAttribute("data-tooltip")).toBe("#42 · Watch ended");
+  cleanup();
+  setup(true, [{ ...watch, status: "unreadable" }]);
+  expect((await screen.findByRole("button", { name: "Can't read GitHub for PR #42" })).textContent).toBe("Can't read GitHub");
 });

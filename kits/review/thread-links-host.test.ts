@@ -94,3 +94,28 @@ it("runs an explicit fresh read after an already-running automatic refresh", asy
   expect(space.current).toHaveBeenCalledTimes(2);
   expect(space.detail).toHaveBeenCalledTimes(2);
 });
+
+it("keeps when a linked request merged, then stops reading it", async () => {
+  const space = await fixture();
+  await space.links();
+  space.detail.mockResolvedValue({ title: "Feature", state: "merged", draft: false, headRef: "feature/one", headSha: "tip", baseRef: "main", mergedAt: "2026-10-14T21:01:00Z" } as PullRequestDetail);
+  space.advance();
+  expect(await space.links(true)).toEqual([expect.objectContaining({ state: "merged", endedAt: Date.parse("2026-10-14T21:01:00Z") })]);
+  const reads = space.detail.mock.calls.length;
+  space.advance();
+  await space.links(true);
+  expect(space.detail).toHaveBeenCalledTimes(reads);
+});
+
+it("drops the end when a closed request opens again", async () => {
+  const space = await fixture();
+  await space.links();
+  space.detail.mockResolvedValue({ title: "Feature", state: "closed", draft: false, headRef: "feature/one", headSha: "tip", baseRef: "main", closedAt: "2026-10-14T21:01:00Z" } as PullRequestDetail);
+  space.advance();
+  expect(await space.links(true)).toEqual([expect.objectContaining({ state: "closed", endedAt: Date.parse("2026-10-14T21:01:00Z") })]);
+  space.detail.mockResolvedValue({ title: "Feature", state: "open", draft: false, headRef: "feature/one", headSha: "tip", baseRef: "main" } as PullRequestDetail);
+  space.advance(30 * 60_000 + 1);
+  const [reopened] = await space.links(true) as { state: string; endedAt?: number }[];
+  expect(reopened).toMatchObject({ state: "open" });
+  expect(reopened!.endedAt).toBeUndefined();
+});
