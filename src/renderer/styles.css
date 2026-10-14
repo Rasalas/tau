@@ -2277,10 +2277,17 @@ body[data-profile="compact"] .touch-split .thread-header-tools { max-width: 60%;
 .sandbox-frame-box[data-bordered]:not([data-sandbox-frame-fullscreen]) { border: 1px solid var(--line-card); border-radius: var(--radius-md); overflow: hidden; }
 .sandbox-frame-box[popover]:popover-open { position: fixed; inset: 0; width: 100vw; height: 100dvh; background: var(--stage); color: var(--ink); }
 .sandbox-frame-view { display: block; flex: 1; width: 100%; min-height: 0; border: 0; }
+/* Inline the wrappers vanish; in full screen the stage scrolls and the page keeps the stage's size, scaled by the zoom. */
+.sandbox-frame-stage, .sandbox-frame-zoomed { display: contents; }
+.sandbox-frame-box[data-sandbox-frame-fullscreen] .sandbox-frame-stage { display: block; flex: 1; min-height: 0; overflow: auto; container-type: size; }
+.sandbox-frame-box[data-sandbox-frame-fullscreen] .sandbox-frame-zoomed { display: flex; width: 100cqw; height: 100cqh; zoom: var(--sandbox-frame-zoom, 1); }
 .sandbox-frame-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-4); height: 40px; padding: 0 var(--space-5); border-bottom: 1px solid var(--line); font-size: var(--text-sm); color: var(--ink-2); }
 .sandbox-frame-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sandbox-frame-exit { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
-.sandbox-frame-exit:hover { background: var(--raised); color: var(--ink); }
+.sandbox-frame-tools { display: flex; align-items: center; gap: var(--space-1); }
+.sandbox-frame-exit, .sandbox-frame-zoom { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.sandbox-frame-exit:hover, .sandbox-frame-zoom:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.sandbox-frame-zoom:disabled { opacity: .4; cursor: default; }
+.sandbox-frame-zoom-value { width: auto; min-width: 44px; padding: 0 var(--space-2); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .sandbox-frame-notice { display: flex; flex: 1; align-items: center; justify-content: center; margin: 0; padding: var(--space-5); text-align: center; font-size: var(--text-sm); color: var(--muted); }
 
 /* The rows the transcript's find and a "Go to source" land on. */
