@@ -77,6 +77,7 @@ async function harness(fixture: Fixture = {}) {
     noteSubprocess: () => undefined,
     runtimeOwner: () => "tau",
     complete,
+    runtimeChoices: async () => [{ backend: { kind: "pi", label: "Pi" }, enabled: true, readiness: { kind: "pi", label: "Pi", state: "ready" }, catalog: { kind: "pi", models: [{ provider: "test", id: "writer", name: "Writer" }], thinkingLevels: { "test/writer": ["off", "low", "high"] } } }],
     completionModels: async () => fixture.models ?? [],
     sessions: { list: async () => [{ sessionId: "t1", path: "/s/t1.jsonl", cwd: "/project" }, { sessionId: "elsewhere", path: "/s/e.jsonl", cwd: "/other" }] } as never,
     turnAttachments: {
@@ -124,6 +125,14 @@ describe("the local pull request's host commands", () => {
     expect(request.prompt).toContain("- Clicked “Save”");
     await invoke("local-pr-describe", { model: { provider: "anthropic", id: "claude-haiku-4-5" }, prefer: { provider: "openai", id: "gpt-5.6-sol" } });
     expect((complete.mock.calls[1] as unknown as [unknown, unknown])[1]).toEqual({ provider: "anthropic", id: "claude-haiku-4-5" });
+  });
+
+  it("passes the writer effort to a description on the selected model", async () => {
+    const { invoke, complete } = await harness();
+    await invoke("local-pr-describe", { model: { provider: "test", id: "writer" }, thinkingLevel: "high" });
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ thinkingLevel: "high", maxTokens: 16_384, timeoutMs: 120_000 }), { provider: "test", id: "writer" });
+    await invoke("local-pr-describe", { thinkingLevel: "high" });
+    expect((complete.mock.calls[1] as unknown as [unknown])[0]).not.toHaveProperty("thinkingLevel");
   });
 
   it("writes about the commit that is not made yet as the branch's newest one", async () => {

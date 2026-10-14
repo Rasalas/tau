@@ -38,6 +38,20 @@ describe("completeText", () => {
     expect(models.streamSimple.mock.calls[0]?.[2]).toMatchObject({ maxTokens: 900, timeoutMs: 90_000, signal });
   });
 
+  it.each([false, true])("passes supported thinking to the model, streaming=%s", async (streaming) => {
+    const models = runtime(reply("answer"));
+    const selected = { provider: "p", id: "m", reasoning: true, thinkingLevelMap: { minimal: null, xhigh: null, max: null } } as never;
+    await completeText(models as never, selected, { system: "s", prompt: "p", thinkingLevel: "high", ...(streaming ? { onText: () => undefined } : {}) }, attribution);
+    const calls = streaming ? models.streamSimple.mock.calls : models.completeSimple.mock.calls;
+    expect(calls[0]?.[2]).toMatchObject({ reasoning: "high" });
+  });
+
+  it.each(["high", "invalid", "off"])("ignores unsupported thinking %s on a model without reasoning", async (thinkingLevel) => {
+    const models = runtime(reply("answer"));
+    await completeText(models as never, { provider: "p", id: "plain", reasoning: false } as never, { system: "s", prompt: "p", thinkingLevel }, attribution);
+    expect(models.completeSimple.mock.calls[0]?.[2]).not.toHaveProperty("reasoning");
+  });
+
   it("fails with the provider's message", async () => {
     await expect(completeText(runtime(reply("", "error")) as never, model, { system: "s", prompt: "p", onText: () => undefined }, attribution)).rejects.toThrow("boom");
   });

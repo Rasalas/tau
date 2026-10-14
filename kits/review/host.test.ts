@@ -12,20 +12,31 @@ describe("Review Kit host extension", () => {
     runtimeOwner: () => "tau",
     thread: () => active,
     complete,
+    runtimeChoices: async () => [{ backend: { kind: "pi", label: "Pi" }, enabled: true, readiness: { kind: "pi", label: "Pi", state: "ready" }, catalog: { kind: "pi", models: [{ provider: "test", id: "writer", name: "Writer" }], thinkingLevels: { "test/writer": ["off", "low", "high"] } } }],
   });
 
   it("asks the selected model for the selected message format", async () => {
     const complete = vi.fn(async () => "```text\nfeat(review): show every changed file\n```");
     const registry = await registryWith(thread(), complete);
     await expect(registry.invoke(REVIEW_HOST_EXTENSION_ID, "suggest-commit-message", {
-      provider: "openai",
-      modelId: "gpt-luna",
+      provider: "test",
+      modelId: "writer",
+      thinkingLevel: "high",
       style: "conventional",
       branch: "feat/review",
       files: [{ path: "src/review.tsx", added: 20, removed: 4 }],
       diffs: [{ path: "src/review.tsx", patch: "-old\n+new" }],
     })).resolves.toEqual({ message: "feat(review): show every changed file" });
-    expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "openai", id: "gpt-luna" });
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ thinkingLevel: "high", maxTokens: 16_384, timeoutMs: 120_000 }), { provider: "test", id: "writer" });
+    expect((complete.mock.calls as unknown as Array<[unknown, unknown]>)[0]?.[1]).toEqual({ provider: "test", id: "writer" });
+  });
+
+  it.each([undefined, "invalid"])("keeps the default writer request for effort %s", async (thinkingLevel) => {
+    const complete = vi.fn(async () => "fix: save");
+    const registry = await registryWith(thread(), complete);
+    await registry.invoke(REVIEW_HOST_EXTENSION_ID, "suggest-commit-message", { provider: "test", modelId: "writer", thinkingLevel, files: [{ path: "a.ts", added: 1, removed: 0 }] });
+    expect((complete.mock.calls as unknown as Array<[unknown]>)[0]![0]).toMatchObject({ maxTokens: 220 });
+    expect((complete.mock.calls as unknown as Array<[unknown]>)[0]![0]).not.toHaveProperty("thinkingLevel");
   });
 
   it("adds the user's own instructions after the format's", async () => {

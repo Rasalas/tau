@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, GitBranch, ImagePlus, Sparkles } from "lucide-react";
 import { Button, errorMessage, Markdown, READ_ONLY_REASON, tooltipProps, useCommandAllowed, type PreferencesStore, type WorkbenchActions } from "tau";
-import { chosenWritingModel, followRequestTemplate, writingInstructions } from "./commit-messages.js";
+import { chosenWritingModel, followRequestTemplate, writingEffort, writingInstructions } from "./commit-messages.js";
 import { EvidenceThumb } from "./local-request-evidence.js";
 import type { LocalRequestClient } from "./local-request-client.js";
 import { evidenceKey, evidenceToken, findEvidenceTokens, insertEvidence, splitBody, type EvidenceMedia, type LocalEvidence, type UploadPlan } from "./local-request.js";
@@ -74,6 +74,7 @@ export function LocalRequestWriter({ form, onForm, status, branch, root, selecte
       ...(chosen ? { model: chosen } : {}),
       ...(thread?.model ? { prefer: thread.model } : {}),
       ...(instructions ? { instructions } : {}),
+      ...(writingEffort(preferences) ? { thinkingLevel: writingEffort(preferences) } : {}),
       ...(followRequestTemplate(preferences) ? {} : { template: false }),
       evidence: media.map((entry) => entry.caption),
     });

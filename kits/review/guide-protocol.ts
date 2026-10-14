@@ -99,6 +99,7 @@ export interface GuideEvent {
 /** Review Kit's settings for guides, as `services.settings` and the preferences store spell them. */
 export const GUIDE_ENABLED_OPTION = "review-guides";
 export const GUIDE_MODEL_VALUE = "review-guide-model";
+export const GUIDE_EFFORT_VALUE = "review-guide-effort";
 export const GUIDE_INSTRUCTIONS_VALUE = "review-guide-instructions";
 
 /** Tools only the guide agent sees. */
