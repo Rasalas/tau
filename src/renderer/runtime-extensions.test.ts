@@ -47,17 +47,17 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
 describe("runtime desktop extensions", () => {
   describe("extensions this client turned away", () => {
     /** A machine's extensions this client refuses: `changed` ones also ship here, with other code; `missing` ones do not. */
-    function refusing(changed: string[], missing: string[] = []) {
+    function refusing(changed: string[], missing: string[] = [], accepted: string[] = []) {
       const shipped = (id: string) => ({ id, path: `/local/${id}/desktop.js`, scope: "bundled" as const, code: "export default {};", permissions: [] });
       const remote = (id: string, code: string) => ({ ...shipped(id), path: `/machine/${id}/desktop.js`, code });
       const toast = vi.fn();
-      const importModule = vi.fn();
-      const bundles = [...changed.map((id) => remote(id, "changed();")), ...missing.map((id) => remote(id, "other();"))];
+      const importModule = vi.fn(async () => ({}));
+      const bundles = [...changed.map((id) => remote(id, "changed();")), ...missing.map((id) => remote(id, "other();")), ...accepted.map((id) => remote(id, "export default {};"))];
       const h: RuntimeExtensionHost = {
         ...host([]).host,
         toast,
         importModule,
-        load: () => trustedDesktopBundles({ bundles, errors: [], skipped: [] }, changed.map(shipped), async (source) => source),
+        load: () => trustedDesktopBundles({ bundles, errors: [], skipped: [] }, [...changed, ...accepted].map(shipped), async (source) => source),
       };
       return { h, toast, importModule };
     }
@@ -138,6 +138,22 @@ describe("runtime desktop extensions", () => {
       expect(lines(grown)).toEqual(["An extension wasn't loaded | The connected machine runs another version of Search; install the same Tau version on both."]);
       grown.mock.calls[0]?.[0].onClose();
       expect(await run(["tau.terminal", "tau.files", "tau.search"])).not.toHaveBeenCalled();
+    });
+
+    it("names an extension again once it has loaded in between", async () => {
+      const storage = createMemoryStorage();
+      const run = async (changed: string[], accepted: string[] = []) => {
+        const { h, toast } = refusing(changed, [], accepted);
+        await new RuntimeExtensions(new ExtensionRegistry(), { ...h, storage }).sync("/project");
+        return toast;
+      };
+      (await run(["tau.terminal"])).mock.calls[0]?.[0].onClose();
+      expect(await run(["tau.terminal"])).not.toHaveBeenCalled();
+      expect(await run([], ["tau.terminal"])).not.toHaveBeenCalled();
+      expect(JSON.parse(storage.get(STORAGE_KEYS.unavailableExtensions) ?? "null")).toEqual([]);
+      expect(lines(await run(["tau.terminal"]))).toEqual([
+        "An extension wasn't loaded | The connected machine runs another version of Terminal; install the same Tau version on both.",
+      ]);
     });
 
     it("stays closed for the rest of the run when the machine has no store", async () => {

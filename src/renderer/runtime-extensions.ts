@@ -238,7 +238,7 @@ export class RuntimeExtensions {
       await loadSharedIcons();
       if (generation !== this.generation) return this.loaded;
     }
-    this.reportLoadErrors(result.errors);
+    this.reportLoadErrors(result.errors, result.bundles);
     for (const id of only) {
       const bundle = result.bundles.find((candidate) => candidate.id === id);
       // Matched by the bundle's id — the manifest's, or the one a loose file's
@@ -341,7 +341,9 @@ export class RuntimeExtensions {
   }
 
   /** Entries a load left out: a client's refusals become one notice, a failed build gets its own. */
-  private reportLoadErrors(errors: DesktopExtensionLoadResult["errors"]): void {
+  private reportLoadErrors(errors: DesktopExtensionLoadResult["errors"], loaded: readonly DesktopExtensionBundle[]): void {
+    // One that loads again was fixed; a later mismatch deserves a new notice.
+    this.forgetDismissed(loaded.map((bundle) => bundle.id));
     const unavailable = new Map<string, UnavailableExtension>();
     for (const failure of errors) {
       this.registry.noteLoadFailure(failure.path, failure.message);
@@ -383,6 +385,14 @@ export class RuntimeExtensions {
     } catch {
       return new Set();
     }
+  }
+
+  private forgetDismissed(ids: readonly string[]): void {
+    for (const id of ids) this.announced.delete(id);
+    const dismissed = this.dismissedUnavailable();
+    if (!ids.some((id) => dismissed.has(id))) return;
+    for (const id of ids) dismissed.delete(id);
+    try { this.host.storage?.set(STORAGE_KEYS.unavailableExtensions, JSON.stringify([...dismissed])); } catch { /* stays quiet for this run */ }
   }
 
   private rememberDismissed(ids: readonly string[]): void {
@@ -448,7 +458,7 @@ export class RuntimeExtensions {
       await loadSharedIcons();
       if (generation !== this.generation) return this.loaded;
     }
-    this.reportLoadErrors(result.errors);
+    this.reportLoadErrors(result.errors, result.bundles);
     for (const skip of result.skipped) this.host.log("desktop-extension.skipped", `${skip.directory}: ${skip.reason}`);
 
     const retained = this.loaded.filter((record) => result.bundles.some((bundle) =>
