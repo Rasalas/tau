@@ -877,6 +877,39 @@ describe("parking the thread on screen", () => {
     expect(opened(actions)).toEqual(["/sessions/a.jsonl"]);
   });
 
+  it("goes back to a phone's thread list instead of opening another thread", async () => {
+    const { organizer, actions } = setup();
+    await flush();
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)]);
+    actions.threadListOrder = () => ["a", "b", "c"];
+    const showThreadList = vi.fn(() => true);
+    actions.showThreadList = showThreadList;
+    organizer().runMenu(thread("b"), "settle", actions);
+    await flush();
+    expect(showThreadList).toHaveBeenCalledTimes(1);
+    expect(opened(actions)).toEqual([]);
+    expect(actions.newSession).not.toHaveBeenCalled();
+  });
+
+  it("skips threads in the Working section, which do not need the reader", async () => {
+    const { organizer, actions } = setup({ initial: { threads: {}, settings: { onMerged: true, onClosed: false, workingSection: true } } });
+    await flush();
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)], { runningThreadIds: ["c"], waitingThreadIds: [], failedThreadIds: [] });
+    organizer().runMenu(thread("b"), "settle", actions);
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/a.jsonl"]);
+  });
+
+  it("goes to the top of a compact list that leaves the Working thread on screen out", async () => {
+    const { organizer, actions } = setup();
+    await flush();
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)]);
+    actions.threadListOrder = () => ["c", "a"];
+    organizer().runMenu(thread("b"), "settle", actions);
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/c.jsonl"]);
+  });
+
   it("stays when something covers the thread, when the reader moved first, or when the host refused", async () => {
     const { organizer, actions, invoke, push } = setup();
     await flush();

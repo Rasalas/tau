@@ -155,6 +155,13 @@ describe("useWorkbenchActions", () => {
     expect(result.current.threadListOrder?.()).toEqual(["a", "b"]);
   });
 
+  it("shows a phone's thread list only where the layout has one", () => {
+    expect(renderHook(() => useWorkbenchActions(createMockOptions())).result.current.showThreadList?.()).toBe(false);
+    const showThreadList = vi.fn(() => true);
+    expect(renderHook(() => useWorkbenchActions(createMockOptions({ showThreadList }))).result.current.showThreadList?.()).toBe(true);
+    expect(showThreadList).toHaveBeenCalledTimes(1);
+  });
+
   it("dispatches abort to client when thread is running", () => {
     const client = { abort: vi.fn() };
     const options = createMockOptions({ client: client as any, isVisibleThreadRunning: () => true });

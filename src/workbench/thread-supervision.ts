@@ -240,9 +240,11 @@ export function threadListDrafts(
   });
 }
 
-/** The compact list's threads top to bottom, every page of it. */
+/** The compact list's threads top to bottom, every page of it, less the Working group: its threads do not need the user. */
 export function threadListOrder(threads: readonly UiSession[], activity: ThreadActivitySnapshot, options: Omit<ThreadListOptions, "shown"> = {}): string[] {
-  return threadListGroups(threads, activity, { ...options, shown: { active: Infinity, settled: Infinity } }).flatMap((group) => group.rows.map((row) => row.id));
+  return threadListGroups(threads, activity, { ...options, shown: { active: Infinity, settled: Infinity } })
+    .filter((group) => group.id !== "working")
+    .flatMap((group) => group.rows.map((row) => row.id));
 }
 
 export const THREAD_SUPERVISION_LABELS: Record<ThreadSupervisionStatus, string> = {

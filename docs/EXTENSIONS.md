@@ -1922,7 +1922,9 @@ moves the reader because of the thread on screen checks it first.
 `actions.threadListOrder()` (new in API 1.20.0) answers the thread ids of the
 list core draws itself, a compact client's, top to bottom and past its paging,
 with settled threads ranked where they would stand unsettled (so a thread that
-is settling has its place still); it is undefined where a kit's rail is the list. Thread Rail reads both when the
+is settling has its place still) and without the Working group (API 1.64.0); it is undefined where a kit's rail is the list.
+`actions.showThreadList()` (API 1.64.0) shows a phone's thread list, its home
+screen, and answers true; elsewhere it answers false and does nothing. Thread Rail reads both when the
 user parks the thread on screen (below).
 
 `threadStore.getDrafts()` with `subscribeToDrafts` (new in API 1.21.0, on the
@@ -2254,7 +2256,9 @@ threads on their shelf. Thread Rail is the organizer Tau ships.
 Settling or snoozing the thread on screen moves the reader on once the host
 has the change: to the next pinned or active thread below it in the rail
 (on a compact client, in `threadListOrder()`), wrapping round to the top and
-skipping threads parked in the same batch, else to a new draft in its project.
+skipping threads parked in the same batch and threads in the Working section,
+else to a new draft in its project. A phone goes back to its thread list
+instead (`showThreadList()`).
 That holds for the user's own settle and snooze (row button and menu, title
 menu, shortcut, palette, drag onto the shelf, a selection, a phone's swipe),
 not for the host's automatic settles, and not while `covered` or once the

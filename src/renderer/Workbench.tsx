@@ -73,6 +73,7 @@ import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime, newThreadSetup, offeredBackends } from "./new-thread-runtime";
 import { useRuntimeCatalogs } from "./use-runtime-catalog";
 import { threadListOrder } from "../workbench/thread-supervision";
+import { compactWorkingClock } from "../workbench/working-clock";
 import { useHostCapabilities, useHostName } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
@@ -155,6 +156,8 @@ export interface WorkbenchControlHandle {
   showThread(options?: ShowThreadOptions): void;
   /** Whether something covers the thread, and on a compact client the order of its thread list. */
   threadView(): { covered: boolean; listOrder?: readonly string[] };
+  /** On a phone, where the thread list is a screen of its own, shows it: true; false elsewhere. */
+  showThreadList(): boolean;
 }
 
 /** Window chrome, slots and the modals that belong to the shell. */
@@ -460,14 +463,21 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       if (compactRef.current.stacked) setChatFocused(true);
       if (options?.focusComposer) setComposerFocusRequest((count) => count + 1);
     },
+    showThreadList: () => {
+      if (!compactRef.current.compact || compactRef.current.split) return false;
+      setPanelSheet(undefined);
+      phoneNav.showList();
+      return true;
+    },
     threadView: () => {
       const { covered, project } = threadViewRef.current;
       if (!compactRef.current.compact) return { covered };
       // Settled threads keep their unsettled rank: one settling right now still has its place.
       const { threads } = threadStore.getSnapshot();
-      return { covered, listOrder: threadListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, marks: registry.getThreadRowMarks(), ...(project ? { project } : {}) }) };
+      const working = registry.getThreadListLayouts().some((entry) => entry.working());
+      return { covered, listOrder: threadListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, marks: registry.getThreadRowMarks(), ...(project ? { project } : {}), ...(working ? { working: compactWorkingClock } : {}) }) };
     },
-  }), [clientStorage, phoneNav.showChat, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
+  }), [clientStorage, phoneNav.showChat, phoneNav.showList, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
   // After the commit that shows the chat: a hidden tab's composer cannot take focus.
   useEffect(() => {
     if (composerFocusRequest > 0) composer.textareaRef.current?.focus();
