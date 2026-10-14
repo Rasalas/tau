@@ -26,6 +26,11 @@ export function useWorkspaceResources(): WorkspaceResources | undefined {
   return useContext(Context);
 }
 
+/** Resources for a document that belongs to no thread, such as a Markdown file in a file tab. */
+export function WorkspaceResourcesScope({ value, children }: { value: WorkspaceResources; children: ReactNode }) {
+  return <Context.Provider value={value}>{children}</Context.Provider>;
+}
+
 /** Do not resolve a device/absolute path or silently normalize traversal away. */
 export function resourceRelativePath(path: string): string {
   const relative = path.replace(/^\.\//u, "");

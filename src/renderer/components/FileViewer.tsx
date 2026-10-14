@@ -7,6 +7,7 @@ import type { CommandContribution, WorkbenchActions } from "../extension-system"
 import { useDiffPresentation } from "../renderer-services-context";
 import { errorMessage } from "../../workbench/error-message";
 import { FileSource, lineCount } from "./FileSource";
+import { FileMarkdown, MarkdownViewToggle, useMarkdownView } from "./FileMarkdown";
 import { DiffPane } from "./DiffPane";
 import { formatBytes } from "../format-bytes";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
@@ -42,6 +43,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
   const { layout: mode, setLayout: setMode, wrap, setWrap } = useDiffPresentation();
   const { readOnly } = useHostCapabilities();
   const view: StageView = tab.view === "diff" && !changed ? "source" : tab.view;
+  const markdown = useMarkdownView(relativePath, tab, content, view);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +74,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
         </div>
       ) : null}
       {changed && stat && Number.isFinite(stat.added) && Number.isFinite(stat.removed) ? <small className="stage-pane-stat"><span className="stat-add">+{stat.added}</span> <span className="stat-del">−{stat.removed}</span></small> : null}
+      <MarkdownViewToggle view={markdown} />
       {view === "diff" ? <button className={`icon-button ${wrap ? "active" : ""}`} aria-pressed={wrap} aria-label={wrap ? "Disable line wrapping" : "Enable line wrapping"} onClick={() => setWrap(!wrap)}><WrapText size={14} /></button> : null}
       {view === "diff" ? (
         <div className="toggle-group" role="group" aria-label="Diff layout">
@@ -112,6 +115,8 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
             ? <div className="stage-image"><img src={content.dataUrl} alt={content.name} /></div>
             : content.kind === "binary"
               ? <div className="stage-empty">Binary file ({formatBytes(content.size)}) — nothing to show here.</div>
-              : <FileSource content={content} line={tab.line} reveal={tab.reveal} />}
+              : markdown.rendered
+                ? <FileMarkdown content={content} path={relativePath} origin={tab.resourceOrigin} loadFile={loadFile} loadMedia={loadMedia} />
+                : <FileSource content={content} line={tab.line} reveal={tab.reveal} />}
   </div>;
 }

@@ -448,7 +448,13 @@ A **file** tab shows source or the working-tree diff; core owns the tab strip
 and the placement, and whoever registered the document source loads the
 content. `openFile(path, { line })` opens the source scrolled to a line and
 marks it; the tab keeps the line with a request count, so asking for it again
-scrolls there again. The header draws the commands extensions offer on the
+scrolls there again. A `.md` or `.markdown` file opens rendered, with core's
+`Markdown`, and an icon in the header switches it to the source: one choice for
+all Markdown files on the client, kept in its storage (`tau:markdown-rendered`).
+Its relative links and images name files beside it, a `#heading` scrolls in the
+document, and a file opened at a line shows the source, because the line counts
+source lines, until the switch is used. The diff, `.mdx` and every other text
+stay source, and task-list boxes only draw. The header draws the commands extensions offer on the
 `file-tab` surface (Files Kit's "Edit file"); they read the tab from
 `actions.activeStageTab()`. A **thread** tab shows another thread's transcript, read-only, drawn
 with the same `VirtualTranscript` the conversation uses and headed by the title,
