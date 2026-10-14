@@ -3,6 +3,8 @@ import { EMPTY_SNAPSHOT, type ThreadActivitySnapshot } from "./thread-store";
 import type { DraftThread } from "./draft-threads";
 import { attentionMarkIds, markedRowStatus, threadRowStatus, type ThreadRowMark, type ThreadRowStatus } from "./thread-row-status";
 import type { ObservedWorkingClock } from "./working-clock";
+// Startup code takes `inProject` from `shared/session-project`; an import from here would pull this module into the first bundle.
+import { inProject } from "../shared/session-project";
 
 /**
  * What a thread is doing right now, in the words a supervisor needs: a phone
@@ -144,13 +146,6 @@ export function outsideRow({ key, session, running, waiting, background, settled
   return background && row.state.activity === "idle"
     ? { ...row, state: { activity: "background", label: "Waiting", hint: "Work on its machine wakes it again." } }
     : row;
-}
-
-/** A thread belongs to a project by its id, or by its path where one side has no id. */
-export function inProject(thread: Pick<UiSession, "workspaceId" | "projectPath">, project: Pick<UiProject, "path" | "workspaceId">): boolean {
-  return project.workspaceId !== undefined && thread.workspaceId !== undefined
-    ? thread.workspaceId === project.workspaceId
-    : thread.projectPath === project.path;
 }
 
 export const THREAD_LIST_PAGE: Record<"active" | "settled", number> = { active: 40, settled: 10 };

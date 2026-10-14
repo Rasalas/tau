@@ -72,8 +72,7 @@ import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime, newThreadSetup, offeredBackends } from "./new-thread-runtime";
 import { useRuntimeCatalogs } from "./use-runtime-catalog";
-import { threadListOrder } from "../workbench/thread-supervision";
-import { compactWorkingClock } from "../workbench/working-clock";
+import type * as TouchThreadBrowserModule from "./touch/TouchThreadBrowser";
 import { useHostCapabilities, useHostName } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
@@ -115,6 +114,9 @@ const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").th
 const LazyProjectSourcesModal = lazy(() => import("./components/ProjectSources").then(({ ProjectSourcesModal }) => ({ default: ProjectSourcesModal })));
 const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal").then(({ SystemPromptModal }) => ({ default: SystemPromptModal })));
 // The touch layout's own pieces: none of them is in a desktop window's first paint.
+// The compact list's order comes with the compact list's own chunk, never in the desktop's first bundle.
+let compactOrder: Pick<typeof TouchThreadBrowserModule, "compactListOrder"> | undefined;
+const loadCompactOrder = () => import("./touch/TouchThreadBrowser").then((module) => { compactOrder = module; });
 const LazyTouchLayer = lazy(() => import("./touch/TouchLayer").then(({ TouchLayer }) => ({ default: TouchLayer })));
 const LazyTouchThreadBrowser = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadBrowser }) => ({ default: TouchThreadBrowser })));
 const LazyPhoneNav = lazy(() => import("./touch/PhoneNav").then(({ RegistryPhoneNav }) => ({ default: RegistryPhoneNav })));
@@ -403,6 +405,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const split = compact && compactForm === "split";
   const compactRef = useRef({ compact, split, stacked: false, maximized: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
+  useEffect(() => { if (compact && !compactOrder) void loadCompactOrder(); }, [compact]);
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
   // The project the touch thread list is narrowed to; a new thread from it starts there. A path no project has anymore shows all.
   const [touchProjectPath, setTouchProjectPath] = useState(() => clientStorage.get(STORAGE_KEYS.touchProject) ?? undefined);
@@ -475,7 +478,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       // Settled threads keep their unsettled rank: one settling right now still has its place.
       const { threads } = threadStore.getSnapshot();
       const working = registry.getThreadListLayouts().some((entry) => entry.working());
-      return { covered, listOrder: threadListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, marks: registry.getThreadRowMarks(), ...(project ? { project } : {}), ...(working ? { working: compactWorkingClock } : {}) }) };
+      const listOrder = compactOrder?.compactListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, marks: registry.getThreadRowMarks(), ...(project ? { project } : {}), working });
+      return { covered, ...(listOrder ? { listOrder } : {}) };
     },
   }), [clientStorage, phoneNav.showChat, phoneNav.showList, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
   // After the commit that shows the chat: a hidden tab's composer cannot take focus.
