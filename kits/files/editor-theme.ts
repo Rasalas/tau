@@ -22,7 +22,7 @@ const editorTheme = EditorView.theme({
   "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "var(--danger-bg)", color: "var(--removed)" },
   ".cm-specialChar": { color: "var(--removed)" },
 
-  ".cm-gutters": { backgroundColor: "var(--stage)", color: "var(--fainter)", border: "none", borderRight: "1px solid var(--line-soft)" },
+  ".cm-gutters": { backgroundColor: "var(--stage)", color: "var(--muted)", border: "none", borderRight: "1px solid var(--line-soft)" },
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 6px 0 16px", minWidth: "28px" },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--ink-3)" },
   ".cm-foldGutter .cm-gutterElement": { padding: "0 6px 0 2px", color: "var(--faint)", cursor: "pointer" },

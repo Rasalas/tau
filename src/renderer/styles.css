@@ -464,7 +464,8 @@ button > svg { pointer-events: none; }
 /* A new thread's draft: the design's quiet grey "draft" where a thread shows its state, the title muted. */
 .thread-draft-mark { flex: none; display: inline-flex; align-items: center; gap: 4px; font: var(--text-xs) var(--sans); color: var(--warn); }
 .thread-draft-row { background: color-mix(in srgb, var(--warn) 5%, transparent); }
-.thread-draft-row.active { --row-bg: color-mix(in srgb, var(--warn) 9%, var(--hover)); background: var(--row-bg); }
+/* The open draft sits on the open row's ground with the caution tint; on the hover wash its texts fell under 4.5:1. */
+.thread-draft-row.active { --row-bg: color-mix(in srgb, var(--warn-chip) 60%, var(--thread-active)); background: var(--row-bg); }
 .thread-draft-row .thread-title { font-weight: 600; color: var(--muted); }
 .thread-draft-row.active .thread-title { color: var(--ink-3); }
 .thread-row:is(:hover, :has(.thread-row-actions :focus-visible)):has(> .thread-row-actions) .thread-draft-mark { visibility: hidden; }
@@ -1888,7 +1889,7 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 }
 .source-gutter {
   position: sticky; left: 0; margin: 0; padding: 12px 12px 12px 16px;
-  text-align: right; color: var(--fainter); user-select: none;
+  text-align: right; color: var(--muted); user-select: none;
   background: var(--stage); border-right: 1px solid var(--line-soft);
 }
 .source-code { margin: 0; padding: 12px 24px 12px 16px; color: var(--ink-2); white-space: pre; tab-size: 4; }
