@@ -61,10 +61,10 @@ jobs:
         run: npm run benchmark:sessions -- --check
       # Complete measurements and structural budgets block. Shared-runner timing
       # violations are still reported, without making an otherwise valid run fail.
-      - name: Renderer structural budgets
-        run: xvfb-run -a npm run benchmark:renderer -- --no-build --check-structural reports/renderer-ci-report.json
       - name: Start structural budgets
         run: xvfb-run -a npm run start:report -- --check-structural
+      - name: Renderer structural budgets
+        run: xvfb-run -a npm run benchmark:renderer -- --no-build --check-structural reports/renderer-ci-report.json
       - name: Publish performance measurements
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

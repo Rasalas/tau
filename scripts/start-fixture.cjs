@@ -8,11 +8,19 @@ if (process.env.CI) app.disableHardwareAcceleration();
 if (process.platform === "darwin" && process.env.TAU_FOREGROUND !== "1") app.setActivationPolicy("accessory");
 
 app.whenReady().then(async () => {
-  const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, backgroundThrottling: false } });
   try {
+    // Software rendering on Xvfb needs a mapped window to produce paint entries.
+    if (process.env.CI) window.showInactive();
     await window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
-    // Let the first renderer frame and lazy-free shell settle before sampling.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Sample the browser's paint entry when it exists, rather than assuming a
+    // fixed delay was enough. A missing entry still fails the structural gate.
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const painted = await window.webContents.executeJavaScript('performance.getEntriesByName("first-paint", "paint").length > 0');
+      if (painted) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
     const result = await window.webContents.executeJavaScript(`(() => {
       const origin = location.origin;
       const resources = performance.getEntriesByType("resource").map((entry) => ({
