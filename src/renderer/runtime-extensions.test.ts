@@ -521,6 +521,8 @@ describe("replacing one extension", () => {
     const shown = toast.mock.calls[0]?.[0] as { type: string; title: string; description: string; copyText: string; actions: Array<{ label: string; run(): void }> };
     expect(shown).toMatchObject({ type: "error", title: "my-kit/desktop.tsx did not build", copyText: "desktop.tsx:3:7: … full text" });
     expect(shown.description).toBe("desktop.tsx:3:7: Expected \";\" but found \"y\" (and 1 more). The version that was running stays.");
+    // The only action opens, so the toast is tapped as a whole.
+    expect(shown.actions).toMatchObject([{ label: "Details", opens: true }]);
     shown.actions[0]?.run();
     expect(openSettings).toHaveBeenCalledWith("inspector");
     expect(h.log).toHaveBeenCalledWith("desktop-extension.failed", "/k/my-kit/desktop.tsx: desktop.tsx:3:7: … full text");
@@ -551,6 +553,7 @@ describe("replacing one extension", () => {
     expect(h.notify).not.toHaveBeenCalledWith("Reloaded Hello");
     const shown = toast.mock.calls.at(-1)?.[0] as { id: string; type: string; title: string; actions: Array<{ run(): void }> };
     expect(shown).toMatchObject({ id: "approval:x.hello", type: "warning", title: "Hello is waiting for approval" });
+    expect(shown.actions).toMatchObject([{ label: "Review", opens: true }]);
     shown.actions[0]?.run();
     expect(openSettings).toHaveBeenCalledWith("extensions/x.hello");
     // A host-only package the host reports as waiting gets the same toast.

@@ -116,7 +116,7 @@ from its source.
 A host half that starts programs needs the `process` permission, and one that
 reaches the network needs `network`. Add it to `"permissions"` in the
 manifest and save. The toast says *PR Title is waiting for approval*, and
-**Review** takes you back to step 3. Until you allow it, controls that call the
+clicking it takes you back to step 3. Until you allow it, controls that call the
 host half turn off, with the reason in their tooltip
 ([`useHostAvailability`](EXTENSIONS.md#when-the-host-half-does-not-run-usehostavailability)).
 

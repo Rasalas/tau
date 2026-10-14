@@ -17,7 +17,7 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, o
       id: `notice:${message}`,
       type: notice.level,
       description: headline,
-      ...(openMachines && isMachineUpdateNotice(message) ? { actions: [{ label: "Machines", run: openMachines }] } : {}),
+      ...(openMachines && isMachineUpdateNotice(message) ? { actions: [{ label: "Machines", opens: true, run: openMachines }] } : {}),
       ...(notice.level !== "info" || headline !== message.trim() ? { copyText: message } : {}),
     });
   });

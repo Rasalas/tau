@@ -384,7 +384,7 @@ export function announceInstall(host: HostExtensionClient, actions: WorkbenchAct
     type: "success",
     title: `Installed ${name}`,
     description: "It waits for your approval in Settings → Extensions.",
-    actions: [{ label: "Review", run: () => actions.openSettings(result.installed?.id ? `extensions/${result.installed.id}` : "extensions") }],
+    actions: [{ label: "Review", opens: true, run: () => actions.openSettings(result.installed?.id ? `extensions/${result.installed.id}` : "extensions") }],
   });
 }
 

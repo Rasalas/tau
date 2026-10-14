@@ -50,7 +50,7 @@ function createAnnouncer(context: DesktopExtensionContext) {
         type: "info",
         title: `Your turn: ${title}`,
         description: takeover.reason,
-        actions: [{ label: "Show", run: () => open(takeover) }],
+        actions: [{ label: "Show", opens: true, run: () => open(takeover) }],
       }));
     },
     ended(id: string) {

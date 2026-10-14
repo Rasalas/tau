@@ -120,7 +120,7 @@ export function createRuntimeUpdateToasts(options: RuntimeUpdateToastsOptions): 
 
   const update = async (backend: UiRuntimeBackend, version: RuntimeToolVersion & { latest: string }, command: string, actions: WorkbenchActions, id: string) => {
     const show = (toast: Omit<ToastOptions, "id">) => actions.toast?.({ ...toast, id });
-    const settings = { label: "Settings", run: () => actions.openSettings(options.settingsPage(backend)) };
+    const settings = { label: "Settings", opens: true, run: () => actions.openSettings(options.settingsPage(backend)) };
     const label = backend.label;
     updating.add(backend.kind);
     try {
@@ -162,7 +162,7 @@ export function createRuntimeUpdateToasts(options: RuntimeUpdateToastsOptions): 
     // An action clicked closes the toast too; only the close button remembers the release.
     let acted = false;
     const settle = () => { acted = true; open.delete(backend.kind); };
-    const settings = { label: "Settings", run: () => { settle(); actions.openSettings(options.settingsPage(backend)); } };
+    const settings = { label: "Settings", opens: true, run: () => { settle(); actions.openSettings(options.settingsPage(backend)); } };
     open.set(backend.kind, { runnable: can, redraw: () => offer(backend, version, key, actions) });
     actions.toast?.({
       id,

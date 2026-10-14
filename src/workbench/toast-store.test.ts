@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ToastStore } from "./toast-store";
+import { ToastStore, tapActionOf } from "./toast-store";
 
 /** A clock the test moves by hand: timers fire only when `advance` passes them. */
 function manualClock() {
@@ -143,5 +143,24 @@ describe("ToastStore", () => {
     store.show({ id: "info", type: "error", description: "Saved nothing" });
     clock.advance(60_000);
     expect(ids(store)).toEqual(["info", "work"]);
+  });
+});
+
+describe("tapActionOf", () => {
+  const open = { label: "Details", opens: true, run: () => undefined };
+  const undo = { label: "Undo", run: () => undefined };
+
+  it("is the only action, when it only opens something", () => {
+    expect(tapActionOf({ type: "error", actions: [open] })).toBe(open);
+    expect(tapActionOf({ type: "success", actions: [{ ...open, keepOpen: true }] })).toMatchObject({ label: "Details" });
+  });
+
+  it("is nothing for an action that does something, two actions, a question or no actions", () => {
+    expect(tapActionOf({ type: "success", actions: [undo] })).toBeUndefined();
+    expect(tapActionOf({ type: "info", actions: [open, { ...open, label: "Machines" }] })).toBeUndefined();
+    expect(tapActionOf({ type: "info", actions: [open, undo] })).toBeUndefined();
+    expect(tapActionOf({ type: "question", actions: [open] })).toBeUndefined();
+    expect(tapActionOf({ type: "info", actions: [] })).toBeUndefined();
+    expect(tapActionOf({ type: "info" })).toBeUndefined();
   });
 });

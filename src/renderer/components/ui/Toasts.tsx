@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
-import { Check, CircleAlert, CircleCheck, CircleHelp, Copy, Info, TriangleAlert, X } from "lucide-react";
-import type { Toast, ToastStore, ToastType } from "../../../workbench/toast-store";
+import { Check, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Copy, Info, TriangleAlert, X } from "lucide-react";
+import { tapActionOf, type Toast, type ToastAction, type ToastStore, type ToastType } from "../../../workbench/toast-store";
 import { usePlatform } from "../../platform-context";
 import { swipeAxis, type SwipeAxis } from "../../touch/swipe-gesture";
 import { tooltipProps } from "./Tooltip";
@@ -79,24 +79,38 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function ToastCard({ toast, store }: { toast: Toast; store: ToastStore }) {
+function ToastCard({ toast, store, touch }: { toast: Toast; store: ToastStore; touch: boolean }) {
   // A failure is worth keeping: without its own copy text, Copy takes what the toast says.
   const copyText = toast.copyText ?? (toast.type === "error" ? [toast.title, toast.description].filter(Boolean).join(" · ") : "");
+  const text = [toast.title, toast.description].filter(Boolean).join(" · ");
+  const run = (action: ToastAction) => { action.run(); if (!action.keepOpen) store.dismiss(toast.id); };
+  const tap = tapActionOf(toast);
+  const icon = <span className="toast-type" aria-hidden="true">{ICONS[toast.type]}</span>;
   return (
     <>
-      <span className="toast-type" aria-hidden="true">{ICONS[toast.type]}</span>
-      <p className="toast-body">{[toast.title, toast.description].filter(Boolean).join(" · ")}</p>
-      {toast.actions?.length ? (
-        <div className="toast-actions">
-          {toast.actions.map((action) => (
-            <button
-              key={action.label}
-              type="button"
-              onClick={() => { action.run(); if (!action.keepOpen) store.dismiss(toast.id); }}
-            >{action.label}</button>
-          ))}
-        </div>
-      ) : null}
+      {tap ? (
+        // The whole message is the button; Copy and Dismiss stay beside it, never inside.
+        <button type="button" className="toast-open" aria-label={`${tap.label}: ${text}`} onClick={() => run(tap)}>
+          {icon}
+          <span className="toast-body">{text}</span>
+          <span className="toast-chevron" aria-hidden="true" {...(touch ? {} : tooltipProps(tap.label))}><ChevronRight size={14} /></span>
+        </button>
+      ) : (
+        <>
+          {icon}
+          {/* Buttons that would squeeze the text into a narrow column go under it. */}
+          <div className="toast-main" data-stacked={(toast.actions?.length ?? 0) > 1 || (touch && !!toast.actions?.length) || undefined}>
+            <p className="toast-body">{text}</p>
+            {toast.actions?.length ? (
+              <div className="toast-actions">
+                {toast.actions.map((action) => (
+                  <button key={action.label} type="button" onClick={() => run(action)}>{action.label}</button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </>
+      )}
       {copyText ? <CopyButton text={copyText} /> : null}
       <button type="button" className="toast-icon-button" aria-label="Dismiss notification" onClick={() => store.dismiss(toast.id)}>
         <X size={13} />
@@ -218,7 +232,7 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
               return () => { observer.unobserve(element); heights.current.delete(toast.id); };
             }}
           >
-            <ToastCard toast={toast} store={store} />
+            <ToastCard toast={toast} store={store} touch={touch} />
           </div>
         </div>
       ))}

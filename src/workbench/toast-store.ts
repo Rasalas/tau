@@ -6,6 +6,8 @@ export interface ToastAction {
   run(): void;
   /** Leaves the toast up after the action ran; by default it closes. */
   keepOpen?: boolean;
+  /** Only takes the user to more (Details, Open, Review). As the sole action it makes the whole toast the button. */
+  opens?: boolean;
 }
 
 export interface ToastOptions {
@@ -37,6 +39,12 @@ export interface ToastHandle {
 export const TOAST_TIMEOUT_MS = 5_000;
 /** How many toasts the stack shows at once; the older ones wait, without their clocks running. */
 export const TOAST_MAX_VISIBLE = 3;
+
+/** The action a tap on the whole toast runs: its only one, if it opens; a question keeps its buttons. */
+export function tapActionOf(toast: Pick<Toast, "type" | "actions">): ToastAction | undefined {
+  const [only, ...others] = toast.actions ?? [];
+  return only?.opens && others.length === 0 && toast.type !== "question" ? only : undefined;
+}
 
 /** A failure waits for the user: an `error` without a `timeoutMs` stays until dismissed. */
 function timeoutOf(toast: Toast): number {

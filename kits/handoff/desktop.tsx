@@ -193,7 +193,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
             if (actions.composerDraft() === draft) actions.setComposerDraft?.("");
             await openThere(result, actions);
           }
-          toast?.update({ type: "success", title: `Moved to ${result.machineName}`, description: "The saved source copy is in Archived.", timeoutMs: 6_000, actions: [{ label: `Open on ${result.machineName}`, run: () => void openThere(result, actions) }] });
+          toast?.update({ type: "success", title: `Moved to ${result.machineName}`, description: "The saved source copy is in Archived.", timeoutMs: 6_000, actions: [{ label: `Open on ${result.machineName}`, opens: true, run: () => void openThere(result, actions) }] });
         } catch (error) {
           toast?.dismiss();
           actions.notify(errorMessage(error), "error");
@@ -220,7 +220,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
           const description = result.native
             ? `It goes on there with its history${draft ? " and your message" : ""}; this thread stays usable here.`
             : "A new thread there starts with a handoff summary and your message; this thread stays usable here.";
-          const open = { label: `Open on ${result.machineName}`, run: () => void openThere({ link: result.link, machine: result.machine, machineName: result.machineName }, actions) };
+          const open = { label: `Open on ${result.machineName}`, opens: true, run: () => void openThere({ link: result.link, machine: result.machine, machineName: result.machineName }, actions) };
           if (toast) toast.update({ type: "success", title: `Continues on ${result.machineName}`, description, timeoutMs: 8_000, ...(environments ? { actions: [open] } : {}) });
           else actions.notify(`Continues on ${result.machineName}.`);
         } catch (error) {
