@@ -25,6 +25,8 @@ Prerequisites on every device host:
 
 Dependencies remain in their original npm package trees with their license notices. Tau does not copy upstream implementation code into this kit.
 
+Failed commands preserve structured stdout diagnostics: the tool's message, startup cause or reason, and recovery hint. Other output keeps the stderr or exit-code fallback. `fixtures/daemon-start-failure.json` models the `success: false` envelope from the pinned automation CLI's JSON error serializer and daemon startup path.
+
 ## Remote hosts and access
 
 Add an SSH config alias or `user@host` and an absolute remote tool directory. Save before installing. Key-based, noninteractive login and a previously trusted host key are required. Tau never disables host-key checking. The hub binds loopback on the remote machine and reaches Tau through an SSH local forward. Neither the hub dashboard nor its shell-execution routes are exposed to workbench clients. The kit owns the hub child and closes it on deactivation. Input uses a kit-specific agent-device state directory; the kit stops its own daemon and owned runners when deactivated.
