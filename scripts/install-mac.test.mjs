@@ -2,6 +2,8 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { getConfig } from "app-builder-lib/out/util/config/config.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { APP_IDENTITIES, FLAVOR_FIELD } from "../src/main/app-identity.ts";
 import { devBuilderConfig } from "./packaging/dev-app.mjs";
@@ -74,6 +76,14 @@ describe("install-mac", () => {
     // The released app keeps its feed; only the dev configuration drops it.
     const builder = readFileSync(new URL("../tooling/electron-builder.yml", import.meta.url), "utf8");
     expect(builder).toMatch(/^publish:\n  provider: github\n  owner: Rasalas\n  repo: tau-releases$/mu);
+  });
+
+  it.each([
+    ["Tau", "tooling/electron-builder.yml", null],
+    ["Tau Dev", null, devBuilderConfig(APP_IDENTITIES.dev, FLAVOR_FIELD)],
+  ])("requires an explicit one-time-code content type in %s text fields", async (_name, configPath, overrides) => {
+    const config = await getConfig(fileURLToPath(new URL("..", import.meta.url)), configPath, overrides);
+    expect(config.mac.extendInfo.NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac).toBe(true);
   });
 
   it("names the command line inside the installed bundle", () => {
