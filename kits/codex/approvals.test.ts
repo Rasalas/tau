@@ -33,6 +33,17 @@ describe("approvalDialog", () => {
     expect(dialog.resultFor([])).toEqual({ decision: "cancel" });
   });
 
+  it.each([" ", "\n"])("shows a complete long command with %j separators in modern and legacy approvals", (separator) => {
+    const text = `printf '%s' '${"two  spaces ".repeat(60)}'${separator}printf 'finished'`;
+    expect(text.length).toBeGreaterThan(600);
+    const modern = approvalDialog("item/commandExecution/requestApproval", {
+      ...command, command: `/bin/zsh -lc '${text.replaceAll("'", "'\\''")}'`, reason: "Print text",
+    })!;
+    expect(modern.prompts[0]?.message).toBe(`${text}\nin /repo\nPrint text`);
+    const legacy = approvalDialog("execCommandApproval", { command: ["sh", "-c", text], reason: "Print text" })!;
+    expect(legacy.prompts[0]?.message).toBe(`sh -c ${text}\nPrint text`);
+  });
+
   it("names the file a change would write, from the item Codex announced before asking", () => {
     const dialog = approvalDialog("item/fileChange/requestApproval", { threadId: "t", turnId: "u", itemId: "exec-2", reason: null, grantRoot: null }, (itemId) => itemId === "exec-2" ? ["/repo/note.txt"] : [])!;
     expect(dialog.prompts[0]).toMatchObject({ title: "Codex wants to edit /repo/note.txt", options: [ALLOW, ALLOW_SESSION, DENY] });

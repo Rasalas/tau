@@ -24,8 +24,9 @@ export interface PermissionRequest {
   suggestions?: PermissionUpdate[];
 }
 
-/** One line naming what the tool is about to do, from the argument that matters for it. */
+/** Commands stay verbatim; other tool inputs use a compact summary. */
 export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
+  if (typeof input.command === "string" && input.command.trim()) return `${toolName}: ${input.command}`;
   const pick = (...keys: string[]): string | undefined => {
     for (const key of keys) {
       const value = input[key];
