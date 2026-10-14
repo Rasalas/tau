@@ -324,6 +324,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     dropController, activeDraftKey, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
     renameThread, copyThreadValue, threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   } = thread;
+  const startThreadId = pendingNewThread ? "" : conversationSnapshot?.sessionId ?? "";
+  const projectless = useSyncExternalStore(
+    useCallback((listener: () => void) => threadStore.subscribeToThread(startThreadId, listener), [startThreadId, threadStore]),
+    useCallback(() => threadStore.getThread(startThreadId)?.projectless === true, [startThreadId, threadStore]),
+  );
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const hostCapabilities = useHostCapabilities();
@@ -916,9 +921,9 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             <div className="conversation-start-content">
               {showStartScreen ? <div className="conversation-empty">
                 <i aria-hidden><MessageSquare size={20} /></i>
-                {compact ? <h1 id="start-screen-title">What should we build<br />in <button className="mobile-project-title" ref={projectPill} aria-label={`Change project, current project ${startProjectName}`} aria-haspopup="dialog" onClick={() => openNewThreadPicker({ carry: true, preselect: startProjectPath })}>{startProjectName}</button>?</h1> : <h1 id="start-screen-title">What should {startProjectName} do next?</h1>}
+                {compact ? <h1 id="start-screen-title">{projectless ? "What should we build?" : <>What should we build<br />in <button className="mobile-project-title" ref={projectPill} aria-label={`Change project, current project ${startProjectName}`} aria-haspopup="dialog" onClick={() => openNewThreadPicker({ carry: true, preselect: startProjectPath })}>{startProjectName}</button>?</>}</h1> : <h1 id="start-screen-title">What should {projectless ? "we" : startProjectName} do next?</h1>}
                 <p>Just chat, or hand it work. Files, Terminal and your editor sit top right.</p>
-                <Region registry={registry} placement="draft-actions" snapshot={snapshot} actions={actions} lead={compact ? undefined : <button
+                <Region registry={registry} placement="draft-actions" snapshot={snapshot} actions={actions} lead={compact && !projectless ? undefined : <button
                   ref={projectPill}
                   type="button"
                   className="draft-pill"
