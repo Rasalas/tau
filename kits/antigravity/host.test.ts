@@ -15,7 +15,7 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((directory) 
 
 const TAU_SERVER: HostMcpConnection = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
 
-async function harness(installed: boolean) {
+async function harness(installed: boolean, customModels?: string) {
   const directory = await mkdtemp(join(tmpdir(), "tau-agy-host-"));
   directories.push(directory);
   const geminiDir = join(directory, "gemini");
@@ -47,6 +47,7 @@ async function harness(installed: boolean) {
   }));
   const registry = await activateHostKit(createAntigravityHostExtension({ openSession, sessionsDir: join(directory, "sessions"), env: { TAU_ANTIGRAVITY_ACP_COMMAND: installed ? binary : "" }, platform: "darwin", arch: "arm64", geminiDir }), {
     stateDir: join(directory, "state"),
+    settings: async () => ({ options: {}, values: { customModels: customModels ?? "" } }),
     findCommand: () => undefined,
     registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
     mcp: { registerTools: () => () => undefined, gate: () => () => undefined, connect: async (thread) => { connected.push(thread); return TAU_SERVER; } },
@@ -55,6 +56,21 @@ async function harness(installed: boolean) {
 }
 
 describe("Antigravity host half", () => {
+  it("offers configured IDs in drafts and passes them to the session", async () => {
+    const custom = "gateway/new-model";
+    const { backends, directory, openSession } = await harness(true, custom);
+    const token = profileTokenPath(join(directory, "state", "tau.antigravity"));
+    await mkdir(join(token, ".."), { recursive: true });
+    await writeFile(token, "{}");
+    expect((await backends[0]!.newThreadCatalog!())?.models).toContainEqual({ provider: "google", id: custom, name: custom });
+    const backend = await backends[0]!.open("custom-thread", directory, { resume: false }, { projectName: "repo", permissionLevel: () => "full", onMessage: () => undefined, onEvent: () => undefined } as never);
+    try {
+      expect((await backend.models()).some((model) => model.id === custom)).toBe(true);
+      await backend.prompt({ text: "Hi", delivery: "prompt" });
+      expect(openSession).toHaveBeenCalledWith(expect.objectContaining({ customModels: [custom] }));
+    } finally { await backend.dispose(); }
+  });
+
   it("takes a server path from the Providers card, checks it, and leaves an environment override alone", async () => {
     const pinned = await harness(true);
     await expect(pinned.registry.invoke("tau.antigravity", "set-command", { command: "/elsewhere" })).rejects.toThrow("TAU_ANTIGRAVITY_ACP_COMMAND is set");

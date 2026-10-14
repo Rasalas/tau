@@ -14,7 +14,7 @@ const directories: string[] = [];
 
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
-async function harness(options: { found?: boolean; env?: Record<string, string>; fetch?: typeof globalThis.fetch } = {}) {
+async function harness(options: { customModels?: string; found?: boolean; env?: Record<string, string>; fetch?: typeof globalThis.fetch } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-grok-host-"));
   directories.push(root);
   const log = join(root, "agent.log");
@@ -29,6 +29,7 @@ async function harness(options: { found?: boolean; env?: Record<string, string>;
     findCommand: (name) => (name === "grok" || name === FAKE_CLI) && options.found !== false ? FAKE_CLI : undefined,
     sessionsDir: join(root, "agent", "sessions"),
     stateDir: join(root, "state"),
+    settings: async () => ({ options: {}, values: { customModels: options.customModels ?? "" } }),
     noteSubprocess: () => undefined,
     registerRuntimeBackend: (provider) => {
       backends.push(provider);
@@ -50,6 +51,21 @@ function caller(id: string): HostExtension & { call?: (command: string, input?: 
 }
 
 describe("Grok host half", () => {
+
+  it("sends a configured custom model and shows the agent's validation error", async () => {
+    const custom = "gateway/new-model";
+    const { provider, root, sent } = await harness({ customModels: custom });
+    expect((await provider.newThreadCatalog!())?.models.some((model) => model.id === custom)).toBe(true);
+    const backend = await provider.open("custom-thread", root, { resume: false }, context());
+    try {
+      expect((await backend.models()).some((model) => model.id === custom)).toBe(true);
+      await backend.capabilities.catalogWrite!.setModel("xai", custom);
+      await expect(backend.capabilities.catalogWrite!.setModel("xai", "gateway/typo")).rejects.toThrow(/offers no model/u);
+      await expect(backend.prompt({ text: "Hi", delivery: "prompt" })).rejects.toThrow(`Unknown model ${custom}`);
+      expect((await sent()).filter((message) => message.method === "session/set_model").map((message) => message.params?.modelId)).toEqual([custom]);
+    } finally { await backend.dispose(); }
+  });
+
   it("registers a Grok backend that asks for approvals, takes files and plans", async () => {
     const { provider } = await harness();
     expect(provider).toMatchObject({ kind: "grok", label: "Grok", order: 60, homeProviders: ["xai"] });

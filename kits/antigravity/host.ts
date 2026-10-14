@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { HostCommandError, THREAD_TEXTS_COMMAND, TurnActivityStore, registerSignIn, threadTextsDelta, type HostBackendThreadRecord, type SignInFlowContext, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
+import { customModelIds, withCustomModels } from "../_acp/custom-models.js";
 import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
 import { CommandOverride } from "./command-override.js";
 import { installAntigravity, resolveAntigravity, type AntigravityExecutable } from "./install.js";
@@ -17,7 +18,7 @@ export { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID };
 
 export interface AntigravityHostExtensionOptions {
   /** Opens a session (tests script one); the real one spawns Google's ACP server. */
-  openSession?(input: AntigravitySessionInput & { executable: AntigravityExecutable; profile: AntigravityProfile; mcpServers: readonly AcpMcpServer[] }): Promise<AntigravitySessionLike>;
+  openSession?(input: AntigravitySessionInput & { executable: AntigravityExecutable; profile: AntigravityProfile; mcpServers: readonly AcpMcpServer[]; customModels: readonly string[] }): Promise<AntigravitySessionLike>;
   sessionsDir?: string;
   clientVersion?: string;
   platform?: string;
@@ -45,6 +46,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
     activate(context) {
       const services: HostExtensionServices = context.services;
       const env = options.env ?? process.env;
+      const customModels = async () => customModelIds((await services.settings?.())?.values.customModels);
       const platform = options.platform ?? process.platform;
       const arch = options.arch ?? process.arch;
       const geminiDir = options.geminiDir ?? geminiConfigDirectory();
@@ -55,6 +57,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const override = new CommandOverride(join(services.stateDir, "settings.json"), ANTIGRAVITY_COMMAND_VARIABLE, env);
       const resolveExecutable = (command = override.current()?.command) => resolveAntigravity({ override: command, stateDir: services.stateDir, platform, arch, findCommand: services.findCommand });
       const signInSettings = new AntigravitySignInSettings(join(services.stateDir, "sign-in.json"));
+      const availableModels = async () => withCustomModels((await store.listModels()).map((model) => ({ id: model.value, name: model.name, efforts: [] })), await customModels());
 
       /** The private home the agent runs in, with the user's own skills linked into it. */
       const prepare = async (): Promise<AntigravityProfile> => {
@@ -71,7 +74,8 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         // A sign-out starts no session, so it has no thread to reach Tau's tools for.
         const tau = input.authenticate === false ? undefined : await services.mcp.connect({ sessionId: input.threadId, cwd: input.cwd, nativeCapabilities: ["background-work"] }).catch(() => undefined);
         const mcpServers = withTauServer(await readMcpServers(geminiDir), tau);
-        if (options.openSession) return options.openSession({ ...input, executable, profile, mcpServers });
+        const models = await customModels();
+        if (options.openSession) return options.openSession({ ...input, executable, profile, mcpServers, customModels: models });
         const choice = signInSettings.current;
         if (mcpServers.length > 0) services.log("antigravity.mcp", mcpServers.map((server) => server.name).join(", "));
         services.noteSubprocess();
@@ -83,6 +87,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           baseEnv: env,
           browser: browserCommand(),
           clientVersion: options.clientVersion ?? "0.0.0",
+          customModels: models,
           mcpServers,
           authMethod: choice.method,
           credentials: credentialEnvironment(env, choice),
@@ -148,7 +153,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
             store,
             activity,
             openSession,
-            cachedModels: async () => (await store.listModels()).map((model): AcpSelectOption => ({ value: model.value, name: model.name })),
+            cachedModels: async () => (await availableModels()).map((model): AcpSelectOption => ({ value: model.id, name: model.name })),
             onModels: (models) => void store.setModels(models.map((model) => ({ value: model.value, name: model.name }))).catch(() => undefined),
             projectName: thread.projectName,
             branch: thread.projectLabel,
@@ -177,7 +182,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
           }
           const account = antigravityAccount(signInSettings.current, existsSync(profileTokenPath(services.stateDir)), env);
           if (!account.signedIn) return { models: [], thinkingLevels: {}, status: "sign-in-required", note: account.detail ?? "Sign in to this runtime first." };
-          const models = (await store.listModels()).map((model) => ({ provider: antigravityModelProvider({ id: model.value, name: model.name }), id: model.value, name: model.name.trim() || model.value }));
+          const models = (await availableModels()).map((model) => ({ provider: antigravityModelProvider(model), id: model.id, name: model.name.trim() || model.id }));
           return models.length > 0
             ? { models, thinkingLevels: {} }
             : { models: [], thinkingLevels: {}, note: "Antigravity names its models once a thread has started; choose one then." };

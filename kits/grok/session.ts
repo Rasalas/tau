@@ -93,6 +93,7 @@ export interface GrokSessionOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
   clientVersion: string;
+  customModels?: readonly string[];
   spawn?(input: AcpSpawnInput): AcpProcess;
   onUpdate(update: AcpSessionUpdate): void;
   onPermission(request: AcpPermissionRequest): Promise<AcpPermissionResponse>;
@@ -121,6 +122,7 @@ function createSession(options: GrokSessionOptions): GrokSession {
     cwd: options.cwd,
     clientInfo: { name: "tau", version: options.clientVersion },
     clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    customModels: options.customModels,
     onUpdate: options.onUpdate,
     onPermission: options.onPermission,
     ...(options.onElicitation ? { onElicitation: options.onElicitation } : {}),

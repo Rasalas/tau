@@ -68,6 +68,18 @@ function options(agent: FakeAgent, cwd: string, overrides: Partial<AntigravitySe
 }
 
 describe("AntigravitySession", () => {
+  it("forwards an explicitly configured model to the shared session", async () => {
+    const agent = fakeAgent();
+    scripted(agent);
+    const custom = "gateway/new-model";
+    const session = await AntigravitySession.open(options(agent, await scratch(), { customModels: [custom] }));
+    try {
+      await session.newSession();
+      await session.setModel(custom);
+      expect(agent.received.filter((message) => message.method === "session/set_config_option").map((message) => message.params)).toEqual([{ sessionId: "acp-session", configId: "model", value: custom }]);
+    } finally { await session.close(); }
+  });
+
   it("builds the spawn input from the release, the profile and the browser helper", () => {
     const input = acpSpawnInput({ ...options(fakeAgent(), "/repo"), platform: "linux" });
     expect(input).toMatchObject({ command: "/opt/agy/agy_acp_server.par", args: ["--uid="], cwd: "/repo" });
