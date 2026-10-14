@@ -1,5 +1,4 @@
 import type { UiMessage } from "../../shared/contracts";
-import { startsTurn } from "../../shared/message-turns";
 import { formatWorkDuration } from "../../workbench/transcript-folding";
 import type { TranscriptActivity } from "./transcript-activity";
 
@@ -11,7 +10,7 @@ export interface CompletedTurnWork {
   keepOpen: boolean;
 }
 
-/** The final answer stays in the virtual list; completed commentary and ordinary tools share its prompt's disclosure. */
+/** Each prompt or wake keeps its final answer; its completed work shares the input's disclosure. */
 export function projectCompletedTurnWork(
   messages: readonly UiMessage[], activities: readonly TranscriptActivity[], streaming: boolean,
 ) {
@@ -20,7 +19,9 @@ export function projectCompletedTurnWork(
   const work = new Map<string, CompletedTurnWork>();
   const aliases = new Map<string, string>();
   const answersWithoutThinking = new Set<string>();
-  const prompts = messages.flatMap((message, index) => startsTurn(message) ? [index] : []);
+  // Wakes do not increment the user's turn number, but their answers must not
+  // become commentary folded under an earlier prompt when the thread settles.
+  const prompts = messages.flatMap((message, index) => message.role === "user" ? [index] : []);
   const byReference = new Map<string, number>();
   messages.forEach((message, index) => {
     byReference.set(message.id, index);
