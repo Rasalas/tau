@@ -65,9 +65,8 @@ function bootstrapWith(sessions: UiSession[], { home = false, projects = PROJECT
   });
 }
 
-function renderCompactClient(overrides: Parameters<typeof createFakeHostClient>[0] = {}, extensions: DesktopExtension[] = []): FakeHostClient {
+function renderCompactClient(overrides: Parameters<typeof createFakeHostClient>[0] = {}, extensions: DesktopExtension[] = [], storage = createMemoryStorage()): FakeHostClient {
   const client = createFakeHostClient({ bootstrap: bootstrapWith(THREADS), ...overrides });
-  const storage = createMemoryStorage();
   setHostClient(client);
   setClientStorage(storage);
   render(<WebWorkbench
@@ -653,6 +652,42 @@ describe("a phone with no thread open", () => {
     fireEvent.click(within(home).getByRole("button", { name: "New thread" }));
     await pickFirstProject("project");
     expect(await screen.findByRole("button", { name: "Change project, current project project" })).toBeTruthy();
+  });
+});
+
+describe("a phone's project filter across a restart", () => {
+  const other = { ...thread("t-o", "Tune the other one", 50), projectPath: "/other", projectName: "other" };
+  const projects: ProjectEntry[] = [{ path: "/", name: "/", lastOpenedAt: 99 }, { path: "/project", name: "project", lastOpenedAt: 1 }, { path: "/other", name: "other", lastOpenedAt: 2 }];
+  const host = () => ({ bootstrap: bootstrapWith([...THREADS, other], { home: true, projects }) });
+
+  it("narrows the list again to the project it was left on", async () => {
+    const storage = createMemoryStorage();
+    renderCompactClient(host(), [], storage);
+    const home = await screen.findByRole("region", { name: "Threads" });
+    fireEvent.click(within(home).getByRole("button", { name: "Filter threads by project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^project/u }));
+    await waitFor(() => expect(within(home).queryByRole("button", { name: "Open thread Tune the other one" })).toBeNull());
+
+    cleanup();
+    renderCompactClient(host(), [], storage);
+    const again = await screen.findByRole("region", { name: "Threads" });
+    expect(await within(again).findByRole("button", { name: "Filter threads by project: project" })).toBeTruthy();
+    expect(within(again).queryByRole("button", { name: "Open thread Tune the other one" })).toBeNull();
+    expect(within(again).getByRole("button", { name: "Open thread Rename the store" })).toBeTruthy();
+
+    // Back to all projects is remembered too.
+    fireEvent.click(within(again).getByRole("button", { name: "Filter threads by project: project" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Show threads of" })).getByRole("button", { name: /^All projects/u }));
+    expect(storage.get(STORAGE_KEYS.touchProject)).toBeNull();
+  });
+
+  it("shows every project when the saved one is gone", async () => {
+    const storage = createMemoryStorage();
+    storage.set(STORAGE_KEYS.touchProject, "/removed");
+    renderCompactClient(host(), [], storage);
+    const home = await screen.findByRole("region", { name: "Threads" });
+    expect(await within(home).findByRole("button", { name: "Open thread Tune the other one" })).toBeTruthy();
+    expect(within(home).getByRole("button", { name: "Filter threads by project" })).toBeTruthy();
   });
 });
 

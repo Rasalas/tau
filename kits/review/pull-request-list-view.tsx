@@ -24,6 +24,7 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import {
   arrangeList,
   decodeListPreferences,
+  decodeSavedNarrowing,
   groupByRepository,
   listFacets,
   scoreMatch,
@@ -42,6 +43,7 @@ import { RequestStateIcon, type RequestState } from "./request-state-icon.js";
 
 const PREFERENCES_KEY = "tau.review.pull-requests";
 const GROUPING_KEY = "tau.review.pull-requests.group";
+const NARROWING_KEY = "tau.review.pull-requests.narrowing";
 const PAGE = 100;
 const MAX_LIMIT = 500;
 /** A search goes to the host once typing pauses this long. */
@@ -265,16 +267,22 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   const phone = useCompactProfile();
   const table = onPage && !phone;
   const Row = table ? PullRequestTableRow : PullRequestRow;
-  const [scope, setScope] = useState<Scope>(() => params.scope === "all" ? { kind: "all" } : { kind: "project", ...(params.workspace ? { workspace: params.workspace } : {}) });
-  const [host, setHost] = useState<string>();
   const projects = useProjects();
+  // The page picks up where it was left; a thread's tab always starts from its own project.
+  const [saved] = useState(() => onPage ? decodeSavedNarrowing(getClientStorage()?.get(NARROWING_KEY) ?? undefined) : undefined);
+  const [scope, setScope] = useState<Scope>(() => {
+    if (params.scope !== "all") return { kind: "project", ...(params.workspace ? { workspace: params.workspace } : {}) };
+    // A project that is gone falls back to all of them.
+    return saved?.project && projects.some((project) => projectId(project) === saved.project) ? { kind: "project", workspace: saved.project } : { kind: "all" };
+  });
+  const [host, setHost] = useState(saved?.host);
   const workspace = scope.kind === "project" ? scope.workspace : undefined;
   const everyProject = useMemo(() => projects.map(projectId), [projects]);
   const [preferences, setPreferences] = useState<PullRequestListPreferences>(() => decodeListPreferences(getClientStorage()?.get(PREFERENCES_KEY) ?? undefined));
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
-  const [labels, setLabels] = useState<string[]>([]);
-  const [author, setAuthor] = useState<string>();
+  const [labels, setLabels] = useState<string[]>(saved?.labels ?? []);
+  const [author, setAuthor] = useState(saved?.author);
   const [more, setMore] = useState<{ question: string; limit: number }>({ question: "", limit: PAGE });
   const [list, setList] = useState<Listing>();
   const [error, setError] = useState<string>();
@@ -290,6 +298,11 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     getClientStorage()?.set(PREFERENCES_KEY, JSON.stringify(next));
     return next;
   });
+
+  useEffect(() => {
+    if (!onPage) return;
+    getClientStorage()?.set(NARROWING_KEY, JSON.stringify({ ...(scope.kind === "project" && scope.workspace ? { project: scope.workspace } : {}), ...(labels.length > 0 ? { labels } : {}), ...(author ? { author } : {}), ...(host ? { host } : {}) }));
+  }, [onPage, scope, labels, author, host]);
 
   // Only the free text goes to the host; qualifiers narrow the rows already here.
   const typedText = useMemo(() => arrangeList([], { involvement: "all", sort: "ready", query, menu: {} }).search, [query]);
