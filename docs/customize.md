@@ -70,6 +70,14 @@ its own, so style what it holds:
 A style may change anything in Tau, not only parts. Unlike a part's name,
 other class names can change with an update.
 
+## A source of your own in Usage
+
+A package of your own appears on the Usage page by offering itself as a source:
+its host half calls `context.offer("tau.usage/limits-source")` and answers
+`usage-limits`, or `context.offer("tau.usage/threads-source")` and answers
+`usage`. "Joining another kit's list" in [Writing a package](EXTENSIONS.md)
+describes both.
+
 ## Turning it all off
 
 Customizations come from the Customize extension. Turning it off in

@@ -116,6 +116,21 @@ describe("HostExtensionRegistry", () => {
     expect(r.summaries()).toEqual([{ id: "demo.kit", name: "Demo Kit", active: true, commands: ["echo"], isolation: "in-process" }]);
   });
 
+  it("lists the extensions that offer a contract, in activation order, until they withdraw or stop", async () => {
+    const { registry: r } = registry();
+    let withdraw: (() => void) | undefined;
+    let asking: ((contract: string) => Array<{ id: string; name: string }>) | undefined;
+    await r.activate({ id: "demo.one", name: "One", activate: (ctx) => { withdraw = ctx.offer("tau.usage/limits-source"); asking = ctx.offering; } });
+    await r.activate({ id: "demo.two", name: "Two", activate: (ctx) => { ctx.offer("tau.usage/limits-source"); } });
+    // Asked when it is needed, not at activation, so the order kits start in does not matter.
+    expect(asking?.("tau.usage/limits-source")).toEqual([{ id: "demo.one", name: "One" }, { id: "demo.two", name: "Two" }]);
+    withdraw?.();
+    expect(r.offering("tau.usage/limits-source").map((entry) => entry.id)).toEqual(["demo.two"]);
+    await r.deactivate("demo.two");
+    expect(r.offering("tau.usage/limits-source")).toEqual([]);
+    await expect(r.activate({ id: "demo.bad", name: "Bad", activate: (ctx) => { ctx.offer("not a contract"); } })).resolves.toBe(false);
+  });
+
   it("rejects unknown extensions and commands with a readable reason", async () => {
     const { registry: r } = registry();
     await r.activate({ id: "demo.kit", name: "Demo Kit", activate: (ctx) => { ctx.registerCommand("echo", () => 1); } });

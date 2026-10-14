@@ -3495,6 +3495,26 @@ its tools (`server_status`, `server_list`, `server_read`, `server_diff`,
 extension and for every other runtime over `services.mcp`. No tool uploads or
 rolls back: `server_propose_upload` draws a card whose button the user clicks.
 
+### Joining another kit's list: `context.offer` (API 1.62.0)
+
+A kit that gathers something from other kits used to name them in a fixed
+list. A host half now says it answers a contract with
+`context.offer("<vendor.kit>/<name>")`; the gathering kit asks
+`context.offering(contract)` when it needs the list and gets `[{ id, name }]`
+of the active extensions that offered it, in activation order. Core never reads
+the contract. An offer goes with its disposer, with deactivation and with a
+failure, and the start order of the two kits does not matter, since the list
+is read when it is used. In a worker `offering` is a round trip and answers a
+promise; `await` it in both.
+
+Usage takes two contracts, so a kit of your own shows on the Usage page beside
+the runtimes Tau ships (`kits/usage/protocol.ts`):
+
+| Contract | Command it answers (`callers: ["tau.usage"]`) | What Usage does with it |
+|---|---|---|
+| `tau.usage/limits-source` | `usage-limits { refresh? }` → `{ accounts: UsageLimitAccount[] }` | Shows the accounts' windows under Limits, in the juicebars and in `tau.usage/limits`, with the kit's name as the source. |
+| `tau.usage/threads-source` | `usage` → `{ backend, threads: BackendUsageThread[] }` | Counts the threads' tokens and cost under the runtime `backend` names. |
+
 ### What Reviews asks of other kits
 
 Review Kit's request lifecycle binds creation and merging to the checkout the

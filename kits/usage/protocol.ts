@@ -29,6 +29,16 @@ export type ResetOutcome = "reset" | "nothingToReset" | "alreadyRedeemed" | "alr
  */
 export const BACKEND_USAGE_COMMAND = "usage";
 
+/**
+ * Contracts a kit outside the lists below joins with `context.offer(…)`
+ * (API 1.62.0); Usage then asks it like the kits it names. A threads source
+ * answers `BACKEND_USAGE_COMMAND` and names its runtime in `backend`; a limits
+ * source answers `BACKEND_LIMITS_COMMAND`. Both register their command with
+ * `callers: ["tau.usage"]`.
+ */
+export const USAGE_THREADS_SOURCE = "tau.usage/threads-source";
+export const USAGE_LIMITS_SOURCE = "tau.usage/limits-source";
+
 /** Tokens and money one thread or one row accounts for. */
 export interface UsageTokens {
   inputTokens: number;
@@ -61,6 +71,8 @@ export interface BackendUsageTurn extends UsageTokens {
 
 /** A backend kit's answer to `BACKEND_USAGE_COMMAND`. */
 export interface BackendUsageAnswer {
+  /** The runtime backend its threads ran on; read from a kit that offered itself, else the list names it. */
+  backend?: string;
   threads: BackendUsageThread[];
 }
 
