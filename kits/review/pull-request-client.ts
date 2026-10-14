@@ -1,4 +1,5 @@
 import type { HostExtensionClient } from "tau";
+import type { PullRequestCache } from "./pull-request-cache.js";
 import { guideClient, type GuideClient } from "./guide-client.js";
 import type { PipelineFacts } from "./pipeline.js";
 import type { RequestMediaResult } from "./request-media.js";
@@ -37,6 +38,7 @@ export interface PullRequestCommentInput {
 
 /** Review Kit's host commands for one request, typed. */
 export interface PullRequestClient {
+  cache?: PullRequestCache;
   /** Upload delivery; credentials remain on the request's host. Absent on older hosts. */
   media?(url: string, source: string): Promise<RequestMediaResult & { url: string }>;
   releaseMedia?(path: string): Promise<void>;
@@ -74,9 +76,11 @@ export interface PullRequestClient {
   guides?: GuideClient;
 }
 
-export function pullRequestClient(host: HostExtensionClient): PullRequestClient {
+export function pullRequestClient(transport: HostExtensionClient, cache?: PullRequestCache): PullRequestClient {
+  const host = cache ? { ...transport, invoke: (command: string, input?: unknown) => cache.invoke(transport, command, input) } : transport;
   const read = (fresh?: boolean) => fresh ? { fresh: true } : {};
   return {
+    cache,
     guides: guideClient(host),
     media: async (url, source) => {
       if (!host.resourceUrl) throw new Error("This client does not support request uploads.");

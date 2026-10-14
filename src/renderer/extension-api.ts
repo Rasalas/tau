@@ -58,7 +58,7 @@ export { getClientStorage } from "../workbench/client-storage";
 export { useClientEnvironment } from "./client-environment";
 export type { ClientRelease } from "../shared/client-release";
 export { useHostCapabilities, useHostName, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASON, useCommandAllowed, hostCommandAllowed } from "./use-host-capabilities";
-export { hostAvailable } from "./host-client-context";
+export { hostAvailable, hostConnectionState } from "./host-client-context";
 // Whether a package's own host half runs, and why not, to disable what calls it (K112).
 export { hostAvailability, useHostAvailability, type HostAvailability } from "./use-host-availability";
 export { useKeepClear } from "./reserved-region";

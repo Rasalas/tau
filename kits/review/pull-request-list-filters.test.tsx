@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
+import { PullRequestCache, OFFLINE_REASON } from "./pull-request-cache.js";
+import { pullRequestClient } from "./pull-request-client.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { listNarrowings } from "./pull-request-list-filters.js";
@@ -122,5 +124,33 @@ describe("the Pull Requests page on a phone", () => {
     await waitFor(() => expect(screen.queryByRole("group", { name: "Active filters" })).toBeNull());
     expect(screen.getByRole("button", { name: "Filter pull requests" })).toBeTruthy();
     await waitFor(() => expect(client.listMany).toHaveBeenLastCalledWith(expect.objectContaining({ state: "open" })));
+  });
+});
+
+
+describe("saved request lists", () => {
+  afterEach(cleanup);
+  it("shows the saved list before RPC, reads it offline and replaces it on reconnect", async () => {
+    const cache = new PullRequestCache(createMemoryStorage());
+    const listing = { service: "github" as const, host: "github.com", repo: "cli/cli", viewer: "BagToad", entries: rows, truncated: false, limit: 100 };
+    const invoke = vi.fn(async () => listing);
+    const client = pullRequestClient({ invoke, onEvent: () => () => undefined }, cache);
+    await client.list({ workspace: "/cli", state: "open", limit: 100 });
+    let finish!: (value: typeof listing) => void;
+    invoke.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    render(<TestThreadStore threads={[]} projects={projects}><PullRequestListView params={{ workspace: "/cli" }} actions={{ notify: vi.fn() } as unknown as WorkbenchActions} client={client} open={vi.fn()} /></TestThreadStore>);
+    await screen.findByRole("button", { name: /^#14474 /u });
+    expect((await screen.findByText(/As of/)).textContent).toContain("Saved on this device");
+    await act(async () => { finish(listing); });
+    act(() => cache.setConnected(false));
+    await screen.findByText(new RegExp(OFFLINE_REASON.replaceAll(".", "\\.")));
+    invoke.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh pull requests" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Refresh pull requests" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(invoke).not.toHaveBeenCalled();
+    invoke.mockResolvedValue({ ...listing, entries: [{ ...rows[0]!, title: "Updated list entry" }] });
+    act(() => cache.setConnected(true));
+    await screen.findByRole("button", { name: /Updated list entry/u });
+    expect(screen.queryByText(new RegExp(OFFLINE_REASON.replaceAll(".", "\\.")))).toBeNull();
   });
 });

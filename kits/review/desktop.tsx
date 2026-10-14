@@ -1,7 +1,7 @@
 import { SETTLEMENT_SERVICE, SettlementSource, type SettlementService } from "./settlement.js";
 import { Suspense, lazy } from "react";
 import { Eye, GitCompare } from "lucide-react";
-import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, type DesktopExtension, type DesktopExtensionContext, type PanelProps, type RegionProps } from "tau";
+import { THREAD_PULL_REQUESTS_SERVICE, getClientStorage, hostConnectionState, type DesktopExtension, type DesktopExtensionContext, type PanelProps, type RegionProps } from "tau";
 import { PullRequestWatchFeed } from "./pr-watch-client.js";
 import { watchRowStatuses } from "./pr-watch-rows.js";
 import { createWorkspaceRequestSummary } from "./workspace-summary.js";
@@ -32,6 +32,7 @@ import { LinkDialogs } from "./link-dialog.js";
 import { createPublishCardLayer, RequestPublishing } from "./publish-card.js";
 import { PendingReviewStore } from "./pending-review.js";
 import { createProactivePanels } from "./proactive-panels.js";
+import { PullRequestCache } from "./pull-request-cache.js";
 import { pullRequestClient } from "./pull-request-client.js";
 import { registerPullRequestTab } from "./pull-request-tab.js";
 import { LocalReviewsStore } from "./local-reviews-store.js";
@@ -85,7 +86,9 @@ export const reviewExtension: DesktopExtension = {
     const requests = requestClient(plugin.host);
     const rows = new RowRequests((path, fresh) => requests.request(path, fresh));
     const comments = new ReviewCommentStore(getClientStorage);
-    const client = pullRequestClient(plugin.host);
+    const cache = new PullRequestCache(getClientStorage(), (hostConnectionState() ?? "connected") === "connected");
+    const offConnection = plugin.events.on("host-connection", ({ state }) => cache.setConnected(state === "connected"));
+    const client = pullRequestClient(plugin.host, cache);
     const links = new ThreadLinkRows(client);
     // A thread's requests, for any package: a public contract, unlike the kit's protocol.
     plugin.provideService(THREAD_PULL_REQUESTS_SERVICE, threadPullRequestsService(links));
@@ -205,7 +208,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 

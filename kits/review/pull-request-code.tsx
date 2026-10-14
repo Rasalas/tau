@@ -167,7 +167,7 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
               <span className="spacer" />
               <span className="stat-add">+{current.added}</span>
               <span className="stat-del">−{current.removed}</span>
-              <label className={`pr-viewed ${current.viewed === "dismissed" && !pending.has(current.path) ? "dismissed" : ""}`} {...tooltipProps(!writes.viewed ? READ_ONLY_REASON : current.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : undefined)}>
+              <label className={`pr-viewed ${current.viewed === "dismissed" && !pending.has(current.path) ? "dismissed" : ""}`} {...tooltipProps(!writes.viewed ? writes.reason ?? READ_ONLY_REASON : current.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : undefined)}>
                 <input type="checkbox" checked={isViewed(current)} disabled={!writes.viewed} onChange={() => void toggleViewed(current)} />
                 {current.viewed === "dismissed" && !pending.has(current.path) ? "Changed" : "Viewed"}
               </label>
