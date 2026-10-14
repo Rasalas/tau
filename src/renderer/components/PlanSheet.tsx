@@ -6,6 +6,7 @@ import { useClientStorage } from "../client-storage-context";
 import { Dialog } from "./ui/Dialog";
 import { WhenPicker } from "./ui/WhenPicker";
 import { planPresets, rememberWhenPick, shortWhen, type WhenPick } from "./when-pick";
+import "./plan-sheet.css";
 
 const REMEMBER = "composer.plan";
 

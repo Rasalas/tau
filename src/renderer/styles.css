@@ -1527,34 +1527,6 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
   border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--faint); cursor: pointer;
 }
 .composer-plan-button:hover, .composer-plan-button.open { background: var(--raised); color: var(--ink); }
-.composer-send-chooser { width: 264px; padding: 4px; border-radius: 12px; background: var(--float); box-shadow: var(--elevation-2); }
-.composer-send-chooser-list { display: flex; flex-direction: column; gap: 1px; }
-.composer-send-choice {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 6px 10px; border: 0; border-radius: 8px;
-  background: transparent; color: var(--ink-2); text-align: left; font: var(--text-md) var(--sans); cursor: pointer; outline: none;
-}
-.composer-send-choice > svg { flex: none; color: var(--muted); }
-.composer-send-choice > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.composer-send-choice em { font-style: normal; }
-.composer-send-choice small { color: var(--muted); font: var(--text-xs)/1.35 var(--sans); }
-.composer-send-choice > kbd { flex: none; min-width: 18px; padding: 1px 4px; border-radius: var(--radius-xs); box-shadow: inset 0 0 0 1px var(--line-control); color: var(--faint); font: var(--text-2xs) var(--mono); text-align: center; }
-.composer-send-choice.active { background: var(--raised); color: var(--ink); }
-.composer-send-choice.active > svg { color: var(--acid-text); }
-.composer-send-choice[aria-disabled] { opacity: .45; cursor: default; }
-/* Plan message: Snooze's list of times, then where it goes; a kit's tab sits beside "Once". */
-.plan-sheet { width: 392px; gap: 12px; }
-.plan-sheet .plan-sheet-head { flex-direction: row; align-items: flex-start; gap: 10px; }
-.plan-sheet-head > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.plan-sheet .plan-sheet-quote { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: var(--text-xs)/1.4 var(--sans); }
-.plan-sheet-close { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--faint); cursor: pointer; }
-.plan-sheet-close:hover { background: var(--hover); color: var(--ink); }
-.plan-sheet-tabs { display: flex; }
-.plan-sheet-tabs > button { flex: 1; padding: 6px 0; }
-.plan-sheet .plan-sheet-tabs > button.active { background: var(--raised); color: var(--ink); }
-.plan-sheet-body { display: flex; flex-direction: column; gap: 12px; min-height: 40px; }
-/* A planner's tab may wrap its body and footer in a form. */
-.plan-sheet > form { display: flex; flex-direction: column; gap: 12px; }
-.plan-sheet-note { margin-right: auto; padding-left: 6px; color: var(--muted); font: var(--text-xs) var(--sans); }
 /* A kit's send mode: its words in the accent pill, the plain send in a menu behind the chevron. */
 .send-split { display: inline-flex; flex: none; align-items: stretch; }
 .send-button.send-mode { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; font: 500 var(--text-sm) var(--sans); white-space: nowrap; }

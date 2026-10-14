@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject }
 import { AlarmClock, ArrowUp, CornerUpRight, ListPlus, type LucideIcon } from "lucide-react";
 import { Popover } from "./ui/Dialog";
 import { isImeComposing } from "../keybindings";
+import "./composer-send-chooser.css";
 import type { SendChoice } from "./composer-send-choice";
 
 
