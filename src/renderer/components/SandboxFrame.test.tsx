@@ -225,6 +225,151 @@ describe("SandboxFrame full screen", () => {
   });
 });
 
+describe("SandboxFrame full-screen zoom", () => {
+  const mac = isMacPlatform();
+  const percent = () => screen.getByRole("button", { name: "Reset zoom" }).textContent;
+  const zoomOf = (view: { container: HTMLElement }) => (view.container.querySelector(".sandbox-frame-zoomed") as HTMLElement).style.getPropertyValue("--sandbox-frame-zoom");
+  const chord = (key: string, init: KeyboardEventInit = {}) => ({ key, metaKey: mac, ctrlKey: !mac, ...init });
+  /** False when the page took the key (preventDefault). */
+  const press = (key: string, init: KeyboardEventInit = {}) => fireEvent.keyDown(window, chord(key, init));
+
+  it("zooms in quarters between 50 and 200 percent, resets, and leaves the iframe in place", () => {
+    stubPopover();
+    const view = renderFrame({ fullscreen: true, label: "Chart" });
+    const frame = frameOf();
+    const zoomIn = screen.getByRole("button", { name: "Zoom in" }) as HTMLButtonElement;
+    const zoomOut = screen.getByRole("button", { name: "Zoom out" }) as HTMLButtonElement;
+    expect(percent()).toBe("100%");
+    expect(zoomOf(view)).toBe("");
+    fireEvent.click(zoomIn);
+    expect(percent()).toBe("125%");
+    expect(zoomOf(view)).toBe("1.25");
+    for (let i = 0; i < 5; i += 1) fireEvent.click(zoomIn);
+    expect(percent()).toBe("200%");
+    expect(zoomIn.disabled).toBe(true);
+    expect(zoomOut.disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Reset zoom" }));
+    expect(percent()).toBe("100%");
+    expect(zoomOf(view)).toBe("");
+    for (let i = 0; i < 5; i += 1) fireEvent.click(zoomOut);
+    expect(percent()).toBe("50%");
+    expect(zoomOut.disabled).toBe(true);
+    expect(zoomOf(view)).toBe("0.5");
+    expect(frameOf()).toBe(frame);
+    expect(frame.parentElement?.className).toBe("sandbox-frame-zoomed");
+  });
+
+  it("has no zoom outside full screen, and starts over at 100 percent after leaving it", () => {
+    stubPopover();
+    const view = renderFrame({ label: "Chart" });
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+    view.rerender(<SandboxFrame {...base} label="Chart" fullscreen />);
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(percent()).toBe("125%");
+    view.rerender(<SandboxFrame {...base} label="Chart" />);
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+    expect(zoomOf(view)).toBe("");
+    view.rerender(<SandboxFrame {...base} label="Chart" fullscreen />);
+    expect(percent()).toBe("100%");
+  });
+
+  it("zooms on Cmd/Ctrl with +, =, - and 0 while full screen is open, and takes the key from the app menu", () => {
+    stubPopover();
+    const view = renderFrame({ fullscreen: true, label: "Chart" });
+    expect(press("=")).toBe(false);
+    expect(percent()).toBe("125%");
+    expect(press("+", { shiftKey: true })).toBe(false);
+    expect(press("+")).toBe(false);
+    expect(percent()).toBe("175%");
+    expect(press("-")).toBe(false);
+    expect(percent()).toBe("150%");
+    expect(press("0")).toBe(false);
+    expect(percent()).toBe("100%");
+    expect(zoomOf(view)).toBe("");
+  });
+
+  it("leaves other chords alone", () => {
+    stubPopover();
+    renderFrame({ fullscreen: true, label: "Chart" });
+    expect(press("=", { metaKey: false, ctrlKey: false })).toBe(true);
+    expect(press("=", { metaKey: true, ctrlKey: true })).toBe(true);
+    expect(press("=", { altKey: true })).toBe(true);
+    expect(press("-", { shiftKey: true })).toBe(true);
+    expect(press("0", { shiftKey: true })).toBe(true);
+    expect(percent()).toBe("100%");
+  });
+
+  it("leaves the keys to the workbench when full screen is closed", () => {
+    stubPopover();
+    const view = renderFrame({ label: "Chart" });
+    expect(press("=")).toBe(true);
+    view.rerender(<SandboxFrame {...base} label="Chart" fullscreen />);
+    expect(press("=")).toBe(false);
+    view.rerender(<SandboxFrame {...base} label="Chart" />);
+    expect(press("=")).toBe(true);
+  });
+
+  describe("from the document", () => {
+    const keydown = (key: string, code: string, init: Record<string, unknown> = {}) => ({ type: FRAME_KEYDOWN_MESSAGE, key, code, metaKey: mac, ctrlKey: !mac, shiftKey: false, altKey: false, ...init });
+    const activate = (live: boolean) => Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: live } });
+    const named = (post: { mock: { calls: unknown[][] } }) => post.mock.calls
+      .filter(([message]) => (message as { type?: string }).type === FRAME_KEYS_MESSAGE)
+      .map(([message]) => (message as { chords: { key: string; shiftKey: boolean }[] }).chords.map((item) => `${item.shiftKey ? "shift+" : ""}${item.key}`));
+
+    afterEach(() => { delete (navigator as { userActivation?: unknown }).userActivation; });
+
+    function loaded(props: Partial<SandboxFrameProps>) {
+      stubPopover();
+      const view = renderFrame(props);
+      const frame = frameOf();
+      const post = vi.spyOn(frame.contentWindow!, "postMessage");
+      fireEvent.load(frame);
+      return { view, frame, post };
+    }
+
+    it("asks the document to pass on the zoom chords only while full screen is open", () => {
+      const { view, post } = loaded({ label: "Chart" });
+      expect(named(post)).toEqual([]);
+      view.rerender(<SandboxFrame {...base} label="Chart" fullscreen />);
+      expect(named(post)).toEqual([["=", "+", "shift++", "-", "0"]]);
+      view.rerender(<SandboxFrame {...base} label="Chart" />);
+      expect(named(post)).toHaveLength(2);
+      expect(named(post)[1]).toEqual([]);
+    });
+
+    it("zooms for a key the focused document passes on while the click is live", () => {
+      const { frame } = loaded({ fullscreen: true, label: "Chart" });
+      activate(true);
+      frame.focus();
+      messageFrom(frame.contentWindow, keydown("=", "Equal"));
+      expect(percent()).toBe("125%");
+      messageFrom(frame.contentWindow, keydown("-", "Minus"));
+      messageFrom(frame.contentWindow, keydown("-", "Minus"));
+      expect(percent()).toBe("75%");
+      messageFrom(frame.contentWindow, keydown("0", "Digit0"));
+      expect(percent()).toBe("100%");
+    });
+
+    it("ignores a document that has no focus, no live click, another key or no full screen", () => {
+      const { view, frame } = loaded({ fullscreen: true, label: "Chart" });
+      activate(true);
+      messageFrom(frame.contentWindow, keydown("=", "Equal"));
+      frame.focus();
+      activate(false);
+      messageFrom(frame.contentWindow, keydown("=", "Equal"));
+      activate(true);
+      messageFrom(window, keydown("=", "Equal"));
+      messageFrom(frame.contentWindow, keydown("=", "Equal", { metaKey: false, ctrlKey: false }));
+      messageFrom(frame.contentWindow, keydown("q", "KeyQ"));
+      expect(percent()).toBe("100%");
+      view.rerender(<SandboxFrame {...base} label="Chart" />);
+      messageFrom(frame.contentWindow, keydown("=", "Equal"));
+      view.rerender(<SandboxFrame {...base} label="Chart" fullscreen />);
+      expect(percent()).toBe("100%");
+    });
+  });
+});
+
 describe("SandboxFrame measuring and handle", () => {
   it("reports the box width from a ResizeObserver", () => {
     let notify: ((entries: unknown[]) => void) | undefined;

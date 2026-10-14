@@ -2272,18 +2272,6 @@ body[data-profile="compact"] .touch-split .thread-header-tools { max-width: 60%;
 .message-images[data-origin="conversation"] > .message-image-button[data-kind="video"] { width: min(320px, 100%); aspect-ratio: 16 / 9; }
 .message-images[data-origin="conversation"] video { display: block; }
 
-/* SandboxFrame: the box is a manual popover, so full screen reuses the same iframe. */
-.sandbox-frame { position: relative; width: 100%; }
-.sandbox-frame-box { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; }
-.sandbox-frame-box[popover] { position: static; inset: auto; margin: 0; padding: 0; border: 0; overflow: hidden; background: transparent; color: inherit; }
-.sandbox-frame-box[data-bordered]:not([data-sandbox-frame-fullscreen]) { border: 1px solid var(--line-card); border-radius: var(--radius-md); overflow: hidden; }
-.sandbox-frame-box[popover]:popover-open { position: fixed; inset: 0; width: 100vw; height: 100dvh; background: var(--stage); color: var(--ink); }
-.sandbox-frame-view { display: block; flex: 1; width: 100%; min-height: 0; border: 0; }
-.sandbox-frame-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-4); height: 40px; padding: 0 var(--space-5); border-bottom: 1px solid var(--line); font-size: var(--text-sm); color: var(--ink-2); }
-.sandbox-frame-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sandbox-frame-exit { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
-.sandbox-frame-exit:hover { background: var(--raised); color: var(--ink); }
-.sandbox-frame-notice { display: flex; flex: 1; align-items: center; justify-content: center; margin: 0; padding: var(--space-5); text-align: center; font-size: var(--text-sm); color: var(--muted); }
 
 /* The rows the transcript's find and a "Go to source" land on. */
 ::highlight(transcript-find) { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; }

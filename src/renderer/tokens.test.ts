@@ -43,6 +43,8 @@ const RUNTIME_PROPERTIES = [
   "--composer-dock-height",
   // The chat's width beside the stage, from its divider (Workbench.tsx).
   "--chat-width",
+  // A full-screen page's zoom (components/SandboxFrame.tsx).
+  "--sandbox-frame-zoom",
   "--font-family-override",
   "--font-size-override",
   // Typography a client sets on <html> beside the two above (Appearance Kit).

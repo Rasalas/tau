@@ -1,18 +1,21 @@
-import { Minimize2 } from "lucide-react";
-import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { Minimize2, Minus, Plus } from "lucide-react";
+import { useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
 import {
   FRAME_DEFAULT_HEIGHT,
   FRAME_KEYS_MESSAGE,
+  FRAME_MAX_CHORDS,
   FRAME_SCHEME_MESSAGE,
   clampFrameHeight,
   frameAllowAttribute,
   readFrameKeyDown,
   type SandboxFramePermissions,
 } from "../../shared/sandbox-frame";
+import { isMacPlatform } from "../keybindings";
 import { useColorScheme } from "../use-color-scheme";
 import { WorkbenchContext } from "../workbench-context";
-import { frameChords, replayableKey } from "./sandbox-frame-keys";
+import { FRAME_ZOOM_MAX, FRAME_ZOOM_MIN, frameChords, nextZoom, replayableKey, zoomChords, zoomStepOf } from "./sandbox-frame-keys";
 import { tooltipProps } from "./ui/Tooltip";
+import "./sandbox-frame.css";
 
 export interface SandboxFrameHandle {
   /** Posts to the framed document with target "*" (its origin is opaque). No-op before it loaded or spoke, after it stopped, or after unmount. */
@@ -70,6 +73,7 @@ export function SandboxFrame(props: SandboxFrameProps) {
   if (!kept && props.src) setKept(props.src);
   const [loaded, setLoaded] = useState(false);
   const [stopped, setStopped] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const loads = useRef(0);
   // The document may speak before its load event; the reply must not be dropped.
   const alive = useRef(false);
@@ -109,32 +113,35 @@ export function SandboxFrame(props: SandboxFrameProps) {
       alive.current = true;
       const key = readFrameKeyDown(event.data);
       if (!key) { latest.current.onMessage(event.data); return; }
+      const step = fullscreen && activated() ? zoomStepOf(key) : undefined;
+      if (step) { setZoom((current) => nextZoom(current, step)); return; }
       // Replayed on the frame element, it reaches the window listeners the way a key outside would.
       const replay = registryRef.current && activated() ? replayableKey(registryRef.current, key) : undefined;
       if (replay) frameRef.current?.dispatchEvent(replay);
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [stopped]);
+  }, [stopped, fullscreen]);
 
   useEffect(() => {
     if (loaded && !stopped) post({ type: FRAME_SCHEME_MESSAGE, scheme });
   }, [loaded, stopped, scheme, post]);
 
   // The document passes on only the chords named here; a later binding change reaches it too.
+  // Full screen adds the zoom chords, since a click gave the document the keyboard.
+  const sentChords = useRef("[]");
   useEffect(() => {
-    if (!registry || !loaded || stopped) return;
-    let sent = "";
+    if (!loaded || stopped) return;
     const send = () => {
-      const chords = frameChords(registry);
+      const chords = [...(fullscreen ? zoomChords() : []), ...(registry ? frameChords(registry) : [])].slice(0, FRAME_MAX_CHORDS);
       const next = JSON.stringify(chords);
-      if (next === sent) return;
-      sent = next;
+      if (next === sentChords.current) return;
+      sentChords.current = next;
       post({ type: FRAME_KEYS_MESSAGE, chords });
     };
     send();
-    return registry.subscribeRegistrations(send);
-  }, [registry, loaded, stopped, post]);
+    return registry?.subscribeRegistrations(send);
+  }, [registry, loaded, stopped, post, fullscreen]);
 
   const hasBox = kept !== undefined;
   useEffect(() => {
@@ -154,13 +161,24 @@ export function SandboxFrame(props: SandboxFrameProps) {
     const box = boxRef.current;
     if (!fullscreen || !box) return;
     try { box.showPopover(); } catch { /* Already shown or not connected. */ }
-    return () => { try { box.hidePopover(); } catch { /* Gone with its element. */ } };
+    return () => {
+      try { box.hidePopover(); } catch { /* Gone with its element. */ }
+      setZoom(1);
+    };
   }, [fullscreen]);
 
   useEffect(() => {
     if (!fullscreen) return;
     const leave = () => latest.current.onFullscreenChange?.(false);
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented) leave(); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.key === "Escape") { leave(); return; }
+      const step = zoomStepOf(event);
+      if (!step) return;
+      // The app menu would zoom the whole workbench.
+      event.preventDefault();
+      setZoom((current) => nextZoom(current, step));
+    };
     const onFocus = (event: FocusEvent) => {
       if (event.target instanceof Node && !boxRef.current?.contains(event.target)) leave();
     };
@@ -170,6 +188,8 @@ export function SandboxFrame(props: SandboxFrameProps) {
   }, [fullscreen]);
 
   if (!kept) return null;
+
+  const modifier = isMacPlatform() ? "⌘" : "Ctrl+";
 
   const onLoad = () => {
     loads.current += 1;
@@ -191,29 +211,58 @@ export function SandboxFrame(props: SandboxFrameProps) {
         {fullscreen ? (
           <div className="sandbox-frame-header">
             <span className="sandbox-frame-label">{props.label}</span>
-            <button
-              type="button"
-              className="sandbox-frame-exit"
-              aria-label="Exit full screen"
-              {...tooltipProps("Exit full screen", { side: "bottom" })}
-              onClick={() => props.onFullscreenChange?.(false)}
-            ><Minimize2 size={14} /></button>
+            <div className="sandbox-frame-tools">
+              <button
+                type="button"
+                className="sandbox-frame-zoom"
+                aria-label="Zoom out"
+                {...tooltipProps("Zoom out", { side: "bottom", shortcut: `${modifier}-` })}
+                disabled={zoom <= FRAME_ZOOM_MIN}
+                onClick={() => setZoom(nextZoom(zoom, "out"))}
+              ><Minus size={14} /></button>
+              <button
+                type="button"
+                className="sandbox-frame-zoom sandbox-frame-zoom-value"
+                aria-label="Reset zoom"
+                {...tooltipProps("Reset zoom", { side: "bottom", shortcut: `${modifier}0` })}
+                onClick={() => setZoom(1)}
+              >{Math.round(zoom * 100)}%</button>
+              <button
+                type="button"
+                className="sandbox-frame-zoom"
+                aria-label="Zoom in"
+                {...tooltipProps("Zoom in", { side: "bottom", shortcut: `${modifier}+` })}
+                disabled={zoom >= FRAME_ZOOM_MAX}
+                onClick={() => setZoom(nextZoom(zoom, "in"))}
+              ><Plus size={14} /></button>
+              <button
+                type="button"
+                className="sandbox-frame-exit"
+                aria-label="Exit full screen"
+                {...tooltipProps("Exit full screen", { side: "bottom" })}
+                onClick={() => props.onFullscreenChange?.(false)}
+              ><Minimize2 size={14} /></button>
+            </div>
           </div>
         ) : null}
         {stopped ? (
           <p className="sandbox-frame-notice" role="status">{props.stoppedLabel ?? "This page left its document and was stopped"}</p>
         ) : (
-          <iframe
-            ref={frameRef}
-            className="sandbox-frame-view"
-            title={title}
-            src={kept}
-            sandbox="allow-scripts allow-forms"
-            allow={frameAllowAttribute(permissions)}
-            referrerPolicy="no-referrer"
-            style={{ colorScheme: scheme }}
-            onLoad={onLoad}
-          />
+          <div className="sandbox-frame-stage">
+            <div className="sandbox-frame-zoomed" style={fullscreen && zoom !== 1 ? { "--sandbox-frame-zoom": zoom } as CSSProperties : undefined}>
+              <iframe
+                ref={frameRef}
+                className="sandbox-frame-view"
+                title={title}
+                src={kept}
+                sandbox="allow-scripts allow-forms"
+                allow={frameAllowAttribute(permissions)}
+                referrerPolicy="no-referrer"
+                style={{ colorScheme: scheme }}
+                onLoad={onLoad}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>

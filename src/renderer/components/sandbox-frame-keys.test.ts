@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { ExtensionRegistry, type DesktopExtensionContext } from "../extension-system";
-import { frameChords, replayableKey } from "./sandbox-frame-keys";
+import { frameChords, nextZoom, replayableKey, zoomChords, zoomStepOf } from "./sandbox-frame-keys";
 
 function registryWith(setup: (context: DesktopExtensionContext) => void) {
   const registry = new ExtensionRegistry();
@@ -73,5 +73,36 @@ describe("replayableKey", () => {
     expect(replayableKey(registry, { ...key, ctrlKey: false })).toBeUndefined();
     expect(replayableKey(registry, { ...key, key: "q", code: "KeyQ" })).toBeUndefined();
     expect(replayableKey(registry, { ...key, key: "s", code: "KeyS", shiftKey: true })).toBeUndefined();
+  });
+});
+
+describe("zoom keys", () => {
+  const press = (key: string, init: Partial<KeyboardEvent> = {}) => ({ key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...init });
+
+  it("reads Cmd on a Mac and Ctrl elsewhere, for +, =, - and 0", () => {
+    expect(zoomStepOf(press("=", { metaKey: true }), true)).toBe("in");
+    expect(zoomStepOf(press("+", { metaKey: true, shiftKey: true }), true)).toBe("in");
+    expect(zoomStepOf(press("-", { metaKey: true }), true)).toBe("out");
+    expect(zoomStepOf(press("0", { metaKey: true }), true)).toBe("reset");
+    expect(zoomStepOf(press("=", { ctrlKey: true }), true)).toBeUndefined();
+    expect(zoomStepOf(press("=", { ctrlKey: true }), false)).toBe("in");
+    expect(zoomStepOf(press("+", { ctrlKey: true }), false)).toBe("in");
+    expect(zoomStepOf(press("=", { metaKey: true }), false)).toBeUndefined();
+    expect(zoomStepOf(press("0", { ctrlKey: true, metaKey: true }), false)).toBeUndefined();
+    expect(zoomStepOf(press("0", { ctrlKey: true, altKey: true }), false)).toBeUndefined();
+    expect(zoomStepOf(press("0"), false)).toBeUndefined();
+  });
+
+  it("names the chords the document passes on, in the platform's modifier", () => {
+    expect(zoomChords(true)).toContainEqual({ key: "-", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false });
+    expect(zoomChords(false)).toContainEqual({ key: "0", metaKey: false, ctrlKey: true, shiftKey: false, altKey: false });
+  });
+
+  it("steps by a quarter within 50 to 200 percent", () => {
+    expect(nextZoom(1, "in")).toBe(1.25);
+    expect(nextZoom(2, "in")).toBe(2);
+    expect(nextZoom(0.75, "out")).toBe(0.5);
+    expect(nextZoom(0.5, "out")).toBe(0.5);
+    expect(nextZoom(1.75, "reset")).toBe(1);
   });
 });

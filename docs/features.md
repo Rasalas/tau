@@ -149,7 +149,9 @@ a chart library loads only from an https host the agent declared, and the card
 shows which. Local images are embedded when the page is made, so it keeps
 working after the files move. A link opens in your browser after you click it,
 and an image opens in Tau's image viewer. The expand button shows a page of
-images in that viewer and any other page full size without restarting it; "Open in a
+images in that viewer and any other page full size without restarting it. Full
+size zooms the page from 50 to 200 percent, with the buttons in its header or
+`Cmd/Ctrl` with `+`, `-` and `0`, and starts at 100 percent each time; "Open in a
 tab" puts it on the stage (it starts over there). Pages belong to their thread
 and go when the thread is deleted. See [ADR 0035](adr/0035-agent-pages-on-the-sandbox-frame.md).
 

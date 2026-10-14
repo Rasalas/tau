@@ -38,3 +38,30 @@ export function replayableKey(registry: ExtensionRegistry, key: FrameKeyDown): K
   const match = registry.matchKeybinding(event);
   return match && passable(match.command) ? event : undefined;
 }
+
+export type FrameZoomStep = "in" | "out" | "reset";
+export const FRAME_ZOOM_MIN = 0.5;
+export const FRAME_ZOOM_MAX = 2;
+
+// Not bindings: the app menu owns these chords for the workbench's own zoom, which a full-screen frame takes over while it is open.
+const ZOOM_KEYS: ReadonlyArray<readonly [key: string, shift: boolean, step: FrameZoomStep]> = [
+  ["=", false, "in"], ["+", false, "in"], ["+", true, "in"], ["-", false, "out"], ["0", false, "reset"],
+];
+
+/** The chords a full-screen frame asks its document to pass on, so zoom works once a click gave the document the keyboard. */
+export function zoomChords(mac = isMacPlatform()): FrameChord[] {
+  return ZOOM_KEYS.map(([key, shiftKey]) => ({ key, metaKey: mac, ctrlKey: !mac, shiftKey, altKey: false }));
+}
+
+/** The zoom a keydown asks for: ⌘/Ctrl with +, =, - or 0. */
+export function zoomStepOf(key: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">, mac = isMacPlatform()): FrameZoomStep | undefined {
+  const mod = mac ? key.metaKey && !key.ctrlKey : key.ctrlKey && !key.metaKey;
+  if (!mod || key.altKey) return undefined;
+  return ZOOM_KEYS.find(([name, shift]) => name === key.key && shift === key.shiftKey)?.[2];
+}
+
+/** The next zoom level, in quarters between 50 % and 200 %. */
+export function nextZoom(zoom: number, step: FrameZoomStep): number {
+  if (step === "reset") return 1;
+  return Math.min(FRAME_ZOOM_MAX, Math.max(FRAME_ZOOM_MIN, zoom + (step === "in" ? 0.25 : -0.25)));
+}
