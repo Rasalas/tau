@@ -12,6 +12,7 @@ import { writePersistedJson } from "./persisted-json.js";
  */
 export const LOGIN_SHELL_ENV_NAMES = [
   "PATH",
+  "__MISE_DIFF",
   "SSH_AUTH_SOCK",
   "LANG",
   "LC_ALL",
@@ -39,7 +40,7 @@ export interface ShellEnvironmentOptions {
   timeoutMs?: number;
   /** Whether a directory exists; Windows adds well-known tool folders only when they do. */
   directoryExists?: (path: string) => boolean;
-  /** Last successful PATH for this data folder; no credentials are stored. */
+  /** Last successful PATH and its matching mise record for this data folder. */
   cachePath?: string;
   onRefreshError?(error: unknown): void;
 }
@@ -230,7 +231,8 @@ async function installWindowsEnvironment(env: NodeJS.ProcessEnv, options: ShellE
 /**
  * Merges the login shell's environment into `env` (the process by default).
  * The shell's PATH comes first, the inherited PATH stays behind it; other
- * variables only fill gaps. Locale gets a UTF-8 fallback on macOS, where a
+ * variables only fill gaps, except mise's record which follows PATH.
+ * Locale gets a UTF-8 fallback on macOS, where a
  * Dock launch has none and child processes would decode output as MacRoman.
  * Windows reads the registry instead (`installWindowsEnvironment`).
  */
@@ -240,33 +242,50 @@ export async function installShellEnvironment(options: ShellEnvironmentOptions =
   const platform = options.platform ?? process.platform;
   const shell = options.shell ?? env.SHELL ?? "";
   const key = envKey(env, "PATH", platform);
-  let cached: string | undefined;
+  let cached: { path: string; miseDiff: string | undefined } | undefined;
   try {
     const value = JSON.parse(await readFile(options.cachePath, "utf8")) as Record<string, unknown>;
-    if (value.version === 1 && value.platform === platform && value.shell === shell && typeof value.path === "string" && value.path.trim()) cached = value.path;
+    // Old POSIX caches lack the record needed to undo mise's PATH changes.
+    const hasMiseRecord = value.miseDiff === null || typeof value.miseDiff === "string";
+    if (value.version === 1 && value.platform === platform && value.shell === shell && typeof value.path === "string" && value.path.trim()
+      && (platform === "win32" || hasMiseRecord)) {
+      cached = { path: value.path, miseDiff: typeof value.miseDiff === "string" ? value.miseDiff : undefined };
+    }
   } catch { /* A missing or invalid cache is a cold start. */ }
   const refreshEnv = cached ? { ...env } : env;
   const refresh = async () => {
     const result = await refreshShellEnvironment({ ...options, env: refreshEnv });
     if (cached) {
-      for (const name of new Set([key, ...result.installed])) env[name] = refreshEnv[name];
+      for (const name of new Set([key, ...(platform === "win32" ? [] : ["__MISE_DIFF"]), ...result.installed])) {
+        if (refreshEnv[name] === undefined) delete env[name];
+        else env[name] = refreshEnv[name];
+      }
     }
     if (result.pathSource !== "process" && refreshEnv[key]) {
-      await writePersistedJson(options.cachePath!, 1, { platform, shell, path: refreshEnv[key] })
+      await writePersistedJson(options.cachePath!, 1, { platform, shell, path: refreshEnv[key], miseDiff: platform === "win32" ? null : refreshEnv["__MISE_DIFF"] ?? null })
         .catch((error: unknown) => options.onRefreshError?.(error));
     }
     return result;
   };
   if (!cached) return refresh();
   const installed: string[] = [];
-  const merged = mergePaths([cached, env[key]], platform);
+  const merged = mergePaths([cached.path, env[key]], platform);
   if (merged !== env[key]) { env[key] = merged; installed.push("PATH"); }
+  if (platform !== "win32") installMiseRecord(env, cached.miseDiff, installed);
   if (platform === "darwin" && LOCALE_NAMES.every((name) => !env[name]?.trim())) {
     env.LC_CTYPE = FALLBACK_LC_CTYPE;
     installed.push("LC_CTYPE");
   }
   void refresh().catch((error: unknown) => options.onRefreshError?.(error));
   return { pathSource: "cache", installed };
+}
+
+function installMiseRecord(env: NodeJS.ProcessEnv, value: string | undefined, installed: string[]): void {
+  if (env["__MISE_DIFF"] === value) return;
+  // Without PATH's matching record, a same-named `mise x` wrapper can recur.
+  if (value === undefined) delete env["__MISE_DIFF"];
+  else env["__MISE_DIFF"] = value;
+  installed.push("__MISE_DIFF");
 }
 
 async function refreshShellEnvironment(options: ShellEnvironmentOptions): Promise<ShellEnvironmentResult> {
@@ -284,8 +303,9 @@ async function refreshShellEnvironment(options: ShellEnvironmentOptions): Promis
   }
   const merged = mergePaths([shellPath, env.PATH], platform);
   if (merged && merged !== env.PATH) { env.PATH = merged; installed.push("PATH"); }
+  if (shell.PATH) installMiseRecord(env, shell["__MISE_DIFF"], installed);
   for (const name of LOGIN_SHELL_ENV_NAMES) {
-    if (name === "PATH" || LOCALE_NAMES.includes(name as typeof LOCALE_NAMES[number])) continue;
+    if (name === "PATH" || name === "__MISE_DIFF" || LOCALE_NAMES.includes(name as typeof LOCALE_NAMES[number])) continue;
     if (!env[name]?.trim() && shell[name]) { env[name] = shell[name]; installed.push(name); }
   }
   if (platform === "darwin" && LOCALE_NAMES.every((name) => !env[name]?.trim())) {
