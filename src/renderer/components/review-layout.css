@@ -25,15 +25,17 @@
 .review-progress > i { height: 3px; flex: 1; overflow: hidden; border-radius: 2px; background: var(--line); }
 .review-progress > i > b { display: block; height: 100%; background: var(--acid); }
 .review-list .review-files { min-height: 0; overflow: hidden; padding: 5px 6px 6px; }
-.review-sidebar-meta { height: 27px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 12px; color: var(--faint); }
-.review-sidebar-meta strong { color: var(--muted); font: 500 var(--text-xs) var(--mono); }
+/* In the narrowest panel the rows wrap onto a second line; their text stays whole, so a label never spills over the next row. */
+.review-sidebar-meta { min-height: 27px; flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; padding: 1px 12px; color: var(--faint); }
+.review-sidebar-meta strong { color: var(--muted); font: 500 var(--text-xs) var(--mono); white-space: nowrap; }
 .review-sidebar-meta .spacer { flex: 1; }
 .review-sidebar-meta .stat-add, .review-sidebar-meta .stat-del { font-size: var(--text-xs); }
 .review-stale { color: var(--muted); font: var(--text-xs) var(--mono); }
 /* What a kit adds above the file list (the branch's pull request); it scrolls before it crowds the files out. */
 .review-list-header { flex: none; min-width: 0; max-height: 50%; overflow: auto; border-bottom: 1px solid var(--line); }
-.review-staging { flex: none; display: flex; align-items: center; gap: 8px; min-height: 22px; padding: 0 12px; color: var(--faint); font: var(--text-xs) var(--mono); }
-.review-staging .text-button { font-size: var(--text-control); }
+.review-staging { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-height: 22px; padding: 0 12px; color: var(--faint); font: var(--text-xs) var(--mono); }
+.review-staging > span { white-space: nowrap; }
+.review-staging .text-button { font-size: var(--text-control); white-space: nowrap; }
 .review-tree-file:hover .changes-tree-actions, .review-tree-file:focus-within .changes-tree-actions { opacity: 1; }
 /* The commit is written where the diff is read: the message, one button, and a line saying what it commits. */
 .review-commit {
