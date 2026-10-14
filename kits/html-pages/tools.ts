@@ -33,7 +33,7 @@ const THEME_GUIDE = [
 export const SHOW_HTML_PAGE_DESCRIPTION = [
   "Show an interactive HTML page (chart, table, diagram, image collage, mockup, small tool) inline in this thread, above your reply. Call it before writing the reply; the reader already sees the page, so the reply adds only what the page does not say.",
   "Write one self-contained document. Scripts run in a sandbox with no network: fetch, XHR and WebSocket are blocked, and a library loads only from an https origin you list in origins.",
-  "Local images (an absolute or project-relative path in src or url()) are embedded when you call this. A link opens in the reader's browser after a click.",
+  "Local images (an absolute or project-relative path in src or url()) are embedded when you call this. A link opens in the reader's browser after a click. A click on an image opens it in Tau's image viewer, so build no lightbox of your own.",
   "The page sits on the thread's own background: leave html and body without a background colour, use a fluid width with no outer card or title, give charts fixed pixel heights and avoid 100vh.",
   THEME_GUIDE,
 ].join(" ");

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Maximize2, PanelRightOpen } from "lucide-react";
-import { SandboxFrame, errorMessage, tooltipProps, useClientEnvironment, useColorScheme, type HostExtensionClient, type SandboxFrameHandle, type WorkbenchActions } from "tau";
-import { HTML_PAGE_COMMANDS, HTML_PAGE_STAGE_TAB, type HtmlPageOpen, type HtmlPageOpenInput } from "./protocol.js";
+import { AttachmentLightbox, SandboxFrame, errorMessage, tooltipProps, useClientEnvironment, useColorScheme, type AttachmentImage, type HostExtensionClient, type SandboxFrameHandle, type WorkbenchActions } from "tau";
+import { HTML_PAGE_COMMANDS, HTML_PAGE_STAGE_TAB, PAGE_MESSAGES, type HtmlPageOpen, type HtmlPageOpenInput } from "./protocol.js";
 import { pageTheme } from "./theme.js";
 
 type View =
@@ -14,7 +14,7 @@ const fullscreenSupported = () => typeof HTMLElement !== "undefined" && "popover
 const SIZE_METHOD = "ui/notifications/size-changed";
 const LINK_METHOD = "ui/open-link";
 
-interface Message { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown }
+interface Message { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown; result?: unknown }
 
 /** The page's own report of its content height, when `data` is one. */
 export function reportedHeight(data: unknown): number | undefined {
@@ -31,6 +31,34 @@ export function linkRequest(data: unknown): { id: string | number; url: string }
   if (typeof message.id !== "string" && typeof message.id !== "number") return undefined;
   const url = (message.params as { url?: unknown } | undefined)?.url;
   return typeof url === "string" && /^https?:\/\//iu.test(url) ? { id: message.id, url } : undefined;
+}
+
+const DATA_IMAGE = /^data:image\/(?:png|jpeg|gif|webp|avif|bmp|svg\+xml)(?:;[^,;]*)*;base64,/iu;
+const MAX_IMAGES = 100;
+
+/** The images a page handed over that Tau may draw (embedded, or from a declared origin), and where `selected` is among them, if it was kept. */
+export function readImages(value: unknown, origins: readonly string[], fallbackLabel: string, selected = 0): { images: AttachmentImage[]; index: number | undefined } {
+  const images: AttachmentImage[] = [];
+  let index: number | undefined;
+  for (const [position, entry] of (Array.isArray(value) ? value : []).slice(0, MAX_IMAGES).entries()) {
+    const { src, alt } = (entry ?? {}) as { src?: unknown; alt?: unknown };
+    if (typeof src !== "string") continue;
+    let allowed = DATA_IMAGE.test(src);
+    if (!allowed && /^https:\/\//iu.test(src)) { try { allowed = origins.includes(new URL(src).origin); } catch { /* Not a URL. */ } }
+    if (!allowed) continue;
+    if (position === selected) index = images.length;
+    const text = typeof alt === "string" ? alt.trim().slice(0, 300) : "";
+    images.push({ key: `${String(images.length)}:${src.slice(-32)}`, src, alt: text, label: text || fallbackLabel });
+  }
+  return { images, index };
+}
+
+/** A page's images and the one to show first, when `data` hands them over on a click. */
+export function openImagesRequest(data: unknown): { images: unknown; index: number } | undefined {
+  const message = data as Message | null;
+  if (typeof message !== "object" || message === null || message.jsonrpc !== "2.0" || message.method !== PAGE_MESSAGES.openImages) return undefined;
+  const params = message.params as { images?: unknown; index?: unknown } | undefined;
+  return { images: params?.images, index: typeof params?.index === "number" && Number.isInteger(params.index) ? params.index : 0 };
 }
 
 export interface PageViewProps {
@@ -52,6 +80,9 @@ export function PageView({ host, actions, threadId, pageId, variant, onTitle }: 
   const [height, setHeight] = useState<number | undefined>();
   const [fullscreen, setFullscreen] = useState(false);
   const [room, setRoom] = useState(0);
+  const [gallery, setGallery] = useState(false);
+  const [shown, setShown] = useState<{ images: AttachmentImage[]; index: number }>();
+  const listing = useRef<string | undefined>(undefined);
   const handle = useRef<SandboxFrameHandle>(null);
   const box = useRef<HTMLDivElement>(null);
   const latest = useRef({ scheme, onTitle });
@@ -95,6 +126,25 @@ export function PageView({ host, actions, threadId, pageId, variant, onTitle }: 
       if (!fullscreen) setHeight(Math.ceil(measured));
       return;
     }
+    if (view.kind !== "ready") return;
+    const message = data as Message | null;
+    if (message?.jsonrpc === "2.0" && message.method === PAGE_MESSAGES.media) {
+      setGallery((message.params as { gallery?: unknown } | undefined)?.gallery === true);
+      return;
+    }
+    // A click in the page, or the answer to Expand; never a page opening the viewer by itself.
+    const clicked = openImagesRequest(data);
+    const answered = listing.current !== undefined && message?.id === listing.current ? (message.result as { images?: unknown } | undefined) : undefined;
+    if (clicked || answered) {
+      if (answered) listing.current = undefined;
+      else if (!handle.current?.hasUserActivation()) return;
+      const read = readImages(clicked?.images ?? answered?.images, view.open.origins, view.open.title, clicked?.index);
+      if (answered && read.images.length === 0) { setFullscreen(true); return; }
+      if (clicked && read.index === undefined) return;
+      setFullscreen(false);
+      setShown({ images: read.images, index: read.index ?? 0 });
+      return;
+    }
     const link = linkRequest(data);
     if (!link) return;
     const allowed = Boolean(handle.current?.hasUserActivation());
@@ -109,6 +159,12 @@ export function PageView({ host, actions, threadId, pageId, variant, onTitle }: 
 
   const { open } = view;
   const frameHeight = variant === "tab" ? room : Math.min(height ?? open.maxHeight, open.maxHeight);
+  // A page of only images opens in the image viewer; any other page goes full screen.
+  const expand = () => {
+    if (!gallery) { setFullscreen(true); return; }
+    listing.current = `tau-images-${String(Date.now())}`;
+    handle.current?.post({ jsonrpc: "2.0", id: listing.current, method: PAGE_MESSAGES.listImages });
+  };
   const canTab = variant === "card" && environment.profile !== "compact" && typeof actions.openStageTab === "function";
   return (
     <div className="html-page-body" data-variant={variant} ref={box}>
@@ -117,8 +173,8 @@ export function PageView({ host, actions, threadId, pageId, variant, onTitle }: 
           <span className="html-page-title">{open.title}</span>
           {open.origins.length > 0 ? <span className="html-page-origins" {...tooltipProps(`Loads from ${open.origins.join(", ")}`)}>{open.origins.length === 1 ? new URL(open.origins[0]!).host : `${String(open.origins.length)} hosts`}</span> : null}
           <span className="html-page-actions">
-            {fullscreenSupported() ? (
-              <button type="button" className="html-page-button" aria-label="Expand" {...tooltipProps("Expand")} onClick={() => setFullscreen(true)}><Maximize2 size={14} aria-hidden="true" /></button>
+            {gallery || fullscreenSupported() ? (
+              <button type="button" className="html-page-button" aria-label="Expand" {...tooltipProps("Expand")} onClick={expand}><Maximize2 size={14} aria-hidden="true" /></button>
             ) : null}
             {canTab ? (
               <button type="button" className="html-page-button" aria-label="Open in a tab" {...tooltipProps("Open in a tab")} onClick={() => actions.openStageTab(HTML_PAGE_STAGE_TAB, { threadId, id: pageId, title: open.title })}><PanelRightOpen size={14} aria-hidden="true" /></button>
@@ -136,6 +192,7 @@ export function PageView({ host, actions, threadId, pageId, variant, onTitle }: 
         label={open.title}
         handleRef={handle}
       />
+      {shown ? <AttachmentLightbox images={shown.images} index={shown.index} origin="from this page" onClose={() => setShown(undefined)} /> : null}
     </div>
   );
 }

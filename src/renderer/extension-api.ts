@@ -84,6 +84,9 @@ export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
 export { PrivateAccountText } from "./components/ui/PrivateAccountText";
 export { useContextMenu } from "./components/ui/ContextMenu";
 export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
+// Core's image and video viewer (API 1.63.0).
+export { AttachmentLightbox } from "./deferred-surfaces";
+export type { AttachmentImage } from "./components/MessageImages";
 export { Empty, Skeleton, Spinner } from "./components/ui/Feedback";
 // One sandboxed frame for documents a host serves (ADR 0032), and the colour scheme it follows.
 export { SandboxFrame, type SandboxFrameHandle, type SandboxFrameProps } from "./components/SandboxFrame";

@@ -78,6 +78,46 @@ describe("HTML page card", () => {
     expect(actions.openExternal).toHaveBeenCalledTimes(1);
   });
 
+  it("opens a clicked image in the viewer, only from a live click and only images Tau may draw", async () => {
+    setup(async () => ready({ origins: ["https://cdn.example.com"] }));
+    const iframe = await waitForFrame();
+    const png = "data:image/png;base64,iVBORw0KGgo=";
+    const open = { jsonrpc: "2.0", method: "tau/open-images", params: { index: 1, images: [
+      { src: "javascript:alert(1)", alt: "script" },
+      { src: png, alt: "The share question" },
+      { src: "https://cdn.example.com/b.webp", alt: "" },
+      { src: "https://tracker.test/pixel.png", alt: "undeclared" },
+    ] } };
+    speak(iframe, open);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    iframe.focus();
+    speak(iframe, open);
+    const dialog = await screen.findByRole("dialog", { name: "The share question" });
+    expect(dialog.querySelector(".lightbox-stage img")?.getAttribute("src")).toBe(png);
+    expect(screen.getByText(/1 of 2/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next media" }));
+    expect(screen.getByRole("dialog", { name: "Totals" }).querySelector(".lightbox-stage img")?.getAttribute("src")).toBe("https://cdn.example.com/b.webp");
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("expands a page of images into the viewer", async () => {
+    setup(async () => ready());
+    const iframe = await waitForFrame();
+    const post = vi.spyOn(iframe.contentWindow!, "postMessage").mockImplementation(() => undefined);
+    speak(iframe, { jsonrpc: "2.0", method: "tau/notifications/page-media", params: { gallery: true } });
+    fireEvent.click(await screen.findByRole("button", { name: "Expand" }));
+    const request = post.mock.calls.at(-1)?.[0] as { id: string; method: string };
+    expect(request.method).toBe("tau/list-images");
+    // Only the answer to this request counts.
+    speak(iframe, { jsonrpc: "2.0", id: "other", result: { images: [{ src: "data:image/png;base64,AAAA", alt: "Wrong" }] } });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    speak(iframe, { jsonrpc: "2.0", id: request.id, result: { images: [{ src: "data:image/png;base64,AAAA", alt: "Window" }] } });
+    expect(await screen.findByRole("dialog", { name: "Window" })).toBeTruthy();
+  });
+
   it("says so when the page is gone, and shows a failed call's reason", async () => {
     setup(async () => ({ state: "missing" }));
     await screen.findByText("This page is no longer stored.");
