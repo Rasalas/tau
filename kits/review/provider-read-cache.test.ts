@@ -61,3 +61,17 @@ it("coalesces refreshes and never lets an old failure evict their replacement", 
   expect(unused).not.toHaveBeenCalled();
   cache.dispose();
 });
+it("continues sharing a slow fresh read beyond the TTL and invalidation still starts a new one", async () => {
+  vi.useFakeTimers();
+  const cache = new ProviderReadCache(Date.now);
+  let resolve!: (value: string) => void;
+  const old = cache.read("watch", true, () => new Promise<string>((done) => { resolve = done; }), true);
+  await vi.advanceTimersByTimeAsync(90_000);
+  const unused = vi.fn(async () => "unused");
+  expect(cache.read("watch", true, unused, true)).toBe(old);
+  cache.delete("watch");
+  expect(await cache.read("watch", true, async () => "changed fingerprint", true)).toBe("changed fingerprint");
+  resolve("old fingerprint"); await old;
+  expect(await cache.read("watch", false, unused, false)).toBe("changed fingerprint");
+  cache.dispose();
+});

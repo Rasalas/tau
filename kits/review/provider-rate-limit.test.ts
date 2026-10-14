@@ -16,16 +16,27 @@ describe("the rate-limit pause", () => {
     let now = 0;
     const gate = new RateLimitGate(() => now);
     gate.record("github", "github.com");
-    expect(() => gate.check("GitHub", "github", "github.com")).toThrow(/GitHub's rate limit for github.com is reached; Tau asks again in 30 seconds/u);
+    expect(() => gate.check("GitHub", "github", "github.com")).toThrow(/GitHub's rate limit for github.com is reached; Tau asks again in 60 seconds/u);
     expect(() => gate.check("GitHub", "github", "ghe.example.com")).not.toThrow();
     gate.succeeded("github", "github.com");
-    now = 30_000;
+    now = 60_000;
     expect(() => gate.check("GitHub", "github", "github.com")).not.toThrow();
     gate.record("github", "github.com");
-    expect(() => gate.check("GitHub", "github", "github.com")).toThrow(/60 seconds/u);
-    now = 90_000;
+    expect(() => gate.check("GitHub", "github", "github.com")).toThrow(/2 minutes/u);
+    now = 180_000;
     gate.succeeded("github", "github.com");
-    gate.record("github", "github.com", 90_000 + 600_000);
+    gate.record("github", "github.com", now + 600_000);
     expect(() => gate.check("GitHub", "github", "github.com")).toThrow(/10 minutes/u);
   });
+});
+it("isolates exhausted quotas by credential and preserves long reset times", () => {
+  const gate = new RateLimitGate(() => 0);
+  gate.record("github", "github.com", 3_600_000, "first");
+  expect(() => gate.check("GitHub", "github", "github.com", "first")).toThrow("60 minutes");
+  expect(() => gate.check("GitHub", "github", "github.com", "second")).not.toThrow();
+});
+it("does not shorten a known reset when another already-started request fails without headers", () => {
+  const gate = new RateLimitGate(() => 0);
+  gate.record("github", "github.com", 3_600_000, "account");
+  expect(gate.record("github", "github.com", undefined, "account")).toBe(3_600_000);
 });

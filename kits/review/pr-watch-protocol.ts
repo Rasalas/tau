@@ -8,7 +8,9 @@ export interface WatchSnapshot {
 }
 export interface PullRequestWatch {
   threadId: string; ref: PullRequestRef; status: "watching" | "unreadable" | "ended";
-  startedAt: number; lastReadAt?: number; wakes: number; commentStreak: number;
+  startedAt: number; lastReadAt?: number;
+  /** Unreadable deadline excludes quota suspension, including across restarts. */
+  unreadableSince?: number; suspendedAt?: number; retryAt?: number; wakes: number; commentStreak: number;
   baseline?: WatchSnapshot; reason?: string; stoppedBy?: "user" | "settle";
 }
 export interface WatchState { watches: PullRequestWatch[]; canManage?: boolean }

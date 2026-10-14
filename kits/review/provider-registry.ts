@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { ProviderReadCache } from "./provider-read-cache.js";
 import { homedir } from "node:os";
@@ -11,9 +12,9 @@ import { createAzureProvider } from "./provider-azure.js";
 import { createBitbucketProvider } from "./provider-bitbucket.js";
 import { createForgejoProvider } from "./provider-forgejo.js";
 import { createGitLabProvider } from "./provider-gitlab.js";
-import { isRateLimited, RateLimitGate, retryAtFrom } from "./provider-rate-limit.js";
+import { isRateLimited, RateLimitError, RateLimitGate, retryAtFromCli, retryAtFrom } from "./provider-rate-limit.js";
 import { parseRequestUrl } from "./pull-request-json.js";
-import { defaultCliRunner, explainCliFailure, remoteHost, serviceFor, SERVICES, type CliRunner } from "./request-cli.js";
+import { CliFailure, defaultCliRunner, explainCliFailure, remoteHost, serviceFor, SERVICES, type CliRunner } from "./request-cli.js";
 
 /** A signed-in login is asked for once an hour per host; a failed ask is not remembered. */
 const VIEWER_TTL_MS = 60 * 60_000;
@@ -106,26 +107,41 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
     }
   };
 
+  const authReads = new Map<string, Promise<{ identity: string; cli: ProviderTools["cli"] }>>();
   const cli: ProviderTools["cli"] = async (kind, call, action, extra = {}) => {
     const facts = SERVICES[kind];
     const command = services.findCommand(facts.tool);
     if (!command) throw new HostCommandError(`${facts.label} is not installed or not on your PATH. Install it from ${facts.install}, then run \`${facts.login}\`.`);
-    if (extra.host) gate.check(providerInfo(kind).name, kind, extra.host);
+    if (extra.host) gate.check(providerInfo(kind).name, kind, extra.host, extra.credentialIdentity);
     services.noteSubprocess();
     try {
       // A call that names its repository needs no checkout to run in.
       let stderr = "";
       const output = await run(command, call.args, extra.cwd ?? homedir(), {
+        ...(extra.env ? { env: extra.env } : {}),
         ...(call.input !== undefined ? { input: call.input } : {}),
         ...(extra.maxBuffer ? { maxBuffer: extra.maxBuffer } : {}),
         ...(extra.inspect ? { onStderr: (text: string) => { stderr = text; } } : {}),
+      }).catch((error: unknown) => {
+        if (!(error instanceof CliFailure) || !extra.acceptFailure?.(error.stdout, error.exitCode)) throw error;
+        stderr = error.stderr;
+        return error.stdout;
       });
       extra.inspect?.(output, stderr);
-      if (extra.host) gate.succeeded(kind, extra.host);
+      if (extra.host) gate.succeeded(kind, extra.host, extra.credentialIdentity);
       return output;
     } catch (error) {
-      if (extra.host && error instanceof Error && isRateLimited(error.message)) gate.record(kind, extra.host);
-      throw new HostCommandError(explainCliFailure(kind, action, error));
+      // Pinned credentials must not escape in a CLI's diagnostic text.
+      const explain = () => {
+        let detail = explainCliFailure(kind, action, error);
+        for (const secret of Object.values(extra.env ?? {})) if (secret) detail = detail.replaceAll(secret, "[redacted]");
+        return detail;
+      };
+      if (extra.host && error instanceof Error && isRateLimited(error.message)) {
+        const until = gate.record(kind, extra.host, error instanceof RateLimitError ? error.retryAt : retryAtFromCli(error.message, now()), extra.credentialIdentity);
+        throw new RateLimitError(explain(), until);
+      }
+      throw new HostCommandError(explain());
     }
   };
 
@@ -179,6 +195,27 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
   };
 
   const tools: ProviderTools = {
+    githubSession: (host) => {
+      const held = authReads.get(host);
+      if (held) return held;
+      const value = (async () => {
+        const command = services.findCommand("gh");
+        if (!command) throw new HostCommandError("GitHub CLI (gh) is not installed.");
+        services.noteSubprocess();
+        // Read locally, bypassing the API gate so an account switch can leave an exhausted quota.
+        const token = (await run(command, ["auth", "token", "--hostname", host], homedir()).catch(() => {
+          throw new HostCommandError("GitHub CLI could not resolve its signed-in credential.");
+        })).trim();
+        if (!token) throw new HostCommandError("GitHub CLI has no signed-in credential.");
+        const identity = createHash("sha256").update(token).digest("hex");
+        return { identity, cli: ((kind, call, action, extra) => cli(kind, call, action, {
+          ...extra, credentialIdentity: identity, env: { GH_TOKEN: token, GH_ENTERPRISE_TOKEN: token },
+        })) as ProviderTools["cli"] };
+      })();
+      authReads.set(host, value);
+      void value.finally(() => { if (authReads.get(host) === value) authReads.delete(host); }).catch(() => undefined);
+      return value;
+    },
     findCommand: (name) => services.findCommand(name),
     log: (event, detail) => services.log(event, detail),
     cli,

@@ -7,6 +7,7 @@ import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js
 import type { SourceControl } from "./provider-registry.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { WATCH_INSTRUCTIONS, registerPullRequestWatches, wakeLabel as labelFor, wakeText } from "./pr-watch-host.js";
+import { RateLimitError } from "./provider-rate-limit.js";
 import { readWatchSnapshot } from "./pr-watch-github.js";
 import { watchChanges, watchStanding, type PullRequestWatch, type WatchSnapshot, type WatchState } from "./pr-watch-protocol.js";
 const URL = "https://github.com/example/project/pull/42";
@@ -20,11 +21,11 @@ async function harness(directory?: string, current = initial) {
   const stateDir = directory ?? await mkdtemp(join(tmpdir(), "tau-pr-watch-"));
   if (!directory) cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   const snapshots = new Map<string, WatchSnapshot>();
-  let time = Date.now(), failure = false, observer: HostTurnObserver | undefined;
+  let time = Date.now(), failure: Error | undefined, observer: HostTurnObserver | undefined;
   const snapshotOf = (url: string) => snapshots.get(url) ?? current;
   const instructions: HostMcpInstructionsProvider[] = [];
   const promptHooks: ((event: { systemPrompt: string }) => { systemPrompt: string })[] = [];
-  const read = vi.fn(async (_tools: unknown, ref: { url: string }) => { if (failure) throw new Error("GitHub unavailable"); return structuredClone(snapshotOf(ref.url)); });
+  const read = vi.fn(async (_tools: unknown, ref: { url: string }) => { if (failure) throw failure; return structuredClone(snapshotOf(ref.url)); });
   const reread = vi.fn(async (_url: string) => undefined);
   const send = vi.fn(async (_id: string, _text: string, _options: unknown) => {
     // The durable fingerprint precedes the visible queue admission.
@@ -42,7 +43,7 @@ async function harness(directory?: string, current = initial) {
   });
   cleanups.push(() => registry.deactivate("tau.review"));
   const call = (command: string, input?: unknown) => registry.invoke("tau.review", command, input);
-  return { stateDir, registry, call, instructions, promptHooks, send, read, reread, stop: (id: string) => observer?.stopped?.(id), list: () => call("watch-list") as Promise<WatchState>, change: (value: Partial<WatchSnapshot>, url = URL) => { snapshots.set(url, { ...snapshotOf(url), ...value }); }, unavailable: () => { failure = true; time += 16 * 60_000; } };
+  return { stateDir, registry, call, instructions, promptHooks, send, read, reread, stop: (id: string) => observer?.stopped?.(id), list: () => call("watch-list") as Promise<WatchState>, change: (value: Partial<WatchSnapshot>, url = URL) => { snapshots.set(url, { ...snapshotOf(url), ...value }); }, advance: (ms: number) => { time += ms; }, fail: (error?: Error) => { failure = error; }, time: () => time, unavailable: () => { failure = new Error("GitHub unavailable"); time += 16 * 60_000; } };
 }
 it("detects checks finishing on a new head, comments, new conflicts and terminal state without waking on ordinary polling", () => {
   expect(watchChanges(initial, initial)).toEqual([]);
@@ -186,17 +187,17 @@ it("ends after fifteen minutes unreadable", async () => {
   expect(h.send.mock.calls[0]?.[1]).toContain("unreadable for 15 minutes");
 });
 it("reads one compact GitHub query and refuses incomplete review-thread coverage", async () => {
-  const cli = vi.fn(async () => JSON.stringify({ data: { repository: { pullRequest: { state: "OPEN", mergeable: "CONFLICTING", headRefOid: "head", comments: { totalCount: 1 }, reviews: {}, reviewThreads: { pageInfo: { hasPreviousPage: false } }, commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] } } } } }));
+  const cli = vi.fn(async () => JSON.stringify({ data: { p0: { pullRequest: { state: "OPEN", mergeable: "CONFLICTING", headRefOid: "head", comments: { totalCount: 1 }, reviews: {}, reviewThreads: { pageInfo: { hasPreviousPage: false } }, commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] } } } } }));
   const tools = { cli, cached: (_kind: string, _ref: unknown, _fresh: boolean, read: () => unknown) => read() } as never;
   expect(await readWatchSnapshot(tools, parseRequestUrl(URL)!)).toMatchObject({ state: "OPEN", checks: "done", conflict: true });
   expect(cli).toHaveBeenCalledTimes(1);
   expect(cli.mock.calls[0]).toBeDefined();
-  cli.mockResolvedValueOnce(JSON.stringify({ data: { repository: { pullRequest: { state: "OPEN", headRefOid: "head", reviewThreads: { pageInfo: { hasPreviousPage: true } } } } } }));
+  cli.mockResolvedValueOnce(JSON.stringify({ data: { p0: { pullRequest: { state: "OPEN", headRefOid: "head", reviewThreads: { pageInfo: { hasPreviousPage: true } } } } } }));
   await expect(readWatchSnapshot(tools, parseRequestUrl(URL)!)).rejects.toThrow("more than 100");
 });
 
 it("counts checks as done only when no run, status or workflow is still going, and names failed ones", async () => {
-  const pr = (commit: unknown) => JSON.stringify({ data: { repository: { pullRequest: { state: "OPEN", headRefOid: "head", reviewThreads: { pageInfo: { hasPreviousPage: false } }, commits: { nodes: [{ commit }] } } } } });
+  const pr = (commit: unknown) => JSON.stringify({ data: { p0: { pullRequest: { state: "OPEN", headRefOid: "head", reviewThreads: { pageInfo: { hasPreviousPage: false } }, commits: { nodes: [{ commit }] } } } } });
   const run = (databaseId: number, name: string, status: string, conclusion?: string) => ({ databaseId, name, status, conclusion });
   const ci = (status: string) => ({ checkSuites: { nodes: [{ status: "QUEUED", workflowRun: null }, { status, workflowRun: { databaseId: 9 } }] } });
   const cli = vi.fn(async () => "");
@@ -283,4 +284,65 @@ it("names the head commit and the failed jobs, so a wake about an older push rea
   expect(text).toContain("- test (2/3): job 987 (gh run view --job 987 --log-failed)");
   expect(text).not.toContain("lint:");
   expect(text).toContain("If you pushed since, these results belong to the older commit.");
+});
+it("retains long rate-limit suspensions across restart, skips retries until reset, and resumes", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "a", url: URL });
+  h.fail(new RateLimitError("GitHub rate limit", h.time() + 60 * 60_000));
+  await vi.waitFor(async () => expect((await h.list()).watches[0]?.suspendedAt).toBeDefined());
+  const calls = h.read.mock.calls.length;
+  h.advance(20 * 60_000);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  expect(h.read.mock.calls.length).toBe(calls);
+  expect(h.send).not.toHaveBeenCalled();
+  await h.registry.deactivate("tau.review");
+  const restored = await harness(h.stateDir);
+  restored.advance(61 * 60_000);
+  restored.change({ checks: "done" });
+  await vi.waitFor(() => expect(restored.send).toHaveBeenCalledOnce());
+  expect((await restored.list()).watches[0]).toMatchObject({ status: "watching", wakes: 1 });
+  expect(restored.send.mock.calls[0]?.[1]).toContain("checks passed");
+});
+it("does not forgive persistent unrelated errors before and after quota suspension", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "a", url: URL });
+  h.advance(5 * 60_000); h.fail(new Error("HTTP 403 permission denied"));
+  await vi.waitFor(async () => expect((await h.list()).watches[0]?.unreadableSince).toBeDefined());
+  h.fail(new RateLimitError("GitHub rate limit", h.time() + 60 * 60_000));
+  await vi.waitFor(async () => expect((await h.list()).watches[0]?.suspendedAt).toBeDefined());
+  h.advance(60 * 60_000); h.fail(new Error("HTTP 403 permission denied"));
+  await vi.waitFor(async () => expect((await h.list()).watches[0]?.suspendedAt).toBeUndefined());
+  expect((await h.list()).watches[0]?.status).toBe("unreadable");
+  h.advance(10 * 60_000);
+  await vi.waitFor(async () => expect((await h.list()).watches[0]?.status).toBe("ended"));
+  expect(h.send).toHaveBeenCalledOnce();
+});
+it("detects same-count check replacements and resets the failed-check baseline on force push", () => {
+  const before = { ...initial, failed: [{ id: "1", name: "test" }] };
+  expect(watchChanges(before, { ...before, failed: [{ id: "2", name: "test" }] })).toEqual(["a check failed (test)"]);
+  expect(watchChanges(before, { ...before, head: "force-pushed" })).toEqual(["a check failed (test)"]);
+});
+it("stops on uncertain wake admission and does not replay after restart", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "a", url: URL });
+  h.send.mockRejectedValueOnce(new Error("queue admission unknown"));
+  h.change({ checks: "done" });
+  await vi.waitFor(async () => expect((await h.list()).watches[0]?.status).toBe("ended"));
+  expect((await h.list()).watches[0]?.reason).toContain("not confirmed");
+  await h.registry.deactivate("tau.review");
+  const restored = await harness(h.stateDir, { ...initial, checks: "done" });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  expect(restored.send).not.toHaveBeenCalled();
+});
+it("Stop during an in-flight poll prevents admission of its eventual result", async () => {
+  const h = await harness();
+  await h.call("watch-start", { threadId: "a", url: URL });
+  let resolve!: (snapshot: WatchSnapshot) => void;
+  h.read.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+  await vi.waitFor(() => expect(resolve).toBeDefined());
+  await h.stop("a");
+  resolve({ ...initial, checks: "done" });
+  await new Promise((done) => setTimeout(done, 40));
+  expect(h.send).not.toHaveBeenCalled();
+  expect((await h.list()).watches[0]?.status).toBe("ended");
 });
