@@ -25,23 +25,31 @@ export default function VideoDeviceScreen({ target, invoke, name, onCanvas, onFa
     if (!visible) return;
     let stopped = false, id: string | undefined, decoder: VideoDecoder | undefined;
     let configured = false, awaitingKey = true, frameSeen = false;
+    let reconnects = 0;
     let firstFrame: ReturnType<typeof setTimeout> | undefined;
+    const closeVideo = async () => {
+      clearTimeout(firstFrame);
+      const previous = decoder; decoder = undefined;
+      if (previous?.state !== "closed") previous?.close();
+      onCanvas(undefined);
+      const leaseId = id; id = undefined;
+      if (leaseId) await invoke("stream-close", { id: leaseId }).catch(() => undefined);
+    };
     const stop = () => {
       if (stopped) return;
-      stopped = true; clearTimeout(firstFrame);
-      if (decoder?.state !== "closed") decoder?.close();
-      onCanvas(undefined);
-      if (id) void invoke("stream-close", { id }).catch(() => undefined);
+      stopped = true;
+      void closeVideo();
     };
     const fail = (reason: string) => { if (!stopped) { stop(); onFallback(reason); } };
     const video = async () => {
       if (typeof VideoDecoder === "undefined" || typeof EncodedVideoChunk === "undefined") { fail("Video decoding is unavailable. Showing screen captures."); return; }
+      let backlogged = false;
       try {
-        decoder = new VideoDecoder({
+        const currentDecoder = new VideoDecoder({
           output(frame) {
             try {
               const surface = canvas.current;
-              if (stopped || !surface) return;
+              if (stopped || decoder !== currentDecoder || !surface) return;
               const paint = surface.getContext("2d");
               if (!paint) { fail("Device video cannot draw its screen."); return; }
               const resized = surface.width !== frame.displayWidth || surface.height !== frame.displayHeight;
@@ -51,8 +59,9 @@ export default function VideoDeviceScreen({ target, invoke, name, onCanvas, onFa
               if (!frameSeen || resized) { frameSeen = true; clearTimeout(firstFrame); onCanvas(surface); }
             } finally { frame.close(); }
           },
-          error: () => fail("Device video could not be decoded. Showing screen captures."),
+          error: () => { if (decoder === currentDecoder) fail("Device video could not be decoded. Showing screen captures."); },
         });
+        decoder = currentDecoder;
         const lease = await invoke<{ id: string }>("stream-open", target);
         id = lease.id;
         if (stopped) { void invoke("stream-close", { id }).catch(() => undefined); return; }
@@ -74,12 +83,23 @@ export default function VideoDeviceScreen({ target, invoke, name, onCanvas, onFa
               continue;
             }
             if (!configured || (awaitingKey && packet.kind !== "key")) continue;
-            if (decoder.decodeQueueSize > 8) throw new Error("Device video decoding fell behind.");
+            if (decoder.decodeQueueSize > 8) { backlogged = true; throw new Error("Device video decoding fell behind."); }
             awaitingKey = false;
             decoder.decode(new EncodedVideoChunk({ type: packet.kind === "key" ? "key" : "delta", data: bytes, timestamp: packet.timestamp }));
           }
         }
-      } catch (error) { fail(`${error instanceof Error ? error.message : "Device video stopped."} Showing screen captures.`); }
+      } catch (error) {
+        if (stopped) return;
+        if (backlogged && reconnects < 2) {
+          reconnects++;
+          // A new subscription supplies an immediate keyframe, even for an idle simulator.
+          await closeVideo();
+          if (stopped) return;
+          configured = false; awaitingKey = true; frameSeen = false;
+          return video();
+        }
+        fail(`${error instanceof Error ? error.message : "Device video stopped."} Showing screen captures.`);
+      }
     };
     void video();
     return stop;
