@@ -15,9 +15,9 @@ export function boundedToolOutput(output: string): string {
 export interface TurnOutcome {
   /** Everything the main loop wrote, one entry per assistant message. */
   texts: string[];
-  /** This turn's own tokens and cost; the backend adds them to the thread's total. */
+  /** SDK counters. With modelUsage these are cumulative; the backend records their deltas. */
   usage: UiThreadUsage;
-  /** The same, one tally per model the turn called (sub-agents may run another). */
+  /** The same counters per model, including native subagents. */
   tallies: UsageTally[];
   contextUsage?: UiContextUsage;
   /** The prompt cache's lifetime, when a call of the turn wrote to it. */
@@ -109,7 +109,7 @@ function resultUsage(message: ResultMessage): UiThreadUsage {
 
 type ModelUsage = { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number };
 
-/** The turn's tokens per model, as `modelUsage` splits them; one tally for the session's model without it. */
+/** Cumulative counters per model; without modelUsage, tokens cover this turn's main loop only. */
 export function resultTallies(message: ResultMessage, sessionModel: string | undefined): UsageTally[] {
   const models = Object.entries((message as { modelUsage?: Record<string, ModelUsage> }).modelUsage ?? {});
   if (models.length === 0) {
@@ -118,7 +118,7 @@ export function resultTallies(message: ResultMessage, sessionModel: string | und
   }
   // The turn counts once, for the model it ran on (or the first one named).
   const main = Math.max(0, models.findIndex(([name]) => name === sessionModel));
-  // The SDK's own estimate wins, as in the total; it is spread over the models by their share.
+  // The SDK's estimate is spread over the models by their share of the cumulative cost.
   const named = models.reduce((sum, [, usage]) => sum + usage.costUSD, 0);
   const total = typeof message.total_cost_usd === "number" ? message.total_cost_usd : named;
   const costOf = (usage: ModelUsage, index: number) => named > 0 ? total * usage.costUSD / named : index === main ? total : 0;
