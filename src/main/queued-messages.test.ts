@@ -356,6 +356,8 @@ describe("QueuedMessages, planned", () => {
     await after.settle("waiting");
     expect(after.delivered).toEqual([]);
     after.queue.freeze();
+    // The restore's own write must land before the folder goes.
+    await after.queue.flush();
   });
 });
 

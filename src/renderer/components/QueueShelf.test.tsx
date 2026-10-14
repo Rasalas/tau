@@ -64,7 +64,8 @@ describe("QueueShelf", () => {
     at.setDate(at.getDate() + 1);
     at.setHours(9, 0, 0, 0);
     render(<TestProviders><QueueShelf queue={[queued("plan", "check the build", { deliverAt: at.getTime() })]} streaming={false} {...on} /></TestProviders>);
-    expect(screen.getByText(/^Planned · .*09:00$/u)).toBeTruthy();
+    // The time follows the locale: "09:00", or "09:00 AM".
+    expect(screen.getByText(/^Planned · .*9:00/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Change time/u }));
     const sheet = await screen.findByRole("dialog", { name: "Change the time" });
     fireEvent.click(await within(sheet).findByRole("option", { name: /Tomorrow afternoon/u }));
