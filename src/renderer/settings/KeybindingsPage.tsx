@@ -1,9 +1,10 @@
-import { useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Keyboard, MoreHorizontal, Pencil, Search, TriangleAlert, X } from "lucide-react";
 import type { ExtensionRegistry, KeybindingCollision, ResolvedKeybinding, UserKeymapContribution } from "../extension-system";
 import { KEYBINDING_CAPTURE_ATTRIBUTE } from "../keybinding-context";
 import { chordFromKeyboardEvent, formatKeyChord, isMacPlatform, keyChordParts, parseKeyChord } from "../keybindings";
 import { usePreferences } from "../renderer-services-context";
+import { useHostClient } from "../host-client-context";
 import { Menu } from "../components/Menu";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { tooltipProps } from "../components/ui/Tooltip";
@@ -297,6 +298,9 @@ function ComposerKeys({ registry, mac, onOpen }: { registry: ExtensionRegistry; 
  * implement. Without a user keymap (`registerUserKeymap`) the page only lists.
  */
 export function KeybindingsPage({ registry, initialFilter = "", onNotify = () => {}, onOpen }: { registry: ExtensionRegistry; initialFilter?: string; onNotify?(message: string, level?: "info" | "warning" | "error"): void; onOpen?(target: string): void }) {
+  const client = useHostClient();
+  const subscribe = useCallback((listener: () => void) => client?.onConnectionState(listener) ?? (() => undefined), [client]);
+  const connected = useSyncExternalStore(subscribe, () => client?.getConnectionState() === "connected");
   const [filter, setFilter] = useState(initialFilter);
   const [keyFilter, setKeyFilter] = useState<string>();
   const [searchingKeys, setSearchingKeys] = useState(false);
@@ -418,7 +422,7 @@ export function KeybindingsPage({ registry, initialFilter = "", onNotify = () =>
       ) : null}
 
       <p className="settings-footnote keybinding-foot">
-        {keymap ? <>A change is written to <code>{keymap.label}</code> and applies at once.</> : <>Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>.</>}
+        {!connected ? <>Connect to the machine to change keybindings.</> : keymap ? <>A change is written to <code>{keymap.label}</code> and applies at once.</> : <>Rebind any command id or Pi action in <code>~/.pi/agent/keybindings.json</code>.</>}
         <Button variant="ghost" aria-pressed={showAllCommands} onClick={() => setShowAllCommands((value) => !value)}>Every command</Button>
         {keymap && custom ? <Button variant="ghost" onClick={() => setConfirmReset(true)}>Reset all</Button> : null}
       </p>

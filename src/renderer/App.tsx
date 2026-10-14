@@ -391,10 +391,14 @@ export default function App() {
 
   useEffect(() => {
     if (!client) return;
-    if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error), "error"));
+    // Safe mode and a confirmed empty workspace have no package scan to await.
+    // Keep undefined (bootstrap still pending) loading; a later real path starts
+    // its normal scan even after the empty workspace has revealed the shell.
+    if (safeMode || workspaceCwd === "") registry.setLoadingExtensions(false);
+    else if (workspaceCwd) void runtimeExtensions.sync(workspaceCwd).catch((error) => setNotice(errorMessage(error), "error"));
     // A project's own settings apply from the start screen on, before its thread has a workspace id.
     preferences.setWorkspace(activeWorkspaceId ?? workspaceCwd);
-  }, [activeWorkspaceId, client, preferences, runtimeExtensions, workspaceCwd]);
+  }, [activeWorkspaceId, client, preferences, registry, runtimeExtensions, safeMode, workspaceCwd]);
   const syncDesktopExtensions = useCallback((only?: readonly string[], report?: PackagesChangeReport) => {
     void runtimeExtensions.resync(only, report).catch((error) => setNotice(errorMessage(error), "error"));
   }, [runtimeExtensions, setNotice]);

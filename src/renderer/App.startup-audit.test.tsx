@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { renderApp } from "./test-support/render-app";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { createMemoryStorage, setClientStorage } from "../workbench/client-storage";
@@ -9,6 +9,17 @@ import { setHostClient } from "./host-client-context";
 import type { HostBootstrap } from "../shared/contracts";
 
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
+it("reveals an empty workspace and loads extensions when a workspace later arrives", async () => {
+  const loadDesktopExtensions = vi.fn(async () => ({ bundles: [], errors: [], skipped: [] }));
+  const client = createFakeHostClient({ loadDesktopExtensions });
+  const view = renderApp(client);
+  await waitFor(() => expect(view.container.querySelector("[data-startup-ready]")?.getAttribute("data-startup-ready")).toBe("true"));
+  expect(loadDesktopExtensions).not.toHaveBeenCalled();
+  act(() => client.emit({ type: "host-update", update: { version: 1, type: "project", project: { cwd: "/later" } } }));
+  await waitFor(() => expect(loadDesktopExtensions).toHaveBeenCalledWith("/later", expect.anything(), undefined));
+  await waitFor(() => expect(view.container.querySelector("[data-startup-ready]")?.getAttribute("data-startup-ready")).toBe("true"));
+});
+
 it("labels the saved chat unconfirmed until current startup data arrives", async () => {
   const storage = createMemoryStorage();
   const index = { projects: [], sessions: [{ id: "s", path: "s", title: "Old title", modifiedAt: 1, projectPath: "/p", projectName: "p", messageCount: 1 }] };
