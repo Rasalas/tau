@@ -14,9 +14,15 @@ function containsColorManager(features: string): boolean {
   return features.split(",").some((entry) => entry.trim().replace(/^\*/, "").split(/[<:]/, 1)[0]?.trim() === colorManager);
 }
 
+// Without a platform switch Electron picks Wayland itself whenever a Wayland display is there.
+function nativeWayland(commandLine: Pick<CommandLine, "getSwitchValue">): boolean {
+  const platform = commandLine.getSwitchValue("ozone-platform") || commandLine.getSwitchValue("ozone-platform-hint") || "auto";
+  return platform === "wayland" || platform === "auto" && Boolean(process.env.WAYLAND_DISPLAY);
+}
+
 /** Must run synchronously before the launcher's first await. */
 export function configureEarlyLinuxStartup(commandLine: Pick<CommandLine, "getSwitchValue" | "appendSwitch">): void {
-  if (process.platform !== "linux" || commandLine.getSwitchValue("ozone-platform") !== "wayland") return;
+  if (process.platform !== "linux" || !nativeWayland(commandLine)) return;
   const desktop = process.env.XDG_CURRENT_DESKTOP?.trim() || process.env.XDG_SESSION_DESKTOP || "";
   if (!desktop.split(":").some((token) => token.trim().toLowerCase() === "hyprland")) return;
   const disabled = commandLine.getSwitchValue("disable-features");

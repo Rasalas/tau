@@ -126,10 +126,28 @@ describe("the launcher's early Wayland setup", () => {
     expect(startup.switches.get(name)).toBe(value);
   });
 
-  it.each(["x11", "", "headless", "auto"])("does not probe on the %s platform", async (ozone) => {
+  it.each(["x11", "headless"])("does not probe on the %s platform", async (ozone) => {
     startup.switches.set("ozone-platform", ozone);
     await launch();
     expect(startup.appendSwitch).not.toHaveBeenCalled();
+    expect(startup.execFileSync).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "auto"])("treats the %s platform as Wayland when a Wayland display is there", async (ozone) => {
+    startup.switches.set("ozone-platform", ozone);
+    await launch();
+    expect(startup.appendSwitch).toHaveBeenCalledWith("disable-features", colorManager);
+    vi.resetModules(); startup.appendSwitch.mockClear(); startup.execFileSync.mockClear(); startup.switches.delete("disable-features");
+    vi.stubEnv("WAYLAND_DISPLAY", "");
+    await launch();
+    expect(startup.appendSwitch).not.toHaveBeenCalled();
+    expect(startup.execFileSync).not.toHaveBeenCalled();
+  });
+
+  it("follows an X11 platform hint", async () => {
+    startup.switches.delete("ozone-platform");
+    startup.switches.set("ozone-platform-hint", "x11");
+    await launch();
     expect(startup.execFileSync).not.toHaveBeenCalled();
   });
 
