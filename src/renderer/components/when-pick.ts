@@ -24,7 +24,7 @@ export function readWhenPick(storage: ClientStorage, rememberKey: string): WhenP
 }
 
 /**
- * Saves a pick so the picker opens on it next time (API 1.64.0). Call it when
+ * Saves a pick so the picker opens on it next time (API 1.65.0). Call it when
  * the pick is used, not while the user browses the list.
  */
 export function rememberWhenPick(storage: ClientStorage, rememberKey: string, pick: WhenPick): void {

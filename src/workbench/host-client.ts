@@ -84,12 +84,12 @@ export interface HostClient {
   followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
   abort(sessionId?: string): Promise<void>;
   /** Parks a message in the thread's host-kept queue; it leaves when the thread's turn ends. */
-  /** With `deliverAt` (epoch ms, API 1.64.0) the message is planned: it leaves at that time instead of after the turn. */
+  /** With `deliverAt` (epoch ms, API 1.65.0) the message is planned: it leaves at that time instead of after the turn. */
   queueMessage(sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft, deliverAt?: number): Promise<{ id: string }>;
   /** Takes queued messages back out, in full: one by id, or all of them. */
   takeQueued(sessionId: string, id?: string): Promise<UiQueuedPrompt[]>;
   moveQueued(sessionId: string, id: string, toIndex: number): Promise<void>;
-  /** Plans a waiting message for another time; `undefined` puts it in the line of the queue (API 1.64.0). */
+  /** Plans a waiting message for another time; `undefined` puts it in the line of the queue (API 1.65.0). */
   planQueued(sessionId: string, id: string, deliverAt: number | undefined): Promise<void>;
   /** Continues a thread a provider limit stopped: now, at the reset, or cancels the scheduled resume. */
   resumeLimited(sessionId: string, when: "now" | "reset" | "cancel"): Promise<void>;

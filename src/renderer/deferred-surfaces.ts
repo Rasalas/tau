@@ -30,7 +30,7 @@ export const ChangesTree = deferred(() => import("./components/ChangesTree").the
 // The composer's send menu and Plan sheet, loaded when one opens.
 export const ComposerSendChooser = deferred(() => import("./components/ComposerSendChooser").then((module) => module.ComposerSendChooser));
 export const PlanSheet = deferred(() => import("./components/PlanSheet").then((module) => module.PlanSheet));
-// Snooze's and Plan's list of times (API 1.64.0).
+// Snooze's and Plan's list of times (API 1.65.0).
 export const WhenPicker = deferred(() => import("./components/ui/WhenPicker").then((module) => module.WhenPicker));
 export const Dialog = deferred(() => import("./components/ui/Dialog").then((module) => module.Dialog));
 export const Popover = deferred(() => import("./components/ui/Dialog").then((module) => module.Popover));

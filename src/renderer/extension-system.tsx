@@ -805,7 +805,7 @@ export interface ComposerSendModeContribution extends ProfileScoped {
   subscribe(listener: () => void): () => void;
 }
 
-/** What a planner's tab in the Plan sheet gets (API 1.64.0). */
+/** What a planner's tab in the Plan sheet gets (API 1.65.0). */
 export interface ComposerPlannerProps {
   /** The draft's text, with its chips as plain text, and how many files wait beside it. */
   draft: { text: string; attachments: number };
@@ -819,7 +819,7 @@ export interface ComposerPlannerProps {
 
 /**
  * Another way to plan the composer's draft, beside sending it once into this
- * thread later: the Plan sheet shows it as a tab (API 1.64.0). The tab draws
+ * thread later: the Plan sheet shows it as a tab (API 1.65.0). The tab draws
  * everything below the tabs, its footer included; `.plan-sheet-body` and
  * `.plan-sheet-footer` give it the sheet's spacing.
  */
@@ -1776,7 +1776,7 @@ export interface DesktopExtensionContext {
   registerComposerSpeed(speed: ComposerSpeedContribution): () => void;
   /** Changes what the send button does for a thread, such as compacting first. */
   registerComposerSendMode(mode: ComposerSendModeContribution): () => void;
-  /** A tab of the composer's Plan sheet, such as a repeating schedule (API 1.64.0). */
+  /** A tab of the composer's Plan sheet, such as a repeating schedule (API 1.65.0). */
   registerComposerPlanner(planner: ComposerPlannerContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;

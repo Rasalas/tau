@@ -37,7 +37,7 @@ export function QueuedMessages({ queue, streaming, held = false, steerShortcut, 
   onSteer(id: string): void;
   onReturn(id: string): void;
   onReorder(id: string, toIndex: number): void;
-  /** Gives a waiting message another time (API 1.64.0). */
+  /** Gives a waiting message another time (API 1.65.0). */
   onPlan?(id: string, deliverAt: number): void;
 }) {
   // Only a drag that starts on the grip reorders; text drags inside a bubble do not.

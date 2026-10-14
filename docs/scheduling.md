@@ -97,7 +97,7 @@ creates another thread; management commands are not retry-keyed.
 
 ## Repeat from the composer
 
-The kit registers a composer planner (API 1.64.0), shown as the Repeat tab of
+The kit registers a composer planner (API 1.65.0), shown as the Repeat tab of
 the Plan sheet beside core's Once. It reads "Every [hour|day|week|month] at
 [09:00]", with day toggles for a week and a day of the month for a month, then
 the next three runs in local time and a collapsed Cron disclosure. Editing the

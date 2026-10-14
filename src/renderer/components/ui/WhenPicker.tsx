@@ -6,7 +6,7 @@ import { CUSTOM_WHEN, localDateTimeInput, readWhenPick, type WhenPick, type When
 import "./when-picker.css";
 
 /**
- * A list of times, as Snooze and Plan show it (API 1.64.0): the presets, then
+ * A list of times, as Snooze and Plan show it (API 1.65.0): the presets, then
  * a date and time of the user's own. It opens on the pick saved under
  * `rememberKey` (`rememberWhenPick`) when that row is still offered. ↑↓ move,
  * Enter confirms; a double click confirms a row.

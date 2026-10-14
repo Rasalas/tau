@@ -84,7 +84,7 @@ export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
 export { PrivateAccountText } from "./components/ui/PrivateAccountText";
 export { useContextMenu } from "./components/ui/ContextMenu";
 export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
-// A list of times to pick one from, as Snooze and the composer's Plan sheet show it (API 1.64.0).
+// A list of times to pick one from, as Snooze and the composer's Plan sheet show it (API 1.65.0).
 export { WhenPicker } from "./deferred-surfaces";
 export { CUSTOM_WHEN, readWhenPick, rememberWhenPick, shortWhen, type WhenPick, type WhenPreset } from "./components/when-pick";
 // Core's image and video viewer (API 1.63.0).

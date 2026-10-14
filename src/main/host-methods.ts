@@ -316,7 +316,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       decodeString("move-queued", "id", params[1]),
       decodeIndex("move-queued", "toIndex", params[2]),
     ),
-    // A waiting message gets another time, or with none joins the line of the queue (API 1.64.0).
+    // A waiting message gets another time, or with none joins the line of the queue (API 1.65.0).
     "plan-queued": async (params) => (await host()).queue.reschedule(
       decodeString("plan-queued", "sessionId", params[0]),
       decodeString("plan-queued", "id", params[1]),
