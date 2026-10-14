@@ -40,27 +40,53 @@ function randomId(): string {
   return [...crypto.getRandomValues(new Uint8Array(8))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** A Matomo event; `value` is a count when the event stands for many. */
+export interface TrackedEvent {
+  category: string;
+  action: string;
+  name?: string;
+  value?: number;
+}
+
+export interface EventReport {
+  id: string;
+  release: ClientRelease;
+  event: TrackedEvent;
+}
+
+export type SendEvent = (report: EventReport, signal: AbortSignal) => Promise<void>;
+
 /** The complete wire payload is built here. No workbench objects or prompt text enter this module. */
-export function trackingBody(report: ActivityReport): URLSearchParams {
+export function eventBody({ id, release, event }: EventReport): URLSearchParams {
   return new URLSearchParams({
-    idsite: "4", rec: "1", apiv: "1", cid: report.id,
-    url: ACTION_URL, e_c: "tau", e_a: report.event, ca: "1", send_image: "0",
+    idsite: "4", rec: "1", apiv: "1", cid: id,
+    url: ACTION_URL, e_c: event.category, e_a: event.action,
+    ...(event.name ? { e_n: event.name } : {}),
+    ...(event.value !== undefined ? { e_v: String(event.value) } : {}),
+    ca: "1", send_image: "0",
     ua: "Tau", lang: "und", cookie: "0",
-    dimension1: report.release.version,
-    dimension2: report.release.platform,
-    dimension3: report.release.channel,
+    dimension1: release.version,
+    dimension2: release.platform,
+    dimension3: release.channel,
   });
 }
 
-export const sendActivity: SendActivity = async (report, signal) => {
+export function trackingBody(report: ActivityReport): URLSearchParams {
+  return eventBody({ id: report.id, release: report.release, event: { category: "tau", action: report.event } });
+}
+
+export const sendEvent: SendEvent = async (report, signal) => {
   // A form POST needs no CORS preflight. Matomo may return an opaque response;
   // successful delivery here is best effort, never proof of a real person.
   const response = await fetch(TRACKING_URL, {
-    method: "POST", body: trackingBody(report), signal,
+    method: "POST", body: eventBody(report), signal,
     mode: "no-cors", credentials: "omit", referrerPolicy: "no-referrer", redirect: "error", cache: "no-store",
   });
   if (!response.ok && response.type !== "opaque") throw new Error("Statistics delivery failed.");
 };
+
+export const sendActivity: SendActivity = (report, signal) =>
+  sendEvent({ id: report.id, release: report.release, event: { category: "tau", action: report.event } }, signal);
 
 /** Consent, identity and daily flags belong to the device, never to host settings or synced account data. */
 export class UsageStatistics {
@@ -79,6 +105,7 @@ export class UsageStatistics {
   }
 
   getSnapshot = (): Readonly<State> => this.state;
+  getRelease = (): ClientRelease | undefined => this.release;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
 
   /** Installed release metadata comes from this client's shell; a host hello cannot turn reporting on. */
