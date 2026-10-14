@@ -1,5 +1,5 @@
 import { compareVersions, type HostExtensionContext, type UiRuntimeTool, type UiRuntimeToolsState } from "tau/host-extension";
-import { ENVIRONMENTS_EXTENSION_ID, MACHINE_TOOLS_PROGRESS, MACHINE_TOOLS_STATE, MACHINE_TOOLS_UPDATE, LOCAL_STATE, LOCAL_UPDATE, type MachineTools } from "./protocol.js";
+import { ENVIRONMENTS_EXTENSION_ID, MACHINE_TOOLS_PROGRESS, MACHINE_TOOLS_STATE, MACHINE_TOOLS_UPDATE, LOCAL_STATE, LOCAL_UPDATE, LOCAL_UPDATE_SELECTED, type MachineTools } from "./protocol.js";
 
 export function pendingTool(tool: UiRuntimeTool): boolean {
   return Boolean(tool.update && tool.installed && tool.latest && compareVersions(tool.installed, tool.latest) < 0);
@@ -15,17 +15,23 @@ export function registerRuntimeToolCommands(context: HostExtensionContext): void
     if (!tools) throw new Error("This Tau cannot manage agent tools. Update Tau on this machine.");
     return tools("state");
   };
-  const update = async () => {
+  const update = async (input?: unknown) => {
+    const kinds = (input as { kinds?: unknown } | undefined)?.kinds;
+    if (kinds !== undefined && (!Array.isArray(kinds) || !kinds.every((kind) => typeof kind === "string"))) throw new Error("Invalid agent-tools selection.");
     let state = await read();
     if (state.blocked) return state;
     // One installed program may back multiple runtimes. Update it once.
-    for (const tool of state.tools.filter(pendingTool)) {
+    for (const tool of state.tools.filter(pendingTool).filter((candidate) => !kinds || candidate.kinds.some((kind) => kinds.includes(kind)))) {
       if (!tool.state && tool.kinds[0]) state = await tools!("update", { kind: tool.kinds[0] });
     }
     return state;
   };
   context.registerCommand(LOCAL_STATE, read, { access: "read", long: true });
-  context.registerCommand(LOCAL_UPDATE, update, { long: true, audit: { label: "updated installed agent tools" } });
+  context.registerCommand(LOCAL_UPDATE, () => update(), { long: true, audit: { label: "updated installed agent tools" } });
+  context.registerCommand(LOCAL_UPDATE_SELECTED, (input) => {
+    if (!Array.isArray((input as { kinds?: unknown } | undefined)?.kinds)) throw new Error("Select the agent tools to update.");
+    return update(input);
+  }, { long: true, audit: { label: "updated selected agent tools" } });
 
   const all = async (updating: boolean, input?: unknown): Promise<MachineTools[]> => {
     const raw = input as { machine?: unknown; requestId?: unknown } | undefined;
