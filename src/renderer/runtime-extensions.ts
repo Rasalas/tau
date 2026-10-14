@@ -8,6 +8,8 @@ import type { PackagesChangeReport } from "../workbench/host-events";
 import { diagnosticLine } from "../shared/build-diagnostics";
 import { DESKTOP_BUNDLE_REJECTION_MESSAGES } from "../shared/trusted-desktop-bundles";
 import { EXTENSION_API_VERSION, satisfiesRange } from "../shared/extension-compat";
+import type { ClientStorage } from "../workbench/client-storage";
+import { STORAGE_KEYS } from "../workbench/storage-keys";
 import type { ToastOptions } from "../workbench/toast-store";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
 import { DEFERRED_SHARED_MODULES, type SharedModuleSpecifier } from "../shared/shared-modules";
@@ -92,6 +94,8 @@ export interface RuntimeExtensionHost {
   notify(message: string, level?: "info" | "warning" | "error"): void;
   /** A toast with a type, lines and actions. */
   toast(options: ToastOptions): void;
+  /** This machine's store, for the notices the user closed; without one a closed notice stays closed for this run only. */
+  storage?: ClientStorage;
   /** Opens a place in Settings, for a toast's action. */
   openSettings(target: string): void;
   log(label: string, detail?: string): void;
@@ -100,6 +104,45 @@ export interface RuntimeExtensionHost {
 /** The entry's folder and file, which is what an author recognises: `my-kit/desktop.tsx`. */
 function entryLabel(path: string): string {
   return path.split(/[\\/]/u).slice(-2).join("/");
+}
+
+type Unavailability = keyof typeof DESKTOP_BUNDLE_REJECTION_MESSAGES;
+
+interface UnavailableExtension {
+  id: string;
+  name: string;
+  reason: Unavailability;
+}
+
+const UNAVAILABLE_TOAST_ID = "extensions-unavailable";
+const UNAVAILABLE_NAMES_SHOWN = 3;
+const UNAVAILABLE_REMEMBERED = 100;
+const ACRONYMS = new Set(["ai", "api", "css", "html", "ui", "url"]);
+
+/** Why a client turned an extension away, or undefined for any other load error. */
+function unavailability(message: string): Unavailability | undefined {
+  return (Object.keys(DESKTOP_BUNDLE_REJECTION_MESSAGES) as Unavailability[]).find((key) => DESKTOP_BUNDLE_REJECTION_MESSAGES[key] === message);
+}
+
+/** The package folder (or loose file) an entry belongs to: `tau.terminal` for `…/tau.terminal/desktop.js`. */
+function extensionId(path: string): string {
+  const parts = path.split(/[\\/]/u).filter(Boolean);
+  const file = (parts.pop() ?? "").replace(/\.[^.]+$/u, "");
+  return /^(?:desktop|index)$/u.test(file) ? parts.pop() ?? file : file;
+}
+
+/** A rejected extension's manifest never reaches this client, so its name is its id in words: `tau.html-pages` is "HTML Pages". */
+function extensionName(id: string): string {
+  const words = (id.includes(".") ? id.slice(id.indexOf(".") + 1) : id).split(/[-_.\s]+/u).filter(Boolean);
+  return words.map((word) => ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : word[0]!.toUpperCase() + word.slice(1)).join(" ") || id;
+}
+
+/** "Terminal", "Terminal and Files", "Terminal, Files, Agents and 2 more". */
+function nameList(names: readonly string[]): string {
+  const shown = names.slice(0, UNAVAILABLE_NAMES_SHOWN);
+  const more = names.length - shown.length;
+  if (more > 0) return `${shown.join(", ")} and ${more} more`;
+  return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}` : shown[0] ?? "";
 }
 
 /**
@@ -154,7 +197,8 @@ export class RuntimeExtensions {
   private loaded: RuntimeExtensionRecord[] = [];
   private generation = 0;
   private cwd?: string;
-  private readonly reportedUnavailable = new Set<string>();
+  /** Unavailable extensions a notice already named in this run. */
+  private readonly announced = new Set<string>();
 
   constructor(private readonly registry: ExtensionRegistry, private readonly host: RuntimeExtensionHost) {
     // Until the first load has run, a page a package brings is still on its way.
@@ -194,10 +238,7 @@ export class RuntimeExtensions {
       await loadSharedIcons();
       if (generation !== this.generation) return this.loaded;
     }
-    for (const failure of result.errors) {
-      this.registry.noteLoadFailure(failure.path, failure.message);
-      this.reportBuildFailure(failure, "desktop-extension.failed");
-    }
+    this.reportLoadErrors(result.errors);
     for (const id of only) {
       const bundle = result.bundles.find((candidate) => candidate.id === id);
       // Matched by the bundle's id — the manifest's, or the one a loose file's
@@ -299,6 +340,56 @@ export class RuntimeExtensions {
     this.host.notify(`Desktop extension ${bundle.path.split("/").pop()}: ${message.split("\n")[0]}`, "error");
   }
 
+  /** Entries a load left out: a client's refusals become one notice, a failed build gets its own. */
+  private reportLoadErrors(errors: DesktopExtensionLoadResult["errors"]): void {
+    const unavailable = new Map<string, UnavailableExtension>();
+    for (const failure of errors) {
+      this.registry.noteLoadFailure(failure.path, failure.message);
+      const reason = unavailability(failure.message);
+      if (!reason) { this.reportBuildFailure(failure, "desktop-extension.failed"); continue; }
+      this.host.log("desktop-extension.failed", `${failure.path}: ${failure.message}`);
+      const id = extensionId(failure.path);
+      unavailable.set(id, { id, name: extensionName(id), reason });
+    }
+    this.announceUnavailable([...unavailable.values()]);
+  }
+
+  /** One notice for all of them. It has no timeout because `onClose` also runs on one: closing it is the dismissal. */
+  private announceUnavailable(unavailable: readonly UnavailableExtension[]): void {
+    const dismissed = this.dismissedUnavailable();
+    const pending = unavailable.filter((entry) => !dismissed.has(entry.id));
+    if (pending.every((entry) => this.announced.has(entry.id))) return;
+    for (const entry of pending) this.announced.add(entry.id);
+    const names = (reason: Unavailability) => nameList(pending.filter((entry) => entry.reason === reason).map((entry) => entry.name));
+    const changed = names("changed");
+    const missing = names("missing");
+    const install = "install the same Tau version on both";
+    this.host.toast({
+      id: UNAVAILABLE_TOAST_ID,
+      type: "warning",
+      title: pending.length === 1 ? "An extension wasn't loaded" : "Some extensions weren't loaded",
+      description: changed && missing
+        ? `The connected machine runs another version of ${changed}, and this app does not include ${missing}; ${install}.`
+        : changed ? `The connected machine runs another version of ${changed}; ${install}.` : `This app does not include ${missing}.`,
+      timeoutMs: 0,
+      onClose: () => this.rememberDismissed(pending.map((entry) => entry.id)),
+    });
+  }
+
+  private dismissedUnavailable(): Set<string> {
+    try {
+      const parsed: unknown = JSON.parse(this.host.storage?.get(STORAGE_KEYS.unavailableExtensions) ?? "[]");
+      return new Set(Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  private rememberDismissed(ids: readonly string[]): void {
+    const remembered = [...new Set([...this.dismissedUnavailable(), ...ids])].slice(-UNAVAILABLE_REMEMBERED);
+    try { this.host.storage?.set(STORAGE_KEYS.unavailableExtensions, JSON.stringify(remembered)); } catch { /* still announced for this run */ }
+  }
+
   /**
    * A package entry that did not compile: the whole message in the log, and a
    * toast with the first error's file, line and column. The version that was
@@ -306,18 +397,6 @@ export class RuntimeExtensions {
    */
   private reportBuildFailure(failure: PackageBuildError, label: string): void {
     this.host.log(label, `${failure.path}: ${failure.message}`);
-    if (Object.values<string>(DESKTOP_BUNDLE_REJECTION_MESSAGES).includes(failure.message)) {
-      if (this.reportedUnavailable.has(failure.path)) return;
-      this.reportedUnavailable.add(failure.path);
-      this.host.toast({
-        id: `unavailable:${failure.path}`,
-        type: "warning",
-        title: `${entryLabel(failure.path)} interface not loaded`,
-        description: failure.message,
-        timeoutMs: 15_000,
-      });
-      return;
-    }
     const first = failure.diagnostics?.[0];
     const more = (failure.diagnostics?.length ?? 0) - 1;
     const line = first ? `${diagnosticLine(first)}${more > 0 ? ` (and ${more} more)` : ""}` : failure.message.split("\n")[0] ?? failure.message;
@@ -369,10 +448,7 @@ export class RuntimeExtensions {
       await loadSharedIcons();
       if (generation !== this.generation) return this.loaded;
     }
-    for (const failure of result.errors) {
-      this.registry.noteLoadFailure(failure.path, failure.message);
-      this.reportBuildFailure(failure, "desktop-extension.failed");
-    }
+    this.reportLoadErrors(result.errors);
     for (const skip of result.skipped) this.host.log("desktop-extension.skipped", `${skip.directory}: ${skip.reason}`);
 
     const retained = this.loaded.filter((record) => result.bundles.some((bundle) =>

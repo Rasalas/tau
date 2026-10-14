@@ -18,6 +18,14 @@ describe("client storage on a page that shows another machine", () => {
     expect(localStorage.getItem(`${STORAGE_KEYS.composerDrafts}@studio`)).toBe("studio drafts");
   });
 
+  it("keeps the closed notice about unavailable extensions apart per machine", () => {
+    const own = createLocalStorageAdapter();
+    const studio = createLocalStorageAdapter("studio");
+    studio.set(STORAGE_KEYS.unavailableExtensions, '["tau.terminal"]');
+    expect(own.get(STORAGE_KEYS.unavailableExtensions)).toBeNull();
+    expect(localStorage.getItem(`${STORAGE_KEYS.unavailableExtensions}@studio`)).toBe('["tau.terminal"]');
+  });
+
   it("lists only the keys that page can read, by their plain names", () => {
     const own = createLocalStorageAdapter();
     const studio = createLocalStorageAdapter("studio");

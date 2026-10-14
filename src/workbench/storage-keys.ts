@@ -12,6 +12,8 @@ export const STORAGE_KEYS = {
   /** New threads' drafts the user left with text in them. */
   keptDrafts: "tau.kept-drafts.v1",
   turnActivityCache: "tau.turn-activity.v1",
+  /** Extensions this client could not load and the user closed the notice for. */
+  unavailableExtensions: "tau.unavailable-extensions.v1",
   /** Prefix; one bounded turn per thread. */
   threadTurnActivity: "tau.turn-activity.v2",
   /** Prefix of the stage kept per project before K72; read once, to hand it to a thread. */
@@ -44,6 +46,7 @@ export const HOST_STORAGE_KEYS: readonly string[] = [
   STORAGE_KEYS.activeNewThread,
   STORAGE_KEYS.keptDrafts,
   STORAGE_KEYS.turnActivityCache,
+  STORAGE_KEYS.unavailableExtensions,
   STORAGE_KEYS.threadTurnActivity,
 ];
 
