@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ClientStorage, DesktopExtension, HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
+import type { ClientStorage, DesktopExtension, HostSnapshot, PreferencesStore, TranscriptRow, TranscriptRowsHandle, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { reviewExtension } from "./desktop.js";
 import { PULL_REQUEST_TAB, THREAD_PULL_REQUESTS_TAB, type PullRequestCheck, type ReviewRequest, type ThreadPullRequestLink } from "./protocol.js";
 import { RequestLinks } from "./request-links.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import PullRequestStrip from "./pull-request-strip.js";
-import { STRIP_OPTION, StripDismissals, checksPulse, stripRequests, watchTally, watchedRequests } from "./pull-request-strip-logic.js";
+import { STRIP_OPTION, StripDismissals, checksPulse, requestEndings, stripEnded, stripRequests, watchTally, watchedRequests } from "./pull-request-strip-logic.js";
 import { PullRequestWatchFeed } from "./pr-watch-client.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import type { PullRequestWatch, WatchSnapshot } from "./pr-watch-protocol.js";
@@ -44,15 +44,22 @@ const link = (number: number, extra: Partial<ThreadPullRequestLink> = {}): Threa
   source: "agent", linkedAt: number, title: `Change ${number}`, state: "open", ...extra,
 });
 
-function setup({ branch, links = [], draftPending = false, empty = false, live, unlinked = false, watches }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean; live?: PullRequestClient; unlinked?: boolean; watches?: PullRequestWatchFeed } = {}) {
+/** A transcript-rows handle that keeps what the strip published, per thread. */
+function endingRows() {
+  const published = new Map<string, readonly TranscriptRow[]>();
+  const handle: TranscriptRowsHandle = { setRows: (sessionId, rows) => { published.set(sessionId, rows); }, clear: () => published.clear(), dispose: () => published.clear() };
+  return { handle, rows: (sessionId = "t1") => published.get(sessionId) ?? [] };
+}
+
+function setup({ branch, links = [], draftPending = false, empty = false, live, unlinked = false, watches, messages, endings }: { branch?: ReviewRequest; links?: ThreadPullRequestLink[]; draftPending?: boolean; empty?: boolean; live?: PullRequestClient; unlinked?: boolean; watches?: PullRequestWatchFeed; messages?: { id: string; timestamp: number }[]; endings?: TranscriptRowsHandle } = {}) {
   let changed: ((threadId: string) => void) | undefined;
   let current = unlinked ? [] : links.length ? links : branch ? [link(branch.number, { ...branch })] : [];
   const client = { links: vi.fn(async () => current), onLinksChanged: (listener: (threadId: string) => void) => { changed = listener; return () => undefined; } };
   let currentBranch = branch;
   const load = vi.fn(async () => currentBranch);
-  const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}), ...(watches ? { watches } : {}) };
+  const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}), ...(watches ? { watches } : {}), ...(endings ? { endings } : {}) };
   const actions = { activeThread: () => ({ sessionId: "t1", cwd: "/work", draftPending }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
-  const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : [{ id: "m1" }] } as unknown as HostSnapshot;
+  const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : messages ?? [{ id: "m1" }] } as unknown as HostSnapshot;
   const view = render(<><RequestLinks actions={actions} /><PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} /></>);
   const relink = (next: ThreadPullRequestLink[]) => { current = next; act(() => changed?.("t1")); };
   return { view, parts, actions, load, relink, externalLinks: (next: ThreadPullRequestLink[]) => { current = next; }, externalState: (state: ReviewRequest["state"]) => { if (currentBranch) { currentBranch = { ...currentBranch, state }; current = current.map((entry) => entry.url === currentBranch!.url ? { ...entry, state } : entry); } } };
@@ -95,17 +102,18 @@ describe("the pull-request strip", () => {
     try {
       const { externalLinks } = setup({ branch: BRANCH, links: [link(224)] });
       await act(async () => undefined);
+      expect(strip()?.classList.contains("state-open")).toBe(true);
       externalLinks([link(224, { state: "merged" })]);
       await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-      expect(strip()?.classList.contains("state-merged")).toBe(true);
+      expect(strip()).toBeNull();
     } finally { cleanup(); vi.useRealTimers(); }
   });
   it("reads external completion when the branch cache is explicitly refreshed", async () => {
     const { externalState, parts } = setup({ branch: BRANCH });
-    await act(async () => undefined);
+    await waitFor(() => expect(strip()?.classList.contains("state-open")).toBe(true));
     externalState("merged");
     await act(async () => { parts.rows.ensure("/work", true); });
-    expect(strip()?.classList.contains("state-merged")).toBe(true);
+    expect(strip()).toBeNull();
   });
   it("refreshes an externally merged request while the same branch remains on screen", async () => {
     vi.useFakeTimers();
@@ -115,7 +123,7 @@ describe("the pull-request strip", () => {
       expect(strip()?.classList.contains("state-open")).toBe(true);
       externalState("merged");
       await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
-      expect(strip()?.classList.contains("state-merged")).toBe(true);
+      expect(strip()).toBeNull();
       expect(screen.queryByRole("button", { name: /, open,/ })).toBeNull();
     } finally {
       cleanup();
@@ -142,8 +150,6 @@ describe("the pull-request strip", () => {
     [{ state: "open", checks: { passed: 1, failed: 1, pending: 0, total: 2 } }, "state-open", "Open", "failed"],
     [{ state: "open", checks: { passed: 1, failed: 0, pending: 1, total: 2 } }, "state-open", "Open", "pending"],
     [{ state: "open", draft: true }, "state-draft", "Draft", undefined],
-    [{ state: "merged" }, "state-merged", "Merged", undefined],
-    [{ state: "closed" }, "state-closed", "Closed", undefined],
   ] as const)("tints %j as %s", async (patch, className, word, checks) => {
     setup({ branch: { ...BRANCH, checks: undefined, ...patch } as ReviewRequest });
     await waitFor(() => expect(strip()).not.toBeNull());
@@ -204,8 +210,8 @@ describe("the pull-request strip", () => {
     const hide = await screen.findByRole("button", { name: "Hide PR #9 for this thread" });
     fireEvent.click(hide);
     expect(strip()).toBeNull();
-    relink([link(9, { state: "merged" })]);
-    await waitFor(() => expect(strip()?.classList.contains("state-merged")).toBe(true));
+    relink([link(9, { draft: true })]);
+    await waitFor(() => expect(strip()?.classList.contains("state-draft")).toBe(true));
   });
 
   it("draws nothing without a request, for a draft or a thread without messages, or with the setting off", async () => {
@@ -484,5 +490,60 @@ describe("the thread's watched requests", () => {
     expect(screen.getByRole("img", { name: "Checks: Other checks failed" })).toBeTruthy();
     await act(async () => { finish([{ name: "CI", status: "pending" }]); });
     expect(await screen.findByRole("img", { name: "Checks: Other checks running" })).toBeTruthy();
+  });
+});
+
+describe("a merged or closed request", () => {
+  const ended = (number: number, extra: Partial<ThreadPullRequestLink> = {}) => stripRequests(undefined, [link(number, { state: "merged", endedAt: 500, ...extra })])!.primary;
+
+  it("folds the strip away unless a watch of the thread still reads one of its requests", () => {
+    expect(stripEnded(ended(9), [], "t1")).toBe(true);
+    expect(stripEnded(ended(9, { state: "closed" }), [], "t1")).toBe(true);
+    expect(stripEnded(ended(9), [watchOf(9)], "t1")).toBe(false);
+    expect(stripEnded(ended(9), [watchOf(12, { status: "unreadable" })], "t1")).toBe(false);
+    expect(stripEnded(ended(9), [watchOf(9, { status: "ended" }), watchOf(9, { threadId: "t2" })], "t1")).toBe(true);
+    expect(stripEnded(stripRequests(undefined, [link(9)])!.primary, [], "t1")).toBe(false);
+  });
+
+  it("places each end after the last message before it, and leaves out what a watch's wake says or will say", () => {
+    const messages = [{ id: "a", timestamp: 100 }, { id: "b", timestamp: 400 }, { id: "c", timestamp: 900 }];
+    const { primary, others } = stripRequests(undefined, [
+      link(1, { state: "merged", endedAt: 500 }), link(2, { state: "closed", endedAt: 50 }), link(3, { state: "merged", endedAt: 950 }), link(4),
+      link(5, { state: "merged", endedAt: 600 }), link(6, { state: "merged", endedAt: 700 }), link(7, { state: "merged", endedAt: 800 }),
+    ])!;
+    const watches = [watchOf(5, { status: "ended", reason: "PR merged" }), watchOf(6), watchOf(7, { status: "ended", stoppedBy: "user" })];
+    expect(requestEndings([primary, ...others], messages, watches, "t1").map(({ request, afterMessageId, watched }) => [request.number, afterMessageId, watched]))
+      .toEqual([[7, "b", true], [3, "c", false], [1, "b", false]]);
+  });
+
+  it("dates an end from the link's first read of it when the host gave no time", () => {
+    expect(stripRequests(undefined, [link(1, { state: "merged", refreshedAt: 300 })])!.primary.endedAt).toBe(300);
+    expect(stripRequests(undefined, [link(1, { state: "merged", refreshedAt: 300, endedAt: 200 })])!.primary.endedAt).toBe(200);
+    expect(stripRequests(undefined, [link(1, { refreshedAt: 300 })])!.primary.endedAt).toBeUndefined();
+  });
+
+  it("leaves the composer for a line in the transcript where it merged, which opens its tab", async () => {
+    const endings = endingRows();
+    const { actions } = setup({ links: [link(9, { state: "merged", endedAt: 500 })], messages: [{ id: "m1", timestamp: 100 }, { id: "m2", timestamp: 900 }], endings: endings.handle });
+    await waitFor(() => expect(endings.rows()).toHaveLength(1));
+    expect(strip()).toBeNull();
+    const [row] = endings.rows();
+    expect(row).toMatchObject({ id: link(9).url, afterMessageId: "m1" });
+    render(<>{row!.content}</>);
+    const line = screen.getByRole("button", { name: "Open pull request #9, merged: Change 9" });
+    expect(line.textContent).toMatch(/^PR #9 merged\d/u);
+    fireEvent.click(line);
+    expect(actions.openStageTab).toHaveBeenCalledWith(PULL_REQUEST_TAB, { url: link(9).url, number: 9, service: "github", workspace: "/work" }, { key: link(9).url });
+  });
+
+  it("stays while its watch still reads it, and folds without a line once the watch's wake said it merged", async () => {
+    const endings = endingRows();
+    const { feed, emit } = watchFeed([watchOf(9)]);
+    setup({ links: [link(9, { state: "merged", endedAt: 500 })], messages: [{ id: "m1", timestamp: 100 }], watches: feed, endings: endings.handle });
+    await waitFor(() => expect(strip()?.classList.contains("state-merged")).toBe(true));
+    expect(endings.rows()).toEqual([]);
+    emit([watchOf(9, { status: "ended", reason: "PR merged" })]);
+    await waitFor(() => expect(strip()).toBeNull());
+    expect(endings.rows()).toEqual([]);
   });
 });

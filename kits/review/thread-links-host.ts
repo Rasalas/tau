@@ -18,7 +18,7 @@ const CLOSED_REFRESH_MS = 30 * 60_000;
 const SETTLE_READS = 4;
 
 /** What a provider read says about a linked request; its stack is read on its own. */
-const LINK_FIELDS = ["title", "state", "draft", "headRef", "headSha", "baseRef"] as const;
+const LINK_FIELDS = ["title", "state", "draft", "headRef", "headSha", "baseRef", "endedAt"] as const;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -90,9 +90,13 @@ export function registerThreadLinks(
     return number ? { number: Number(number) } : undefined;
   };
 
-  const fieldsOf = (detail: PullRequestDetail): Pick<ThreadPullRequestLink, (typeof LINK_FIELDS)[number]> => ({
-    title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), ...(detail.headSha ? { headSha: detail.headSha } : {}), baseRef: detail.baseRef,
-  });
+  const fieldsOf = (detail: PullRequestDetail): Pick<ThreadPullRequestLink, (typeof LINK_FIELDS)[number]> => {
+    const endedAt = detail.state === "open" ? undefined : Date.parse((detail.state === "merged" ? detail.mergedAt : detail.closedAt) ?? "");
+    return {
+      title: detail.title, state: detail.state, draft: detail.draft, ...(detail.headRef ? { headRef: detail.headRef } : {}), ...(detail.headSha ? { headSha: detail.headSha } : {}), baseRef: detail.baseRef,
+      ...(endedAt !== undefined && Number.isFinite(endedAt) ? { endedAt } : {}),
+    };
+  };
 
   const snapshotOf = async (ref: PullRequestRef, fresh: boolean): Promise<Pick<ThreadPullRequestLink, (typeof LINK_FIELDS)[number] | "stack"> | undefined> => {
     try {
@@ -165,7 +169,8 @@ export function registerThreadLinks(
   };
 
   const stale = (entry: ThreadPullRequestLink) => {
-    if (entry.state === "merged" && entry.headSha) return false;
+    // A merge recorded before links kept its time is read once more for it.
+    if (entry.state === "merged" && entry.headSha && entry.endedAt !== undefined) return false;
     return Date.now() - (entry.refreshedAt ?? 0) > (entry.state === "closed" ? CLOSED_REFRESH_MS : REFRESH_MS);
   };
 

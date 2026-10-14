@@ -2,12 +2,16 @@
 
 Review Kit can watch a GitHub pull request for one thread. Start from the eye
 segment in the existing PR strip or workspace summary, or with the
-`watch_pull_request` tool (`{ url }`). The segment shows Watching, or
-"Watching 3" when the thread watches several PRs, and its tooltip lists them.
-Click it for the list: each watched PR with where its checks stand, its wake
+`watch_pull_request` tool (`{ url }`). The segment is an eye, blue while it
+watches, and its tooltip names the state; only "Can't read GitHub" is spelled
+out beside it. Click it for the list: each watched PR with where its checks stand, its wake
 count, the last successful read and its own Stop watching, and Watch for an
 open PR of the thread that nobody watches. The strip's "+N" tooltip marks the
 watched ones.
+Once the thread's PR merged or closed and none of its watches still reads one,
+the strip leaves the composer. The transcript keeps a line "PR #82 merged"
+after the last message from before the merge, which opens the PR. When the
+watch saw the merge itself, its final wake is that line and nothing is added.
 Devices paired with Full access can start or stop a watch. Read-only devices
 can inspect its state.
 

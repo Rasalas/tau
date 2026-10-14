@@ -23,6 +23,8 @@ export interface StripRequest {
   checks?: UiReviewRequestChecks;
   /** When the thread linked it; absent for the branch's own request. */
   linkedAt?: number;
+  /** When it merged or closed: the host's time, else when the link first read it ended. */
+  endedAt?: number;
 }
 
 const ENDED = new Set<StripState>(["merged", "closed"]);
@@ -45,8 +47,11 @@ function fromBranch(request: ReviewRequest): StripRequest {
 }
 
 function fromLink(link: ThreadPullRequestLink): StripRequest {
+  const state = stateOf(link.state, link.draft);
+  const endedAt = ENDED.has(state) ? link.endedAt ?? link.refreshedAt : undefined;
   return {
-    url: link.url, number: link.number, service: link.service, host: link.host, repo: link.repo, state: stateOf(link.state, link.draft), linkedAt: link.linkedAt,
+    url: link.url, number: link.number, service: link.service, host: link.host, repo: link.repo, state, linkedAt: link.linkedAt,
+    ...(endedAt !== undefined ? { endedAt } : {}),
     ...(link.title ? { title: link.title } : {}),
     ...(link.headRef ? { headRef: link.headRef } : {}),
     ...(link.headSha ? { headSha: link.headSha } : {}),
@@ -78,6 +83,39 @@ export function stripRequests(branch: ReviewRequest | undefined, links: readonly
 
 /** A watch that still reads its request: watching, or briefly unable to read the host. */
 export const liveWatch = (watch: PullRequestWatch | undefined): watch is PullRequestWatch => Boolean(watch && watch.status !== "ended");
+
+/**
+ * Whether the strip folds into the transcript: its first request merged or
+ * closed, and no watch of the thread still reads one of its requests. An open
+ * request comes first, so an ended first one means they all ended.
+ */
+export function stripEnded(primary: StripRequest, watches: readonly PullRequestWatch[], threadId: string): boolean {
+  return ENDED.has(primary.state) && !watches.some((watch) => watch.threadId === threadId && liveWatch(watch));
+}
+
+/** Where a request's end sits in the transcript, and whether a watch of it had ended before. */
+export interface RequestEnding { request: StripRequest; afterMessageId: string; watched: boolean }
+
+/** The watch saw the request end and woke the thread, so the transcript already has a line for it. */
+const wokeOnEnd = (watch: PullRequestWatch) => watch.status === "ended" && (watch.reason === "PR merged" || watch.reason === "PR closed");
+
+/**
+ * The transcript lines for the thread's merged and closed requests: each after
+ * the last loaded message from before it ended. Left out while a watch still
+ * reads it (its final wake follows), when that watch's wake already said so,
+ * and when no loaded message came before the end: an older page holds it, or
+ * the thread linked a request that had ended before it began.
+ */
+export function requestEndings(requests: readonly StripRequest[], messages: readonly { id: string; timestamp: number }[], watches: readonly PullRequestWatch[], threadId: string): RequestEnding[] {
+  return requests.flatMap((request) => {
+    if (!ENDED.has(request.state) || request.endedAt === undefined) return [];
+    const watch = watches.find((entry) => entry.threadId === threadId && entry.ref.url === request.url);
+    if (watch && (liveWatch(watch) || wokeOnEnd(watch))) return [];
+    let before: string | undefined;
+    for (const message of messages) if (message.timestamp <= request.endedAt) before = message.id;
+    return before ? [{ request, afterMessageId: before, watched: Boolean(watch) }] : [];
+  });
+}
 
 /**
  * The rows under the strip's first one: every other request the thread

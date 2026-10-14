@@ -587,6 +587,8 @@ export interface ThreadPullRequestLink {
   /** The submitted head commit, retained after a squash merge. */
   headSha?: string;
   baseRef?: string;
+  /** When it merged or closed, as its host says; absent while it is open. */
+  endedAt?: number;
   /** The stack it is a layer of, where the host keeps stacks: its number and how many layers it has. */
   stack?: { number: number; size: number };
   refreshedAt?: number;

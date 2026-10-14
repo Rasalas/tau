@@ -5,7 +5,7 @@ import { PullRequestWatchControl } from "./pr-watch-control.js";
 import type { PullRequestWatchFeed } from "./pr-watch-client.js";
 import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { CircleAlert, CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
-import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps, type WorkbenchActions } from "tau";
+import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps, type TranscriptRowsHandle, type WorkbenchActions } from "tau";
 import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck, type ThreadPullRequestLink } from "./protocol.js";
 import { checksPipelines } from "./pipeline.js";
 import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
@@ -13,7 +13,7 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import { checksRollup, checksSummary, checksUnfinished } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
 import { openPullRequest, openThreadPullRequests } from "./pull-request-open.js";
-import { STRIP_OPTION, StripDismissals, checksPulse, stripRequests, watchTally, watchedRequests, type StripRequest, type StripState, type WatchTone } from "./pull-request-strip-logic.js";
+import { STRIP_OPTION, StripDismissals, checksPulse, requestEndings, stripEnded, stripRequests, watchTally, watchedRequests, type RequestEnding, type StripRequest, type StripState, type WatchTone } from "./pull-request-strip-logic.js";
 import type { PullRequestWatch } from "./pr-watch-protocol.js";
 import { useChangeCount, usePresence, type Presence } from "./strip-motion.js";
 import { useRequestLifecycle } from "./request-lifecycle.js";
@@ -32,6 +32,8 @@ export interface StripParts {
   /** Reads the checks for the mini pipeline; without it the chip shows the row's counts. */
   client?: PullRequestClient;
   host?: DesktopExtensionContext["host"];
+  /** Where a merged or closed request's line goes in the transcript once the strip folds away. */
+  endings?: TranscriptRowsHandle;
 }
 
 /** As often as the open request's view asks while checks run. */
@@ -42,6 +44,7 @@ const shared = { dismissals: undefined as StripDismissals | undefined };
 const noFeed = () => () => undefined;
 const NO_WATCHES = { watches: [] as PullRequestWatch[], loaded: true };
 const noWatches = () => NO_WATCHES;
+const NO_MESSAGES: readonly { id: string; timestamp: number }[] = [];
 
 
 function ChecksIcon({ tone }: { tone: "passed" | "failed" | "pending" }) {
@@ -173,6 +176,22 @@ function StripRow({ request, watch, client, actions, cwd, label, motion, childre
   </div>;
 }
 
+const endedAt = (at: number) => new Date(at).toLocaleString([], { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+/** The strip folded into the transcript: a centred line where the request merged or closed; a click opens its tab. */
+function RequestEndLine({ ending: { request, watched }, open }: { ending: RequestEnding; open(): void }) {
+  const info = providerInfo(request.service);
+  const word = STATE_WORDS[request.state].toLowerCase();
+  const at = request.endedAt!;
+  return <div className={`review-request-end state-${request.state}`} role="note" aria-label={`${info.short} ${info.sign}${request.number} ${word}`}>
+    <button type="button" aria-label={`Open ${info.noun} ${info.sign}${request.number}, ${word}${request.title ? `: ${request.title}` : ""}`} {...tooltipProps(request.title)} onClick={open}>
+      <RequestStateIcon state={request.state} size={13} />
+      <span>{info.short} {info.sign}{request.number} {word}{watched ? " · watch ended" : ""}</span>
+      <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()}>{endedAt(at)}</time>
+    </button>
+  </div>;
+}
+
 /** What a screen reader hears for a row's open button. */
 function rowLabel(request: StripRequest, more: number): string {
   const info = providerInfo(request.service);
@@ -189,7 +208,9 @@ function rowLabel(request: StripRequest, more: number): string {
  * The thread's pull or merge request over the composer: number, repository,
  * branch and state, tinted by the state, and under it a row for every other
  * request the thread watches. Reads what the rail row already asked for (the
- * branch's request, the thread's links); a click opens its tab.
+ * branch's request, the thread's links); a click opens its tab. Once the
+ * request merged or closed and no watch reads it, the strip goes and the
+ * transcript keeps a line where it ended.
  */
 export default function PullRequestStrip({ snapshot, actions, parts }: RegionProps & { parts: StripParts }) {
   const { rows, links, preferences } = parts;
@@ -221,11 +242,22 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
   // Rows count as arriving only once the thread's links and watches were read; before, they are loading.
   const ready = Boolean(threadId && links.has(threadId) && watchState.loaded);
   const present = usePresence(shown, (entry) => entry.request.url, ready ? threadId! : "", LEAVE_MS);
+  const endings = eligible && found && threadId ? requestEndings([found.primary, ...found.others], snapshot?.sessionId === threadId ? snapshot.messages ?? NO_MESSAGES : NO_MESSAGES, watchState.watches, threadId) : [];
+  const endingsKey = endings.map(({ request, afterMessageId, watched: ended }) => [request.url, request.state, request.endedAt, request.title, afterMessageId, ended].join(" ")).join("\n");
+  useEffect(() => {
+    if (!parts.endings || !threadId) return;
+    parts.endings.setRows(threadId, endings.map((ending) => ({
+      id: ending.request.url,
+      afterMessageId: ending.afterMessageId,
+      content: <RequestEndLine ending={ending} open={() => openPullRequest(actions, { url: ending.request.url, number: ending.request.number, provider: ending.request.service }, cwd)} />,
+    })));
+  }, [parts.endings, threadId, endingsKey, cwd]);
 
   const settledNote = threadId ? <SettlementStrip source={parts.settlement} threadId={threadId} /> : null;
   if (!watching || !threadId) return settledNote;
   if (!found) return <div className="review-thread-outcome"><PublicationStrip host={parts.host} threadId={threadId} streaming={Boolean(snapshot?.isStreaming)} />{settledNote}</div>;
   const { primary, others } = found;
+  if (stripEnded(primary, watchState.watches, threadId)) return settledNote;
   const info = providerInfo(primary.service);
   const own = watchState.watches.find((watch) => watch.threadId === threadId && watch.ref.url === primary.url);
   const drawn = shown.filter(({ request }) => others.includes(request)).length;
