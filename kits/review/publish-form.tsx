@@ -13,8 +13,9 @@ type Protocol = "https" | "ssh";
  * host it, its name and visibility, then one sentence that says exactly what
  * happens. Only that last step's button reaches the host with `confirm`.
  */
-export function PublishForm({ host, onPublished, onCancel }: {
+export function PublishForm({ host, workspace, onPublished, onCancel }: {
   host: HostExtensionClient;
+  workspace?: string;
   onPublished(result: PublishResult): void;
   onCancel(): void;
 }) {
@@ -28,7 +29,7 @@ export function PublishForm({ host, onPublished, onCancel }: {
 
   useEffect(() => {
     let current = true;
-    host.invoke("publish-info").then((answer) => {
+    host.invoke("publish-info", workspace ? { workspace } : undefined).then((answer) => {
       if (!current) return;
       const next = answer as PublishInfo;
       setInfo(next);
@@ -36,7 +37,7 @@ export function PublishForm({ host, onPublished, onCancel }: {
       if (ready) choose(ready.service, next);
     }, (reason: unknown) => { if (current) setError(errorMessage(reason)); });
     return () => { current = false; };
-  }, [host]);
+  }, [host, workspace]);
 
   const choose = (next: RequestService, facts = info) => {
     const entry = facts?.services.find((candidate) => candidate.service === next);
@@ -52,7 +53,7 @@ export function PublishForm({ host, onPublished, onCancel }: {
     setStep("publishing");
     setError(undefined);
     try {
-      onPublished(await host.invoke("publish-repository", { service, repository: path, visibility, protocol, confirm: true }) as PublishResult);
+      onPublished(await host.invoke("publish-repository", { service, repository: path, visibility, protocol, confirm: true, ...(workspace ? { workspace } : {}) }) as PublishResult);
     } catch (reason) {
       setError(errorMessage(reason));
       setStep("confirm");

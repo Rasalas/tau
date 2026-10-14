@@ -55,7 +55,7 @@ function setup(options: { readOnly?: boolean; turns?: ReviewTurn[]; ahead?: numb
   if (options.source) store.update({ sessionId: "s1", source: options.source });
   const Panel = createCompactReview({ reader, workspace, requests, comments, store });
   const actions = {
-    activeThread: () => ({ sessionId: "s1", cwd: "/p" }),
+    activeThread: () => ({ sessionId: "s1", cwd: "/p", workspaceId: "ws1_shown" }),
     notify: vi.fn(),
     closePanel: vi.fn(),
     composerDraft: () => "Earlier words",
@@ -118,18 +118,18 @@ describe("the review on a compact client", () => {
     expect(comments.getSnapshot().draft?.body).toBe("Why?");
   });
 
-  it("commits the working tree only after the question", async () => {
+  it.each([false, true])("commits the displayed working tree only after the question, with push=%s", async (push) => {
     const { invoke, actions } = setup();
     fireEvent.click(await button(/Diff: /));
     fireEvent.click(await screen.findByRole("menuitemradio", { name: /Uncommitted changes/ }));
     fireEvent.click(await button("Commit…"));
     fireEvent.change(await screen.findByLabelText("Message"), { target: { value: "Fix b" } });
-    fireEvent.click(await button("Commit…"));
-    const dialog = await screen.findByRole("dialog", { name: "Commit?" });
-    expect(dialog.textContent).toContain("Stages and commits all 2 changed files on feat/x: “Fix b”.");
+    fireEvent.click(await enabledButton(push ? "Commit and push…" : "Commit…"));
+    const dialog = await screen.findByRole("dialog", { name: push ? "Commit and push?" : "Commit?" });
+    expect(dialog.textContent).toContain("Stages and commits all 2 changed files on feat/x");
     expect(invoke).not.toHaveBeenCalledWith("commit", expect.anything());
-    fireEvent.click(within(dialog).getByRole("button", { name: "Commit" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("commit", { message: "Fix b", push: false }));
+    fireEvent.click(within(dialog).getByRole("button", { name: push ? "Commit and push" : "Commit" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("commit", { message: "Fix b", push, workspace: "ws1_shown" }));
     await waitFor(() => expect(actions.notify).toHaveBeenCalledWith("Committed 1234567"));
   });
 
@@ -140,7 +140,7 @@ describe("the review on a compact client", () => {
     fireEvent.click(await button("Push"));
     const push = await screen.findByRole("dialog", { name: "Push?" });
     fireEvent.click(within(push).getByRole("button", { name: "Push" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("push"));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("push", { workspace: "ws1_shown" }));
     fireEvent.click(await button("Pull request…"));
     fireEvent.click(await enabledButton(/Write title and description/));
     await waitFor(() => expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("Add c"));

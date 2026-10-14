@@ -581,7 +581,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     if (!this.allowed("Committing") || !this.requireHost("Committing")) return false;
     this.update({ committing: true });
     try {
-      const result = await this.host.commit(message, push);
+      const result = await this.host.commit(message, push, this.workspace());
       this.update({ changes: result.changes });
       this.notify(result.detail);
       void this.refreshWorkspace();

@@ -79,6 +79,47 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it.each([false, true])("commits the named workspace after another client moves the host, with push=%s", async (push) => {
+    const shown = await workspace();
+    const other = await workspace();
+    const remote = await workspace();
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+    git(remote, "init", "--bare", "-q");
+    for (const cwd of [shown, other]) {
+      git(cwd, "init", "-q", "-b", "main");
+      git(cwd, "config", "user.name", "Test");
+      git(cwd, "config", "user.email", "test@example.test");
+      git(cwd, "config", "commit.gpgSign", "false");
+      await writeFile(join(cwd, "file.txt"), "base\n");
+      git(cwd, "add", ".");
+      git(cwd, "commit", "-qm", "base");
+      await writeFile(join(cwd, "file.txt"), "changed\n");
+    }
+    git(shown, "remote", "add", "origin", remote);
+    const otherHead = git(other, "rev-parse", "HEAD");
+    let active = shown;
+    const registry = await activated(shown, {
+      cwd: () => active,
+      knownWorkspacePath: async (id) => {
+        if (id === "ws1_shown") return shown;
+        throw new Error("Unknown workspace");
+      },
+    });
+    const kit = createWorkspaceHostClient((command, input) => registry.invoke("tau.workspace", command, input));
+    try {
+      active = other;
+      await expect(kit.commit("Fix shown changes", push, "ws1_shown")).resolves.toMatchObject({ pushed: push, changes: { files: [] } });
+      expect(git(shown, "log", "-1", "--format=%s")).toBe("Fix shown changes");
+      expect(git(shown, "show", "HEAD:file.txt")).toBe("changed");
+      expect(git(other, "rev-parse", "HEAD")).toBe(otherHead);
+      expect(git(other, "status", "--porcelain")).toBe("M file.txt");
+      expect(git(other, "diff", "--cached", "--name-only")).toBe("");
+      if (push) expect(git(remote, "rev-parse", "refs/heads/main")).toBe(git(shown, "rev-parse", "HEAD"));
+      await expect(kit.commit("Must not commit", push, "unknown")).rejects.toThrow("Unknown workspace");
+      expect(git(other, "rev-parse", "HEAD")).toBe(otherHead);
+    } finally { await registry.dispose(); }
+  });
+
   async function manualWorktree(detached = false, overrides: (tree: string) => Partial<HostExtensionServices> = () => ({})) {
     const repo = await workspace();
     const tree = await workspace();

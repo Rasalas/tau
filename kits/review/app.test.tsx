@@ -154,7 +154,7 @@ describe("Review Kit in the workbench", () => {
       expect(commitButton).toHaveProperty("disabled", false);
     });
     fireEvent.click(commitButton);
-    await waitFor(() => expect(commit).toHaveBeenCalledWith("feat(review): commit from the review", true));
+    await waitFor(() => expect(commit).toHaveBeenCalledWith("feat(review): commit from the review", true, "/project"));
   });
 
   it("opens the stage review over a changed file and proposes a commit message", async () => {
@@ -231,7 +231,7 @@ describe("Review Kit in the workbench", () => {
     fireEvent.click(within(bar).getByRole("button", { name: "More ways to commit" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Commit\b(?! &)/u }));
 
-    await waitFor(() => expect(commit).toHaveBeenCalledWith("fix(review): restore commit flow", false));
+    await waitFor(() => expect(commit).toHaveBeenCalledWith("fix(review): restore commit flow", false, "/project"));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull());
   });
 });
@@ -285,7 +285,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     fireEvent.click(within(card).getByRole("button", { name: "Commit, push & PR" }));
 
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { workspace: "/project", branch: "feat/review", title: "Review every changed file", body: "## Summary\nAll of it.", base: "", draft: true }));
-    expect(commit).toHaveBeenCalledWith("Update a", false);
+    expect(commit).toHaveBeenCalledWith("Update a", false, "/project");
     expect(push).toHaveBeenCalledOnce();
     expect(await screen.findByText("PR #7 created as draft.")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Commit, push & PR" })).toBeNull();
@@ -318,7 +318,7 @@ describe("Review Kit request lifecycle in the workbench", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Commit, push & PR" }));
 
     await waitFor(() => expect(review).toHaveBeenCalledWith("pr-create", { workspace: "/project", branch: "feat/review", title: "Preview the request", body: "Shows the files first.", base: "", draft: false }));
-    expect(commit).toHaveBeenCalledWith("feat(review): preview the request", false);
+    expect(commit).toHaveBeenCalledWith("feat(review): preview the request", false, "/project");
     expect(push).toHaveBeenCalledOnce();
     expect(await screen.findByText("PR #7 created.")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Commit, push & PR" })).toBeNull();

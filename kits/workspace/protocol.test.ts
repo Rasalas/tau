@@ -27,6 +27,8 @@ describe("Workspace Kit client encoding", () => {
     await client.unstageFile("a", "ws1_rex");
     await client.revertFile("a", "ws1_rex");
     await client.stageAll("ws1_rex");
+    await client.commit("Fix shown changes", false, "ws1_rex");
+    await client.commit("Fix and publish shown changes", true, "ws1_rex");
     await client.pull("ws1_rex");
     await client.push("ws1_rex");
     await client.createBranch("fix", "ws1_rex");
@@ -80,6 +82,12 @@ describe("Workspace Kit client encoding", () => {
     const { calls, client } = recorder();
     await client.pull();
     expect(calls).toEqual([{ command: "pull", input: undefined }]);
+  });
+
+  it("keeps an unnamed commit on the host's workspace", async () => {
+    const { calls, client } = recorder();
+    await client.commit("Fix changes", false);
+    expect(calls).toEqual([{ command: "commit", input: { message: "Fix changes", push: false } }]);
   });
 
   it("keeps folder browsing on host paths", async () => {
