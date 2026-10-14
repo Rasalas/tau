@@ -1,3 +1,4 @@
+import type { PromptLink } from "../../src/shared/prompt-links";
 import { followActivities, type ActivityPort } from "./activities";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Server } from "lucide-react";
@@ -140,8 +141,8 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     context.navigate(search);
   }, [context, storage]);
 
-  const openWorkbench = useCallback((host: SavedHost, token: string, threadId?: string, connect?: MobileConnect, page?: string) => {
-    window.history.replaceState(null, "", `${window.location.pathname}${routeSearch({ view: "workbench", hostId: host.id, ...(threadId ? { threadId } : {}), ...(page ? { page } : {}) })}`);
+  const openWorkbench = useCallback((host: SavedHost, token: string, threadId?: string, connect?: MobileConnect, page?: string, promptLink?: PromptLink) => {
+    window.history.replaceState(null, "", `${window.location.pathname}${routeSearch({ view: "workbench", hostId: host.id, ...(promptLink ? { promptLink } : {}), ...(threadId ? { threadId } : {}), ...(page ? { page } : {}) })}`);
     const scoped = hostStorage(storage, host.id);
     setClientStorage(scoped);
     // Read at every reconnect: a migrated pin or a refreshed address list applies to the next socket.
@@ -249,10 +250,10 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   }, [book, context.bridge, device, openWorkbench, refresh]);
 
   /** A saved host: straight in with its token, or ask its owner again when it has none. */
-  const openHost = useCallback(async (host: SavedHost, threadId?: string, page?: string) => {
+  const openHost = useCallback(async (host: SavedHost, threadId?: string, page?: string, promptLink?: PromptLink) => {
     const token = await book.token(host.id);
     const connect = await book.connect(host.id);
-    if (token) openWorkbench(host, token, threadId, connect, page);
+    if (token) openWorkbench(host, token, threadId, connect, page, promptLink);
     else startPairing({ hostId: host.id, name: host.name, ...targetPins(host), endpoints: host.endpoints, ...(connect ? { connect } : {}) }, "hosts");
   }, [book, openWorkbench, startPairing]);
 
@@ -277,7 +278,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       for (const entry of list) if (entry.signedOut) void context.activities?.clear(entry.host.id);
       if (initial.view === "workbench") {
         const saved = list.find((entry) => entry.host.id === initial.hostId);
-        if (saved) { await openHost(saved.host, initial.threadId, initial.page); return; }
+        if (saved) { await openHost(saved.host, initial.threadId, initial.page, initial.promptLink); return; }
         setView({ name: "hosts", notice: "That link is for a machine this phone is not paired with." });
         return;
       }
@@ -288,6 +289,11 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       }
       // Straight back into the last host, unless the user asked for the list or has something to read.
       const last = sortHosts(list.filter((entry) => !entry.signedOut).map((entry) => entry.host))[0];
+      if (initial.view === "prompt") {
+        if (last) { await openHost(last, undefined, undefined, initial.promptLink); return; }
+        setView({ name: "hosts", notice: "Pair with a machine before opening this prompt link." });
+        return;
+      }
       if (!initial.explicit && !notice && last) { await openHost(last); return; }
       setView({ name: "hosts", ...(notice ? { notice } : {}) });
     })();
@@ -296,6 +302,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
   // A link from outside (a push notification): the open host follows it in place, another host loads afresh.
   useEffect(() => context.subscribeToLinks((route) => {
     const current = viewRef.current;
+    if (route.view === "prompt" && current.name === "workbench") route = { view: "workbench", hostId: current.host.id, promptLink: route.promptLink };
     if (route.view === "add" && route.text) {
       pairingRef.current?.abort(); pairingRef.current = undefined;
       if (current.name === "workbench") void book.stageConnectLink(route.text).then(() => context.navigate("?view=add"));
@@ -303,7 +310,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       return;
     }
     if (route.view === "workbench" && current.name === "workbench" && current.host.id === route.hostId) {
-      if (!route.threadId && !route.page) return;
+      if (!route.threadId && !route.page && !route.promptLink) return;
       window.history.pushState(null, "", `${window.location.pathname}${routeSearch(route)}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
       return;

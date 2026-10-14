@@ -21,3 +21,15 @@ describe("app routes", () => {
     expect(linkRoute("not a url")).toBeUndefined();
   });
 });
+
+it("carries bounded prompt links through cold start and navigation", () => {
+  const route = linkRoute("tau://new?host=h-1&prompt=%2Fdeploy&project=ws&provider=p&model=m&send=true")!;
+  expect(route).toEqual({ view: "workbench", hostId: "h-1", promptLink: {
+    hostId: "h-1", prompt: "/deploy", project: "ws", provider: "p", model: "m", truncated: false,
+  } });
+  expect(readRoute(routeSearch(route))).toEqual(route);
+  expect(routeSearch(route)).not.toContain("send");
+  const long = linkRoute(`tau://new?host=h&prompt=${"x".repeat(8_001)}`)!;
+  expect(readRoute(routeSearch(long))).toEqual(long);
+  expect(linkRoute("tau://new?prompt=Hello")).toEqual({ view: "prompt", promptLink: { prompt: "Hello", truncated: false } });
+});

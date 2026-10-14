@@ -1,10 +1,12 @@
+import { parsePromptLink, promptLinkParams, type PromptLink } from "../../src/shared/prompt-links";
 /**
  * Where the app is, in its own address, so a reload or a link lands in the
  * same place: `?host=<id>` is a host's workbench (with the workbench's own
  * `thread=` and `page=`), `?view=add` adds one, anything else is the host list.
  */
 export type AppRoute =
-  | { view: "workbench"; hostId: string; threadId?: string; page?: string }
+  | { view: "workbench"; hostId: string; threadId?: string; page?: string; promptLink?: PromptLink }
+  | { view: "prompt"; promptLink: PromptLink }
   | { view: "add"; text?: string }
   | { view: "hosts"; explicit: boolean };
 
@@ -14,8 +16,11 @@ export function readRoute(search: string): AppRoute {
   if (hostId) {
     const threadId = params.get("thread");
     const page = params.get("page");
-    return { view: "workbench", hostId, ...(threadId ? { threadId } : {}), ...(page ? { page } : {}) };
+    const promptLink = parsePromptLink(`tau://new?${params}`);
+    return { view: "workbench", hostId, ...(promptLink ? { promptLink } : {}), ...(threadId ? { threadId } : {}), ...(page ? { page } : {}) };
   }
+  const promptLink = parsePromptLink(`tau://new?${params}`);
+  if (promptLink) return { view: "prompt", promptLink };
   if (params.get("view") === "add") return { view: "add" };
   return { view: "hosts", explicit: params.get("view") === "hosts" };
 }
@@ -25,9 +30,11 @@ export function routeSearch(route: AppRoute): string {
     case "workbench": {
       const params = new URLSearchParams({ host: route.hostId });
       if (route.threadId) params.set("thread", route.threadId);
+      if (route.promptLink) for (const [key, value] of promptLinkParams(route.promptLink)) params.set(key, value);
       if (route.page) params.set("page", route.page);
       return `?${params.toString()}`;
     }
+    case "prompt": return `?${promptLinkParams(route.promptLink)}`;
     case "add": return "?view=add";
     case "hosts": return route.explicit ? "?view=hosts" : "";
   }
@@ -41,6 +48,8 @@ export function routeSearch(route: AppRoute): string {
  * token or a code.
  */
 export function linkRoute(url: string): AppRoute | undefined {
+  const promptLink = parsePromptLink(url);
+  if (promptLink) return promptLink.hostId ? { view: "workbench", hostId: promptLink.hostId, promptLink } : { view: "prompt", promptLink };
   if (url.startsWith("tau-connect:")) return { view: "add", text: url };
   let parsed: URL;
   try { parsed = new URL(url); } catch { return undefined; }
