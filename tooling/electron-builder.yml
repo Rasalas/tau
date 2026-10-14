@@ -157,6 +157,7 @@ mac:
   # macOS 15+ asks before an app uses the local network; Bonjour announcing and
   # browsing count, and so does a connection to a LAN address (Apple TN3179).
   extendInfo:
+    NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true
     NSLocalNetworkUsageDescription: Tau uses the local network to let your devices connect to this Mac, to announce itself with Bonjour, and to find other machines running Tau.
     NSBonjourServices:
       - _tau._tcp
