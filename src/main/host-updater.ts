@@ -71,11 +71,18 @@ export interface HostUpdaterOptions {
   intervalMs?: number;
   /** How long no turn must have run before an automatic install. */
   quietMs?: number;
+  /** Reads required work and unhandled results directly, before deferred UI publications. */
+  hasRequiredBackgroundWork?(): boolean;
+  /** Abandons the install attempt after this long, keeping the work alive. */
+  backgroundWaitMs?: number;
 }
 
 const DEFAULT_STARTUP_DELAY_MS = 2 * 60_000;
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60_000;
 const DEFAULT_QUIET_MS = 15 * 60_000;
+const DEFAULT_BACKGROUND_WAIT_MS = 60 * 60_000;
+const BACKGROUND_POLL_MS = 5_000;
+const BACKGROUND_DEFERRED_REASON = "The update was deferred because required background work did not finish. Try Update now after that work is handled or stopped.";
 const SETTINGS_FILE = "settings.json";
 /** The answer to the install request goes out before the host leaves. */
 const LEAVE_DELAY_MS = 1_500;
@@ -105,6 +112,7 @@ export class HostUpdater {
   private work: Promise<unknown> = Promise.resolve();
   private timers: Array<ReturnType<typeof setTimeout>> = [];
   private quietTimer: ReturnType<typeof setTimeout> | undefined;
+  private backgroundWait: { version: string; startedAt: number; expired?: boolean } | undefined;
   private disposed = false;
 
   constructor(private readonly options: HostUpdaterOptions) {
@@ -197,8 +205,8 @@ export class HostUpdater {
       await this.checkNow();
       if (this.settings.automatic && this.phase === "available" && this.installer === "host") {
         await this.download();
-        await this.maybeInstall();
       }
+      await this.maybeInstall();
       return this.status();
     });
   }
@@ -214,6 +222,7 @@ export class HostUpdater {
       await this.checkNow();
       if (!this.latest || compareVersions(this.options.version, this.latest) >= 0) return this.status();
       this.requested = true;
+      this.backgroundWait = undefined;
       if (this.installer === "host" && !this.staged) await this.download();
       await this.maybeInstall();
       return this.status();
@@ -354,7 +363,7 @@ export class HostUpdater {
     }
   }
 
-  /** Installs when asked or when quiet, and never while a turn runs. */
+  /** Installs when asked or when quiet, after required work and results are handled. */
   private async maybeInstall(): Promise<void> {
     if (this.disposed || this.phase === "installing" || this.phase === "installed" || this.phase === "unsupported") return;
     const ready = this.installer === "window" ? Boolean(this.latest && compareVersions(this.options.version, this.latest) < 0) : Boolean(this.staged);
@@ -365,6 +374,10 @@ export class HostUpdater {
     }
     if (!this.requested) {
       // The window's own updater installs on its own terms; this host only passes a request on.
+      if (this.backgroundWait?.expired && this.backgroundWait.version === this.latest) {
+        this.set("ready", BACKGROUND_DEFERRED_REASON);
+        return;
+      }
       if (!this.settings.automatic || this.installer === "window" || this.failedVersion === this.staged?.version) return;
       const quiet = this.options.quietMs ?? DEFAULT_QUIET_MS;
       const left = this.lastTurnEnd + quiet - this.now();
@@ -375,8 +388,32 @@ export class HostUpdater {
         return;
       }
     }
+    if (this.waitForBackground()) return;
     if (this.installer === "window") await this.installThroughWindow();
     else await this.installHere();
+  }
+
+  private waitForBackground(): boolean {
+    if (!this.options.hasRequiredBackgroundWork?.()) {
+      this.backgroundWait = undefined;
+      return false;
+    }
+    const version = this.staged?.version ?? this.latest;
+    if (!version) return false;
+    let wait = this.backgroundWait;
+    if (!wait || wait.version !== version) this.backgroundWait = wait = { version, startedAt: this.now() };
+    const left = wait.startedAt + (this.options.backgroundWaitMs ?? DEFAULT_BACKGROUND_WAIT_MS) - this.now();
+    clearTimeout(this.quietTimer);
+    if (left <= 0) {
+      wait.expired = true;
+      this.requested = false;
+      this.set("ready", BACKGROUND_DEFERRED_REASON);
+      return true;
+    }
+    this.set("waiting", "Waiting for required background work and its results before restarting.");
+    this.quietTimer = setTimeout(() => void this.serialize(() => this.maybeInstall()), Math.min(BACKGROUND_POLL_MS, left));
+    this.quietTimer.unref?.();
+    return true;
   }
 
   private async installThroughWindow(): Promise<void> {
@@ -399,6 +436,8 @@ export class HostUpdater {
       this.set("ready", blocked);
       return;
     }
+    // Work may have started while the install permission check was pending.
+    if (this.running.size > 0 || this.waitForBackground()) return;
     this.options.log.info("host-update.installing", { version: staged.version, method: this.options.installer!.method });
     this.set("installing");
     try {

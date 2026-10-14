@@ -51,9 +51,18 @@ display's window) cannot install, so the host does.
 - With **Automatic updates** on (the default, per machine, in
   `<userData>/updates/settings.json`), a newer release downloads at once and
   installs once no turn has run for 15 minutes.
+  Required background work, including results the thread has not handled yet,
+  holds installation back too. The host reads the combined runtime and kit
+  capabilities directly, so an off-screen thread or a delayed UI update cannot
+  hide that work. Explicitly released services do not hold installation back.
 - **Update now** downloads if needed and installs as soon as no turn runs.
   While turns run the status is `waiting` with their count; the install
   follows the end of the last one. It never interrupts a turn.
+  Required background work also puts the install in `waiting`, with a reason.
+  The host checks that work every 5 seconds. After an hour of waiting, it
+  abandons the attempt, keeps the download and work alive, and reports why in
+  `ready`. It does not retry that version automatically; after the work is
+  handled or stopped, **Update now** starts another attempt.
 - A failed install is not retried on its own; asking again retries.
 - After an install, a service host answers the request and leaves with exit
   code 75 1.5 s later; systemd (`Restart=on-failure`) and launchd
