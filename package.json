@@ -18,7 +18,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/fix-node-pty.mjs",
-    "dev": "concurrently -k \"vite\" \"tsc -p tooling/tsconfig.electron.json --watch\" \"node scripts/build-preload.mjs --watch\" \"node scripts/build-host-worker.mjs --watch\" \"wait-on file:dist-electron/main/extension-packages.js && node scripts/build-kits.mjs --watch\" \"wait-on tcp:5173 file:dist-electron/main/launcher.js file:dist-electron/preload/bundle.cjs && env -u ELECTRON_RUN_AS_NODE TAU_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev": "concurrently -k \"vite\" \"node node_modules/typescript/bin/tsc -p tooling/tsconfig.electron.json --watch\" \"node scripts/build-preload.mjs --watch\" \"node scripts/build-host-worker.mjs --watch\" \"wait-on file:dist-electron/main/extension-packages.js && node scripts/build-kits.mjs --watch\" \"wait-on tcp:5173 file:dist-electron/main/launcher.js file:dist-electron/preload/bundle.cjs && env -u ELECTRON_RUN_AS_NODE TAU_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "dev:web": "vite",
     "build": "node scripts/build.mjs",
     "build:report": "node scripts/build-report.mjs",
@@ -152,6 +152,7 @@
     "oxlint": "^1.81.0",
     "ssh2": "^1.17.0",
     "terser": "^5.51.2",
+    "typescript-7": "npm:typescript@7.0.2",
     "uqr": "^0.1.3",
     "vitest": "^4.1.11",
     "wait-on": "^8.0.0"

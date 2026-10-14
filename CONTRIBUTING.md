@@ -45,6 +45,11 @@ API; [CONTEXT.md](CONTEXT.md) defines the words the code uses.
 npm run lint && npm run typecheck && npm test
 ```
 
+Typechecks run the native TypeScript 7 compiler through the shared check slot
+([local checks](docs/agents/local-checks.md)). The build and development watcher
+still emit with TypeScript 5.9, which also supplies the JavaScript compiler API
+used by tests.
+
 - Tests live next to the code (Vitest). A test must not depend on timing.
 - Performance budgets live in [docs/PERFORMANCE.md](docs/PERFORMANCE.md);
   don't raise a budget to make a change fit.
