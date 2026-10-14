@@ -2,7 +2,11 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { HostClient } from "../../workbench/host-client";
+import type { HostConnectionState } from "../../workbench/host-connection";
 import { ExtensionRegistry, type UserKeybinding } from "../extension-system";
+import { HostClientProvider } from "../host-client-context";
+import { createFakeHostClient } from "../test-support/fake-host-client";
 import { TestProviders } from "../test-support/test-providers";
 import { KeybindingsPage } from "./KeybindingsPage";
 
@@ -17,7 +21,7 @@ function Page({ registry, onNotify }: { registry: ExtensionRegistry; onNotify?(m
 }
 
 /** Core's chords for three commands, and a keymap that binds what it is given the way Keybindings Kit does. */
-function setup({ keymap = true, fail = false } = {}) {
+function setup({ keymap = true, fail = false, client = createFakeHostClient() }: { keymap?: boolean; fail?: boolean; client?: HostClient | null } = {}) {
   const registry = new ExtensionRegistry();
   registry.activate({ id: "core", name: "Core", activate(context) {
     context.registerCommand({ id: "palette", label: "Command palette", group: "Core", run() {} });
@@ -47,7 +51,7 @@ function setup({ keymap = true, fail = false } = {}) {
     } });
   }
   const notify = vi.fn();
-  render(<TestProviders><Page registry={registry} onNotify={notify} /></TestProviders>);
+  render(<TestProviders><HostClientProvider client={client ?? undefined}><Page registry={registry} onNotify={notify} /></HostClientProvider></TestProviders>);
   return { registry, setChords, resetAll, notify };
 }
 
@@ -177,6 +181,35 @@ describe("Settings → Keybindings as an editor", () => {
     setup({ keymap: false });
     expect(screen.queryByRole("button", { name: /Change the chord/u })).toBeNull();
     expect(screen.getByLabelText("Ctrl+K")).toBeTruthy();
+    expect(screen.getByText(/Rebind any command id or Pi action in/u).textContent).toContain("~/.pi/agent/keybindings.json");
+    expect(screen.queryByText("Connect to the machine to change keybindings.")).toBeNull();
+  });
+
+  it.each<HostConnectionState>(["reconnecting", "resyncing", "refused"])("explains the missing connection while %s, then restores the file hint", async (initialState) => {
+    let state = initialState;
+    const listeners = new Set<(state: HostConnectionState) => void>();
+    const client = createFakeHostClient({
+      getConnectionState: () => state,
+      onConnectionState: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    });
+    setup({ keymap: false, client });
+    expect(await screen.findByText("Connect to the machine to change keybindings.")).toBeTruthy();
+    expect(screen.queryByText(/Rebind any command id or Pi action in/u)).toBeNull();
+    act(() => { state = "connected"; for (const listener of listeners) listener(state); });
+    expect(await screen.findByText(/Rebind any command id or Pi action in/u)).toBeTruthy();
+    expect(screen.queryByText("Connect to the machine to change keybindings.")).toBeNull();
+  });
+
+  it("explains the missing connection even when a keymap remains registered", async () => {
+    setup({ client: createFakeHostClient({ getConnectionState: () => "reconnecting" }) });
+    expect(await screen.findByText("Connect to the machine to change keybindings.")).toBeTruthy();
+    expect(screen.queryByText(/A change is written to/u)).toBeNull();
+  });
+
+  it("explains that no machine is connected without a client", async () => {
+    setup({ keymap: false, client: null });
+    expect(await screen.findByText("Connect to the machine to change keybindings.")).toBeTruthy();
+    expect(screen.queryByText(/Rebind any command id or Pi action in/u)).toBeNull();
   });
 
   it("draws cards by layer, each key a cap, the composer's own keys among the conversation's", () => {
