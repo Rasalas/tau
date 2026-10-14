@@ -4,6 +4,7 @@ import { ExtensionRegistry, type DesktopExtension } from "./extension-system";
 import type { DesktopExtensionLoadResult } from "../shared/contracts";
 import { DEFERRED_SHARED_MODULES, SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules";
 import { RuntimeExtensions, SHARED_MODULES, isDesktopExtension, loadTauApi, needsNewerClient, sharedExportNames, type RuntimeExtensionHost } from "./runtime-extensions";
+import { trustedDesktopBundles } from "../shared/trusted-desktop-bundles";
 
 afterEach(() => {
   document.head.querySelectorAll("[data-tau-extension]").forEach((element) => element.remove());
@@ -42,6 +43,29 @@ function host(bundles: Array<{ path: string; module: unknown }>, extra: Partial<
 }
 
 describe("runtime desktop extensions", () => {
+  it("explains rejected remote interfaces once per kit and machine across reloads", async () => {
+    const local = { id: "test.shipped", path: "/local/desktop.js", scope: "bundled" as const, code: "export default {};", permissions: [] };
+    const remote = { ...local, path: "/machine/test.shipped/desktop.js", code: "changed();" };
+    const unknown = { ...remote, id: "test.unknown", path: "/machine/test.unknown/desktop.js" };
+    const { host: base } = host([]);
+    const toast = vi.fn();
+    const importModule = vi.fn();
+    const h = { ...base, toast, importModule, load: async () => trustedDesktopBundles({ bundles: [remote, unknown], errors: [], skipped: [] }, [local], async (source) => source) };
+    const runtime = new RuntimeExtensions(new ExtensionRegistry(), h);
+    await runtime.sync("/first-project");
+    await runtime.sync("/second-project");
+    await runtime.resync();
+    await runtime.resync([remote.id, unknown.id]);
+    expect(importModule).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledTimes(2);
+    expect(toast.mock.calls.map(([options]) => ({ title: options.title, description: options.description }))).toEqual([
+      { title: "test.shipped/desktop.js interface not loaded", description: "This machine's extension uses a different version from this app." },
+      { title: "test.unknown/desktop.js interface not loaded", description: "This machine's extension is not included in this app." },
+    ]);
+    await new RuntimeExtensions(new ExtensionRegistry(), { ...h, toast }).sync("/first-project");
+    expect(toast).toHaveBeenCalledTimes(4);
+  });
+
   it("rejects a module whose id differs from its package manifest", async () => {
     const activate = vi.fn();
     const { host: h, notify } = host([]);

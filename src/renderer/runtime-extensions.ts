@@ -6,6 +6,7 @@ import { errorMessage } from "../workbench/error-message";
 import type { DesktopExtensionBundle, DesktopExtensionLoadResult, PackageBuildError } from "../shared/contracts";
 import type { PackagesChangeReport } from "../workbench/host-events";
 import { diagnosticLine } from "../shared/build-diagnostics";
+import { DESKTOP_BUNDLE_REJECTION_MESSAGES } from "../shared/trusted-desktop-bundles";
 import { EXTENSION_API_VERSION, satisfiesRange } from "../shared/extension-compat";
 import type { ToastOptions } from "../workbench/toast-store";
 import type { DesktopExtension, ExtensionRegistry } from "./extension-system";
@@ -153,6 +154,7 @@ export class RuntimeExtensions {
   private loaded: RuntimeExtensionRecord[] = [];
   private generation = 0;
   private cwd?: string;
+  private readonly reportedUnavailable = new Set<string>();
 
   constructor(private readonly registry: ExtensionRegistry, private readonly host: RuntimeExtensionHost) {
     // Until the first load has run, a page a package brings is still on its way.
@@ -304,6 +306,18 @@ export class RuntimeExtensions {
    */
   private reportBuildFailure(failure: PackageBuildError, label: string): void {
     this.host.log(label, `${failure.path}: ${failure.message}`);
+    if (Object.values<string>(DESKTOP_BUNDLE_REJECTION_MESSAGES).includes(failure.message)) {
+      if (this.reportedUnavailable.has(failure.path)) return;
+      this.reportedUnavailable.add(failure.path);
+      this.host.toast({
+        id: `unavailable:${failure.path}`,
+        type: "warning",
+        title: `${entryLabel(failure.path)} interface not loaded`,
+        description: failure.message,
+        timeoutMs: 15_000,
+      });
+      return;
+    }
     const first = failure.diagnostics?.[0];
     const more = (failure.diagnostics?.length ?? 0) - 1;
     const line = first ? `${diagnosticLine(first)}${more > 0 ? ` (and ${more} more)` : ""}` : failure.message.split("\n")[0] ?? failure.message;
