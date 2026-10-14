@@ -208,6 +208,23 @@ describe("TranscriptViewport turn navigation", () => {
     expect(view.getByRole("button", { name: "Jump to latest" })).toBeTruthy();
   });
 
+  it("scrolls the transcript with a wheel over the rail and leaves the tail", async () => {
+    const view = render(<Fixture messages={userMessages(8)} />);
+    const transcript = view.getByRole("log");
+    await waitFor(() => expect(transcript.scrollTop).toBe(1_440));
+    const minimap = await view.findByRole("button", { name: /Jump to turn:/ });
+    // The fixture's longest scroll is 1_040; sit mid-way so there is room both ways.
+    transcript.scrollTop = 800;
+
+    const wheeled = fireEvent.wheel(minimap, { deltaY: -100 });
+
+    expect(wheeled).toBe(false);
+    expect(transcript.scrollTop).toBe(700);
+    expect(view.getByRole("button", { name: "Jump to latest" })).toBeTruthy();
+    fireEvent.wheel(minimap, { deltaY: 3, deltaMode: WheelEvent.DOM_DELTA_LINE });
+    expect(transcript.scrollTop).toBe(748);
+  });
+
   it("marks the turn visible at the current scroll position", async () => {
     const view = render(<Fixture messages={userMessages(8)} />);
     const transcript = view.getByRole("log");

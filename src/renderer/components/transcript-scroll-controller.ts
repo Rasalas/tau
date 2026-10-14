@@ -33,6 +33,8 @@ const ANCHOR_TOLERANCE_PX = 0.5;
 const SEEK_ATTEMPT_LIMIT = 8;
 const OLDER_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
 const NEWER_KEYS = new Set(["ArrowDown", "PageDown"]);
+/** Pixels in one wheel "line" for a device that reports lines instead of pixels. */
+const WHEEL_LINE_PX = 16;
 
 export function transcriptScrollMode(state: TranscriptNavigationState): TranscriptScrollMode {
   if (!state.following) return "free";
@@ -64,6 +66,35 @@ export function setScrollTopClamped(node: ScrollSurface, target: number): void {
 /** Scrolling is animated unless the system asks for reduced motion, which CSS cannot enforce on a scripted scroll. */
 export function scrollBehavior(): ScrollBehavior {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+/**
+ * A wheel over the turn rail, which sits beside the transcript rather than in it.
+ * The transcript sees it first as a wheel of its own, so its listeners record the
+ * reader's direction like any other scroll, and then moves by the converted delta.
+ */
+export function forwardWheelToTranscript(event: WheelEvent, node: HTMLElement): void {
+  // Pinch zoom and a purely horizontal wheel are not this scroller's.
+  if (event.defaultPrevented || event.ctrlKey || event.deltaY === 0) return;
+  event.preventDefault();
+  // Not bubbling: the original already reaches the shared ancestors.
+  const forwarded = new WheelEvent("wheel", {
+    cancelable: true,
+    deltaX: event.deltaX,
+    deltaY: event.deltaY,
+    deltaZ: event.deltaZ,
+    deltaMode: event.deltaMode,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    altKey: event.altKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+  });
+  if (!node.dispatchEvent(forwarded)) return;
+  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+    ? WHEEL_LINE_PX
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? node.clientHeight : 1;
+  setScrollTopClamped(node, node.scrollTop + event.deltaY * unit);
 }
 
 export function scrollToTail(node: ScrollSurface): void {

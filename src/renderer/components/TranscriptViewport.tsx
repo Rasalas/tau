@@ -12,7 +12,7 @@ import {
   type TranscriptTurnStart,
 } from "../../workbench/transcript-navigation";
 import { useTranscriptNavigation } from "./transcript-navigation-dom";
-import { contentTop, FrameLoop, nearTranscriptStart, nearTranscriptTail, scrollBehavior } from "./transcript-scroll-controller";
+import { contentTop, forwardWheelToTranscript, FrameLoop, nearTranscriptStart, nearTranscriptTail, scrollBehavior } from "./transcript-scroll-controller";
 import {
   buildTranscriptTurnNavigation,
   shouldShowTranscriptTurnNavigation,
@@ -296,6 +296,9 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     updateVisibleTurnRef.current();
     turnMarkerFrame.schedule(() => updateVisibleTurnRef.current());
   }, [navigation.jumpToMessage, turnMarkerFrame]);
+  const forwardRailWheel = useCallback((event: WheelEvent) => {
+    if (scrollRef.current) forwardWheelToTranscript(event, scrollRef.current);
+  }, [scrollRef]);
   const onReachStartRef = useRef(onReachStart);
   useLayoutEffect(() => { onReachStartRef.current = onReachStart; }, [onReachStart]);
 
@@ -471,6 +474,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
         activeMessageId={visibleTurnMessageId}
         transcriptId={TRANSCRIPT_ID}
         onSelect={selectTurn}
+        onWheel={forwardRailWheel}
       />
     ) : null}
     {searchOpen ? (
