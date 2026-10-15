@@ -726,7 +726,8 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .folder-crumbs .folder-start > svg:last-child { color: var(--faint); }
 .folder-crumb-step { display: contents; }
 .folder-crumb-step:last-of-type .folder-crumb { color: var(--ink); }
-.folder-crumbs .folder-crumb-outside { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+/* Cut from the left, so the folder's own name stays in view. */
+.folder-crumbs .folder-crumb-outside { min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; color: var(--ink); }
 .folder-start-menu {
   position: absolute; top: 46px; left: 40px; z-index: 5; min-width: 300px; max-width: calc(100% - 56px); padding: 5px;
   border: 1px solid var(--line-float); border-radius: 10px; background: var(--overlay); box-shadow: var(--elevation-3);
@@ -735,7 +736,7 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .folder-start-menu code { color: var(--ink-2); font: 11px var(--mono); }
 .folder-start-menu > button {
   width: 100%; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 6px; background: transparent;
-  padding: 7px 8px; color: var(--ink-2); font-size: var(--text-sm); text-align: left; cursor: pointer;
+  padding: 7px 8px; color: var(--ink-2); font-size: var(--text-sm); text-align: left; white-space: nowrap; cursor: pointer;
 }
 .folder-start-menu > button:hover { background: var(--raised); color: var(--ink); }
 .folder-start-menu > button > code { margin-left: auto; padding-left: 10px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }

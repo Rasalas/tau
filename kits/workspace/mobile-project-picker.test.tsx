@@ -33,7 +33,7 @@ it.each(["compact", "web"])("opens host folders from New thread → Add project 
       project: { cwd: "/repos" },
     }),
     openProject,
-    invokeHostExtension: workspaceHostStub({ listDirectories }),
+    invokeHostExtension: workspaceHostStub({ listDirectories, findFolders: async (path?: string) => ({ root: path ?? "/repos", truncated: false, folders: [] }) }),
   });
   renderApp(client, { extensions: [workspaceExtension] });
   fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
@@ -42,7 +42,7 @@ it.each(["compact", "web"])("opens host folders from New thread → Add project 
   fireEvent.click(await screen.findByRole("button", { name: /Local folder/u }));
   await screen.findByRole("option", { name: "tau" });
   expect(screen.queryByRole("button", { name: /Choose a folder/u })).toBeNull();
-  const input = screen.getByRole("textbox", { name: "Folder path" });
+  const input = screen.getByRole("textbox", { name: "Find a folder" });
   fireEvent.change(input, { target: { value: "/repos/tau/" } });
   await screen.findByText("No folders in here");
   fireEvent.click(screen.getByRole("button", { name: /^Add/u }));

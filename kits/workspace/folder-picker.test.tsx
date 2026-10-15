@@ -100,6 +100,16 @@ describe("LocalFolderSource", () => {
     await waitFor(() => expect(openWorkspace).toHaveBeenCalledWith("ws-home"));
   });
 
+  it("goes into a typed folder", async () => {
+    const { listDirectories, input } = renderSource();
+    await within(results()).findByRole("option", { name: "tau" });
+    fireEvent.change(input(), { target: { value: "~/" } });
+    fireEvent.click(await within(results()).findByRole("option", { name: "Go to ~" }));
+    await waitFor(() => expect(listDirectories).toHaveBeenLastCalledWith("/Users/me"));
+    await waitFor(() => expect(input().value).toBe(""));
+    expect(await within(results()).findByRole("option", { name: "Documents" })).toBeTruthy();
+  });
+
   it("makes the folder on screen the start folder from the pin's menu", async () => {
     const { store, findFolders } = renderSource();
     fireEvent.click(await within(results()).findByRole("button", { name: "_self" }));

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ChevronDown, CornerLeftUp, Folder, FolderGit2, FolderOpen, House, Pin } from "lucide-react";
+import { ArrowLeft, ChevronDown, CornerDownRight, CornerLeftUp, Folder, FolderGit2, FolderOpen, House, Pin } from "lucide-react";
 import { errorMessage, useEscapeLayer, useHostCapabilities, type ProjectSourceProps } from "tau";
 import { GIT_HOST_LABELS } from "../_git-hosts/hosts.js";
 import { GIT_HOST_MARKS } from "../_git-hosts/marks.js";
@@ -9,6 +9,7 @@ import { useWorkspaceStore } from "./store-context.js";
 
 type Row =
   | { kind: "up"; path: string }
+  | { kind: "goto"; path: string }
   | { kind: "folder"; path: string; label: ReactNode; repository?: RepositoryHost; title?: string };
 
 interface Section {
@@ -140,7 +141,9 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       const rows = (pathListing?.directories ?? [])
         .filter((directory) => directory.name.toLocaleLowerCase().startsWith(needle))
         .map((directory): Row => ({ kind: "folder", path: directory.path, label: directory.name, ...(directory.repository ? { repository: directory.repository } : {}) }));
-      return [{ id: "path", heading: <>Path <code>{typedFolder}</code></>, rows, ...(pathListing && rows.length === 0 ? { note: leaf ? `Enter adds ${text}` : "No folders in here" } : {}) }];
+      // A typed folder can be gone into, so it can become the start folder.
+      const goto: Row[] = pathListing && !leaf ? [{ kind: "goto", path: pathListing.path }] : [];
+      return [{ id: "path", heading: <>Path <code>{typedFolder}</code></>, rows: [...goto, ...rows], ...(pathListing && rows.length === 0 ? { note: leaf ? `Enter adds ${text}` : "No folders in here" } : {}) }];
     }
     if (query) {
       if (!ready) {
@@ -161,7 +164,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
         id: `group:${group.key}`,
         heading: group.key
           ? <button type="button" className="folder-group-open" onClick={() => void open(joinFolder(listing.path, group.key))}>{group.key}</button>
-          : `In ${lastSegment(listing.path)}`,
+          : `In ${homeRelative(listing.path) === "~" ? "~" : lastSegment(listing.path)}`,
         rows: group.repositories.map((repository): Row => ({ kind: "folder", path: joinFolder(listing.path, repository.path), label: repository.name, ...(repository.repository ? { repository: repository.repository } : {}), title: repository.path })),
       }));
     }
@@ -227,7 +230,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
     if (typedPath && row.kind === "folder") changeText(withSeparator(homeRelative(row.path)));
     else void open(row.path);
   };
-  const addTyped = () => void add(highlighted?.kind === "folder" ? highlighted.path : text.trim() || undefined);
+  const addTyped = () => void add(highlighted && highlighted.kind !== "up" ? highlighted.path : text.trim() || undefined);
 
   const startRelative = start !== undefined && listing ? relativeFolder(start, listing.path) : undefined;
   const startLabel = start === undefined ? "" : homeRelative(start) === "~" ? "~" : lastSegment(start);
@@ -249,7 +252,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
           onClick={() => setMenu((value) => !value)}
         ><Pin size={12} aria-hidden />{startRelative !== undefined ? <span>{startLabel}</span> : null}<ChevronDown size={11} aria-hidden /></button>
         {startRelative === undefined && listing
-          ? <><button type="button" className="folder-crumb folder-crumb-outside" onClick={() => void open(listing.path)}>{homeRelative(listing.path)}</button><span>/</span></>
+          ? <><button type="button" className="folder-crumb folder-crumb-outside" onClick={() => void open(listing.path)} title={homeRelative(listing.path)}><bdi>{homeRelative(listing.path)}</bdi></button><span>/</span></>
           : <>
             {start !== undefined && parts.length > shownParts.length ? <><span>/</span><span className="folder-crumb-more" title={homeRelative(listing?.path ?? "")}>…</span></> : null}
             {shownParts.map((part, step) => {
@@ -282,7 +285,7 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
           if (event.key === "Enter") {
             event.preventDefault();
             if (event.nativeEvent.isComposing) return;
-            if (highlighted?.kind === "up") void open(highlighted.path);
+            if (highlighted?.kind === "up" || highlighted?.kind === "goto") void open(highlighted.path);
             else if (typedPath) addTyped();
             else void add(highlighted?.path);
             return;
@@ -331,8 +334,8 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
               onClick={() => enter(row)}
               onDoubleClick={() => { if (row.kind === "folder") void add(row.path); }}
             >
-              {row.kind === "up" ? <CornerLeftUp size={15} aria-hidden /> : row.repository ? <FolderGit2 size={15} className="folder-repository-icon" aria-hidden /> : <Folder size={15} aria-hidden />}
-              <span>{row.kind === "up" ? ".." : row.label}</span>
+              {row.kind === "up" ? <CornerLeftUp size={15} aria-hidden /> : row.kind === "goto" ? <CornerDownRight size={15} aria-hidden /> : row.repository ? <FolderGit2 size={15} className="folder-repository-icon" aria-hidden /> : <Folder size={15} aria-hidden />}
+              <span>{row.kind === "up" ? ".." : row.kind === "goto" ? `Go to ${homeRelative(row.path)}` : row.label}</span>
               {row.kind === "folder" ? <HostMark {...(row.repository ? { repository: row.repository } : {})} /> : null}
             </button>;
           })}
