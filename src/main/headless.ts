@@ -1,4 +1,6 @@
 import "./compile-cache.js";
+import { HOST_TRANSPORT_COMMANDS } from "../shared/host-command-contract.js";
+import { bindHostCommand } from "./host-command-handler.js";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -400,7 +402,7 @@ async function main(): Promise<void> {
     publish: (status) => publish({ type: "update-status", status }),
     log: hostLog,
   });
-  machineRoutes = new MachineKitRoute({ machines: () => machines, active: () => started.current()?.activeThreadIdentity() });
+  machineRoutes = new MachineKitRoute({ machines: () => machines, active: () => started.current()?.activeThreadIdentity(), routing: (id) => started.current()?.hostExtensionMachineRouting?.(id), observeRouting: (listener) => started.current()?.observeHostExtensionMachineRouting?.(listener) });
   const methods = createHostMethods({
     browserResources,
     machineRoutes,
@@ -455,6 +457,7 @@ async function main(): Promise<void> {
       await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
     },
     async (code) => {
+      machineRoutes?.dispose();
       clientCalls.dispose();
       nativeGrants.close();
       machines.close();
@@ -479,13 +482,13 @@ async function main(): Promise<void> {
   );
   // Not part of the client protocol: the supervisor that started this process
   // asks for a clean stop here before it reaches for a signal (ADR 0021).
-  methods["host.shutdown"] = async (_params, context) => {
+  methods["host.shutdown"] = bindHostCommand(HOST_TRANSPORT_COMMANDS["host.shutdown"], async (_params, context) => {
     if (!isHostOwner(context.principal)) throw Object.assign(new Error("Only the access key, on this machine, may stop Tau."), { code: HOST_ERROR.forbidden });
     hostLog.info("host.shutdown.requested");
     // Answer first, leave afterwards.
     setTimeout(shutdown, 50).unref();
     return { stopping: true };
-  };
+  });
 
 
   // Kept across restarts, so a tab or phone on this port reconnects instead of needing a new pairing.

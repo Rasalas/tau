@@ -103,6 +103,9 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-machines.js",
   // Routes the selected kit calls and topics to the indexed home machine (ADR 0030).
   "./machine-kit-route.js",
+  "./host-machine-routing.js", // Extension-contributed policies; core owns only machine transport.
+  "./host-command-handler.js", // Binds handlers to the shared protocol declarations.
+  "./turn-events.js", // Runtime-neutral live turn state and publication.
   "./host-machine-pairing.js",
   // Host connectivity, pairing and signed bootstrap belong to core (CORE.md, ADRs 0025/0027).
   // These carry host protocol bytes and machine identity; no kit owns their lifetime.
@@ -241,6 +244,10 @@ function coreSourceFiles(): string[] {
 }
 
 describe("core boundary", () => {
+  it("machine routing carries no bundled kit identifiers or shell bookkeeping", () => {
+    const source = readFileSync("src/main/machine-kit-route.ts", "utf8");
+    expect(source).not.toMatch(/tau\.(?:workspace|files|terminal|review)|shellMachine|terminalLists/u);
+  });
   it.each(["src/main/pi-host.ts", "src/main/pi-host-components.ts", "src/main/host-publication.ts", "src/main/host-report.ts", "src/main/host-lifecycle-coordinator.ts", "src/main/thread-activation.ts"])("%s names no moved feature and imports no feature module", (file) => {
     const source = readFileSync(file, "utf8");
     const offenders = words(source).filter((word) => FORBIDDEN.some((rule) => HOST_RULES.has(rule.label) && rule.test.test(word)));

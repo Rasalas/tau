@@ -1,3 +1,7 @@
+import type { HostMachine } from "../shared/machine-protocol.js";
+export type { HostMachineStatus, HostMachine } from "../shared/machine-protocol.js";
+import type { HostMachineRoutingPolicy, HostMachineRoutingContribution } from "./host-machine-routing.js";
+export type { HostMachineRoutingPolicy, HostMachineRoutingAdapter, HostMachineRoutingContext } from "./host-machine-routing.js";
 import type { RuntimeToolMaintenance } from "./cli-install.js";
 import { randomUUID } from "node:crypto";
 import type { PricedUsage, UsageTally } from "./usage-pricing.js";
@@ -612,27 +616,6 @@ export interface HostNetworkServices {
 }
 
 /** How this host's own connection to another machine is doing (ADR 0027). */
-export type HostMachineStatus = "connecting" | "connected" | "offline" | "refused";
-
-/** Another machine this host holds a key for, for its agents. Never the key. */
-export interface HostMachine {
-  /** That machine's host id. */
-  id: string;
-  name: string;
-  status: HostMachineStatus;
-  /** Why it is offline or refused, written for the user. */
-  detail?: string;
-  roundTripMs?: number;
-  lastSeenAt?: number;
-  /** The socket URL in use, or the one last used. */
-  address?: string;
-  hostVersion?: string;
-  /** Pinned public host key or certificate fingerprint. Never a device token. */
-  trustIdentity?: string;
-  /** Its owner let this machine's agents in Read only. */
-  readOnly?: boolean;
-}
-
 /** This host, as its hello names it to other machines. */
 export interface HostMachineSelf {
   /** The host id; `request` with it asks this host itself. */
@@ -1360,6 +1343,8 @@ export interface HostExtensionContext {
    * a build): it skips the command timeout and clients run it as a host job.
    */
   registerCommand(name: string, handler: HostExtensionCommandHandler, options?: HostExtensionCommandOptions): () => void;
+  /** Route this kit’s workspace calls and topics to the thread’s home machine. */
+  registerMachineRouting(policy?: HostMachineRoutingPolicy): () => void;
   /**
    * Publishes an `extension-event` for this extension's desktop counterpart.
    * With a `topic` it goes only to the clients whose desktop half watches that
@@ -1577,6 +1562,15 @@ const RETIRED_CONTEXTS_KEPT = 64;
 
 export class HostExtensionRegistry {
   private readonly active = new Map<string, ActiveHostExtension>();
+  private readonly machineRouting = new Map<string, HostMachineRoutingContribution>();
+  private readonly machineRoutingObservers = new Set<() => void>();
+
+  observeMachineRouting(listener: () => void): () => void {
+    this.machineRoutingObservers.add(listener);
+    return () => { this.machineRoutingObservers.delete(listener); };
+  }
+
+  machineRoutingFor(id: string): HostMachineRoutingContribution | undefined { return this.machineRouting.get(id); }
   private readonly known = new Map<string, HostExtension>();
   /** Host-issued contexts are valid only while their activation is alive. */
   private readonly invocationContexts = new Map<string, { extensionId: string; record?: ActiveHostExtension }>();
@@ -1651,6 +1645,26 @@ export class HostExtensionRegistry {
         input,
         { kind: "host-extension", contextId: invocationContextId },
       ),
+      registerMachineRouting: (policy = {}) => {
+        if (!this.invocationContexts.has(invocationContextId)) throw new Error(`Host extension ${extension.id}: activation has ended`);
+        if (policy.localCommands && !policy.localCommands.every((name) => typeof name === "string" && COMMAND_NAME.test(name))) throw new Error(`Host extension ${extension.id}: invalid local routing command`);
+        if (this.machineRouting.has(extension.id)) throw new Error(`Host extension ${extension.id}: machine routing registered twice`);
+        const listeners = new Set<() => void>();
+        const contribution: HostMachineRoutingContribution = { policy, onDispose: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; } };
+        this.machineRouting.set(extension.id, contribution);
+        const dispose = () => {
+          if (this.machineRouting.get(extension.id) !== contribution) return;
+          this.machineRouting.delete(extension.id);
+          const errors: unknown[] = [];
+          for (const listener of listeners) { try { listener(); } catch (error) { errors.push(error); } }
+          listeners.clear();
+          for (const observer of this.machineRoutingObservers) { try { observer(); } catch (error) { errors.push(error); } }
+          if (errors.length) throw new AggregateError(errors, `Host extension ${extension.id}: machine routing cleanup failed`);
+        };
+        record.disposers.push(dispose);
+        for (const observer of this.machineRoutingObservers) observer();
+        return dispose;
+      },
       registerCommand: (name, handler, options) => {
         if (!COMMAND_NAME.test(name)) throw new Error(`Host extension ${extension.id}: invalid command name "${name}"`);
         if (record.commands.has(name)) throw new Error(`Host extension ${extension.id}: command "${name}" registered twice`);

@@ -15,7 +15,8 @@ import { PreferencesStore } from "./preferences";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { ThreadStore } from "../workbench/thread-store";
 import { ThreadViewStore } from "../workbench/thread-view-store";
-import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
+import { SubmissionController, type SubmissionControllerPorts } from "../workbench/submission-controller";
+import { submissionEnvironment } from "./submission-environment";
 
 const SESSION_SNAPSHOT: HostSnapshot = {
   cwd: "/project",
@@ -144,12 +145,13 @@ function harness(options: {
     view,
     threads,
     scopes,
-    registry,
+    environment: submissionEnvironment({ client: () => client, registry,
+      preferences: (() => { const preferences = new PreferencesStore(); if (options.newThreadRuntime) preferences.setNewThreadRuntime(options.newThreadRuntime); return preferences; })(),
+      actions: () => actions, notify: (message) => view.setNotice(message),
+    }),
     storage,
-    preferences: (() => { const preferences = new PreferencesStore(); if (options.newThreadRuntime) preferences.setNewThreadRuntime(options.newThreadRuntime); return preferences; })(),
     hostSession,
     notify: (message) => view.setNotice(message),
-    actions: () => actions,
     delivery: deliveryPort,
     newThread,
     drafts: { startedElsewhere: (draftId) => { startedElsewhere.push(draftId); } },
@@ -307,6 +309,15 @@ describe("SubmissionController", () => {
     expect(followUps).toEqual([{ threadId: "session", text: "afterwards" }]);
     expect(client.calls.some((call) => call.method === "preparePrompt")).toBe(false);
     expect(view.getOptimisticMessages()).toEqual([]);
+  });
+
+  it("keeps a planned message out of a new thread's first submission", async () => {
+    const h = harness({ pending: DRAFT });
+    await expect(h.submission.submit({ text: "later", delivery: { deliverAt: 1_800_000_000_000 } }))
+      .resolves.toEqual({ accepted: false, message: "Send the first message before planning one." });
+    expect(h.followUps).toEqual([]);
+    expect(h.workbenchEvents).not.toHaveBeenCalled();
+    expect(h.client.calls).toEqual([]);
   });
 
   it("runs a desktop slash command and never reaches the runtime", async () => {

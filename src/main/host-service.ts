@@ -1,3 +1,6 @@
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import type { HostCommand } from "../shared/host-command-definition.js";
+import { bindHostCommand } from "./host-command-handler.js";
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { accessSync, constants, existsSync } from "node:fs";
@@ -636,28 +639,30 @@ export function createHostServiceMethods(manager: () => HostServiceManager | und
     if (!service) throw Object.assign(new Error("This host cannot run as a service."), { code: HOST_ERROR.unsupported });
     return service;
   };
-  const owned = (run: (service: HostServiceManager, params: readonly unknown[]) => Promise<unknown>): Method => async (params, context) => {
+  const owned = <Args extends readonly unknown[], Result, WireArgs extends readonly unknown[] | never>(
+    definition: HostCommand<Args, Result, WireArgs>, run: (service: HostServiceManager, params: Args) => Result | Promise<Result>,
+  ): Method => async (params, context) => {
     if (!isHostOwner(context.principal)) {
       throw Object.assign(new Error("Only a connection with the access key, on this machine, manages the service."), { code: HOST_ERROR.forbidden });
     }
-    return run(available(), params);
+    const service = available();
+    return bindHostCommand(definition, (args) => run(service, args))(params, context);
   };
   return {
-    "service-status": async () => available().status(self),
+    "service-status": bindHostCommand(HOST_FACTORY_COMMANDS["service-status"], async () => available().status(self)),
     // `[{ display: boolean }]` adds or removes the invisible display; without it an install keeps it.
-    "service-install": owned(async (service, params) => {
-      const option = params[0] as { display?: unknown } | undefined;
-      const display = typeof option?.display === "boolean" ? option.display : undefined;
+    "service-install": owned(HOST_FACTORY_COMMANDS["service-install"], async (service, params) => {
+      const display = params[0].display;
       const serving = (await service.status(self)).serving;
       await service.install({ detached: serving, ...(display === undefined ? {} : { display }) });
       return service.status(self);
     }),
     // Settings' answer to the `chrome-sandbox` problem: pkexec's dialog on this machine.
-    "service-allow-sandbox": owned(async (service) => {
+    "service-allow-sandbox": owned(HOST_FACTORY_COMMANDS["service-allow-sandbox"], async (service) => {
       await service.allowSandbox();
       return service.status(self);
     }),
-    "service-uninstall": owned(async (service) => {
+    "service-uninstall": owned(HOST_FACTORY_COMMANDS["service-uninstall"], async (service) => {
       const serving = (await service.status(self)).serving;
       await service.uninstall({ detached: serving });
       return service.status(self);

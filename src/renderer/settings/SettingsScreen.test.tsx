@@ -258,7 +258,7 @@ describe("the Settings screen", () => {
       ] }),
       getEnvironmentConfig: async () => ({ host: rex.host }),
       updateEnvironmentConfig: async (machine: string, patch: TauConfig) => { calls.push(["update", machine, patch]); rex.host = { ...rex.host, ...patch }; return {}; },
-      clearEnvironmentConfig: async (machine: string, keys: string[]) => { calls.push(["clear", machine, keys]); rex.host = keys.reduce(withoutSetting, rex.host); return {}; },
+      clearEnvironmentConfig: async (machine: string, keys: readonly string[]) => { calls.push(["clear", machine, keys]); rex.host = keys.reduce(withoutSetting, rex.host); return {}; },
     });
     const { page } = renderScreen({ client: reaching as ReturnType<typeof hostWithFiles>["client"] });
     fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));

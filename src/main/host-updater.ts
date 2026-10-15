@@ -1,3 +1,5 @@
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import { bindHostCommand } from "./host-command-handler.js";
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defaultUpdateChannel, type UpdateChannel } from "../shared/app-version.js";
@@ -483,17 +485,6 @@ type Method = (params: readonly unknown[], context: HostMethodContext) => Promis
 
 const unsupported = (): Error => Object.assign(new Error("This host has no updater: it runs inside a Tau window, which updates itself."), { code: HOST_ERROR.unsupported });
 
-function decodeSettings(value: unknown): HostUpdateSettings {
-  const item = value as Record<string, unknown> | undefined;
-  if (!item || typeof item !== "object") throw Object.assign(new Error("update-settings: expected an object."), { code: HOST_ERROR.invalidRequest });
-  const flag = (key: string) => {
-    if (item[key] === undefined) return {};
-    if (typeof item[key] !== "boolean") throw Object.assign(new Error(`update-settings: ${key} must be true or false.`), { code: HOST_ERROR.invalidRequest });
-    return { [key]: item[key] };
-  };
-  return { ...flag("automatic"), ...flag("devicesMayInstall") };
-}
-
 /**
  * `update-status`, `update-check`, `update-install` and `update-settings`
  * (K103). Installing asks for Full access (the method's class) and, for a
@@ -503,20 +494,20 @@ function decodeSettings(value: unknown): HostUpdateSettings {
 export function createUpdateMethods(updater: () => HostUpdater | undefined): Record<string, Method> {
   const need = (): HostUpdater => updater() ?? (() => { throw unsupported(); })();
   return {
-    [HOST_UPDATE_METHODS.status]: async () => need().status(),
-    [HOST_UPDATE_METHODS.check]: async () => need().check(),
-    [HOST_UPDATE_METHODS.install]: async (_params, context) => {
+    [HOST_UPDATE_METHODS.status]: bindHostCommand(HOST_FACTORY_COMMANDS["update-status"], async () => need().status()),
+    [HOST_UPDATE_METHODS.check]: bindHostCommand(HOST_FACTORY_COMMANDS["update-check"], async () => need().check()),
+    [HOST_UPDATE_METHODS.install]: bindHostCommand(HOST_FACTORY_COMMANDS["update-install"], async (_params, context) => {
       const service = need();
       if (!isHostOwner(context.principal) && !service.status().devicesMayInstall) {
         throw Object.assign(new Error("This machine's owner does not let paired devices install updates (Settings → About there)."), { code: HOST_ERROR.forbidden });
       }
       return service.install();
-    },
-    [HOST_UPDATE_METHODS.settings]: async (params, context) => {
-      const patch = decodeSettings(params[0]);
+    }),
+    [HOST_UPDATE_METHODS.settings]: bindHostCommand(HOST_FACTORY_COMMANDS["update-settings"], async (params, context) => {
+      const patch = params[0];
       if (patch.devicesMayInstall !== undefined && !isHostOwner(context.principal)) throw ownerRefusal();
       return need().updateSettings(patch);
-    },
+    }),
   };
 }
 

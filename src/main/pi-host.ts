@@ -100,11 +100,8 @@ import { exportThreadMarkdown, localTranscriptPage, readLocalToolOutput } from "
 import { clientTranscript } from "./client-tool-output.js";
 import { shellTranscriptPage, type PersistedThreadInfo, type PersistedTranscriptOptions } from "./persisted-transcript.js";
 import { PersistedTranscriptReader } from "./persisted-transcript-reader.js";
-import { handleRuntimeSessionEvent } from "./session-events.js";
-import { handleBackendRuntimeEvent } from "./backend-events.js";
 import { isUnavailableBackend } from "./unavailable-thread-backend.js";
 import { isSessionHeldElsewhere } from "./session-locks.js";
-import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { ClientMessageTracker } from "./client-message-tracker.js";
 import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
@@ -154,7 +151,7 @@ export class PiHost {
   private readonly clientTurns: ClientTurnLedger;
   private readonly clientMessages: ClientMessageTracker;
   private readonly promptReceipts = new RequestReceipts<void>();
-  private readonly newThreadReceipts = new RequestReceipts<HostActionResult>();
+  private readonly newThreadReceipts = new RequestReceipts<NewThreadResult>();
   private readonly projection: ThreadProjection;
   private readonly persistedTranscripts = new PersistedTranscriptReader();
   private readonly extensionUi: ExtensionUiCoordinator;
@@ -228,7 +225,7 @@ export class PiHost {
   private readonly sessionControl: AgentSessionControl;
   /** The last title a Pi extension gave the window, for a client that attaches later. */
   private windowTitle?: string;
-  private readonly toolOwners: Map<string, string>;
+  private readonly events: PiHostComponents["events"];
   /** Extensions stepping into thread opening, forking, activation and the index sweep. */
   private readonly threadLifecycle: HostThreadLifecycleSet;
   private readonly turnObservers: HostTurnObserverSet;
@@ -265,8 +262,6 @@ export class PiHost {
       promptThread: (threadId, text, hidden) => this.prompt(text, [], threadId, undefined, undefined, { hidden }),
       applyThreadTitle: (thread, title, source) => this.applyThreadTitle(thread, title, source),
       prewarmSession: (path) => this.prewarmSession(path),
-      handleSessionEvent: (event, thread, sessionId, eventCwd) => this.handleSessionEvent(event, thread, sessionId, eventCwd),
-      handleBackendEvent: (threadId, event) => this.handleBackendEvent(threadId, event),
       presentUi: (method, ...args) => this.presentUi(method, ...args),
       hostThreadFor: (thread) => this.hostThreadFor(thread),
       hostThread: (sessionId) => this.hostThread(sessionId),
@@ -329,7 +324,7 @@ export class PiHost {
     this.sessionControl = components.sessionControl;
     this.threadLifecycle = components.threadLifecycle;
     this.turnObservers = components.turnObservers;
-    this.toolOwners = components.toolOwners;
+    this.events = components.events;
     this.emit = components.emit;
     this.activation = new ThreadActivation({
       assertHostOwned: (thread) => {
@@ -625,6 +620,10 @@ export class PiHost {
   invokeHostExtension(extensionId: string, command: string, input?: unknown, principal: HostInvocationPrincipal = HOST_CORE_PRINCIPAL): Promise<unknown> {
     return this.hostExtensions.invoke(extensionId, command, input, principal);
   }
+
+  observeHostExtensionMachineRouting(listener: () => void) { return this.hostExtensions.observeMachineRouting(listener); }
+
+  hostExtensionMachineRouting(id: string) { return this.hostExtensions.machineRoutingFor(id); }
 
   authorizeHostExtension(extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<void> { return this.hostExtensions.authorizeInvocation(extensionId, command, input, principal); }
   activeThreadIdentity(): { sessionId: string; backendKind: string } | undefined { const thread = this.active; return thread ? { sessionId: thread.threadId, backendKind: thread.backend.kind } : undefined; }
@@ -1084,11 +1083,11 @@ export class PiHost {
     clientMessageIdOrRequestId?: ClientTurnRequest,
     prepared?: PreparedPrompt,
     configuration?: NewThreadConfiguration,
-  ): Promise<HostActionResult> {
+  ): Promise<NewThreadResult> {
     return this.newThreadReceipts.run("new-thread", clientIdentityForRequest(clientMessageIdOrRequestId)?.clientMessageId, () => this.createSession(initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration));
   }
 
-  private async createSession(...[initialPrompt, attachments = [], cwd, clientMessageIdOrRequestId, prepared, configuration]: Parameters<PiHost["newSession"]>): Promise<HostActionResult> {
+  private async createSession(...[initialPrompt, attachments = [], cwd, clientMessageIdOrRequestId, prepared, configuration]: Parameters<PiHost["newSession"]>): Promise<NewThreadResult> {
     this.workbenchReload.assertAvailable();
     const requestValue = typeof clientMessageIdOrRequestId === "string" ? clientMessageIdOrRequestId : undefined;
     const requestId = requestValue?.startsWith("new-thread-")
@@ -1821,53 +1820,7 @@ export class PiHost {
     sessionId: string,
     cwd: string,
   ): void {
-    handleRuntimeSessionEvent(event, thread, sessionId, cwd, {
-      clientTurns: this.clientTurns,
-      emit: (next) => this.emit(next),
-      emitUpdate: (update) => this.emitUpdate(update),
-      log: (label, detail) => this.log(label, detail),
-      fail: (error, owner) => this.fail(error, owner),
-      settledSnapshot: () => this.publication.snapshot(),
-      detailForSnapshot: (snapshot) => this.publication.detailForSnapshot(snapshot),
-      trackedClientMessageIds: (runtime) => this.clientMessages.trackedIds(runtime),
-      failClientMessageIfUnpersisted: (runtime, id, owner) => { this.clientMessages.failIfUnpersisted(runtime, id, owner); },
-      correlateUserMessageStart: (runtime, message, owner) => this.clientMessages.correlateStart(runtime, message, owner),
-      decorateUserEvent: (runtime, message) => this.clientMessages.decorateUserEvent(runtime, message),
-      messageMappingOptions: (runtime) => this.projection.mapping(runtime),
-      pinnedEntries: (runtime) => this.projection.pinnedEntries(runtime),
-      ownTool: (id, owner) => this.toolOwners.set(id, owner),
-      releaseTool: (id) => { this.toolOwners.delete(id); },
-      pushToolOutput: (id, output) => this.pushToolOutput(id, output),
-      toolEnded: (owner, tool, toolCwd) => this.turnObservers.toolEnded(owner, tool, toolCwd),
-      turnSettled: (owner, error) => this.settlement.settled(owner, error),
-    });
-  }
-
-  /** The transport coalesces these per tool; the host sends each one on. */
-  private pushToolOutput(toolCallId: string, output: string): void {
-    this.emit({ type: "tool-update", sessionId: this.toolOwners.get(toolCallId) ?? "", id: toolCallId, output });
-  }
-
-  /** A streamed external backend reports in Tau's dialect; the same bookkeeping applies. */
-  private handleBackendEvent(threadId: string, event: ThreadRuntimeEvent): void {
-    const thread = this.threads.get(threadId)?.runtime;
-    if (!thread) return;
-    handleBackendRuntimeEvent(event, thread, {
-      clientTurns: this.clientTurns,
-      emit: (next) => this.emit(next),
-      emitUpdate: (update) => this.emitUpdate(update),
-      log: (label, detail) => this.log(label, detail),
-      fail: (error, owner) => this.fail(error, owner),
-      settledSnapshot: () => this.publication.snapshot(),
-      detailForSnapshot: (snapshot) => this.publication.detailForSnapshot(snapshot),
-      ownTool: (id, owner) => this.toolOwners.set(id, owner),
-      releaseTool: (id) => { this.toolOwners.delete(id); },
-      pushToolOutput: (id, output) => this.pushToolOutput(id, output),
-      turnObservers: this.turnObservers,
-      refreshShell: (runtime, touch) => this.index.refreshShell(runtime, touch),
-      controls: this.controls,
-      turnSettled: (owner, error, limit) => this.settlement.settled(owner, error, limit),
-    });
+    this.events.session(event, thread, sessionId, cwd);
   }
 
   /** What a runtime offers a thread that does not exist yet, from the host's cache (`RuntimeCatalogs`). */

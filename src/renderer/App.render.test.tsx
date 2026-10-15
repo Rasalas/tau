@@ -563,7 +563,7 @@ describe("App render isolation", () => {
 
   it("carries a draft and supported attachments across a pre-send project switch", async () => {
     const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
-    const getPreparedThreadCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
+    const getPreparedThreadCapability = vi.fn(async (cwd = "/project") => ({ cwd, generation: 1, supportsImageInput: true }));
     const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
@@ -851,7 +851,7 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
+      getPreparedThreadCapability: async (cwd = "/project") => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
     });
 
@@ -1149,7 +1149,7 @@ describe("App render isolation", () => {
   it("keeps a new thread draft in memory without persisting image-capable composer data", async () => {
     const newSession = vi.fn(async () => ({ version: 1 as const, updates: [] as never[], submission: { accepted: true as const } }));
     const capabilityResolvers = new Map<string, Array<(capability: { cwd: string; generation: number; supportsImageInput: boolean }) => void>>();
-    const getPreparedThreadCapability = vi.fn((cwd: string) => new Promise<{ cwd: string; generation: number; supportsImageInput: boolean }>((resolve) => {
+    const getPreparedThreadCapability = vi.fn((cwd = "/project") => new Promise<{ cwd: string; generation: number; supportsImageInput: boolean }>((resolve) => {
       const pending = capabilityResolvers.get(cwd) ?? [];
       pending.push(resolve);
       capabilityResolvers.set(cwd, pending);
@@ -1400,7 +1400,7 @@ describe("App render isolation", () => {
       clientMessageId = (args[3] as { clientMessageId?: string }).clientMessageId;
       return { version: 1 as const, updates: [] as never[], submission: { accepted: true as const } };
     });
-    const getPreparedThreadCapability = vi.fn(async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }));
+    const getPreparedThreadCapability = vi.fn(async (cwd = "/project") => ({ cwd, generation: 1, supportsImageInput: true }));
     const client = createFakeHostClient({
       bootstrap: async () => ({
         version: 1,
@@ -1522,7 +1522,7 @@ describe("App render isolation", () => {
         getWorkspaceInfo: async (cwd?: string) => ({ root: cwd ?? "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
+      getPreparedThreadCapability: async (cwd = "/project") => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
     });
 

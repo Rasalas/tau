@@ -189,6 +189,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
   const pins = new Map<number, Record<string, string[]>>();
   const commandDisposers: Array<() => void> = [];
   const offers = new Map<string, () => void>();
+  let releaseMachineRouting: (() => void) | undefined;
   let pendingObserverDispose: (() => void) | undefined;
   let pinsDispose: (() => void) | undefined;
   let nextCall = 1;
@@ -462,6 +463,17 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       case "emit":
         context.emit(message.name, message.payload, typeof message.topic === "string" ? { topic: message.topic } : undefined);
         return;
+      case "machine-routing": {
+        releaseMachineRouting?.();
+        releaseMachineRouting = undefined;
+        try {
+          if (message.on) {
+            if (message.localCommands !== undefined && (!Array.isArray(message.localCommands) || !message.localCommands.every((name) => typeof name === "string"))) throw new Error("Invalid machine routing commands");
+            releaseMachineRouting = context.registerMachineRouting({ localCommands: message.localCommands });
+          }
+        } catch (error) { fail(error instanceof Error ? error.message : String(error)); }
+        return;
+      }
       case "offer": {
         offers.get(message.contract)?.();
         offers.delete(message.contract);
@@ -558,6 +570,8 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     unwatchMemory();
     for (const release of commandDisposers) release();
     commandDisposers.length = 0;
+    releaseMachineRouting?.();
+    releaseMachineRouting = undefined;
     for (const release of offers.values()) release();
     offers.clear();
     for (const release of registrations.values()) release();

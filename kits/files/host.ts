@@ -18,6 +18,7 @@ export function createFilesHostExtension(): WorkerHostExtension {
     id: FILES_KIT_ID,
     name: "Files",
     activate(context: WorkerHostExtensionContext) {
+      context.registerMachineRouting();
       const forward = (command: string, target: string, refusal: string, access?: "read") =>
         context.registerCommand(command, async (input) => {
           if (!access && !namedProject(input)) throw new Error(`${refusal}${UNKNOWN_PROJECT}`);

@@ -1,54 +1,18 @@
-import { parsePairingPayload } from "../shared/connections.js";
-import { agentsDeviceName, type EnvironmentAgentsOutcome, type EnvironmentStatus } from "../shared/environments.js";
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import type { HostCommand } from "../shared/host-command-definition.js";
+import { bindHostCommand } from "./host-command-handler.js";
+import type { MachineLinkState, WindowMachine, MachineOverviewEntry, MachinesOverview, MachinePairResult } from "../shared/machine-protocol.js";
+export type { MachineLinkState, WindowMachine, MachineOverviewEntry, MachinesOverview, MachinePairResult } from "../shared/machine-protocol.js";
+import { agentsDeviceName, type EnvironmentAgentsOutcome } from "../shared/environments.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
-import { decodeHostUpdateStatus, type HostUpdateStatus } from "../shared/host-updates.js";
+import { decodeHostUpdateStatus } from "../shared/host-updates.js";
 import { pairEnvironment, type PairEnvironmentOptions, type PairEnvironmentResult } from "./environment-pairing.js";
 import type { HostMachines } from "./host-machines.js";
 import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import { ownerRefusal } from "./host-method-access.js";
-import { decodeString } from "./ipc-input.js";
 import { WINDOW_SERVICES_ID } from "./window-extensions.js";
 import type { ClientCalls } from "./client-calls.js";
-
-/** How one side of this machine reaches a machine: its window, or its agents. */
-export interface MachineLinkState {
-  status: EnvironmentStatus;
-  detail?: string;
-  roundTripMs?: number;
-  address?: string;
-  readOnly?: boolean;
-  hostVersion?: string;
-  /** The machine's own Tau update, where its host reports one (K103). */
-  update?: HostUpdateStatus;
-}
-
-/** What core's window half answers `environments` with: the window's machines, no keys, no threads. */
-export interface WindowMachine extends MachineLinkState {
-  id: string;
-  name: string;
-}
-
-export interface MachineOverviewEntry {
-  id: string;
-  name: string;
-  /** The window keeps it (Settings → Machines). */
-  window?: MachineLinkState;
-  /** This host keeps a key for its agents there. */
-  agents?: MachineLinkState;
-}
-
-export interface MachinesOverview {
-  /** False when no Tau window runs on this machine: only the agents' machines are known then. */
-  window: boolean;
-  machines: MachineOverviewEntry[];
-}
-
-export type MachinePairResult =
-  | { state: "added"; machine: { id: string; name: string }; window: boolean; agents?: EnvironmentAgentsOutcome }
-  | { state: "known"; machine: { id: string; name: string } }
-  | { state: "denied" | "expired" | "cancelled" }
-  | { state: "failed"; message: string };
 
 /** Core's window half on this machine (`WINDOW_SERVICES_ID`), when a Tau window runs here. */
 export interface MachineWindowPort {
@@ -107,17 +71,6 @@ async function overview(deps: MachinePairingDeps): Promise<MachinesOverview> {
   return { window: open, machines: [...byId.values()].sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
-function decodePairInput(value: unknown): { link: string; agents: boolean; name?: string; id?: string } {
-  const item = value as Record<string, unknown> | undefined;
-  if (!item || typeof item !== "object") throw failure("machines-pair: expected an object.");
-  const link = decodeString("machines-pair", "link", item.link);
-  if (link.length > 8_192 || !parsePairingPayload(link)) throw failure("machines-pair: link must be a pairing link.");
-  const text = (key: string): string | undefined => typeof item[key] === "string" && (item[key] as string).trim() ? (item[key] as string).trim().slice(0, 200) : undefined;
-  const name = text("name");
-  const id = text("id");
-  return { link, agents: item.agents === true, ...(name ? { name } : {}), ...(id ? { id } : {}) };
-}
-
 function matching(list: MachinesOverview, machine: string): MachineOverviewEntry {
   const byId = list.machines.find((entry) => entry.id === machine);
   if (byId) return byId;
@@ -135,14 +88,16 @@ type Method = (params: readonly unknown[], context: HostMethodContext) => Promis
  * here, as Settings → Machines does; without one, this host pairs its agents alone.
  */
 export function createMachinePairingMethods(deps: MachinePairingDeps): Record<string, Method> {
-  const owned = (run: (params: readonly unknown[]) => Promise<unknown>): Method => async (params, context) => {
+  const owned = <Args extends readonly unknown[], Result, WireArgs extends readonly unknown[] | never>(
+    definition: HostCommand<Args, Result, WireArgs>, run: (params: Args) => Result | Promise<Result>,
+  ): Method => async (params, context) => {
     if (!isHostOwner(context.principal)) throw ownerRefusal();
-    return run(params);
+    return bindHostCommand(definition, run)(params, context);
   };
   return {
-    "machines-overview": owned(() => overview(deps)),
-    "machines-pair": owned(async (params): Promise<MachinePairResult> => {
-      const input = decodePairInput(params[0]);
+    "machines-overview": owned(HOST_FACTORY_COMMANDS["machines-overview"], () => overview(deps)),
+    "machines-pair": owned(HOST_FACTORY_COMMANDS["machines-pair"], async (params): Promise<MachinePairResult> => {
+      const input = params[0];
       const list = await overview(deps);
       const known = input.id ? list.machines.find((entry) => entry.id === input.id) : undefined;
       const window = list.window ? deps.window() : undefined;
@@ -171,20 +126,19 @@ export function createMachinePairingMethods(deps: MachinePairingDeps): Record<st
       return { state: "added", machine: { id: environment.id, name }, window: false, agents: { added: true } };
     }),
     // `tau machines update`: the machine's own Tau, over the window's connection there (K103).
-    "machines-update": owned(async (params) => {
-      const action = params[1] ?? "install";
-      if (action !== "status" && action !== "check" && action !== "install") throw failure("machines-update: action must be status, check or install.");
+    "machines-update": owned(HOST_FACTORY_COMMANDS["machines-update"], async (params) => {
+      const action = params[1];
       const list = await overview(deps);
-      const entry = matching(list, decodeString("machines-update", "machine", params[0]));
+      const entry = matching(list, params[0]);
       const window = entry.window ? deps.window() : undefined;
       if (!window) throw failure(`Only a Tau window on this machine keeps a connection to ${entry.name} that may update it. Start Tau here, or add ${entry.name} in Settings → Machines.`, HOST_ERROR.unsupported);
       const status = decodeHostUpdateStatus(await window.call("update-environment", { id: entry.id, action }, action === "status" ? WINDOW_TIMEOUT_MS : UPDATE_TIMEOUT_MS));
       if (!status) throw failure(`${entry.name} did not say how its update stands.`);
       return { id: entry.id, name: entry.name, update: status };
     }),
-    "machines-forget": owned(async (params) => {
+    "machines-forget": owned(HOST_FACTORY_COMMANDS["machines-forget"], async (params) => {
       const list = await overview(deps);
-      const entry = matching(list, decodeString("machines-forget", "machine", params[0]));
+      const entry = matching(list, params[0]);
       // The window forgets the agents' key with its own.
       const window = entry.window ? await deps.window()?.call("remove-environment", { id: entry.id }, WINDOW_TIMEOUT_MS) as { removed?: boolean } | undefined : undefined;
       const agents = entry.agents ? await deps.machines()?.remove(entry.id) : undefined;

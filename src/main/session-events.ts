@@ -1,5 +1,5 @@
-import type { HostEvent, HostSnapshot, UiMessage, UiToolRun } from "../shared/contracts.js";
-import { HOST_PROTOCOL_VERSION, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
+import type { TurnEvents } from "./turn-events.js";
+import type { HostEvent, UiMessage, UiToolRun } from "../shared/contracts.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import { withClientTurnIdentity } from "./client-turn-ledger.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
@@ -13,23 +13,14 @@ import type { LiveTurnState } from "./live-turn-state.js";
 export interface SessionEventServices {
   clientTurns: ClientTurnLedger;
   emit(event: HostEvent): void;
-  emitUpdate(update: HostUpdate): void;
   log(label: string, detail?: string): void;
-  fail(error: unknown, sessionId: string): void;
-  settledSnapshot(): Promise<HostSnapshot>;
-  detailForSnapshot(snapshot: HostSnapshot): ThreadDetail;
   trackedClientMessageIds(thread: ThreadRuntime): string[];
   failClientMessageIfUnpersisted(thread: ThreadRuntime, clientMessageId: string, sessionId: string): void;
   correlateUserMessageStart(thread: ThreadRuntime | undefined, message: unknown, sessionId: string): void;
   decorateUserEvent(thread: ThreadRuntime, message: unknown): unknown;
   messageMappingOptions(thread: LiveTurnState): MessageMappingOptions;
   pinnedEntries(thread: ThreadRuntime): ReadonlySet<string>;
-  ownTool(toolCallId: string, sessionId: string): void;
-  releaseTool(toolCallId: string): void;
-  pushToolOutput(toolCallId: string, output: string): void;
-  toolEnded(sessionId: string, tool: UiToolRun, cwd: string): void;
-  /** How the run ended: the error its last answer stopped on, or undefined. */
-  turnSettled(sessionId: string, error: string | undefined): void;
+  turns: TurnEvents;
 }
 
 /** Translate runtime events into the common host event stream. */
@@ -41,7 +32,8 @@ export function handleRuntimeSessionEvent(
   services: SessionEventServices,
 ): void {
   if (thread instanceof ThreadRuntime && thread.deferEvent(event, sessionId, cwd)) return;
-  const { emit, emitUpdate, log } = services;
+  const { emit, log } = services;
+  const turns = services.turns;
   switch (event.type) {
     case "user_message_failed":
       if (typeof event.clientMessageId === "string") emit({
@@ -53,14 +45,10 @@ export function handleRuntimeSessionEvent(
       break;
     case "compaction_start":
     case "compaction_end":
-      thread.isCompacting = event.type === "compaction_start";
-      emit({ type: "context-compaction", sessionId, running: thread.isCompacting });
+      turns.compaction(thread, sessionId, event.type === "compaction_start");
       break;
     case "agent_start":
-      thread.turnError = undefined;
-      emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
-      emit({ type: "agent-status", sessionId, running: true });
-      log("agent.started", sessionId.slice(0, 8));
+      turns.start(thread, sessionId);
       break;
     case "agent_end":
       log("agent.ended", `${event.messages.length} messages`);
@@ -72,13 +60,11 @@ export function handleRuntimeSessionEvent(
       if (event.message.role === "user") {
         services.correlateUserMessageStart(isThreadRuntime(thread) ? thread : undefined, event.message, sessionId);
       } else if (event.message.role === "assistant") {
-        thread.currentAssistantId = `assistant-live-${event.message.timestamp}`;
-        thread.liveAssistant = { id: thread.currentAssistantId, text: "", thinking: "", timestamp: event.message.timestamp };
-        emit({ type: "assistant-start", sessionId, id: thread.currentAssistantId, timestamp: event.message.timestamp });
+        turns.assistant(thread, sessionId, { type: "start", id: `assistant-live-${event.message.timestamp}`, timestamp: event.message.timestamp });
       }
       break;
     case "message_update":
-      updateAssistant(event, thread, sessionId, emit);
+      updateAssistant(event, thread, sessionId, turns);
       break;
     case "message_end":
       finishMessage(event, thread, sessionId, services);
@@ -91,17 +77,12 @@ export function handleRuntimeSessionEvent(
         status: "running",
         startedAt: Date.now(),
       };
-      thread.tools.set(tool.id, tool);
-      services.ownTool(tool.id, sessionId);
-      emit({ type: "tool-start", sessionId, tool });
-      log("tool.started", event.toolName);
+      turns.tool(thread, sessionId, cwd, { type: "start", tool });
       break;
     }
     case "tool_execution_update": {
       const output = boundedToolOutput(resultText(event.partialResult));
-      const previous = thread.tools.get(event.toolCallId);
-      if (previous) thread.tools.set(event.toolCallId, { ...previous, output });
-      services.pushToolOutput(event.toolCallId, output);
+      turns.tool(thread, sessionId, cwd, { type: "output", id: event.toolCallId, output });
       break;
     }
     case "tool_execution_end":
@@ -123,31 +104,14 @@ function settleRun(thread: LiveTurnState, sessionId: string, services: SessionEv
     thread.inFlightClientMessageIds.clear();
   }
   if (!isThreadRuntime(thread) || thread.state.idle) services.clientTurns.settle(sessionId);
-  if (thread.isCompacting) {
-    thread.isCompacting = false;
-    services.emit({ type: "context-compaction", sessionId, running: false });
-  }
-  services.turnSettled(sessionId, thread.turnError);
-  services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
-  services.emit({ type: "agent-status", sessionId, running: false });
-  if (isThreadRuntime(thread)) {
-    void services.settledSnapshot().then((snapshot) => {
-      if (snapshot.sessionId !== sessionId || snapshot.isStreaming) return;
-      services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: services.detailForSnapshot(snapshot) });
-    }).catch((error) => services.fail(error, sessionId));
-  }
-  services.log("agent.settled", sessionId.slice(0, 8));
+  services.turns.settle(thread, sessionId, { snapshot: isThreadRuntime(thread), error: thread.turnError, retainAssistant: true });
 }
 
-function updateAssistant(event: any, thread: LiveTurnState, sessionId: string, emit: (event: HostEvent) => void): void {
+function updateAssistant(event: any, thread: LiveTurnState, sessionId: string, turns: TurnEvents): void {
   const update = event.assistantMessageEvent;
   if (!thread.currentAssistantId) return;
-  if (update.type === "text_delta") {
-    if (thread.liveAssistant) thread.liveAssistant.text += update.delta;
-    emit({ type: "assistant-delta", sessionId, id: thread.currentAssistantId, delta: update.delta });
-  } else if (update.type === "thinking_delta") {
-    if (thread.liveAssistant) thread.liveAssistant.thinking += update.delta;
-    emit({ type: "assistant-thinking", sessionId, id: thread.currentAssistantId, delta: update.delta });
+  if (update.type === "text_delta" || update.type === "thinking_delta") {
+    turns.assistant(thread, sessionId, { type: update.type === "text_delta" ? "text" : "thinking", id: thread.currentAssistantId, delta: update.delta });
   }
 }
 
@@ -156,7 +120,7 @@ function finishMessage(event: any, thread: LiveTurnState, sessionId: string, ser
     const message = mapMessage(event.message, 0, services.messageMappingOptions(thread));
     if (message) {
       message.id = thread.currentAssistantId ?? message.id;
-      services.emit({ type: "assistant-end", sessionId, message });
+      services.turns.assistant(thread, sessionId, { type: "end", message });
       publishAssistantAnchor(event.message, message, thread, sessionId, services);
     }
     // The message carries the error into the transcript; the notice reaches a reader elsewhere.
@@ -164,8 +128,6 @@ function finishMessage(event: any, thread: LiveTurnState, sessionId: string, ser
     if (error) services.emit({ type: "notice", sessionId, level: "error", message: error });
     // A retry that answers after an error leaves the run a success.
     thread.turnError = error;
-    thread.currentAssistantId = undefined;
-    thread.liveAssistant = undefined;
     return;
   }
   if (event.message.role !== "user") return;
@@ -225,11 +187,7 @@ function finishTool(event: any, thread: LiveTurnState, sessionId: string, cwd: s
     startedAt: previous?.startedAt ?? Date.now(),
     endedAt: Date.now(),
   };
-  services.toolEnded(sessionId, tool, cwd);
-  services.emit({ type: "tool-end", sessionId, tool });
-  thread.tools.delete(tool.id);
-  services.releaseTool(tool.id);
-  services.log("tool.ended", `${event.toolName}:${tool.status}`);
+  services.turns.tool(thread, sessionId, cwd, { type: "end", tool });
 }
 
 function toolImageResult(content: unknown): Pick<UiToolRun, "media"> {

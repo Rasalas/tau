@@ -104,13 +104,28 @@ describe("rendererBuild.output.manualChunks, browser client", () => {
     expect(chunk("/repo/src/web/main.tsx")).toBeUndefined();
   });
 
+  it("keeps a pairing helper in the entry when the client also imports it statically", () => {
+    const graph = meta({
+      "/repo/src/web/main.tsx": { isEntry: true, importedIds: ["/repo/src/shared/managed-connections.ts", "/repo/src/shared/connections.ts"] },
+      "/repo/src/shared/managed-connections.ts": {},
+      "/repo/src/shared/connections.ts": {},
+      // The offer also uses connections from the entry, so moving the helper
+      // into this lazy chunk would make the two chunks import each other.
+      "/repo/src/web/connect/offer.ts": { importedIds: ["/repo/src/shared/managed-connections.ts", "/repo/src/shared/connections.ts"] },
+      "/repo/src/web/connect/socket.ts": { importedIds: ["/repo/src/web/connect/offer.ts"] },
+      "/repo/src/web/connect/storage.ts": { importedIds: ["/repo/src/web/connect/offer.ts"] },
+    });
+    expect(rendererBuild.output.manualChunks("/repo/src/shared/managed-connections.ts", graph)).toBeUndefined();
+    for (const file of ["offer", "socket", "storage"]) expect(rendererBuild.output.manualChunks(`/repo/src/web/connect/${file}.ts`, graph)).toBe("browser-connect");
+  });
+
   it("keeps the nearby-host list with the Settings primitives it already imports", () => {
     expect(chunk("/repo/src/renderer/settings/NearbyMachineList.tsx")).toBe("settings-controls");
     expect(readFileSync(new URL("../src/renderer/settings/NearbyMachineList.tsx", import.meta.url), "utf8")).not.toMatch(/\.css["']/u);
   });
 
   it("keeps lazy surfaces that bring no stylesheet in the common chunk", () => {
-    for (const file of ["renderer/components/Menu.tsx", "renderer/submission-controller.ts", "renderer/settings/settings-search.ts", "renderer/host-version-update-controls.tsx"]) expect(chunk(`/repo/src/${file}`), file).toBe("common");
+    for (const file of ["renderer/components/Menu.tsx", "workbench/submission-controller.ts", "workbench/submission-queue.ts", "workbench/submission-optimistic.ts", "renderer/settings/settings-search.ts", "renderer/host-version-update-controls.tsx"]) expect(chunk(`/repo/src/${file}`), file).toBe("common");
   });
 });
 

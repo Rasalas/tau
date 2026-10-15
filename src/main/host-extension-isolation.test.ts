@@ -26,6 +26,13 @@ export default {
   name: "Worker Package",
   activate(context) {
     const { services } = context;
+    const stopRouting = context.registerMachineRouting({ localCommands: ["electron"] });
+    context.registerCommand("routing-off", () => { stopRouting(); });
+    context.registerCommand("routing-replace", () => {
+      stopRouting();
+      context.registerMachineRouting({ localCommands: ["hello"] });
+      stopRouting();
+    });
     context.registerCommand("bad-input", () => { throw new HostCommandError("that is not a folder"); });
     context.registerCommand("failed-state", () => {
       const cause = Object.assign(new Error("storage unavailable"), { code: "EIO" });
@@ -409,6 +416,11 @@ describe("isolated host extensions", () => {
       await expect(registry.invoke("acme.worker", "sessions")).resolves.toBe(1);
       expect(registry.summaries()[0]).toMatchObject({ id: "acme.worker", active: true, isolation: "worker" });
       expect(registry.summaries()[0]?.commands).toContain("hello");
+      expect(registry.machineRoutingFor("acme.worker")?.policy.localCommands).toEqual(["electron"]);
+      await registry.invoke("acme.worker", "routing-off");
+      expect(registry.machineRoutingFor("acme.worker")).toBeUndefined();
+      await registry.invoke("acme.worker", "routing-replace");
+      expect(registry.machineRoutingFor("acme.worker")?.policy.localCommands).toEqual(["hello"]);
     } finally {
       await registry.dispose();
     }

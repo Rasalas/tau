@@ -1,4 +1,7 @@
-import { authorityName, type PairingEndpoint, type UiHostEndpointKind } from "../shared/connections.js";
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import type { HostCommand } from "../shared/host-command-definition.js";
+import { bindHostCommand } from "./host-command-handler.js";
+export { decodeMachineEntry } from "../shared/host-factory-commands.js";
 import type { ThreadIndexSnapshot } from "../shared/contracts.js";
 import { orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
 import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
@@ -21,8 +24,7 @@ import type { HostLogger } from "./host-log.js";
 import { isMachineRequestMethod, methodAccess, ownerRefusal } from "./host-method-access.js";
 import { ConnectClientBridge } from "./connect-tunnel.js";
 import { freeLocalPort } from "./managed-ssh.js";
-import { decodeManagedRoute, type ConnectRoute } from "../shared/managed-connections.js";
-import { decodeString } from "./ipc-input.js";
+import { type ConnectRoute } from "../shared/managed-connections.js";
 import { hostPushScope } from "./host-push-scope.js";
 
 /** A machine this host's agents may reach: what a window saves for itself, with the agents' own token. */
@@ -401,43 +403,6 @@ function deliver(watched: Watched, event: unknown): void {
   }
 }
 
-const KINDS = new Set<string>(["loopback", "lan", "mdns", "tailscale", "magicdns"]);
-
-/** What `machines-add` takes: the machine as the window paired it, and the agents' token. */
-export function decodeMachineEntry(value: unknown): HostMachineEntry {
-  const item = value as Record<string, unknown> | undefined;
-  if (!item || typeof item !== "object") throw failure("machines-add: expected an object.", HOST_ERROR.invalidRequest);
-  const id = decodeString("machines-add", "id", item.id);
-  const token = decodeString("machines-add", "token", item.token);
-  const endpoints: PairingEndpoint[] = (Array.isArray(item.endpoints) ? item.endpoints : []).flatMap((raw: unknown) => {
-    const endpoint = raw as { url?: unknown; kind?: unknown; trustedCertificate?: unknown } | undefined;
-    if (typeof endpoint?.url !== "string" || !/^https?:\/\//u.test(endpoint.url)) return [];
-    return [{
-      url: endpoint.url,
-      ...(typeof endpoint.kind === "string" && KINDS.has(endpoint.kind) ? { kind: endpoint.kind as UiHostEndpointKind } : {}),
-      ...(endpoint.trustedCertificate === true && authorityName(endpoint.url) ? { trustedCertificate: true } : {}),
-    }];
-  });
-  if (endpoints.length === 0 || endpoints.length > 16) throw failure("machines-add: a machine needs 1 to 16 addresses.", HOST_ERROR.invalidRequest);
-  const text = (key: string, max: number): string | undefined => typeof item[key] === "string" && item[key] ? (item[key] as string).slice(0, max) : undefined;
-  const connect = decodeManagedRoute(item.managed)?.connect;
-  const publicKey = text("publicKey", 200);
-  const fingerprint = text("fingerprint", 200);
-  const lastUrl = text("lastUrl", 2_048);
-  return {
-    id: id.slice(0, 200),
-    name: text("name", 80) ?? id.slice(0, 8),
-    endpoints,
-    ...(publicKey ? { publicKey } : {}),
-    ...(fingerprint ? { fingerprint } : {}),
-    token,
-    ...(connect ? { managed: { connect } } : {}),
-    addedAt: text("addedAt", 40) ?? new Date().toISOString(),
-    ...(lastUrl ? { lastUrl } : {}),
-    ...(item.readOnly === true ? { readOnly: true } : {}),
-  };
-}
-
 type Method = (params: readonly unknown[], context: HostMethodContext) => Promise<unknown>;
 
 /**
@@ -445,18 +410,20 @@ type Method = (params: readonly unknown[], context: HostMethodContext) => Promis
  * takes it back, and reads how each connection is doing. Keys never leave.
  */
 export function createMachineMethods(service: () => HostMachines | undefined): Record<string, Method> {
-  const owned = (run: (machines: HostMachines, params: readonly unknown[]) => Promise<unknown>): Method => async (params, context) => {
+  const owned = <Args extends readonly unknown[], Result, WireArgs extends readonly unknown[] | never>(
+    definition: HostCommand<Args, Result, WireArgs>, run: (machines: HostMachines, params: Args) => Result | Promise<Result>,
+  ): Method => async (params, context) => {
     if (!isHostOwner(context.principal)) throw ownerRefusal();
     const machines = service();
     if (!machines) throw failure("This machine keeps no machines of its own; a Tau window's own process has none.", HOST_ERROR.unsupported);
-    return run(machines, params);
+    return bindHostCommand(definition, (args) => run(machines, args))(params, context);
   };
   return {
-    "machines-list": owned(async (machines) => ({ machines: machines.list() })),
-    "machines-add": owned(async (machines, params) => {
-      await machines.add(decodeMachineEntry(params[0]));
+    "machines-list": owned(HOST_FACTORY_COMMANDS["machines-list"], async (machines) => ({ machines: machines.list() })),
+    "machines-add": owned(HOST_FACTORY_COMMANDS["machines-add"], async (machines, params) => {
+      await machines.add(params[0]);
       return { added: true };
     }),
-    "machines-remove": owned(async (machines, params) => ({ removed: await machines.remove(decodeString("machines-remove", "id", params[0])) })),
+    "machines-remove": owned(HOST_FACTORY_COMMANDS["machines-remove"], async (machines, params) => ({ removed: await machines.remove(params[0]) })),
   };
 }

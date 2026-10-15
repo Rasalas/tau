@@ -71,7 +71,7 @@ async function host(dir?: string) {
   /** The runtime reports the end of its turn the way a streamed backend does. */
   const settle = (error?: string, limit?: { resetsAt?: number }) => {
     thread.stop();
-    internals.handleBackendEvent("thread-1", { type: "turn-settled", status: error ? "error" : "completed", ...(error ? { error } : {}), ...(limit ? { limit } : {}) });
+    internals.events.backend("thread-1", { type: "turn-settled", status: error ? "error" : "completed", ...(error ? { error } : {}), ...(limit ? { limit } : {}) });
   };
   return { host: piHost, internals, delivered, settle, userData };
 }

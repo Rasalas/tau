@@ -1,13 +1,15 @@
 import type {
   NewThreadRequestId,
+  HostSnapshot,
+  SubmissionResult,
+  UiModel,
+  ThreadBackendKind,
   PreparedPrompt,
   UiMessage,
   UiPromptAttachment,
   UiSkillDraft,
 } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
-import { chosenNewThreadRuntime, effectiveNewThreadRuntime } from "./new-thread-runtime";
-import { runtimeCatalogStore } from "./use-runtime-catalog";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
   isCurrentTranscriptSubmission,
@@ -16,21 +18,18 @@ import {
   type NewThreadSubmissionCompletion,
   type NewThreadSubmissionRecovery,
   type TranscriptSubmissionIdentity,
-} from "../workbench/app-state";
-import { allocateAttachmentId, createDraftKey, type ComposerScopeStore, type DraftKey } from "../workbench/composer-scope-store";
-import type { ClientStorage } from "../workbench/client-storage";
-import type { SubmitResult } from "./components/Composer";
-import type { TranscriptTurnPort } from "../workbench/turn-scope";
-import { draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "../workbench/draft-store";
-import { errorMessage } from "../workbench/error-message";
-import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
-import type { HostClient } from "../workbench/host-client";
-import type { HostSessionState } from "../workbench/host-session-state";
-import type { NewThreadDeliveryPort } from "../workbench/new-thread-delivery";
-import type { PreferencesStore } from "./preferences";
-import type { ThreadStore } from "../workbench/thread-store";
-import type { ThreadViewStore } from "../workbench/thread-view-store";
-import type { DraftThreads } from "../workbench/draft-threads";
+} from "./app-state";
+import { allocateAttachmentId, createDraftKey, type ComposerScopeStore, type DraftKey } from "./composer-scope-store";
+import type { ClientStorage } from "./client-storage";
+import type { TranscriptTurnPort } from "./turn-scope";
+import { draftKey, writeComposerDraft, writeNewThreadDraft, type NewThreadDraft } from "./draft-store";
+import { errorMessage } from "./error-message";
+import type { HostClient } from "./host-client";
+import type { HostSessionState } from "./host-session-state";
+import type { NewThreadDeliveryPort } from "./new-thread-delivery";
+import type { ThreadStore } from "./thread-store";
+import type { ThreadViewStore } from "./thread-view-store";
+import type { DraftThreads } from "./draft-threads";
 import {
   buildOptimisticMessage,
   addOptimisticMessage,
@@ -71,16 +70,45 @@ export interface HostUpdatePort {
   prepareThreadDetail(sessionId: string): boolean;
 }
 
+/** Renderer contributions; no session state or mutable stores cross this seam. */
+export interface SubmissionEnvironment {
+  command(text: string): (() => Promise<SubmissionResult>) | undefined;
+  claimNewThread(event: SubmissionClaimEvent): Promise<boolean>;
+  prepareNewThread(event: SubmissionPreparationEvent): Promise<{ workspace?: { workspaceId: string; displayPath: string; name?: string }; stop?: string } | undefined>;
+  accepted(): void;
+  submitted(event: { prompt: string; snapshot?: HostSnapshot }): Promise<void>;
+  selection(pending: NewThreadDraft, snapshot: HostSnapshot | undefined): { runtime: ThreadBackendKind; requestedRuntime?: ThreadBackendKind; model?: UiModel; thinkingLevel?: string; mode?: string };
+  unsettle(sessionId: string): void;
+  preview(reply: () => void): void;
+}
+
+export interface SubmissionPreparationEvent {
+  prompt: string;
+  projectPath: string;
+  workspaceId?: string;
+  preparing(message: string): void;
+}
+
+export interface SubmissionClaimEvent extends SubmissionPreparationEvent {
+  alternate: boolean;
+  runtime: string;
+  model?: { provider: string; id: string };
+  thinkingLevel?: string;
+  mode?: string;
+  attachments: number;
+  promptAttachments?: readonly UiPromptAttachment[];
+  skillDraft?: UiSkillDraft;
+}
+
+/** Internal construction graph, assembled only by WorkbenchSession. */
 export interface SubmissionControllerPorts {
   client(): HostClient | undefined;
   view: ThreadViewStore;
   threads: ThreadStore;
   scopes: ComposerScopeStore;
-  registry: ExtensionRegistry;
+  environment: SubmissionEnvironment;
   storage: ClientStorage;
-  preferences: PreferencesStore;
   notify(message?: string, level?: "info" | "warning" | "error"): void;
-  actions(): WorkbenchActions | undefined;
   hostSession: HostSessionState;
   delivery: NewThreadDeliveryPort;
   newThread: NewThreadPort;
@@ -102,12 +130,6 @@ export class SubmissionController {
 
   constructor(private readonly ports: SubmissionControllerPorts) {}
 
-  /**
-   * Runs the extensions' new-thread gates and moves the draft to the workspace
-   * one of them names. A gate that fails or that the user left behind changes
-   * nothing: the prompt goes to the project the draft already had. A gate that
-   * stops the send rejects it.
-   */
   /** The line a draft's transcript shows while an extension works on its first prompt. */
   private preparingNotice(pending: NewThreadDraft, scope: DraftKey): { preparing(message: string): void; clear(): void } {
     const { view } = this.ports;
@@ -129,28 +151,17 @@ export class SubmissionController {
    * into the new runtime instead of silently falling back to host defaults.
    */
   private newThreadStart(pending: NewThreadDraft) {
-    const snapshot = this.ports.view.getSnapshot();
-    const runtime = effectiveNewThreadRuntime(pending.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot, runtimeCatalogStore(this.ports.client())?.all());
-    const inherited = runtime === "pi" && (snapshot?.backendKind ?? "pi") === "pi" ? snapshot?.model : undefined;
-    // What the draft chose goes to the runtime it was chosen from and no other.
-    const chosen = (pending.selectionRuntime ?? "pi") === runtime;
-    const model = (chosen ? pending.model : undefined) ?? inherited;
-    const thinkingLevel = chosen ? pending.thinkingLevel : undefined;
-    // A mode goes only to a runtime that offers it; a host that lists no runtimes decides itself.
-    const backend = snapshot?.runtimeBackends?.find((entry) => entry.kind === runtime);
-    const mode = pending.mode && (!backend || backend.modes?.includes(pending.mode)) ? pending.mode : undefined;
-    return { runtime, model, ...(thinkingLevel ? { thinkingLevel } : {}), ...(mode ? { mode } : {}) };
+    return this.ports.environment.selection(pending, this.ports.view.getSnapshot());
   }
 
   /** Offers the first prompt to an extension that starts the thread itself; true when one took it. */
   private claimNewThread = async (pending: NewThreadDraft, prompt: string, alternate: boolean, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft): Promise<boolean> => {
-    const actions = this.ports.actions();
     const scope = draftKey(undefined, pending);
-    if (!actions || !scope) return false;
+    if (!scope) return false;
     const { runtime, model, thinkingLevel, mode } = this.newThreadStart(pending);
     const notice = this.preparingNotice(pending, scope);
     try {
-      return await this.ports.registry.claimNewThread({
+      return await this.ports.environment.claimNewThread({
         prompt,
         projectPath: pending.projectPath,
         workspaceId: pending.workspaceId,
@@ -163,22 +174,20 @@ export class SubmissionController {
         skillDraft,
         thinkingLevel,
         mode,
-      }, actions);
+      });
     } finally {
       notice.clear();
     }
   };
 
   private prepareNewThreadWorkspace = async (pending: NewThreadDraft, prompt: string, optimisticId: string): Promise<NewThreadDraft> => {
-    const { registry, newThread } = this.ports;
-    const actions = this.ports.actions();
+    const { environment, newThread } = this.ports;
     const scope = draftKey(undefined, pending);
-    if (!actions || !scope) return pending;
+    if (!scope) return pending;
     const { preparing, clear } = this.preparingNotice(pending, scope);
     try {
-      const gate = await registry.prepareNewThread(
+      const gate = await environment.prepareNewThread(
         { prompt, projectPath: pending.projectPath, ...(pending.workspaceId ? { workspaceId: pending.workspaceId } : {}), preparing },
-        actions,
       );
       // A stopped send is a rejected one: the caller takes the prompt back into the composer.
       if (gate?.stop) throw new Error(gate.stop);
@@ -201,8 +210,8 @@ export class SubmissionController {
     }
   };
 
-  submit = async (input: SubmissionInput): Promise<SubmitResult> => {
-    const { client: getClient, view, threads, scopes, registry, newThread, turn, host } = this.ports;
+  submit = async (input: SubmissionInput): Promise<SubmissionResult> => {
+    const { client: getClient, view, threads, scopes, environment, newThread, turn, host } = this.ports;
     const { skillDraft } = input;
     const alternate = input.delivery === "alternate";
     const deliverAt = typeof input.delivery === "object" ? input.delivery.deliverAt : undefined;
@@ -211,38 +220,9 @@ export class SubmissionController {
     const text = skillDraft ? input.text : input.text.trim();
     const commandText = text.trim();
     if (!commandText && attachments.length === 0) return { accepted: false, message: "Enter a message or attach an image." };
-    // Desktop extensions own slash commands the runtime never sees.
-    const slash = attachments.length === 0 && !skillDraft ? registry.findSlashCommand(commandText) : undefined;
-    if (slash) {
-      const actions = this.ports.actions();
-      if (!actions) return { accepted: false, message: "The workbench is not ready yet." };
-      try {
-        const message = await slash.command.run(slash.args, actions);
-        return message ? { accepted: false, message } : { accepted: true };
-      } catch (error) {
-        return { accepted: false, message: errorMessage(error) };
-      }
-    }
-    // Shell command execution: !cmd feeds output to LLM context, !!cmd runs silently
-    if (commandText.startsWith("!") && attachments.length === 0 && !skillDraft) {
-      const isExcluded = commandText.startsWith("!!");
-      const shellCmd = isExcluded ? commandText.slice(2).trim() : commandText.slice(1).trim();
-      if (shellCmd) {
-        const actions = this.ports.actions();
-        if (!actions) return { accepted: false, message: "The workbench is not ready yet." };
-        try {
-          const result = await actions.runShellAction(shellCmd, !isExcluded);
-          if (result.cancelled) {
-            this.ports.notify("Shell command cancelled.");
-          } else if (result.exitCode !== undefined && result.exitCode !== 0) {
-            this.ports.notify(`Shell command exited with code ${result.exitCode}`);
-          }
-          return { accepted: true };
-        } catch (error) {
-          return { accepted: false, message: errorMessage(error) };
-        }
-      }
-    }
+    // UI commands are intercepted before any host or submission state changes.
+    const command = attachments.length === 0 && !skillDraft ? environment.command(commandText) : undefined;
+    if (command) return command();
     const client = getClient();
     let pendingNewThread = newThread.current();
     const newThreadRequestId = newThread.requestId();
@@ -255,12 +235,12 @@ export class SubmissionController {
       } catch (error) {
         return { accepted: false, message: errorMessage(error) };
       }
-      registry.dispatchWorkbenchEvent({ type: "prompt-accepted" });
+      environment.accepted();
       return { accepted: true };
     }
     try {
       if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments, skillDraft)) {
-        registry.dispatchWorkbenchEvent({ type: "prompt-accepted" });
+        environment.accepted();
         this.ports.drafts.startedElsewhere(pendingNewThread.draftId);
         return { accepted: true };
       }
@@ -277,7 +257,7 @@ export class SubmissionController {
       } catch (error) {
         return { accepted: false, message: errorMessage(error) };
       }
-      registry.dispatchWorkbenchEvent({ type: "prompt-accepted" });
+      environment.accepted();
       return { accepted: true };
     }
     let prepared: PreparedPrompt | undefined;
@@ -287,7 +267,7 @@ export class SubmissionController {
           text,
           pendingNewThread ? undefined : this.ports.hostSession.sessionIdFor(snapshot?.sessionId),
           skillDraft,
-          pendingNewThread ? chosenNewThreadRuntime(pendingNewThread.runtime ?? this.ports.preferences.getSnapshot().newThreadRuntime, snapshot, runtimeCatalogStore(client)?.all()) : undefined,
+          pendingNewThread ? this.newThreadStart(pendingNewThread).requestedRuntime : undefined,
           pendingNewThread && !pendingNewThread.sessionId ? pendingNewThread.workspaceId ?? pendingNewThread.projectPath : undefined,
         );
       } catch (error) {
@@ -361,7 +341,7 @@ export class SubmissionController {
     };
     const cancelTranscriptTurn = () => { turn.set(undefined, logicalTurnId); };
     /** Undo the optimistic row and the turn when a delivery never reached the runtime. */
-    const rejectSubmission = (error: unknown): SubmitResult => {
+    const rejectSubmission = (error: unknown): SubmissionResult => {
       const currentSubmission = isCurrentSubmission();
       cancelTranscriptTurn();
       removeOptimisticMessage(view, optimistic.id);
@@ -379,7 +359,7 @@ export class SubmissionController {
       } catch (error) {
         return rejectSubmission(error);
       }
-      registry.dispatchWorkbenchEvent({ type: "prompt-accepted" });
+      environment.accepted();
       return { accepted: true };
     }
     if (pendingNewThread) {
@@ -570,18 +550,15 @@ export class SubmissionController {
     }
     if (snapshot) {
       threads.markRead(snapshot.sessionId);
-      this.ports.preferences.unsettle(snapshot.sessionId);
+      environment.unsettle(snapshot.sessionId);
     }
     startTranscriptTurn(snapshot?.sessionId);
     addOptimisticMessage(view, optimisticScope, optimistic);
     if (!client) return this.deliverInPreview();
     try {
       await client.sendPrompt(text, attachments, this.ports.hostSession.sessionIdFor(snapshot?.sessionId), clientTurn, prepared);
-      const actions = this.ports.actions();
-      if (actions) {
-        void registry.notifyPromptSubmitted({ prompt: visiblePrompt, snapshot }, actions)
-          .catch((error) => this.ports.notify(errorMessage(error), "error"));
-      }
+      void environment.submitted({ prompt: visiblePrompt, snapshot })
+        .catch((error) => this.ports.notify(errorMessage(error), "error"));
       return { accepted: true };
     } catch (error) {
       return rejectSubmission(error);
@@ -656,11 +633,11 @@ export class SubmissionController {
   }
 
   /** Without the Electron host the workbench answers its own prompt. */
-  private deliverInPreview(): SubmitResult {
+  private deliverInPreview(): SubmissionResult {
     const { view, threads } = this.ports;
     const previewThreadId = view.getSnapshot()?.sessionId ?? "";
     threads.setThreadRunning(previewThreadId, true);
-    window.setTimeout(() => {
+    this.ports.environment.preview(() => {
       view.appendMessage({
         id: `mock-${Date.now()}`,
         role: "assistant",
@@ -668,7 +645,7 @@ export class SubmissionController {
         timestamp: Date.now(),
       });
       threads.setThreadRunning(previewThreadId, false);
-    }, 650);
+    });
     return { accepted: true };
   }
 }

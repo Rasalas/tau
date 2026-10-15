@@ -1,3 +1,6 @@
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import type { HostCommand } from "../shared/host-command-definition.js";
+import { bindHostCommand } from "./host-command-handler.js";
 import { createHash, randomUUID, type Hash } from "node:crypto";
 import { appendFile, mkdir, rename, rm, statfs } from "node:fs/promises";
 import { join } from "node:path";
@@ -280,28 +283,18 @@ type Method = (params: readonly unknown[], context: HostMethodContext) => Promis
 
 /** `blob-*`: another machine's host sends a file here in pieces. Full access only (`write`). */
 export function createBlobMethods(store: () => HostBlobStore | undefined): Record<string, Method> {
-  const handled = (run: (blobs: HostBlobStore, params: readonly unknown[], principal: HostInvocationPrincipal) => Promise<unknown>): Method => async (params, context) => {
+  const handled = <Args extends readonly unknown[], Result, WireArgs extends readonly unknown[] | never>(
+    definition: HostCommand<Args, Result, WireArgs>,
+    run: (blobs: HostBlobStore, params: Args, principal: HostInvocationPrincipal) => Result | Promise<Result>,
+  ): Method => async (params, context) => {
     const blobs = store();
     if (!blobs) throw failure("This host takes no files from other machines; a host in the window's process has no store.", HOST_ERROR.unsupported);
-    return run(blobs, params, context.principal);
-  };
-  const text = (method: string, field: string, value: unknown): string => {
-    if (typeof value !== "string") throw invalid(`${method}: ${field} must be a string.`);
-    return value;
-  };
-  const whole = (method: string, field: string, value: unknown): number => {
-    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw invalid(`${method}: ${field} must be a whole number from 0.`);
-    return value;
+    return bindHostCommand(definition, (args) => run(blobs, args, context.principal))(params, context);
   };
   return {
-    [BLOB_METHODS.put]: handled((blobs, params, principal) =>
-      blobs.put(principal, text("blob-put", "id", params[0]), whole("blob-put", "index", params[1]), text("blob-put", "data", params[2]))),
-    [BLOB_METHODS.commit]: handled((blobs, params, principal) => {
-      const sha256 = text("blob-commit", "sha256", params[1]);
-      if (!/^[0-9a-f]{64}$/iu.test(sha256)) throw invalid("blob-commit: sha256 is 64 hex digits.");
-      return blobs.commit(principal, text("blob-commit", "id", params[0]), sha256, whole("blob-commit", "size", params[2]));
-    }),
-    [BLOB_METHODS.abort]: handled((blobs, params, principal) => blobs.abort(principal, text("blob-abort", "id", params[0]))),
+    [BLOB_METHODS.put]: handled(HOST_FACTORY_COMMANDS["blob-put"], (blobs, params, principal) => blobs.put(principal, ...params)),
+    [BLOB_METHODS.commit]: handled(HOST_FACTORY_COMMANDS["blob-commit"], (blobs, params, principal) => blobs.commit(principal, ...params)),
+    [BLOB_METHODS.abort]: handled(HOST_FACTORY_COMMANDS["blob-abort"], (blobs, params, principal) => blobs.abort(principal, ...params)),
   };
 }
 

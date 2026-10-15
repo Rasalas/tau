@@ -1,52 +1,12 @@
+import type { HostCommandName, CommandArgs, CommandResult, CommandClient } from "../shared/host-command-contract";
+import { HOST_COMMAND_METADATA } from "../shared/host-command-metadata";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu";
-import type { HostUpdateAction, HostUpdateSettings, HostUpdateStatus } from "../shared/host-updates";
-import type {
-  DesktopExtensionLoadResult,
-  ExtensionInspection,
-  ExtensionUiAnswer,
-  ExtensionUiPrompt,
-  HostExtensionSummary,
-  PreparedPrompt,
-  PreparedThreadCapability,
-  NewThreadConfiguration,
-  ShellActionResult,
-  ThreadTreeNavigationResult,
-  UiImagePreview,
-  UiSharedFile,
-  UiPromptAttachment,
-  UiQueuedPrompt,
-  UiSkillDraft,
-  UiThreadTree,
-  UiToolOutputPreview,
-  UiToolOutputReadResult,
-  WorkbenchBuildResult,
-  WorkbenchReloadMode,
-  WorkbenchReloadPreparation,
-  HostEvent,
-  ClientTurnIdentity,
-  ThreadBackendKind,
-  TauConfig,
-  CustomProviderConfig,
-  CustomProviderInput,
-  UiModel,
-  UiComposerCommand,
-  UiRuntimeCatalog,
-  UiRuntimeToolsState,
-  SystemPromptInspection,
-  UserTheme,
-  ExternalEditorResult,
-} from "../shared/contracts";
-import type { HostActionResult, ForkThreadResult, NewThreadResult, TranscriptPage } from "../shared/host-protocol";
-import type { ConfigLayers } from "../shared/config-layers";
-import type { HostBootstrap } from "../shared/contracts";
-import type { HostTranscriptCursor } from "../shared/transcript-cursor";
+import type { HostUpdateStatus } from "../shared/host-updates";
+import type { HostEvent } from "../shared/contracts";
+
 import { isClientSideMethod } from "../shared/host-transport";
-import type { ConnectSetup, ConnectStatus } from "../shared/connect";
-import type { SystemNotification, SystemNotificationOutcome } from "../shared/system-attention";
-import type { WindowAction } from "../shared/window-shell";
-import type { DeviceAccess, UiClientUpdate, UiConnections, UiCreatedPairingLink, UiHostService, UiNetworkAccess, UiNetworkSettingsInput } from "../shared/connections";
-import type { UiDiscoveredHosts } from "../shared/discovery";
-import type { EnvironmentAgentsResult, EnvironmentOpenTarget, EnvironmentPairInput, EnvironmentPairResult, EnvironmentPreferences, EnvironmentTarget, UiEnvironmentThreadView, UiEnvironments } from "../shared/environments";
+
+import type { EnvironmentTarget, UiEnvironmentThreadView } from "../shared/environments";
 import type { HostLink } from "./host-link";
 import type { HostConnection, HostConnectionState } from "./host-connection";
 import { ReadCommands, readOnlyMayCall, readOnlyRefusal, type HostHalf } from "./read-only-guard";
@@ -60,133 +20,132 @@ import type { PersonPreferences } from "../shared/person-preferences";
  */
 export interface HostClient {
   // Thread lifecycle and navigation: create, resume, switch, and manage projects.
-  bootstrap(): Promise<HostBootstrap>;
-  newSession(initialPrompt?: string, attachments?: UiPromptAttachment[], cwd?: string, clientMessageIdOrRequestId?: string | ClientTurnIdentity, prepared?: PreparedPrompt, configuration?: NewThreadConfiguration): Promise<NewThreadResult>;
-  getPreparedThreadCapability(cwd?: string): Promise<PreparedThreadCapability>;
+  bootstrap: CommandClient<"bootstrap">;
+  newSession: CommandClient<"new-session">;
+  getPreparedThreadCapability: CommandClient<"prepared-thread-capability">;
   /** With `workspace`, the fork runs there (a worktree made for it) instead of the source's folder. */
-  forkThread(entryId: string, expectedSessionId?: string, workspace?: string, background?: boolean): Promise<ForkThreadResult>;
-  threadTree(sessionId?: string): Promise<UiThreadTree>;
-  navigateThreadTree(entryId: string, options?: { summarize?: boolean }, expectedSessionId?: string): Promise<ThreadTreeNavigationResult>;
-  duplicateThread(expectedSessionId?: string): Promise<HostActionResult>;
-  switchSession(path: string): Promise<HostActionResult>;
-  openProject(path: string): Promise<HostActionResult>;
-  removeProject(path: string): Promise<HostActionResult>;
-  renameThread(title: string, expectedSessionId?: string): Promise<HostActionResult>;
-  recoverThread(): Promise<HostActionResult>;
+  forkThread: CommandClient<"fork-thread">;
+  threadTree: CommandClient<"thread-tree">;
+  navigateThreadTree: CommandClient<"navigate-thread-tree">;
+  duplicateThread: CommandClient<"duplicate-thread">;
+  switchSession: CommandClient<"switch-session">;
+  openProject: CommandClient<"open-project">;
+  removeProject: CommandClient<"remove-project">;
+  renameThread: CommandClient<"rename-thread">;
+  recoverThread: CommandClient<"recover-thread">;
 
   // Sending and controlling one turn of a running thread.
   /** `backendKind` names the runtime of a thread that does not exist yet; ignored with a `sessionId`. */
-  preparePrompt(text: string, sessionId?: string, skill?: UiSkillDraft, backendKind?: ThreadBackendKind, workspace?: string): Promise<PreparedPrompt | undefined>;
+  preparePrompt: CommandClient<"prepare-prompt">;
   /** The commands a draft of `workspace` offers on `backendKind` (API 1.59.0). */
-  composerCommands(backendKind: ThreadBackendKind, workspace: string): Promise<UiComposerCommand[]>;
-  sendPrompt(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
-  steer(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
-  followUp(text: string, attachments?: UiPromptAttachment[], sessionId?: string, clientMessageIdOrIdentity?: string | ClientTurnIdentity, prepared?: PreparedPrompt): Promise<void>;
-  abort(sessionId?: string): Promise<void>;
+  composerCommands: CommandClient<"composer-commands">;
+  sendPrompt: CommandClient<"prompt">;
+  steer: CommandClient<"steer">;
+  followUp: CommandClient<"follow-up">;
+  abort: CommandClient<"abort">;
   /** Parks a message in the thread's host-kept queue; it leaves when the thread's turn ends. */
   /** With `deliverAt` (epoch ms, API 1.65.0) the message is planned: it leaves at that time instead of after the turn. */
-  queueMessage(sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft, deliverAt?: number): Promise<{ id: string }>;
+  queueMessage: CommandClient<"queue-message">;
   /** Takes queued messages back out, in full: one by id, or all of them. */
-  takeQueued(sessionId: string, id?: string): Promise<UiQueuedPrompt[]>;
-  moveQueued(sessionId: string, id: string, toIndex: number): Promise<void>;
+  takeQueued: CommandClient<"take-queued">;
+  moveQueued: CommandClient<"move-queued">;
   /** Plans a waiting message for another time; `undefined` puts it in the line of the queue (API 1.65.0). */
-  planQueued(sessionId: string, id: string, deliverAt: number | undefined): Promise<void>;
+  planQueued: CommandClient<"plan-queued">;
   /** Continues a thread a provider limit stopped: now, at the reset, or cancels the scheduled resume. */
-  resumeLimited(sessionId: string, when: "now" | "reset" | "cancel"): Promise<void>;
+  resumeLimited: CommandClient<"resume-limited">;
   /** A thread's native goal (API 1.52.0); `set` needs the objective. */
-  threadGoal(sessionId: string, action: "set" | "pause" | "resume" | "clear" | "dismiss", objective?: string): Promise<void>;
+  threadGoal: CommandClient<"thread-goal">;
   /** Stops a thread's background task, or all of them without an id (API 1.58.0). */
-  stopBackground(sessionId: string, taskId?: string): Promise<void>;
-  runShellAction(command: string, includeInContext?: boolean, expectedCwd?: string): Promise<ShellActionResult>;
+  stopBackground: CommandClient<"thread-background-stop">;
+  runShellAction: CommandClient<"run-shell-action">;
 
   // Reading transcript history and durable tool output.
-  loadTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
-  readToolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputReadResult | undefined>;
+  loadTranscript: CommandClient<"transcript-page">;
+  readToolOutput: CommandClient<"read-tool-output">;
   /** A deferred tool's output (`outputDeferred`), as the transcript would have carried it. */
-  toolOutput(sessionId: string, toolCallId: string): Promise<UiToolOutputPreview | undefined>;
+  toolOutput: CommandClient<"tool-output">;
   /** The thread as Markdown; the client's own clipboard takes it (a phone's, not the host's). */
   threadMarkdown(expectedSessionId?: string): Promise<string | undefined>;
-  readImagePreview(path: string): Promise<UiImagePreview | undefined>;
+  readImagePreview: CommandClient<"read-image-preview">;
   /** A `tau-ext:` URL for a workspace PDF, image, audio or video; the window's own process serves it. */
-  shareFile(path: string): Promise<UiSharedFile>;
+  shareFile: CommandClient<"share-file">;
 
   // Model, thinking level, and context for the thread on screen; the host's active thread without `expectedSessionId`.
-  setModel(provider: string, id: string, expectedSessionId?: string): Promise<HostActionResult>;
-  setThinkingLevel(level: string, expectedSessionId?: string): Promise<HostActionResult>;
+  setModel: CommandClient<"set-model">;
+  setThinkingLevel: CommandClient<"set-thinking">;
   /** The interaction mode the thread's next turns run in; the active thread without `expectedSessionId`. */
-  setMode(mode: string, expectedSessionId?: string): Promise<HostActionResult>;
-  compactContext(expectedSessionId?: string): Promise<HostActionResult>;
-  compactAndSend(sessionId: string, prompt: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<HostActionResult>;
+  setMode: CommandClient<"set-mode">;
+  compactContext: CommandClient<"compact-context">;
+  compactAndSend: CommandClient<"compact-and-send">;
 
   // Desktop/host extension lifecycle and the generic host-extension channel.
-  restartSession(threadId: string): Promise<HostActionResult>;
-  reloadRuntime(): Promise<void>;
+  restartSession: CommandClient<"restart-session">;
+  reloadRuntime: CommandClient<"reload-runtime">;
   /** Kits and packages only; every runtime keeps running. */
-  reloadExtensions(): Promise<void>;
-  answerExtensionUi(id: string, answer: ExtensionUiAnswer): Promise<void>;
+  reloadExtensions: CommandClient<"reload-extensions">;
+  answerExtensionUi: CommandClient<"answer-extension-ui">;
   /** Re-announces the open questions and lists them; a host from before the list answers nothing. */
-  syncExtensionUi(): Promise<readonly ExtensionUiPrompt[] | undefined>;
+  syncExtensionUi: CommandClient<"sync-extension-ui">;
   /** `only` asks for just those extension ids, so a client can swap one module instead of all of them. */
   /** `held`: the bundle digests the client keeps; the host leaves out their code (`DesktopExtensionBundle.cached`). */
-  loadDesktopExtensions(cwd: string, sharedExports: Record<string, string[]>, only?: readonly string[], held?: readonly string[]): Promise<DesktopExtensionLoadResult>;
-  invokeHostExtension(extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  loadDesktopExtensions: CommandClient<"desktop-extensions">;
+  invokeHostExtension: CommandClient<"host-extension">;
   /** Resolve a capability path against this client's host, never the device's own host. */
   resourceUrl?(path: string): string;
-  listHostExtensions(): Promise<HostExtensionSummary[]>;
-  inspectExtensions(cwd: string): Promise<ExtensionInspection>;
-  setHostExtensionActive(id: string, active: boolean): Promise<HostExtensionSummary[]>;
-  grantExtension(id: string, grant: boolean): Promise<void>;
+  listHostExtensions: CommandClient<"host-extensions">;
+  inspectExtensions: CommandClient<"inspect-extensions">;
+  setHostExtensionActive: CommandClient<"host-extension-active">;
+  grantExtension: CommandClient<"extension-grant">;
 
   // Rebuilding, reloading, and restarting the workbench itself.
-  prepareWorkbenchReload(mode: WorkbenchReloadMode): Promise<WorkbenchReloadPreparation>;
-  releaseWorkbenchReload(): Promise<void>;
-  rebuildWorkbench(): Promise<WorkbenchBuildResult>;
-  workbenchSource(): Promise<{ path?: string }>;
-  relaunchWorkbench(): Promise<void>;
+  prepareWorkbenchReload: CommandClient<"prepare-workbench-reload">;
+  releaseWorkbenchReload: CommandClient<"release-workbench-reload">;
+  rebuildWorkbench: CommandClient<"rebuild-workbench">;
+  workbenchSource: CommandClient<"workbench-source">;
+  relaunchWorkbench: CommandClient<"relaunch-workbench">;
   /** Restarts into a downloaded update. */
-  installUpdate(): Promise<{ installing: boolean }>;
+  installUpdate: CommandClient<"install-update">;
 
   // Host configuration as code.
-  getConfig(workspaceId?: string): Promise<TauConfig>;
-  updateConfig(patch: Partial<TauConfig>, scope?: "global" | "project", workspaceId?: string): Promise<TauConfig>;
+  getConfig: CommandClient<"get-config">;
+  updateConfig: CommandClient<"update-config">;
   /** The host and project files apart, for showing where a setting's value comes from. */
-  getConfigLayers(workspaceId?: string): Promise<ConfigLayers>;
+  getConfigLayers: CommandClient<"get-config-layers">;
   /** Removes setting keys from one level, so the level below shows through. */
-  clearConfig(keys: readonly string[], scope?: "global" | "project", workspaceId?: string): Promise<ConfigLayers>;
-  getModelsConfig(): Promise<CustomProviderConfig[]>;
+  clearConfig: CommandClient<"clear-config">;
+  getModelsConfig: CommandClient<"get-models-config">;
   /** What a runtime offers a thread that does not exist yet; undefined when it cannot say. */
-  runtimeCatalog(kind: ThreadBackendKind): Promise<UiRuntimeCatalog | undefined>;
+  runtimeCatalog: CommandClient<"runtime-catalog">;
   /**
    * Every runtime's catalog the host holds, stale or not, less those the
    * client names in `known` (kind to `checkedAt`); `revalidate` makes it ask
    * again those that are some minutes old, and a change arrives as a
    * `runtime-catalog` event.
    */
-  runtimeCatalogs(revalidate?: boolean, known?: Record<string, number>): Promise<UiRuntimeCatalog[]>;
+  runtimeCatalogs: CommandClient<"runtime-catalogs">;
   /**
    * Settings → Runtimes, keeping the agent CLIs current: `state` and `refresh`
    * (every runtime's version and catalog asked again) read; with `input`,
    * `automatic` (`{ on }`), `update` and `switch` (`{ kind }`) need the owner.
    */
-  runtimeTools?(action: "state" | "refresh"): Promise<UiRuntimeToolsState>;
-  runtimeTools?(action: "automatic" | "update" | "switch", input: { on?: boolean; kind?: string }): Promise<UiRuntimeToolsState>;
-  addModelProvider(input: CustomProviderInput): Promise<UiModel[]>;
-  inspectSystemPrompt(threadId?: string, workspaceId?: string): Promise<SystemPromptInspection>;
-  listUserThemes(workspaceId?: string): Promise<UserTheme[]>;
-  openExternalEditor(text?: string): Promise<ExternalEditorResult>;
+  runtimeTools?: CommandClient<"runtime-tools"> & CommandClient<"runtime-tools-change">;
+  addModelProvider: CommandClient<"add-model-provider">;
+  inspectSystemPrompt: CommandClient<"inspect-system-prompt">;
+  listUserThemes: CommandClient<"list-user-themes">;
+  openExternalEditor: CommandClient<"open-external-editor">;
 
   // Clipboard, window chrome, and the host event stream.
   readonly platform: string;
-  copyText(text: string): Promise<void>;
-  copyImage(dataUrl: string): Promise<void>;
+  copyText: CommandClient<"copy-text">;
+  copyImage: CommandClient<"copy-image">;
   /** A notification the client's OS draws; resolves when it was clicked or dismissed. */
-  showNotification(notification: SystemNotification): Promise<SystemNotificationOutcome>;
+  showNotification: CommandClient<"notify">;
   /** The count on the client's app icon; 0 clears it. */
-  setBadge(count: number): Promise<void>;
+  setBadge: CommandClient<"set-badge">;
   /** A menu the client's OS draws at a point of the window; the chosen id, or undefined. Refused where none is drawn. */
   showContextMenu(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
   /** Asks the window's own process (`src/shared/window-shell.ts`); refused where the client has none. */
-  windowAction(action: WindowAction): Promise<unknown>;
+  windowAction: CommandClient<"window-action">;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
   /**
    * Whether the host announced a capability in its hello. `local-files` means
@@ -248,78 +207,78 @@ export interface HostClient {
   onVersions(listener: () => void): () => void;
 
   // Who else may connect to the host (Settings → Connections, ADR 0023, ADR 0024). The owner's alone.
-  listConnections(): Promise<UiConnections>;
-  createPairingLink(input?: { label?: string; lifetimeMs?: number; access?: DeviceAccess }): Promise<UiCreatedPairingLink>;
-  revokePairingLink(id: string): Promise<{ revoked: boolean }>;
-  revokeClient(id: string): Promise<{ revoked: boolean }>;
+  listConnections: CommandClient<"connections-list">;
+  createPairingLink: CommandClient<"connections-create-link">;
+  revokePairingLink: CommandClient<"connections-revoke-link">;
+  revokeClient: CommandClient<"connections-revoke-client">;
   /** Signs out every paired device; answers how many. */
-  revokeOtherClients(): Promise<{ revoked: number }>;
-  updateClient(id: string, update: UiClientUpdate): Promise<{ updated: boolean }>;
+  revokeOtherClients: CommandClient<"connections-revoke-others">;
+  updateClient: CommandClient<"connections-update-client">;
   /** Lets a waiting device in; false when it stopped waiting. */
-  approvePairing(id: string, choice?: { access?: DeviceAccess; label?: string }): Promise<{ approved: boolean }>;
-  denyPairing(id: string): Promise<{ denied: boolean }>;
+  approvePairing: CommandClient<"connections-approve">;
+  denyPairing: CommandClient<"connections-deny">;
   /** Closes every other connection on the old host token; this one carries on with the new one. */
   rotateHostToken(): Promise<void>;
   /** The host token itself, for the owner to enter on another device (API 1.61.0); refused to everyone else, and an older host does not know it. */
   hostToken(): Promise<string>;
   /** Opens or closes the listeners beyond loopback in the running host. */
-  setNetworkAccess(input: UiNetworkSettingsInput): Promise<UiNetworkAccess>;
-  connectStatus?(): Promise<ConnectStatus>;
-  configureConnect?(input: ConnectSetup): Promise<ConnectStatus>;
-  createConnectLink?(): Promise<{ link: string }>;
-  removeConnect?(): Promise<ConnectStatus>;
+  setNetworkAccess: CommandClient<"connections-set-network">;
+  connectStatus?: CommandClient<"connect-status">;
+  configureConnect?: CommandClient<"connect-configure">;
+  createConnectLink?: CommandClient<"connect-link">;
+  removeConnect?: CommandClient<"connect-remove">;
   /** Reads the served certificates again; `changed` when a listener now serves another one. */
-  reloadCertificate(): Promise<{ changed: boolean }>;
+  reloadCertificate: CommandClient<"connections-reload-certificate">;
   /** Tau hosts that announce themselves on the host's network, after a few seconds of looking. */
-  discoverHosts(options?: { timeoutMs?: number }): Promise<UiDiscoveredHosts>;
+  discoverHosts: CommandClient<"connections-discover">;
   /** The host's machine runs it as a system service; the owner's alone. */
-  serviceStatus(): Promise<UiHostService>;
+  serviceStatus: CommandClient<"service-status">;
   /**
    * Installs (or repairs) the service; the host answering may be replaced by the one it starts.
    * `display` adds or removes the invisible display of a Linux service; left out, it stays as it is.
    */
-  installService(options?: { display?: boolean }): Promise<UiHostService>;
-  uninstallService(): Promise<UiHostService>;
+  installService: CommandClient<"service-install">;
+  uninstallService: CommandClient<"service-uninstall">;
   /** Adds the AppArmor profile the invisible display's window needs, through the host machine's password dialog. */
-  allowServiceSandbox(): Promise<UiHostService>;
+  allowServiceSandbox: CommandClient<"service-allow-sandbox">;
 
   // The machines this window knows (ADR 0025). The window's own process answers; a host refuses them.
-  listEnvironments(): Promise<UiEnvironments>;
+  listEnvironments: CommandClient<"environments-list">;
   /** Resolves once the other machine's owner decided, or the attempt failed. */
-  pairEnvironment(input: EnvironmentPairInput): Promise<EnvironmentPairResult>;
-  cancelEnvironmentPairing(): Promise<void>;
-  renameEnvironment(id: string, name: string): Promise<{ renamed: boolean }>;
-  removeEnvironment(id: string): Promise<{ removed: boolean }>;
-  retryEnvironment(id: string): Promise<void>;
+  pairEnvironment: CommandClient<"environments-pair">;
+  cancelEnvironmentPairing: CommandClient<"environments-cancel-pairing">;
+  renameEnvironment: CommandClient<"environments-rename">;
+  removeEnvironment: CommandClient<"environments-remove">;
+  retryEnvironment: CommandClient<"environments-retry">;
   /** Points this window at another machine; the page loads again there and finds `target` waiting. */
-  openEnvironment(id: string, target?: EnvironmentOpenTarget): Promise<void>;
+  openEnvironment: CommandClient<"environments-open">;
   /** What this page was sent to show on arrival, once. */
   takeEnvironmentArrival(): Promise<EnvironmentTarget | undefined>;
   /** A Bonjour search from the window's own host, whichever machine the page shows. */
-  discoverEnvironments(): Promise<UiDiscoveredHosts>;
-  listWslEnvironments?(): Promise<string[]>;
-  setEnvironmentPreferences(preferences: EnvironmentPreferences): Promise<void>;
-  setEnvironmentAgents(id: string, on: boolean): Promise<EnvironmentAgentsResult>;
+  discoverEnvironments: CommandClient<"environments-discover">;
+  listWslEnvironments?: CommandClient<"environments-wsl-list">;
+  setEnvironmentPreferences: CommandClient<"environments-set-preferences">;
+  setEnvironmentAgents: CommandClient<"environments-set-agents">;
   /** Renews or ends the window's watch of another machine's thread (API 1.15.0). */
   watchEnvironmentThread(machine: string, sessionId: string, on: boolean): Promise<UiEnvironmentThreadView | undefined>;
   /** A page of another machine's thread, over the window's own connection to it. */
-  loadEnvironmentTranscript(machine: string, sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage>;
+  loadEnvironmentTranscript: CommandClient<"environments-transcript-page">;
   /** A kit command of another machine that only reads, over the window's own connection to it (API 1.15.0). */
-  invokeEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>;
-  followEnvironmentExtension?(machine: string, extensionId: string, on: boolean): Promise<void>;
-  readEnvironmentExtension(machine: string, extensionId: string, command: string, input?: unknown): Promise<unknown>;
+  invokeEnvironmentExtension: CommandClient<"environments-extension-invoke">;
+  followEnvironmentExtension?: CommandClient<"environments-extension-follow">;
+  readEnvironmentExtension: CommandClient<"environments-extension-read">;
   /** Another machine's own Tau over the window's connection there: how it stands, a check, or an install (K103). */
-  updateEnvironment?(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
+  updateEnvironment?: CommandClient<"environments-update">;
   /** Another machine's settings at its machine level, over the window's connection there (K170). */
-  getEnvironmentConfig(machine: string): Promise<ConfigLayers>;
-  updateEnvironmentConfig(machine: string, patch: Partial<TauConfig>): Promise<unknown>;
-  clearEnvironmentConfig(machine: string, keys: readonly string[]): Promise<unknown>;
+  getEnvironmentConfig: CommandClient<"environments-config">;
+  updateEnvironmentConfig: CommandClient<"environments-update-config">;
+  clearEnvironmentConfig: CommandClient<"environments-clear-config">;
   /** The person's preferences as the window's own machine keeps them; with a patch, written there. */
   personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
 
   /** The host machine's own Tau (K103); a host without an updater refuses with `unsupported`. */
   hostUpdate?(action: "status" | "check" | "install"): Promise<HostUpdateStatus>;
-  setHostUpdateSettings?(settings: HostUpdateSettings): Promise<HostUpdateStatus>;
+  setHostUpdateSettings?: CommandClient<"update-settings">;
 }
 
 /**
@@ -334,123 +293,122 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
   const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
   // A Read-only device is refused here what the host would refuse; the window's own process never is.
   const refused = (target: HostConnection, method: string) => target === connection && connection.isReadOnly() && !readOnlyMayCall(method);
-  const call = <T>(method: string, params: readonly unknown[] = []) => {
-    const target = route(method);
-    return refused(target, method) ? Promise.reject(readOnlyRefusal()) : target.request<T>(method, params);
-  };
-  // A job where the host asks for one: no request timeout, and a dropped link replays the result.
-  const callLong = <T>(method: string, params: readonly unknown[] = []) => {
+  const commandCall = <Name extends HostCommandName>(method: Name, ...[params]: [] extends CommandArgs<Name> ? [params?: CommandArgs<Name>] : [params: CommandArgs<Name>]): Promise<CommandResult<Name>> => {
     const target = route(method);
     if (refused(target, method)) return Promise.reject(readOnlyRefusal());
-    return target.isJobMethod(method) ? target.runJob<T>(method, params) : target.request<T>(method, params);
+    return HOST_COMMAND_METADATA[method].job && target.isJobMethod(method)
+      ? target.runJob<CommandResult<Name>>(method, params ?? [])
+      : target.request<CommandResult<Name>>(method, params ?? []);
   };
-  const readCommands = new ReadCommands(() => call<HostExtensionSummary[]>("host-extensions"));
+  const readCommands = new ReadCommands(() => commandCall("host-extensions"));
   connection.onEvent((event) => { if (event.type === "extension-packages-changed" || event.type === "extension-deactivated") readCommands.invalidate(); });
   const invokeHostExtension = (extensionId: string, command: string, input?: unknown) => connection.isJobMethod("host-extension", extensionId, command)
     ? connection.runJob<unknown>("host-extension", [extensionId, command, input])
-    : call<unknown>("host-extension", [extensionId, command, input]);
+    : commandCall("host-extension", [extensionId, command, input]);
   return {
     bootstrap: async () => {
-      const bootstrap = await call<HostBootstrap>("bootstrap");
+      const bootstrap = await commandCall("bootstrap");
       // Which calls run as jobs, and which only read, depends on the extensions the host just started.
       void connection.refreshJobMethods();
       readCommands.invalidate();
       return bootstrap;
     },
     newSession: (initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration) =>
-      callLong<NewThreadResult>("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration]),
-    getPreparedThreadCapability: (cwd) => call<PreparedThreadCapability>("prepared-thread-capability", [cwd]),
-    forkThread: (entryId, expectedSessionId, workspace, background) => call<ForkThreadResult>("fork-thread", background !== undefined ? [entryId, expectedSessionId, workspace, background] : workspace ? [entryId, expectedSessionId, workspace] : [entryId, expectedSessionId]),
-    threadTree: (sessionId) => call<UiThreadTree>("thread-tree", [sessionId]),
+      commandCall("new-session", [initialPrompt, attachments, cwd, clientMessageIdOrRequestId, prepared, configuration]),
+    getPreparedThreadCapability: (cwd) => commandCall("prepared-thread-capability", [cwd]),
+    forkThread: (entryId, expectedSessionId, workspace, background) => commandCall("fork-thread", background !== undefined ? [entryId, expectedSessionId, workspace, background] : workspace ? [entryId, expectedSessionId, workspace] : [entryId, expectedSessionId]),
+    threadTree: (sessionId) => commandCall("thread-tree", [sessionId]),
     navigateThreadTree: (entryId, options, expectedSessionId) =>
-      call<ThreadTreeNavigationResult>("navigate-thread-tree", [entryId, options, expectedSessionId]),
-    duplicateThread: (expectedSessionId) => call<HostActionResult>("duplicate-thread", [expectedSessionId]),
-    switchSession: (path) => call<HostActionResult>("switch-session", [path]),
-    openProject: (path) => call<HostActionResult>("open-project", [path]),
-    removeProject: (path) => call<HostActionResult>("remove-project", [path]),
-    renameThread: (title, expectedSessionId) => call<HostActionResult>("rename-thread", [title, expectedSessionId]),
-    recoverThread: () => call<HostActionResult>("recover-thread"),
+      commandCall("navigate-thread-tree", [entryId, options, expectedSessionId]),
+    duplicateThread: (expectedSessionId) => commandCall("duplicate-thread", [expectedSessionId]),
+    switchSession: (path) => commandCall("switch-session", [path]),
+    openProject: (path) => commandCall("open-project", [path]),
+    removeProject: (path) => commandCall("remove-project", [path]),
+    renameThread: (title, expectedSessionId) => commandCall("rename-thread", [title, expectedSessionId]),
+    recoverThread: () => commandCall("recover-thread"),
 
-    preparePrompt: (text, sessionId, skill, backendKind, workspace) => call<PreparedPrompt | undefined>("prepare-prompt", [text, sessionId, skill, backendKind, workspace]),
-    composerCommands: (backendKind, workspace) => call<UiComposerCommand[]>("composer-commands", [backendKind, workspace]),
+    preparePrompt: (text, sessionId, skill, backendKind, workspace) => commandCall("prepare-prompt", [text, sessionId, skill, backendKind, workspace]),
+    composerCommands: (backendKind, workspace) => commandCall("composer-commands", [backendKind, workspace]),
     sendPrompt: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      callLong<void>("prompt", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
+      commandCall("prompt", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     steer: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      callLong<void>("steer", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
+      commandCall("steer", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     followUp: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
-      callLong<void>("follow-up", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
-    abort: (sessionId) => call<void>("abort", [sessionId]),
-    queueMessage: (sessionId, text, attachments, skillDraft, deliverAt) => call<{ id: string }>("queue-message", deliverAt === undefined ? [sessionId, text, attachments, skillDraft] : [sessionId, text, attachments, skillDraft ?? null, deliverAt]),
-    takeQueued: (sessionId, id) => call<UiQueuedPrompt[]>("take-queued", [sessionId, id]),
-    moveQueued: (sessionId, id, toIndex) => call<void>("move-queued", [sessionId, id, toIndex]),
-    planQueued: (sessionId, id, deliverAt) => call<void>("plan-queued", [sessionId, id, deliverAt ?? null]),
-    resumeLimited: (sessionId, when) => call<void>("resume-limited", [sessionId, when]),
-    threadGoal: (sessionId, action, objective) => call<void>("thread-goal", objective === undefined ? [sessionId, action] : [sessionId, action, objective]),
-    stopBackground: (sessionId, taskId) => call<void>("thread-background-stop", taskId === undefined ? [sessionId] : [sessionId, taskId]),
+      commandCall("follow-up", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
+    abort: (sessionId) => commandCall("abort", [sessionId]),
+    queueMessage: (sessionId, text, attachments, skillDraft, deliverAt) => commandCall("queue-message", deliverAt === undefined ? [sessionId, text, attachments, skillDraft] : [sessionId, text, attachments, skillDraft ?? null, deliverAt]),
+    takeQueued: (sessionId, id) => commandCall("take-queued", [sessionId, id]),
+    moveQueued: (sessionId, id, toIndex) => commandCall("move-queued", [sessionId, id, toIndex]),
+    planQueued: (sessionId, id, deliverAt) => commandCall("plan-queued", [sessionId, id, deliverAt ?? null]),
+    resumeLimited: (sessionId, when) => commandCall("resume-limited", [sessionId, when]),
+    threadGoal: (sessionId, action, objective) => commandCall("thread-goal", objective === undefined ? [sessionId, action] : [sessionId, action, objective]),
+    stopBackground: (sessionId, taskId) => commandCall("thread-background-stop", taskId === undefined ? [sessionId] : [sessionId, taskId]),
     runShellAction: (command, includeInContext, expectedCwd) =>
-      call<ShellActionResult>("run-shell-action", [command, includeInContext, expectedCwd]),
+      commandCall("run-shell-action", [command, includeInContext, expectedCwd]),
 
-    loadTranscript: (sessionId, cursor) => call<TranscriptPage>("transcript-page", [sessionId, cursor]),
-    readToolOutput: (sessionId, toolCallId) => call<UiToolOutputReadResult | undefined>("read-tool-output", [sessionId, toolCallId]),
-    toolOutput: (sessionId, toolCallId) => call<UiToolOutputPreview | undefined>("tool-output", [sessionId, toolCallId]),
+    loadTranscript: (sessionId, cursor) => commandCall("transcript-page", [sessionId, cursor]),
+    readToolOutput: (sessionId, toolCallId) => commandCall("read-tool-output", [sessionId, toolCallId]),
+    toolOutput: (sessionId, toolCallId) => commandCall("tool-output", [sessionId, toolCallId]),
     threadMarkdown: async (expectedSessionId) => {
-      const markdown = await call<string | undefined>("copy-thread-markdown", [expectedSessionId]);
+      const markdown = await commandCall("copy-thread-markdown", [expectedSessionId]);
       return typeof markdown === "string" && markdown ? markdown : undefined;
     },
-    readImagePreview: (path) => call<UiImagePreview | undefined>("read-image-preview", [path]),
-    shareFile: (path) => call<UiSharedFile>("share-file", [path]),
+    readImagePreview: (path) => commandCall("read-image-preview", [path]),
+    shareFile: (path) => commandCall("share-file", [path]),
 
-    setModel: (provider, id, expectedSessionId) => call<HostActionResult>("set-model", [provider, id, expectedSessionId]),
-    setThinkingLevel: (level, expectedSessionId) => call<HostActionResult>("set-thinking", [level, expectedSessionId]),
-    setMode: (mode, expectedSessionId) => call<HostActionResult>("set-mode", [mode, expectedSessionId]),
-    compactContext: (expectedSessionId) => call<HostActionResult>("compact-context", [expectedSessionId]),
-    compactAndSend: (sessionId, prompt) => call<HostActionResult>("compact-and-send", [sessionId, prompt]),
+    setModel: (provider, id, expectedSessionId) => commandCall("set-model", [provider, id, expectedSessionId]),
+    setThinkingLevel: (level, expectedSessionId) => commandCall("set-thinking", [level, expectedSessionId]),
+    setMode: (mode, expectedSessionId) => commandCall("set-mode", [mode, expectedSessionId]),
+    compactContext: (expectedSessionId) => commandCall("compact-context", [expectedSessionId]),
+    compactAndSend: (sessionId, prompt) => commandCall("compact-and-send", [sessionId, prompt]),
 
-    restartSession: (threadId) => call<HostActionResult>("restart-session", [threadId]),
-    reloadRuntime: () => call<void>("reload-runtime"),
-    reloadExtensions: () => call<void>("reload-extensions"),
-    answerExtensionUi: (id, answer) => call<void>("answer-extension-ui", [id, answer]),
-    syncExtensionUi: () => call<readonly ExtensionUiPrompt[] | undefined>("sync-extension-ui"),
-    loadDesktopExtensions: (cwd, sharedExports, only, held) => call<DesktopExtensionLoadResult>("desktop-extensions", [cwd, sharedExports, only, held]),
+    restartSession: (threadId) => commandCall("restart-session", [threadId]),
+    reloadRuntime: () => commandCall("reload-runtime"),
+    reloadExtensions: () => commandCall("reload-extensions"),
+    answerExtensionUi: (id, answer) => commandCall("answer-extension-ui", [id, answer]),
+    syncExtensionUi: () => commandCall("sync-extension-ui"),
+    loadDesktopExtensions: (cwd, sharedExports, only, held) => commandCall("desktop-extensions", [cwd, sharedExports, only, held]),
     // A command an extension declared long-running waits on `job-done` instead
     // of on one long response, so the host can report progress and be cancelled.
     invokeHostExtension: async (extensionId, command, input) => {
       if (connection.isReadOnly() && !await readCommands.check(extensionId, command)) throw readOnlyRefusal();
       return invokeHostExtension(extensionId, command, input);
     },
-    listHostExtensions: () => call<HostExtensionSummary[]>("host-extensions"),
-    inspectExtensions: (cwd) => call<ExtensionInspection>("inspect-extensions", [cwd]),
-    setHostExtensionActive: (id, active) => call<HostExtensionSummary[]>("host-extension-active", [id, active]),
-    grantExtension: (id, grant) => call<void>("extension-grant", [id, grant]),
+    listHostExtensions: () => commandCall("host-extensions"),
+    inspectExtensions: (cwd) => commandCall("inspect-extensions", [cwd]),
+    setHostExtensionActive: (id, active) => commandCall("host-extension-active", [id, active]),
+    grantExtension: (id, grant) => commandCall("extension-grant", [id, grant]),
 
-    prepareWorkbenchReload: (mode) => call<WorkbenchReloadPreparation>("prepare-workbench-reload", [mode]),
-    releaseWorkbenchReload: () => call<void>("release-workbench-reload"),
+    prepareWorkbenchReload: (mode) => commandCall("prepare-workbench-reload", [mode]),
+    releaseWorkbenchReload: () => commandCall("release-workbench-reload"),
     // A job when the connection that answers it offers jobs; a client-side rebuild is one plain request instead.
-    rebuildWorkbench: () => callLong<WorkbenchBuildResult>("rebuild-workbench"),
-    workbenchSource: () => call<{ path?: string }>("workbench-source"),
-    relaunchWorkbench: () => call<void>("relaunch-workbench"),
-    installUpdate: () => call<{ installing: boolean }>("install-update"),
-    getConfig: (workspaceId) => call<TauConfig>("get-config", [workspaceId]),
-    updateConfig: (patch, scope, workspaceId) => call<TauConfig>("update-config", [patch, scope, workspaceId]),
-    getConfigLayers: (workspaceId) => call<ConfigLayers>("get-config-layers", [workspaceId]),
-    clearConfig: (keys, scope, workspaceId) => call<ConfigLayers>("clear-config", [keys, scope, workspaceId]),
-    getModelsConfig: () => call<CustomProviderConfig[]>("get-models-config"),
-    runtimeCatalog: (kind) => call<UiRuntimeCatalog | undefined>("runtime-catalog", [kind]),
-    runtimeCatalogs: (revalidate, known) => call<UiRuntimeCatalog[]>("runtime-catalogs", [revalidate === true, known ?? {}]),
-    runtimeTools: (action: string, input?: object) => input ? call<UiRuntimeToolsState>("runtime-tools-change", [action, input]) : call<UiRuntimeToolsState>("runtime-tools", [action]),
-    addModelProvider: (input) => call<UiModel[]>("add-model-provider", [input]),
-    inspectSystemPrompt: (threadId, workspaceId) => call<SystemPromptInspection>("inspect-system-prompt", [threadId, workspaceId]),
-    listUserThemes: (workspaceId) => call<UserTheme[]>("list-user-themes", [workspaceId]),
-    openExternalEditor: (text) => call<ExternalEditorResult>("open-external-editor", [text]),
+    rebuildWorkbench: () => commandCall("rebuild-workbench"),
+    workbenchSource: () => commandCall("workbench-source"),
+    relaunchWorkbench: () => commandCall("relaunch-workbench"),
+    installUpdate: () => commandCall("install-update"),
+    getConfig: (workspaceId) => commandCall("get-config", [workspaceId]),
+    updateConfig: (patch, scope, workspaceId) => commandCall("update-config", [patch, scope, workspaceId]),
+    getConfigLayers: (workspaceId) => commandCall("get-config-layers", [workspaceId]),
+    clearConfig: (keys, scope, workspaceId) => commandCall("clear-config", [keys, scope, workspaceId]),
+    getModelsConfig: () => commandCall("get-models-config"),
+    runtimeCatalog: (kind) => commandCall("runtime-catalog", [kind]),
+    runtimeCatalogs: (revalidate, known) => commandCall("runtime-catalogs", [revalidate === true, known ?? {}]),
+    runtimeTools: (action: "state" | "refresh" | "automatic" | "update" | "switch", input?: { on?: boolean; kind?: string }) => input
+      ? commandCall("runtime-tools-change", [action as "automatic" | "update" | "switch", input])
+      : commandCall("runtime-tools", [action as "state" | "refresh"]),
+    addModelProvider: (input) => commandCall("add-model-provider", [input]),
+    inspectSystemPrompt: (threadId, workspaceId) => commandCall("inspect-system-prompt", [threadId, workspaceId]),
+    listUserThemes: (workspaceId) => commandCall("list-user-themes", [workspaceId]),
+    openExternalEditor: (text) => commandCall("open-external-editor", [text]),
 
     // The machine the window runs on, not the host's transport: macOS window chrome keys on it.
     platform: local?.platform ?? connection.platform,
-    copyText: (text) => call<void>("copy-text", [text]),
-    copyImage: (dataUrl) => call<void>("copy-image", [dataUrl]),
-    showNotification: (notification) => call<SystemNotificationOutcome>("notify", [notification]),
-    setBadge: (count) => call<void>("set-badge", [count]),
-    showContextMenu: async (entries, point) => (await call<{ id?: string } | undefined>("context-menu", [entries, point]))?.id,
-    windowAction: (action) => call<unknown>("window-action", [action]),
+    copyText: (text) => commandCall("copy-text", [text]),
+    copyImage: (dataUrl) => commandCall("copy-image", [dataUrl]),
+    showNotification: (notification) => commandCall("notify", [notification]),
+    setBadge: (count) => commandCall("set-badge", [count]),
+    showContextMenu: async (entries, point) => (await commandCall("context-menu", [entries, point]))?.id,
+    windowAction: (action) => commandCall("window-action", [action]),
     // The window's own process publishes these on its own transport; the host never does.
     onHostEvent: (listener) => {
       const offHost = connection.onEvent(listener);
@@ -482,56 +440,56 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
       return () => { offHost(); offWindow?.(); };
     },
 
-    listConnections: () => call<UiConnections>("connections-list"),
-    createPairingLink: (input) => call<UiCreatedPairingLink>("connections-create-link", [input ?? {}]),
-    revokePairingLink: (id) => call<{ revoked: boolean }>("connections-revoke-link", [id]),
-    revokeClient: (id) => call<{ revoked: boolean }>("connections-revoke-client", [id]),
-    revokeOtherClients: () => call<{ revoked: number }>("connections-revoke-others"),
-    updateClient: (id, update) => call<{ updated: boolean }>("connections-update-client", [id, update]),
-    approvePairing: (id, choice) => call<{ approved: boolean }>("connections-approve", [id, choice ?? {}]),
-    denyPairing: (id) => call<{ denied: boolean }>("connections-deny", [id]),
+    listConnections: () => commandCall("connections-list"),
+    createPairingLink: (input) => commandCall("connections-create-link", [input ?? {}]),
+    revokePairingLink: (id) => commandCall("connections-revoke-link", [id]),
+    revokeClient: (id) => commandCall("connections-revoke-client", [id]),
+    revokeOtherClients: () => commandCall("connections-revoke-others"),
+    updateClient: (id, update) => commandCall("connections-update-client", [id, update]),
+    approvePairing: (id, choice) => commandCall("connections-approve", [id, choice ?? {}]),
+    denyPairing: (id) => commandCall("connections-deny", [id]),
     rotateHostToken: async () => {
-      const { token } = await call<{ token: string }>("connections-rotate-host-token");
+      const { token } = await commandCall("connections-rotate-host-token");
       connection.updateToken(token);
     },
-    hostToken: async () => (await call<{ token: string }>("connections-host-token")).token,
-    setNetworkAccess: (input) => call<UiNetworkAccess>("connections-set-network", [input]),
-    connectStatus: () => call<ConnectStatus>("connect-status"),
-    configureConnect: (input) => call<ConnectStatus>("connect-configure", [input]),
-    createConnectLink: () => call<{ link: string }>("connect-link"),
-    removeConnect: () => call<ConnectStatus>("connect-remove"),
-    reloadCertificate: () => call<{ changed: boolean }>("connections-reload-certificate"),
-    discoverHosts: (options) => call<UiDiscoveredHosts>("connections-discover", [options ?? {}]),
-    serviceStatus: () => call<UiHostService>("service-status"),
-    installService: (options) => call<UiHostService>("service-install", options ? [options] : []),
-    uninstallService: () => call<UiHostService>("service-uninstall"),
-    allowServiceSandbox: () => call<UiHostService>("service-allow-sandbox"),
+    hostToken: async () => (await commandCall("connections-host-token")).token,
+    setNetworkAccess: (input) => commandCall("connections-set-network", [input]),
+    connectStatus: () => commandCall("connect-status"),
+    configureConnect: (input) => commandCall("connect-configure", [input]),
+    createConnectLink: () => commandCall("connect-link"),
+    removeConnect: () => commandCall("connect-remove"),
+    reloadCertificate: () => commandCall("connections-reload-certificate"),
+    discoverHosts: (options) => commandCall("connections-discover", [options ?? {}]),
+    serviceStatus: () => commandCall("service-status"),
+    installService: (options) => commandCall("service-install", options ? [options] : []),
+    uninstallService: () => commandCall("service-uninstall"),
+    allowServiceSandbox: () => commandCall("service-allow-sandbox"),
 
-    listEnvironments: () => call<UiEnvironments>("environments-list"),
-    pairEnvironment: (input) => call<EnvironmentPairResult>("environments-pair", [input]),
-    cancelEnvironmentPairing: () => call<void>("environments-cancel-pairing"),
-    renameEnvironment: (id, name) => call<{ renamed: boolean }>("environments-rename", [id, name]),
-    removeEnvironment: (id) => call<{ removed: boolean }>("environments-remove", [id]),
-    retryEnvironment: (id) => call<void>("environments-retry", [id]),
-    openEnvironment: (id, target) => call<void>("environments-open", target ? [id, target] : [id]),
-    takeEnvironmentArrival: async () => (await call<EnvironmentTarget | null>("environments-take-arrival")) ?? undefined,
-    discoverEnvironments: () => call<UiDiscoveredHosts>("environments-discover"),
-    listWslEnvironments: () => call<string[]>("environments-wsl-list"),
-    setEnvironmentPreferences: (preferences) => call<void>("environments-set-preferences", [preferences]),
-    setEnvironmentAgents: (id, on) => call<EnvironmentAgentsResult>("environments-set-agents", [id, on]),
-    watchEnvironmentThread: async (machine, sessionId, on) => (await call<UiEnvironmentThreadView | null>("environments-watch-thread", [machine, sessionId, on])) ?? undefined,
-    loadEnvironmentTranscript: (machine, sessionId, cursor) => call<TranscriptPage>("environments-transcript-page", cursor ? [machine, sessionId, cursor] : [machine, sessionId]),
-    invokeEnvironmentExtension: (machine, extensionId, command, input, options) => call<unknown>("environments-extension-invoke", options ? [machine, extensionId, command, input, options] : input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
-    followEnvironmentExtension: (machine, extensionId, on) => call<void>("environments-extension-follow", [machine, extensionId, on]),
-    readEnvironmentExtension: (machine, extensionId, command, input) => call<unknown>("environments-extension-read", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
-    updateEnvironment: (machine, action) => call<HostUpdateStatus>("environments-update", [machine, action]),
-    getEnvironmentConfig: (machine) => call<ConfigLayers>("environments-config", [machine]),
-    updateEnvironmentConfig: (machine, patch) => call<unknown>("environments-update-config", [machine, patch]),
-    clearEnvironmentConfig: (machine, keys) => call<unknown>("environments-clear-config", [machine, keys]),
-    personPreferences: (patch) => patch ? call<PersonPreferences>("environments-set-person-preferences", [patch]) : call<PersonPreferences>("environments-person-preferences", []),
+    listEnvironments: () => commandCall("environments-list"),
+    pairEnvironment: (input) => commandCall("environments-pair", [input]),
+    cancelEnvironmentPairing: () => commandCall("environments-cancel-pairing"),
+    renameEnvironment: (id, name) => commandCall("environments-rename", [id, name]),
+    removeEnvironment: (id) => commandCall("environments-remove", [id]),
+    retryEnvironment: (id) => commandCall("environments-retry", [id]),
+    openEnvironment: (id, target) => commandCall("environments-open", target ? [id, target] : [id]),
+    takeEnvironmentArrival: async () => (await commandCall("environments-take-arrival")) ?? undefined,
+    discoverEnvironments: () => commandCall("environments-discover"),
+    listWslEnvironments: () => commandCall("environments-wsl-list"),
+    setEnvironmentPreferences: (preferences) => commandCall("environments-set-preferences", [preferences]),
+    setEnvironmentAgents: (id, on) => commandCall("environments-set-agents", [id, on]),
+    watchEnvironmentThread: async (machine, sessionId, on) => (await commandCall("environments-watch-thread", [machine, sessionId, on])) ?? undefined,
+    loadEnvironmentTranscript: (machine, sessionId, cursor) => commandCall("environments-transcript-page", cursor ? [machine, sessionId, cursor] : [machine, sessionId]),
+    invokeEnvironmentExtension: (machine, extensionId, command, input, options) => commandCall("environments-extension-invoke", options ? [machine, extensionId, command, input, options] : input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
+    followEnvironmentExtension: (machine, extensionId, on) => commandCall("environments-extension-follow", [machine, extensionId, on]),
+    readEnvironmentExtension: (machine, extensionId, command, input) => commandCall("environments-extension-read", input === undefined ? [machine, extensionId, command] : [machine, extensionId, command, input]),
+    updateEnvironment: (machine, action) => commandCall("environments-update", [machine, action]),
+    getEnvironmentConfig: (machine) => commandCall("environments-config", [machine]),
+    updateEnvironmentConfig: (machine, patch) => commandCall("environments-update-config", [machine, patch]),
+    clearEnvironmentConfig: (machine, keys) => commandCall("environments-clear-config", [machine, keys]),
+    personPreferences: (patch) => patch ? commandCall("environments-set-person-preferences", [patch]) : commandCall("environments-person-preferences", []),
 
     // Literal names: the protocol contract test reads them from this file.
-    hostUpdate: (action) => action === "install" ? call<HostUpdateStatus>("update-install") : action === "check" ? call<HostUpdateStatus>("update-check") : call<HostUpdateStatus>("update-status"),
-    setHostUpdateSettings: (settings) => call<HostUpdateStatus>("update-settings", [settings]),
+    hostUpdate: (action) => action === "install" ? commandCall("update-install") : action === "check" ? commandCall("update-check") : commandCall("update-status"),
+    setHostUpdateSettings: (settings) => commandCall("update-settings", [settings]),
   };
 }

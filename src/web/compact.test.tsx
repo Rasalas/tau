@@ -11,6 +11,7 @@ import { MOVED_PRESS_MS, ORDER_HOLD_MS } from "../renderer/touch/steady-rows";
 import { setHostClient } from "../renderer/host-client-context";
 import { createFakeHostClient, type FakeHostClient } from "../renderer/test-support/fake-host-client";
 import { createRendererServices } from "../renderer/renderer-services";
+import { loadTauApi } from "../renderer/runtime-extensions";
 import { createMemoryStorage, getClientStorage, setClientStorage } from "../workbench/client-storage";
 import { phoneReaderFromState, routeFromState } from "../workbench/phone-history";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
@@ -101,9 +102,17 @@ const rowNamed = (title: string) => screen.getAllByRole("button", { name: `Open 
 
 const running = (sessionId: string): HostEvent => ({ type: "agent-status", sessionId, running: true });
 
-// The Workbench loads the Settings screen as a chunk of its own. Loaded here, outside the tests,
-// its first import on a busy machine does not count against findByRole's wait.
-beforeAll(async () => { await import("../renderer/settings/SettingsScreen"); });
+// Load the compact surfaces and extension API before the tests, so their first
+// imports on a busy machine do not count against findByRole's wait.
+beforeAll(async () => {
+  await Promise.all([
+    import("../renderer/settings/SettingsScreen"),
+    import("../renderer/touch/TouchThreadBrowser"),
+    import("../renderer/touch/TouchLayer"),
+    import("../renderer/touch/PhoneNav"),
+    loadTauApi(),
+  ]);
+});
 beforeEach(() => { window.history.replaceState(null, "", "/"); installPointerEvents(); setViewport(400); archived.length = 0; });
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); setViewport(1024); window.history.replaceState(null, "", "/"); });
 
@@ -223,6 +232,7 @@ describe("the web client at 400 px", () => {
     expect(screen.queryByText("Rename it")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
     const back = await screen.findByRole("button", { name: "Open thread Ship the web client" });
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "threads" }));
     // Finishing the runtime switch must not undo a later Back gesture.
     await act(async () => answer({ version: 1, updates: [{ version: 1, type: "thread-detail", detail: { sessionId: "t-b", messages: [{ id: "b1", role: "user", text: "Ship it", timestamp: 2 }], isStreaming: false, activeTools: [] } }] }));
     expect(routeFromState(window.history.state)).toEqual({ kind: "threads" });

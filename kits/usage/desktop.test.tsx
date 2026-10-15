@@ -100,7 +100,7 @@ function renderPage(invoke: (command: string, input?: unknown) => Promise<unknow
   const client = createFakeHostClient({
     getConfigLayers: async () => ({ host: config.host }),
     updateConfig: async (patch: Partial<TauConfig>) => { config.updates.push(patch); config.host = { ...config.host, modelPrices: { ...config.host.modelPrices, ...patch.modelPrices } }; return config.host; },
-    clearConfig: async (keys: string[]) => { config.cleared.push(keys); return { host: config.host }; },
+    clearConfig: async (keys: readonly string[]) => { config.cleared.push([...keys]); return { host: config.host }; },
   });
   const navigate = vi.fn();
   const view = render(<TestProviders><HostClientProvider client={client}><UsagePage host={host(invoke)} now={() => NOW} navigate={navigate} /></HostClientProvider></TestProviders>);

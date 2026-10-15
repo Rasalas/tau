@@ -17,7 +17,7 @@ import type { ComposerInlineContext, ComposerInlineContribution, DocumentSourceC
 import type { SelectedSkill } from "./ComposerAutocomplete";
 import { selectedSkillDraft } from "./ComposerAutocomplete";
 import { plainChipText } from "./composer-chip-token";
-import type { SubmitDelivery } from "../submission-queue";
+import type { SubmitDelivery } from "../../workbench/submission-queue";
 
 /**
  * `alternate` is a plain send with the modifier held, which an extension may

@@ -1,5 +1,5 @@
-import type { HostEvent, HostSnapshot, UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts.js";
-import { HOST_PROTOCOL_VERSION, catalogFromSnapshot, type HostUpdate, type ThreadDetail } from "../shared/host-protocol.js";
+import type { TurnEvents } from "./turn-events.js";
+import type { HostEvent, UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import type { ThreadRuntimeEvent } from "./runtime-types.js";
 import type { HostTurnObserverSet } from "./host-extensions.js";
@@ -32,22 +32,15 @@ function positionsFor(thread: ThreadRuntime) {
 export interface BackendEventServices {
   clientTurns: ClientTurnLedger;
   emit(event: HostEvent): void;
-  emitUpdate(update: HostUpdate): void;
   log(label: string, detail?: string): void;
   fail(error: unknown, sessionId: string): void;
-  settledSnapshot(): Promise<HostSnapshot>;
-  detailForSnapshot(snapshot: HostSnapshot): ThreadDetail;
-  ownTool(toolCallId: string, sessionId: string): void;
-  releaseTool(toolCallId: string): void;
-  pushToolOutput(toolCallId: string, output: string): void;
+  turns: TurnEvents;
   /** `unpromptedEnded`: a turn the runtime began itself ended, and its outcome stands for the run's. */
   turnObservers: Pick<HostTurnObserverSet, "toolEnded" | "unpromptedEnded">;
   /** Republishes the thread's shell in the index: title, count, usage. */
   refreshShell(thread: ThreadRuntime, touch: boolean): Promise<void>;
   /** Republishes the goal and the background work the runtime holds now. */
   controls: Pick<ThreadControls, "publishGoal" | "publishBackground">;
-  /** How the turn ended: why it failed, or undefined, and whether a provider limit stopped it. */
-  turnSettled(sessionId: string, error: string | undefined, limit?: { resetsAt?: number }): void;
 }
 
 /**
@@ -58,64 +51,49 @@ export interface BackendEventServices {
  */
 export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: ThreadRuntime, services: BackendEventServices): void {
   const sessionId = thread.threadId;
+  const turns = services.turns;
   switch (event.type) {
     case "context-compaction":
-      thread.isCompacting = event.running;
-      services.emit({ type: "context-compaction", sessionId, running: event.running });
+      turns.compaction(thread, sessionId, event.running);
       break;
     case "turn-started":
-      thread.turnError = undefined;
       thread.unpromptedTurn = event.unprompted === true;
       thread.adapterStreaming = true;
       thread.adapterActivity.push({ id: nextActivityId(thread), tools: [], status: "running" });
-      services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "started", sessionId });
-      services.emit({ type: "agent-status", sessionId, running: true });
-      services.log("agent.started", sessionId.slice(0, 8));
+      turns.start(thread, sessionId);
       break;
     case "turn-settled":
       settleTurn(event.status, thread, services, event.error, event.limit);
       break;
     case "assistant-start":
-      thread.currentAssistantId = event.id;
-      thread.liveAssistant = { id: event.id, text: "", thinking: "", timestamp: event.timestamp };
-      services.emit({ type: "assistant-start", sessionId, id: event.id, timestamp: event.timestamp });
+      turns.assistant(thread, sessionId, { type: "start", id: event.id, timestamp: event.timestamp });
       break;
     case "assistant-delta":
-      if (thread.liveAssistant?.id === event.id) thread.liveAssistant.text += event.delta;
-      services.emit({ type: "assistant-delta", sessionId, id: event.id, delta: event.delta });
+      turns.assistant(thread, sessionId, { type: "text", id: event.id, delta: event.delta });
       break;
     case "assistant-thinking":
-      if (thread.liveAssistant?.id === event.id) thread.liveAssistant.thinking += event.delta;
-      services.emit({ type: "assistant-thinking", sessionId, id: event.id, delta: event.delta });
+      turns.assistant(thread, sessionId, { type: "thinking", id: event.id, delta: event.delta });
       break;
     case "assistant-end":
       remember(thread, event.message);
-      if (thread.currentAssistantId === event.message.id) {
-        thread.currentAssistantId = undefined;
-        thread.liveAssistant = undefined;
-      }
-      services.emit({ type: "assistant-end", sessionId, message: event.message });
+      turns.assistant(thread, sessionId, { type: "end", message: event.message });
       break;
     case "user-message":
       remember(thread, event.message);
       services.emit({ type: "user-message", sessionId, message: event.message });
       break;
     case "tool-start":
-      thread.tools.set(event.tool.id, event.tool);
       recordTool(thread, event.tool);
       saveActivity(thread, services);
-      services.ownTool(event.tool.id, sessionId);
-      services.emit({ type: "tool-start", sessionId, tool: event.tool });
-      services.log("tool.started", event.tool.name);
+      turns.tool(thread, sessionId, thread.cwd, { type: "start", tool: event.tool });
       break;
     case "tool-update": {
       const previous = thread.tools.get(event.id);
       if (previous) {
         const updated = { ...previous, output: event.output };
-        thread.tools.set(event.id, updated);
         recordTool(thread, updated);
       }
-      services.pushToolOutput(event.id, event.output);
+      turns.tool(thread, sessionId, thread.cwd, { type: "output", id: event.id, output: event.output });
       break;
     }
     case "tool-end":
@@ -209,26 +187,17 @@ function finishTool(tool: UiToolRun, thread: ThreadRuntime, services: BackendEve
   const ended: UiToolRun = { ...tool, ...(extras ? { extras } : {}), args: Object.keys(tool.args).length > 0 ? tool.args : previous?.args ?? {}, startedAt: previous?.startedAt ?? tool.startedAt, endedAt: tool.endedAt ?? Date.now() };
   recordTool(thread, ended);
   saveActivity(thread, services);
-  services.turnObservers.toolEnded(thread.threadId, ended, thread.cwd);
-  services.emit({ type: "tool-end", sessionId: thread.threadId, tool: ended });
-  thread.tools.delete(tool.id);
-  services.releaseTool(tool.id);
-  services.log("tool.ended", `${ended.name}:${ended.status}`);
+  services.turns.tool(thread, thread.threadId, thread.cwd, { type: "end", tool: ended });
 }
 
 function settleTurn(status: "completed" | "interrupted" | "error", thread: ThreadRuntime, services: BackendEventServices, failure?: string, limit?: { resetsAt?: number }): void {
   const sessionId = thread.threadId;
-  if (thread.isCompacting) {
-    thread.isCompacting = false;
-    services.emit({ type: "context-compaction", sessionId, running: false });
-  }
+  if (thread.isCompacting) services.turns.compaction(thread, sessionId, false);
   // A tool still running when the turn ends never reports again; close its card.
   for (const tool of [...thread.tools.values()]) {
     finishTool({ ...tool, status: "error", output: tool.output ?? (status === "interrupted" ? "Interrupted." : "The turn ended before this tool finished.") }, thread, services);
   }
   thread.adapterStreaming = false;
-  thread.currentAssistantId = undefined;
-  thread.liveAssistant = undefined;
   const entry = thread.adapterActivity.at(-1);
   if (entry?.status === "running") {
     // A turn without tools leaves no fold behind.
@@ -244,16 +213,6 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
     services.turnObservers.unpromptedEnded(sessionId, status === "error" ? "failed" : "completed");
   }
   const reason = status === "error" ? failure?.trim() || thread.turnError || "The turn failed." : undefined;
-  if (reason !== undefined && limit) services.turnSettled(sessionId, reason, limit);
-  else services.turnSettled(sessionId, reason);
+  services.turns.settle(thread, sessionId, { snapshot: true, catalog: true, error: reason, ...(reason !== undefined && limit ? { limit } : {}) });
   thread.turnError = undefined;
-  services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "run", event: "settled", sessionId });
-  services.emit({ type: "agent-status", sessionId, running: false });
-  void services.settledSnapshot().then((snapshot) => {
-    if (snapshot.sessionId !== sessionId || snapshot.isStreaming) return;
-    services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: services.detailForSnapshot(snapshot) });
-    // The turn may have taught the backend its model and levels; the detail does not carry them.
-    services.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "catalog", catalog: catalogFromSnapshot(snapshot) });
-  }).catch((error) => services.fail(error, sessionId));
-  services.log("agent.settled", `${sessionId.slice(0, 8)} ${status}`);
 }
