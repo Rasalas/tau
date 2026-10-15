@@ -38,6 +38,15 @@ describe("ThreadTitleMenu", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("states why a sheet row is unavailable once", async () => {
+    render(<ThreadTitleMenu sheet title="Mobile thread" onRename={vi.fn(async () => true)} menu={() => ({
+      sections: [{ items: [{ id: "archive", label: "Archive thread", disabled: true, description: "Cannot archive a running thread." }] }], run: vi.fn(),
+    })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Mobile thread" }));
+    await screen.findByRole("dialog", { name: "Mobile thread" });
+    expect(screen.getAllByText("Cannot archive a running thread.")).toHaveLength(1);
+  });
+
   it("opens the menu it is handed, read when it opens, and runs the pick", () => {
     const run = vi.fn();
     const menu = vi.fn((): ThreadTitleMenuModel => ({ sections: [{ items: [{ id: "pin", label: "Pin thread" }] }, { items: [{ id: "delete", label: "Delete", destructive: true }] }], run }));
