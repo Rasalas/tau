@@ -63,7 +63,7 @@ describe("runtime desktop extensions", () => {
     }
     const lines = (toast: ReturnType<typeof vi.fn>) => toast.mock.calls.map(([options]) => `${options.title} | ${options.description}`);
 
-    it("shows one notice per load with three names and a count, and no details action", async () => {
+    it("offers updates for mismatched extensions without loading their code or repeating the notice", async () => {
       const { h, toast, importModule } = refusing(["tau.terminal", "tau.files", "tau.agents", "tau.search", "tau.plan"]);
       const runtime = new RuntimeExtensions(new ExtensionRegistry(), h);
       await runtime.sync("/first-project");
@@ -72,10 +72,15 @@ describe("runtime desktop extensions", () => {
       await runtime.resync(["tau.terminal", "tau.files"]);
       expect(importModule).not.toHaveBeenCalled();
       expect(lines(toast)).toEqual([
-        "Some extensions weren't loaded | The connected machine runs another version of Terminal, Files, Agents and 2 more; install the same Tau version on both.",
+        "Extensions need an update | Use the same Tau version on this app and the connected machine.",
       ]);
       expect(toast.mock.calls[0]?.[0]).toMatchObject({ type: "warning", timeoutMs: 0 });
-      expect(toast.mock.calls[0]?.[0].actions).toBeUndefined();
+      const [action] = toast.mock.calls[0]?.[0].actions ?? [];
+      expect(action).toMatchObject({ label: "Open updates" });
+      expect(action.opens).not.toBe(true);
+      expect(h.openSettings).not.toHaveBeenCalled();
+      action.run();
+      expect(h.openSettings).toHaveBeenCalledWith("about");
     });
 
     it("tells another version from an extension this app does not include", async () => {
@@ -85,14 +90,25 @@ describe("runtime desktop extensions", () => {
         return lines(toast);
       };
       expect(await toasts(["tau.html-pages"], [])).toEqual([
-        "An extension wasn't loaded | The connected machine runs another version of HTML Pages; install the same Tau version on both.",
+        "An extension needs an update | Use the same Tau version on this app and the connected machine.",
       ]);
       expect(await toasts([], ["acme.weather", "acme.map_tiles"])).toEqual([
         "Some extensions weren't loaded | This app does not include Weather and Map Tiles.",
       ]);
       expect(await toasts(["tau.terminal", "tau.files"], ["acme.weather"])).toEqual([
-        "Some extensions weren't loaded | The connected machine runs another version of Terminal and Files, and this app does not include Weather; install the same Tau version on both.",
+        "Extensions need an update | Use the same Tau version on this app and the connected machine. Not included in this app: Weather.",
       ]);
+    });
+
+    it("offers updates for mixed refusals and no update action for missing extensions alone", async () => {
+      const { h, toast } = refusing(["tau.terminal"], ["acme.weather"]);
+      await new RuntimeExtensions(new ExtensionRegistry(), h).sync("/project");
+      toast.mock.calls[0]?.[0].actions[0].run();
+      expect(h.openSettings).toHaveBeenCalledWith("about");
+
+      const missing = refusing([], ["acme.weather"]);
+      await new RuntimeExtensions(new ExtensionRegistry(), missing.h).sync("/project");
+      expect(missing.toast.mock.calls[0]?.[0].actions).toBeUndefined();
     });
 
     it("keeps a failed build in a notice of its own", async () => {
@@ -112,7 +128,7 @@ describe("runtime desktop extensions", () => {
       await new RuntimeExtensions(new ExtensionRegistry(), h).sync("/project");
       expect(lines(toast)).toEqual([
         "my-kit/desktop.tsx did not build | desktop.tsx:3:7: boom. The version that was running stays.",
-        "An extension wasn't loaded | The connected machine runs another version of Terminal; install the same Tau version on both.",
+        "An extension needs an update | Use the same Tau version on this app and the connected machine.",
       ]);
     });
 
@@ -135,7 +151,7 @@ describe("runtime desktop extensions", () => {
       expect(await run(["tau.files"])).not.toHaveBeenCalled();
 
       const grown = await run(["tau.terminal", "tau.files", "tau.search"]);
-      expect(lines(grown)).toEqual(["An extension wasn't loaded | The connected machine runs another version of Search; install the same Tau version on both."]);
+      expect(lines(grown)).toEqual(["An extension needs an update | Use the same Tau version on this app and the connected machine."]);
       grown.mock.calls[0]?.[0].onClose();
       expect(await run(["tau.terminal", "tau.files", "tau.search"])).not.toHaveBeenCalled();
     });
@@ -152,7 +168,7 @@ describe("runtime desktop extensions", () => {
       expect(await run([], ["tau.terminal"])).not.toHaveBeenCalled();
       expect(JSON.parse(storage.get(STORAGE_KEYS.unavailableExtensions) ?? "null")).toEqual([]);
       expect(lines(await run(["tau.terminal"]))).toEqual([
-        "An extension wasn't loaded | The connected machine runs another version of Terminal; install the same Tau version on both.",
+        "An extension needs an update | Use the same Tau version on this app and the connected machine.",
       ]);
     });
 

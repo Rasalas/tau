@@ -38,6 +38,7 @@
 .toast-main[data-stacked] { flex-direction: column; align-items: stretch; gap: 0; }
 .toast-main[data-stacked] .toast-body { flex: none; }
 .toast-main[data-stacked] .toast-actions { flex-wrap: wrap; justify-content: flex-end; }
+.toast-main[data-stacked] .toast-actions:has(> button:only-child) { justify-content: flex-start; margin-inline-start: -10px; }
 .toast-actions { flex: none; display: flex; }
 .toast-actions > button {
   border: 0; border-radius: var(--radius-sm); background: transparent; white-space: nowrap;
@@ -91,3 +92,4 @@
 .toast-stack[data-touch] .toast-chevron { height: 44px; }
 .toast-stack[data-touch] .toast-icon-button > svg { width: 18px; height: 18px; }
 .toast-stack[data-touch] .toast-actions > button { line-height: var(--touch-target); padding: 0 12px; font-size: var(--text-md); }
+.toast-stack[data-touch] .toast-main[data-stacked] .toast-actions:has(> button:only-child) { margin-inline-start: -12px; }

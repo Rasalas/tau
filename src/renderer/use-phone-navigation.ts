@@ -37,7 +37,10 @@ export function usePhoneNavigation({ phone, pages, settingsPage, setSettingsPage
   drafting: boolean;
 }): PhoneNavigation {
   const [chat, setChat] = useState(false);
-  const [settingsView, setSettingsView] = useState<SettingsView>("sections");
+  const [settingsLocation, setSettingsLocation] = useState<{ page: string | undefined; view: SettingsView }>({ page: undefined, view: "sections" });
+  // A workbench action can open a section without going through the phone's navigation.
+  const settingsView = settingsLocation.page === settingsPage ? settingsLocation.view : settingsPage ? "page" : "sections";
+  const setSettingsView = useCallback((view: SettingsView) => setSettingsLocation({ page: settingsPage, view }), [settingsPage]);
   const openPage = useSyncExternalStore(pages.subscribe, pages.getSnapshot);
   // A new thread's draft is a chat; it opens from the list's button, a shortcut or the palette.
   const drafted = useRef(drafting);
@@ -45,8 +48,11 @@ export function usePhoneNavigation({ phone, pages, settingsPage, setSettingsPage
     if (drafting && !drafted.current) setChat(true);
     drafted.current = drafting;
   }, [drafting]);
-  // Closed Settings opens at its sections again.
-  useEffect(() => { if (!settingsPage) setSettingsView("sections"); }, [settingsPage]);
+  // Keep an external destination, so returning to an older target does not restore its overview.
+  // Closing clears the visit; the bottom tab explicitly chooses the section list when it opens.
+  useEffect(() => {
+    setSettingsLocation((current) => current.page === settingsPage ? current : { page: settingsPage, view: settingsPage ? "page" : "sections" });
+  }, [settingsPage]);
 
   const route = useMemo<PhoneRoute>(() => {
     if (settingsPage) return settingsView === "page" ? { kind: "settings", section: settingsPage } : { kind: "settings" };
@@ -60,8 +66,9 @@ export function usePhoneNavigation({ phone, pages, settingsPage, setSettingsPage
   const leaveMainPages = useCallback(() => { setSettingsPage(undefined); pages.close(); }, [pages, setSettingsPage]);
   const openSettings = useCallback((section?: string) => {
     pages.close();
-    setSettingsView(section ? "page" : "sections");
-    setSettingsPage(section ?? settingsRef.current ?? "general");
+    const page = section ?? settingsRef.current ?? "general";
+    setSettingsLocation({ page, view: section ? "page" : "sections" });
+    setSettingsPage(page);
   }, [pages, setSettingsPage]);
 
   const applyRoute = useCallback((next: PhoneRoute) => {

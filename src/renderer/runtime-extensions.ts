@@ -367,16 +367,19 @@ export class RuntimeExtensions {
     if (pending.every((entry) => this.announced.has(entry.id))) return;
     for (const entry of pending) this.announced.add(entry.id);
     const names = (reason: Unavailability) => nameList(pending.filter((entry) => entry.reason === reason).map((entry) => entry.name));
-    const changed = names("changed");
+    const changed = pending.some((entry) => entry.reason === "changed");
     const missing = names("missing");
-    const install = "install the same Tau version on both";
+    const recovery = "Use the same Tau version on this app and the connected machine.";
     this.host.toast({
       id: UNAVAILABLE_TOAST_ID,
       type: "warning",
-      title: pending.length === 1 ? "An extension wasn't loaded" : "Some extensions weren't loaded",
+      title: changed
+        ? pending.length === 1 ? "An extension needs an update" : "Extensions need an update"
+        : pending.length === 1 ? "An extension wasn't loaded" : "Some extensions weren't loaded",
       description: changed && missing
-        ? `The connected machine runs another version of ${changed}, and this app does not include ${missing}; ${install}.`
-        : changed ? `The connected machine runs another version of ${changed}; ${install}.` : `This app does not include ${missing}.`,
+        ? `${recovery} Not included in this app: ${missing}.`
+        : changed ? recovery : `This app does not include ${missing}.`,
+      actions: changed ? [{ label: "Open updates", run: () => this.host.openSettings("about") }] : undefined,
       timeoutMs: 0,
       onClose: () => this.rememberDismissed(pending.map((entry) => entry.id)),
     });
