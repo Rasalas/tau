@@ -152,7 +152,7 @@ export function ThreadTitleMenu({ title, menu, onRename, sheet = false, disabled
         <ChevronDown size={16} />
       </button>
       {open && sheet ? <Suspense fallback={null}><ActionSheet title={sheetPath.at(-1)?.title ?? title} onClose={() => setOpen(undefined)} actions={[...(sheetPath.length ? [{ id: "back", label: "Back", keepOpen: true, run: () => setSheetPath((path) => path.slice(0, -1)) }] : []), ...(sheetPath.at(-1)?.sections ?? open.sections).flatMap((section) => section.items).map((item) => ({
-        id: item.id, label: item.label, icon: item.icon, destructive: item.destructive, detail: item.description,
+        id: item.id, label: item.label, icon: item.icon, destructive: item.destructive, detail: item.disabled ? undefined : item.description,
         disabledReason: item.disabled ? item.description || "Unavailable" : undefined,
         keepOpen: Boolean(item.submenu),
         run: () => item.submenu ? setSheetPath((path) => [...path, { title: item.label, sections: item.submenu! }]) : item.id === "rename" ? setRenaming(true) : open.run(item.id),

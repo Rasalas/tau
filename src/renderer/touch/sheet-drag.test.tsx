@@ -2,15 +2,20 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sheetDragCloses, sheetDragMayStart, useSheetDrag } from "./sheet-drag";
+import { sheetDragCloses, sheetDragMayStart, sheetDragTarget, useSheetDrag } from "./sheet-drag";
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["performance"] }); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
-function Sheet({ onClose, scrollTop = 0 }: { onClose(): void; scrollTop?: number }) {
+/** `heights` lays the sheet out at a medium and a large detent, as sheet.css does on a phone. */
+function Sheet({ onClose, scrollTop = 0, heights }: { onClose(): void; scrollTop?: number; heights?: { medium: number; large: number } }) {
   const ref = useRef<HTMLElement>(null);
   useSheetDrag(ref, onClose);
-  return <section ref={ref} aria-label="sheet">
+  return <section aria-label="sheet" ref={(node) => {
+    ref.current = node;
+    if (!node || !heights) return;
+    Object.defineProperty(node, "offsetHeight", { configurable: true, get: () => node.dataset.sheetDetent === "large" ? heights.large : heights.medium });
+  }}>
     <header>Title</header>
     <div data-testid="list" style={{ overflowY: "auto" }} ref={(node) => {
       if (!node) return;
@@ -95,5 +100,77 @@ describe("pulling a sheet down", () => {
     render(<Sheet onClose={onClose} />);
     pull(screen.getByLabelText("field"), 100, 400);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("a sheet with a medium and a large detent", () => {
+  const heights = { medium: 400, large: 700 };
+  const sheet = () => screen.getByLabelText("sheet");
+
+  it("goes to the nearer detent unless the pull was long or fast", () => {
+    expect(sheetDragTarget("medium", 140, -0.1, 300)).toBe("large");
+    expect(sheetDragTarget("medium", 230, -0.1, 300)).toBe("medium");
+    expect(sheetDragTarget("medium", 230, -0.9, 300)).toBe("large");
+    expect(sheetDragTarget("medium", 200, -0.1, 300)).toBe("large");
+    expect(sheetDragTarget("large", 60, 0.1, 300)).toBe("large");
+    expect(sheetDragTarget("large", 200, 0.1, 300)).toBe("medium");
+    expect(sheetDragTarget("large", 330, 0.9, 300)).toBe("closed");
+    expect(sheetDragTarget("medium", 340, 0.1, 300)).toBe("medium");
+    expect(sheetDragTarget("medium", 120, 0.1, 0)).toBe("closed");
+  });
+
+  it("grows to large on a pull up, before its list scrolls", () => {
+    render(<Sheet onClose={vi.fn()} heights={heights} />);
+    const list = screen.getByTestId("list");
+    fireEvent.touchStart(list, { touches: [{ clientX: 50, clientY: 300 }] });
+    expect(fireEvent.touchMove(list, { touches: [{ clientX: 50, clientY: 297 }] })).toBe(false);
+    for (const y of [260, 200]) fireEvent.touchMove(list, { touches: [{ clientX: 50, clientY: y }] });
+    expect(sheet().dataset.sheetDetent).toBe("large");
+    // It follows from where the pull passed the slop.
+    expect(sheet().style.transform).toBe("translateY(240px)");
+    fireEvent.touchEnd(list, { touches: [] });
+    expect(sheet().dataset.sheetDetent).toBe("large");
+    expect(sheet().style.transform).toBe("");
+  });
+
+  it("springs back to medium after a short pull up", () => {
+    vi.useFakeTimers({ toFake: ["performance", "setTimeout", "clearTimeout"] });
+    render(<Sheet onClose={vi.fn()} heights={heights} />);
+    pull(screen.getByText("Title"), 300, 260, 4, 200);
+    expect(sheet().style.transform).toBe("translateY(300px)");
+    vi.advanceTimersByTime(200);
+    expect(sheet().dataset.sheetDetent).toBeUndefined();
+    expect(sheet().style.transform).toBe("");
+  });
+
+  it("goes from large back to medium, and only a further pull closes it", () => {
+    vi.useFakeTimers({ toFake: ["performance", "setTimeout", "clearTimeout"] });
+    const onClose = vi.fn();
+    render(<Sheet onClose={onClose} heights={heights} />);
+    pull(screen.getByText("Title"), 300, 100, 4, 40);
+    expect(sheet().dataset.sheetDetent).toBe("large");
+    pull(screen.getByText("Title"), 100, 300, 4, 200);
+    vi.advanceTimersByTime(200);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(sheet().dataset.sheetDetent).toBeUndefined();
+    pull(screen.getByText("Title"), 100, 300, 4, 200);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("grows to large when a text field takes focus", () => {
+    render(<Sheet onClose={vi.fn()} heights={heights} />);
+    expect(sheet().dataset.sheetDetent).toBeUndefined();
+    screen.getByLabelText("field").focus();
+    expect(sheet().dataset.sheetDetent).toBe("large");
+  });
+
+  it("stays one height when its content fits medium", () => {
+    render(<Sheet onClose={vi.fn()} heights={{ medium: 400, large: 400 }} />);
+    const list = screen.getByTestId("list");
+    fireEvent.touchStart(list, { touches: [{ clientX: 50, clientY: 300 }] });
+    expect(fireEvent.touchMove(list, { touches: [{ clientX: 50, clientY: 290 }] })).toBe(true);
+    fireEvent.touchMove(list, { touches: [{ clientX: 50, clientY: 200 }] });
+    fireEvent.touchEnd(list, { touches: [] });
+    expect(sheet().dataset.sheetDetent).toBeUndefined();
   });
 });
