@@ -16,3 +16,5 @@
 .when-picker-list:focus-visible .when-picker-row[aria-selected="true"] { box-shadow: inset 0 0 0 1.5px var(--focus); }
 .when-picker-rule { height: 1px; margin: 4px 10px; background: var(--line-inset); }
 .when-picker-more { color: var(--faint) !important; }
+/* A finger's height on a phone, in the Plan sheet and in Snooze. */
+body[data-profile="compact"] .when-picker-row { min-height: var(--touch-target); }

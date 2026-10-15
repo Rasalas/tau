@@ -12,3 +12,16 @@
 /* A planner's tab may wrap its body and footer in a form. */
 .plan-sheet > form { display: flex; flex-direction: column; gap: 12px; }
 .plan-sheet-note { margin-right: auto; padding-left: 6px; color: var(--muted); font: var(--text-xs) var(--sans); }
+
+/* A phone's sheet: rows and buttons a finger's size, the button across the bottom. */
+.touch-sheet.plan-sheet { width: 100%; }
+.touch-sheet.plan-sheet .touch-sheet-content { display: flex; flex-direction: column; gap: 12px; padding: 0 6px 2px; }
+.touch-sheet.plan-sheet .plan-sheet-quote { margin: -2px 0 0; font-size: var(--text-sm); }
+.touch-sheet.plan-sheet .plan-sheet-tabs { max-width: none; }
+.touch-sheet.plan-sheet .plan-sheet-tabs > button { min-height: 44px; font-size: var(--text-sm); }
+.touch-sheet .plan-sheet-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 8px; }
+.touch-sheet .plan-sheet-footer > button { min-height: var(--touch-target, 48px); padding: 0 16px; border: 0; border-radius: var(--radius-pill); background: none; color: var(--ink-3); font: var(--text-md) var(--sans); }
+.touch-sheet .plan-sheet-footer > .primary { order: -1; flex: 1 0 100%; background: var(--acid); color: var(--acid-ink); font-weight: 600; }
+.touch-sheet .plan-sheet-footer > .primary:disabled { opacity: .5; }
+.touch-sheet .plan-sheet-footer > .plan-sheet-note { margin: 0; padding: 0; }
+.touch-sheet .when-picker-custom { min-height: var(--touch-target, 48px); padding: 0 12px; border: 0; border-radius: 12px; background: var(--field); color: var(--ink); font: var(--text-input, 16px) var(--sans); }

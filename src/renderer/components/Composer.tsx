@@ -70,6 +70,7 @@ import { plainChipText } from "./composer-chip-token";
 import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterControls";
 import { composerEnter, enterChord, sendBlockReason, sendHint, sendShortcutFor } from "./composer-send-keys";
 import { onScreenKeyboardShown, primaryPointerIsTouch } from "../touch-input";
+import { useSendHold } from "./use-send-hold";
 import { takePasteAsText } from "../paste-as-text";
 import { isImeComposing } from "../keybindings";
 import { THINKING_LABELS, carriedLevel } from "../thinking-levels";
@@ -738,7 +739,7 @@ export function Composer({
   const submitRef = useRef<(delivery?: ComposerDelivery, gated?: boolean, plain?: boolean) => void>(() => {});
   const hasDraft = text.trim().length > 0 || attachments.length > 0 || inlineHasContent;
   // The send menu and Plan belong to a thread that exists, outside a question and a kit's send mode.
-  const canChoose = !newThread && !draftOnOtherRuntime && Boolean(snapshot) && !answerable && !readOnly && !mobileComposer && !(sendMode || sendModeBusyHere);
+  const canChoose = !newThread && !draftOnOtherRuntime && Boolean(snapshot) && !answerable && !readOnly && !(sendMode || sendModeBusyHere);
   // Why sending is held now: the button's tooltip says it, and a key pressed anyway gets it as a notice.
   const sendReason = held && holdReason ? holdReason : sendBlockReason({
     held,
@@ -881,6 +882,14 @@ export function Composer({
   const [touchKeyboard] = useState(primaryPointerIsTouch);
   // Steering is the default; a kit may answer otherwise (Prompt Tools' "queue" setting).
   const streamingBase = registry?.streamingDelivery() ?? "steer";
+  // A phone has no Plan button: a held send opens the send menu on what a tap does.
+  // The keyboard folds as the menu opens and stays down once a choice is made.
+  const sendHold = useSendHold(mobileComposer && canChoose && hasDraft && !held && !dictating && !arrival.waiting && !activeScopeSnapshot.submissionPending
+    ? () => {
+      textareaRef.current?.blur();
+      setChooser(streaming ? (streamingBase === "steer" ? "steer" : "queue") : "send");
+    }
+    : undefined);
   const inlineKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const { key, shiftKey, altKey, metaKey, ctrlKey, currentTarget } = event;
     const keyEvent = { key, shiftKey, altKey, metaKey, ctrlKey, text, selectionStart: currentTarget.selectionStart, selectionEnd: currentTarget.selectionEnd };
@@ -1348,7 +1357,7 @@ export function Composer({
           {!mobileComposer ? attachmentControl : null}
 
           {/* Plan, then Stop while a turn runs, then Send: round, as the composer's corners (design C2). */}
-          {canChoose ? (
+          {canChoose && !mobileComposer ? (
             <button
               type="button"
               className={`composer-plan-button${chooser ? " open" : ""}`}
@@ -1405,6 +1414,8 @@ export function Composer({
           })()}
           {(() => {
             if (!answerable && (sendMode || sendModeBusyHere)) return null;
+            // A phone shows send once there is something to send, so an empty composer keeps the room.
+            if (mobileComposer && !answerable && !hasDraft && !activeScopeSnapshot.submissionPending) return null;
             // One send button, always there: it answers, steers or queues, or sends; with nothing to send it rests.
             const typedAnswer = answerable && (Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled)));
             const { label, hint } = answerable
@@ -1423,7 +1434,9 @@ export function Composer({
                 disabled={held || dictating || (answerable
                   ? !typedAnswer && (promptSubmit?.disabled ?? true)
                   : arrival.waiting || activeScopeSnapshot.submissionPending || !hasDraft)}
+                {...sendHold.props}
                 onClick={() => {
+                  if (sendHold.consumed()) return;
                   if (answerable && !typedAnswer) promptSubmit?.submit();
                   else submitCurrent(streaming && !answerable ? streamingBase : undefined);
                 }}
@@ -1497,6 +1510,7 @@ export function Composer({
           anchor={sendButton}
           streaming={streaming}
           initial={chooser}
+          sheet={mobileComposer}
           disabledReason={sendReason ?? (hasDraft ? undefined : "Write a message first.")}
           onClose={() => setChooser(undefined)}
           onChoose={(choice) => {
@@ -1512,7 +1526,9 @@ export function Composer({
           snapshot={snapshot}
           planners={registry?.getComposerPlanners?.() ?? []}
           actions={shellContext?.actions}
-          onClose={() => { setPlanning(false); textareaRef.current?.focus(); }}
+          sheet={mobileComposer}
+          // Focus would bring a phone's keyboard back over the thread.
+          onClose={() => { setPlanning(false); if (!mobileComposer) textareaRef.current?.focus(); }}
           onPlan={(at) => { setPlanning(false); submitCurrent({ deliverAt: at }); }}
           onPlanned={(summary) => { setPlanning(false); updateDraft(""); onNotify?.(`Planned: ${summary}.`, "info"); }}
         />
