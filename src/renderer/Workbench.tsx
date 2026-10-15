@@ -992,12 +992,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               </div> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} workspacePreviewAvailable={(workspaceAreaShown || stageExpanded) && registry.getRegions("workspace-preview").length > 0} />
               <ComposerHost start={showStartScreen}>
-                {!contentCurrent ? <div className="thread-freshness" role="status">
-                  {thread.freshness === "offline" ? "Offline. " : "Connecting. "}
-                  {thread.cachedAt ? <>Saved {new Date(thread.cachedAt).toLocaleString()}. </> : snapshot ? "Saved messages. " : null}
-                  Waiting for current messages and run status.
-                </div> : null}
-                <HostConnectionStatus />
+                <HostConnectionStatus pendingConversation={!contentCurrent} cachedAt={thread.cachedAt} />
                 {conversationComposer}
               </ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />
@@ -1354,7 +1349,7 @@ const ConversationComposer = memo(function ConversationComposer({ view, composer
     }}
     onCompactContext={() => void compactContext()}
     held={!current || holds > 0 || setup?.state === "none"}
-    holdReason={!current ? "Waiting for current messages and run status." : undefined}
+    holdReason={!current ? "Sending is paused until this conversation is up to date." : undefined}
     onNotify={onNotify}
     onOpenPromptEditor={() => void actions?.executeCommand?.("workspace.open-prompt-editor")}
     onRunShellAction={(cmd, includeInContext = true) => actions ? actions.runShellAction(cmd, includeInContext) : Promise.reject(new Error("Actions unavailable"))}

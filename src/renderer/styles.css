@@ -71,7 +71,6 @@ button > svg { pointer-events: none; }
   color: var(--ink);
 }
 .workbench-startup { position: fixed; inset: 0; display: grid; place-items: center; color: var(--ink-3); background: var(--shell); }
-.thread-freshness { position: absolute; inset: auto 0 100%; z-index: 3; padding: 8px var(--content-inset, 20px); color: var(--ink-3); background: var(--shell); font-size: var(--text-sm); border-bottom: 1px solid var(--line); }
 .conversation-composer-host { position: relative; }
 .thread-index-freshness { position: fixed; z-index: 4; left: 12px; bottom: 56px; padding: 8px; color: var(--ink-3); background: var(--shell); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: var(--text-sm); }
 /* macOS draws its traffic lights over the sidebar's top: that strip is room for them and the window's handle. */
@@ -2155,10 +2154,7 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
   border-radius: var(--radius-sm);
   pointer-events: auto;
 }
-.conversation-start .host-connection-status { max-width: 680px; margin-inline: auto; width: calc(100% - 64px); }
-@media (max-width: 700px) {
-  .conversation-start .host-connection-status { width: calc(100% - 24px); }
-}
+.conversation-start .host-connection-status { max-width: 680px; margin-inline: auto; width: calc(100% - 2 * var(--content-inset)); }
 .host-connection-status.connection-repair {
   display: flex;
   align-items: center;
@@ -2170,6 +2166,18 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 .host-connection-message { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .host-connection-status.connection-repair .text-button { flex: none; }
+.host-connection-status.conversation-sync {
+  align-items: flex-start;
+  margin-block: 14px 0;
+  background: color-mix(in srgb, var(--warn) 8%, var(--stage));
+  border-color: color-mix(in srgb, var(--warn) 30%, var(--line));
+  color: var(--ink-2);
+}
+.conversation-sync .host-connection-message { align-items: flex-start; min-width: 0; }
+.conversation-sync .host-connection-message > svg { flex: none; margin-top: 2px; color: var(--warn); }
+.conversation-sync-copy { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.conversation-sync-copy strong { color: var(--ink); font-weight: 600; }
+.composer-floating .host-connection-status.conversation-sync { margin: 0 0 8px; width: 100%; }
 /* A host on another machine: the link's health as a dot, the words in its tooltip. */
 .host-link-indicator { padding: 6px; }
 .host-link-dot {

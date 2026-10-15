@@ -44,6 +44,31 @@ function clientWithMovableState(refusal?: string, options: { link?: HostLink; lo
 }
 
 describe("host connection status", () => {
+  it("combines stale conversation data and connection repair until the conversation is confirmed", () => {
+    vi.useFakeTimers();
+    const link = clientWithMovableState(undefined, { link: { phase: "open", attempts: 0 } });
+    const view = render(<HostClientProvider client={link.client}><HostConnectionStatus pendingConversation /></HostClientProvider>);
+    expect(screen.getByRole("status").textContent).toContain("Syncing conversation…");
+
+    link.set("reconnecting");
+    link.setLink({ phase: "waiting", attempts: 1, retryAt: 0 });
+    act(() => { vi.advanceTimersByTime(5_000); });
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toContain("Reconnecting…");
+    expect(screen.getByRole("status").textContent).toContain("Messages and agent status may be out of date.");
+    act(() => { screen.getByRole("button", { name: "Retry now" }).click(); });
+    expect(link.reconnectNow).toHaveBeenCalledTimes(1);
+
+    link.setLink({ phase: "offline", attempts: 2 });
+    expect(screen.getByRole("status").textContent).toContain("You're offline");
+    link.set("resyncing");
+    expect(screen.getByRole("status").textContent).toContain("Syncing conversation…");
+    link.set("connected");
+    expect(screen.getByRole("status").textContent).toContain("Sending is paused until this conversation is up to date.");
+    view.rerender(<HostClientProvider client={link.client}><HostConnectionStatus pendingConversation={false} /></HostClientProvider>);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("does not count computer sleep toward the notice's grace period", () => {
     vi.useFakeTimers();
     const link = clientWithMovableState();
