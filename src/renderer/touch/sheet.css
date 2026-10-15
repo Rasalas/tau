@@ -9,10 +9,13 @@
   background: var(--chrome); color: var(--ink); box-shadow: var(--shadow-strong);
   animation: touch-sheet-rise var(--motion-fast, 160ms) var(--ease);
 }
-@keyframes touch-sheet-rise { from { transform: translateY(24px); opacity: 0; } }
+@keyframes touch-sheet-rise { from { transform: translateY(calc(var(--touch-sheet-offset, 0px) + 24px)); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .touch-sheet { animation: none; } }
 .touch-sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
 .touch-sheet-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* Half open (sheet-drag.ts): the lower part waits below the edge, and a pull up opens the sheet instead of scrolling. */
+.touch-sheet[data-detent="medium"] { transform: translateY(var(--touch-sheet-offset)); }
+.touch-sheet[data-detent="medium"] .touch-sheet-content { overflow-y: hidden; }
 
 /* Full-page selection on touch clients. */
 .touch-sheet.mobile-page { position: fixed; inset: 0; width: 100%; max-width: none; height: var(--tau-viewport-height, 100dvh); max-height: none; border: 0; border-radius: 0; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); box-shadow: none; }

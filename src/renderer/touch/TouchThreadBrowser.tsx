@@ -73,7 +73,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
 
   const searchContent = <ThreadSearch registry={list.registry} onOpen={(row, entry) => { setPopover(undefined); if (entry) entry.open(list.actions); else list.onOpen(row); }} />;
   const popovers = <>
-    {popover === "search" ? screen ? <Sheet title="Search threads" className="touch-search" onClose={() => setPopover(undefined)}>
+    {popover === "search" ? screen ? <Sheet title="Search threads" className="touch-search" fullHeight onClose={() => setPopover(undefined)}>
       {searchContent}
     </Sheet> : <Popover anchor={searchButton} side="bottom" align="end" label="Search threads" className="touch-popover touch-search" onClose={() => setPopover(undefined)}>
       {searchContent}
@@ -174,7 +174,7 @@ function ProjectFilter({ projects, project, onChange, alwaysShown = false }: {
     <button type="button" className="touch-icon-button touch-project-filter" data-active={Boolean(project) || undefined} aria-haspopup="dialog" aria-expanded={open} aria-label={label} {...tooltipProps(label, { side: "bottom" })} onClick={() => { setQuery(""); setOpen(true); }}>
       <ListFilter size={20} aria-hidden="true" />
     </button>
-    {open ? <Sheet title="Show threads of" className="project-filter-sheet" onClose={() => setOpen(false)}>
+    {open ? <Sheet title="Show threads of" className="project-filter-sheet" fullHeight onClose={() => setOpen(false)}>
       <label className="touch-search-field">
         <Search size={16} aria-hidden="true" />
         <input ref={field} type="search" value={query} placeholder="Name or path" aria-label="Search projects" enterKeyHint="search" onChange={(event) => setQuery(event.target.value)} />
