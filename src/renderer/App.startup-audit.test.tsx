@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { renderApp } from "./test-support/render-app";
 import { createFakeHostClient } from "./test-support/fake-host-client";
@@ -14,6 +14,7 @@ it("reveals an empty workspace and loads extensions when a workspace later arriv
   const client = createFakeHostClient({ loadDesktopExtensions });
   const view = renderApp(client);
   await waitFor(() => expect(view.container.querySelector("[data-startup-ready]")?.getAttribute("data-startup-ready")).toBe("true"));
+  await waitFor(() => expect(view.container.querySelector("[data-content-freshness]")?.getAttribute("data-content-freshness")).toBe("current"));
   expect(loadDesktopExtensions).not.toHaveBeenCalled();
   act(() => client.emit({ type: "host-update", update: { version: 1, type: "project", project: { cwd: "/later" } } }));
   await waitFor(() => expect(loadDesktopExtensions).toHaveBeenCalledWith("/later", expect.anything(), undefined));
@@ -28,11 +29,15 @@ it("labels the saved chat unconfirmed until current startup data arrives", async
   renderApp(createFakeHostClient({ bootstrap: () => new Promise(done => { resolve = done; }) }), { storage });
   await screen.findByText("Old answer");
   expect(document.querySelector("[data-content-freshness]")?.getAttribute("data-content-freshness")).toBe("loading");
-  expect(screen.getByText(/Waiting for current messages and run status/)).toBeTruthy();
+  const warning = await screen.findByRole("status", { name: "Conversation not up to date" });
+  expect(within(warning).getByText("Syncing conversation…")).toBeTruthy();
+  expect(warning.textContent).toContain("Messages and agent status may be out of date.");
+  expect(warning.textContent).toContain("Sending is paused until this conversation is up to date.");
   await act(async () => resolve({ version: 1, threadIndex: index, detail: { sessionId: "s", messages: [{ id: "u", role: "user", text: "Question", timestamp: 0 }, { id: "m", role: "assistant", text: "Current answer", timestamp: 2 }], isStreaming: false, activeTools: [] }, catalog: { models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0 }, project: { cwd: "/p" } }));
   await screen.findByText("Current answer");
   expect(screen.queryByText("Old answer")).toBeNull();
   expect(document.querySelector("[data-content-freshness]")?.getAttribute("data-content-freshness")).toBe("current");
+  expect(screen.queryByRole("status", { name: "Conversation not up to date" })).toBeNull();
 });
 
 it("confirms navigation that supersedes a pending bootstrap without confirming its cached preview", async () => {

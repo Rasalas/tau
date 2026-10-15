@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { TriangleAlert } from "lucide-react";
 import { versionSkew } from "../shared/app-version";
 import { compareVersions } from "../shared/runtime-version";
 import type { HostConnectionState } from "../workbench/host-connection";
@@ -77,8 +78,8 @@ export function HostLinkIndicator() {
   ><span className="host-link-dot" aria-hidden /></button>;
 }
 
-/** Visible only while the link to the host is not whole, or while both ends run different builds. */
-export function HostConnectionStatus() {
+/** One notice for connection repair and unconfirmed conversation data, or a version mismatch. */
+export function HostConnectionStatus({ pendingConversation = false }: { pendingConversation?: boolean }) {
   const client = useHostClient();
   const state = useConnectionState(client);
   const link = useConnectionLink(client);
@@ -89,17 +90,18 @@ export function HostConnectionStatus() {
       <span className="host-connection-detail">{client?.getConnectionRefusal() ?? ""}</span>
     </div>;
   }
-  if (state !== "connected") {
-    return <ConnectionRepairNotice client={client} state={state} link={link} />;
+  if (state !== "connected" || pendingConversation) {
+    return <ConnectionRepairNotice client={client} state={state} link={link} pendingConversation={pendingConversation} />;
   }
   return <VersionSkewNotice />;
 }
 
-/** Keeps one grace period across reconnect and resync; a healthy link unmounts it. */
-function ConnectionRepairNotice({ client, state, link }: {
+/** Keeps one grace period across link repair; unconfirmed conversation data needs an immediate warning. */
+function ConnectionRepairNotice({ client, state, link, pendingConversation }: {
   client: HostClient | undefined;
-  state: "reconnecting" | "resyncing";
+  state: "connected" | "reconnecting" | "resyncing";
   link: HostLink | undefined;
+  pendingConversation: boolean;
 }) {
   const [visibleFor, setVisibleFor] = useState<HostClient>();
   useEffect(() => {
@@ -107,13 +109,16 @@ function ConnectionRepairNotice({ client, state, link }: {
     timers.after(CONNECTION_NOTICE_DELAY_MS, () => setVisibleFor(client));
     return () => timers.close();
   }, [client]);
-  if (!client || visibleFor !== client) return null;
+  if (!client || (!pendingConversation && visibleFor !== client)) return null;
   const offline = state === "reconnecting" && link?.phase === "offline";
   const waiting = state === "reconnecting" && (link?.phase === "waiting" || offline);
-  return <div className={`host-connection-status connection-repair ${state}`} role="status" aria-live="polite">
+  return <div className={`host-connection-status connection-repair conversation-sync ${state}`} role="status" aria-label={pendingConversation ? "Conversation not up to date" : undefined}>
     <span className="host-connection-message">
-      {offline ? null : <span className="spinner tone-current small" aria-hidden="true" />}
-      <span>{offline ? "You're offline. Tau will reconnect automatically." : state === "resyncing" ? LABEL.resyncing : "Restoring connection…"}</span>
+      <TriangleAlert size={16} aria-hidden="true" />
+      <span>
+        <strong>{offline ? "You're offline" : state === "reconnecting" ? "Reconnecting…" : "Syncing conversation…"}</strong>
+        {pendingConversation ? <span>Messages and agent status may be out of date. Sending is paused until this conversation is up to date.</span> : null}
+      </span>
     </span>
     {state === "reconnecting" && link ? <button type="button" className="text-button" disabled={!waiting} onClick={() => client.reconnectNow()}>Retry now</button> : null}
   </div>;

@@ -44,6 +44,31 @@ function clientWithMovableState(refusal?: string, options: { link?: HostLink; lo
 }
 
 describe("host connection status", () => {
+  it("combines stale conversation data and connection repair until the conversation is confirmed", () => {
+    vi.useFakeTimers();
+    const link = clientWithMovableState(undefined, { link: { phase: "open", attempts: 0 } });
+    const view = render(<HostClientProvider client={link.client}><HostConnectionStatus pendingConversation /></HostClientProvider>);
+    expect(screen.getByRole("status").textContent).toContain("Syncing conversation…");
+
+    link.set("reconnecting");
+    link.setLink({ phase: "waiting", attempts: 1, retryAt: 0 });
+    act(() => { vi.advanceTimersByTime(5_000); });
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toContain("Reconnecting…");
+    expect(screen.getByRole("status").textContent).toContain("Messages and agent status may be out of date.");
+    act(() => { screen.getByRole("button", { name: "Retry now" }).click(); });
+    expect(link.reconnectNow).toHaveBeenCalledTimes(1);
+
+    link.setLink({ phase: "offline", attempts: 2 });
+    expect(screen.getByRole("status").textContent).toContain("You're offline");
+    link.set("resyncing");
+    expect(screen.getByRole("status").textContent).toContain("Syncing conversation…");
+    link.set("connected");
+    expect(screen.getByRole("status").textContent).toContain("Sending is paused until this conversation is up to date.");
+    view.rerender(<HostClientProvider client={link.client}><HostConnectionStatus pendingConversation={false} /></HostClientProvider>);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("does not count computer sleep toward the notice's grace period", () => {
     vi.useFakeTimers();
     const link = clientWithMovableState();
@@ -73,7 +98,7 @@ describe("host connection status", () => {
     act(() => { vi.advanceTimersByTime(4_000); });
     link.set("resyncing");
     act(() => { vi.advanceTimersByTime(1_000); });
-    expect(screen.getByRole("status").textContent).toContain("Updating your workspace…");
+    expect(screen.getByRole("status").textContent).toContain("Syncing conversation…");
     link.set("connected");
     expect(screen.queryByRole("status")).toBeNull();
   });
@@ -86,11 +111,11 @@ describe("host connection status", () => {
 
     link.set("reconnecting");
     act(() => { vi.advanceTimersByTime(5_000); });
-    expect(screen.getByRole("status").textContent).toBe("Restoring connection…");
+    expect(screen.getByRole("status").textContent).toBe("Reconnecting…");
     expect(screen.queryByRole("button", { name: "Retry now" })).toBeNull();
 
     link.set("resyncing");
-    expect(screen.getByRole("status").textContent).toBe("Updating your workspace…");
+    expect(screen.getByRole("status").textContent).toBe("Syncing conversation…");
 
     link.set("connected");
     expect(screen.queryByRole("status")).toBeNull();
@@ -194,7 +219,7 @@ describe("host connection status", () => {
 
     link.setLink({ phase: "offline", attempts: 3, retryAt: 0 });
     expect(retry).toHaveProperty("disabled", false);
-    expect(screen.getByRole("status").textContent).toContain("You're offline. Tau will reconnect automatically.");
+    expect(screen.getByRole("status").textContent).toContain("You're offline");
   });
 });
 
