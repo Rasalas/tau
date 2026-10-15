@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { AlarmClock, ArrowUp, CornerUpRight, ListPlus, type LucideIcon } from "lucide-react";
 import { Popover } from "./ui/Dialog";
+import { Sheet } from "../touch/Sheet";
 import { isImeComposing } from "../keybindings";
 import "./composer-send-chooser.css";
 import { sendChoices, type SendChoice } from "./composer-send-choice";
@@ -17,12 +18,14 @@ const CHOICES: Record<SendChoice, { label: string; detail: string; Icon: LucideI
  * The menu over the send button (design C2): ↑↓ or a digit picks, Enter or the
  * chord that opened it does it, Escape closes it. It opens on `initial`, the
  * choice the chord stands for, so the chord twice still does what it always did.
+ * A phone gets it as a sheet, opened by holding send.
  */
-export function ComposerSendChooser({ anchor, streaming, initial, disabledReason, onChoose, onClose }: {
+export function ComposerSendChooser({ anchor, streaming, initial, sheet = false, disabledReason, onChoose, onClose }: {
   anchor: RefObject<HTMLElement | null>;
   /** A turn runs: steer and queue; at rest, send. Plan comes last either way. */
   streaming: boolean;
   initial: SendChoice;
+  sheet?: boolean;
   /** Why nothing can go yet, such as an empty draft; Plan stays open to it. */
   disabledReason?: string | undefined;
   onChoose(choice: SendChoice): void;
@@ -53,32 +56,33 @@ export function ComposerSendChooser({ anchor, streaming, initial, disabledReason
       choose(choices[active]!);
     }
   };
-  return (
-    <Popover anchor={anchor} side="top" align="end" label="Send options" className="composer-send-chooser" onClose={onClose}>
-      <div className="composer-send-chooser-list" role="menu" aria-label="Send options" tabIndex={-1} onKeyDown={onKeyDown}>
-        {choices.map((choice, index) => {
-          const { label, detail, Icon } = CHOICES[choice];
-          return (
-            <button
-              key={choice}
-              ref={(element) => { rows.current[index] = element; }}
-              type="button"
-              role="menuitem"
-              className={`composer-send-choice${index === active ? " active" : ""}`}
-              aria-disabled={blocked(choice) || undefined}
-              {...(blocked(choice) && disabledReason ? { "data-tooltip": disabledReason, "data-tooltip-side": "left" } : {})}
-              tabIndex={index === active ? 0 : -1}
-              // A real move, not a menu opening under a resting pointer.
-              onMouseMove={() => { if (index !== active) setActive(index); }}
-              onClick={() => choose(choice)}
-            >
-              <Icon size={15} aria-hidden="true" />
-              <span><em>{label}</em><small>{detail}</small></span>
-              <kbd>{index + 1}</kbd>
-            </button>
-          );
-        })}
-      </div>
-    </Popover>
+  const list = (
+    <div className="composer-send-chooser-list" role="menu" aria-label="Send options" tabIndex={-1} onKeyDown={onKeyDown}>
+      {choices.map((choice, index) => {
+        const { label, detail, Icon } = CHOICES[choice];
+        return (
+          <button
+            key={choice}
+            ref={(element) => { rows.current[index] = element; }}
+            type="button"
+            role="menuitem"
+            className={`composer-send-choice${index === active ? " active" : ""}`}
+            aria-disabled={blocked(choice) || undefined}
+            {...(blocked(choice) && disabledReason ? { "data-tooltip": disabledReason, "data-tooltip-side": "left" } : {})}
+            tabIndex={index === active ? 0 : -1}
+            // A real move, not a menu opening under a resting pointer.
+            onMouseMove={() => { if (index !== active) setActive(index); }}
+            onClick={() => choose(choice)}
+          >
+            <Icon size={sheet ? 20 : 15} aria-hidden="true" />
+            <span><em>{label}</em><small>{detail}</small></span>
+            {sheet ? null : <kbd>{index + 1}</kbd>}
+          </button>
+        );
+      })}
+    </div>
   );
+  return sheet
+    ? <Sheet title="Send options" className="composer-send-sheet" onClose={onClose}>{list}</Sheet>
+    : <Popover anchor={anchor} side="top" align="end" label="Send options" className="composer-send-chooser" onClose={onClose}>{list}</Popover>;
 }

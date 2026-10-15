@@ -2,6 +2,7 @@ import { useContext, useState } from "react";
 import { AlarmClock, ArrowUp, ArrowUpToLine, ChevronDown, CornerUpRight, ListPlus, Pencil, X } from "lucide-react";
 import type { UiQueuedMessage } from "../../shared/contracts";
 import { PlanSheet } from "../deferred-surfaces";
+import { useCompactForm } from "../use-layout-profile";
 import { tooltipProps } from "./ui/Tooltip";
 import { shortWhen } from "./when-pick";
 import { WakeIcon } from "./WakeLine";
@@ -45,6 +46,7 @@ export function QueueShelf({ queue, streaming, held = false, steerShortcut: shor
   const steerShortcut = shortcut ?? shell?.registry.keybindingLabel("thread.steerQueuedMessage");
   const [open, setOpen] = useState(false);
   const [planning, setPlanning] = useState<UiQueuedMessage>();
+  const phone = useCompactForm("compact") === "single";
   const ordered = queueOrder(queue);
   const head = ordered[0];
   if (!head) return null;
@@ -108,6 +110,7 @@ export function QueueShelf({ queue, streaming, held = false, steerShortcut: shor
         <PlanSheet
           title="Change the time"
           confirmLabel="Save"
+          sheet={phone}
           draft={{ text: planning.text, attachments: planning.attachments }}
           onPlan={(at) => { setPlanning(undefined); onPlan(planning.id, at); }}
           onClose={() => setPlanning(undefined)}

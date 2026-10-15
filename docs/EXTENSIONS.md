@@ -1065,7 +1065,7 @@ thread. Resume Compaction uses it for "Compact and send".
 a tab to the composer's Plan sheet, beside "Once" (core's own: the draft goes
 into this thread at a time, through the thread's queue). The sheet opens from
 Plan… in the send menu, the clock before Stop and Send, or from ⌘↵ (⌘⇧↵ where
-⌘↵ sends). It draws the header and the tabs; `Component` gets `{ draft,
+⌘↵ sends); on a phone, from the menu a held send opens, as a sheet. It draws the header and the tabs; `Component` gets `{ draft,
 snapshot, actions, onPlanned(summary), onCancel }` (`draft` is `{ text,
 attachments }`, the text with chips as plain text and the count of files
 beside it) and draws everything below the tabs, its footer included: give the

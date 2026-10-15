@@ -13,3 +13,7 @@
 .composer-send-choice.active { background: var(--raised); color: var(--ink); }
 .composer-send-choice.active > svg { color: var(--acid-text); }
 .composer-send-choice[aria-disabled] { opacity: .45; cursor: default; }
+/* On a phone, a sheet opened by holding send: rows a finger's height. */
+.composer-send-sheet .composer-send-chooser-list { gap: 2px; padding-bottom: 4px; }
+.composer-send-sheet .composer-send-choice { gap: 14px; min-height: 60px; padding: 8px 12px; border-radius: 14px; }
+.composer-send-sheet .composer-send-choice small { font-size: var(--text-sm); }

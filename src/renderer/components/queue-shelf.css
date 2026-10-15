@@ -53,3 +53,8 @@
   .queue-shelf-row-actions { display: flex; }
   .queue-shelf-row > small { display: none; }
 }
+/* A phone: every action a finger's size, drawn 36 px high, so the hit areas never reach the text above them. */
+body[data-profile="compact"] .queue-shelf-action { height: var(--touch-target); padding: 0 8px; border: 6px solid transparent; background-clip: padding-box; font-size: var(--text-sm); }
+body[data-profile="compact"] .queue-shelf-icon { width: var(--touch-target); height: var(--touch-target); }
+body[data-profile="compact"] .queue-shelf-more { min-height: var(--touch-target); padding-inline: 12px 8px; font-size: var(--text-sm); }
+body[data-profile="compact"] .queue-shelf-row { min-height: var(--touch-target); }
