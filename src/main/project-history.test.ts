@@ -46,6 +46,21 @@ describe("ProjectHistory", () => {
     await reloaded.flush();
   });
 
+  it("forgets an entry without hiding it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-project-history-"));
+    temporaryDirectories.push(directory);
+    const file = join(directory, "projects.json");
+    const history = new ProjectHistory(file);
+
+    await history.remember("/repos/tau");
+    await history.remember("/repos/tau-worktrees/feature");
+    history.forget("/repos/tau-worktrees/feature");
+    await history.flush();
+    expect(history.list().map((project) => project.path)).toEqual(["/repos/tau"]);
+    expect(history.isHidden("/repos/tau-worktrees/feature")).toBe(false);
+    expect(JSON.parse(await readFile(file, "utf8")).projects.map((project: { path: string }) => project.path)).toEqual(["/repos/tau"]);
+  });
+
   it("writes atomically: no temp file survives and the target is complete", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-project-history-"));
     temporaryDirectories.push(directory);

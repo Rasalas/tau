@@ -102,6 +102,15 @@ export class ProjectHistory {
     this.schedulePersist();
   }
 
+  /** Drops an entry without hiding it, unlike `remove`; its threads still name it. */
+  forget(path: string): void {
+    const key = this.key(path);
+    const kept = this.projects.filter((project) => this.key(project.path) !== key);
+    if (kept.length === this.projects.length) return;
+    this.projects = kept;
+    this.schedulePersist();
+  }
+
   async remember(path: string, name = basename(path) || path): Promise<void> {
     const key = this.key(path);
     const project: UiProject = {
