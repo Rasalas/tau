@@ -287,7 +287,7 @@ and a floating New thread button (`TouchThreadBrowser`), on a phone panels that 
 `compact` as sheets over the thread (`PanelSheet`, opened from the phone's bar —
 the first two by their glyphs, from three on the rest from its More menu —
 and by `actions.openPanel`/`closePanel`, which reach the sheet there),
-sheets that close on a pull down (`sheet-drag.ts`), and `TouchLayer` — the
+sheets that open half way when taller than half the window and close on a pull down (`sheet-drag.ts`), and `TouchLayer` — the
 height the on-screen keyboard leaves (`visualViewport`), a tap that shows a
 message's actions, and the open thread in the address (`?thread=<id>`, which a
 push notification opens; on a tablet back moves between the threads it held).

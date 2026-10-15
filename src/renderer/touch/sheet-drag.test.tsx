@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sheetDragCloses, sheetDragMayStart, useSheetDrag } from "./sheet-drag";
+import { sheetDragCloses, sheetDragMayStart, sheetMediumOffset, sheetPullRest, useSheetDrag } from "./sheet-drag";
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["performance"] }); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -95,5 +95,74 @@ describe("pulling a sheet down", () => {
     render(<Sheet onClose={onClose} />);
     pull(screen.getByLabelText("field"), 100, 400);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("a sheet taller than half the window", () => {
+  // jsdom's window is 768 px tall: a 700 px sheet rests 316 px down, half open.
+  function Tall({ onClose, height = 700 }: { onClose(): void; height?: number }) {
+    const ref = useRef<HTMLElement>(null);
+    useSheetDrag(ref, onClose, { halfOpen: true });
+    return <section aria-label="sheet" ref={(node) => {
+      if (node) Object.defineProperty(node, "offsetHeight", { value: height, configurable: true });
+      ref.current = node;
+    }}>
+      <header>Title</header>
+      <input aria-label="field" />
+      <input aria-label="flag" type="checkbox" />
+    </section>;
+  }
+
+  it("rests half open, opens fully on a pull up or flick up, and steps down through half open before closing", () => {
+    expect(sheetMediumOffset(700, 768)).toBe(316);
+    expect(sheetMediumOffset(300, 768)).toBe(0);
+    expect(sheetPullRest(40, -0.9, 316, 316)).toBe(0);
+    expect(sheetPullRest(200, 0.1, 316, 316)).toBe(316);
+    expect(sheetPullRest(100, 0.1, 316, 316)).toBe(0);
+    expect(sheetPullRest(60, 0.9, 0, 316)).toBe(316);
+    expect(sheetPullRest(350, 0.9, 0, 316)).toBe("close");
+    expect(sheetPullRest(420, 0.1, 316, 316)).toBe("close");
+    expect(sheetPullRest(60, 0.2, 0, 0)).toBe(0);
+  });
+
+  it("follows the finger between the stops", () => {
+    const onClose = vi.fn();
+    render(<Tall onClose={onClose} />);
+    const sheet = screen.getByLabelText("sheet");
+    const title = screen.getByText("Title");
+    expect(sheet.dataset.detent).toBe("medium");
+    expect(sheet.style.getPropertyValue("--touch-sheet-offset")).toBe("316px");
+
+    pull(title, 400, 100, 4, 200);
+    expect(sheet.dataset.detent).toBeUndefined();
+    expect(sheet.style.getPropertyValue("--touch-sheet-offset")).toBe("");
+
+    pull(title, 100, 340, 4, 200);
+    expect(sheet.dataset.detent).toBe("medium");
+    expect(onClose).not.toHaveBeenCalled();
+
+    pull(title, 100, 300, 4, 200);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens fully for the wheel or a text field, not for a checkbox", () => {
+    render(<Tall onClose={vi.fn()} />);
+    const sheet = screen.getByLabelText("sheet");
+    fireEvent.focusIn(screen.getByLabelText("flag"));
+    expect(sheet.dataset.detent).toBe("medium");
+    fireEvent.focusIn(screen.getByLabelText("field"));
+    expect(sheet.dataset.detent).toBeUndefined();
+    cleanup();
+    render(<Tall onClose={vi.fn()} />);
+    fireEvent.wheel(screen.getByLabelText("sheet"), { deltaY: 40 });
+    expect(screen.getByLabelText("sheet").dataset.detent).toBeUndefined();
+  });
+
+  it("has no half-open stop when it fits in half the window", () => {
+    render(<Tall onClose={vi.fn()} height={300} />);
+    const sheet = screen.getByLabelText("sheet");
+    expect(sheet.dataset.detent).toBeUndefined();
+    pull(screen.getByText("Title"), 400, 100, 4, 200);
+    expect(sheet.style.transform).toBe("");
   });
 });

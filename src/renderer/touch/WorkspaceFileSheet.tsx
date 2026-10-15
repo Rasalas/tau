@@ -14,7 +14,7 @@ export function WorkspaceFileSheet({ tab, source, onClose }: { tab: StageFileTab
     const origin = tab.resourceOrigin;
     return origin && source?.id === origin.sourceId && source.loadMedia ? (path: string) => source.loadMedia!(path, { workspace: origin.workspace }) : undefined;
   }, [client, source, tab.resourceOrigin]);
-  return <Sheet title={tab.path.split("/").at(-1) || "Workspace file"} onClose={onClose}>
+  return <Sheet title={tab.path.split("/").at(-1) || "Workspace file"} fullHeight onClose={onClose}>
     <FileViewer tab={{ ...tab, view: "source" }} relativePath={tab.path} changed={false}
       loadFile={loadFile} loadMedia={loadMedia} loadDiff={async () => { throw new Error("This reader shows source only."); }}
       onChangeView={() => undefined} onOpenInEditor={() => undefined} onClose={onClose} />
