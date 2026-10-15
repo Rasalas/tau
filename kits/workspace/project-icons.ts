@@ -1,12 +1,6 @@
-import type { PreferencesStore } from "tau";
+import { projectIconKey, type PreferencesStore, type ProjectIconChoice } from "tau";
 import { WORKSPACE_HOST_EXTENSION_ID } from "./protocol.js";
-
-/** A project's chosen icon. Every kind keeps the picture it draws as, so a row only shows an `<img>`. */
-export type ProjectIconChoice =
-  | { kind: "icon"; name: string; hue: number; image: string }
-  | { kind: "emoji"; emoji: string; image: string }
-  | { kind: "monogram"; text: string; hue: number; image: string }
-  | { kind: "image"; image: string };
+export { projectIconKey, readProjectIcon, type ProjectIconChoice } from "tau";
 
 export const PROJECT_ICON_HUES = [
   { hue: 85, label: "Lime" },
@@ -20,61 +14,6 @@ export const PROJECT_ICON_HUES = [
 ] as const;
 
 export const PROJECT_EMOJIS = ["💻", "🚀", "⚡️", "🧪", "🛠️", "📦", "🌿", "🔥", "🎨", "🧠", "🐛", "📚", "🌐", "🔒", "📈", "🎮", "🤖", "🧩", "✨", "🦀"];
-
-/** Where the choice is kept: the kit's values, which the host syncs to every client. */
-export function projectIconKey(project: { workspaceId?: string; path: string }): string {
-  return `project-icon:${project.workspaceId ?? project.path}`;
-}
-
-type Values = Pick<PreferencesStore, "value">;
-
-function parseChoice(raw: string | undefined): ProjectIconChoice | undefined {
-  if (!raw) return undefined;
-  try {
-    const choice = JSON.parse(raw) as ProjectIconChoice;
-    return typeof choice?.image === "string" && choice.image.startsWith("data:image/") ? choice : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export function readProjectIcon(preferences: Values, project: { workspaceId?: string; path: string }): ProjectIconChoice | undefined {
-  return parseChoice(preferences.value(WORKSPACE_HOST_EXTENSION_ID, projectIconKey(project)));
-}
-
-const STORED_PREFIX = `${WORKSPACE_HOST_EXTENSION_ID}.${projectIconKey({ path: "" })}`;
-
-/** Every chosen picture by the workspace id or path it was chosen for: what core's `setProjectIcons` takes. */
-export function chosenProjectIcons(values: Readonly<Record<string, string>>): Record<string, string> {
-  const icons: Record<string, string> = {};
-  for (const [key, raw] of Object.entries(values)) {
-    const image = key.startsWith(STORED_PREFIX) ? parseChoice(raw)?.image : undefined;
-    if (image) icons[key.slice(STORED_PREFIX.length)] = image;
-  }
-  return icons;
-}
-
-/** Hands core the chosen pictures now and whenever one changes, so every project mark draws them. */
-export function publishProjectIcons(
-  preferences: Pick<PreferencesStore, "getSnapshot" | "subscribe">,
-  publish: (icons: Readonly<Record<string, string>> | undefined) => void,
-): () => void {
-  let values: unknown;
-  let published = "";
-  const update = () => {
-    const next = preferences.getSnapshot().extensionValues;
-    if (next === values) return;
-    values = next;
-    const icons = chosenProjectIcons(next);
-    const signature = JSON.stringify(icons);
-    if (signature === published) return;
-    published = signature;
-    publish(icons);
-  };
-  update();
-  const unsubscribe = preferences.subscribe(update);
-  return () => { unsubscribe(); publish(undefined); };
-}
 
 /** `undefined` goes back to the automatic icon (favicon, `t3.json` or initial). */
 export function writeProjectIcon(preferences: Pick<PreferencesStore, "setValue">, project: { workspaceId?: string; path: string }, choice: ProjectIconChoice | undefined): void {

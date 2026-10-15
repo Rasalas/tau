@@ -1,4 +1,4 @@
-import { useContext, useSyncExternalStore, type CSSProperties } from "react";
+import { useContext, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { ThreadStoreContext, WorkbenchShellContext } from "../workbench-context";
 import { findProjectForSession } from "../../shared/session-project";
 import type { UiProject } from "../../shared/contracts";
@@ -31,24 +31,26 @@ const getNoProjects = () => noProjects;
 type IconSubject = Pick<ProjectIconSubject, "path" | "workspaceId" | "icon"> & Partial<Pick<ProjectIconSubject, "name">>;
 
 /** Resolve presentation against the project index even when the caller only has a thread's workspace. */
-function useResolvedIcon(project: IconSubject | undefined, fallback?: string): { image: string | undefined; owner: UiProject | undefined } {
+function useResolvedIcon(project: IconSubject | undefined, fallback?: string): { images: readonly string[]; owner: UiProject | undefined } {
   const registry = useContext(WorkbenchShellContext)?.registry;
   const store = useContext(ThreadStoreContext);
   const projects = useSyncExternalStore(store?.subscribeToProjects ?? noSubscribe, store?.getProjects ?? getNoProjects);
   const owner = project ? findProjectForSession(projects, { projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name }) : undefined;
   const chosen = useSyncExternalStore(registry?.subscribeProjectIcons ?? noSubscribe, () =>
     (project ? registry?.projectIcon(project) : undefined) ?? (owner ? registry?.projectIcon(owner) : undefined));
-  return { image: chosen ?? fallback ?? project?.icon ?? owner?.icon, owner };
+  const images = useMemo(() => [...new Set([chosen, fallback, project?.icon, owner?.icon].filter((image): image is string => Boolean(image)))],
+    [chosen, fallback, project?.icon, owner?.icon, project?.path, project?.workspaceId]);
+  return { images, owner };
 }
 
-/** A kit's picture for the project (`setProjectIcons`), else the host's. */
+/** A published or saved picture for the project, else the host's. */
 export function useProjectIcon(project: IconSubject | undefined): string | undefined {
-  return useResolvedIcon(project).image;
+  return useResolvedIcon(project).images[0];
 }
 
 /**
- * A project's mark wherever one is drawn: the picture a kit chose, else the
- * host's, else its initial on its hue. A worktree's thread draws its
+ * A project's mark wherever one is drawn: a published or saved picture, else
+ * the host's, else its initial on its hue. A worktree's thread draws its
  * project's mark. `icon` is a caller's own fallback.
  */
 export function ProjectIcon({ project, icon, hue, className }: {
@@ -58,10 +60,14 @@ export function ProjectIcon({ project, icon, hue, className }: {
   hue?: string | undefined;
   className?: string | undefined;
 }) {
-  const { image, owner } = useResolvedIcon(project, icon);
+  const { images, owner } = useResolvedIcon(project, icon);
+  const [failures, setFailures] = useState<{ images: readonly string[]; failed: readonly string[] }>({ images, failed: [] });
+  // A new source or project gets a fresh attempt, without sharing failures with other marks.
+  const failed = failures.images === images ? failures.failed : [];
+  const image = images.find((candidate) => !failed.includes(candidate));
   return <i
     className={`thread-project-icon${className ? ` ${className}` : ""}${image ? " has-image" : ""}`}
     style={{ "--project-hue": projectHue(hue ?? owner?.path ?? project.path) } as CSSProperties}
     aria-hidden="true"
-  >{image ? <img src={image} alt="" /> : projectInitial(owner?.name ?? project.name)}</i>;
+  >{image ? <img key={image} src={image} alt="" onError={() => setFailures({ images, failed: [...failed, image] })} /> : projectInitial(owner?.name ?? project.name)}</i>;
 }
