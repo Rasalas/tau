@@ -80,7 +80,7 @@ describe("runtime desktop extensions", () => {
       expect(action.opens).not.toBe(true);
       expect(h.openSettings).not.toHaveBeenCalled();
       action.run();
-      expect(h.openSettings).toHaveBeenCalledWith("about");
+      expect(h.openSettings).toHaveBeenCalledWith("about#setting-check-for-updates");
     });
 
     it("tells another version from an extension this app does not include", async () => {
@@ -104,7 +104,7 @@ describe("runtime desktop extensions", () => {
       const { h, toast } = refusing(["tau.terminal"], ["acme.weather"]);
       await new RuntimeExtensions(new ExtensionRegistry(), h).sync("/project");
       toast.mock.calls[0]?.[0].actions[0].run();
-      expect(h.openSettings).toHaveBeenCalledWith("about");
+      expect(h.openSettings).toHaveBeenCalledWith("about#setting-check-for-updates");
 
       const missing = refusing([], ["acme.weather"]);
       await new RuntimeExtensions(new ExtensionRegistry(), missing.h).sync("/project");

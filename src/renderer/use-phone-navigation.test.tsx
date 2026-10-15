@@ -27,6 +27,19 @@ describe("phone settings navigation", () => {
     expect(result.current.navigation.settingsView).toBe("page");
   });
 
+  it("opens the update controls when About is already retained behind the section list", () => {
+    const { result } = setup();
+    act(() => result.current.setSettingsPage("about"));
+    act(() => result.current.navigation.setSettingsView("sections"));
+    expect(result.current.navigation.route).toEqual({ kind: "settings" });
+
+    act(() => result.current.setSettingsPage("about#setting-check-for-updates"));
+    expect(result.current.navigation.settingsView).toBe("page");
+    // Settings consumes the row anchor after scrolling to its update controls.
+    act(() => result.current.setSettingsPage("about"));
+    expect(result.current.navigation.route).toEqual({ kind: "settings", section: "about" });
+  });
+
   it("keeps the bottom Settings tab at the section list and opens an external target from there", () => {
     const { result } = setup();
     act(() => result.current.navigation.openTab({ kind: "settings" }));

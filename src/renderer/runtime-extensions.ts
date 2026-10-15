@@ -379,7 +379,7 @@ export class RuntimeExtensions {
       description: changed && missing
         ? `${recovery} Not included in this app: ${missing}.`
         : changed ? recovery : `This app does not include ${missing}.`,
-      actions: changed ? [{ label: "Open updates", run: () => this.host.openSettings("about") }] : undefined,
+      actions: changed ? [{ label: "Open updates", run: () => this.host.openSettings("about#setting-check-for-updates") }] : undefined,
       timeoutMs: 0,
       onClose: () => this.rememberDismissed(pending.map((entry) => entry.id)),
     });
