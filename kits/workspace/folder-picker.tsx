@@ -169,8 +169,8 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       ...(listing.parent ? [{ kind: "up" as const, path: listing.parent }] : []),
       ...listing.directories.map((directory): Row => ({ kind: "folder", path: directory.path, label: directory.name, ...(directory.repository ? { repository: directory.repository } : {}) })),
     ];
-    const note = index === "loading" && view === "repositories" ? "Finding repositories…" : listing.directories.length === 0 ? "No folders in here" : undefined;
-    return [{ id: "folders", rows, ...(note ? { note } : {}) }];
+    const finding = index === "loading" && view === "repositories";
+    return [{ id: "folders", rows, ...(finding ? { heading: "Finding repositories…" } : {}), ...(listing.directories.length === 0 ? { note: "No folders in here" } : {}) }];
   }, [below, index, leaf, listing, open, pathListing, query, ready, showRepositories, text, typedFolder, typedPath, view]);
 
   const rows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
@@ -306,8 +306,8 @@ export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProp
       {localFiles ? <button type="button" role="menuitem" onClick={() => void chooseStart()}><FolderOpen size={14} aria-hidden /> Choose start folder…</button> : null}
     </div> : null}
     {!query && !typedPath && listing ? <div className="folder-views" role="tablist" aria-label="Show">
-      <button type="button" role="tab" aria-selected={showRepositories} disabled={Boolean(ready) && repositoryCount === 0} onClick={() => { setView("repositories"); setSelected(-1); }}>
-        Repositories <small>{ready ? repositoryCount : "…"}</small>
+      <button type="button" role="tab" aria-selected={showRepositories} disabled={index === "failed" || Boolean(ready) && repositoryCount === 0} onClick={() => { setView("repositories"); setSelected(-1); }}>
+        Repositories <small>{ready ? repositoryCount : index === "failed" ? "–" : "…"}</small>
       </button>
       <button type="button" role="tab" aria-selected={!showRepositories} onClick={() => { setView("folders"); setSelected(-1); }}>
         Folders <small>{listing.directories.length}</small>
