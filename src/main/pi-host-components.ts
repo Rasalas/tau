@@ -409,7 +409,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   const projects = new ProjectFactsCache({
     onLabel: (cwd, label) => publication.publishLabel(cwd, label),
     onName: (cwd, name) => index.publishName(cwd, name),
-    onNesting: () => index.publishSnapshotSoon(),
+    onNesting: (cwd) => {
+      index.publishSnapshotSoon();
+      // Older builds saved worktrees as projects; they filled the 24 slots. A missing folder stays: its drive may be unmounted.
+      if (!projects.isRoot(cwd)) void projects.owner(cwd).then((owner) => { if (owner !== cwd) deps.projectHistory.forget(cwd); });
+    },
     recordBackground: (name, startedAt) => deps.recordBackground(name, startedAt),
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),

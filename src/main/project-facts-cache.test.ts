@@ -111,6 +111,36 @@ describe("ProjectFactsCache", () => {
     expect(asked).toEqual(["/repo/worktree", "/repo"]);
   });
 
+  it("classifies known paths again once a provider that knows nesting arrives", async () => {
+    const { facts, nesting } = cache();
+    // Listed before the Workspace Kit loaded: nobody could call the worktree nested yet.
+    expect(facts.isRoot("/repo/worktree")).toBe(false);
+    await facts.settleClassifications();
+    expect(facts.isRoot("/repo/worktree")).toBe(true);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    facts.add({ nested: async (cwd) => { await gate; return cwd === "/repo/worktree"; } });
+    // The old answer stands until the new one arrives, so roots do not blink out of the list.
+    expect(facts.isRoot("/repo/worktree")).toBe(true);
+    release();
+    await facts.settleClassifications();
+    expect(facts.isRoot("/repo/worktree")).toBe(false);
+    expect(await facts.nested("/repo/worktree")).toBe(true);
+    expect(nesting).toEqual(["/repo/worktree", "/repo/worktree"]);
+  });
+
+  it("asks a provider added while a classification runs as well", async () => {
+    const { facts } = cache();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    facts.add({ projectless: async () => { await gate; return false; } });
+    facts.classify("/repo/worktree");
+    facts.add({ nested: async (cwd) => cwd === "/repo/worktree" });
+    release();
+    await facts.settleClassifications();
+    expect(facts.isRoot("/repo/worktree")).toBe(false);
+  });
+
   it("treats a path no provider can classify as a root", async () => {
     const { facts } = cache();
     facts.add({ nested: async () => { throw new Error("not a checkout"); } });

@@ -44,6 +44,10 @@ export class ProjectFactsCache {
     const asked = [...this.unnamed];
     this.unnamed.clear();
     for (const cwd of asked) this.refreshName(cwd);
+    // Paths listed before the Workspace Kit loaded were read as roots; a worktree among them must leave the list.
+    if (facts.nested || facts.projectless) {
+      for (const cwd of new Set([...this.nesting.keys(), ...this.classifications.keys()])) this.classify(cwd, true);
+    }
     return remove;
   }
 
@@ -151,21 +155,24 @@ export class ProjectFactsCache {
     return root ?? cwd;
   }
 
-  classify(cwd: string): void {
-    if (this.classifications.has(cwd)) return;
+  /** `again` asks once more after any classification in flight, which may predate a provider. */
+  classify(cwd: string, again = false): void {
+    const running = this.classifications.get(cwd);
+    if (running && !again) return;
     const startedAt = performance.now();
-    const pending = Promise.all([this.providers.nested(cwd), this.projectless(cwd)]).then(([nested]) => {
+    const pending: Promise<void> = (running ?? Promise.resolve()).then(() => Promise.all([this.providers.nested(cwd), this.projectless(cwd)])).then(([nested]) => {
       if (this.nesting.get(cwd) === nested) return;
       this.nesting.set(cwd, nested);
       this.port.onNesting(cwd);
-    }).catch(() => {
+    }).catch((error: unknown) => {
       // A path no provider can classify is simply a root.
+      this.port.log("project-classification.failed", `${basename(cwd)}: ${this.port.errorMessage(error)}`);
       if (this.nesting.has(cwd)) return;
       this.nesting.set(cwd, false);
       this.port.onNesting(cwd);
     }).finally(() => {
       this.port.recordBackground("project-classification", startedAt);
-      this.classifications.delete(cwd);
+      if (this.classifications.get(cwd) === pending) this.classifications.delete(cwd);
     });
     this.classifications.set(cwd, pending);
   }
