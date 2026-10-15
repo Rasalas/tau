@@ -250,7 +250,7 @@ describe("socket host transport", () => {
     expect(await delivered).toMatchObject({ type: "push", push: { seq: latest.seq } });
   });
 
-  it("allows one large reply without letting later writes grow its buffer", async () => {
+  it.each([false, true])("keeps a large reply connected and bounds the backlog, drained=%s", async (drained) => {
     const { transport: started, pushLog } = await listen();
     const send = WebSocket.prototype.send;
     const writes = vi.spyOn(WebSocket.prototype, "send");
@@ -263,18 +263,23 @@ describe("socket host transport", () => {
       return this === peer ? bufferedBytes : 0;
     });
     let reportSent!: () => void;
+    let finishSend!: () => void;
     const sent = new Promise<void>((resolve) => { reportSent = resolve; });
-    writes.mockImplementation(function (this: WebSocket, data: unknown) {
+    writes.mockImplementation(function (this: WebSocket, data: unknown, callback?: unknown) {
       if (this !== peer) { Reflect.apply(send, this, [data]); return; }
+      if (typeof callback === "function") finishSend = callback as () => void;
       bufferedBytes += Buffer.byteLength(String(data));
       reportSent();
     });
     client.socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "ping", params: ["x".repeat(9 * 1024 * 1024)] } }));
     await sent;
     expect(peer.readyState).toBe(WebSocket.OPEN);
-    writes.mockRestore();
-    const ending = closedWith(client.socket);
     started.deliver(pushLog.record({ type: "event-log", label: "next", timestamp: 0 }));
+    expect(peer.readyState).toBe(WebSocket.OPEN);
+    if (drained) { finishSend(); bufferedBytes = 0; }
+    bufferedBytes += 8 * 1024 * 1024;
+    const ending = closedWith(client.socket);
+    started.deliver(pushLog.record({ type: "event-log", label: "overflow", timestamp: 0 }));
     expect(await ending).toEqual({ code: 1013, reason: "resync required" });
   });
 

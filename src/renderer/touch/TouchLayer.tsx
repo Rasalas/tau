@@ -227,7 +227,11 @@ function usePhoneHistory(phone: PhoneRouting | undefined, openThread: (path: str
 
     // An entry this client wrote keeps its route; a fresh load builds the path to the address's.
     const stamped = routeFromState(window.history.state);
-    const start = stamped ?? routeFromUrl(window.location.href);
+    const addressed = routeFromUrl(window.location.href);
+    // This chunk can mount after a tap already opened a chat. A bare startup
+    // URL must not send that selection back to the list. Explicit links and
+    // an existing history entry still restore their own route.
+    const start = stamped ?? (addressed.kind === "threads" ? latest.current.phone!.route : addressed);
     if (!stamped) {
       const href = window.location.href;
       const [home, ...rest] = routePath(start);
