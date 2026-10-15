@@ -11,5 +11,3 @@
 
 /* A phone's footer is short of width: the default level shows its lock alone; the button's label names it. */
 :root[data-device="phone"] .composer-access-status.access-full .composer-access-label { display: none; }
-/* A narrow composer row (data-lead-icons) shows the lock alone at every level; the aria-label and the tooltip name it. */
-[data-lead-icons] .composer-access-label { display: none; }

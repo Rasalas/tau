@@ -570,9 +570,10 @@ export interface ComposerControlContribution extends ProfileScoped {
    * `toolbar` adds optional controls to the overflow menu; `lead` before the model chip
    * (API 1.27.0: a new thread's machine); `menu` is drawn inside the
    * composer's "…" menu, built from `ComposerMenuSection`/`ComposerMenuItem`;
-   * `footer` spans the row below the editor.
+   * `status` after the thinking level, the first control a narrow row drops
+   * (API 1.68.0: Access Kit's level); `footer` spans the row below the editor.
    */
-  placement?: "toolbar" | "lead" | "menu" | "footer";
+  placement?: "toolbar" | "lead" | "menu" | "status" | "footer";
   /** Shortcut ids (`data-composer-shortcut`) that open a `menu` control: the menu's trigger answers to them. */
   shortcuts?: readonly string[];
   Component: ComponentType<ComposerControlProps>;
@@ -786,7 +787,7 @@ export interface ComposerSendMode {
   title?: string;
   /** The button's words while `beforeSend` runs. */
   busyLabel?: string;
-  /** Drawn before the words. */
+  /** Drawn before the words, and alone when the composer's footer has no room for them. */
   Icon?: PanelIconComponent;
   /** Runs once the prompt has passed every gate; the prompt goes when it resolves. A rejection keeps the draft. */
   beforeSend(actions: WorkbenchActions | undefined): Promise<void>;

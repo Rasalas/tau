@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Part } from "../customization";
 import { ComposerFooterControls, type FooterBlock } from "./ComposerFooterControls";
 
 // jsdom lays nothing out: a labelled chip is 100 px, its icon 13 px, the overflow trigger 29 px, no gaps, and the row as wide as `available`.
@@ -191,6 +192,87 @@ describe("ComposerFooterControls", () => {
     available = 110;
     view.rerender(<ComposerFooterControls revision="b" leading={null} blocks={[{ id: "reasoning", node: <button type="button" className="runtime-chip">Medium</button> }]} />);
     expect(block("reasoning")?.textContent).toBe("Medium");
+  });
+
+  it("finds a collapsible lead control inside the part that names it", () => {
+    // The composer wraps each kit control in a <tau-part>, which draws no box (display: contents).
+    const Row = ({ revision }: { revision: string }) => (
+      <ComposerFooterControls
+        revision={revision}
+        leading={<><Part name="composer-control:access"><button type="button" className="runtime-chip" data-composer-collapsible=""><svg />Full access</button></Part><button type="button" className="runtime-chip">Model</button></>}
+        blocks={[]}
+      />
+    );
+    available = 200;
+    const view = render(<Row revision="a" />);
+    expect(document.querySelector(".composer-chips")!.hasAttribute("data-lead-icons")).toBe(false);
+    available = 199;
+    view.rerender(<Row revision="b" />);
+    expect(document.querySelector(".composer-chips")!.hasAttribute("data-lead-icons")).toBe(true);
+  });
+
+  it("drops the status controls before any block loses its label, and draws them again with room", () => {
+    // jsdom has no stylesheet: the row's CSS takes the status out, here the mock does.
+    const original = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("composer-status")) return rect(this.closest("[data-lead-icons]") ? 0 : 100);
+      return original.call(this);
+    });
+    const Row = ({ revision }: { revision: string }) => (
+      <ComposerFooterControls revision={revision} leading={<button type="button" className="runtime-chip">Model</button>} blocks={blocks} status={<Part name="composer-control:access"><button type="button" className="runtime-chip"><svg />Full access</button></Part>} />
+    );
+    const row = () => document.querySelector(".composer-chips")!;
+    // Model, effort, access and the status: 400 px.
+    available = 400;
+    const view = render(<Row revision="a" />);
+    expect(row().hasAttribute("data-lead-icons")).toBe(false);
+    expect(row().querySelector(".composer-status")?.previousElementSibling?.getAttribute("data-composer-block")).toBe("access");
+    available = 399;
+    view.rerender(<Row revision="b" />);
+    expect(row().hasAttribute("data-lead-icons")).toBe(true);
+    expect(block("effort")?.dataset.iconOnly).toBeUndefined();
+    expect(block("access")?.dataset.iconOnly).toBeUndefined();
+    available = 300;
+    view.rerender(<Row revision="c" />);
+    expect(block("access")?.dataset.iconOnly).toBeUndefined();
+    available = 299;
+    view.rerender(<Row revision="d" />);
+    expect(block("access")?.dataset.iconOnly).toBe("");
+    available = 401;
+    view.rerender(<Row revision="e" />);
+    expect(row().hasAttribute("data-lead-icons")).toBe(false);
+  });
+
+  it("drops the label beside the row once even the folded row is too wide, and gives it back", () => {
+    // Without the send button's words the row is 110 px wider.
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("composer-chips") ? available + (this.hasAttribute("data-trailing-icons") ? 110 : 0) : 0;
+    });
+    const Toolbar = ({ revision }: { revision: string }) => (
+      <div className="composer-toolbar">
+        <ComposerFooterControls revision={revision} leading={<button type="button" className="runtime-chip">Model</button>} blocks={[]} />
+        <div className="send-split"><button type="button" className="send-button send-mode" data-composer-trailing=""><svg /><span>Compact and send</span></button></div>
+      </div>
+    );
+    const trailing = () => document.querySelector(".composer-chips")!.hasAttribute("data-trailing-icons");
+    available = 100;
+    const view = render(<Toolbar revision="a" />);
+    expect(trailing()).toBe(false);
+    available = 99;
+    view.rerender(<Toolbar revision="b" />);
+    expect(trailing()).toBe(true);
+    available = 100;
+    view.rerender(<Toolbar revision="c" />);
+    expect(trailing()).toBe(true);
+    available = 101;
+    view.rerender(<Toolbar revision="d" />);
+    expect(trailing()).toBe(false);
+  });
+
+  it("keeps the row's own width when nothing beside it can shrink", () => {
+    available = 50;
+    render(<ComposerFooterControls revision="a" leading={<button type="button" className="runtime-chip">Model</button>} blocks={[]} />);
+    expect(document.querySelector(".composer-chips")!.hasAttribute("data-trailing-icons")).toBe(false);
   });
 
   it("shrinks a collapsible lead control to its icon before any block loses its label, and gives the label back", () => {

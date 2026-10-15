@@ -54,8 +54,6 @@ function createAccessStatus(preferences: PreferencesStore) {
         type="button"
         className={`runtime-chip composer-access-status${level === "full" ? " access-full" : ""}`}
         aria-label={`Access: ${label}`}
-        // The footer row measures this chip and, once it is short of room, hides its label (styles.css).
-        data-composer-collapsible=""
         {...tooltipProps(`Access: ${label}. ${levelSummary(level)}`, { shortcut: registry.keybindingLabel("composer.mode") })}
         onClick={(event) => {
           event.currentTarget.closest(".composer-chips")?.querySelector<HTMLElement>('[data-composer-menu]')?.click();
@@ -93,7 +91,7 @@ export const accessKitExtension: DesktopExtension = {
   activate(plugin) {
     const choose = chooser(plugin.host, plugin.preferences);
     plugin.registerComposerControl({ id: "access.level", placement: "menu", shortcuts: ["composer.mode"], order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences, choose) });
-    plugin.registerComposerControl({ id: "access.status", placement: "lead", order: 30, profiles: ["desktop", "web", "compact"], Component: createAccessStatus(plugin.preferences) });
+    plugin.registerComposerControl({ id: "access.status", placement: "status", order: 30, profiles: ["desktop", "web", "compact"], Component: createAccessStatus(plugin.preferences) });
     plugin.registerSettingsSection({
       id: "access.permissions",
       page: "runtimes",

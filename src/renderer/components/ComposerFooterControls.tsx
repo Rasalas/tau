@@ -23,7 +23,7 @@ interface Measured extends FooterBlockWidths {
   shortcuts: readonly string[];
 }
 
-const NO_LAYOUT: FooterLayout = { leadIcons: false, iconOnly: 0, hidden: 0 };
+const NO_LAYOUT: FooterLayout = { leadIcons: false, iconOnly: 0, hidden: 0, trailingIcons: false };
 const NO_SHORTCUTS: readonly string[] = [];
 
 const px = (value: string) => Number.parseFloat(value) || 0;
@@ -32,6 +32,18 @@ function naturalWidth(item: HTMLElement): number {
   // The model may be shrunk with an ellipsis; count the width its label asks for.
   const label = item.querySelector<HTMLElement>(".runtime-chip-label");
   return item.getBoundingClientRect().width + (label ? Math.max(0, label.scrollWidth - label.clientWidth) : 0);
+}
+
+/** The row's flex items: a kit control's `<tau-part>` draws no box (display: contents), so its children stand in the row. */
+function rowItems(element: Element): HTMLElement[] {
+  return [...element.children].flatMap((child) => child.localName === "tau-part" ? rowItems(child) : [child as HTMLElement]);
+}
+
+/** The narrowest a control draws: the model shrinks to its min-width, its name shortened with an ellipsis. */
+function shortestWidth(item: HTMLElement, natural: number): number {
+  const style = getComputedStyle(item);
+  const min = px(style.minWidth);
+  return Number(style.flexShrink) > 0 && min > 0 ? Math.min(natural, min) : natural;
 }
 
 /** A chip reduced to its icon: a 32 px desktop target. Once drawn so, the real width counts. */
@@ -48,15 +60,20 @@ function iconWidth(block: HTMLElement, natural: number): number {
 }
 
 /**
- * The composer's footer row: the model, then the blocks, then one menu ("…")
+ * The composer's footer row: the model, then the blocks, then `status`, then one menu ("…")
  * that holds `menu`, the `menuOnly` blocks and every block the row has no room for. As the
  * composer narrows the lead controls that mark themselves `data-composer-collapsible`
- * shrink to their icons (the row says so with `data-lead-icons`), then the blocks
- * drop their labels and move into the menu, lowest rank first.
+ * shrink to their icons and `status` leaves the row (the row says so with
+ * `data-lead-icons`), then the blocks
+ * drop their labels and move into the menu, lowest rank first. Last, a control
+ * beside the row that marks itself `data-composer-trailing` (the send button's
+ * words) drops its label: the row says so with `data-trailing-icons`.
  */
-export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = NO_SHORTCUTS, revision = "" }: {
+export function ComposerFooterControls({ leading, blocks, status, menu, menuShortcuts = NO_SHORTCUTS, revision = "" }: {
   leading: ReactNode;
   blocks: readonly FooterBlock[];
+  /** After the blocks, before the menu: what the row can do without, so it is the first to go. */
+  status?: ReactNode;
   /** Entries that always live in the menu. */
   menu?: ReactNode;
   /** Shortcut ids of the controls in `menu`, for the trigger to answer to. */
@@ -94,6 +111,16 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
     const fixed: FooterBlockWidths[] = [];
     const lead: FooterBlockWidths[] = [];
     const leadCollapsed = element.hasAttribute("data-lead-icons");
+    const trailingCollapsed = element.hasAttribute("data-trailing-icons");
+    // The row takes what its neighbours leave: its width with their labels, and the room it gains without them.
+    element.removeAttribute("data-trailing-icons");
+    const available = element.clientWidth;
+    let trailingGain = 0;
+    if (element.parentElement?.querySelector(":scope > [data-composer-trailing], :scope > * > [data-composer-trailing]")) {
+      element.setAttribute("data-trailing-icons", "");
+      trailingGain = Math.max(0, element.clientWidth - available);
+    }
+    element.toggleAttribute("data-trailing-icons", trailingCollapsed);
     const fixedItems: HTMLElement[] = [];
     const leadItems: HTMLElement[] = [];
     // Collapsing the lead also hides model/thinking chevrons. Measure both states
@@ -101,8 +128,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
     // Restore the rendered state synchronously, before the browser can paint.
     element.removeAttribute("data-lead-icons");
     try {
-      for (const child of element.children) {
-        const item = child as HTMLElement;
+      for (const item of rowItems(element)) {
         const id = item.dataset.composerBlock;
         if (item.dataset.composerCollapsible !== undefined) {
           const width = item.getBoundingClientRect().width;
@@ -127,7 +153,7 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
       }
       for (const item of fixedItems) {
         const width = naturalWidth(item);
-        fixed.push({ natural: width, icon: width });
+        fixed.push({ natural: width, icon: width, min: shortestWidth(item, width) });
       }
       if (leadItems.length > 0) {
         element.setAttribute("data-lead-icons", "");
@@ -143,27 +169,28 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
     });
     setLayout((current) => {
       const next = fitFooterControls({
-        available: element.clientWidth,
+        available,
         gap,
         fixed,
         lead,
         blocks: widths,
         // A menu that is there anyway costs nothing more when a block moves into it.
         overflow: menuAlways.current ? 0 : triggerWidth.current,
+        trailingGain,
       }, current);
-      return next.leadIcons === current.leadIcons && next.iconOnly === current.iconOnly && next.hidden === current.hidden ? current : next;
+      return next.leadIcons === current.leadIcons && next.iconOnly === current.iconOnly && next.hidden === current.hidden && next.trailingIcons === current.trailingIcons ? current : next;
     });
   }, []);
 
   // Not on every render: a keystroke re-renders the composer, and sizes change only through these or the observer.
-  const shape = `${blocks.map((block) => `${block.id}${block.menuOnly ? "~" : ""}`).join(" ")}|${layout.leadIcons ? "L" : ""}${layout.iconOnly}|${layout.hidden}|${hasMenu}|${revision}`;
+  const shape = `${blocks.map((block) => `${block.id}${block.menuOnly ? "~" : ""}`).join(" ")}|${layout.leadIcons ? "L" : ""}${layout.trailingIcons ? "T" : ""}${layout.iconOnly}|${layout.hidden}|${hasMenu}|${revision}`;
   useLayoutEffect(() => {
     measure();
     const element = row.current;
     if (!element || typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver(() => measure());
     observer.observe(element);
-    for (const child of element.children) observer.observe(child);
+    for (const item of rowItems(element)) observer.observe(item);
     return () => observer.disconnect();
   }, [measure, shape]);
 
@@ -179,9 +206,10 @@ export function ComposerFooterControls({ leading, blocks, menu, menuShortcuts = 
   );
 
   return (
-    <div className="composer-chips" ref={row} {...(layout.leadIcons ? { "data-lead-icons": "" } : {})}>
+    <div className="composer-chips" ref={row} {...(layout.leadIcons ? { "data-lead-icons": "" } : {})} {...(layout.trailingIcons ? { "data-trailing-icons": "" } : {})}>
       {leading}
       {blocks.filter((block) => !block.end && inRow(block)).map(drawn)}
+      {status ? <span className="composer-status" data-composer-collapsible="">{status}</span> : null}
       {showTrigger ? (
         <span className="composer-overflow-anchor" data-composer-overflow="">
           <button

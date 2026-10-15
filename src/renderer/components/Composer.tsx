@@ -923,7 +923,8 @@ export function Composer({
   const thinkingSummary = <>{thinkingWords}{fastOn ? <Zap size={12} fill="currentColor" className="composer-fast" aria-label="Fast" /> : null}</>;
   const menuControls = composerControls.filter((control) => control.placement === "menu");
   const leadControls = composerControls.filter((control) => control.placement === "lead");
-  const menuShortcuts = composerControls.filter((control) => control.placement !== "lead").flatMap((control) => control.shortcuts ?? []);
+  const statusControls = composerControls.filter((control) => control.placement === "status");
+  const menuShortcuts = composerControls.filter((control) => control.placement !== "lead" && control.placement !== "status").flatMap((control) => control.shortcuts ?? []);
   // Attachment, model and thinking stay visible; optional controls live in the menu.
   const contextPercent = contextUsage ? Math.round(Math.min(100, Math.max(0, contextUsage.percent))) : 0;
   const footerBlocks: FooterBlock[] = [
@@ -1293,6 +1294,13 @@ export function Composer({
               </button>
             </>}
             blocks={mobileComposer ? [] : footerBlocks}
+            status={statusControls.length > 0 ? statusControls.map((control) => (
+              <Part key={control.id} name={partName("composer-control", control.id)}>
+                <LazyFeatureBoundary label={control.id} extensionId={control.extensionId} extensionName={control.extensionName} registry={registry} onNotify={onNotify}>
+                  <control.Component snapshot={snapshot} actions={shellContext?.actions} />
+                </LazyFeatureBoundary>
+              </Part>
+            )) : undefined}
             menu={!mobileComposer && menuControls.length > 0 ? menuControls.map((control) => (
               <Part key={control.id} name={partName("composer-control", control.id)}>
                 <LazyFeatureBoundary
@@ -1368,6 +1376,9 @@ export function Composer({
               <div ref={sendOptionsAnchor} className={`send-split${options.length > 0 ? " with-options" : ""}`}>
                 <button
                   className="send-button send-mode"
+                  // Its words drop first when the footer row has no room left (ComposerFooterControls).
+                  data-composer-trailing=""
+                  aria-label={label}
                   {...tooltipProps(sendReason ?? sendMode?.title ?? label)}
                   aria-busy={Boolean(sendModeBusyHere) || activeScopeSnapshot.submissionPending}
                   disabled={blocked || Boolean(sendModeBusyHere)}

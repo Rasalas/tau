@@ -228,8 +228,8 @@ latest", beside Copy and Paste.
   Shift. It opens the panel in front as a stage tab beside the chat, or moves
   it back.
 - `composer.mode` opens Access Kit's menu, since a runtime's mode is Tau's
-  access level; the access chip before the model, shown at every level, opens
-  the same menu. Plan mode is Plan Kit's `plan.toggle` on ⇧Tab, as in T3 Code,
+  access level; the access chip after the thinking level, shown at every level
+  while the row has room, opens the same menu. Plan mode is Plan Kit's `plan.toggle` on ⇧Tab, as in T3 Code,
   but only with the caret in the prompt of a thread whose runtime offers plan
   mode (Plan Kit marks the composer `planOpen` then, and not on a device paired
   Read only): in a form, a dialog, a menu, a terminal, the Files editor, on a
