@@ -2579,8 +2579,13 @@ thin rule, then the model. A `lead` control never folds into the menu. An
 older core draws it in the row. From API 1.61.0, a `lead` control whose root element carries
 `data-composer-collapsible` is measured by the row: when the row is short of
 room, before anything else folds, the row sets `data-lead-icons` on itself and
-the control's own CSS hides its label (Access Kit's chip keeps its lock; its
-`aria-label` and tooltip still name the level).
+the control's own CSS hides its label.
+`placement: "status"` (API 1.68.0) puts a control after the thinking level,
+before the "…" menu: something worth seeing that the row can do without, such
+as Access Kit's level. When the row is short of room, it is the first thing to
+go: at the step where `lead` controls shrink, the row drops its status controls
+altogether, so offer their choice somewhere else too (Access Kit's `menu`
+control and `composer.mode`). An older core does not draw a `status` control.
 
 `tau/host-extension` re-exports every host seam type, every type of the host
 protocol (`src/shared/contracts.ts`: `UiMessage`, `UiComposerCommand`,

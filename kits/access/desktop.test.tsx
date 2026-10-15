@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "tau";
 import { createKitHarness, KitShell, RendererServicesProvider } from "../../src/renderer/test-support/kit-harness.js";
@@ -71,7 +70,8 @@ describe("Access Kit desktop extension", () => {
   it("shows the level in force at every level, the default included, and opens its choices without duplicating the shortcut", () => {
     const { registry, preferences } = activate();
     const control = registry.getComposerControls().find((entry) => entry.id === "access.status")!;
-    expect(control.placement).toBe("lead");
+    // A status: after the thinking level, and the first thing a narrow footer drops (the "…" menu keeps the level).
+    expect(control.placement).toBe("status");
     const opened = vi.fn();
     render(
       <KitShell registry={registry}>
@@ -86,8 +86,6 @@ describe("Access Kit desktop extension", () => {
     expect(full.getAttribute("data-tooltip-shortcut")).toBe(registry.keybindingLabel("composer.mode"));
     expect(full.getAttribute("data-tooltip-shortcut")).toBeTruthy();
     expect(full.hasAttribute("data-composer-shortcut")).toBe(false);
-    // The footer row hides the label of a chip it marks collapsible, so a narrow composer keeps the lock and the aria-label.
-    expect(full.hasAttribute("data-composer-collapsible")).toBe(true);
     fireEvent.click(full);
     expect(opened).toHaveBeenCalledOnce();
     const names: Array<[string, string]> = [["read-only", "Read only"], ["ask", "Ask before edits"], ["auto", "Auto review"], ["full", "Full access"]];
@@ -98,11 +96,6 @@ describe("Access Kit desktop extension", () => {
     // A value this client does not know shows the default rather than nothing.
     act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "everything"); });
     expect(screen.getByRole("button", { name: "Access: Full access" })).toBeTruthy();
-  });
-
-  it("hides the chip's label when the footer row marks itself narrow, leaving the lock and the aria-label", () => {
-    const css = readFileSync("kits/access/styles.css", "utf8");
-    expect(css).toMatch(/\[data-lead-icons\] \.composer-access-label \{ display: none; \}/u);
   });
 
   it("offers one palette command per level", () => {

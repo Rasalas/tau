@@ -48,6 +48,7 @@ function renderFooter(onSelectAccess = vi.fn(), lead?: React.ReactNode, contextP
       });
       context.registerComposerControl({ id: "test.chip", Component: () => <button type="button" className="runtime-chip">Kit chip</button> });
       context.registerComposerControl({ id: "test.machine", placement: "lead", Component: () => <button type="button" className="runtime-chip">Machine</button> });
+      context.registerComposerControl({ id: "test.status", placement: "status", Component: () => <button type="button" className="runtime-chip">Status</button> });
     },
   });
   render(
@@ -81,6 +82,13 @@ describe("the composer's slim footer", () => {
     const row = screen.getByText("Machine").closest(".composer-chips") as HTMLElement;
     const labels = [...row.querySelectorAll("button, .composer-lead-rule")].map((node) => node.classList.contains("composer-lead-rule") ? "|" : node.textContent);
     expect(labels.slice(0, 4)).toEqual(["Machine", "Project", "|", "GPT-5.6 Luna"]);
+  });
+
+  it("draws a status control after the thinking level, before the menu", () => {
+    renderFooter();
+    const row = screen.getByText("Status").closest(".composer-chips") as HTMLElement;
+    const labels = [...row.querySelectorAll("button")].map((node) => node.getAttribute("aria-label") ?? node.textContent);
+    expect(labels.slice(labels.indexOf("Thinking: Medium"), labels.indexOf("More composer controls") + 1)).toEqual(["Thinking: Medium", "Status", "More composer controls"]);
   });
 
   it("draws the model with its marks, the thinking level as text, and a round send", () => {
@@ -128,7 +136,7 @@ describe("the composer's slim footer", () => {
     renderFooter();
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
     const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "More composer controls", "Context 20 percent used", "Attach files", "Queue or plan", "Send"]);
+    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "Status", "More composer controls", "Context 20 percent used", "Attach files", "Queue or plan", "Send"]);
     // The ring keeps its percentage in the accessible label and the details.
     expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("");
     fireEvent.click(screen.getByLabelText("More composer controls"));

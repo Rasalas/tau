@@ -5,7 +5,7 @@
   "icon": "ShieldCheck",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.27.0"
+    "api": "^1.68.0"
   },
   "permissions": [
     "runtime:extend"
