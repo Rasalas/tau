@@ -43,6 +43,7 @@ import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 import { providerIconKey } from "./runtime-marks";
+import { readProjectIcon } from "../shared/project-icon-choice";
 import { CustomizationState, mergeCustomizations, partKindOf, partName, PART_FIELDS, type CustomizablePart, type CustomizationLayer, type PartKind } from "./customization";
 
 /**
@@ -2679,13 +2680,13 @@ export class ExtensionRegistry {
     return this.problemCache ??= [...this.problems.values()].flat();
   }
 
-  /** The picture an extension chose for a project, if any (`setProjectIcons`). */
+  /** Published pictures take precedence over the saved choice, even without a Workspace interface. */
   projectIcon(project: { workspaceId?: string | undefined; path: string }): string | undefined {
     for (const icons of this.projectIcons.values()) {
       const icon = (project.workspaceId ? icons[project.workspaceId] : undefined) ?? icons[project.path];
       if (icon) return icon;
     }
-    return undefined;
+    return readProjectIcon(this.services.preferences, project)?.image;
   }
 
   /** The picture an extension chose for a model provider, if any (`setProviderIcons`). */
@@ -3252,7 +3253,11 @@ export class ExtensionRegistry {
   getDataVersion = (key: string): number => this.dataVersions.get(key) ?? 0;
 
   subscribeMarks = (listener: () => void) => this.subscribeData("marks", listener);
-  subscribeProjectIcons = (listener: () => void) => this.subscribeData("project-icons", listener);
+  subscribeProjectIcons = (listener: () => void): (() => void) => {
+    const stopData = this.subscribeData("project-icons", listener);
+    const stopPreferences = this.services.preferences.subscribe(listener);
+    return () => { stopData(); stopPreferences(); };
+  };
   subscribeProviderIcons = (listener: () => void) => this.subscribeData("provider-icons", listener);
 
   private dataChanged(key: string, transcript = false): void {

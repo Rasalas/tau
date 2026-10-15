@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExtensionRegistry, type DesktopExtensionContext } from "../extension-system";
 import { PreferencesStore } from "../preferences";
@@ -14,16 +14,100 @@ const star = "data:image/svg+xml,star";
 const favicon = "data:image/png;base64,AAAA";
 
 function setup() {
-  const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+  const preferences = new PreferencesStore();
+  const registry = new ExtensionRegistry(undefined, { preferences });
   const contexts: DesktopExtensionContext[] = [];
   for (const id of ["first", "second"]) registry.activate({ id, name: id, activate(context) { contexts.push(context); } });
   const draw = (node: React.ReactNode) => render(<WorkbenchShellContext.Provider value={{ registry }}>{node}</WorkbenchShellContext.Provider>);
-  return { registry, first: contexts[0]!, second: contexts[1]!, draw };
+  return { registry, preferences, first: contexts[0]!, second: contexts[1]!, draw };
 }
 
 afterEach(cleanup);
 
 describe("project icons a kit publishes (setProjectIcons)", () => {
+  it("draws saved pictures without Workspace Kit, after published overrides and before the host's picture", () => {
+    const { preferences, first, draw } = setup();
+    preferences.setValue("tau.workspace", "project-icon:/backend", JSON.stringify({ kind: "image", image: rocket }));
+    const { container } = draw(<ProjectIcon project={{ path: "/backend", name: "backend", workspaceId: "backend", icon: favicon }} />);
+    const image = () => container.querySelector("img")?.getAttribute("src");
+    expect(image()).toBe(rocket);
+    act(() => first.setProjectIcons({ backend: star }));
+    expect(image()).toBe(star);
+    act(() => first.setProjectIcons(undefined));
+    expect(image()).toBe(rocket);
+    fireEvent.error(container.querySelector("img")!);
+    expect(image()).toBe(favicon);
+    act(() => preferences.setValue("tau.workspace", "project-icon:backend", JSON.stringify({ kind: "image", image: star })));
+    expect(image()).toBe(star);
+    act(() => preferences.setValue("tau.workspace", "project-icon:backend", ""));
+    expect(image()).toBe(favicon);
+  });
+
+  it("shows the project initial when its picture cannot be loaded", () => {
+    const { draw } = setup();
+    const { container } = draw(<ProjectIcon project={{ path: "/srv/dev/repos/thk/web/backend", name: "backend", icon: favicon }} />);
+    fireEvent.error(container.querySelector("img")!);
+    const mark = container.querySelector(".thread-project-icon")!;
+    expect(mark.querySelector("img")).toBeNull();
+    expect(mark.textContent).toBe("B");
+    expect(mark.className).not.toContain("has-image");
+  });
+
+  it("tries the host's picture after a published picture fails, then the initial if both fail", () => {
+    const { first, draw } = setup();
+    first.setProjectIcons({ backend: rocket });
+    const { container } = draw(<ProjectIcon project={{ path: "/backend", name: "backend", workspaceId: "backend", icon: favicon }} icon={rocket} />);
+    const image = () => container.querySelector("img")!;
+    expect(image().getAttribute("src")).toBe(rocket);
+    fireEvent.error(image());
+    expect(image().getAttribute("src")).toBe(favicon);
+    fireEvent.error(image());
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector(".thread-project-icon")?.textContent).toBe("B");
+  });
+
+  it("falls through a caller's picture and a worktree's picture to its owning project's", () => {
+    const { draw } = setup();
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [{ path: "/repos/tau", name: "tau", workspaceId: "root", lastOpenedAt: 1, icon: star }], sessions: [] });
+    const { container } = draw(<ThreadStoreContext.Provider value={store}>
+      <ProjectIcon project={{ path: "/worktrees/feature", name: "tau", workspaceId: "worktree", icon: favicon }} icon={rocket} />
+    </ThreadStoreContext.Provider>);
+    const image = () => container.querySelector("img")!;
+    fireEvent.error(image());
+    expect(image().getAttribute("src")).toBe(favicon);
+    fireEvent.error(image());
+    expect(image().getAttribute("src")).toBe(star);
+    const mark = container.querySelector<HTMLElement>(".thread-project-icon")!;
+    const hue = mark.style.getPropertyValue("--project-hue");
+    fireEvent.error(image());
+    expect(mark.textContent).toBe("T");
+    expect(mark.style.getPropertyValue("--project-hue")).toBe(hue);
+  });
+
+  it("retries pictures when the source or the project changes", () => {
+    const { container, rerender } = render(<ProjectIcon project={{ path: "/backend", name: "backend", icon: favicon }} />);
+    fireEvent.error(container.querySelector("img")!);
+    expect(container.querySelector("img")).toBeNull();
+    rerender(<ProjectIcon project={{ path: "/backend", name: "backend", icon: star }} />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(star);
+    rerender(<ProjectIcon project={{ path: "/backend", name: "backend", icon: favicon }} />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(favicon);
+    fireEvent.error(container.querySelector("img")!);
+    rerender(<ProjectIcon project={{ path: "/other", name: "other", icon: favicon }} />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(favicon);
+  });
+
+  it("does not hide another project's copy of a picture that failed", () => {
+    const { container } = render(<>
+      <ProjectIcon project={{ path: "/backend", name: "backend", icon: favicon }} />
+      <ProjectIcon project={{ path: "/other", name: "other", icon: favicon }} />
+    </>);
+    fireEvent.error(container.querySelector("img")!);
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelectorAll(".thread-project-icon")[0]?.textContent).toBe("B");
+  });
+
   it("keeps the project picture when a draft becomes a worktree thread, without caller lookups", () => {
     const { first, draw } = setup();
     const store = new ThreadStore();

@@ -110,6 +110,8 @@ export { FileKindIcon } from "./components/FileKindIcon";
 export { projectHue, ThreadRow } from "./components/ThreadRow";
 // A project's mark, with the picture a kit published (`setProjectIcons`) before the host's (API 1.28.0).
 export { ProjectIcon, useProjectIcon, type ProjectIconSubject } from "./components/ProjectIcon";
+// Saved project pictures remain available when a client's Workspace interface cannot load (API 1.66.0).
+export { projectIconKey, readProjectIcon, type ProjectIconChoice } from "../shared/project-icon-choice";
 export { DraftRow, draftTitle } from "./components/DraftRow";
 // A runtime's or provider's mark from core's asset pipeline, which a bundled package has no loader for (API 1.15.0).
 export { ProviderIconStack, providerHasMark, providerStackLabel } from "./components/ProviderIconStack";

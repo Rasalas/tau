@@ -38,7 +38,6 @@ import { NEW_THREAD_WORKSPACE_KEY, START_FROM_ORIGIN_OPTION, TRACE_TABS_OPTION, 
 import { withWorkspaceStore } from "./store-context.js";
 import { RAIL_ORDER_OPTIONS } from "./rail-order.js";
 import { RowMarks } from "./row-marks.js";
-import { publishProjectIcons } from "./project-icons.js";
 import { WorkspaceStageContext, WorkspaceTitleActions } from "./title.js";
 import { TraceTabs } from "./trace-tabs.js";
 import { createStoragePage, STORAGE_SETTINGS_ROWS } from "./storage-page.js";
@@ -91,8 +90,6 @@ export const workspaceExtension: DesktopExtension = {
     });
     // The branch on screen, for any package: a public contract, unlike the store.
     context.provideService(THREAD_BRANCH_SERVICE, threadBranchService(store));
-    // Pill, picker, phone list and Reviews draw the icon chosen in Project settings too.
-    const unpublishIcons = publishProjectIcons(context.preferences, (icons) => context.setProjectIcons?.(icons));
 
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
     // The phone's thread list draws the rail's row marks; a core without that list lacks the method.
@@ -474,7 +471,6 @@ export const workspaceExtension: DesktopExtension = {
     return () => {
       stopTopics.forEach((stop) => stop?.());
       stopDefault();
-      unpublishIcons();
       window.clearInterval(autoPullTimer);
       window.removeEventListener("focus", autoPull);
     };

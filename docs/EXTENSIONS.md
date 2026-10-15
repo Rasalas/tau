@@ -1762,18 +1762,25 @@ and the shift that keeps it clear of a native view (below).
 projects with, keyed by a project's `workspaceId` or, for a host without ids,
 its `path`; each value is a `data:image/` URL (anything else is dropped), and
 `undefined` withdraws them, as deactivation does. Every project mark core
-draws takes them before the host's own picture (`UiProject.icon`: a
+draws takes them before the saved picture chosen in Project settings, then the host's own picture (`UiProject.icon`: a
 `favicon.*`, a macOS app icon (`build/icon.icns` and its neighbours, drawn from the PNG inside), `t3.json`) and before the initial: the new thread's project pill,
 the project picker, the thread rows and draft rows, the phone's and tablet's
 thread lists and project filter. When two extensions name the same project,
-the one activated first wins. Core never reads an extension's settings for
-this; Workspace Kit publishes the icon chosen in Project settings from its own
-values. `ProjectIcon` (`project`: `{ path, name, workspaceId?, icon? }`,
+the one activated first wins. Saved project pictures are shared presentation
+data since API 1.66.0.
+Core reads the saved choice even when Workspace Kit's interface is disabled or
+the native client rejects its version. Workspace Kit edits it through the same
+`ProjectIconChoice`, `projectIconKey(project)` and `readProjectIcon(preferences, project)`
+helpers exported by `tau`. The existing `tau.workspace.project-icon:<workspaceId/path>`
+storage remains compatible. A workspace-id entry takes precedence over an older
+path entry, including an explicit clear. `ProjectIcon` (`project`: `{ path, name, workspaceId?, icon? }`,
 optional `icon` as the caller's own fallback, `hue` for what the tint is
 hashed from, `className`) is that mark as a component, and `useProjectIcon(project)`
 answers the picture alone, so a kit's own lists (Workspace Kit's filter and
 thread card, Review Kit's page) draw the same mark. `ThreadRow`'s and
-`DraftRow`'s `projectIcon` is such a fallback: a published picture wins over it.
+`DraftRow`'s `projectIcon` is such a fallback: a published or saved picture wins over it.
+If a picture cannot load, `ProjectIcon` tries the remaining available pictures,
+then shows the project's initial and hue. A changed source gets a fresh attempt.
 
 #### Provider pictures (new in API 1.29.0)
 
