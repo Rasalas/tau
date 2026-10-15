@@ -1,5 +1,4 @@
-import { useLayoutEffect, useRef, type RefObject } from "react";
-import { editingFocused } from "./visual-viewport";
+import { useEffect, useRef, type RefObject } from "react";
 
 /**
  * Pulling a bottom sheet, after the user's rules for mobile sheets: the whole
@@ -10,16 +9,14 @@ import { editingFocused } from "./visual-viewport";
  * real phone.
  *
  * A sheet whose CSS caps it at a medium height (sheet.css) has two detents, as
- * on iOS and Android: it opens at medium, a pull up or a text field makes it
- * large, a pull down from large goes back to medium. `data-sheet-detent="large"`
- * on the surface marks the large one.
+ * on iOS and Android: it opens at medium, a pull up makes it large, a pull down
+ * from large goes back to medium. `data-sheet-expanded` on the surface marks
+ * the large one; sheet.css also lifts the cap while a text field has focus.
  */
 export const SHEET_DRAG_SLOP_PX = 10;
 export const SHEET_CLOSE_DISTANCE_PX = 96;
 export const SHEET_CLOSE_VELOCITY = 0.5;
 export const SHEET_CLOSE_MIN_DISTANCE_PX = 24;
-
-export type SheetDetent = "medium" | "large";
 
 /** Whether letting go after a pull of `distance` px at `velocity` px/ms takes the sheet on to its next detent, or closes it. */
 export function sheetDragCloses(distance: number, velocity: number): boolean {
@@ -27,15 +24,16 @@ export function sheetDragCloses(distance: number, velocity: number): boolean {
 }
 
 /**
- * Where a pull that started at `from` leaves the sheet. `offset` is how far it
- * sits below its large height, `collapse` how far medium sits below large (0
- * when the content fits medium), `velocity` px/ms with down positive.
- * Between the detents the nearer one wins unless the pull was long or fast.
+ * Where a pull lets go of the sheet, as offsets below its full height: it
+ * started resting at `base`, medium rests at `collapse` (0 when the content
+ * fits medium), full at 0; `velocity` is px/ms, down positive. Returns the
+ * offset it comes to rest at, or undefined to close. Between the two detents
+ * the nearer wins unless the pull was long or fast.
  */
-export function sheetDragTarget(from: SheetDetent, offset: number, velocity: number, collapse: number): SheetDetent | "closed" {
-  if (offset > collapse) return sheetDragCloses(offset - collapse, velocity) ? "closed" : "medium";
-  if (from === "medium") return sheetDragCloses(collapse - offset, -velocity) || offset < collapse / 2 ? "large" : "medium";
-  return sheetDragCloses(offset, velocity) || offset > collapse / 2 ? "medium" : "large";
+export function sheetDragRest(base: number, offset: number, velocity: number, collapse: number): number | undefined {
+  if (offset > collapse) return sheetDragCloses(offset - collapse, velocity) ? undefined : collapse;
+  const other = base ? 0 : collapse;
+  return sheetDragCloses(Math.abs(offset - base), Math.sign(other - base) * velocity) || Math.abs(offset - other) < Math.abs(offset - base) ? other : base;
 }
 
 const CONTROLS = "input, textarea, select, [contenteditable=''], [contenteditable='true'], [role='slider'], [data-sheet-drag='off']";
@@ -67,52 +65,48 @@ const SETTLE_MS = 180;
 export function useSheetDrag(sheet: RefObject<HTMLElement | null>, onClose: () => void): void {
   const close = useRef(onClose);
   close.current = onClose;
-  // A layout effect, so a field focused as the sheet opens makes it large before the first paint.
-  useLayoutEffect(() => {
+  useEffect(() => {
     const element = sheet.current;
     if (!element) return undefined;
-    let pull: { from: SheetDetent; startX: number; startY: number; lastY: number; lastT: number; velocity: number; atTop: boolean; collapse?: number; origin?: number; base: number } | undefined;
+    let pull: { startX: number; startY: number; lastY: number; lastT: number; velocity: number; atTop: boolean; expanded: boolean; base: number; collapse?: number; origin?: number } | undefined;
     let suppressClick = false;
-    let finishSettle: (() => void) | undefined;
-    let settleTimer: ReturnType<typeof setTimeout> | undefined;
-    const detent = (): SheetDetent => element.dataset.sheetDetent === "large" ? "large" : "medium";
-    const lay = (to: SheetDetent) => { if (to === "large") element.dataset.sheetDetent = "large"; else delete element.dataset.sheetDetent; };
+    let rest: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expand = (on: boolean) => element.toggleAttribute("data-sheet-expanded", on);
     const translate = (offset: number) => { element.style.transform = offset > 0 ? `translateY(${offset}px)` : ""; };
-    // How far medium sits below large, measured by laying the sheet out at both.
+    // How far medium sits below full height, measured by laying the sheet out at both.
     const measureCollapse = () => {
-      const current = detent();
-      lay("large");
-      const large = element.offsetHeight;
-      lay("medium");
+      const expanded = element.hasAttribute("data-sheet-expanded");
+      expand(true);
+      const full = element.offsetHeight;
+      expand(false);
       const medium = element.offsetHeight;
-      lay(current);
-      return Math.max(0, large - medium);
+      expand(expanded);
+      return Math.max(0, full - medium);
     };
     const finish = () => {
-      if (settleTimer !== undefined) clearTimeout(settleTimer);
-      settleTimer = undefined;
-      finishSettle?.();
-      finishSettle = undefined;
+      clearTimeout(timer);
+      rest?.();
+      rest = undefined;
     };
-    // Laid out large while it moves; a sheet that comes to rest at medium takes its medium layout again.
-    const settle = (to: SheetDetent, collapse: number) => {
+    // Laid out full while it moves; a sheet that comes to rest at medium takes its medium layout again.
+    const settle = (offset: number, collapse: number) => {
       finish();
       const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
       element.style.transition = reduced ? "none" : `transform ${SETTLE_MS}ms ease`;
-      if (to === "large" || collapse === 0 || reduced) { translate(0); lay(to); return; }
-      translate(collapse);
-      finishSettle = () => { element.style.transition = "none"; translate(0); lay("medium"); };
-      settleTimer = setTimeout(finish, SETTLE_MS);
+      translate(offset);
+      rest = () => { element.style.transition = "none"; translate(0); expand(!offset && collapse > 0); };
+      timer = setTimeout(finish, reduced ? 0 : SETTLE_MS);
     };
     const onStart = (event: TouchEvent) => {
       const touch = event.touches[0];
-      if (pull?.origin !== undefined) settle(pull.from, pull.collapse ?? 0);
+      if (pull?.origin !== undefined) settle(pull.base, pull.collapse ?? 0);
       finish();
       pull = undefined;
       suppressClick = false;
       if (event.touches.length !== 1 || !touch || !(event.target instanceof Element) || !sheetDragMayStart(event.target)) return;
       const scroller = scrollerOf(event.target, element);
-      pull = { from: detent(), startX: touch.clientX, startY: touch.clientY, lastY: touch.clientY, lastT: performance.now(), velocity: 0, atTop: !scroller || scroller.scrollTop <= 0, base: 0 };
+      pull = { startX: touch.clientX, startY: touch.clientY, lastY: touch.clientY, lastT: performance.now(), velocity: 0, atTop: !scroller || scroller.scrollTop <= 0, expanded: element.hasAttribute("data-sheet-expanded"), base: 0 };
     };
     const onMove = (event: TouchEvent) => {
       const touch = event.touches[0];
@@ -123,13 +117,13 @@ export function useSheetDrag(sheet: RefObject<HTMLElement | null>, onClose: () =
         const travel = y - pull.startY;
         const pulls = pull.atTop && !(Math.abs(touch.clientX - pull.startX) > Math.abs(travel));
         // A medium sheet grows before its content scrolls; its upward moves are held from the first one.
-        const grows = pulls && travel < 0 && pull.from === "medium" && (pull.collapse ??= measureCollapse()) > 0;
+        const grows = pulls && travel < 0 && !pull.expanded && (pull.collapse ??= measureCollapse()) > 0;
         if (grows && event.cancelable) event.preventDefault();
         if (!pulls || !(travel >= SHEET_DRAG_SLOP_PX || (grows && travel <= -SHEET_DRAG_SLOP_PX))) { pull.lastY = y; pull.lastT = performance.now(); return; }
         if (!event.cancelable) { pull = undefined; return; }
         pull.collapse ??= measureCollapse();
-        pull.base = pull.from === "medium" ? pull.collapse : 0;
-        if (pull.collapse > 0) lay("large");
+        pull.base = pull.expanded ? 0 : pull.collapse;
+        if (pull.collapse) expand(true);
         pull.origin = y;
         suppressClick = true;
       }
@@ -146,21 +140,15 @@ export function useSheetDrag(sheet: RefObject<HTMLElement | null>, onClose: () =
       pull = undefined;
       if (current?.origin === undefined) return;
       const collapse = current.collapse ?? 0;
-      const target = sheetDragTarget(current.from, Math.max(0, current.base + current.lastY - current.origin), current.velocity, collapse);
-      if (target === "closed") close.current();
-      else settle(target, collapse);
+      const offset = sheetDragRest(current.base, Math.max(0, current.base + current.lastY - current.origin), current.velocity, collapse);
+      if (offset === undefined) close.current();
+      else settle(offset, collapse);
     };
     const onCancel = () => {
       const current = pull;
       pull = undefined;
-      if (current?.origin !== undefined) settle(current.from, current.collapse ?? 0);
+      if (current?.origin !== undefined) settle(current.base, current.collapse ?? 0);
     };
-    const onFocus = (event: FocusEvent) => {
-      if (pull?.origin !== undefined || !editingFocused(event.target as Element | null)) return;
-      finish();
-      lay("large");
-    };
-    if (element.contains(document.activeElement) && editingFocused(document.activeElement)) lay("large");
     const onClick = (event: MouseEvent) => {
       if (!suppressClick) return;
       suppressClick = false;
@@ -168,15 +156,13 @@ export function useSheetDrag(sheet: RefObject<HTMLElement | null>, onClose: () =
       event.stopPropagation();
     };
     element.addEventListener("click", onClick, true);
-    element.addEventListener("focusin", onFocus);
     element.addEventListener("touchstart", onStart, { passive: true });
     element.addEventListener("touchmove", onMove, { passive: false });
     element.addEventListener("touchend", onEnd);
     element.addEventListener("touchcancel", onCancel);
     return () => {
-      if (settleTimer !== undefined) clearTimeout(settleTimer);
+      clearTimeout(timer);
       element.removeEventListener("click", onClick, true);
-      element.removeEventListener("focusin", onFocus);
       element.removeEventListener("touchstart", onStart);
       element.removeEventListener("touchmove", onMove);
       element.removeEventListener("touchend", onEnd);

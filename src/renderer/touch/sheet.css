@@ -9,8 +9,10 @@
   background: var(--chrome); color: var(--ink); box-shadow: var(--shadow-strong);
   animation: touch-sheet-rise var(--motion-fast, 160ms) var(--ease);
 }
-/* Medium detent: half the screen until a pull up or a text field makes it large (sheet-drag.ts). A reader opens large. */
-.touch-sheet:not(.mobile-page, .workspace-file-sheet, [data-sheet-detent="large"]) { max-height: calc(var(--tau-viewport-height, 100dvh) / 2); }
+/* Medium detent: half the screen until a pull up (sheet-drag.ts) or a focused text field makes it large. A reader opens large. */
+.touch-sheet:not(.mobile-page, .workspace-file-sheet, [data-sheet-expanded], :has(:is(input:not([type="checkbox"], [type="radio"], [type="range"]), textarea, [contenteditable]):focus)) {
+  max-height: calc(var(--tau-viewport-height, 100dvh) / 2);
+}
 @keyframes touch-sheet-rise { from { transform: translateY(24px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .touch-sheet { animation: none; } }
 .touch-sheet-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }

@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sheetDragCloses, sheetDragMayStart, sheetDragTarget, useSheetDrag } from "./sheet-drag";
+import { sheetDragCloses, sheetDragMayStart, sheetDragRest, useSheetDrag } from "./sheet-drag";
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["performance"] }); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -14,7 +14,7 @@ function Sheet({ onClose, scrollTop = 0, heights }: { onClose(): void; scrollTop
   return <section aria-label="sheet" ref={(node) => {
     ref.current = node;
     if (!node || !heights) return;
-    Object.defineProperty(node, "offsetHeight", { configurable: true, get: () => node.dataset.sheetDetent === "large" ? heights.large : heights.medium });
+    Object.defineProperty(node, "offsetHeight", { configurable: true, get: () => node.hasAttribute("data-sheet-expanded") ? heights.large : heights.medium });
   }}>
     <header>Title</header>
     <div data-testid="list" style={{ overflowY: "auto" }} ref={(node) => {
@@ -108,15 +108,19 @@ describe("a sheet with a medium and a large detent", () => {
   const sheet = () => screen.getByLabelText("sheet");
 
   it("goes to the nearer detent unless the pull was long or fast", () => {
-    expect(sheetDragTarget("medium", 140, -0.1, 300)).toBe("large");
-    expect(sheetDragTarget("medium", 230, -0.1, 300)).toBe("medium");
-    expect(sheetDragTarget("medium", 230, -0.9, 300)).toBe("large");
-    expect(sheetDragTarget("medium", 200, -0.1, 300)).toBe("large");
-    expect(sheetDragTarget("large", 60, 0.1, 300)).toBe("large");
-    expect(sheetDragTarget("large", 200, 0.1, 300)).toBe("medium");
-    expect(sheetDragTarget("large", 330, 0.9, 300)).toBe("closed");
-    expect(sheetDragTarget("medium", 340, 0.1, 300)).toBe("medium");
-    expect(sheetDragTarget("medium", 120, 0.1, 0)).toBe("closed");
+    // From medium (rests at 300) and from full height (0).
+    expect(sheetDragRest(300, 140, -0.1, 300)).toBe(0);
+    expect(sheetDragRest(300, 230, -0.1, 300)).toBe(300);
+    expect(sheetDragRest(300, 230, -0.9, 300)).toBe(0);
+    expect(sheetDragRest(300, 200, -0.1, 300)).toBe(0);
+    expect(sheetDragRest(300, 340, 0.1, 300)).toBe(300);
+    expect(sheetDragRest(0, 60, 0.1, 300)).toBe(0);
+    expect(sheetDragRest(0, 60, 0.9, 300)).toBe(300);
+    expect(sheetDragRest(0, 200, 0.1, 300)).toBe(300);
+    expect(sheetDragRest(0, 330, 0.9, 300)).toBeUndefined();
+    // Content that fits medium has one rest.
+    expect(sheetDragRest(0, 40, 0.1, 0)).toBe(0);
+    expect(sheetDragRest(0, 120, 0.1, 0)).toBeUndefined();
   });
 
   it("grows to large on a pull up, before its list scrolls", () => {
@@ -125,11 +129,11 @@ describe("a sheet with a medium and a large detent", () => {
     fireEvent.touchStart(list, { touches: [{ clientX: 50, clientY: 300 }] });
     expect(fireEvent.touchMove(list, { touches: [{ clientX: 50, clientY: 297 }] })).toBe(false);
     for (const y of [260, 200]) fireEvent.touchMove(list, { touches: [{ clientX: 50, clientY: y }] });
-    expect(sheet().dataset.sheetDetent).toBe("large");
+    expect(sheet().hasAttribute("data-sheet-expanded")).toBe(true);
     // It follows from where the pull passed the slop.
     expect(sheet().style.transform).toBe("translateY(240px)");
     fireEvent.touchEnd(list, { touches: [] });
-    expect(sheet().dataset.sheetDetent).toBe("large");
+    expect(sheet().hasAttribute("data-sheet-expanded")).toBe(true);
     expect(sheet().style.transform).toBe("");
   });
 
@@ -139,7 +143,7 @@ describe("a sheet with a medium and a large detent", () => {
     pull(screen.getByText("Title"), 300, 260, 4, 200);
     expect(sheet().style.transform).toBe("translateY(300px)");
     vi.advanceTimersByTime(200);
-    expect(sheet().dataset.sheetDetent).toBeUndefined();
+    expect(sheet().hasAttribute("data-sheet-expanded")).toBe(false);
     expect(sheet().style.transform).toBe("");
   });
 
@@ -148,20 +152,13 @@ describe("a sheet with a medium and a large detent", () => {
     const onClose = vi.fn();
     render(<Sheet onClose={onClose} heights={heights} />);
     pull(screen.getByText("Title"), 300, 100, 4, 40);
-    expect(sheet().dataset.sheetDetent).toBe("large");
+    expect(sheet().hasAttribute("data-sheet-expanded")).toBe(true);
     pull(screen.getByText("Title"), 100, 300, 4, 200);
     vi.advanceTimersByTime(200);
     expect(onClose).not.toHaveBeenCalled();
-    expect(sheet().dataset.sheetDetent).toBeUndefined();
+    expect(sheet().hasAttribute("data-sheet-expanded")).toBe(false);
     pull(screen.getByText("Title"), 100, 300, 4, 200);
     expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("grows to large when a text field takes focus", () => {
-    render(<Sheet onClose={vi.fn()} heights={heights} />);
-    expect(sheet().dataset.sheetDetent).toBeUndefined();
-    screen.getByLabelText("field").focus();
-    expect(sheet().dataset.sheetDetent).toBe("large");
   });
 
   it("stays one height when its content fits medium", () => {
@@ -171,6 +168,6 @@ describe("a sheet with a medium and a large detent", () => {
     expect(fireEvent.touchMove(list, { touches: [{ clientX: 50, clientY: 290 }] })).toBe(true);
     fireEvent.touchMove(list, { touches: [{ clientX: 50, clientY: 200 }] });
     fireEvent.touchEnd(list, { touches: [] });
-    expect(sheet().dataset.sheetDetent).toBeUndefined();
+    expect(sheet().hasAttribute("data-sheet-expanded")).toBe(false);
   });
 });
