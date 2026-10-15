@@ -55,6 +55,7 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
     name: "Review",
     permissions: ["sessions", "process", "network", "runtime:extend", "machines"],
     async activate(original: HostExtensionContext) {
+      original.registerMachineRouting();
       const context = workspaceCommandContext(original);
       const { services } = context;
       // Review's desktop half reaches the Workspace read API through this

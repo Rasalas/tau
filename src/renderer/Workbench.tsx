@@ -285,7 +285,7 @@ export interface WorkbenchComposer {
   queue: readonly UiQueuedMessage[];
   holds: number;
   prompts: ExtensionUiPrompt[];
-  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: import("./submission-queue").SubmitDelivery, skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
+  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: import("../workbench/submission-queue").SubmitDelivery, skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
   abort(sessionId?: string): void;
   cancelQueued(id: string): void;
   steerQueued(id: string): void;

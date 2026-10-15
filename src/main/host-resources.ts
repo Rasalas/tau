@@ -1,3 +1,5 @@
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import { bindHostCommand } from "./host-command-handler.js";
 import { execFile, execFileSync } from "node:child_process";
 import { readFile, readdir, statfs } from "node:fs/promises";
 import * as nodeOs from "node:os";
@@ -6,7 +8,7 @@ import type { UiRuntimeBackend, UiRuntimeCatalog } from "../shared/contracts.js"
 import { HOST_ERROR } from "../shared/host-transport.js";
 import { SIGN_IN_COMMANDS, type SignInReport } from "../shared/sign-in.js";
 import type { HostRuntimeChoice } from "./host-extensions.js";
-import type { HostMethodContext } from "./host-jobs.js";
+import { NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
 import {
   gitHasMergeTree,
   parseGitVersion,
@@ -398,6 +400,11 @@ export async function checkReadiness(runtimes: ReadinessRuntimes, options: Readi
 
 type Method = (params: readonly unknown[], context?: HostMethodContext) => Promise<unknown>;
 
+/** Resource probes also run directly, outside a transport invocation. */
+function optionalContext<Result>(handler: (params: readonly unknown[], context: HostMethodContext) => Promise<Result>): Method {
+  return (params, context = NO_JOB_CONTEXT) => handler(params, context);
+}
+
 /**
  * `host-resources` and `readiness`. Both only read, and another machine's host
  * may ask them (`MACHINE_REQUEST_METHODS`). A host without a sampler (the one in
@@ -409,17 +416,17 @@ export function createResourceMethods(deps: {
   readiness?: ReadinessOptions;
 }): Record<string, Method> {
   return {
-    "host-resources": async () => {
+    "host-resources": optionalContext(bindHostCommand(HOST_FACTORY_COMMANDS["host-resources"], async () => {
       const sampler = deps.resources?.();
       if (!sampler) throw Object.assign(new Error("This machine does not report its load; a Tau window's own process does not."), { code: HOST_ERROR.unsupported });
       return sampler.sample();
-    },
-    "readiness": async (_params, context) => {
+    })),
+    "readiness": optionalContext(bindHostCommand(HOST_FACTORY_COMMANDS["readiness"], async (_params, context) => {
       const readiness = await checkReadiness(await deps.runtimes(), deps.readiness);
       const principal = context?.principal;
       // A Read-only device may not call `sign-in-state`, so it does not learn the accounts here either.
       if (principal?.kind !== "workbench-client" || !principal.readOnly) return readiness;
       return { ...readiness, runtimes: readiness.runtimes.map(({ account: _account, ...runtime }) => runtime) };
-    },
+    })),
   };
 }

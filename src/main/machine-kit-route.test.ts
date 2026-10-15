@@ -1,3 +1,4 @@
+import type { HostMachineRoutingContribution } from "./host-machine-routing.js";
 import { describe, expect, it, vi } from "vitest";
 import { createHostMethods, invokeHostMethod } from "./host-methods.js";
 import { HostJobRunner } from "./host-jobs.js";
@@ -5,11 +6,20 @@ import type { HostMachines } from "./host-machines.js";
 import type { PiHost } from "./pi-host.js";
 import { MachineKitRoute } from "./machine-kit-route.js";
 import { activateHostKit } from "./test-support/host-kit-harness.js";
-import type { HostPushEvent } from "../shared/host-transport.js";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 
 const machine = "0123456789abcdef0123456789abcdef";
 const workspace = "ws1_remote";
+
+function routingContributions() {
+  const policies = new Map<string, HostMachineRoutingContribution>([
+    ["tau.workspace", { policy: { localCommands: ["pick-folder", "create-scratch", "create-project", "publish-visualization", "release-visualization"] }, onDispose: () => () => undefined }],
+    ["tau.files", { policy: {}, onDispose: () => () => undefined }],
+    ["tau.review", { policy: {}, onDispose: () => () => undefined }],
+    ["tau.terminal", { policy: {}, onDispose: () => () => undefined }],
+  ]);
+  return (id: string) => policies.get(id);
+}
 
 function fixture() {
   const local = vi.fn(async (..._args: unknown[]): Promise<unknown> => "local");
@@ -29,7 +39,7 @@ function fixture() {
     index: () => ({ projects: [{ workspaceId: "ws1_project" }], sessions: [{ id: "t1", workspaceId: workspace }] }),
     call, watch,
   } as unknown as HostMachines;
-  const routes = new MachineKitRoute({ machines: () => machines, active: () => active });
+  const routes = new MachineKitRoute({ routing: routingContributions(), machines: () => machines, active: () => active });
   const unsupported = (): never => { throw new Error("not used"); };
   const methods = createHostMethods({
     bootstrap: unsupported, requireHost: async () => host, host: () => host,
@@ -69,7 +79,7 @@ describe("machine kit routing", () => {
       b: { projects: [{ workspaceId: "ws1_a" }, { workspaceId: "ws1_b" }, { workspaceId: "ws1_here" }], sessions: [{ id: "own", backendKind: "codex", workspaceId: "ws1_b" }, { id: "a~one", backendKind: "machine", workspaceId: "ws1_a" }, { id: "here~one", backendKind: "machine", workspaceId: "ws1_here" }] },
     };
     const machines = { list: () => [{ id: "a" }, { id: "b" }], index: (id: keyof typeof indexes) => indexes[id] } as unknown as HostMachines;
-    const routes = new MachineKitRoute({ machines: () => machines, active: () => ({ sessionId: "local", backendKind: "pi" }) });
+    const routes = new MachineKitRoute({ routing: routingContributions(), machines: () => machines, active: () => ({ sessionId: "local", backendKind: "pi" }) });
     expect(routes.routeOf("tau.files", { workspace: "ws1_b" })).toEqual({ machine: "b", input: { workspace: "ws1_b" } });
     expect(routes.routeOf("tau.files", { workspace: "ws1_a" })).toEqual({ machine: "a", input: { workspace: "ws1_a" } });
     expect(routes.routeOf("tau.files", { workspace: "ws1_here" })).toBeUndefined();
@@ -78,7 +88,7 @@ describe("machine kit routing", () => {
   it("keeps a worktree it made on a machine there before that machine lists it, and names the machine to a client that names it here", async () => {
     const call = vi.fn(async (): Promise<unknown> => ({ workspaceId: "ws1_worktree", displayPath: "/srv/shop-worktrees/tau-1" }));
     const machines = { list: () => [{ id: machine, name: "rex" }], index: () => ({ projects: [{ workspaceId: workspace }], sessions: [] }), call } as unknown as HostMachines;
-    const routes = new MachineKitRoute({ machines: () => machines, active: () => ({ sessionId: "local", backendKind: "pi" }) });
+    const routes = new MachineKitRoute({ routing: routingContributions(), machines: () => machines, active: () => ({ sessionId: "local", backendKind: "pi" }) });
     const host = {
       invokeHostExtension: vi.fn(), authorizeHostExtension: vi.fn(async () => undefined), activeThreadIdentity: () => undefined,
       resolveWorkspacePath: () => { throw new Error("This host does not know that workspace."); },
@@ -141,78 +151,13 @@ describe("machine kit routing", () => {
     await registry.deactivate("tau.workspace");
   });
 
-  it("keeps a remote shell on its machine after navigation and unwraps its thread id", async () => {
-    const f = fixture();
-    f.call.mockResolvedValueOnce({ id: "s1", sessionId: "t1", workspaceId: workspace });
-    const open = f.routes.routeOf("tau.terminal", { workspaceId: workspace, sessionId: `${machine}~t1` })!;
-    await expect(f.routes.call(open, "tau.terminal", "open")).resolves.toMatchObject({ id: "s1", sessionId: `${machine}~t1` });
-    expect(f.call).toHaveBeenCalledWith(machine, "tau.terminal", "open", { workspaceId: workspace, sessionId: "t1" });
-    f.localActive();
-    for (const command of ["input", "resize", "kill", "replay", "foreground", "restart"]) {
-      expect(f.routes.routeOf("tau.terminal", { id: "s1", command })).toEqual({ machine, input: { id: "s1", command } });
-    }
-    expect(f.routes.routeOf("tau.terminal", { from: "s1" })).toEqual({ machine, input: { from: "s1" } });
-    expect(f.routes.routeOf("tau.terminal", { id: "local-shell" })).toBeUndefined();
-  });
 
-  it("relays a known shell's output only to the watching client and stops watches on detach", async () => {
-    const f = fixture();
-    f.call.mockResolvedValueOnce({ id: "s1" });
-    await f.routes.call(f.routes.routeOf("tau.terminal", {})!, "tau.terminal", "open");
-    const first = vi.fn();
-    const second = vi.fn();
-    f.routes.subscribe("watching", ["tau.terminal/output/s1"], first);
-    f.routes.subscribe("other", [], second);
-    expect(f.watch).toHaveBeenCalledWith(machine, "tau.terminal", "output/s1", expect.any(Function));
-    f.listeners[0]!({ name: "data", payload: { id: "s1", data: "rex", offset: 3 } });
-    expect(first).toHaveBeenCalledWith({ type: "extension-event", extensionId: "tau.terminal", name: "data", topic: "output/s1", payload: { id: "s1", data: "rex", offset: 3 } });
-    expect(second).not.toHaveBeenCalled();
-    f.localActive();
-    f.routes.refresh();
-    expect(f.stop).not.toHaveBeenCalled();
-    f.routes.detach("watching");
-    expect(f.stop).toHaveBeenCalledOnce();
-  });
 
-  it("merges remote terminal lists and session events without losing local shells", async () => {
-    const f = fixture();
-    const remote = { id: "s1", sessionId: "t1", workspaceId: workspace };
-    const local = { id: "local", workspaceId: "ws1_local" };
-    f.call.mockResolvedValueOnce([remote]);
-    await expect(f.routes.call(f.routes.routeOf("tau.terminal", {})!, "tau.terminal", "list", async () => [local])).resolves.toEqual([{ ...remote, sessionId: `${machine}~t1` }, local]);
-    const emitted: HostPushEvent[] = [];
-    f.routes.subscribe("watching", ["tau.terminal/sessions"], (event) => emitted.push(event));
-    f.listeners[0]!({ name: "sessions", payload: [] });
-    expect(emitted).toEqual([{ type: "extension-event", extensionId: "tau.terminal", name: "sessions", topic: "sessions", payload: [local] }]);
-  });
 
-  it("refreshes a watched remote terminal table after reconnect, and a newer push wins the read", async () => {
-    let notify!: (machines: Array<{ id: string; status: string }>) => void;
-    let event!: (event: { name: string; payload: unknown }) => void;
-    let complete!: (value: unknown) => void;
-    const call = vi.fn(async (..._args: unknown[]): Promise<unknown> => new Promise((resolve) => { complete = resolve; }));
-    const machines = {
-      list: () => [{ id: machine, status: "connected" }],
-      subscribe: (listener: typeof notify) => { notify = listener; listener([{ id: machine, status: "connected" }]); return () => undefined; },
-      watch: (_machine: string, _extension: string, _topic: string, listener: typeof event) => { event = listener; return () => undefined; },
-      call,
-    } as unknown as HostMachines;
-    const routes = new MachineKitRoute({ machines: () => machines, active: () => ({ sessionId: `${machine}~t1`, backendKind: "machine" }) });
-    const emit = vi.fn();
-    routes.subscribe("watching", ["tau.terminal/sessions"], emit);
-    notify([{ id: machine, status: "disconnected" }]);
-    notify([{ id: machine, status: "connected" }]);
-    expect(call).toHaveBeenCalledWith(machine, "tau.terminal", "list");
-    event({ name: "sessions", payload: [{ id: "new", sessionId: "t1" }] });
-    complete([{ id: "stale", sessionId: "t1" }]);
-    await vi.waitFor(() => expect(emit).toHaveBeenCalledOnce());
-    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ payload: [{ id: "new", sessionId: `${machine}~t1` }] }));
-    notify([{ id: machine, status: "disconnected" }]);
-    notify([{ id: machine, status: "connected" }]);
-    complete([]);
-    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(2));
-    expect(emit).toHaveBeenLastCalledWith(expect.objectContaining({ payload: [] }));
-  });
+
+
+
+
 
   it("translates checkpoint identity and moves Workspace watches when the active machine is left", () => {
     const f = fixture();
@@ -235,5 +180,73 @@ describe("machine kit routing", () => {
     expect(f.stop).toHaveBeenCalledOnce();
     f.routes.refresh();
     expect(f.watch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("extension-contributed machine routing", () => {
+  it("cleans up a failed routing activation and all disposal observers", async () => {
+    const registry = await activateHostKit({ id: "acme.seed", name: "Seed", activate() {} });
+    const stopObserver = registry.observeMachineRouting(() => { throw new Error("watch failed"); });
+    const extension = { id: "acme.routing", name: "Routing", activate(context: import("./host-extensions.js").HostExtensionContext) { context.registerMachineRouting(); } };
+    await expect(registry.activate(extension)).resolves.toBe(false);
+    expect(registry.machineRoutingFor(extension.id)).toBeUndefined();
+    stopObserver();
+    await expect(registry.activate(extension)).resolves.toBe(true);
+    const released = vi.fn();
+    registry.machineRoutingFor(extension.id)!.onDispose(() => { throw new Error("adapter failed"); });
+    registry.machineRoutingFor(extension.id)!.onDispose(released);
+    await expect(registry.deactivate(extension.id)).rejects.toThrow();
+    expect(released).toHaveBeenCalledOnce();
+    expect(registry.machineRoutingFor(extension.id)).toBeUndefined();
+    await registry.dispose();
+  });
+
+  it("routes an arbitrary kit, relays its topics and replaces watches on reload", async () => {
+    const extension = {
+      id: "acme.inspector", name: "Inspector",
+      activate(context: import("./host-extensions.js").HostExtensionContext) {
+        context.registerMachineRouting({ localCommands: ["window"] });
+        context.registerCommand("read", () => "local", { access: "read" });
+        context.registerCommand("window", () => "window", { access: "read" });
+      },
+    };
+    const registry = await activateHostKit(extension);
+    const f = fixture();
+    const routes = new MachineKitRoute({
+      machines: () => f.machines,
+      active: () => ({ sessionId: `${machine}~t1`, backendKind: "machine" }),
+      routing: (id) => registry.machineRoutingFor(id),
+      observeRouting: (listener) => registry.observeMachineRouting(listener),
+    });
+    const route = routes.routeOf(extension.id, { path: "hello" }, "read")!;
+    expect(route).toEqual({ machine, input: { path: "hello", workspace } });
+    expect(routes.routeOf(extension.id, undefined, "window")).toBeUndefined();
+    expect(routes.routeOf("acme.unregistered", { workspace })).toBeUndefined();
+    await expect(routes.call(route, extension.id, "read")).resolves.toBe("remote");
+    const emit = vi.fn();
+    routes.subscribe("inspector", [`${extension.id}/changes`], emit);
+    expect(f.watch).toHaveBeenLastCalledWith(machine, extension.id, "changes", expect.any(Function));
+    f.listeners.at(-1)!({ name: "changed", payload: { sessionId: "t1" } });
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ extensionId: extension.id, topic: "changes", payload: { sessionId: `${machine}~t1` } }));
+    await registry.deactivate(extension.id);
+    expect(f.stop).toHaveBeenCalledOnce();
+    expect(routes.routeOf(extension.id, { workspace })).toBeUndefined();
+    await registry.activate(extension);
+    expect(f.watch).toHaveBeenCalledTimes(2);
+    routes.dispose();
+    expect(f.stop).toHaveBeenCalledTimes(2);
+    await registry.dispose();
+  });
+
+  it("never forwards an owner command for a paired device", async () => {
+    const f = fixture();
+    const registry = await activateHostKit({ id: "tau.workspace", name: "Workspace", activate(context) {
+      context.registerMachineRouting();
+      context.registerCommand("owner-only", () => undefined, { access: "owner" });
+    } });
+    f.authorize.mockImplementation((...args) => registry.authorizeInvocation(args[0] as string, args[1] as string, args[2], args[3] as HostInvocationPrincipal));
+    await expect(invokeHostMethod(f.methods, "host-extension", ["tau.workspace", "owner-only", { workspace }], { kind: "workbench-client", pairedClient: "phone" })).rejects.toThrow(/owner|this machine/i);
+    expect(f.call).not.toHaveBeenCalled();
+    await registry.dispose();
   });
 });

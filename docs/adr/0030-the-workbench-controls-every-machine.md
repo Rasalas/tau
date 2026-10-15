@@ -157,3 +157,24 @@ an agents connection and for explicit `tau machines open` commands.
 
 - Moving a running thread between machines.
 - Desktop without a host of its own.
+
+## Amendment, 2026-10-14: kits contribute their routing policy
+
+Host extensions opt in with `registerMachineRouting`, introduced in extension
+API 1.67.0. Core resolves workspace and thread identities, checks command
+authority, forwards calls and relays topics. It contains no list of bundled kit
+IDs. Unregistered kits remain local. A policy may keep device commands local;
+worker extensions can register this declarative policy too.
+
+An in-process policy may construct an adapter for feature-specific ownership,
+result translation and reconnect handling. Terminal Kit owns shell-to-machine
+ownership, merged shell lists and output subscriptions in that adapter. These
+rules no longer live in core's transport. The adapter belongs to the extension
+activation and is disposed on unload; reactivation recreates its watches.
+Workspace, Files and Review use the generic workspace routing with their own
+local command exceptions.
+
+This keeps the home-machine decision above while allowing another kit to use
+the same transport without editing core. The extra extension API is justified
+by removing feature state from the transport and giving it the same lifetime
+as its owning kit.

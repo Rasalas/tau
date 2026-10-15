@@ -7,8 +7,8 @@ import type {
   UiSkillDraft,
 } from "../shared/contracts";
 import { skillFields } from "../shared/prepared-prompt";
-import { createClientMessageId, skillPresentationForDraft } from "../workbench/app-state";
-import type { ThreadViewStore } from "../workbench/thread-view-store";
+import { createClientMessageId, skillPresentationForDraft } from "./app-state";
+import type { ThreadViewStore } from "./thread-view-store";
 
 export interface BuildOptimisticMessageInput {
   text: string;

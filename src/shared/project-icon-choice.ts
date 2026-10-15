@@ -31,4 +31,3 @@ export function readProjectIcon(preferences: Values, project: Project): ProjectI
     ? current
     : preferences.value(EXTENSION_ID, projectIconKey({ path: project.path })));
 }
-

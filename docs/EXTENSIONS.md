@@ -5732,3 +5732,30 @@ with the composer's kind and label, `enabled` from the effective project gate,
 from the existing catalog and sign-in checks. Passing `kind` reads only that
 runtime instance; omitting it lists registered, visible backends. A missing or
 unavailable catalog never implies a valid model.
+
+### Home-machine routing (API 1.67.0)
+
+A host extension opts into the thread's home-machine routing with
+`context.registerMachineRouting()`. A call that names a remote `workspace` or
+`workspaceId` reaches that machine's extension. Otherwise it follows the active
+thread's home machine. Core checks the caller's authority before forwarding.
+Without a registration, commands stay local.
+
+`registerMachineRouting({ localCommands: ["pick-folder"] })` keeps selected
+commands on the connected host. Workers support this declarative form. The
+returned disposer withdraws the policy; extension unload also withdraws it.
+Only one policy may be active per extension.
+
+An in-process extension may supply `create(context)` returning a
+`HostMachineRoutingAdapter`. The adapter can select a machine through `route`,
+translate local or remote results and events, declare topic owners, and refresh
+state after reconnect. Returning `null` from `route` keeps a call local;
+`undefined` uses the active thread. An explicit workspace takes precedence.
+The context provides authenticated calls to this extension on another machine,
+topic publication and subscription refresh. `beforeCall` can capture a revision
+for `remoteResult` to reject stale replies. Terminal Kit uses this to own its
+shell lists and output subscriptions.
+
+The adapter is created once when first used and disposed with its registration.
+A replacement activation creates a new adapter and rebuilds watches. Custom
+adapter functions cannot run in worker extensions.

@@ -627,7 +627,7 @@ describe("Workspace Kit in the workbench", () => {
         getWorkspaceInfo: async (cwd?: string) => ({ root: cwd ?? "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
+      getPreparedThreadCapability: async (cwd = "/project") => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
     });
 
@@ -775,7 +775,7 @@ describe("Workspace Kit in the workbench", () => {
         getWorkspaceInfo: async () => ({ root: "/project", isRepo: false, isDirty: false, worktrees: [], refs: [] }),
         getFileTree: async () => [],
       }),
-      getPreparedThreadCapability: async (cwd: string) => ({ cwd, generation: 1, supportsImageInput: true }),
+      getPreparedThreadCapability: async (cwd = "/project") => ({ cwd, generation: 1, supportsImageInput: true }),
       newSession,
     });
 

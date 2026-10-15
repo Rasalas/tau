@@ -5,7 +5,7 @@ import type { WorkbenchActions } from "./extension-system";
 import type { SubmitResult } from "./components/Composer";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
-import type { SubmitDelivery } from "./submission-queue";
+import type { SubmitDelivery } from "../workbench/submission-queue";
 import type { ThreadStore } from "../workbench/thread-store";
 
 export type SubmitPrompt = (

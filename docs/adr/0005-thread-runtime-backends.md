@@ -359,3 +359,17 @@ The intermediate bounded JSON chunk layout remains readable for migration.
 SQLite avoids maintaining a custom chunk manifest and crash-publication
 protocol for each subsequent append. Initial hydration still reads the stored
 histories; lazy transcript loading is a separate interface change.
+
+## Amendment, 2026-10-14: one owner for live turn events
+
+`TurnEvents` owns assistant streaming, tool ownership, compaction publication
+and settled snapshots for Pi and extension backends. Runtime adapters translate
+their events into these operations. They keep their own transcript persistence,
+message correlation and runtime-specific event barriers. Pi's assistant stays
+available until its final message event; a backend's completed assistant can
+be cleared at settlement.
+
+`pi-host-components.ts` constructs the event handlers with their services.
+Handlers no longer call back into `PiHost` to construct a second handler or
+update the same tool bookkeeping. Generation checks prevent delayed snapshots
+from a completed turn from overwriting the next turn's state.

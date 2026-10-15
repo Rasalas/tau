@@ -1,8 +1,7 @@
 import type { SettingsNavGroup, SettingsNavGroupAlias } from "./settings/settings-nav";
 import type { ToastHandle, ToastOptions } from "../workbench/toast-store";
 import type { ThreadRowMark } from "../workbench/thread-row-status";
-import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
-import { clientClause, DESKTOP_CONTEXT, evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
+import { ExtensionKeybindings, type KeybindingContribution, type KeybindingConflict, type UserKeybinding, type UserKeymapContribution, type KeybindingCollision, type ResolvedKeybinding } from "./extension-keybindings";
 import { domKeybindingContext } from "./keybinding-context";
 import type { ComponentType, ReactNode } from "react";
 import type { PanelIconComponent } from "./components/PanelIcon";
@@ -46,7 +45,8 @@ import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 import { providerIconKey } from "./runtime-marks";
 import { readProjectIcon } from "../shared/project-icon-choice";
-import { CustomizationState, mergeCustomizations, partKindOf, partName, PART_FIELDS, type CustomizablePart, type CustomizationLayer, type PartKind } from "./customization";
+import type { CustomizablePart, CustomizationLayer, PartKind } from "./customization";
+import { ExtensionCustomizations } from "./extension-customizations";
 
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
@@ -1317,102 +1317,8 @@ export interface CommandContribution {
  * The first binding of a chord wins; later ones are recorded as conflicts,
  * unless their `when` clauses cannot hold at the same time.
  */
-export interface KeybindingContribution {
-  keys: string;
-  commandId: string;
-  /**
-   * Where the chord applies, e.g. `"terminalFocus && !stageFocus"`: context
-   * names joined by `!`, `&&`, `||` and parentheses. `<name>Focus` holds while
-   * the keyboard is inside an element marked `data-keybinding-context="<name>"`,
-   * `<name>Open` while one is drawn. A clause that needs a context is the more
-   * specific binding: it wins over one that does not, and runs before the
-   * focused element sees the key. Without `when` the chord applies everywhere.
-   */
-  when?: string;
-  /**
-   * A command whose other chords this binding takes the place of, rather than
-   * joining. The user who rebound an action in `keybindings.json` means *that*
-   * key, not that one and Tau's default too; a kit passes the command id here
-   * and core hides the default while the binding lives (Keybindings Kit is the
-   * caller). Usually the same id as `commandId`. Naming another registered
-   * command makes that one a stand-in the palette and the keymap no longer
-   * list (it still runs by id): Workspace Kit's "Settle thread" gives way to
-   * Thread Rail's (API 1.61.0).
-   */
-  replaces?: string;
-}
-
-export interface KeybindingConflict {
-  keys: string;
-  commandId: string;
-  extensionId: string;
-  /** The binding that holds the chord. */
-  boundTo: { commandId: string; extensionId: string };
-}
-
-/**
- * A chord the user set for a command. Without `when` it keeps the clause of
- * the default it replaces; `"true"` makes it apply everywhere. New in API 1.12.0.
- */
-export interface UserKeybinding {
-  key: string;
-  when?: string;
-}
-
-/**
- * The file Settings → Keybindings writes the chords the user records to. Its
- * owner binds what the file holds with `registerKeybinding` and `replaces`, as
- * before; the page only hands over a command's new chords. One at a time, the
- * last registered wins. New in API 1.12.0.
- */
-export interface UserKeymapContribution {
-  id: string;
-  /** The file as the page names it, e.g. `~/.pi/agent/keybindings.json`. */
-  label: string;
-  /** Replaces a command's chords; `undefined` gives it its defaults back. Resolves once written. */
-  setChords(commandId: string, chords: readonly UserKeybinding[] | undefined): Promise<void>;
-  /** Gives every command its defaults back. */
-  resetAll(): Promise<void>;
-}
-
-/** The owner of the chords config.json's `keybindings` sets. */
-export const USER_CONFIG_KEYBINDINGS = "user-config";
-
-/** A live binding a chord the user records would share its keys with. */
-export interface KeybindingCollision {
-  binding: ResolvedKeybinding;
-  /** Where both clauses hold: the new chord `wins` the key, `loses` it, or they rank the same (`clash`) and one of them is dropped. */
-  outcome: "wins" | "loses" | "clash";
-}
-
-export interface ResolvedKeybinding extends KeybindingContribution, ContributionOwner {
-  /** Platform spelling for display, e.g. ⌘K. */
-  label: string;
-  chord: KeyChord;
-}
-
-/** One registration, in the order bindings are weighed. */
-interface KeybindingEntry {
-  binding: ResolvedKeybinding;
-  ast: WhenNode | undefined;
-  /** 0 a default, 1 a binding that `replaces` a command's chords, 2 an override from config.json. */
-  tier: 0 | 1 | 2;
-  seq: number;
-}
-
-/** An entry as it stands now: its effective clause, and whether that clause needs a context. */
-interface LiveKeybinding extends KeybindingEntry {
-  effective: ResolvedKeybinding;
-  whenAst: WhenNode | undefined;
-  specific: boolean;
-}
-
-interface KeybindingState {
-  version: number;
-  mac: boolean;
-  live: LiveKeybinding[];
-  conflicts: KeybindingConflict[];
-}
+export { USER_CONFIG_KEYBINDINGS } from "./extension-keybindings";
+export type { KeybindingContribution, KeybindingConflict, UserKeybinding, UserKeymapContribution, KeybindingCollision, ResolvedKeybinding } from "./extension-keybindings";
 
 /** A `/name` the composer runs in the workbench instead of sending it to the runtime. */
 export interface SlashCommandContribution {
@@ -1549,7 +1455,6 @@ export interface MessageBlockContribution extends ProfileScoped {
   roles?: readonly ("user" | "assistant")[];
   Component: ComponentType<MessageBlockProps>;
 }
-
 
 /**
  * Answers the transcript's find (⌘F) for the whole thread, not just the turns
@@ -1973,13 +1878,11 @@ export class ExtensionRegistry {
 
   /** Which client is drawing. Every renderable contribution is filtered against it. */
   private readonly profile: ClientProfile;
-  /** What a binding's `when` must be able to hold beside; see `registerKeybinding`. */
-  private readonly clientWhen: WhenNode;
+  private readonly keybindings: ExtensionKeybindings;
 
   // `services` defaults to a private store so the many tests that build a
   // registry without a workbench keep working; real activation passes the
   // renderer's shared instance explicitly.
-  private overrideDisposers: Array<() => void> = [];
 
   constructor(
     private readonly hostBridge: HostExtensionBridge = noHostBridge,
@@ -1987,7 +1890,7 @@ export class ExtensionRegistry {
   ) {
     this.services = services ?? { preferences: new PreferencesStore() };
     this.profile = services?.profile ?? "desktop";
-    this.clientWhen = clientClause(this.profile === "desktop");
+    this.keybindings = new ExtensionKeybindings(this.profile, () => this.changed());
     this.services.preferences.subscribe(() => {
       this.applyKeybindingOverrides(this.services.preferences.getSnapshot().keybindings);
     });
@@ -2034,12 +1937,6 @@ export class ExtensionRegistry {
   #commands = new Map<string, Owned<CommandContribution>>();
   #paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
   #slashCommands = new Map<string, Owned<SlashCommandContribution>>();
-  private keybindingEntries: KeybindingEntry[] = [];
-  private keybindingSeq = 0;
-  private keybindingsVersion = 0;
-  private keybindingState: KeybindingState | undefined;
-  /** Commands whose default chords are shadowed, and by how many live bindings. */
-  private shadowedCommands = new Map<string, number>();
   #promptHooks = new Map<string, Owned<PromptHookContribution>>();
   #modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
   #threadMenus = new Map<string, Owned<ThreadMenuContribution>>();
@@ -2077,9 +1974,7 @@ export class ExtensionRegistry {
   /** The last failure per extension entry path; an entry that builds again drops out. */
   readonly #loadFailures = new Map<string, string>();
   #sortedCache = new Map<string, { version: number; value: unknown[] }>();
-  readonly #customization = new CustomizationState();
-  /** The layers in the order they came; the last one applies. */
-  #customizationLayers: Array<{ layer: CustomizationLayer; extensionId: string }> = [];
+  readonly #customization = new ExtensionCustomizations(() => this.changed());
 
   /**
    * Records a renderable contribution and answers whether this client draws it.
@@ -2368,18 +2263,7 @@ export class ExtensionRegistry {
       },
       registerCustomizations: (layer) => {
         note("customizations");
-        const entry = { layer, extensionId: extension.id };
-        this.#customizationLayers.push(entry);
-        const unsubscribe = layer.subscribe(() => this.applyCustomizations());
-        this.applyCustomizations();
-        let done = false;
-        const dispose = () => {
-          if (done) return;
-          done = true;
-          unsubscribe();
-          this.#customizationLayers = this.#customizationLayers.filter((held) => held !== entry);
-          this.applyCustomizations();
-        };
+        const dispose = this.#customization.register(layer);
         disposers.push(dispose);
         return dispose;
       },
@@ -2418,28 +2302,9 @@ export class ExtensionRegistry {
         return this.register(this.#paletteSources, source.id, { ...source, ...owner }, disposers);
       },
       registerKeybinding: (binding) => {
-        const chord = parseKeyChord(binding.keys);
-        const id = normalizeKeyChord(binding.keys);
-        if (!chord || !id) throw new Error(`Keybinding "${binding.keys}" from ${extension.id} is not a key chord`);
-        const when = binding.when?.trim() || undefined;
-        const ast = when ? parseWhen(when) : undefined;
-        if (when && !ast) throw new Error(`Keybinding "${binding.keys}" from ${extension.id} has a when clause Tau cannot read: ${when}`);
-        // A chord for the other kind of client (`isDesktop` here, `!isDesktop` in a browser) is not bound, so hints and the keymap list only what works.
-        if (ast && !whenOverlaps(ast, this.clientWhen)) return noContribution;
+        const dispose = this.keybindings.register(binding, owner);
+        if (!dispose) return noContribution;
         note("keybindings");
-        const { when: _when, ...rest } = binding;
-        const resolved: ResolvedKeybinding = { ...rest, ...(when ? { when } : {}), keys: id, chord, label: formatKeyChord(chord), ...owner };
-        const dropShadow = binding.replaces ? this.shadowCommand(binding.replaces) : undefined;
-        const entry = this.addKeybinding(resolved, ast, binding.replaces ? 1 : 0);
-        const conflict = this.resolveKeybindings().conflicts.find((candidate) => candidate.commandId === binding.commandId && candidate.keys === id && candidate.extensionId === extension.id);
-        if (conflict) console.warn(`Keybinding ${id} from ${extension.id} (${binding.commandId}) is already bound to ${conflict.boundTo.commandId} by ${conflict.boundTo.extensionId}; keeping the first.`);
-        let disposed = false;
-        const dispose = () => {
-          if (disposed) return;
-          disposed = true;
-          this.removeKeybinding(entry);
-          dropShadow?.();
-        };
         disposers.push(dispose);
         return dispose;
       },
@@ -2770,10 +2635,7 @@ export class ExtensionRegistry {
     const cached = this.#sortedCache.get("commands:listed");
     if (cached?.version === this.#version) return cached.value as Array<Owned<CommandContribution>>;
     // A command that a registered command's binding `replaces` is its stand-in; listing both would show one action twice.
-    const standIns = new Set<string>();
-    for (const { binding } of this.keybindingEntries) {
-      if (binding.replaces && binding.replaces !== binding.commandId && this.#commands.has(binding.commandId)) standIns.add(binding.replaces);
-    }
+    const standIns = this.keybindings.standIns((id) => this.#commands.has(id));
     const value = this.sorted("commands", this.#commands, false).filter((command) => !standIns.has(command.id));
     this.#sortedCache.set("commands:listed", { version: this.#version, value });
     return value;
@@ -2793,182 +2655,27 @@ export class ExtensionRegistry {
     return value;
   }
 
-  /** Counts one shadow of a command's default chords; the returned function drops it again. */
-  private shadowCommand(commandId: string): () => void {
-    this.shadowedCommands.set(commandId, (this.shadowedCommands.get(commandId) ?? 0) + 1);
-    this.keybindingsVersion += 1;
-    this.changed();
-    let dropped = false;
-    return () => {
-      if (dropped) return;
-      dropped = true;
-      const left = (this.shadowedCommands.get(commandId) ?? 1) - 1;
-      if (left > 0) this.shadowedCommands.set(commandId, left);
-      else this.shadowedCommands.delete(commandId);
-      this.keybindingsVersion += 1;
-      this.changed();
-    };
-  }
-
-  /** A default chord of a command someone replaced: still registered, no longer live. */
-  private isShadowed(binding: ResolvedKeybinding): boolean {
-    return !binding.replaces && this.shadowedCommands.has(binding.commandId);
-  }
-
-  /** Applies user keymap overrides from config.json, replacing default chords. */
   applyKeybindingOverrides(overrides?: Record<string, string>): void {
-    this.overrideDisposers.forEach((dispose) => dispose());
-    this.overrideDisposers = [];
-    if (!overrides) return;
-    const owner: ContributionOwner = { extensionId: USER_CONFIG_KEYBINDINGS, extensionName: "User Config" };
-    for (const [commandId, rawKeys] of Object.entries(overrides)) {
-      if (!rawKeys || typeof rawKeys !== "string") continue;
-      const chord = parseKeyChord(rawKeys);
-      const id = normalizeKeyChord(rawKeys);
-      if (!chord || !id) {
-        console.warn(`User keybinding override ${commandId} = ${rawKeys} is not a key chord`);
-        continue;
-      }
-      const dropShadow = this.shadowCommand(commandId);
-      const entry = this.addKeybinding({ keys: id, commandId, replaces: commandId, chord, label: formatKeyChord(chord), ...owner }, undefined, 2);
-      this.overrideDisposers.push(() => { this.removeKeybinding(entry); dropShadow(); });
-    }
-    this.changed();
+    this.keybindings.applyKeybindingOverrides(overrides);
   }
 
-  private addKeybinding(binding: ResolvedKeybinding, ast: WhenNode | undefined, tier: KeybindingEntry["tier"]): KeybindingEntry {
-    const entry: KeybindingEntry = { binding, ast, tier, seq: this.keybindingSeq++ };
-    this.keybindingEntries.push(entry);
-    this.keybindingsVersion += 1;
-    this.changed();
-    return entry;
+  getKeybindings(): ResolvedKeybinding[] { return this.keybindings.getKeybindings(); }
+  getKeybindingConflicts(mac?: boolean): readonly KeybindingConflict[] { return this.keybindings.getKeybindingConflicts(mac); }
+  getDefaultKeybindings(commandId: string): ResolvedKeybinding[] { return this.keybindings.getDefaultKeybindings(commandId); }
+  findKeybindingCollisions(candidate: UserKeybinding & { commandId: string }, mac?: boolean): KeybindingCollision[] {
+    return this.keybindings.findKeybindingCollisions(candidate, mac);
   }
+  keybindingLabel(commandId: string): string | undefined { return this.keybindings.keybindingLabel(commandId); }
 
-  private removeKeybinding(entry: KeybindingEntry): void {
-    const index = this.keybindingEntries.indexOf(entry);
-    if (index < 0) return;
-    this.keybindingEntries.splice(index, 1);
-    this.keybindingsVersion += 1;
-    this.changed();
-  }
-
-  /**
-   * Which bindings are live and which lost their chord. A replaced default is
-   * not live. A binding that replaces a command without a `when` of its own
-   * takes the clause of that command's first default, so a rebound key keeps
-   * its context. Two live bindings collide when they press the same keys on this
-   * platform (`mod+p` is `ctrl+p` off macOS), share a tier and
-   * specificity, run different commands and their clauses can hold together;
-   * the earlier one keeps the chord.
-   */
-  private resolveKeybindings(mac = isMacPlatform()): KeybindingState {
-    if (this.keybindingState?.version === this.keybindingsVersion && this.keybindingState.mac === mac) return this.keybindingState;
-    const defaults = new Map<string, KeybindingEntry>();
-    for (const entry of this.keybindingEntries) {
-      if (entry.tier === 0 && !defaults.has(entry.binding.commandId)) defaults.set(entry.binding.commandId, entry);
-    }
-    const ordered = this.keybindingEntries
-      .filter((entry) => !this.isShadowed(entry.binding))
-      .sort((a, b) => b.tier - a.tier || a.seq - b.seq);
-    const live: LiveKeybinding[] = [];
-    const chords = new Map<string, LiveKeybinding[]>();
-    const conflicts: KeybindingConflict[] = [];
-    for (const entry of ordered) {
-      const inherited = !entry.binding.when && entry.binding.replaces ? defaults.get(entry.binding.replaces) : undefined;
-      const whenAst = entry.ast ?? inherited?.ast;
-      const effective = inherited?.binding.when ? { ...entry.binding, when: inherited.binding.when } : entry.binding;
-      const candidate: LiveKeybinding = { ...entry, effective, whenAst, specific: isSpecificWhen(whenAst, this.profile === "desktop") };
-      const chord = platformChordId(entry.binding.chord, mac);
-      const holders = chords.get(chord) ?? [];
-      const holder = holders.find((other) => other.tier === entry.tier
-        && other.specific === candidate.specific
-        && other.binding.commandId !== entry.binding.commandId
-        && whenOverlaps(other.whenAst, whenAst));
-      if (holder) {
-        conflicts.push({ keys: entry.binding.keys, commandId: entry.binding.commandId, extensionId: entry.binding.extensionId, boundTo: { commandId: holder.binding.commandId, extensionId: holder.binding.extensionId } });
-        continue;
-      }
-      live.push(candidate);
-      holders.push(candidate);
-      chords.set(chord, holders);
-    }
-    live.sort((a, b) => a.seq - b.seq);
-    this.keybindingState = { version: this.keybindingsVersion, mac, live, conflicts };
-    return this.keybindingState;
-  }
-
-  /** The chords that are live: a replaced default or a binding that lost its chord is not one of them. */
-  getKeybindings(): ResolvedKeybinding[] {
-    const cached = this.#sortedCache.get("keybindings");
-    if (cached?.version === this.#version) return cached.value as ResolvedKeybinding[];
-    const value = this.resolveKeybindings().live.map((entry) => entry.effective);
-    this.#sortedCache.set("keybindings", { version: this.#version, value });
-    return value;
-  }
-
-  /** Chords that lost to an earlier binding; `mac` asks about the other platform, where `mod` is another key. */
-  getKeybindingConflicts(mac?: boolean): readonly KeybindingConflict[] {
-    return this.resolveKeybindings(mac).conflicts;
-  }
-
-  /** A command's default chords, live or replaced, in the order they were registered. */
-  getDefaultKeybindings(commandId: string): ResolvedKeybinding[] {
-    return this.keybindingEntries.filter((entry) => entry.tier === 0 && entry.binding.commandId === commandId).map((entry) => entry.binding);
+  matchKeybinding(event: KeyboardEvent, page: (name: string) => boolean = domKeybindingContext()): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean; specific: boolean } | undefined {
+    const match = this.keybindings.matchKeybinding(event, page);
+    const command = match && this.#commands.get(match.binding.commandId);
+    return match && command ? { ...match, command } : undefined;
   }
 
   /** Where recorded chords are written, from the extension that registered last. */
   getUserKeymap(): Owned<UserKeymapContribution> | undefined {
     return [...this.#userKeymaps.values()].at(-1);
-  }
-
-  /**
-   * The live bindings of other commands a chord the user sets for `commandId`
-   * would press the same keys as on this platform (or `mac`), where both
-   * clauses can hold. The chord ranks as a replacing binding and, without a
-   * `when`, takes the clause of the command's first default.
-   */
-  findKeybindingCollisions(candidate: UserKeybinding & { commandId: string }, mac = isMacPlatform()): KeybindingCollision[] {
-    const chord = parseKeyChord(candidate.key);
-    const when = candidate.when?.trim() || undefined;
-    const ast = when ? parseWhen(when) : this.keybindingEntries.find((entry) => entry.tier === 0 && entry.binding.commandId === candidate.commandId)?.ast;
-    if (!chord || (when && !ast)) return [];
-    const specific = isSpecificWhen(ast, this.profile === "desktop");
-    const keys = platformChordId(chord, mac);
-    return this.resolveKeybindings(mac).live
-      .filter((other) => other.binding.commandId !== candidate.commandId && platformChordId(other.binding.chord, mac) === keys && whenOverlaps(other.whenAst, ast))
-      .map((other) => ({
-        binding: other.effective,
-        outcome: other.tier !== 1 ? (other.tier < 1 ? "wins" : "loses") : other.specific === specific ? "clash" : specific ? "wins" : "loses",
-      }));
-  }
-
-  /** The display label of the chord bound to a command, if any. */
-  keybindingLabel(commandId: string): string | undefined {
-    for (const binding of this.getKeybindings()) if (binding.commandId === commandId) return binding.label;
-    return undefined;
-  }
-
-  /**
-   * The command a keydown event should run in `context` (read from the page by
-   * default). Of the bindings whose chord and clause match, an override from
-   * config.json beats a replacing binding beats a default; within that, a
-   * clause that needs a context beats one that does not, then the first
-   * registered. `modified` tells bare keys from chords with modifiers;
-   * `specific` says the winner's clause needs a context, so it runs before
-   * the focused element sees the key.
-   */
-  matchKeybinding(event: KeyboardEvent, page: (name: string) => boolean = domKeybindingContext()): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean; specific: boolean } | undefined {
-    const desktop = this.profile === "desktop";
-    const context = (name: string) => name === DESKTOP_CONTEXT ? desktop : page(name);
-    let best: LiveKeybinding | undefined;
-    for (const entry of this.resolveKeybindings().live) {
-      if (!chordMatchesEvent(entry.binding.chord, event)) continue;
-      if (entry.whenAst && !evaluateWhen(entry.whenAst, context)) continue;
-      if (!best || entry.tier > best.tier || (entry.tier === best.tier && entry.specific && !best.specific)) best = entry;
-    }
-    if (!best) return undefined;
-    const command = this.#commands.get(best.binding.commandId);
-    return command ? { command, binding: best.effective, modified: isModified(best.binding.chord), specific: best.specific } : undefined;
   }
 
   /** Finds a registered command by its ID, if any. */
@@ -3280,66 +2987,20 @@ export class ExtensionRegistry {
     const cached = this.#sortedCache.get(key);
     if (cached?.version === this.#version) return cached.value as T[];
     const value = this.#customization.apply(kind, [...map.values()]);
-    value.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     this.#sortedCache.set(key, { version: this.#version, value });
     return value;
   }
 
-  private applyCustomizations(): void {
-    // By `order`, then as they came: a later layer's order, move or replacement wins, and hidden parts add up.
-    const layers = this.#customizationLayers.map((entry, index) => ({ entry, index }))
-      .sort((a, b) => (a.entry.layer.order ?? 0) - (b.entry.layer.order ?? 0) || a.index - b.index);
-    this.#customization.set(mergeCustomizations(layers.map(({ entry }) => entry.layer.getSnapshot())));
-    this.changed();
-  }
-
-  /** Every part on offer on this client, with what the layer does to it. */
+  /** Every part on offer on this client, including contributions another profile draws. */
   getCustomizableParts(): CustomizablePart[] {
-    const parts: CustomizablePart[] = [];
-    const add = (kind: PartKind, items: Iterable<Owned<{ id: string; label?: string; placement?: unknown }>>) => {
-      for (const item of items) {
-        const label = item.label ?? item.id;
-        const part = (name: string, field?: string): CustomizablePart => ({
-          name,
-          kind,
-          id: item.id,
-          ...(field ? { field } : {}),
-          label: field ? `${label} · ${field}` : label,
-          extensionId: item.extensionId,
-          extensionName: item.extensionName,
-          hidden: this.#customization.isHidden(name),
-          replaced: this.#customization.isReplaced(name),
-          ...(kind === "region" && typeof item.placement === "string" ? { placement: item.placement as RegionPlacement | SlotPlacement } : {}),
-        });
-        parts.push(part(partName(kind, item.id)));
-        for (const field of PART_FIELDS[kind]) {
-          if ((item as unknown as Record<string, unknown>)[field]) parts.push(part(partName(kind, item.id, field), field));
-        }
-      }
-    };
-    add("region", this.#regions.values());
-    add("status", this.#statusItems.values());
-    add("panel", this.#panels.values());
-    add("page", this.#pages.values());
-    add("sidebar", this.#sidebarContributions.values());
-    add("composer-control", this.#composerControls.values());
-    // What another kind of device draws can be changed from here too; its fields are only known where it is drawn.
-    const listed = new Set(parts.map((part) => part.name));
-    for (const entry of this.getUnrenderedContributions()) {
-      const mapped = partKindOf(entry.kind);
-      if (!mapped) continue;
-      const name = partName(mapped.kind, entry.id);
-      if (listed.has(name)) continue;
-      listed.add(name);
-      parts.push({
-        name, kind: mapped.kind, id: entry.id, label: entry.label ?? entry.id,
-        extensionId: entry.extensionId, extensionName: entry.extensionName,
-        hidden: this.#customization.isHidden(name), replaced: this.#customization.isReplaced(name),
-        ...(mapped.placement ? { placement: mapped.placement as RegionPlacement | SlotPlacement } : {}),
-        elsewhere: true,
-      });
-    }
-    return parts;
+    return this.#customization.parts([
+      { kind: "region", items: this.#regions.values() },
+      { kind: "status", items: this.#statusItems.values() },
+      { kind: "panel", items: this.#panels.values() },
+      { kind: "page", items: this.#pages.values() },
+      { kind: "sidebar", items: this.#sidebarContributions.values() },
+      { kind: "composer-control", items: this.#composerControls.values() },
+    ], this.getUnrenderedContributions());
   }
 
   private changed(): void {

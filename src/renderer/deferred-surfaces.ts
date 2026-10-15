@@ -65,7 +65,7 @@ export const PairingRequestWatcher = deferred(() => import("./pairing/PairingReq
 export const NearbyMachineList = deferred(() => import("./settings/NearbyMachineList").then((module) => module.NearbyMachineList));
 
 // Code behind a user action rather than a surface.
-export const loadSubmissionController = deferredModule(() => import("./submission-controller"));
+export const loadSubmissionController = deferredModule(() => import("../workbench/submission-controller"));
 export const loadRuntimeControlRuns = deferredModule(() => import("./settings/runtime-control-runs"));
 export const loadFileMentions = deferredModule(() => import("./file-mention-expander"));
 export const loadVimNormalKeys = deferredModule(() => import("./components/composer-vim-normal"));

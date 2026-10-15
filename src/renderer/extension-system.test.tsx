@@ -764,6 +764,21 @@ describe("ExtensionRegistry keybinding contexts", () => {
 });
 
 describe("ExtensionRegistry recorded chords", () => {
+  it("keeps inherited bindings stable while checking collisions on both platforms", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "core", name: "Core", activate(context) {
+      context.registerKeybinding({ keys: "mod+n", commandId: "new-thread", when: "!terminalFocus" });
+    } });
+    registry.activate({ id: "user", name: "User", activate(context) {
+      context.registerKeybinding({ keys: "mod+t", commandId: "new-thread", replaces: "new-thread" });
+    } });
+    const bindings = registry.getKeybindings();
+    expect(bindings[0]).toMatchObject({ keys: "mod+t", when: "!terminalFocus" });
+    registry.findKeybindingCollisions({ commandId: "new-thread", key: "mod+j" }, true);
+    registry.findKeybindingCollisions({ commandId: "new-thread", key: "mod+j" }, false);
+    expect(registry.getKeybindings()).toBe(bindings);
+  });
+
   const commands = (context: DesktopExtensionContext, ...ids: string[]) => {
     for (const id of ids) context.registerCommand({ id, label: id, group: "Test", run() {} });
   };

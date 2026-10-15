@@ -1,3 +1,4 @@
+import { terminalMachineRouting } from "./machine-routing.js";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
@@ -399,6 +400,7 @@ export function createTerminalHostExtension(
     name: "Terminal",
     permissions: ["workspace:read", "process", "sessions", "runtime:extend"],
     activate(context: HostExtensionContext) {
+      context.registerMachineRouting(terminalMachineRouting);
       const closeBackground = registerBackgroundCommands(context.services);
       // The native module is resolved on the first open, not at activation:
       // a host without it still activates the kit and answers with the reason.

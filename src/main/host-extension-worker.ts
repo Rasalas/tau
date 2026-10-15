@@ -222,6 +222,7 @@ const handles = new Map<number, Record<string, (...args: unknown[]) => unknown>>
 /** Work waiting for the host to open its critical section, by rpc id. */
 const exclusiveWork = new Map<number, () => Promise<unknown>>();
 const commands = new Map<string, WorkerCommandHandler>();
+let machineRoutingRegistration: object | undefined;
 
 function rpc(path: string, ...args: unknown[]): Promise<unknown> {
   const id = nextId++;
@@ -337,6 +338,18 @@ const context: WorkerHostExtensionContext = {
     },
   }),
   invokeHostExtension: (extensionId, command, input) => rpc("hostExtension", extensionId, command, input),
+  registerMachineRouting: (policy = {}) => {
+    if ("create" in policy) throw new Error("Worker machine routing supports declarative policies only");
+    if (machineRoutingRegistration) throw new Error(`Host extension ${boot.id}: machine routing registered twice`);
+    const registration = {};
+    machineRoutingRegistration = registration;
+    send({ t: "machine-routing", on: true, localCommands: policy.localCommands });
+    return () => {
+      if (machineRoutingRegistration !== registration) return;
+      machineRoutingRegistration = undefined;
+      send({ t: "machine-routing", on: false });
+    };
+  },
   registerCommand: (name, handler, options) => {
     if (commands.has(name)) throw new Error(`Host extension ${boot.id}: command "${name}" registered twice`);
     commands.set(name, handler);

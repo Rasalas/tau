@@ -1,3 +1,6 @@
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import type { HostCommand } from "../shared/host-command-definition.js";
+import { bindHostCommand } from "./host-command-handler.js";
 import { readFile, mkdir, writeFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -143,20 +146,20 @@ export class HostConnect {
 }
 
 export function createConnectMethods(service: () => HostConnect | undefined): HostMethodTable {
-  const owned = (run: (connect: HostConnect, params: readonly unknown[]) => Promise<unknown>): HostMethodTable[string] => async (params, context) => {
+  const owned = <Args extends readonly unknown[], Result, WireArgs extends readonly unknown[] | never>(
+    definition: HostCommand<Args, Result, WireArgs>, run: (connect: HostConnect, params: Args) => Result | Promise<Result>,
+  ): HostMethodTable[string] => async (params, context) => {
     if (!isHostOwner(context.principal)) throw ownerRefusal();
     const connect = service();
     if (!connect) throw new Error("Tau Connect is available on this machine's host.");
-    return run(connect, params);
+    return bindHostCommand(definition, (args) => run(connect, args))(params, context);
   };
   return {
-    "connect-status": owned(async (connect) => connect.status()),
-    "connect-configure": owned(async (connect, params) => {
-      const input = params[0] as ConnectSetup | undefined;
-      if (typeof input?.relay !== "string" || typeof input.enrollmentToken !== "string" || input.relay.length > 2_048 || input.enrollmentToken.length > 128) throw new Error("Tau Connect requires a relay address and enrollment token.");
-      return connect.configure(input);
+    "connect-status": owned(HOST_FACTORY_COMMANDS["connect-status"], async (connect) => connect.status()),
+    "connect-configure": owned(HOST_FACTORY_COMMANDS["connect-configure"], async (connect, params) => {
+      return connect.configure(params[0]);
     }),
-    "connect-link": owned(async (connect) => ({ link: connect.link() })),
-    "connect-remove": owned(async (connect) => connect.remove()),
+    "connect-link": owned(HOST_FACTORY_COMMANDS["connect-link"], async (connect) => ({ link: connect.link() })),
+    "connect-remove": owned(HOST_FACTORY_COMMANDS["connect-remove"], async (connect) => connect.remove()),
   };
 }

@@ -64,6 +64,7 @@ export interface HostEventTargets {
   transcriptTurnStart(): TranscriptTurnStart | undefined;
   setTranscriptTurnStart(value: TranscriptTurnStart | undefined, expectedTurnId?: string): void;
   applyHostUpdate(update: HostUpdate): void;
+  applyUserMessage(event: Extract<HostEvent, { type: "user-message" }>): void;
   applyThreadIndex(index: ThreadIndexSnapshot): void;
   /**
    * Re-reads the desktop halves the host serves, after its package set moved.
@@ -148,14 +149,11 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
     case "environment-thread":
       return;
     case "user-message": {
-      const clientMessageId = event.message.clientMessageId;
-      if (clientMessageId && targets.submission.hasRecovery(clientMessageId)) {
-        targets.submission.promoteRecovery(clientMessageId, event.sessionId, event.message);
-      }
       const active = event.sessionId === threadStore.getSnapshot().activeThreadId;
       const known = active ? view.getTranscript().messages : view.details.get(event.sessionId)?.messages;
       if (known && !known.some((message) => isSameUserMessage(message, event.message))) targets.preferences.unsettle(event.sessionId);
-      break;
+      targets.applyUserMessage(event);
+      return;
     }
     case "prompt-without-user-turn": {
       const turnStart = targets.transcriptTurnStart();

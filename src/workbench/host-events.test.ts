@@ -28,6 +28,7 @@ function fixture() {
     transcriptTurnStart: () => undefined,
     setTranscriptTurnStart: vi.fn(),
     applyHostUpdate: vi.fn(),
+    applyUserMessage: (event) => view.dispatch(event),
     setUpdateReady: vi.fn(),
     applyThreadIndex: vi.fn(),
     syncDesktopExtensions: vi.fn(),

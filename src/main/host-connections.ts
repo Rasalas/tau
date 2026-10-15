@@ -1,10 +1,10 @@
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import type { HostCommand } from "../shared/host-command-definition.js";
+import { bindHostCommand } from "./host-command-handler.js";
 import { networkInterfaces } from "node:os";
 import {
-  IDLE_TIMEOUT_CHOICES,
   pairingUrl,
-  type DeviceAccess,
   type PairingEndpoint,
-  type UiClientUpdate,
   type UiConnections,
   type UiCreatedPairingLink,
   type UiHostEndpoint,
@@ -18,8 +18,6 @@ import type { HostMethodContext } from "./host-jobs.js";
 import { isHostOwner } from "./host-invocation.js";
 import { isLoopbackHost } from "./host-listen.js";
 import { MagicDnsNames, isTailscaleAddress, linkEndpoints, listenerEndpoints, localHostName, mergeEndpoints, type EndpointNames, type Interfaces } from "./host-endpoints.js";
-import { decodeNetworkSettingsInput } from "./host-network.js";
-import { decodeOptionalText, decodeString } from "./ipc-input.js";
 
 /** Where a listening host can be reached, known once its socket is up. */
 export interface HostListenInfo {
@@ -121,62 +119,23 @@ function unavailable(message = "This host has no socket listener, so no other cl
   throw Object.assign(new Error(message), { code: HOST_ERROR.unsupported });
 }
 
-function decodeObject(method: string, value: unknown): Record<string, unknown> {
-  if (value === undefined) return {};
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${method}: input must be an object.`);
-  return value as Record<string, unknown>;
-}
-
-function decodeAccess(method: string, value: unknown): DeviceAccess | undefined {
-  if (value === undefined) return undefined;
-  if (value !== "full" && value !== "read-only") throw new Error(`${method}: access must be "full" or "read-only".`);
-  return value;
-}
-
-function decodeLinkInput(value: unknown): { label?: string; lifetimeMs?: number; access?: DeviceAccess } {
-  const { label, lifetimeMs, access } = decodeObject("connections-create-link", value);
-  const text = decodeOptionalText("connections-create-link", "label", label);
-  if (lifetimeMs !== undefined && (typeof lifetimeMs !== "number" || !Number.isFinite(lifetimeMs))) {
-    throw new Error("connections-create-link: lifetimeMs must be a number.");
-  }
-  const preset = decodeAccess("connections-create-link", access);
-  return { ...(text ? { label: text } : {}), ...(typeof lifetimeMs === "number" ? { lifetimeMs } : {}), ...(preset ? { access: preset } : {}) };
-}
-
-function decodeApproval(value: unknown): { access?: DeviceAccess; label?: string } {
-  const { access, label } = decodeObject("connections-approve", value);
-  const preset = decodeAccess("connections-approve", access);
-  const text = decodeOptionalText("connections-approve", "label", label);
-  return { ...(preset ? { access: preset } : {}), ...(text ? { label: text } : {}) };
-}
-
-function decodeClientUpdate(value: unknown): UiClientUpdate {
-  const { label, access, idleTimeoutDays } = decodeObject("connections-update-client", value);
-  const text = decodeOptionalText("connections-update-client", "label", label);
-  const preset = decodeAccess("connections-update-client", access);
-  if (idleTimeoutDays !== undefined && !(IDLE_TIMEOUT_CHOICES as readonly unknown[]).includes(idleTimeoutDays)) {
-    throw new Error("connections-update-client: idleTimeoutDays must be 30, 90, 365 or null.");
-  }
-  return {
-    ...(label !== undefined ? { label: text ?? "" } : {}),
-    ...(preset ? { access: preset } : {}),
-    ...(idleTimeoutDays !== undefined ? { idleTimeoutDays: idleTimeoutDays as UiClientUpdate["idleTimeoutDays"] } : {}),
-  };
-}
-
 type Method = (params: readonly unknown[], context: HostMethodContext) => Promise<unknown>;
 
 /** Settings → Connections over the protocol. Every method is the owner's alone. */
 export function createConnectionsMethods(service: () => HostConnectionsService | undefined): Record<string, Method> {
-  const owned = (run: (connections: HostConnectionsService, params: readonly unknown[], connection: string | undefined) => Promise<unknown> | unknown): Method =>
-    async (params, context) => {
-      if (!isHostOwner(context.principal)) forbidden();
-      const connections = service() ?? unavailable();
-      const connection = context.principal.kind === "workbench-client" ? context.principal.connection : undefined;
-      return run(connections, params, connection);
-    };
+  const owned = <Args extends readonly unknown[], Result, WireArgs extends readonly unknown[] | never>(
+    definition: HostCommand<Args, Result, WireArgs>,
+    run: (connections: HostConnectionsService, params: Args, connection: string | undefined) => Result | Promise<Result>,
+  ): Method => async (params, context) => {
+    if (!isHostOwner(context.principal)) forbidden();
+    const connections = service() ?? unavailable();
+    if (definition === (HOST_FACTORY_COMMANDS["connections-set-network"] as unknown) && !connections.network) unavailable("This host opens no network listeners of its own.");
+    if (definition === (HOST_FACTORY_COMMANDS["connections-discover"] as unknown) && !connections.discover) unavailable("This host cannot look for machines on its network.");
+    const connection = context.principal.kind === "workbench-client" ? context.principal.connection : undefined;
+    return bindHostCommand(definition, (args) => run(connections, args, connection))(params, context);
+  };
   return {
-    "connections-list": owned(async (connections, _params, connection): Promise<UiConnections> => {
+    "connections-list": owned(HOST_FACTORY_COMMANDS["connections-list"], async (connections, _params, connection): Promise<UiConnections> => {
       const { access, listen, network, hostId } = connections;
       const info = listen();
       return {
@@ -192,8 +151,8 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
     }),
     // Every link names the best network address of each kind and the host's key, so a device can pick one and pin it.
     // Also without a web client: the app pairs over the socket.
-    "connections-create-link": owned(async (connections, params): Promise<UiCreatedPairingLink> => {
-      const input = decodeLinkInput(params[0]);
+    "connections-create-link": owned(HOST_FACTORY_COMMANDS["connections-create-link"], async (connections, params): Promise<UiCreatedPairingLink> => {
+      const input = params[0];
       const info = connections.listen();
       const endpoints = await allEndpoints(connections, info);
       const { link, code } = connections.access.createLink(input);
@@ -216,37 +175,35 @@ export function createConnectionsMethods(service: () => HostConnectionsService |
       }));
       return { link, code, urls };
     }),
-    "connections-revoke-link": owned(({ access }, params) =>
-      ({ revoked: access.revokeLink(decodeString("connections-revoke-link", "id", params[0])) })),
-    "connections-revoke-client": owned(async ({ access }, params) =>
-      ({ revoked: await access.revokeClient(decodeString("connections-revoke-client", "id", params[0])) })),
-    "connections-revoke-others": owned(async ({ access }) => ({ revoked: await access.revokeOtherClients() })),
-    "connections-update-client": owned(async ({ access }, params) => ({
-      updated: await access.updateClient(decodeString("connections-update-client", "id", params[0]), decodeClientUpdate(params[1])),
+    "connections-revoke-link": owned(HOST_FACTORY_COMMANDS["connections-revoke-link"], ({ access }, params) =>
+      ({ revoked: access.revokeLink(params[0]) })),
+    "connections-revoke-client": owned(HOST_FACTORY_COMMANDS["connections-revoke-client"], async ({ access }, params) =>
+      ({ revoked: await access.revokeClient(params[0]) })),
+    "connections-revoke-others": owned(HOST_FACTORY_COMMANDS["connections-revoke-others"], async ({ access }) => ({ revoked: await access.revokeOtherClients() })),
+    "connections-update-client": owned(HOST_FACTORY_COMMANDS["connections-update-client"], async ({ access }, params) => ({
+      updated: await access.updateClient(params[0], params[1]),
     })),
     // False when the device stopped waiting: it expired, left, or someone else answered first.
-    "connections-approve": owned(async ({ access }, params) => ({
-      approved: await access.approvePairing(decodeString("connections-approve", "id", params[0]), decodeApproval(params[1])),
+    "connections-approve": owned(HOST_FACTORY_COMMANDS["connections-approve"], async ({ access }, params) => ({
+      approved: await access.approvePairing(params[0], params[1]),
     })),
-    "connections-deny": owned(({ access }, params) => ({ denied: access.denyPairing(decodeString("connections-deny", "id", params[0])) })),
-    "connections-set-network": owned(({ network }, params) => {
+    "connections-deny": owned(HOST_FACTORY_COMMANDS["connections-deny"], ({ access }, params) => ({ denied: access.denyPairing(params[0]) })),
+    "connections-set-network": owned(HOST_FACTORY_COMMANDS["connections-set-network"], ({ network }, params) => {
       if (!network) unavailable("This host opens no network listeners of its own.");
-      return network.update(decodeNetworkSettingsInput(params[0]));
+      return network.update(params[0]);
     }),
     // Browsing is a local network operation macOS asks about; only the owner's click starts one.
-    "connections-discover": owned(async ({ discover }, params) => {
+    "connections-discover": owned(HOST_FACTORY_COMMANDS["connections-discover"], async ({ discover }, params) => {
       if (!discover) unavailable("This host cannot look for machines on its network.");
-      const { timeoutMs } = decodeObject("connections-discover", params[0]);
-      if (timeoutMs !== undefined && (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs))) throw new Error("connections-discover: timeoutMs must be a number.");
-      return discover(typeof timeoutMs === "number" ? { timeoutMs } : {});
+      return discover(params[0]);
     }),
-    "connections-reload-certificate": owned(async ({ reloadCertificates }) => {
+    "connections-reload-certificate": owned(HOST_FACTORY_COMMANDS["connections-reload-certificate"], async ({ reloadCertificates }) => {
       if (!reloadCertificates) unavailable("This host serves no certificate to reload.");
       return reloadCertificates();
     }),
     // The key itself, for the owner to sign another browser in. It never runs as a job, whose result goes to every client.
-    "connections-host-token": owned(({ access }) => ({ token: access.hostToken() })),
+    "connections-host-token": owned(HOST_FACTORY_COMMANDS["connections-host-token"], ({ access }) => ({ token: access.hostToken() })),
     // The caller keeps its connection and is answered the new token; it already held the old one.
-    "connections-rotate-host-token": owned(({ access }, _params, connection) => ({ token: access.rotateHostToken(connection) })),
+    "connections-rotate-host-token": owned(HOST_FACTORY_COMMANDS["connections-rotate-host-token"], ({ access }, _params, connection) => ({ token: access.rotateHostToken(connection) })),
   };
 }

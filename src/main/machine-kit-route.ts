@@ -1,55 +1,58 @@
 import type { HostEvent } from "../shared/contracts.js";
 import type { HostPushEvent } from "../shared/host-transport.js";
 import type { HostMachines } from "./host-machines.js";
+import type { HostMachineRoutingAdapter, HostMachineRoutingContribution } from "./host-machine-routing.js";
 import { machineKitError } from "../shared/machine-compatibility.js";
-
-// These kits own the workspace features named in ADR 0030.
-const ROUTED_KITS = new Set(["tau.workspace", "tau.files", "tau.terminal", "tau.review"]);
 type Identity = { sessionId: string; backendKind: string };
 type Route = { machine: string; input: unknown };
 type Client = { topics: readonly string[]; emit(event: HostPushEvent): void; stops: Array<() => void>; key: string };
-
-function fields(input: unknown): Record<string, unknown> {
-  return input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
-}
-
-// Workspaces a routed call created on a machine, kept until its index lists them.
+const fields = (input: unknown): Record<string, unknown> => input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 const CREATED_KEPT = 200;
 
+/** Generic transport and workspace identity; feature policies live in their kits. */
 export class MachineKitRoute {
-  private readonly shellMachine = new Map<string, string>();
   private readonly createdOn = new Map<string, string>();
   private readonly clients = new Map<string, Client>();
-  private readonly terminalLists = new Map<string, unknown[]>();
-  private readonly terminalRevisions = new Map<string, number>();
+  private readonly adapters = new Map<string, { contribution: HostMachineRoutingContribution; adapter: HostMachineRoutingAdapter; stop: () => void }>();
   private connected = new Set<string>();
+  private stopMachines?: () => void;
+  private stopRouting?: () => void;
 
-  constructor(private readonly deps: { machines(): HostMachines | undefined; active(): Identity | undefined }) {
-    deps.machines()?.subscribe?.((machines) => {
+  constructor(private readonly deps: { machines(): HostMachines | undefined; active(): Identity | undefined; routing?(id: string): HostMachineRoutingContribution | undefined; observeRouting?(listener: () => void): (() => void) | undefined }) {
+    this.stopMachines = deps.machines()?.subscribe?.((machines) => {
       const before = this.connected;
       this.connected = new Set(machines.filter((machine) => machine.status === "connected").map((machine) => machine.id));
       this.refresh();
-      for (const machine of this.connected) if (!before.has(machine)) this.recoverTerminals(machine);
+      for (const machine of this.connected) if (!before.has(machine)) for (const { adapter } of this.adapters.values()) adapter.reconnect?.(machine);
     });
   }
 
-  private revision(machine: string): number { return this.terminalRevisions.get(machine) ?? 0; }
-  private revise(machine: string): void { this.terminalRevisions.set(machine, this.revision(machine) + 1); }
-
-  /** A remote monitor's resync restores its index; the kit's session table needs its own read. */
-  private recoverTerminals(machine: string): void {
-    if (this.activeMachine()?.machine !== machine && !this.terminalLists.has(machine)) return;
-    if (![...this.clients.values()].some((client) => client.topics.includes("tau.terminal/sessions"))) return;
-    this.revise(machine);
-    const revision = this.revision(machine);
-    void this.deps.machines()?.call(machine, "tau.terminal", "list").then((result) => {
-      if (!this.connected.has(machine) || this.revision(machine) !== revision || !Array.isArray(result)) return;
-      const payload = this.remotePayload(machine, "tau.terminal", "sessions", result);
-      for (const client of this.clients.values()) if (client.topics.includes("tau.terminal/sessions")) client.emit({
-        type: "extension-event", extensionId: "tau.terminal", name: "sessions", topic: "sessions", payload,
-      });
-      this.refresh();
-    }).catch(() => { /* The next connection or explicit list refresh tries again. */ });
+  private adapter(id: string): HostMachineRoutingAdapter | undefined {
+    this.stopRouting ??= this.deps.observeRouting?.(() => this.refresh());
+    const contribution = this.deps.routing?.(id);
+    const existing = this.adapters.get(id);
+    if (existing?.contribution === contribution) return existing?.adapter;
+    if (existing) { existing.stop(); existing.adapter.dispose?.(); this.adapters.delete(id); }
+    if (!contribution) return undefined;
+    const adapter = contribution.policy.create?.({
+      activeMachine: () => this.activeMachine()?.machine,
+      call: (machine, command, input) => this.remoteCall(machine, id, command, input),
+      emit: (name, payload, topic) => {
+        for (const client of this.clients.values()) if (client.topics.includes(`${id}/${topic}`)) client.emit({ type: "extension-event", extensionId: id, name, payload, topic });
+      },
+      refresh: () => this.refresh(),
+      watching: (topic) => [...this.clients.values()].some((client) => client.topics.includes(`${id}/${topic}`)),
+      connected: (machine) => this.connected.has(machine),
+    }) ?? {};
+    const stop = contribution.onDispose(() => {
+      this.adapters.delete(id);
+      // Rebuild watches even when a replacement registers the same topics.
+      for (const client of this.clients.values()) client.key = "";
+      try { adapter.dispose?.(); }
+      finally { this.refresh(); }
+    });
+    this.adapters.set(id, { contribution, adapter, stop });
+    return adapter;
   }
 
   private activeMachine(): { machine: string; sessionId: string } | undefined {
@@ -81,8 +84,9 @@ export class MachineKitRoute {
     return this.homeOf(workspaceId)?.name;
   }
 
-  routeOf(extensionId: string, input: unknown): Route | undefined {
-    if (!ROUTED_KITS.has(extensionId)) return undefined;
+  routeOf(extensionId: string, input: unknown, command = ""): Route | undefined {
+    const adapter = this.adapter(extensionId);
+    if (!adapter || this.deps.routing?.(extensionId)?.policy.localCommands?.includes(command)) return undefined;
     const machines = this.deps.machines();
     if (!machines) return undefined;
     const item = fields(input);
@@ -91,16 +95,8 @@ export class MachineKitRoute {
       const home = this.homeOf(named);
       return home ? { machine: home.id, input } : undefined;
     }
-    if (extensionId === "tau.terminal" && typeof item.id === "string") {
-      const machine = this.shellMachine.get(item.id);
-      if (machine) return { machine, input };
-      // An existing local shell stays local even while a remote thread is shown.
-      return undefined;
-    }
-    if (extensionId === "tau.terminal" && typeof item.from === "string") {
-      const machine = this.shellMachine.get(item.from);
-      return machine ? { machine, input } : undefined;
-    }
+    const selected = adapter.route?.(input);
+    if (selected !== undefined) return selected === null ? undefined : { machine: selected, input };
     const active = this.activeMachine();
     if (!active) return undefined;
     const workspace = machines.index(active.machine)?.sessions.find((session) => session.id === active.sessionId)?.workspaceId;
@@ -108,48 +104,29 @@ export class MachineKitRoute {
     return { machine: active.machine, input: { ...item, workspace } };
   }
 
-  async call(route: Route, extensionId: string, command: string, readLocalTerminals?: () => Promise<unknown>): Promise<unknown> {
+  private async remoteCall(machine: string, extension: string, command: string, input?: unknown): Promise<unknown> {
     const machines = this.deps.machines();
     if (!machines) throw new Error("Machine connections are unavailable.");
+    try { return await machines.call(machine, extension, command, input); }
+    catch (error) { throw machineKitError(error, machines.list().find((item) => item.id === machine)?.name ?? machine, extension, command); }
+  }
+
+  async call(route: Route, extensionId: string, command: string, readLocal?: () => Promise<unknown>): Promise<unknown> {
+    const adapter = this.adapter(extensionId);
     const item = fields(route.input);
     const prefix = `${route.machine}~`;
-    const input = typeof item.sessionId === "string" && item.sessionId.startsWith(prefix)
-      ? { ...item, sessionId: item.sessionId.slice(prefix.length) } : route.input;
-    const revision = this.revision(route.machine);
-    let result: unknown;
-    try { result = await machines.call(route.machine, extensionId, command, input); }
-    catch (error) { throw machineKitError(error, machines.list().find((machine) => machine.id === route.machine)?.name ?? route.machine, extensionId, command); }
+    const input = typeof item.sessionId === "string" && item.sessionId.startsWith(prefix) ? { ...item, sessionId: item.sessionId.slice(prefix.length) } : route.input;
+    const revision = adapter?.beforeCall?.(route.machine);
+    const result = await this.remoteCall(route.machine, extensionId, command, input);
     const created = fields(result).workspaceId;
     if (typeof created === "string" && created) {
       this.createdOn.delete(created);
       this.createdOn.set(created, route.machine);
       if (this.createdOn.size > CREATED_KEPT) this.createdOn.delete(this.createdOn.keys().next().value!);
     }
-    if (extensionId === "tau.terminal") {
-      const records = Array.isArray(result) ? result : [result];
-      for (const record of records) {
-        const id = fields(record).id;
-        if (typeof id === "string") this.shellMachine.set(id, route.machine);
-      }
-      if (command === "open" || command === "restart") {
-        const id = fields(result).id;
-        if (typeof id === "string") {
-          const previous = (this.terminalLists.get(route.machine) ?? []).filter((record) => fields(record).id !== id && fields(record).id !== item.id);
-          this.terminalLists.set(route.machine, [...previous, this.localIds(route.machine, result)]);
-        }
-      } else if (command === "kill") {
-        this.terminalLists.set(route.machine, (this.terminalLists.get(route.machine) ?? []).filter((record) => fields(record).id !== item.id));
-      }
-      if (command === "list" && Array.isArray(result)) {
-        if (this.revision(route.machine) === revision) this.remotePayload(route.machine, extensionId, "sessions", result);
-        if (readLocalTerminals) {
-          const local = await readLocalTerminals();
-          if (Array.isArray(local)) this.terminalLists.set("", local);
-        }
-      }
-    }
+    const translated = adapter?.remoteResult ? await adapter.remoteResult(route.machine, command, route.input, result, readLocal, revision) : this.localIds(route.machine, result);
     this.refresh();
-    return extensionId === "tau.terminal" && command === "list" ? this.terminals() : this.localIds(route.machine, result);
+    return translated;
   }
 
   private localIds(machine: string, value: unknown): unknown {
@@ -158,35 +135,15 @@ export class MachineKitRoute {
     return typeof item.sessionId === "string" ? { ...item, sessionId: `${machine}~${item.sessionId}` } : value;
   }
 
-  private terminals(): unknown[] {
-    return [...this.terminalLists.values()].flat();
-  }
-
-  /** Local and remote session lists update their own table, keeping shells of other machines. */
   localEvent(event: HostEvent): HostEvent {
-    if (event.type !== "extension-event" || event.extensionId !== "tau.terminal" || event.name !== "sessions" || !Array.isArray(event.payload)) return event;
-    this.terminalLists.set("", event.payload);
-    return { ...event, payload: this.terminals() };
+    if (event.type !== "extension-event") return event;
+    const adapter = this.adapter(event.extensionId);
+    return adapter?.localEvent ? { ...event, payload: adapter.localEvent(event.name, event.payload) } : event;
   }
 
   localResult(extension: string, command: string, result: unknown): unknown {
-    if (extension !== "tau.terminal" || command !== "list" || !Array.isArray(result)) return result;
-    this.terminalLists.set("", result);
-    return this.terminals();
-  }
-
-  private remotePayload(machine: string, extension: string, name: string, payload: unknown): unknown {
-    const translated = this.localIds(machine, payload);
-    if (extension === "tau.terminal" && name === "sessions" && Array.isArray(translated)) {
-      this.revise(machine);
-      this.terminalLists.set(machine, translated);
-      for (const session of translated) {
-        const id = fields(session).id;
-        if (typeof id === "string") this.shellMachine.set(id, machine);
-      }
-      return this.terminals();
-    }
-    return translated;
+    const adapter = this.adapter(extension);
+    return adapter?.localResult ? adapter.localResult(command, result) : result;
   }
 
   subscribe(connection: string, topics: readonly string[], emit: (event: HostPushEvent) => void): void {
@@ -202,13 +159,13 @@ export class MachineKitRoute {
     for (const client of this.clients.values()) {
       const watches = client.topics.flatMap((key) => {
         const split = key.indexOf("/");
+        if (split <= 0) return [];
         const extension = key.slice(0, split);
         const topic = key.slice(split + 1);
-        if (split <= 0 || !ROUTED_KITS.has(extension)) return [];
-        const owners = extension === "tau.terminal" && topic === "sessions"
-          ? [...new Set([active, ...[...this.terminalLists].filter(([machine, records]) => machine && records.length > 0).map(([machine]) => machine)].filter((machine): machine is string => Boolean(machine)))]
-          : [extension === "tau.terminal" && topic.startsWith("output/") ? this.shellMachine.get(topic.slice("output/".length)) : active];
-        return owners.flatMap((machine) => machine && available.has(machine) ? [{ extension, topic, machine }] : []);
+        const adapter = this.adapter(extension);
+        if (!adapter) return [];
+        const owners = adapter.owners?.(topic) ?? (active ? [active] : []);
+        return owners.flatMap((machine) => available.has(machine) ? [{ extension, topic, machine }] : []);
       });
       const key = JSON.stringify(watches);
       if (client.key === key) continue;
@@ -217,10 +174,11 @@ export class MachineKitRoute {
       if (!machines) continue;
       for (const watch of watches) {
         try {
-          client.stops.push(machines.watch(watch.machine, watch.extension, watch.topic, (event) => client.emit({
-            type: "extension-event", extensionId: watch.extension, name: event.name,
-            payload: this.remotePayload(watch.machine, watch.extension, event.name, event.payload), topic: watch.topic,
-          })));
+          client.stops.push(machines.watch(watch.machine, watch.extension, watch.topic, (event) => {
+            const adapter = this.adapter(watch.extension);
+            if (!adapter) return;
+            client.emit({ type: "extension-event", extensionId: watch.extension, name: event.name, payload: adapter.remoteEvent ? adapter.remoteEvent(watch.machine, event.name, event.payload) : this.localIds(watch.machine, event.payload), topic: watch.topic });
+          }));
         } catch { /* A removed machine has no connection to watch. */ }
       }
     }
@@ -229,5 +187,13 @@ export class MachineKitRoute {
   detach(connection: string): void {
     this.clients.get(connection)?.stops.forEach((stop) => stop());
     this.clients.delete(connection);
+  }
+
+  dispose(): void {
+    this.stopMachines?.();
+    this.stopRouting?.();
+    for (const connection of this.clients.keys()) this.detach(connection);
+    for (const { adapter, stop } of this.adapters.values()) { stop(); adapter.dispose?.(); }
+    this.adapters.clear();
   }
 }
