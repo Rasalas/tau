@@ -2175,8 +2175,8 @@ button.project-modal-bar-glyph:hover { background: var(--raised); color: var(--i
 }
 .conversation-sync .host-connection-message { align-items: flex-start; min-width: 0; }
 .conversation-sync .host-connection-message > svg { flex: none; margin-top: 2px; color: var(--warn); }
-.conversation-sync-copy { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
-.conversation-sync-copy strong { color: var(--ink); font-weight: 600; }
+.conversation-sync .host-connection-message > span { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.conversation-sync strong { color: var(--ink); font-weight: 600; }
 .composer-floating .host-connection-status.conversation-sync { margin: 0 0 8px; width: 100%; }
 /* A host on another machine: the link's health as a dot, the words in its tooltip. */
 .host-link-indicator { padding: 6px; }

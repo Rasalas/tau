@@ -233,7 +233,6 @@ export interface WorkbenchLayout {
 export interface WorkbenchThread {
   /** Host confirmation of the visible snapshot, independent of its run state. */
   freshness?: "loading" | "offline" | "current";
-  cachedAt?: number;
   snapshot?: HostSnapshot;
   /** The snapshot as the conversation sees it: a draft, or the live run state. */
   conversationSnapshot?: HostSnapshot;
@@ -992,7 +991,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               </div> : null}
               <Region registry={registry} placement="composer-above" snapshot={snapshot} actions={actions} workspacePreviewAvailable={(workspaceAreaShown || stageExpanded) && registry.getRegions("workspace-preview").length > 0} />
               <ComposerHost start={showStartScreen}>
-                <HostConnectionStatus pendingConversation={!contentCurrent} cachedAt={thread.cachedAt} />
+                <HostConnectionStatus pendingConversation={!contentCurrent} />
                 {conversationComposer}
               </ComposerHost>
               <Region registry={registry} placement="composer-below" snapshot={snapshot} actions={actions} />

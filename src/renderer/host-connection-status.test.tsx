@@ -98,7 +98,7 @@ describe("host connection status", () => {
     act(() => { vi.advanceTimersByTime(4_000); });
     link.set("resyncing");
     act(() => { vi.advanceTimersByTime(1_000); });
-    expect(screen.getByRole("status").textContent).toContain("Updating your workspace…");
+    expect(screen.getByRole("status").textContent).toContain("Syncing conversation…");
     link.set("connected");
     expect(screen.queryByRole("status")).toBeNull();
   });
@@ -111,11 +111,11 @@ describe("host connection status", () => {
 
     link.set("reconnecting");
     act(() => { vi.advanceTimersByTime(5_000); });
-    expect(screen.getByRole("status").textContent).toBe("Restoring connection…");
+    expect(screen.getByRole("status").textContent).toBe("Reconnecting…");
     expect(screen.queryByRole("button", { name: "Retry now" })).toBeNull();
 
     link.set("resyncing");
-    expect(screen.getByRole("status").textContent).toBe("Updating your workspace…");
+    expect(screen.getByRole("status").textContent).toBe("Syncing conversation…");
 
     link.set("connected");
     expect(screen.queryByRole("status")).toBeNull();
@@ -219,7 +219,7 @@ describe("host connection status", () => {
 
     link.setLink({ phase: "offline", attempts: 3, retryAt: 0 });
     expect(retry).toHaveProperty("disabled", false);
-    expect(screen.getByRole("status").textContent).toContain("You're offline. Tau will reconnect automatically.");
+    expect(screen.getByRole("status").textContent).toContain("You're offline");
   });
 });
 

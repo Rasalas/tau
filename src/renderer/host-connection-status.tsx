@@ -79,7 +79,7 @@ export function HostLinkIndicator() {
 }
 
 /** One notice for connection repair and unconfirmed conversation data, or a version mismatch. */
-export function HostConnectionStatus({ pendingConversation = false, cachedAt }: { pendingConversation?: boolean; cachedAt?: number }) {
+export function HostConnectionStatus({ pendingConversation = false }: { pendingConversation?: boolean }) {
   const client = useHostClient();
   const state = useConnectionState(client);
   const link = useConnectionLink(client);
@@ -91,18 +91,17 @@ export function HostConnectionStatus({ pendingConversation = false, cachedAt }: 
     </div>;
   }
   if (state !== "connected" || pendingConversation) {
-    return <ConnectionRepairNotice client={client} state={state} link={link} pendingConversation={pendingConversation} cachedAt={cachedAt} />;
+    return <ConnectionRepairNotice client={client} state={state} link={link} pendingConversation={pendingConversation} />;
   }
   return <VersionSkewNotice />;
 }
 
 /** Keeps one grace period across link repair; unconfirmed conversation data needs an immediate warning. */
-function ConnectionRepairNotice({ client, state, link, pendingConversation, cachedAt }: {
+function ConnectionRepairNotice({ client, state, link, pendingConversation }: {
   client: HostClient | undefined;
   state: "connected" | "reconnecting" | "resyncing";
   link: HostLink | undefined;
   pendingConversation: boolean;
-  cachedAt?: number;
 }) {
   const [visibleFor, setVisibleFor] = useState<HostClient>();
   useEffect(() => {
@@ -113,13 +112,13 @@ function ConnectionRepairNotice({ client, state, link, pendingConversation, cach
   if (!client || (!pendingConversation && visibleFor !== client)) return null;
   const offline = state === "reconnecting" && link?.phase === "offline";
   const waiting = state === "reconnecting" && (link?.phase === "waiting" || offline);
-  return <div className={`host-connection-status connection-repair ${state}${pendingConversation ? " conversation-sync" : ""}`} role="status" aria-live="polite" aria-label={pendingConversation ? "Conversation not up to date" : undefined}>
+  return <div className={`host-connection-status connection-repair conversation-sync ${state}`} role="status" aria-label={pendingConversation ? "Conversation not up to date" : undefined}>
     <span className="host-connection-message">
-      {pendingConversation ? <TriangleAlert size={16} aria-hidden="true" /> : offline ? null : <span className="spinner tone-current small" aria-hidden="true" />}
-      {pendingConversation ? <span className="conversation-sync-copy">
+      <TriangleAlert size={16} aria-hidden="true" />
+      <span>
         <strong>{offline ? "You're offline" : state === "reconnecting" ? "Reconnecting…" : "Syncing conversation…"}</strong>
-        <span title={cachedAt ? `Last saved ${new Date(cachedAt).toLocaleString()}` : undefined}>Messages and agent status may be out of date. Sending is paused until this conversation is up to date.</span>
-      </span> : <span>{offline ? "You're offline. Tau will reconnect automatically." : state === "resyncing" ? LABEL.resyncing : "Restoring connection…"}</span>}
+        {pendingConversation ? <span>Messages and agent status may be out of date. Sending is paused until this conversation is up to date.</span> : null}
+      </span>
     </span>
     {state === "reconnecting" && link ? <button type="button" className="text-button" disabled={!waiting} onClick={() => client.reconnectNow()}>Retry now</button> : null}
   </div>;

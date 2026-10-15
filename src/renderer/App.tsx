@@ -655,7 +655,7 @@ export default function App() {
   ]);
 
   const thread = useMemo<WorkbenchThread>(() => ({
-    freshness, cachedAt: cachedBootstrap?.savedAt,
+    freshness,
     snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread), draftRuntime: pendingNewThread?.runtime,
     showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
@@ -665,7 +665,7 @@ export default function App() {
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
-    freshness, cachedBootstrap?.savedAt, activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
+    freshness, activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
     threadCommands, copyMessage, duplicateThread, editFromMessage, forkFromTree, liveSnapshot, navigateThreadTree,
     openThreadTree, pendingNewThread, runStartedAt, settleActiveThread, showStartScreen, startProjectName,
     startProjectPath, threadDropController, threadTreeModal, titleCommands,
