@@ -1,5 +1,6 @@
 ext {
     androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
+    androidxWebkitVersion = project.hasProperty('androidxWebkitVersion') ? rootProject.ext.androidxWebkitVersion : '1.14.0'
     firebaseMessagingVersion = project.hasProperty('firebaseMessagingVersion') ? rootProject.ext.firebaseMessagingVersion : '25.0.1'
 }
 
@@ -57,6 +58,7 @@ dependencies {
     implementation "androidx.core:core:1.17.0"
     implementation project(':capacitor-android')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     // TauMessagingService hands every message it does not open to Capacitor's.
     implementation project(':capacitor-push-notifications')

@@ -7,9 +7,11 @@ import { RacingSocket, listAddresses, socketCandidates, type CertificateRefusal,
 import type { SavedHost, WonAddress } from "./hosts";
 import { connectCandidate, type MobileConnect } from "./relay-connect";
 import { NativeSocket, type SocketBridge } from "./native-socket";
+import type { BrowserResourceBridge, BrowserResourceResponse } from "./browser-resources";
 
 export interface ConnectDependencies {
   bridge: SocketBridge;
+  resources?: BrowserResourceBridge;
   connect?: MobileConnect;
   device: DeviceNetwork;
   wakes?: HostWakeSource;
@@ -89,5 +91,10 @@ export function connectHost(host: () => SavedHost, token: string, dependencies: 
     }),
     onUnauthorized: callbacks.onUnauthorized,
   });
+  const resources = dependencies.resources?.open((path) => connection.request<BrowserResourceResponse>("read-browser-resource", [path]));
+  if (resources) {
+    const stop = connection.onLink((link) => { if (link.phase === "closed") { resources.close(); stop(); } });
+    client.resourceUrl = (path) => resources.resourceUrl(path);
+  }
   return { client, connection };
 }

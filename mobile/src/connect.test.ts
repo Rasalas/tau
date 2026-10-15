@@ -3,6 +3,7 @@ import { certificateRefusalNotice, connectHost } from "./connect";
 import type { CertificateRefusal } from "./endpoints";
 import type { SavedHost } from "./hosts";
 import type { NativeSocketEvent, SocketBridge } from "./native-socket";
+import type { BrowserResourceResponse } from "./browser-resources";
 
 const KEY = "EF:".repeat(31) + "EF";
 
@@ -55,6 +56,25 @@ const host: SavedHost = {
 };
 
 describe("connectHost", () => {
+  it("reads native resources over the selected connection and closes its route with the connection", async () => {
+    let read!: (path: string) => Promise<BrowserResourceResponse>;
+    const close = vi.fn();
+    const resourceUrl = vi.fn(() => "tau-resource://localhost/frame");
+    const { client, connection } = connectHost(() => host, "token", {
+      bridge: closingBridge({}),
+      device: { platform: "ios", virtual: false },
+      resources: { open: (next) => { read = next; return { close, resourceUrl }; }, close: vi.fn() },
+    }, { onUnauthorized: vi.fn(), onCertificateRefused: vi.fn() });
+    const response: BrowserResourceResponse = { status: 200, headers: {}, body: "" };
+    const request = vi.spyOn(connection, "request").mockResolvedValue(response);
+    const path = `/resources/${"a".repeat(64)}`;
+    expect(client.resourceUrl?.(path)).toBe("tau-resource://localhost/frame");
+    await expect(read(path)).resolves.toEqual(response);
+    expect(request).toHaveBeenCalledWith("read-browser-resource", [path]);
+    connection.close();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("gives up with the address when one shows another key and the others are out of reach", async () => {
     const refusals: CertificateRefusal[] = [];
     const { connection } = connectHost(() => host, "token", {

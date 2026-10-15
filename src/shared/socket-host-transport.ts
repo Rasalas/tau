@@ -13,6 +13,7 @@ import type { HostTransport } from "./host-transport-client.js";
 import { ConnectionTimers, type ConnectionTimer } from "./connection-timers.js";
 import type { HostLink, HostWake, HostWakeSource } from "./host-link.js";
 import { ConnectionDroppedError } from "./connection-dropped-error.js";
+import { browserResourceUrl } from "./browser-resource.js";
 
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 3_000;
@@ -428,13 +429,7 @@ export function createSocketHostTransport(url: string, initialToken?: string, op
 
   return {
     platform: "remote",
-    resourceUrl: (path) => {
-      if (!/^\/resources\/[0-9a-f]{64}$/u.test(path)) throw new Error("Invalid host resource path.");
-      const endpoint = new URL(url);
-      endpoint.protocol = endpoint.protocol === "wss:" ? "https:" : "http:";
-      endpoint.username = ""; endpoint.password = ""; endpoint.search = ""; endpoint.hash = "";
-      return new URL(path, endpoint).toString();
-    },
+    resourceUrl: (path) => browserResourceUrl(new URL(url).origin.replace(/^ws/u, "http"), path),
     request: (method, params) => new Promise<HostResponse>((resolve, reject) => {
       if (closed) { reject(new Error("The connection to the machine was closed.")); return; }
       counter += 1;

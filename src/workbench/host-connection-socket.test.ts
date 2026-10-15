@@ -118,11 +118,15 @@ describe("socket host client", () => {
     transport.close?.();
   });
 
-  it("resolves browser resources against the home host without exposing connection credentials", () => {
+  it.each([
+    ["wss://host.test:7788/socket?token=connection-secret", "https://host.test:7788"],
+    ["wss://user:password@host.test:443/socket?token=connection-secret#fragment", "https://host.test"],
+    ["ws://user:password@[::1]:7788/socket?token=connection-secret#fragment", "http://[::1]:7788"],
+  ])("resolves browser resources from %s without exposing connection credentials", (url, origin) => {
     vi.stubGlobal("WebSocket", FakeSocket);
-    const { client, connection } = createSocketHostClient("wss://host.test:7788/socket?token=connection-secret", "host-secret");
+    const { client, connection } = createSocketHostClient(url, "host-secret");
     const path = `/resources/${"a".repeat(64)}`;
-    expect(client.resourceUrl?.(path)).toBe(`https://host.test:7788${path}`);
+    expect(client.resourceUrl?.(path)).toBe(`${origin}${path}`);
     for (const invalid of ["https://evil.test/resource", "/resources/../secret", path + "?token=x", "//evil.test/resource"]) expect(() => client.resourceUrl?.(invalid)).toThrow("Invalid host resource path");
     connection.close();
   });

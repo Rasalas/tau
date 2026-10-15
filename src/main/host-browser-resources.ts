@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { buildVisualizationDocument, VISUALIZATION_CSP } from "../shared/inline-visualization.js";
 import { FRAME_MAX_HTML_BYTES, frameResponsePolicy, prepareFrameDocument, readFrameCsp, type FrameColorScheme, type SandboxFrameCsp } from "../shared/sandbox-frame.js";
 import { currentCaller } from "./host-invocation.js";
+import { BROWSER_RESOURCE_MAX_BYTES, type BrowserResourceResponse } from "../shared/browser-resource.js";
 
 /** A document a client frames in an opaque sandbox: the app's HTML, the origins it declared and the workbench's colour scheme. */
 export interface SandboxFrameDocument { html: string; csp?: SandboxFrameCsp; colorScheme?: FrameColorScheme }
@@ -84,6 +85,45 @@ export class HostBrowserResourceStore {
   detach(connection: string): void { for (const [token, entry] of this.entries) if (entry.connection === connection) this.remove(token); }
   removeExtension(extension: string): void { for (const [token, entry] of this.entries) if (entry.extension === extension) this.remove(token); }
   close(): void { for (const token of this.entries.keys()) this.remove(token); }
+
+  /** Native clients keep resource reads on their pinned socket, including relay connections. */
+  async readForClient(path: string): Promise<BrowserResourceResponse> {
+    this.prune();
+    const token = PATH.exec(path)?.[1];
+    const entry = token && this.entries.get(token);
+    const empty = (status: number): BrowserResourceResponse => ({ status, headers: { ...HEADERS }, body: "" });
+    if (!entry || !currentCaller() || entry.connection !== currentCaller()) return empty(404);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    const aborted = new Promise<never>((_resolve, reject) => {
+      controller.signal.addEventListener("abort", () => reject(new Error("Resource read timed out.")), { once: true });
+    });
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const response = await Promise.race([this.respond(new Request(`http://resource.invalid${path}`, { signal: controller.signal })), aborted]);
+      if (Number(response.headers.get("content-length")) > BROWSER_RESOURCE_MAX_BYTES) {
+        void response.body?.cancel().catch(() => undefined);
+        return empty(413);
+      }
+      reader = response.body?.getReader();
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      if (reader) for (;;) {
+        const part = await Promise.race([reader.read(), aborted]);
+        if (part.done) break;
+        length += part.value.byteLength;
+        if (length > BROWSER_RESOURCE_MAX_BYTES) return empty(413);
+        chunks.push(part.value);
+      }
+      if (this.entries.get(token!) !== entry) return empty(404);
+      return { status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.concat(chunks, length).toString("base64") };
+    } catch { return empty(502); }
+    finally {
+      clearTimeout(timeout);
+      controller.abort();
+      void reader?.cancel().catch(() => undefined);
+    }
+  }
 
   /** A capability, not the host token, authorizes GET/HEAD. Never logs its path or handler errors. */
   async respond(request: Request): Promise<Response> {
