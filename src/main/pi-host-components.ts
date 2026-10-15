@@ -1,3 +1,6 @@
+import { TurnEvents } from "./turn-events.js";
+import { handleRuntimeSessionEvent } from "./session-events.js";
+import { handleBackendRuntimeEvent } from "./backend-events.js";
 import { HostPreparationQueue } from "./host-preparation-queue.js";
 import { AgentSessionControl } from "./agent-session-control.js";
 import { randomBytes } from "node:crypto";
@@ -7,6 +10,8 @@ import { dirname, join } from "node:path";
 import { getAgentDir, type SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   HostEvent,
+  HostSnapshot,
+  UiToolRun,
   ThreadBackendKind,
   ThreadHostEvent,
   UiComposerCommand,
@@ -139,8 +144,6 @@ export interface PiHostDeps {
   promptThread(threadId: string, text: string, hidden?: boolean): Promise<void>;
   applyThreadTitle(thread: ThreadRuntime, title: string, source: "generated" | "renamed"): Promise<HostUpdate>;
   prewarmSession(path: string): Promise<void>;
-  handleSessionEvent(event: unknown, thread: LiveTurnState, sessionId: string, cwd: string): void;
-  handleBackendEvent(threadId: string, event: ThreadRuntimeEvent): void;
   presentUi<K extends keyof HostUiPresenter>(method: K, ...args: Parameters<NonNullable<HostUiPresenter[K]>>): boolean;
   hostThreadFor(thread: ThreadRuntime): HostThread;
   hostThread(sessionId: string | undefined): HostThread | undefined;
@@ -192,7 +195,10 @@ export interface PiHostComponents {
   readonly threadLifecycle: HostThreadLifecycleSet;
   readonly turnObservers: HostTurnObserverSet;
   readonly clients: HostClientRegistry;
-  readonly toolOwners: Map<string, string>;
+  readonly events: {
+    session(event: unknown, thread: LiveTurnState, sessionId: string, cwd: string): void;
+    backend(threadId: string, event: ThreadRuntimeEvent): void;
+  };
   readonly index: ThreadIndex;
   /** Deleted threads until their retention runs out. */
   readonly trash: ThreadTrash;
@@ -314,7 +320,42 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
     detached: () => emit({ type: "client-count", count: clients.count() }),
   });
-  const toolOwners = new Map<string, string>();
+  // Late-bound collaborators are initialized before a runtime can deliver events.
+  const eventServices = {
+    clientTurns,
+    emit,
+    emitUpdate: (update: HostUpdate) => deps.emitUpdate(update),
+    log: (label: string, detail?: string) => deps.log(label, detail),
+    fail: (error: unknown, owner: string) => deps.fail(error, owner),
+    settledSnapshot: () => publication.snapshot(),
+    detailForSnapshot: (snapshot: HostSnapshot) => publication.detailForSnapshot(snapshot),
+    toolEnded: (owner: string, tool: UiToolRun, cwd: string) => turnObservers.toolEnded(owner, tool, cwd),
+    turnSettled: (owner: string, error: string | undefined, limit?: { resetsAt?: number }) => settlement.settled(owner, error, limit),
+  };
+  const turnEvents = new TurnEvents(eventServices);
+  const events: PiHostComponents["events"] = {
+    session: (event, thread, sessionId, cwd) => handleRuntimeSessionEvent(event, thread, sessionId, cwd, {
+      ...eventServices,
+      turns: turnEvents,
+      trackedClientMessageIds: (runtime) => clientMessages.trackedIds(runtime),
+      failClientMessageIfUnpersisted: (runtime, id, owner) => { clientMessages.failIfUnpersisted(runtime, id, owner); },
+      correlateUserMessageStart: (runtime, message, owner) => clientMessages.correlateStart(runtime, message, owner),
+      decorateUserEvent: (runtime, message) => clientMessages.decorateUserEvent(runtime, message),
+      messageMappingOptions: (runtime) => projection.mapping(runtime),
+      pinnedEntries: (runtime) => projection.pinnedEntries(runtime),
+    }),
+    backend: (id, event) => {
+      const thread = threads.get(id)?.runtime;
+      if (!thread) return;
+      handleBackendRuntimeEvent(event, thread, {
+        ...eventServices,
+        turns: turnEvents,
+        turnObservers,
+        refreshShell: (runtime, touch) => index.refreshShell(runtime, touch),
+        controls,
+      });
+    },
+  };
   const backgrounds = new ThreadBackgroundWork((id) => deps.threadFor(id)?.backend.capabilities.background, (id) => {
     index.setBackground(id, publishedBackground(backgrounds.forThread(id)));
     runClock.recheck(id);
@@ -450,7 +491,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     clearActiveThread: () => threads.setActive(undefined),
     cwd: () => deps.getCwd(),
     setCwd: (cwd) => deps.setCwd(cwd),
-    onSessionEvent: (event, threadId) => deps.handleSessionEvent(event, attachedThread, threadId, deps.getCwd()),
+    onSessionEvent: (event, threadId) => events.session(event, attachedThread, threadId, deps.getCwd()),
     snapshot: () => publication.snapshot(),
     detailForSnapshot: (snapshot, requestId) => publication.detailForSnapshot(snapshot, requestId),
     lifecycleUpdates: (snapshot) => publication.lifecycleUpdates(snapshot),
@@ -627,7 +668,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     projection,
     isActive: (thread) => deps.getActive() === thread,
     isCurrent: (thread) => threads.get(thread.threadId)?.runtime === thread,
-    onSessionEvent: (event, runtime, threadId, eventCwd) => deps.handleSessionEvent(event, runtime, threadId, eventCwd),
+    onSessionEvent: (event, runtime, threadId, eventCwd) => events.session(event, runtime, threadId, eventCwd),
     emitForThread: (thread, event) => deps.emitForThread(thread, event),
     presentUi: (method, ...args) => deps.presentUi(method, ...args),
     setWindowTitle: (title) => deps.setWindowTitle(title),
@@ -674,11 +715,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     indexedSession: (path) => index.byPath(path),
     findSession: (sessionId) => index.find(sessionId),
     presentUi: (method, ...args) => deps.presentUi(method, ...args),
-    releaseTool: (toolCallId) => { toolOwners.delete(toolCallId); },
+    releaseTool: (toolCallId) => turnEvents.releaseTool(toolCallId),
     emitMessage: (threadId, message) => emit(message.role === "user"
       ? { type: "user-message", sessionId: threadId, message }
       : { type: "assistant-end", sessionId: threadId, message }),
-    emitRuntimeEvent: (threadId, event) => deps.handleBackendEvent(threadId, event),
+    emitRuntimeEvent: (threadId, event) => events.backend(threadId, event),
     logRuntimePhase: (phase, startedAt, reason, phaseCwd) => deps.logRuntimePhase(phase, startedAt, reason, phaseCwd),
     log: (label, detail) => deps.log(label, detail),
     errorMessage: (error) => deps.errorMessage(error),
@@ -839,7 +880,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     fail: (error, sessionId) => deps.fail(error, sessionId),
   });
   const sessionControl: AgentSessionControl = new AgentSessionControl({
-    stopped: (thread) => { deps.handleBackendEvent(thread.threadId, { type: "turn-settled", status: "interrupted" }); turnsInFlight.clear(thread.threadId); },
+    stopped: (thread) => { events.backend(thread.threadId, { type: "turn-settled", status: "interrupted" }); turnsInFlight.clear(thread.threadId); },
     activationEpoch: () => lifecycle.currentActivationEpoch,
     extensionUi, queue, turnsInFlight, limits, prompts,
     continueAfterRestart: () => defaultHostConfigManager.readSync(deps.getCwd()).threads?.continueAfterRestart === true,
@@ -877,7 +918,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     threadLifecycle,
     turnObservers,
     clients,
-    toolOwners,
+    events,
     index,
     trash,
     publication,

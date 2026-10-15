@@ -1,3 +1,4 @@
+import type { TauConfig } from "../shared/contracts.js";
 import { lookup } from "node:dns/promises";
 import { dirname, join } from "node:path";
 import { bootstrapSshHost, ManagedSshTunnel, freeLocalPort } from "./managed-ssh.js";
@@ -624,14 +625,14 @@ export class WindowEnvironments {
     return this.settingsCall(id, () => watched.monitor.call<ConfigLayers>("get-config-layers", []));
   }
 
-  async updateConfig(machine: string, patch: Record<string, unknown>): Promise<unknown> {
+  async updateConfig(machine: string, patch: Record<string, unknown>): Promise<TauConfig> {
     const { id, watched } = this.reachable(machine);
-    return this.settingsCall(id, () => watched.monitor.call("update-config", [patch, "global"]));
+    return this.settingsCall(id, () => watched.monitor.call<TauConfig>("update-config", [patch, "global"]));
   }
 
-  async clearConfig(machine: string, keys: readonly string[]): Promise<unknown> {
+  async clearConfig(machine: string, keys: readonly string[]): Promise<TauConfig> {
     const { id, watched } = this.reachable(machine);
-    return this.settingsCall(id, () => watched.monitor.call("clear-config", [keys, "global"]));
+    return this.settingsCall(id, () => watched.monitor.call<TauConfig>("clear-config", [keys, "global"]));
   }
 
   private async settingsCall<T>(id: string, call: () => Promise<T>): Promise<T> {

@@ -219,6 +219,7 @@ export interface WorkerHostExtensionContext {
   readonly services: WorkerHostServices;
   /** Calls another host entry through the supervisor-bound worker identity. */
   readonly invokeHostExtension: (extensionId: string, command: string, input?: unknown) => Promise<unknown>;
+  registerMachineRouting(policy?: { localCommands?: readonly string[] }): () => void;
   registerCommand(name: string, handler: WorkerCommandHandler, options?: { long?: boolean; callers?: readonly string[]; access?: "read" | "owner"; audit?: { label?: string; automatic?: boolean } }): () => void;
   emit(name: string, payload?: unknown, options?: HostExtensionEmitOptions): void;
   /** Says this extension answers a contract another extension names (API 1.62.0). */
@@ -253,6 +254,7 @@ export type WorkerToHostMessage =
   | { t: "command"; name: string; long: boolean; callers: readonly string[]; access?: "read" | "owner"; audit?: { label?: string; automatic?: boolean } }
   | { t: "command-off"; name: string }
   | { t: "emit"; name: string; payload: unknown; topic?: string }
+  | { t: "machine-routing"; on: boolean; localCommands?: readonly string[] }
   | { t: "offer"; contract: string; on: boolean }
   | { t: "log"; label: string; detail?: string }
   | { t: "rpc"; id: number; path: string; args: readonly unknown[] }

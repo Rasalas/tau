@@ -1,3 +1,4 @@
+import { HOST_COMMANDS, HOST_TRANSPORT_COMMANDS } from "../shared/host-command-contract.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,10 +11,8 @@ import type { PiHost } from "./pi-host.js";
 import { activateHostKit } from "./test-support/host-kit-harness.js";
 
 /**
- * The client and the host agree only by string. A method added to one and
- * forgotten in the other fails at runtime with "Unknown method", and only when
- * the user happens to hit that button. The two channel names of the Electron
- * transport are checked the same way.
+ * Typed declarations check argument/result agreement at compilation. These
+ * checks also cover runtime table completeness and the two transport channels.
  */
 const root = join(import.meta.dirname, "..");
 const read = (file: string) => readFileSync(join(root, file), "utf8");
@@ -64,11 +63,15 @@ function tableMethods(): Set<string> {
 /** Every protocol method name the client sends. */
 function clientMethods(): Set<string> {
   const source = read("workbench/host-client.ts");
-  return new Set([...source.matchAll(/(?:call|callLong|runJob|isJobMethod)(?:<[^>]*>)?\("([a-z-]+)"/gu)].map((match) => match[1]!));
+  return new Set([...source.matchAll(/(?:call|callLong|commandCall|commandCallLong|runJob|isJobMethod)(?:<[^>]*>)?\("([a-z-]+)"/gu)].map((match) => match[1]!));
 }
 
 describe("host protocol contract", () => {
   const methods = tableMethods();
+
+  it("implements exactly the shared command catalog", () => {
+    expect([...methods].sort()).toEqual(Object.keys(HOST_COMMANDS).filter((name) => !(name in HOST_TRANSPORT_COMMANDS)).sort());
+  });
 
   it("the host implements every method the client calls", () => {
     const missing = [...clientMethods()].filter((method) => !methods.has(method)).sort();

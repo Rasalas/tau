@@ -1,3 +1,6 @@
+import { HOST_CORE_COMMANDS } from "../shared/host-core-commands.js";
+import { bindHostCommand } from "./host-command-handler.js";
+import { HOST_COMMANDS } from "../shared/host-command-contract.js";
 import { createHash } from "node:crypto";
 import type {
   DesktopExtensionLoadResult,
@@ -9,9 +12,9 @@ import type {
   WorkbenchBuildResult,
 } from "../shared/contracts.js";
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
-import { decodeBadgeCount, decodeSystemNotification, type SystemNotification, type SystemNotificationOutcome } from "../shared/system-attention.js";
-import { decodeMenuPoint, decodeNativeMenu, type MenuPoint, type NativeMenuEntry } from "../shared/context-menu.js";
-import { decodeWindowAction, type WindowAction } from "../shared/window-shell.js";
+import { type SystemNotification, type SystemNotificationOutcome } from "../shared/system-attention.js";
+import { type MenuPoint, type NativeMenuEntry } from "../shared/context-menu.js";
+import { type WindowAction } from "../shared/window-shell.js";
 import type { PiHost } from "./pi-host.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
 import { openExternalEditor } from "./external-editor.js";
@@ -29,35 +32,6 @@ import { createBlobMethods, type HostBlobStore } from "./host-blobs.js";
 import { createUpdateMethods, type HostUpdater } from "./host-updater.js";
 import { authorizeMethod, ownerRefusal } from "./host-method-access.js";
 import { createEnvironmentMethods, type EnvironmentsService } from "./environment-methods.js";
-import {
-  decodeBoolean,
-  decodeCompactionPrompt,
-  decodeCommandName,
-  decodeConfigPatch,
-  decodeCustomProviderInput,
-  decodeExtensionId,
-  decodeExtensionUiAnswer,
-  decodeHostTranscriptCursor,
-  decodeNavigateOptions,
-  decodeNewThreadConfiguration,
-  decodeSettingKeys,
-  decodeKnownCatalogs,
-  decodeOptionalBoolean,
-  decodeOptionalExtensionIds,
-  decodeOptionalString,
-  decodeOptionalText,
-  decodePreparedPrompt,
-  decodeSharedExports,
-  decodeString,
-  decodeStringOrClientTurnIdentity,
-  decodeText,
-  decodeThreadDelivery,
-  decodeThreadStartOptions,
-  decodeUiPromptAttachments,
-  decodeUiSkillDraft,
-  decodeWorkbenchReloadMode,
-  decodeBundleHashes,
-} from "./ipc-input.js";
 
 /** One method of the host protocol. Params arrive positionally and untrusted. */
 export type HostMethod = (params: readonly unknown[], context: HostMethodContext) => Promise<unknown>;
@@ -121,14 +95,14 @@ function shareFile(platform: { shareFile?(path: string): Promise<UiSharedFile> }
   return platform.shareFile(path);
 }
 
-async function windowAction(platform: { windowAction?(action: WindowAction): Promise<unknown> }, params: readonly unknown[]): Promise<unknown> {
+async function windowAction(platform: { windowAction?(action: WindowAction): Promise<unknown> }, params: readonly [WindowAction]): Promise<unknown> {
   if (!platform.windowAction) throw Object.assign(new Error("This client has no window of its own."), { code: HOST_ERROR.unsupported });
-  return platform.windowAction(decodeWindowAction("window-action", params[0]));
+  return platform.windowAction(params[0]);
 }
 
-async function contextMenu(platform: { showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined> }, params: readonly unknown[]): Promise<{ id?: string }> {
+async function contextMenu(platform: { showContextMenu?(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined> }, params: readonly [NativeMenuEntry[], MenuPoint]): Promise<{ id?: string }> {
   if (!platform.showContextMenu) throw Object.assign(new Error("This client draws no native menus."), { code: HOST_ERROR.unsupported });
-  const id = await platform.showContextMenu(decodeNativeMenu("context-menu", params[0]), decodeMenuPoint("context-menu", params[1]));
+  const id = await platform.showContextMenu(params[0], params[1]);
   return id === undefined ? {} : { id };
 }
 
@@ -139,23 +113,23 @@ async function contextMenu(platform: { showContextMenu?(entries: NativeMenuEntry
  */
 export function createClientHostMethods(platform: ClientHostPlatform): HostMethodTable {
   return {
-    "copy-text": async (params) => platform.copyText(decodeString("copy-text", "text", params[0])),
-    "copy-image": async (params) => platform.copyImage(decodeString("copy-image", "dataUrl", params[0])),
-    "read-image-preview": async (params) => platform.readImagePreview(decodeString("read-image-preview", "path", params[0])),
-    "share-file": async (params) => shareFile(platform, decodeString("share-file", "path", params[0])),
-    "desktop-extensions": async (params) => platform.loadDesktopExtensions(
-      decodeString("desktop-extensions", "cwd", params[0]),
-      decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
-      decodeOptionalExtensionIds("desktop-extensions", "only", params[2]),
-    ),
-    "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context),
-    "workbench-source": async () => ({ path: await platform.workbenchSource() }),
-    "relaunch-workbench": async () => platform.relaunchWorkbench(),
-    "install-update": async () => ({ installing: platform.installUpdate() }),
-    "notify": async (params) => platform.notify(decodeSystemNotification("notify", params[0])),
-    "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
-    "context-menu": async (params) => contextMenu(platform, params),
-    "window-action": async (params) => windowAction(platform, params),
+    "copy-text": bindHostCommand(HOST_CORE_COMMANDS["copy-text"], async (params) => platform.copyText(params[0])),
+    "copy-image": bindHostCommand(HOST_CORE_COMMANDS["copy-image"], async (params) => platform.copyImage(params[0])),
+    "read-image-preview": bindHostCommand(HOST_CORE_COMMANDS["read-image-preview"], async (params) => platform.readImagePreview(params[0])),
+    "share-file": bindHostCommand(HOST_CORE_COMMANDS["share-file"], async (params) => shareFile(platform, params[0])),
+    "desktop-extensions": bindHostCommand(HOST_CORE_COMMANDS["desktop-extensions"], async (params) => platform.loadDesktopExtensions(
+      params[0],
+      params[1],
+      params[2],
+    )),
+    "rebuild-workbench": bindHostCommand(HOST_CORE_COMMANDS["rebuild-workbench"], async (_params, context) => platform.rebuildWorkbench(context)),
+    "workbench-source": bindHostCommand(HOST_CORE_COMMANDS["workbench-source"], async () => ({ path: await platform.workbenchSource() })),
+    "relaunch-workbench": bindHostCommand(HOST_CORE_COMMANDS["relaunch-workbench"], async () => platform.relaunchWorkbench()),
+    "install-update": bindHostCommand(HOST_CORE_COMMANDS["install-update"], async () => ({ installing: platform.installUpdate() })),
+    "notify": bindHostCommand(HOST_CORE_COMMANDS["notify"], async (params) => platform.notify(params[0])),
+    "set-badge": bindHostCommand(HOST_CORE_COMMANDS["set-badge"], async (params) => platform.setBadge(params[0])),
+    "context-menu": bindHostCommand(HOST_CORE_COMMANDS["context-menu"], async (params) => contextMenu(platform, params)),
+    "window-action": bindHostCommand(HOST_CORE_COMMANDS["window-action"], async (params) => windowAction(platform, params)),
     ...createEnvironmentMethods(() => platform.environments?.()),
   };
 }
@@ -192,22 +166,7 @@ const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
 /** Answer with the access key: a job's result is pushed to every client and kept for replay, so these never run as jobs. */
 const SECRET_METHODS = new Set(["connections-host-token", "connections-rotate-host-token"]);
 /** Calls that can wait on a runtime starting or reopening, which outlasts a remote request's timeout on a busy host. */
-const RUNTIME_START_METHODS = ["new-session", "prompt", "steer", "follow-up"];
-
-function decodePromptArgs(method: string, params: readonly unknown[]) {
-  return {
-    text: decodeText(method, "text", params[0]),
-    attachments: decodeUiPromptAttachments(method, "attachments", params[1]),
-    sessionId: decodeOptionalString(method, "sessionId", params[2]),
-    clientMessageIdOrIdentity: decodeStringOrClientTurnIdentity(method, "clientMessageIdOrIdentity", params[3]),
-    prepared: decodePreparedPrompt(method, "prepared", params[4]),
-  };
-}
-
-function decodeIndex(channel: string, field: string, value: unknown): number {
-  if (typeof value !== "number" || !Number.isInteger(value)) throw new Error(`${channel}: ${field} must be an integer.`);
-  return value;
-}
+const DECLARED_JOB_METHODS = Object.entries(HOST_COMMANDS).flatMap(([method, declaration]) => declaration.job ? [method] : []);
 
 /**
  * Every renderer-callable operation of the host, by protocol method name. The
@@ -216,15 +175,15 @@ function decodeIndex(channel: string, field: string, value: unknown): number {
 export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
   const { platform } = deps;
   const host = () => deps.requireHost();
-  const routes = deps.machineRoutes ?? new MachineKitRoute({ machines: () => deps.machines?.(), active: () => deps.host()?.activeThreadIdentity() });
-  const invokeExtension = async (params: readonly unknown[], context: HostMethodContext): Promise<unknown> => {
-    const extensionId = decodeExtensionId("host-extension", params[0]);
-    const command = decodeCommandName("host-extension", params[1]);
+  const routes = deps.machineRoutes ?? new MachineKitRoute({ machines: () => deps.machines?.(), active: () => deps.host()?.activeThreadIdentity(), routing: (id) => deps.host()?.hostExtensionMachineRouting?.(id), observeRouting: (listener) => deps.host()?.observeHostExtensionMachineRouting?.(listener) });
+  const invokeExtension = async (params: readonly [string, string, unknown], context: HostMethodContext): Promise<unknown> => {
+    const extensionId = params[0];
+    const command = params[1];
     const instance = await host();
-    const route = extensionId === "tau.workspace" && ["pick-folder", "create-scratch", "create-project", "publish-visualization", "release-visualization"].includes(command) ? undefined : routes.routeOf(extensionId, params[2]);
+    const route = routes.routeOf(extensionId, params[2], command);
     if (route) {
       await instance.authorizeHostExtension(extensionId, command, params[2], context.principal);
-      return routes.call(route, extensionId, command, () => instance.invokeHostExtension("tau.terminal", "list", undefined, context.principal));
+      return routes.call(route, extensionId, command, () => instance.invokeHostExtension(extensionId, command, undefined, context.principal));
     }
     return routes.localResult(extensionId, command, await instance.invokeHostExtension(extensionId, command, params[2], context.principal));
   };
@@ -236,210 +195,130 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       throw error;
     }
   };
-  const workspace = async (method: string, name: string, value: unknown): Promise<string> =>
-    resolveWorkspace(await host(), decodeString(method, name, value));
   // Kit bundles are files on disk: a host that exists names the workspace while its start still runs.
-  const workspaceWhileStarting = async (method: string, name: string, value: unknown): Promise<string> => {
-    const named = decodeString(method, name, value);
+  const workspaceWhileStarting = async (named: string): Promise<string> => {
     const starting = deps.host();
     if (starting) {
       try { return starting.resolveWorkspacePath(named); } catch { /* an id the start has yet to learn */ }
     }
     return resolveWorkspace(await host(), named);
   };
-  const optionalWorkspace = async (method: string, name: string, value: unknown): Promise<string | undefined> => {
-    const named = decodeOptionalString(method, name, value);
-    return named === undefined ? undefined : resolveWorkspace(await host(), named);
-  };
 
   const methods: HostMethodTable = {
-    "bootstrap": async () => deps.bootstrap(),
-    "transcript-page": async (params) => (await host()).loadTranscript(
-      decodeString("transcript-page", "sessionId", params[0]),
-      decodeHostTranscriptCursor("transcript-page", "cursor", params[1]),
-    ),
-    "prepare-prompt": async (params) => (await host()).preparePrompt(
-      decodeText("prepare-prompt", "text", params[0]),
-      decodeOptionalString("prepare-prompt", "sessionId", params[1]),
-      decodeUiSkillDraft("prepare-prompt", "skill", params[2]),
-      decodeOptionalString("prepare-prompt", "backendKind", params[3]),
-      await optionalWorkspace("prepare-prompt", "workspace", params[4]),
-    ),
-    // What a draft of a project offers on a runtime: its own skills, not the visible thread's.
-    "composer-commands": async (params) => (await host()).composerCommandsFor(
-      decodeString("composer-commands", "backendKind", params[0]),
-      await workspace("composer-commands", "workspace", params[1]),
-    ),
-    "prompt": async (params) => {
-      const args = decodePromptArgs("prompt", params);
-      return (await host()).prompt(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
-    },
-    "run-shell-action": async (params) => (await host()).runShellAction(
-      decodeString("run-shell-action", "command", params[0]),
-      decodeOptionalBoolean("run-shell-action", "includeInContext", params[1]),
-      await optionalWorkspace("run-shell-action", "expectedCwd", params[2]),
-    ),
-    "steer": async (params) => {
-      const args = decodePromptArgs("steer", params);
-      return (await host()).steer(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
-    },
-    "follow-up": async (params) => {
-      const args = decodePromptArgs("follow-up", params);
-      return (await host()).followUp(args.text, args.attachments, args.sessionId, args.clientMessageIdOrIdentity, args.prepared);
-    },
-    "queue-message": async (params) => {
-      const sessionId = decodeString("queue-message", "sessionId", params[0]);
-      const skillDraft = decodeUiSkillDraft("queue-message", "skillDraft", params[3]);
-      const queued = await (await host()).queue.submit(sessionId, {
-        text: decodeText("queue-message", "text", params[1]),
-        attachments: decodeUiPromptAttachments("queue-message", "attachments", params[2]) ?? [],
-        ...(skillDraft ? { skillDraft } : {}),
-      });
+    "bootstrap": bindHostCommand(HOST_CORE_COMMANDS["bootstrap"], async () => deps.bootstrap()),
+    "transcript-page": bindHostCommand(HOST_CORE_COMMANDS["transcript-page"], async (params) => (await host()).loadTranscript(
+      params[0],
+      params[1],
+    )),
+    "prepare-prompt": bindHostCommand(HOST_COMMANDS["prepare-prompt"], async ([text, sessionId, skill, backendKind, workspace]) => (await host()).preparePrompt(text, sessionId, skill, backendKind, workspace === undefined ? undefined : resolveWorkspace(await host(), workspace))),
+    "composer-commands": bindHostCommand(HOST_COMMANDS["composer-commands"], async ([backendKind, workspace]) => (await host()).composerCommandsFor(backendKind, resolveWorkspace(await host(), workspace))),
+    "prompt": bindHostCommand(HOST_COMMANDS["prompt"], async (args) => (await host()).prompt(...args)),
+    "run-shell-action": bindHostCommand(HOST_COMMANDS["run-shell-action"], async ([command, includeInContext, expectedCwd]) => (await host()).runShellAction(command, includeInContext, expectedCwd === undefined ? undefined : resolveWorkspace(await host(), expectedCwd))),
+    "steer": bindHostCommand(HOST_COMMANDS["steer"], async (args) => (await host()).steer(...args)),
+    "follow-up": bindHostCommand(HOST_COMMANDS["follow-up"], async (args) => (await host()).followUp(...args)),
+    "queue-message": bindHostCommand(HOST_COMMANDS["queue-message"], async ([sessionId, text, attachments, skillDraft]) => {
+      const queued = await (await host()).queue.submit(sessionId, { text, attachments: attachments ?? [], ...(skillDraft ? { skillDraft } : {}) });
       return { id: queued.id };
-    },
-    "take-queued": async (params) => (await host()).queue.take(
-      decodeString("take-queued", "sessionId", params[0]),
-      decodeOptionalString("take-queued", "id", params[1]),
-    ).map(({ id, text, attachments, skillDraft, wake }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}) })),
-    "move-queued": async (params) => (await host()).queue.move(
-      decodeString("move-queued", "sessionId", params[0]),
-      decodeString("move-queued", "id", params[1]),
-      decodeIndex("move-queued", "toIndex", params[2]),
-    ),
-    // A thread a provider limit stopped: continue it now, when the limit resets, or not by itself after all.
-    "resume-limited": async (params) => {
-      const sessionId = decodeString("resume-limited", "sessionId", params[0]);
-      const when = decodeString("resume-limited", "when", params[1]);
+    }),
+    "take-queued": bindHostCommand(HOST_COMMANDS["take-queued"], async ([sessionId, queuedId]) => (await host()).queue.take(sessionId, queuedId).map(({ id, text, attachments, skillDraft, wake }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}) }))),
+    "move-queued": bindHostCommand(HOST_COMMANDS["move-queued"], async (args) => (await host()).queue.move(...args)),
+    "resume-limited": bindHostCommand(HOST_COMMANDS["resume-limited"], async ([sessionId, when]) => {
       const limits = (await host()).limits;
       if (when === "now") return limits.resumeNow(sessionId);
       if (when === "reset") return void limits.resumeAtReset(sessionId);
-      if (when === "cancel") return limits.cancelResume(sessionId);
-      throw new Error('resume-limited: "when" must be "now", "reset" or "cancel".');
-    },
-    // A thread's native goal: set it, pause, resume, end it, or forget one that ended.
-    "thread-goal": async (params) => {
-      const sessionId = decodeString("thread-goal", "sessionId", params[0]);
-      const action = decodeString("thread-goal", "action", params[1]);
-      if (!["set", "pause", "resume", "clear", "dismiss"].includes(action)) throw new Error('thread-goal: "action" must be set, pause, resume, clear or dismiss.');
-      const objective = decodeOptionalText("thread-goal", "objective", params[2]);
-      return (await host()).threadGoal(sessionId, action as "set" | "pause" | "resume" | "clear" | "dismiss", objective);
-    },
-    // Stops a thread's background task, or all of them without an id.
-    "thread-background-stop": async (params) => (await host()).controls.stopBackground(
-      decodeString("thread-background-stop", "sessionId", params[0]),
-      decodeOptionalString("thread-background-stop", "taskId", params[1]),
-    ),
-    // Stopping must not queue behind host readiness: a thread stuck on a question
-    // is exactly what the user is trying to get out of.
-    "abort": async (params) => deps.host()?.abort(decodeOptionalString("abort", "sessionId", params[0])),
-    "new-session": async (params) => (await host()).newSession(
-      decodeOptionalText("new-session", "initialPrompt", params[0]),
-      decodeUiPromptAttachments("new-session", "attachments", params[1]),
-      await optionalWorkspace("new-session", "cwd", params[2]),
-      decodeStringOrClientTurnIdentity("new-session", "clientMessageIdOrRequestId", params[3]),
-      decodePreparedPrompt("new-session", "prepared", params[4]),
-      decodeNewThreadConfiguration("new-session", "configuration", params[5]),
-    ),
-    "start-thread": async (params) => {
-      const options = decodeThreadStartOptions("start-thread", params[0]);
+      return limits.cancelResume(sessionId);
+    }),
+    "thread-goal": bindHostCommand(HOST_COMMANDS["thread-goal"], async (args) => (await host()).threadGoal(...args)),
+    "thread-background-stop": bindHostCommand(HOST_COMMANDS["thread-background-stop"], async (args) => (await host()).controls.stopBackground(...args)),
+    "abort": bindHostCommand(HOST_COMMANDS["abort"], async ([sessionId]) => deps.host()?.abort(sessionId)),
+    "new-session": bindHostCommand(HOST_COMMANDS["new-session"], async ([initialPrompt, attachments, cwd, identity, prepared, configuration]) => (await host()).newSession(initialPrompt, attachments, cwd === undefined ? undefined : resolveWorkspace(await host(), cwd), identity, prepared, configuration)),
+    "start-thread": bindHostCommand(HOST_COMMANDS["start-thread"], async ([options]) => {
       const instance = await host();
-      const started = await instance.startThread({ ...options, cwd: await workspace("start-thread", "options.cwd", options.cwd) });
+      const started = await instance.startThread({ ...options, cwd: resolveWorkspace(instance, options.cwd) });
       const path = instance.threadPath(started.sessionId);
       if (!path) throw new Error("The started thread is missing from the host's index.");
       return { ...started, path };
-    },
-    "send-to-thread": async (params) => {
-      const sessionId = decodeString("send-to-thread", "sessionId", params[0]);
-      const text = decodeString("send-to-thread", "text", params[1]);
-      const delivery = decodeThreadDelivery("send-to-thread", params[2]);
-      await (await host()).sendToThread(sessionId, text, delivery);
-      return null;
-    },
-    "prepared-thread-capability": async (params) =>
-      (await host()).getPreparedThreadCapability(await optionalWorkspace("prepared-thread-capability", "cwd", params[0])),
-    "fork-thread": async (params) => (await host()).forkThread(
-      decodeString("fork-thread", "entryId", params[0]),
-      decodeOptionalString("fork-thread", "expectedSessionId", params[1]),
-      await optionalWorkspace("fork-thread", "cwd", params[2]),
-      decodeOptionalBoolean("fork-thread", "background", params[3]),
-    ),
-    "thread-tree": async (params) => (await host()).threadTree(decodeOptionalString("thread-tree", "sessionId", params[0])),
-    "navigate-thread-tree": async (params) => (await host()).navigateThreadTree(
-      decodeString("navigate-thread-tree", "entryId", params[0]),
-      decodeNavigateOptions("navigate-thread-tree", "options", params[1]),
-      decodeOptionalString("navigate-thread-tree", "expectedSessionId", params[2]),
-    ),
-    "duplicate-thread": async (params) => (await host()).duplicateThread(decodeOptionalString("duplicate-thread", "expectedSessionId", params[0])),
-    "switch-session": async (params) => (await host()).switchSession(decodeString("switch-session", "path", params[0])),
-    "set-model": async (params) => (await host()).setModel(
-      decodeString("set-model", "provider", params[0]),
-      decodeString("set-model", "id", params[1]),
-      decodeOptionalString("set-model", "expectedSessionId", params[2]),
-    ),
-    "set-thinking": async (params) => (await host()).setThinkingLevel(
-      decodeString("set-thinking", "level", params[0]),
-      decodeOptionalString("set-thinking", "expectedSessionId", params[1]),
-    ),
-    "set-mode": async (params) => (await host()).setMode(
-      decodeString("set-mode", "mode", params[0]),
-      decodeOptionalString("set-mode", "expectedSessionId", params[1]),
-    ),
-    "compact-context": async (params) => (await host()).compactContext(decodeOptionalString("compact-context", "expectedSessionId", params[0])),
-    "compact-and-send": async (params) => {
-      const sessionId = decodeString("compact-and-send", "sessionId", params[0]);
-      const prompt = decodeCompactionPrompt(params[1]);
-      if (!prompt) throw new Error("compact-and-send: prompt is required");
-      return (await host()).compactContext(sessionId, prompt);
-    },
-    "restart-session": async (params) => (await host()).restartSession(decodeString("restart-session", "threadId", params[0])),
-    "reload-runtime": async () => (await host()).reloadRuntime(),
-    "reload-extensions": async () => (await host()).reloadExtensions(),
+    }),
+    "send-to-thread": bindHostCommand(HOST_COMMANDS["send-to-thread"], async ([sessionId, text, delivery]) => { await (await host()).sendToThread(sessionId, text, delivery); return null; }),
+    "prepared-thread-capability": bindHostCommand(HOST_COMMANDS["prepared-thread-capability"], async ([cwd]) => (await host()).getPreparedThreadCapability(cwd === undefined ? undefined : resolveWorkspace(await host(), cwd))),
+    "fork-thread": bindHostCommand(HOST_CORE_COMMANDS["fork-thread"], async (params) => (await host()).forkThread(
+      params[0],
+      params[1],
+      (params[2] === undefined ? undefined : resolveWorkspace(await host(), params[2])),
+      params[3],
+    )),
+    "thread-tree": bindHostCommand(HOST_CORE_COMMANDS["thread-tree"], async (params) => (await host()).threadTree(params[0])),
+    "navigate-thread-tree": bindHostCommand(HOST_CORE_COMMANDS["navigate-thread-tree"], async (params) => (await host()).navigateThreadTree(
+      params[0],
+      params[1],
+      params[2],
+    )),
+    "duplicate-thread": bindHostCommand(HOST_CORE_COMMANDS["duplicate-thread"], async (params) => (await host()).duplicateThread(params[0])),
+    "switch-session": bindHostCommand(HOST_CORE_COMMANDS["switch-session"], async (params) => (await host()).switchSession(params[0])),
+    "set-model": bindHostCommand(HOST_CORE_COMMANDS["set-model"], async (params) => (await host()).setModel(
+      params[0],
+      params[1],
+      params[2],
+    )),
+    "set-thinking": bindHostCommand(HOST_CORE_COMMANDS["set-thinking"], async (params) => (await host()).setThinkingLevel(
+      params[0],
+      params[1],
+    )),
+    "set-mode": bindHostCommand(HOST_CORE_COMMANDS["set-mode"], async (params) => (await host()).setMode(
+      params[0],
+      params[1],
+    )),
+    "compact-context": bindHostCommand(HOST_CORE_COMMANDS["compact-context"], async (params) => (await host()).compactContext(params[0])),
+    "compact-and-send": bindHostCommand(HOST_COMMANDS["compact-and-send"], async ([sessionId, prompt]) => (await host()).compactContext(sessionId, prompt)),
+    "restart-session": bindHostCommand(HOST_CORE_COMMANDS["restart-session"], async (params) => (await host()).restartSession(params[0])),
+    "reload-runtime": bindHostCommand(HOST_CORE_COMMANDS["reload-runtime"], async () => (await host()).reloadRuntime()),
+    "reload-extensions": bindHostCommand(HOST_CORE_COMMANDS["reload-extensions"], async () => (await host()).reloadExtensions()),
     // Answering must never wait for a ready host: the host is blocked on this very
     // question, so requiring readiness here would deadlock startup.
-    "answer-extension-ui": async (params) => deps.host()?.answerExtensionUi(
-      decodeString("answer-extension-ui", "id", params[0]),
-      decodeExtensionUiAnswer("answer-extension-ui", "answer", params[1]),
-    ),
-    "sync-extension-ui": async () => deps.host()?.replayOpenUiPrompts(),
-    "recover-thread": async () => (await host()).recoverThread(),
-    "rename-thread": async (params) => (await host()).renameThread(
-      decodeString("rename-thread", "title", params[0]),
-      decodeOptionalString("rename-thread", "expectedSessionId", params[1]),
-    ),
-    "copy-text": async (params) => platform.copyText(decodeString("copy-text", "text", params[0])),
-    "copy-image": async (params) => platform.copyImage(decodeString("copy-image", "dataUrl", params[0])),
-    "notify": async (params) => platform.notify(decodeSystemNotification("notify", params[0])),
-    "set-badge": async (params) => platform.setBadge(decodeBadgeCount("set-badge", params[0])),
-    "context-menu": async (params) => contextMenu(platform, params),
-    "window-action": async (params) => windowAction(platform, params),
+    "answer-extension-ui": bindHostCommand(HOST_CORE_COMMANDS["answer-extension-ui"], async (params) => deps.host()?.answerExtensionUi(
+      params[0],
+      params[1],
+    )),
+    "sync-extension-ui": bindHostCommand(HOST_CORE_COMMANDS["sync-extension-ui"], async () => deps.host()?.replayOpenUiPrompts()),
+    "recover-thread": bindHostCommand(HOST_CORE_COMMANDS["recover-thread"], async () => (await host()).recoverThread()),
+    "rename-thread": bindHostCommand(HOST_CORE_COMMANDS["rename-thread"], async (params) => (await host()).renameThread(
+      params[0],
+      params[1],
+    )),
+    "copy-text": bindHostCommand(HOST_CORE_COMMANDS["copy-text"], async (params) => platform.copyText(params[0])),
+    "copy-image": bindHostCommand(HOST_CORE_COMMANDS["copy-image"], async (params) => platform.copyImage(params[0])),
+    "notify": bindHostCommand(HOST_CORE_COMMANDS["notify"], async (params) => platform.notify(params[0])),
+    "set-badge": bindHostCommand(HOST_CORE_COMMANDS["set-badge"], async (params) => platform.setBadge(params[0])),
+    "context-menu": bindHostCommand(HOST_CORE_COMMANDS["context-menu"], async (params) => contextMenu(platform, params)),
+    "window-action": bindHostCommand(HOST_CORE_COMMANDS["window-action"], async (params) => windowAction(platform, params)),
     // A host has no list of machines; its table names the methods so a page learns that plainly.
     ...createEnvironmentMethods(() => undefined),
-    "read-tool-output": async (params) => (await host()).readToolOutput(
-      decodeString("read-tool-output", "sessionId", params[0]),
-      decodeString("read-tool-output", "toolCallId", params[1]),
-    ),
-    "tool-output": async (params) => (await host()).toolOutput(
-      decodeString("tool-output", "sessionId", params[0]),
-      decodeString("tool-output", "toolCallId", params[1]),
-    ),
+    "read-tool-output": bindHostCommand(HOST_CORE_COMMANDS["read-tool-output"], async (params) => (await host()).readToolOutput(
+      params[0],
+      params[1],
+    )),
+    "tool-output": bindHostCommand(HOST_CORE_COMMANDS["tool-output"], async (params) => (await host()).toolOutput(
+      params[0],
+      params[1],
+    )),
     // Answers with the text rather than copying it: the clipboard belongs to
     // the client, which may be a different process than the host.
-    "copy-thread-markdown": async (params) =>
-      (await host()).exportThreadMarkdown(decodeOptionalString("copy-thread-markdown", "expectedSessionId", params[0])),
-    "read-image-preview": async (params) => platform.readImagePreview(decodeString("read-image-preview", "path", params[0])),
-    "share-file": async (params) => shareFile(platform, decodeString("share-file", "path", params[0])),
+    "copy-thread-markdown": bindHostCommand(HOST_CORE_COMMANDS["copy-thread-markdown"], async (params) =>
+      (await host()).exportThreadMarkdown(params[0])),
+    "read-image-preview": bindHostCommand(HOST_CORE_COMMANDS["read-image-preview"], async (params) => platform.readImagePreview(params[0])),
+    "share-file": bindHostCommand(HOST_CORE_COMMANDS["share-file"], async (params) => shareFile(platform, params[0])),
     // Host extensions reach the renderer through this single method; core does
     // not grow a method per feature. `input` stays unknown: the extension owns it.
-    "host-extension": invokeExtension,
-    "host-extensions": async () => (await host()).listHostExtensions(),
-    "inspect-extensions": async (params) => platform.inspectExtensions(await workspace("inspect-extensions", "cwd", params[0])),
-    "host-extension-active": async (params) => (await host()).setHostExtensionActive(
-      decodeString("host-extension-active", "id", params[0]),
-      decodeBoolean("host-extension-active", "active", params[1]),
-    ),
-    "extension-grant": async (params, context) => {
-      const id = decodeExtensionId("extension-grant", params[0]);
-      const grant = decodeBoolean("extension-grant", "grant", params[1]);
+    "host-extension": bindHostCommand(HOST_CORE_COMMANDS["host-extension"], invokeExtension),
+    "host-extensions": bindHostCommand(HOST_CORE_COMMANDS["host-extensions"], async () => (await host()).listHostExtensions()),
+    "inspect-extensions": bindHostCommand(HOST_CORE_COMMANDS["inspect-extensions"], async (params) => platform.inspectExtensions(resolveWorkspace(await host(), params[0]))),
+    "host-extension-active": bindHostCommand(HOST_CORE_COMMANDS["host-extension-active"], async (params) => (await host()).setHostExtensionActive(
+      params[0],
+      params[1],
+    )),
+    "extension-grant": bindHostCommand(HOST_CORE_COMMANDS["extension-grant"], async (params, context) => {
+      const id = params[0];
+      const grant = params[1];
       const instance = await host();
       if (grant) {
         const cwd = instance.activeWorkspacePath();
@@ -456,74 +335,74 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
         if (instance.activeWorkspacePath() !== cwd || JSON.stringify(current) !== JSON.stringify(pkg)) throw new Error("The package changed during confirmation. Review it again.");
       }
       await instance.grantExtension(id, grant);
-    },
-    "prepare-workbench-reload": async (params) =>
-      (await host()).prepareWorkbenchReload(decodeWorkbenchReloadMode("prepare-workbench-reload", "mode", params[0])),
-    "release-workbench-reload": async () => (await host()).releaseWorkbenchReload(),
-    "desktop-extensions": async (params) => {
-      const held = decodeBundleHashes("desktop-extensions", "held", params[3]);
+    }),
+    "prepare-workbench-reload": bindHostCommand(HOST_CORE_COMMANDS["prepare-workbench-reload"], async (params) =>
+      (await host()).prepareWorkbenchReload(params[0])),
+    "release-workbench-reload": bindHostCommand(HOST_CORE_COMMANDS["release-workbench-reload"], async () => (await host()).releaseWorkbenchReload()),
+    "desktop-extensions": bindHostCommand(HOST_CORE_COMMANDS["desktop-extensions"], async (params) => {
+      const held = params[3];
       const result = await platform.loadDesktopExtensions(
-        await workspaceWhileStarting("desktop-extensions", "cwd", params[0]),
-        decodeSharedExports("desktop-extensions", "sharedExports", params[1]),
-        decodeOptionalExtensionIds("desktop-extensions", "only", params[2]),
+        await workspaceWhileStarting(params[0]),
+        params[1],
+        params[2],
       );
       return held ? withBundleDigests(result, held) : result;
-    },
-    "rebuild-workbench": async (_params, context) => platform.rebuildWorkbench(context, (await host()).activeWorkspacePath()),
-    "workbench-source": async () => ({ path: await platform.workbenchSource() }),
-    "relaunch-workbench": async () => platform.relaunchWorkbench(),
-    "install-update": async () => ({ installing: platform.installUpdate() }),
-    "open-project": async (params) => (await host()).setWorkspace(await workspace("open-project", "workspace", params[0])),
-    "remove-project": async (params) => (await host()).removeProject(await workspace("remove-project", "workspace", params[0])),
-    "get-config": async (params) => (await import("./host-config.js")).defaultHostConfigManager.read(await optionalWorkspace("get-config", "workspace", params[0])),
-    "update-config": async (params) => {
+    }),
+    "rebuild-workbench": bindHostCommand(HOST_CORE_COMMANDS["rebuild-workbench"], async (_params, context) => platform.rebuildWorkbench(context, (await host()).activeWorkspacePath())),
+    "workbench-source": bindHostCommand(HOST_CORE_COMMANDS["workbench-source"], async () => ({ path: await platform.workbenchSource() })),
+    "relaunch-workbench": bindHostCommand(HOST_CORE_COMMANDS["relaunch-workbench"], async () => platform.relaunchWorkbench()),
+    "install-update": bindHostCommand(HOST_CORE_COMMANDS["install-update"], async () => ({ installing: platform.installUpdate() })),
+    "open-project": bindHostCommand(HOST_CORE_COMMANDS["open-project"], async (params) => (await host()).setWorkspace(resolveWorkspace(await host(), params[0]))),
+    "remove-project": bindHostCommand(HOST_CORE_COMMANDS["remove-project"], async (params) => (await host()).removeProject(resolveWorkspace(await host(), params[0]))),
+    "get-config": bindHostCommand(HOST_CORE_COMMANDS["get-config"], async (params) => (await import("./host-config.js")).defaultHostConfigManager.read((params[0] === undefined ? undefined : resolveWorkspace(await host(), params[0])))),
+    "update-config": bindHostCommand(HOST_CORE_COMMANDS["update-config"], async (params) => {
       const { defaultHostConfigManager } = await import("./host-config.js");
-      const patch = decodeConfigPatch("update-config", "patch", params[0]);
-      const scope = params[1] === "project" ? "project" : "global";
-      const cwd = await optionalWorkspace("update-config", "workspace", params[2]);
+      const patch = params[0];
+      const scope = params[1];
+      const cwd = (params[2] === undefined ? undefined : resolveWorkspace(await host(), params[2]));
       const config = await defaultHostConfigManager.update(patch, scope, cwd);
       if (patch.modelPrices) (await host()).modelPricesChanged();
       if (patch.extensions) await (await host()).watchingChanged();
       (await host()).configWritten([defaultHostConfigManager.filePath(scope, cwd)]);
       return config;
-    },
-    "get-config-layers": async (params) => (await import("./host-config.js")).defaultHostConfigManager.readLayers(await optionalWorkspace("get-config-layers", "workspace", params[0])),
-    "clear-config": async (params) => {
+    }),
+    "get-config-layers": bindHostCommand(HOST_CORE_COMMANDS["get-config-layers"], async (params) => (await import("./host-config.js")).defaultHostConfigManager.readLayers((params[0] === undefined ? undefined : resolveWorkspace(await host(), params[0])))),
+    "clear-config": bindHostCommand(HOST_CORE_COMMANDS["clear-config"], async (params) => {
       const { defaultHostConfigManager } = await import("./host-config.js");
-      const keys = decodeSettingKeys("clear-config", "keys", params[0]);
-      const scope = params[1] === "project" ? "project" : "global";
-      const cwd = await optionalWorkspace("clear-config", "workspace", params[2]);
+      const keys = params[0];
+      const scope = params[1];
+      const cwd = (params[2] === undefined ? undefined : resolveWorkspace(await host(), params[2]));
       const layers = await defaultHostConfigManager.clear(keys, scope, cwd);
       if (keys.some((key) => key.startsWith("modelPrices"))) (await host()).modelPricesChanged();
       if (keys.some((key) => key.startsWith("extensions"))) await (await host()).watchingChanged();
       (await host()).configWritten([defaultHostConfigManager.filePath(scope, cwd)]);
       return layers;
-    },
-    "get-models-config": async () => (await host()).modelsConfig(),
-    "runtime-catalog": async (params) => (await host()).runtimeCatalog(decodeString("runtime-catalog", "kind", params[0])),
-    "runtime-catalogs": async (params) => (await host()).runtimeCatalogs(
-      decodeOptionalBoolean("runtime-catalogs", "revalidate", params[0]) === true,
-      decodeKnownCatalogs("runtime-catalogs", "known", params[1]),
-    ),
+    }),
+    "get-models-config": bindHostCommand(HOST_CORE_COMMANDS["get-models-config"], async () => (await host()).modelsConfig()),
+    "runtime-catalog": bindHostCommand(HOST_CORE_COMMANDS["runtime-catalog"], async (params) => (await host()).runtimeCatalog(params[0])),
+    "runtime-catalogs": bindHostCommand(HOST_CORE_COMMANDS["runtime-catalogs"], async (params) => (await host()).runtimeCatalogs(
+      params[0] === true,
+      params[1],
+    )),
     // Settings → Runtimes: reading and refreshing the agent CLIs' state, and changing it (owner).
-    "runtime-tools": async (params) => (await host()).runtimeTools(runtimeToolsAction("runtime-tools", params[0], ["state", "refresh"])),
-    "runtime-tools-change": async (params) => (await host()).runtimeTools(
-      runtimeToolsAction("runtime-tools-change", params[0], ["automatic", "update", "switch"]),
-      runtimeToolsInput(params[1]),
-    ),
-    "add-model-provider": async (params) => (await host()).addModelProvider(decodeCustomProviderInput("add-model-provider", "input", params[0])),
-    "inspect-system-prompt": async (params) => (await host()).inspectSystemPrompt(
-      decodeOptionalString("inspect-system-prompt", "threadId", params[0]),
-      await optionalWorkspace("inspect-system-prompt", "workspace", params[1]),
-    ),
-    "list-user-themes": async (params) => {
-      const workspacePath = await optionalWorkspace("list-user-themes", "workspace", params[0]);
+    "runtime-tools": bindHostCommand(HOST_CORE_COMMANDS["runtime-tools"], async (params) => (await host()).runtimeTools(params[0])),
+    "runtime-tools-change": bindHostCommand(HOST_CORE_COMMANDS["runtime-tools-change"], async (params) => (await host()).runtimeTools(
+      params[0],
+      params[1],
+    )),
+    "add-model-provider": bindHostCommand(HOST_CORE_COMMANDS["add-model-provider"], async (params) => (await host()).addModelProvider(params[0])),
+    "inspect-system-prompt": bindHostCommand(HOST_CORE_COMMANDS["inspect-system-prompt"], async (params) => (await host()).inspectSystemPrompt(
+      params[0],
+      (params[1] === undefined ? undefined : resolveWorkspace(await host(), params[1])),
+    )),
+    "list-user-themes": bindHostCommand(HOST_CORE_COMMANDS["list-user-themes"], async (params) => {
+      const workspacePath = (params[0] === undefined ? undefined : resolveWorkspace(await host(), params[0]));
       return defaultUserThemeResolver.list(workspacePath);
-    },
-    "open-external-editor": async (params) => {
-      const text = decodeOptionalText("open-external-editor", "text", params[0]) ?? "";
+    }),
+    "open-external-editor": bindHostCommand(HOST_CORE_COMMANDS["open-external-editor"], async (params) => {
+      const text = params[0] ?? "";
       return openExternalEditor({ initialText: text });
-    },
+    }),
 
     ...createConnectionsMethods(() => deps.connections?.()),
     ...createConnectMethods(() => deps.connect?.()),
@@ -536,17 +415,17 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
 
     // The other direction of the protocol: a client answering a `client-call`.
     // Only the connection it was sent to may answer (ADR 0023).
-    "client-call-result": async (params, context) => {
+    "client-call-result": bindHostCommand(HOST_CORE_COMMANDS["client-call-result"], async (params, context) => {
       deps.clientCalls?.settle(
-        decodeString("client-call-result", "callId", params[0]),
+        params[0],
         params[1],
-        decodeOptionalString("client-call-result", "error", params[2]),
+        params[2],
         context.principal.kind === "workbench-client" ? context.principal.connection : undefined,
       );
-    },
+    }),
 
-    "start-job": async (params, context) => {
-      const method = decodeString("start-job", "method", params[0]);
+    "start-job": bindHostCommand(HOST_CORE_COMMANDS["start-job"], async (params, context) => {
+      const method = params[0];
       if (JOB_CONTROL_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       const target = methods[method];
       if (!target) throw Object.assign(new Error(`Unknown method "${method}".`), { code: HOST_ERROR.unknownMethod });
@@ -555,20 +434,19 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       authorizeMethod(context.principal, method, jobParams);
       if (SECRET_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       return { jobId: deps.jobs.start((jobContext) => target(jobParams as unknown[], jobContext), context.principal) };
-    },
-    "cancel-job": async (params) => ({ cancelled: deps.jobs.cancel(decodeString("cancel-job", "jobId", params[0])) }),
+    }),
+    "cancel-job": bindHostCommand(HOST_CORE_COMMANDS["cancel-job"], async (params) => ({ cancelled: deps.jobs.cancel(params[0]) })),
     /** Which calls a client should run as jobs; a host extension marks its own long commands. */
-    "job-methods": async () => {
+    "job-methods": bindHostCommand(HOST_CORE_COMMANDS["job-methods"], async () => {
       const long = deps.host()?.longHostExtensionCommands() ?? [];
       return [
-        "rebuild-workbench",
-        ...RUNTIME_START_METHODS,
+        ...DECLARED_JOB_METHODS,
         ...long.map((entry) => {
           const [extensionId = "", command = ""] = entry.split("/");
           return jobMethodKey("host-extension", extensionId, command);
         }),
       ];
-    },
+    }),
   };
   return methods;
 }
@@ -629,21 +507,5 @@ export function withBundleDigests(result: DesktopExtensionLoadResult, held: Read
       const { styles: _styles, ...rest } = bundle;
       return { ...rest, code: "", hash, cached: true };
     }),
-  };
-}
-
-function runtimeToolsAction(channel: string, value: unknown, allowed: readonly string[]): string {
-  const action = decodeString(channel, "action", value);
-  if (!allowed.includes(action)) throw new Error(`${channel}: action must be one of ${allowed.join(", ")}.`);
-  return action;
-}
-
-function runtimeToolsInput(value: unknown): { on?: boolean; kind?: string } {
-  if (value === undefined) return {};
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("runtime-tools-change: input must be an object.");
-  const { on, kind } = value as { on?: unknown; kind?: unknown };
-  return {
-    ...(on === undefined ? {} : { on: decodeBoolean("runtime-tools-change", "on", on) }),
-    ...(kind === undefined ? {} : { kind: decodeString("runtime-tools-change", "kind", kind) }),
   };
 }

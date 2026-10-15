@@ -1,6 +1,8 @@
+import type { TauConfig } from "../shared/contracts.js";
+import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
+import { bindHostCommand } from "./host-command-handler.js";
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
 import {
-  decodeEnvironmentOpenTarget,
   type EnvironmentAgentsResult,
   type EnvironmentOpenTarget,
   type EnvironmentPairInput,
@@ -13,11 +15,10 @@ import {
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { decodeHostTranscriptCursor, decodeSettingKeys } from "./ipc-input.js";
 import type { ConfigLayers } from "../shared/config-layers.js";
 import type { HostMethodTable } from "./host-methods.js";
 import type { HostUpdateAction, HostUpdateStatus } from "../shared/host-updates.js";
-import { personPreferences, type PersonPreferences } from "../shared/person-preferences.js";
+import type { PersonPreferences } from "../shared/person-preferences.js";
 
 /** What the window's process answers about its machines (ADR 0025); `WindowEnvironments` is the one implementation. */
 export interface EnvironmentsService {
@@ -41,15 +42,8 @@ export interface EnvironmentsService {
   updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus>;
   personPreferences?(patch?: PersonPreferences): Promise<PersonPreferences>;
   configLayers(machine: string): Promise<ConfigLayers>;
-  updateConfig(machine: string, patch: Record<string, unknown>): Promise<unknown>;
-  clearConfig(machine: string, keys: readonly string[]): Promise<unknown>;
-}
-
-function text(method: string, name: string, value: unknown, max = 4_096): string {
-  if (typeof value !== "string" || !value.trim() || value.length > max) {
-    throw Object.assign(new Error(`${method}: ${name} must be a non-empty string of at most ${max} characters.`), { code: HOST_ERROR.invalidRequest });
-  }
-  return value;
+  updateConfig(machine: string, patch: Record<string, unknown>): Promise<TauConfig>;
+  clearConfig(machine: string, keys: readonly string[]): Promise<TauConfig>;
 }
 
 /**
@@ -69,115 +63,28 @@ export function createEnvironmentMethods(service: () => EnvironmentsService | un
     throw Object.assign(new Error("This window keeps no preferences of its own machine."), { code: HOST_ERROR.unsupported });
   };
   return {
-    "environments-list": async () => require().snapshot(),
-    "environments-pair": async (params) => {
-      const input = params[0] as { text?: unknown; nearby?: unknown; ssh?: unknown; wsl?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
-      return require().pair({
-        ...(input?.agents === false ? { agents: false } : {}),
-        ...(input?.ssh !== undefined ? { ssh: text("environments-pair", "ssh", input.ssh, 255) }
-          : input?.wsl !== undefined ? { wsl: text("environments-pair", "wsl", input.wsl, 100) }
-            : input?.nearby !== undefined ? { nearby: text("environments-pair", "nearby", input.nearby, 128) } : { text: text("environments-pair", "text", input?.text, 16_384) }),
-        ...(typeof input?.deviceName === "string" && input.deviceName.trim() ? { deviceName: input.deviceName.slice(0, 80) } : {}),
-      });
-    },
-    "environments-discover": async () => require().discover(),
-    "environments-wsl-list": async () => require().listWsl?.() ?? [],
-    "environments-set-preferences": async (params) => {
-      const input = params[0] as { reopenShown?: unknown } | undefined;
-      if (typeof input?.reopenShown !== "boolean") {
-        throw Object.assign(new Error("environments-set-preferences: reopenShown must be a boolean."), { code: HOST_ERROR.invalidRequest });
-      }
-      await require().setPreferences({ reopenShown: input.reopenShown });
-    },
-    "environments-cancel-pairing": async () => { require().cancelPairing(); },
-    "environments-set-agents": async (params) => {
-      if (typeof params[1] !== "boolean") {
-        throw Object.assign(new Error("environments-set-agents: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
-      }
-      return require().setAgents(text("environments-set-agents", "id", params[0], 200), params[1]);
-    },
-    "environments-rename": async (params) => ({
-      renamed: await require().rename(text("environments-rename", "id", params[0], 200), text("environments-rename", "name", params[1], 80)),
-    }),
-    "environments-remove": async (params) => ({ removed: await require().remove(text("environments-remove", "id", params[0], 200)) }),
-    "environments-retry": async (params) => { require().retry(text("environments-retry", "id", params[0], 200)); },
-    "environments-open": async (params) => {
-      const target = params[1] === undefined ? undefined : decodeEnvironmentOpenTarget(params[1]);
-      await require().open(text("environments-open", "id", params[0], 200), target);
-    },
-    "environments-take-arrival": async () => require().takeArrival() ?? null,
-    // A machine's own Tau over the window's connection there (K103).
-    "environments-update": async (params) => {
-      const action = params[1];
-      const automatic = (action as { automatic?: unknown } | null)?.automatic;
-      if (action !== "status" && action !== "check" && action !== "install" && typeof automatic !== "boolean") {
-        throw Object.assign(new Error("environments-update: action must be status, check, install or { automatic }."), { code: HOST_ERROR.invalidRequest });
-      }
-      return require().updateMachine(text("environments-update", "machine", params[0], 200), typeof automatic === "boolean" ? { automatic } : action as "status" | "check" | "install");
-    },
-    "environments-person-preferences": async () => ownMachine().personPreferences(),
-    "environments-set-person-preferences": async (params) => {
-      if (params[0] === null || typeof params[0] !== "object" || Array.isArray(params[0])) {
-        throw Object.assign(new Error("environments-set-person-preferences: patch must be an object."), { code: HOST_ERROR.invalidRequest });
-      }
-      return ownMachine().personPreferences(personPreferences(params[0]));
-    },
-    // A machine's settings (K170): its host checks the keys and the access, so a newer machine's keys pass.
-    "environments-config": async (params) => require().configLayers(text("environments-config", "machine", params[0], 200)),
-    "environments-update-config": async (params) => {
-      if (params[1] === null || typeof params[1] !== "object" || Array.isArray(params[1])) {
-        throw Object.assign(new Error("environments-update-config: patch must be an object."), { code: HOST_ERROR.invalidRequest });
-      }
-      return require().updateConfig(text("environments-update-config", "machine", params[0], 200), params[1] as Record<string, unknown>);
-    },
-    "environments-clear-config": async (params) => require().clearConfig(
-      text("environments-clear-config", "machine", params[0], 200),
-      decodeSettingKeys("environments-clear-config", "keys", params[1]),
-    ),
-    "environments-watch-thread": async (params) => {
-      if (typeof params[2] !== "boolean") {
-        throw Object.assign(new Error("environments-watch-thread: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
-      }
-      return require().watchThread(
-        text("environments-watch-thread", "machine", params[0], 200),
-        text("environments-watch-thread", "sessionId", params[1], 512),
-        params[2],
-      ) ?? null;
-    },
-    "environments-transcript-page": async (params) => require().transcriptPage(
-      text("environments-transcript-page", "machine", params[0], 200),
-      text("environments-transcript-page", "sessionId", params[1], 512),
-      decodeHostTranscriptCursor("environments-transcript-page", "cursor", params[2]),
-    ),
-    "environments-extension-follow": async (params) => {
-      if (typeof params[2] !== "boolean") {
-        throw Object.assign(new Error("environments-extension-follow: on must be a boolean."), { code: HOST_ERROR.invalidRequest });
-      }
-      require().followExtension(
-        text("environments-extension-follow", "machine", params[0], 200),
-        text("environments-extension-follow", "extensionId", params[1], 200),
-        params[2],
-      );
-    },
-    "environments-extension-invoke": async (params) => {
-      const options = params[4];
-      if (options !== undefined && (options === null || typeof options !== "object" || Array.isArray(options)
-        || ("timeoutMs" in options && (typeof options.timeoutMs !== "number" || !Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)))) {
-        throw Object.assign(new Error("environments-extension-invoke: options must contain a positive timeoutMs."), { code: HOST_ERROR.invalidRequest });
-      }
-      return require().invokeExtension(
-        text("environments-extension-invoke", "machine", params[0], 200),
-        text("environments-extension-invoke", "extensionId", params[1], 200),
-        text("environments-extension-invoke", "command", params[2], 200),
-        params[3],
-        options as { timeoutMs?: number } | undefined,
-      );
-    },
-    "environments-extension-read": async (params) => require().readExtension(
-      text("environments-extension-read", "machine", params[0], 200),
-      text("environments-extension-read", "extensionId", params[1], 200),
-      text("environments-extension-read", "command", params[2], 200),
-      params[3],
-    ),
+    "environments-list": bindHostCommand(HOST_FACTORY_COMMANDS["environments-list"], async () => require().snapshot()),
+    "environments-pair": bindHostCommand(HOST_FACTORY_COMMANDS["environments-pair"], async ([input]) => require().pair(input)),
+    "environments-discover": bindHostCommand(HOST_FACTORY_COMMANDS["environments-discover"], async () => require().discover()),
+    "environments-wsl-list": bindHostCommand(HOST_FACTORY_COMMANDS["environments-wsl-list"], async () => require().listWsl?.() ?? []),
+    "environments-set-preferences": bindHostCommand(HOST_FACTORY_COMMANDS["environments-set-preferences"], async ([input]) => { await require().setPreferences(input); }),
+    "environments-cancel-pairing": bindHostCommand(HOST_FACTORY_COMMANDS["environments-cancel-pairing"], async () => { require().cancelPairing(); }),
+    "environments-set-agents": bindHostCommand(HOST_FACTORY_COMMANDS["environments-set-agents"], async (args) => require().setAgents(...args)),
+    "environments-rename": bindHostCommand(HOST_FACTORY_COMMANDS["environments-rename"], async (args) => ({ renamed: await require().rename(...args) })),
+    "environments-remove": bindHostCommand(HOST_FACTORY_COMMANDS["environments-remove"], async ([id]) => ({ removed: await require().remove(id) })),
+    "environments-retry": bindHostCommand(HOST_FACTORY_COMMANDS["environments-retry"], async ([id]) => { require().retry(id); }),
+    "environments-open": bindHostCommand(HOST_FACTORY_COMMANDS["environments-open"], async (args) => { await require().open(...args); }),
+    "environments-take-arrival": bindHostCommand(HOST_FACTORY_COMMANDS["environments-take-arrival"], async () => require().takeArrival() ?? null),
+    "environments-update": bindHostCommand(HOST_FACTORY_COMMANDS["environments-update"], async (args) => require().updateMachine(...args)),
+    "environments-person-preferences": bindHostCommand(HOST_FACTORY_COMMANDS["environments-person-preferences"], async () => ownMachine().personPreferences()),
+    "environments-set-person-preferences": bindHostCommand(HOST_FACTORY_COMMANDS["environments-set-person-preferences"], async ([patch]) => ownMachine().personPreferences(patch)),
+    "environments-config": bindHostCommand(HOST_FACTORY_COMMANDS["environments-config"], async ([machine]) => require().configLayers(machine)),
+    "environments-update-config": bindHostCommand(HOST_FACTORY_COMMANDS["environments-update-config"], async (args) => require().updateConfig(...args)),
+    "environments-clear-config": bindHostCommand(HOST_FACTORY_COMMANDS["environments-clear-config"], async (args) => require().clearConfig(...args)),
+    "environments-watch-thread": bindHostCommand(HOST_FACTORY_COMMANDS["environments-watch-thread"], async (args) => require().watchThread(...args) ?? null),
+    "environments-transcript-page": bindHostCommand(HOST_FACTORY_COMMANDS["environments-transcript-page"], async (args) => require().transcriptPage(...args)),
+    "environments-extension-follow": bindHostCommand(HOST_FACTORY_COMMANDS["environments-extension-follow"], async (args) => { require().followExtension(...args); }),
+    "environments-extension-invoke": bindHostCommand(HOST_FACTORY_COMMANDS["environments-extension-invoke"], async (args) => require().invokeExtension(...args)),
+    "environments-extension-read": bindHostCommand(HOST_FACTORY_COMMANDS["environments-extension-read"], async (args) => require().readExtension(...args)),
   };
 }

@@ -1,6 +1,8 @@
-import type { HostBootstrap, HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiMessage } from "../shared/contracts";
+import type { HostClient } from "./host-client";
+import type { SubmissionController, SubmissionEnvironment, SubmissionInput } from "./submission-controller";
+import type { HostBootstrap, HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiMessage, SubmissionResult, HostEvent } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
-import { draftKey, draftKeyOwner } from "./draft-store";
+import { draftKey, draftKeyOwner, writeNewThreadDraft } from "./draft-store";
 import { createDraftKey, ComposerScopeStore } from "./composer-scope-store";
 import { HostSessionState } from "./host-session-state";
 import {
@@ -16,7 +18,7 @@ import { ThreadStore } from "./thread-store";
 import { ThreadViewStore } from "./thread-view-store";
 import { ToastStore } from "./toast-store";
 import { TranscriptHistoryController, type TranscriptBootstrapRequest, type TranscriptHistoryRequest, type TransitionToken } from "./transcript-history";
-import { transcriptNavigationScopeKey } from "./app-state";
+import { reconcileOptimisticMessages, transcriptNavigationScopeKey } from "./app-state";
 import { TurnScopeController } from "./turn-scope";
 import { WorkbenchStore, type WorkbenchDeliveryObservation } from "./workbench-store";
 import type { CachedBootstrap } from "./bootstrap-cache";
@@ -25,6 +27,12 @@ import type { ClientStorage } from "./client-storage";
 export interface WorkbenchSessionOptions {
   storage: ClientStorage;
   cached?: CachedBootstrap;
+  submission?: {
+    client(): HostClient | undefined;
+    environment: SubmissionEnvironment;
+    /** Optional renderer loader shares its idle preload with the first send. */
+    load?(): Promise<typeof import("./submission-controller")>;
+  };
   notification?: NewThreadDeliveryNotificationPort;
   /** Threads the user settled; a settled thread's stage is forgotten once it is long unopened. */
   settledThreadIds?(): readonly string[];
@@ -52,9 +60,13 @@ export class WorkbenchSession {
   private readonly workbench: WorkbenchStore;
   readonly delivery: NewThreadDeliveryPort;
 
+  private submission: SubmissionController | undefined;
+  private submissionLoading: Promise<SubmissionController> | undefined;
+  private readonly options: WorkbenchSessionOptions;
   private readonly deliveryCoordinator: NewThreadDeliveryCoordinator;
 
   constructor(options: WorkbenchSessionOptions) {
+    this.options = options;
     const { cached, storage } = options;
     this.view = new ThreadViewStore(cached?.snapshot);
     this.threads = new ThreadStore();
@@ -139,11 +151,70 @@ export class WorkbenchSession {
     };
   }
 
+  /** One submission operation; construction and delivery state stay in the session. */
+  submit = async (input: SubmissionInput): Promise<SubmissionResult> => {
+    const adapter = this.options.submission;
+    if (!adapter) return { accepted: false, message: "The workbench is not ready yet." };
+    if (!this.submission) {
+      this.submissionLoading ??= (adapter.load ? adapter.load() : import("./submission-controller"))
+        .then(({ SubmissionController }) => {
+          const controller = new SubmissionController({
+            client: adapter.client,
+            environment: adapter.environment,
+            storage: this.options.storage,
+            view: this.view,
+            threads: this.threads,
+            scopes: this.scopes,
+            hostSession: this.hostSession,
+            delivery: this.delivery,
+            notify: this.view.setNotice,
+            newThread: {
+              current: this.newThread.current, set: this.newThread.set,
+              update: (change) => this.newThread.set(change),
+              requestId: this.newThread.requestId, isCurrent: this.newThread.isCurrent,
+              markAwaitingPromotion: this.newThread.markAwaitingPromotion,
+              promoteFromUserMessage: this.newThread.promoteFromUserMessage,
+            },
+            drafts: this.drafts,
+            turn: this.turn,
+            host: this,
+            enqueueFollowUp: async (threadId, item) => {
+              const client = adapter.client();
+              if (!client) throw new Error("Queued messages need a connection to the machine.");
+              await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
+            },
+          });
+          this.submission = controller;
+          return controller;
+        }).catch((error) => { this.submissionLoading = undefined; throw error; });
+      await this.submissionLoading;
+    }
+    return this.submission!.submit(input);
+  };
+
+  /** Reconcile authoritative detail as well as live user events, before returning to the caller. */
+  private reconcileSubmission(): void {
+    const current = this.view.getOptimisticMessages();
+    const reconciled = reconcileOptimisticMessages(current, this.view.getTranscript().messages);
+    if (reconciled.length === current.length) return;
+    const pending = this.newThread.current();
+    const pendingScope = draftKey(undefined, pending);
+    if (pending && current.some((entry) => entry.scope === pendingScope)
+      && reconciled.every((entry) => entry.scope !== pendingScope)) {
+      writeNewThreadDraft(this.options.storage);
+      this.newThread.set(undefined);
+    }
+    this.view.setOptimisticMessages(reconciled);
+  }
+
   getCachedSnapshot = (): HostSnapshot | undefined => this.workbench.getCachedSnapshot();
 
   applySnapshot = (snapshot: HostSnapshot, request?: TranscriptBootstrapRequest): boolean => {
     const application = this.workbench.applySnapshotWithObservation(snapshot, request);
-    if (application.accepted) this.processDeliveryObservation(application.observation);
+    if (application.accepted) {
+      this.processDeliveryObservation(application.observation);
+      this.reconcileSubmission();
+    }
     return application.accepted;
   };
 
@@ -152,6 +223,7 @@ export class WorkbenchSession {
     if (application.accepted) {
       this.processDeliveryObservation(application.observation);
       this.stages.sweep();
+      this.reconcileSubmission();
     }
     return application.accepted;
   };
@@ -161,12 +233,25 @@ export class WorkbenchSession {
     this.stages.sweep();
   };
 
-  applyTranscriptPage = (page: Parameters<WorkbenchStore["applyTranscriptPage"]>[0], request?: TranscriptHistoryRequest): boolean =>
-    this.workbench.applyTranscriptPage(page, request);
+  applyTranscriptPage = (page: Parameters<WorkbenchStore["applyTranscriptPage"]>[0], request?: TranscriptHistoryRequest): boolean => {
+    const accepted = this.workbench.applyTranscriptPage(page, request);
+    if (accepted) this.reconcileSubmission();
+    return accepted;
+  };
 
   /** Reduce one host update, then route any correlated delivery observation. */
   applyHostUpdate = (update: HostUpdate): void => {
     this.reduceHostUpdate(update);
+  };
+
+  /** A live echo commits held delivery before reducing and reconciling its row. */
+  applyUserMessage = (event: Extract<HostEvent, { type: "user-message" }>): void => {
+    const clientMessageId = event.message.clientMessageId;
+    if (clientMessageId && this.delivery.hasRecovery(clientMessageId)) {
+      this.delivery.promoteRecovery(clientMessageId, event.sessionId, event.message);
+    }
+    this.view.dispatch(event);
+    this.reconcileSubmission();
   };
 
   applyActionResult = (result: HostActionResult, expectedTransition?: TransitionToken): boolean => {
@@ -197,6 +282,7 @@ export class WorkbenchSession {
     if (update.type === "thread-index") this.stages.sweep();
     if (update.type === "thread-shell" && update.update.removed) this.stages.forgetThread(update.update.sessionId);
     if (processDelivery) this.processDeliveryObservation(observation);
+    this.reconcileSubmission();
   }
 
   private processDeliveryObservation(observation: WorkbenchDeliveryObservation | undefined): void {

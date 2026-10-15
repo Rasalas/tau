@@ -1,3 +1,5 @@
+import type { ClientTurnLedger } from "./client-turn-ledger.js";
+import { TurnEvents } from "./turn-events.js";
 import { describe, expect, it, vi } from "vitest";
 import type { HostEvent, UiMessage, UiToolRun, UiTurnActivityEntry } from "../shared/contracts.js";
 import type { HostUpdate } from "../shared/host-protocol.js";
@@ -26,23 +28,21 @@ function makeServices() {
   const updates: HostUpdate[] = [];
   const logs: string[] = [];
   let snapshotStreaming = false;
-  const services: BackendEventServices = {
-    clientTurns: { settle: vi.fn() } as never,
-    emit: (event) => { events.push(event); },
-    emitUpdate: (update) => { updates.push(update); },
-    log: (label) => { logs.push(label); },
+  const services = {
+    clientTurns: { settle: vi.fn() } as unknown as ClientTurnLedger,
+    emit: (event: HostEvent) => { events.push(event); },
+    emitUpdate: (update: HostUpdate) => { updates.push(update); },
+    log: (label: string) => { logs.push(label); },
     fail: vi.fn(),
     settledSnapshot: async () => ({ sessionId: "thread-1", isStreaming: snapshotStreaming, models: [], thinkingLevel: "default", thinkingLevels: ["default"], allTools: [], extensionCount: 0 }) as never,
-    detailForSnapshot: (snapshot) => ({ detailOf: snapshot.sessionId }) as never,
-    ownTool: vi.fn(),
-    releaseTool: vi.fn(),
-    pushToolOutput: vi.fn(),
+    detailForSnapshot: (snapshot: import("../shared/contracts.js").HostSnapshot) => ({ detailOf: snapshot.sessionId }) as never,
     turnObservers: { toolEnded: vi.fn(), unpromptedEnded: vi.fn() },
     refreshShell: vi.fn(async () => undefined),
     controls: { publishGoal: vi.fn(), publishBackground: vi.fn() },
     turnSettled: vi.fn(),
   };
-  return { services, events, updates, logs, setStreaming: (value: boolean) => { snapshotStreaming = value; } };
+  const adapterServices = { ...services, turns: new TurnEvents({ ...services, toolEnded: services.turnObservers.toolEnded }) } satisfies BackendEventServices;
+  return { services: adapterServices, events, updates, logs, setStreaming: (value: boolean) => { snapshotStreaming = value; } };
 }
 
 const user: UiMessage = { id: "u1", role: "user", text: "do it", timestamp: 1, clientMessageId: "m1", clientTurnId: "t1" };
@@ -92,12 +92,12 @@ describe("handleBackendRuntimeEvent", () => {
     expect(thread.adapterMessages).toEqual([user]);
 
     for (const event of run.slice(5, 8)) handleBackendRuntimeEvent(event, thread, services);
-    expect(services.ownTool).toHaveBeenCalledWith("tool-1", "thread-1");
-    expect(services.pushToolOutput).toHaveBeenCalledWith("tool-1", "file");
+    expect(events).toContainEqual({ type: "tool-start", sessionId: "thread-1", tool });
+    expect(events).toContainEqual({ type: "tool-update", sessionId: "thread-1", id: "tool-1", output: "file" });
     // The card keeps the arguments and start time of the running card it closes.
     const ended = { ...tool, status: "done", output: "file.txt", endedAt: 9 };
     expect(services.turnObservers.toolEnded).toHaveBeenCalledWith("thread-1", ended, "/repo");
-    expect(services.releaseTool).toHaveBeenCalledWith("tool-1");
+    expect(thread.tools.has("tool-1")).toBe(false);
     expect(thread.tools.size).toBe(0);
 
     // The turn's fold: anchored at the message before its first tool, closed with the turn.
@@ -113,7 +113,7 @@ describe("handleBackendRuntimeEvent", () => {
 
     expect(events.map((event) => event.type)).toEqual([
       "agent-status", "user-message", "assistant-start", "assistant-thinking", "assistant-delta",
-      "tool-start", "tool-end", "assistant-delta", "assistant-end", "agent-status",
+      "tool-start", "tool-update", "tool-end", "assistant-delta", "assistant-end", "agent-status",
     ]);
     expect(events.find((event) => event.type === "tool-end")).toEqual({ type: "tool-end", sessionId: "thread-1", tool: ended });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -247,7 +247,7 @@ it("keeps native subagents alive after the parent settles and updates their orig
   expect(thread.adapterActivity[0]?.tools).toEqual([done]);
   expect(thread.adapterActivity[1]?.tools).toEqual([]);
   expect(services.turnObservers.toolEnded).not.toHaveBeenCalled();
-  expect(services.ownTool).not.toHaveBeenCalled();
+  expect(thread.tools.size).toBe(0);
   await Promise.resolve();
   expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ id: thread.adapterActivity[0]?.id, tools: [done] }));
 });

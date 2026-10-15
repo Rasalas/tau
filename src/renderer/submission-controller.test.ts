@@ -15,7 +15,8 @@ import { PreferencesStore } from "./preferences";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { ThreadStore } from "../workbench/thread-store";
 import { ThreadViewStore } from "../workbench/thread-view-store";
-import { SubmissionController, type SubmissionControllerPorts } from "./submission-controller";
+import { SubmissionController, type SubmissionControllerPorts } from "../workbench/submission-controller";
+import { submissionEnvironment } from "./submission-environment";
 
 const SESSION_SNAPSHOT: HostSnapshot = {
   cwd: "/project",
@@ -144,12 +145,13 @@ function harness(options: {
     view,
     threads,
     scopes,
-    registry,
+    environment: submissionEnvironment({ client: () => client, registry,
+      preferences: (() => { const preferences = new PreferencesStore(); if (options.newThreadRuntime) preferences.setNewThreadRuntime(options.newThreadRuntime); return preferences; })(),
+      actions: () => actions, notify: (message) => view.setNotice(message),
+    }),
     storage,
-    preferences: (() => { const preferences = new PreferencesStore(); if (options.newThreadRuntime) preferences.setNewThreadRuntime(options.newThreadRuntime); return preferences; })(),
     hostSession,
     notify: (message) => view.setNotice(message),
-    actions: () => actions,
     delivery: deliveryPort,
     newThread,
     drafts: { startedElsewhere: (draftId) => { startedElsewhere.push(draftId); } },

@@ -1,3 +1,5 @@
+import { decodeNetworkSettingsInput } from "../shared/host-factory-commands.js";
+export { decodeNetworkSettingsInput } from "../shared/host-factory-commands.js";
 import { createServer as createHttpServer, type RequestListener, type Server } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { networkInterfaces } from "node:os";
@@ -27,8 +29,6 @@ const STORE_VERSION = 1;
 export function defaultNetworkSettings(identity: AppIdentity = appIdentity()): UiNetworkSettings {
   return { ...DEFAULT_NETWORK_SETTINGS, port: identity.networkPort, proxyPort: identity.proxyPort };
 }
-const MIN_PORT = 1024;
-const MAX_PORT = 65535;
 
 /** One listener the settings ask for. */
 export interface NetworkBind {
@@ -61,41 +61,6 @@ function tailscaleAddresses(interfaces: Interfaces): string[] {
     .map((entry) => entry.address);
 }
 
-function decodePort(value: unknown, field: string): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < MIN_PORT || value > MAX_PORT) {
-    throw new Error(`${field} must be a whole number from ${MIN_PORT} to ${MAX_PORT}.`);
-  }
-  return value;
-}
-
-function decodeCertificate(value: unknown): UiNetworkSettings["certificate"] | null | undefined {
-  if (value === undefined || value === null) return value;
-  const { certPath, keyPath } = (value ?? {}) as { certPath?: unknown; keyPath?: unknown };
-  if (typeof certPath !== "string" || typeof keyPath !== "string" || !certPath.trim() || !keyPath.trim()) {
-    throw new Error("A certificate names a certificate file and its key file.");
-  }
-  return { certPath: certPath.trim(), keyPath: keyPath.trim() };
-}
-
-/** A change as a client sends it; throws on anything but the known fields in range. */
-export function decodeNetworkSettingsInput(value: unknown): UiNetworkSettingsInput {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("connections-set-network: input must be an object.");
-  const input = value as Record<string, unknown>;
-  const result: UiNetworkSettingsInput = {};
-  for (const flag of ["lan", "tailscale", "announce"] as const) {
-    if (input[flag] === undefined) continue;
-    if (typeof input[flag] !== "boolean") throw new Error(`connections-set-network: ${flag} must be true or false.`);
-    result[flag] = input[flag];
-  }
-  const port = decodePort(input.port, "The port");
-  const proxyPort = decodePort(input.proxyPort, "The proxy port");
-  if (port !== undefined) result.port = port;
-  if (proxyPort !== undefined) result.proxyPort = proxyPort;
-  const certificate = decodeCertificate(input.certificate);
-  if (certificate !== undefined) result.certificate = certificate;
-  return result;
-}
 
 export function applyNetworkSettings(current: UiNetworkSettings, input: UiNetworkSettingsInput): UiNetworkSettings {
   const { certificate, ...rest } = input;

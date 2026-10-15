@@ -191,6 +191,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       "network",
     ],
     async activate(context: HostExtensionContext) {
+      context.registerMachineRouting({ localCommands: ["pick-folder", "create-scratch", "create-project", "publish-visualization", "release-visualization"] });
       const { services } = context;
       const approvals = registerProjectApprovals(context);
       // The kit owns the Git cache; core only learns project facts from it.

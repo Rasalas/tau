@@ -106,7 +106,7 @@ export function useDraftCommands(
   const workspace = draft?.workspaceId ?? draft?.projectPath;
   const own = Boolean(draft?.workspaceId && draft.workspaceId === snapshot?.workspaceId) && (runtime ?? "pi") === (snapshot?.backendKind ?? "pi");
   const key = !draft || draft.sessionId || own || !workspace || !runtime ? undefined : `${runtime}\u0000${workspace}`;
-  const [loaded, setLoaded] = useState<{ key: string; commands?: UiComposerCommand[] }>();
+  const [loaded, setLoaded] = useState<{ key: string; commands?: readonly UiComposerCommand[] }>();
   useEffect(() => {
     if (!key || !client) return undefined;
     let current = true;

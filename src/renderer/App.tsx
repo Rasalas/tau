@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AppUpdatePhase, HostEvent, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
-import { mockSnapshot, mockThreadIndex, reconcileOptimisticMessages, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
+import { mockSnapshot, mockThreadIndex, transcriptNavigationScope, transcriptNavigationScopeKey } from "../workbench/app-state";
 import { WorkbenchSession } from "../workbench/workbench-session";
 import { ThreadCommands } from "../workbench/thread-commands";
 import { useThreadNavigation, type ShowThreadOptions } from "./use-thread-navigation";
@@ -45,8 +45,8 @@ import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { stageOwner } from "../workbench/thread-stages";
 import { usePanelLayout } from "./use-panel-layout";
-import type { SubmissionControllerPorts } from "./submission-controller";
-import { deferredSubmission } from "./deferred-submission";
+import { loadSubmissionController } from "./deferred-surfaces";
+import { submissionEnvironment } from "./submission-environment";
 import { useTurnActivityCache } from "./use-turn-activity-cache";
 import { useWorkbenchStartup } from "./use-workbench-startup";
 import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
@@ -103,6 +103,15 @@ export default function App() {
   const [workbenchSession] = useState(() => new WorkbenchSession({
     storage: clientStorage,
     cached: cachedBootstrap,
+    submission: {
+      client: () => clientRef.current,
+      environment: submissionEnvironment({
+        client: () => clientRef.current, registry, preferences,
+        actions: () => actionsRef.current,
+        notify: (message, level) => actionsRef.current?.notify(message ?? "", level),
+      }),
+      load: loadSubmissionController,
+    },
     settledThreadIds: () => preferences.getSnapshot().settledThreadIds,
     notification: {
       notifyPromptSubmitted: (event) => {
@@ -152,7 +161,6 @@ export default function App() {
   // whether there are any, which a stream of output never changes.
   const turnHasActivity = useSyncExternalStore(viewStore.subscribeToTools, () => hasActivityTools(viewStore));
   const uiPrompts = useSyncExternalStore(viewStore.subscribeToPrompts, viewStore.getUiPrompts);
-  const optimisticMessages = useSyncExternalStore(viewStore.subscribeToOptimistic, viewStore.getOptimisticMessages);
   const events = useSyncExternalStore(viewStore.subscribeToEvents, viewStore.getEvents);
   const setNotice = viewStore.setNotice;
   const addEvent = viewStore.addEvent;
@@ -163,9 +171,6 @@ export default function App() {
   // so the composer, the live row and the rail cannot disagree.
   const visibleStreaming = threadActivity.isStreaming;
   const runStartedAt = threadActivity.runningStartedAt[threadActivity.activeThreadId];
-  // Only the user-message slice of the transcript reaches this component: a
-  // streamed delta must re-render the transcript and nothing above it.
-  const transcriptUserRevision = useSyncExternalStore(viewStore.subscribeToUserMessages, viewStore.getUserRevision);
   const {
     paletteOpen, paletteMenu, openPalette, closePalette,
     newThreadPick, openNewThreadPicker, closeNewThreadPicker,
@@ -176,8 +181,7 @@ export default function App() {
   const pendingNewThread = useSyncExternalStore(newThreadController.subscribe, newThreadController.current);
   const {
     set: setPendingNewThread, begin: beginNewThread, invalidate: invalidateNewThread,
-    isCurrent: isCurrentNewThreadRequest, markAwaitingPromotion,
-    promoteFromUserMessage, current: currentPendingNewThread,
+    current: currentPendingNewThread,
   } = newThreadController;
   // A prepared thread is not a runtime session yet, so its project is the
   // only trustworthy workspace identity while it is on screen. In
@@ -274,42 +278,9 @@ export default function App() {
   const visibleTranscriptTurnStart = transcriptTurnStart?.scopeKey === transcriptScopeKey
     ? transcriptTurnStart
     : undefined;
-  // Renderer prompt contributions adapt to the already-constructed session.
-  // Host updates and delivery no longer call back through this controller.
-  const [submission] = useState(() => {
-    const ports: SubmissionControllerPorts = {
-      client: () => clientRef.current,
-      view: viewStore,
-      threads: threadStore,
-      scopes: composerScopeStore,
-      registry,
-      storage: clientStorage,
-      preferences,
-      hostSession,
-      delivery: newThreadDelivery,
-      notify: viewStore.setNotice,
-      actions: () => actionsRef.current,
-      newThread: {
-        current: currentPendingNewThread,
-        set: (draft) => setPendingNewThread(draft),
-        update: (change) => setPendingNewThread((current) => change(current)),
-        requestId: newThreadController.requestId,
-        isCurrent: isCurrentNewThreadRequest,
-        markAwaitingPromotion, promoteFromUserMessage,
-      },
-      drafts: workbenchSession.drafts,
-      turn: turnScope,
-      host: workbenchSession,
-      enqueueFollowUp: async (threadId, item) => {
-        if (!clientRef.current) throw new Error("Queued messages need a connection to the machine.");
-        await clientRef.current.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
-      },
-    };
-    return deferredSubmission(ports);
-  });
   const submitPrompt = useCallback<SubmitPrompt>(
-    (text, attachments, delivery, skillDraft) => submission.submit({ text, attachments, delivery, skillDraft }),
-    [submission],
+    (text, attachments, delivery, skillDraft) => workbenchSession.submit({ text, attachments, delivery, skillDraft }),
+    [workbenchSession],
   );
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
   const currentActions = useCallback(() => actionsRef.current, []);
@@ -322,15 +293,7 @@ export default function App() {
     setNotice,
     actions: currentActions,
   });
-  useEffect(() => {
-    const reconciled = reconcileOptimisticMessages(optimisticMessages, viewStore.getTranscript().messages);
-    if (reconciled.length === optimisticMessages.length) return;
-    if (pendingNewThread && reconciled.every((entry) => entry.scope !== activeDraftKey)) {
-      writeNewThreadDraft(clientStorage);
-      setPendingNewThread(undefined);
-    }
-    viewStore.setOptimisticMessages(reconciled);
-  }, [activeDraftKey, optimisticMessages, pendingNewThread, transcriptUserRevision]);
+
 
   // Everything the workbench does to the thread on screen that is one host
   // call and a notice. It reads the client through a getter, so it survives
@@ -404,13 +367,14 @@ export default function App() {
     viewerHidden: () => document.hidden, currentDraftKey,
     transcriptTurnStart: turnScope.current,
     setTranscriptTurnStart: turnScope.set, applyHostUpdate, applyThreadIndex,
+    applyUserMessage: workbenchSession.applyUserMessage,
     syncDesktopExtensions, setUpdateReady, setNotice,
     // Electron titles the window after the page; a browser tab shows it too.
     setWindowTitle: (title) => { document.title = title; },
     windowShell: windowShell.handle,
   }), [
     client, currentDraftKey, preferences, registry, setNotice, setUpdateReady, windowShell.handle,
-    newThreadDelivery, syncDesktopExtensions, threadStore, turnScope, viewStore,
+    newThreadDelivery, syncDesktopExtensions, threadStore, turnScope, viewStore, workbenchSession,
   ]);
   const handleHostEvent = useCallback((event: HostEvent) => applyHostEvent(event, hostEventTargets), [hostEventTargets]);
 

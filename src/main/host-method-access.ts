@@ -1,3 +1,5 @@
+import { HOST_COMMANDS } from "../shared/host-command-contract.js";
+import type { HostCommandAudit } from "../shared/host-command-definition.js";
 import { methodAccess } from "../shared/host-method-access.js";
 import { HOST_ERROR } from "../shared/host-transport.js";
 import { isHostOwner, type AuditedCall, type HostInvocationPrincipal } from "./host-invocation.js";
@@ -20,77 +22,9 @@ export function ownerRefusal(): Error {
  * of something else, so it never replaces the device's last change; `quiet`
  * leaves an allowed call out of the log (a refused one is still recorded).
  */
-export const HOST_METHOD_AUDIT: Readonly<Record<string, { label: string; thread?: number; automatic?: true; quiet?: true }>> = {
-  "prepare-prompt": { label: "prepared a prompt", thread: 1, automatic: true },
-  "prompt": { label: "sent a prompt", thread: 2 },
-  "run-shell-action": { label: "ran a shell command" },
-  "steer": { label: "steered a run", thread: 2 },
-  "follow-up": { label: "sent a follow-up", thread: 2 },
-  "queue-message": { label: "queued a message", thread: 0 },
-  "take-queued": { label: "took a queued message", thread: 0 },
-  "move-queued": { label: "reordered queued messages", thread: 0 },
-  "resume-limited": { label: "resumed a thread after a limit", thread: 0 },
-  "abort": { label: "stopped a run", thread: 0 },
-  "thread-goal": { label: "changed a goal", thread: 0 },
-  "thread-background-stop": { label: "stopped background work", thread: 0 },
-  "new-session": { label: "started a thread" },
-  "start-thread": { label: "started a thread" },
-  "send-to-thread": { label: "sent a message to a thread", thread: 0 },
-  "fork-thread": { label: "forked a thread", thread: 1 },
-  "navigate-thread-tree": { label: "moved within a thread's tree", thread: 2 },
-  "duplicate-thread": { label: "duplicated a thread", thread: 0 },
-  "set-model": { label: "changed the model" },
-  "set-thinking": { label: "changed the thinking level" },
-  "set-mode": { label: "changed the mode", thread: 1 },
-  "compact-context": { label: "compacted the context" },
-  "compact-and-send": { label: "compacted the context and queued a message" },
-  "restart-session": { label: "restarted an agent session" },
-  "reload-runtime": { label: "reloaded the runtime" },
-  "reload-extensions": { label: "reloaded extensions" },
-  "answer-extension-ui": { label: "answered a question" },
-  "recover-thread": { label: "recovered a thread" },
-  "rename-thread": { label: "renamed a thread", thread: 1 },
-  "copy-text": { label: "copied text on the host" },
-  "copy-image": { label: "copied an image on the host" },
-  "notify": { label: "showed a notification on the host" },
-  "set-badge": { label: "set the app badge" },
-  "context-menu": { label: "opened a menu on the host" },
-  "window-action": { label: "used the host's window" },
-  "host-extension-active": { label: "turned an extension on or off" },
-  "extension-grant": { label: "changed an extension's grant" },
-  "prepare-workbench-reload": { label: "reloaded the workbench" },
-  "release-workbench-reload": { label: "finished reloading the workbench", automatic: true },
-  "rebuild-workbench": { label: "rebuilt the workbench" },
-  "relaunch-workbench": { label: "relaunched the workbench" },
-  "install-update": { label: "installed an update" },
-  "update-install": { label: "started a Tau update" },
-  "update-settings": { label: "changed automatic updates" },
-  "open-project": { label: "opened a project" },
-  "remove-project": { label: "removed a project" },
-  "update-config": { label: "changed settings" },
-  "clear-config": { label: "reset settings" },
-  "add-model-provider": { label: "added a model provider" },
-  "open-external-editor": { label: "opened an external editor" },
-  "environments-pair": { label: "paired a machine" },
-  "environments-cancel-pairing": { label: "cancelled pairing a machine" },
-  "environments-rename": { label: "renamed a machine" },
-  "environments-remove": { label: "removed a machine" },
-  "environments-retry": { label: "reconnected a machine" },
-  "environments-open": { label: "opened a machine" },
-  "environments-discover": { label: "looked for machines" },
-  "environments-set-preferences": { label: "changed machine preferences" },
-  "environments-set-agents": { label: "changed where this machine's agents may work" },
-  "environments-extension-invoke": { label: "ran a command on another machine" },
-  "environments-update": { label: "updated a machine's Tau" },
-  "environments-update-config": { label: "changed another machine's settings" },
-  "environments-clear-config": { label: "reset another machine's settings" },
-  "environments-set-person-preferences": { label: "changed how the workbench looks", automatic: true, quiet: true },
-  "cancel-job": { label: "cancelled a job" },
-  // One entry per file, not per 8 MB piece.
-  "blob-put": { label: "sent part of a file", automatic: true, quiet: true },
-  "blob-commit": { label: "sent a file" },
-  "blob-abort": { label: "cancelled sending a file", automatic: true },
-};
+export const HOST_METHOD_AUDIT: Readonly<Record<string, HostCommandAudit | undefined>> = Object.fromEntries(
+  Object.entries(HOST_COMMANDS).flatMap(([name, declaration]) => declaration.audit ? [[name, declaration.audit]] : []),
+);
 
 /** The audit record of a core method call: its label and the thread its params name. */
 export function auditedMethodCall(method: string, params: readonly unknown[] = []): AuditedCall {

@@ -689,7 +689,7 @@ The browser client's initial script went from 810,091 to 787,705 bytes (253,779 
 
 | moved out of the entry | new chunk (gzip) |
 | --- | ---: |
-| `SubmissionController`, built on the first send (`deferred-submission.ts`) | 10,836 (3,857) |
+| `SubmissionController`, built on the first send (now owned by `WorkbenchSession.submit`) | 10,836 (3,857) |
 | Vim's Normal mode keys (`composer-vim-normal.ts`); Vim starts in Insert | 4,168 (964) |
 | the bodies of core's slash commands and wordier commands (`runtime-control-runs.ts`); names, labels and chords stay | 2,590 (1,092) |
 | `PairingRequestWatcher`, whose first look is 1.5 s after start-up, and `pairing-format` | 2,039 (1,096) + 1,135 (679) |

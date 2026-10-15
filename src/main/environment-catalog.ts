@@ -1,8 +1,10 @@
-import { authorityName, type PairingEndpoint, type UiHostEndpointKind } from "../shared/connections.js";
+import type { SavedEnvironment } from "../shared/machine-protocol.js";
+export type { SavedEnvironment } from "../shared/machine-protocol.js";
+import { authorityName, type UiHostEndpointKind } from "../shared/connections.js";
 import { socketUrl } from "../shared/environments.js";
 import type { EndpointTrust } from "./host-tls-trust.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
-import { decodeManagedRoute, type ManagedRoute } from "../shared/managed-connections.js";
+import { decodeManagedRoute } from "../shared/managed-connections.js";
 
 /**
  * Encrypts what the catalog must not keep in the clear. Electron's
@@ -16,22 +18,6 @@ export interface SecretBox {
   decrypt(data: string): string;
 }
 
-/** A machine the user paired this window with; `token` is decrypted in memory only. */
-export interface SavedEnvironment {
-  managed?: ManagedRoute;
-  id: string;
-  name: string;
-  endpoints: PairingEndpoint[];
-  /** SHA-256 of its listeners' public key: the pin. A renewed certificate keeps it. */
-  publicKey?: string;
-  /** SHA-256 of one certificate: the pin of a machine added before key pins, until its next hello. */
-  fingerprint?: string;
-  token: string;
-  addedAt: string;
-  /** The address that worked last; tried first. */
-  lastUrl?: string;
-  readOnly?: boolean;
-}
 
 interface StoredEnvironment extends Omit<SavedEnvironment, "token" | "managed"> {
   managed?: string;

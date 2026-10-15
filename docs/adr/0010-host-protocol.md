@@ -116,3 +116,18 @@ rather than substituting the currently active project.
 - **TLS.** Done in the 2026-09-22 amendment. Still open: rotating a self-signed certificate without every client re-pinning it, and pinning in the browser client, which only has the browser's own certificate warning.
 - **Multi-user hosts.** One token means one trust level: whoever has it may do everything the desktop user may do. Per-client identity and permissions build on ticket 17's per-package rights.
 - **A directory of hosts**, and web or mobile clients (ticket 19). A browser client would additionally need the host to serve the built assets and a way to enter a token without a native dialog; none of that exists.
+
+## Amendment, 2026-10-14: shared command declarations
+
+Core commands are declared under `src/shared/host-*-commands.ts`. Each
+declaration owns the parameter decoder, result type, access level, job flag
+and audit metadata. The host binds implementations against the decoded tuple;
+HostClient derives its method arguments and results from the same declaration.
+The positional arrays and version 1 transport remain compatible with existing
+clients.
+
+Validation stays handwritten, including defaults and errors accepted by older
+clients. The shared decoder replaces separate client signatures and handler
+casts without introducing a schema generator. Extension commands retain their
+activation-time registration, since their catalog is supplied by packages.
+Authorization still precedes invocation and machine forwarding.

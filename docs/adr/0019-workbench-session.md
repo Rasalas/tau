@@ -52,3 +52,22 @@ so opening a second project cannot overwrite the first one's layout.
 The stored stage is deliberately generic — a tab is written as it is held and
 read back when it carries `id`, `kind` and `preview` — so a tab kind a kit
 contributes survives a restart without this module learning about it.
+
+## Amendment, 2026-10-14: submission belongs to the session
+
+`WorkbenchSession.submit` owns the submission controller and supplies its
+internal state ports. Submission, optimistic messages and queued delivery live
+under `src/workbench`. The controller is still loaded on the first submission;
+concurrent submissions share that load, and a failed load can be retried.
+
+The renderer provides a submission environment for extension commands, prompt
+hooks, model preferences, selection and preview actions. App constructs this
+adapter and calls `submit`; it no longer assembles the session's stores into a
+second coordination graph.
+
+The session also owns reconciliation after authoritative details, transcript
+pages and live user messages. A live echo promotes delivery before reducing
+the message and reconciling the submitted draft. A reply that arrives after
+navigation may complete its submission without clearing a newer draft. No
+React effect or subscription to assistant token updates coordinates these
+steps.
