@@ -107,7 +107,7 @@ export class ExtensionKeybindings {
   private keybindingEntries: KeybindingEntry[] = [];
   private keybindingSeq = 0;
   private keybindingsVersion = 0;
-  private keybindingState: KeybindingState | undefined;
+  private readonly keybindingStates = new Map<boolean, KeybindingState>();
   private readonly shadowedCommands = new Map<string, number>();
   private overrideDisposers: Array<() => void> = [];
 
@@ -219,7 +219,8 @@ export class ExtensionKeybindings {
    * the earlier one keeps the chord.
    */
   private resolveKeybindings(mac = isMacPlatform()): KeybindingState {
-    if (this.keybindingState?.version === this.keybindingsVersion && this.keybindingState.mac === mac) return this.keybindingState;
+    const cached = this.keybindingStates.get(mac);
+    if (cached?.version === this.keybindingsVersion) return cached;
     const defaults = new Map<string, KeybindingEntry>();
     for (const entry of this.keybindingEntries) {
       if (entry.tier === 0 && !defaults.has(entry.binding.commandId)) defaults.set(entry.binding.commandId, entry);
@@ -250,8 +251,9 @@ export class ExtensionKeybindings {
       chords.set(chord, holders);
     }
     live.sort((a, b) => a.seq - b.seq);
-    this.keybindingState = { version: this.keybindingsVersion, mac, live, conflicts };
-    return this.keybindingState;
+    const state: KeybindingState = { version: this.keybindingsVersion, mac, live, conflicts };
+    this.keybindingStates.set(mac, state);
+    return state;
   }
 
   /** The chords that are live: a replaced default or a binding that lost its chord is not one of them. */

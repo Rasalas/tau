@@ -3,15 +3,29 @@ import { AttachmentLightbox } from "../deferred-surfaces";
 import { MediaLinkContext } from "./media-link-context";
 import { RemoteMediaButton, remoteHost } from "./RemoteMedia";
 import { useContext, useEffect, useState } from "react";
+import { useClientEnvironment } from "../client-environment";
 import { RESOURCE_UNAVAILABLE, resourceRelativePath, transcriptFilePath, useWorkspaceResources, type WorkspaceResources } from "../workspace-resource-context";
 
 // Only raster data images can come back from an authorized workspace read.
 const DATA_IMAGE = /^data:image\/(?:png|jpeg|gif|webp|bmp|avif|x-icon);base64,[A-Za-z0-9+/=\s]+$/iu;
+const RASTER_IMAGE = /^image\/(?:png|jpeg|gif|webp|bmp|avif|x-icon)$/iu;
+
+// Native sockets pin certificates and may travel through a relay; ordinary
+// image URLs cannot use that connection. Keep their file replies sequential
+// so several base64 images cannot fill the host's send buffer at once.
+const imageReads = new WeakMap<WorkspaceResources, Promise<void>>();
+function readImageFile(resources: WorkspaceResources, path: string, cancelled: () => boolean) {
+  const request = (imageReads.get(resources) ?? Promise.resolve()).then(() => cancelled() ? undefined : resources.loadFile(path));
+  const settled = request.then(() => undefined, () => undefined);
+  imageReads.set(resources, settled);
+  void settled.then(() => { if (imageReads.get(resources) === settled) imageReads.delete(resources); });
+  return request;
+}
 
 interface ImageResult {
   resources: WorkspaceResources;
   path: string;
-  dataUrl?: string;
+  url?: string;
   error?: string;
 }
 
@@ -50,6 +64,9 @@ function RemoteImage(props: ImageProps) {
 /** Relative Markdown images are files of the transcript's origin, not this device. */
 export function WorkspaceImage({ src = "", alt = "", title, width, height }: { src?: string; alt?: string; title?: string; width?: number | string; height?: number | string }) {
   const resources = useWorkspaceResources();
+  const environment = useClientEnvironment();
+  const compact = environment.profile !== "desktop";
+  const resourceImages = compact && !environment.mobileApp;
   const [result, setResult] = useState<ImageResult>();
   const [failedSource, setFailedSource] = useState<string>();
   const external = /^https?:\/\//iu.test(src) || DATA_IMAGE.test(src);
@@ -61,12 +78,29 @@ export function WorkspaceImage({ src = "", alt = "", title, width, height }: { s
   useEffect(() => {
     if (!path || !resources?.available) return;
     let cancelled = false;
+    let release: (() => void) | undefined;
     const finish = (value: ImageResult) => { if (!cancelled) setResult(value); };
-    void resources.loadFile(path).then((file) => {
+    const load = async () => {
+      // Resource URLs belong to the connected host. Routed images retain the
+      // file read that carries their bytes back from the other machine.
+      if (resourceImages && resources.loadMedia && resources.local !== false) {
+        const media = await resources.loadMedia(path);
+        if (cancelled || !RASTER_IMAGE.test(media.mimeType)) {
+          media.release?.();
+          if (!cancelled) finish({ resources, path, error: "This file is not a supported image." });
+          return;
+        }
+        release = media.release;
+        finish({ resources, path, url: media.url });
+        return;
+      }
+      const file = await (compact ? readImageFile(resources, path, () => cancelled) : resources.loadFile(path));
+      if (!file) return;
       if (file.kind !== "image" || file.truncated || !file.dataUrl || !DATA_IMAGE.test(file.dataUrl)) {
         finish({ resources, path, error: "This file is not a supported image or is too large to display." });
-      } else finish({ resources, path, dataUrl: file.dataUrl });
-    }, (error: unknown) => {
+      } else finish({ resources, path, url: file.dataUrl });
+    };
+    void load().catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       const reason = /not found|ENOENT|unknown|not a known/iu.test(message) ? "Image not found in this workspace."
         : /denied|forbidden|permission/iu.test(message) ? "Image access denied."
@@ -76,8 +110,8 @@ export function WorkspaceImage({ src = "", alt = "", title, width, height }: { s
         : "The workspace image could not be loaded.";
       finish({ resources, path, error: reason });
     });
-    return () => { cancelled = true; };
-  }, [path, resources]);
+    return () => { cancelled = true; release?.(); };
+  }, [compact, path, resourceImages, resources]);
 
   const name = alt || path?.split("/").pop() || "Image";
   // A changed URL, including its query, must not inherit a previous image's consent.
@@ -90,8 +124,8 @@ export function WorkspaceImage({ src = "", alt = "", title, width, height }: { s
   if (!resources?.available) return <UnavailableImage name={name} reason={RESOURCE_UNAVAILABLE} />;
   // Never paint a previous path/origin's bytes while its replacement loads.
   const current = result?.resources === resources && result.path === path ? result : undefined;
-  if (current?.dataUrl) {
-    return <PreviewImage src={current.dataUrl} alt={alt} title={title} width={width} height={height} onError={() => setResult({ resources, path, error: "The workspace image could not be decoded." })} />;
+  if (current?.url) {
+    return <PreviewImage src={current.url} alt={alt} title={title} width={width} height={height} onError={() => setResult({ resources, path, error: "The workspace image could not be decoded." })} />;
   }
   return <UnavailableImage name={name} reason={current?.error || "Loading workspace image…"} />;
 }

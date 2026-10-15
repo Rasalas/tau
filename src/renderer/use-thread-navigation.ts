@@ -208,13 +208,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       view.addEvent(cached ? "thread.switch.cached" : "thread.switch.selected", target.title);
     }
     // The chat comes to the front with this thread in it, never with the one being left.
-    let shown = false;
-    const show = () => {
-      if (shown) return;
-      shown = true;
-      showThread();
-    };
-    if (cached || !previous || !target) show();
+    showThread();
     let transition: TransitionToken = history.beginThreadSwitch(target?.id);
     // Before the switch is asked for, so the host streams the target from its snapshot on.
     const releaseTarget = target ? client!.watchThread(target.id) : undefined;
@@ -229,10 +223,6 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
         // Painting the page settles the history's transition; the host's answer needs one of its own.
         transition = history.beginThreadSwitch(target.id);
         previewed = true;
-        // An empty persisted page clears a stale cached preview, but does not
-        // establish that an uncached thread can open. Keep its list visible
-        // until the runtime accepts the switch (or a nonempty page arrives).
-        if (page.messages.length > 0) show();
         view.addEvent("thread.switch.preview", target.title);
       }, () => undefined);
     }
@@ -242,7 +232,6 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       // The page is longer than the host's first one; merged, it would stand for history the host never paged.
       if (previewed && history.isCurrentThreadTransition(transition)) view.details.delete(target!.id);
       if (!applyActionResult(next, transition)) return false;
-      show();
       threads.markRead(target?.id ?? "");
       view.addEvent("thread.switch.confirmed", `${Math.round(performance.now() - startedAt)}ms`);
       return true;

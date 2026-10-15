@@ -8,19 +8,23 @@ import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-conte
 import { HostClientProvider } from "../host-client-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
 import type { UiFileContent } from "../../shared/workspace-kit-types";
+import type { DocumentSourceContribution } from "../extension-system";
+import { ClientEnvironmentProvider, electronClientEnvironment } from "../client-environment";
 
 const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 const image = (path = "a.png"): UiFileContent => ({ path, name: path, size: 68, kind: "image", dataUrl });
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); });
 
-function fixture(load = vi.fn().mockResolvedValue(image())) {
-  const source = { id: "workspace", loadFile: load };
+function fixture(load = vi.fn().mockResolvedValue(image()), loadMedia?: DocumentSourceContribution["loadMedia"], profile = "desktop") {
+  window.history.replaceState({}, "", `/?profile=${profile}`);
+  const environment = { ...electronClientEnvironment(new URLSearchParams(`profile=${profile === "native" ? "compact" : profile}`)), ...(profile === "native" ? { mobileApp: { platform: "ios" as const, version: "test" } } : {}) };
+  const source = { id: "workspace", loadFile: load, loadMedia };
   const workbench = { registry: { getDocumentSource: () => source }, openWorkspaceFile: vi.fn() } as unknown as WorkbenchContextValue;
   const client = createFakeHostClient();
-  const draw = (text = "![Screenshot](a.png)", workspace: string | undefined = "ws-A", streaming = false, host = client, html?: MarkdownHtml) =>
-    <HostClientProvider client={host}><WorkbenchContext.Provider value={workbench}>
-      <WorkspaceResourceProvider sessionId="thread" workspace={workspace}><Markdown streaming={streaming} html={html}>{text}</Markdown></WorkspaceResourceProvider>
-    </WorkbenchContext.Provider></HostClientProvider>;
+  const draw = (text = "![Screenshot](a.png)", workspace: string | undefined = "ws-A", streaming = false, host = client, html?: MarkdownHtml, local = true) =>
+    <ClientEnvironmentProvider environment={environment}><HostClientProvider client={host}><WorkbenchContext.Provider value={workbench}>
+      <WorkspaceResourceProvider sessionId="thread" workspace={workspace} local={local}><Markdown streaming={streaming} html={html}>{text}</Markdown></WorkspaceResourceProvider>
+    </WorkbenchContext.Provider></HostClientProvider></ClientEnvironmentProvider>;
   return { load, draw, client, workbench };
 }
 
@@ -35,6 +39,85 @@ async function hasImage(container: HTMLElement, expected = dataUrl) {
 }
 
 describe("workspace Markdown images", () => {
+  it("keeps native images on the pinned connection and reads them one at a time", async () => {
+    const first = deferred();
+    const second = deferred();
+    const media = vi.fn();
+    const { draw, load } = fixture(vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise), media, "native");
+    const { container } = render(draw("![First](a.png)\n\n![Second](b.png)"));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    expect(load).toHaveBeenLastCalledWith("a.png", { workspace: "ws-A" });
+    await act(async () => first.resolve(image()));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(load).toHaveBeenLastCalledWith("b.png", { workspace: "ws-A" });
+    await act(async () => second.resolve(image("b.png")));
+    await waitFor(() => expect(container.querySelectorAll("img")).toHaveLength(2));
+    expect(media).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch queued native images after leaving their thread", async () => {
+    const first = deferred();
+    const { draw, load } = fixture(vi.fn().mockReturnValue(first.promise), vi.fn(), "native");
+    const { unmount } = render(draw("![First](a.png)\n\n![Second](b.png)"));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    unmount();
+    await act(async () => first.resolve(image()));
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads image bytes through a resource URL without a base64 file response", async () => {
+    const release = vi.fn();
+    const media = vi.fn().mockResolvedValue({ url: "https://host/resources/image", mimeType: "image/png", release });
+    const { draw, load } = fixture(undefined, media, "compact");
+    const { container, unmount } = render(draw());
+    await hasImage(container, "https://host/resources/image");
+    expect(media).toHaveBeenCalledExactlyOnceWith("a.png", { workspace: "ws-A" });
+    expect(load).not.toHaveBeenCalled();
+    unmount();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("releases a resource that arrives after its image unmounts", async () => {
+    let resolve!: (value: { url: string; mimeType: string; release(): void }) => void;
+    const media = vi.fn(() => new Promise<{ url: string; mimeType: string; release(): void }>((done) => { resolve = done; }));
+    const release = vi.fn();
+    const { draw, load } = fixture(undefined, media, "compact");
+    const { unmount } = render(draw());
+    unmount();
+    await act(async () => resolve({ url: "https://host/resources/image", mimeType: "image/png", release }));
+    expect(release).toHaveBeenCalledOnce();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("reads routed image bytes from the other machine instead of a URL on this host", async () => {
+    const media = vi.fn();
+    const { draw, load } = fixture(undefined, media, "compact");
+    const { container } = render(draw(undefined, "ws-remote", false, undefined, undefined, false));
+    await hasImage(container);
+    expect(media).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledExactlyOnceWith("a.png", { workspace: "ws-remote" });
+  });
+
+  it("rejects non-raster media and releases the unused resource", async () => {
+    const release = vi.fn();
+    const media = vi.fn().mockResolvedValue({ url: "https://host/resources/image", mimeType: "image/svg+xml", release });
+    const { draw, load } = fixture(undefined, media, "compact");
+    const { container, findByRole } = render(draw());
+    await findByRole("img", { name: /Screenshot: .*not a supported image/ });
+    expect(container.querySelector("img")).toBeNull();
+    expect(release).toHaveBeenCalledOnce();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("keeps desktop image bytes available for the native clipboard", async () => {
+    const media = vi.fn();
+    const { draw, load } = fixture(undefined, media);
+    const { container } = render(draw());
+    await hasImage(container);
+    expect(media).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledOnce();
+  });
+
   for (const protocol of ["http", "https"]) {
     it(`preserves sanitized dimensions on ${protocol} images after consent`, async () => {
       const src = `${protocol}://example.com/image.png`;

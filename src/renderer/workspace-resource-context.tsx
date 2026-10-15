@@ -13,6 +13,8 @@ export interface WorkspaceResources {
   readonly origin?: WorkspaceResourceOrigin;
   readonly available: boolean;
   readonly displayPath?: string;
+  /** False when files live on another machine than the connected host. */
+  readonly local?: boolean;
   loadFile(relativePath: string): Promise<UiFileContent>;
   loadMedia?(path: string): Promise<{ url: string; mimeType: string; release?: () => void; mainCheckoutPath?: string; resolvedPath?: string }>;
   loadVisualization?(relativePath: string, theme: "light" | "dark"): Promise<{ url: string; release?: () => void }>;
@@ -84,13 +86,13 @@ export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, l
     const lease = { active: true };
     const load = bindWorkspaceFileLoader(source, origin);
     const value: WorkspaceResources = {
-      origin, available: Boolean(origin), displayPath,
-      loadMedia: async (path) => {
+      origin, available: Boolean(origin), displayPath, local,
+      loadMedia: source?.loadMedia ? async (path) => {
         if (!lease.active || !origin || !source?.loadMedia) throw new Error("This machine does not support media previews.");
         const result = await source.loadMedia(linkedFilePath(path), { workspace: origin.workspace });
         if (!lease.active) { result.release?.(); throw new Error(RESOURCE_UNAVAILABLE); }
         return result;
-      },
+      } : undefined,
       loadVisualization: async (path, theme) => {
         if (!lease.active || !origin || !source?.loadVisualization) throw new Error("This machine does not support inline visualizations.");
         const result = await source.loadVisualization(resourceRelativePath(path), { workspace: origin.workspace }, theme);

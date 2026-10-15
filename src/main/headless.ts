@@ -1,6 +1,6 @@
+import "./compile-cache.js";
 import { HOST_TRANSPORT_COMMANDS } from "../shared/host-command-contract.js";
 import { bindHostCommand } from "./host-command-handler.js";
-import "./compile-cache.js";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";

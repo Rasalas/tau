@@ -327,7 +327,7 @@ describe("WorkbenchStore", () => {
     expect(store.applyActionResult({ updates: [] }, stale)).toBe(false);
   });
 
-  it("returns a correlated observation after reducing detail; Session promotes it once", () => {
+  it("returns a correlated observation after reducing detail; Session promotes and reconciles it once", () => {
     const session = new WorkbenchSession({
       storage: createMemoryStorage(),
       notification: {
@@ -378,7 +378,8 @@ describe("WorkbenchStore", () => {
 
     expect(session.newThread.current()).toBeUndefined();
     expect(recovery.scopeRef.scope).toBe(createDraftKey(draftKey("created")));
-    expect(session.view.getOptimisticMessages()[0]?.scope).toBe("session:created");
+    expect(session.view.getOptimisticMessages()).toEqual([]);
+    expect(session.view.getTranscript().messages).toEqual([clientMessage]);
     expect(session.turn.current()?.scopeKey).toBe(transcriptNavigationScopeKey({ cwd: pending.projectPath, sessionId: "created" }));
     expect(session.delivery.hasRecovery(clientMessage.clientMessageId!)).toBe(false);
   });

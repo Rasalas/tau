@@ -11,6 +11,7 @@ import { MOVED_PRESS_MS, ORDER_HOLD_MS } from "../renderer/touch/steady-rows";
 import { setHostClient } from "../renderer/host-client-context";
 import { createFakeHostClient, type FakeHostClient } from "../renderer/test-support/fake-host-client";
 import { createRendererServices } from "../renderer/renderer-services";
+import { loadTauApi } from "../renderer/runtime-extensions";
 import { createMemoryStorage, getClientStorage, setClientStorage } from "../workbench/client-storage";
 import { phoneReaderFromState, routeFromState } from "../workbench/phone-history";
 import { STORAGE_KEYS } from "../workbench/storage-keys";
@@ -101,9 +102,9 @@ const rowNamed = (title: string) => screen.getAllByRole("button", { name: `Open 
 
 const running = (sessionId: string): HostEvent => ({ type: "agent-status", sessionId, running: true });
 
-// The Workbench loads the Settings screen as a chunk of its own. Loaded here, outside the tests,
-// its first import on a busy machine does not count against findByRole's wait.
-beforeAll(async () => { await import("../renderer/settings/SettingsScreen"); });
+// Load the Settings screen and extension API before the tests, so their first
+// imports on a busy machine do not count against findByRole's wait.
+beforeAll(async () => { await Promise.all([import("../renderer/settings/SettingsScreen"), loadTauApi()]); });
 beforeEach(() => { window.history.replaceState(null, "", "/"); installPointerEvents(); setViewport(400); archived.length = 0; });
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); setViewport(1024); window.history.replaceState(null, "", "/"); });
 
@@ -204,7 +205,7 @@ describe("the web client at 400 px", () => {
     }
   });
 
-  it("shows a thread it has not loaded yet only once it is there, never the thread it left", async () => {
+  it("opens an uncached thread before its requests finish without showing the previous thread", async () => {
     let page!: (page: TranscriptPage) => void;
     let answer!: (result: HostActionResult) => void;
     renderCompactClient({
@@ -214,24 +215,27 @@ describe("the web client at 400 px", () => {
     const list = await screen.findByRole("list", { name: "Threads" });
     const row = within(list).getByRole("button", { name: "Open thread Ship the web client" });
     fireEvent.click(row);
-    // The list stays, the tapped row says it is opening, and "Rename the store" stays where it was: behind it.
-    await waitFor(() => expect(row.getAttribute("aria-busy")).toBe("true"));
-    expect(routeFromState(window.history.state)).toEqual({ kind: "threads" });
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "t-b" }));
+    expect(document.querySelector(".touch-browser.home")).toBeNull();
+    expect(screen.queryByText("Rename it")).toBeNull();
     act(() => page({ sessionId: "t-b", messages: [{ id: "b1", role: "user", text: "Ship it", timestamp: 2 }], hasMore: false }));
     await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "t-b" }));
     expect(await screen.findByText("Ship it")).toBeTruthy();
     expect(screen.queryByText("Rename it")).toBeNull();
-    act(() => answer({ version: 1, updates: [{ version: 1, type: "thread-detail", detail: { sessionId: "t-b", messages: [{ id: "b1", role: "user", text: "Ship it", timestamp: 2 }], isStreaming: false, activeTools: [] } }] }));
     fireEvent.click(screen.getByRole("button", { name: "Back to threads" }));
     const back = await screen.findByRole("button", { name: "Open thread Ship the web client" });
+    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "threads" }));
+    // Finishing the runtime switch must not undo a later Back gesture.
+    await act(async () => answer({ version: 1, updates: [{ version: 1, type: "thread-detail", detail: { sessionId: "t-b", messages: [{ id: "b1", role: "user", text: "Ship it", timestamp: 2 }], isStreaming: false, activeTools: [] } }] }));
+    expect(routeFromState(window.history.state)).toEqual({ kind: "threads" });
     expect(back.getAttribute("aria-busy")).toBeNull();
   });
 
-  it("stays on the list when a thread does not open, and says why", async () => {
+  it("keeps the selected chat when its runtime fails to open, and says why", async () => {
     renderCompactClient({ switchSession: async () => { throw new Error("The thread is held by another host."); } });
     fireEvent.click(await screen.findByRole("button", { name: "Open thread Ship the web client" }));
     expect(await screen.findByText("The thread is held by another host.")).toBeTruthy();
-    expect(routeFromState(window.history.state)).toEqual({ kind: "threads" });
+    expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "t-b" });
   });
 
   it("stops a running thread from its sheet, without opening it; the row itself has no stop button", async () => {

@@ -2,12 +2,29 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadStore } from "../../workbench/thread-store";
-import { PHONE_HOME } from "../../workbench/phone-route";
+import { PHONE_HOME, type PhoneRoute } from "../../workbench/phone-route";
+import { routeFromState, stateWithRoute } from "../../workbench/phone-history";
 import { ClientEnvironmentProvider, electronClientEnvironment } from "../client-environment";
 import { ThreadStoreContext } from "../workbench-context";
 import { TouchLayer } from "./TouchLayer";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
+
+it.each([
+  ["/", null, { kind: "chat", thread: "selected" }],
+  ["/?thread=linked", null, { kind: "chat", thread: "linked" }],
+  ["/", stateWithRoute(null, PHONE_HOME), PHONE_HOME],
+] as const)("preserves a selection made before touch history loads, while restoring %s", (url, state, expected) => {
+  window.history.replaceState(state, "", url);
+  const onRoute = vi.fn();
+  const selected: PhoneRoute = { kind: "chat", thread: "selected" };
+  render(<ThreadStoreContext.Provider value={new ThreadStore()}>
+    <TouchLayer syncUrl openThread={async () => false} phone={{ route: selected, onRoute }} />
+  </ThreadStoreContext.Provider>);
+  expect(routeFromState(window.history.state)).toEqual(expected);
+  if (expected === PHONE_HOME) expect(onRoute).toHaveBeenCalledWith(PHONE_HOME);
+  else expect(onRoute).not.toHaveBeenCalled();
+});
 
 function fixture(platform: "ios" | "android" | undefined, phone = false) {
   const visual = Object.assign(new EventTarget(), { height: 1180, offsetTop: 0 });

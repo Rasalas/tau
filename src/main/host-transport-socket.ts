@@ -216,18 +216,25 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     options.clients?.detached(clientId);
   };
 
+  const largeSends = new WeakMap<WebSocket, number>();
   const sendText = (socket: WebSocket, text: string): boolean => {
     if (socket.readyState !== socket.OPEN) return false;
     const bytes = Buffer.byteLength(text);
-    // One large reply still fits; accumulated writes get only the push budget.
-    const limit = bytes > HOST_PUSH_BUFFER_BYTES
-      ? HOST_PUSH_BUFFER_BYTES + Math.min(bytes, HOST_TRANSPORT_MAX_FRAME_BYTES) : HOST_PUSH_BUFFER_BYTES;
+    // Keep the allowance for one large frame until that send drains. A small
+    // status update or pong behind it must not shrink the budget and disconnect
+    // a healthy client. Additional queued writes still share the push budget.
+    const large = largeSends.get(socket);
+    const allowance = large ?? (bytes > HOST_PUSH_BUFFER_BYTES ? Math.min(bytes, HOST_TRANSPORT_MAX_FRAME_BYTES) : 0);
+    const limit = HOST_PUSH_BUFFER_BYTES + allowance;
     if (bytes > HOST_TRANSPORT_MAX_FRAME_BYTES || socket.bufferedAmount + bytes > limit) {
       forget(socket);
       socket.close(1013, "resync required");
       return false;
     }
-    socket.send(text);
+    if (large === undefined && allowance > 0) {
+      largeSends.set(socket, allowance);
+      socket.send(text, () => largeSends.delete(socket));
+    } else socket.send(text);
     return true;
   };
   const send = (socket: WebSocket, frame: HostServerFrame): boolean => sendText(socket, JSON.stringify(frame));
