@@ -201,6 +201,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return this.preferences.value(WORKSPACE_KIT_ID, PROJECT_BASE_DIRECTORY_KEY)?.trim() || undefined;
   }
 
+  /** Settings → Source control shows the same value; none means the home folder. */
+  setProjectBaseDirectory(path: string | undefined): void {
+    this.preferences.setValue(WORKSPACE_KIT_ID, PROJECT_BASE_DIRECTORY_KEY, path?.trim() ?? "");
+  }
+
   /** How the followed project is named on the host: its id, or its path for a host that gave none. */
   workspace(): string | undefined {
     return this.state.workspaceId ?? this.state.cwd;

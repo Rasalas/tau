@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { commandInvocation } from "tau/host-extension";
+import { knownService, remoteHost } from "../_git-hosts/hosts.js";
 import type { MergeMethod, RequestService } from "./protocol.js";
+
+export { knownService, remoteHost };
 
 /**
  * Runs a hosting CLI in a checkout and resolves its stdout; rejects with its
@@ -71,35 +74,6 @@ export const SERVICES: Record<RequestService, ServiceFacts> = {
   },
   "azure-devops": { tool: "az", label: "Azure CLI (az)", install: "https://learn.microsoft.com/cli/azure/install-azure-cli", login: "az login", noun: "pull request", short: "PR" },
 };
-
-/** The host a remote URL names, lower-cased with its port: `git@host:o/r`, `ssh://git@host:22/o/r`, `https://host/o/r`. */
-export function remoteHost(remoteUrl: string | undefined): string | undefined {
-  const value = remoteUrl?.trim();
-  if (!value) return undefined;
-  if (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(value)) {
-    const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)/u.exec(value);
-    return scp?.[1]?.toLowerCase();
-  }
-  try {
-    return new URL(value).host.toLowerCase() || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-const hasLabel = (hostname: string, label: string) => hostname.split(".").includes(label);
-
-/** The provider a host is known to run, by its name alone; undefined for a name that says nothing. */
-export function knownService(host: string): RequestService | undefined {
-  const hostname = host.replace(/:\d+$/u, "");
-  if (hostname === "codeberg.org" || hasLabel(hostname, "forgejo") || hasLabel(hostname, "gitea")) return "forgejo";
-  if (hostname === "github.com" || hasLabel(hostname, "github")) return "github";
-  if (hostname === "gitlab.com" || hasLabel(hostname, "gitlab")) return "gitlab";
-  // `ssh.dev.azure.com` and `vs-ssh.visualstudio.com` are the SSH hosts.
-  if (hostname === "dev.azure.com" || hostname.endsWith(".dev.azure.com") || hostname.endsWith(".visualstudio.com")) return "azure-devops";
-  if (hostname === "bitbucket.org" || hasLabel(hostname, "bitbucket")) return "bitbucket";
-  return undefined;
-}
 
 /**
  * The provider a remote belongs to: the user's choice for its host first,

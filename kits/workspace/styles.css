@@ -708,6 +708,70 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .folder-browser-results > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-browser-results > p { margin: 0; padding: 16px 10px; color: var(--faint); font-size: var(--text-sm); }
 
+/* Local folder: a start folder as the breadcrumb's root, then repositories or a search below it. */
+.project-modal:has(.folder-finder) { width: 600px; }
+.folder-finder { position: relative; }
+.folder-finder .project-modal-bar { gap: 8px; }
+.folder-finder .project-modal-bar > input { font: var(--text-lg) var(--sans); }
+.folder-crumbs {
+  display: flex; align-items: center; gap: 1px; flex: none; min-width: 0; max-width: 55%; overflow: hidden;
+  font: var(--text-sm) var(--mono); color: var(--fainter); white-space: nowrap;
+}
+.folder-crumbs button {
+  border: 0; border-radius: 5px; background: transparent; padding: 3px 4px;
+  color: var(--ink-3); font: inherit; white-space: nowrap; cursor: pointer;
+}
+.folder-crumbs button:hover, .folder-crumbs .folder-start.open { background: var(--raised); color: var(--ink); }
+.folder-crumbs .folder-start { display: flex; align-items: center; gap: 4px; flex: none; color: var(--acid-text); }
+.folder-crumbs .folder-start > svg:last-child { color: var(--faint); }
+.folder-crumb-step { display: contents; }
+.folder-crumb-step:last-of-type .folder-crumb { color: var(--ink); }
+.folder-crumbs .folder-crumb-outside { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.folder-start-menu {
+  position: absolute; top: 46px; left: 40px; z-index: 5; min-width: 300px; max-width: calc(100% - 56px); padding: 5px;
+  border: 1px solid var(--line-float); border-radius: 10px; background: var(--overlay); box-shadow: var(--elevation-3);
+}
+.folder-start-menu > p { margin: 4px 8px 6px; color: var(--faint); font-size: var(--text-xs); line-height: 1.5; }
+.folder-start-menu code { color: var(--ink-2); font: 11px var(--mono); }
+.folder-start-menu > button {
+  width: 100%; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 6px; background: transparent;
+  padding: 7px 8px; color: var(--ink-2); font-size: var(--text-sm); text-align: left; cursor: pointer;
+}
+.folder-start-menu > button:hover { background: var(--raised); color: var(--ink); }
+.folder-start-menu > button > code { margin-left: auto; padding-left: 10px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
+.folder-views { display: flex; align-items: center; gap: 4px; padding: 8px 12px 0; }
+.folder-views > button {
+  display: flex; align-items: center; gap: 6px; border: 0; border-radius: 7px; background: transparent;
+  padding: 5px 10px; color: var(--ink-3); font: 500 var(--text-sm) var(--sans); cursor: pointer;
+}
+.folder-views > button[aria-selected="true"] { background: var(--raised); color: var(--ink); }
+.folder-views > button:disabled { opacity: .4; cursor: default; }
+.folder-views small { color: var(--faint); font: 10px var(--mono); }
+.folder-views > small { margin-left: auto; }
+.folder-section-heading {
+  display: flex; align-items: baseline; gap: 6px; padding: 10px 10px 4px; color: var(--faint); font-weight: 500;
+  font-family: var(--label-font); font-size: var(--label-size); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
+}
+.folder-section-heading small, .folder-section-heading code { color: var(--fainter); font: 10px var(--mono); letter-spacing: 0; text-transform: none; }
+.folder-group-open { border: 0; background: none; padding: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.folder-group-open:hover { color: var(--ink); text-decoration: underline; }
+.folder-section > button {
+  width: 100%; display: flex; align-items: center; gap: 10px; min-height: 34px;
+  padding: 0 10px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--ink-2); font-size: calc(var(--text-sm) + .5px); text-align: left; cursor: pointer;
+}
+.folder-section > button:hover, .folder-section > button.selected { background: var(--raised); }
+.folder-section > button > svg { flex: none; color: var(--muted); }
+.folder-section > button > .folder-repository-icon { color: var(--acid-text); }
+.folder-section > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-section > p { margin: 0; padding: 12px 10px; color: var(--faint); font-size: var(--text-sm); }
+.folder-host-mark { display: grid; place-items: center; margin-left: auto; padding-left: 12px; color: var(--muted); font-style: normal; }
+.folder-finder mark { background: none; color: var(--acid-text); font-weight: 650; }
+body[data-profile="compact"] .folder-section > button,
+body[data-profile="compact"] .folder-crumbs button,
+body[data-profile="compact"] .folder-views > button,
+body[data-profile="compact"] .folder-start-menu > button { min-height: var(--touch-target); }
+
 .clone-project-form { display: flex; flex-direction: column; }
 .clone-project-form .project-modal-bar > input { font: var(--text-md) var(--mono); }
 .clone-project-destination {

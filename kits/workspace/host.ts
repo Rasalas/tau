@@ -49,6 +49,7 @@ import { countThreadChanges } from "./thread-changes.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 import { HeadWatch } from "./head-watch.js";
 import { readSetupFile, registerProjectApprovals } from "./project-approval-host.js";
+import { createFolderIndexCache, repositoryOf } from "./folder-index.js";
 
 const execFileAsync = promisify(execFile);
 /** The kits built on this one; their host entries may call the commands that name them. */
@@ -81,9 +82,13 @@ export async function listDirectories(requested: string | undefined, identify: (
     path,
     workspace: identify(path),
     ...(dirname(path) !== path ? { parent: dirname(path) } : {}),
-    directories: entries
+    directories: (await Promise.all(entries
       .filter((entry) => entry.isDirectory() && (includeHidden ? entry.name !== ".git" : !entry.name.startsWith(".")))
-      .map((entry) => ({ name: entry.name, path: join(path, entry.name) }))
+      .map(async (entry) => {
+        const child = join(path, entry.name);
+        const repository = await repositoryOf(child);
+        return { name: entry.name, path: child, ...(repository ? { repository } : {}) };
+      })))
       .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true })),
   };
 }
@@ -323,6 +328,15 @@ export function createWorkspaceHostExtension(): HostExtension {
         const directories = [];
         for (const directory of listing.directories) if (await paths.resolve(directory.path)) directories.push(directory);
         return { ...listing, directories };
+      }, { access: "read" });
+      const folderIndex = createFolderIndexCache();
+      context.registerCommand("find-folders", async (input, call) => {
+        const requested = optionalString(input, "path")?.trim() || (call.owner ? undefined : cwd());
+        const root = requested ? expandHome(requested) : homedir();
+        if (!isAbsolute(root)) throw new HostCommandError("Choose an absolute folder path.");
+        // A device reads what a listing would show it; the walk itself skips hidden folders and symlinks.
+        if (!call.owner && !await (await deviceReadPaths(root)).resolve(root)) throw new HostCommandError("This folder is not shared with this device.");
+        return folderIndex(root);
       }, { access: "read" });
       // The folder dialog waits on the user, well past the ordinary command timeout.
       context.registerCommand("pick-folder", async () => {
