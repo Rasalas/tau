@@ -406,12 +406,12 @@ describe("pull request commands", () => {
     });
   });
 
-  it("reads checks fresh every time", async () => {
+  it("reads checks fresh every time no conditional read vouches for the last answer", async () => {
     const { invoke, calls } = await harness();
     await invoke("pr-checks", { url: GITHUB.url });
     const checks = await invoke<Array<{ status: string }>>("pr-checks", { url: GITHUB.url });
     expect(checks.map((check) => check.status)).toEqual(["passed", "failed", "pending", "passed"]);
-    expect(calls).toHaveLength(2);
+    expect(calls.filter((call) => call.args[0] === "pr")).toHaveLength(2);
   });
 
   it("posts a comment, a reply and a line comment with the text on stdin, and drops the cache", async () => {

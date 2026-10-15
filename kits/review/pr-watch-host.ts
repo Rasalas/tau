@@ -8,7 +8,16 @@ import { parseRequestUrl } from "./pull-request-json.js";
 import { readWatchSnapshot } from "./pr-watch-github.js";
 import { isRateLimited, RateLimitError } from "./provider-rate-limit.js";
 import { watchChanges, watchStanding, type PullRequestWatch, type WatchSnapshot } from "./pr-watch-protocol.js";
+import { createCheckProbe, type CheckProbe } from "./github-check-probe.js";
+import { checkDelay, expectedEnd, runIdOf, type PipelineFacts } from "./pipeline.js";
+import type { PullRequestCheck, PullRequestRef } from "./protocol.js";
 const PERIOD = 60_000;
+/** How often the host asks whether a watch's checks are due a conditional read. */
+const STEP = 5_000;
+/** Between full reads, how often running checks without a usual end are probed. */
+const PROBE_MS = 30_000;
+/** How long after a new head with no checks yet its probes look for the first ones. */
+const QUIET_MS = 3 * 60_000;
 const UNREADABLE_LIMIT = 15 * 60_000;
 const RAIL = "tau.thread-rail";
 const fields = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -87,8 +96,20 @@ function decodeWatch(input: unknown): PullRequestWatch {
   const baseline = w.baseline === undefined ? undefined : decodeSnapshot(w.baseline);
   return { threadId: w.threadId, ref, status: w.status as PullRequestWatch["status"], startedAt: w.startedAt as number, wakes: w.wakes as number, commentStreak: w.commentStreak as number, ...(typeof w.lastReadAt === "number" ? { lastReadAt: w.lastReadAt } : {}), ...Object.fromEntries(["unreadableSince", "suspendedAt", "retryAt"].flatMap((field) => typeof w[field] === "number" && Number.isFinite(w[field]) ? [[field, w[field]]] : [])), ...(baseline ? { baseline } : {}), ...(typeof w.reason === "string" ? { reason: w.reason.slice(0, 400) } : {}), ...(w.stoppedBy === "user" || w.stoppedBy === "settle" ? { stoppedBy: w.stoppedBy } : {}) };
 }
+/** Whether a probe says something the watch's last read does not: a new head, checks starting or finishing, a new failure. */
+export function probeDiffers(baseline: WatchSnapshot, probe: Pick<CheckProbe, "head" | "pending" | "failed">): boolean {
+  return (probe.head !== undefined && probe.head !== baseline.head)
+    || probe.pending !== (baseline.checks === "pending")
+    || probe.failed.some((check) => !baseline.failed?.some((old) => old.id === check.id));
+}
+interface ProbeOptions {
+  /** How often to ask whether a probe is due. */
+  step?: number;
+  probe?(ref: PullRequestRef): Promise<CheckProbe>;
+  facts?(ref: PullRequestRef, checks: readonly PullRequestCheck[]): Promise<PipelineFacts>;
+}
 /** Persistent watches send marked wakes; the host steers or queues them. They never merge a PR. */
-export async function registerPullRequestWatches(context: HostExtensionContext, sources: SourceControl, links: ThreadLinks, options: { period?: number; read?: typeof readWatchSnapshot; now?: () => number } = {}): Promise<() => Promise<void>> {
+export async function registerPullRequestWatches(context: HostExtensionContext, sources: SourceControl, links: ThreadLinks, options: { period?: number; read?: typeof readWatchSnapshot; now?: () => number } & ProbeOptions = {}): Promise<() => Promise<void>> {
   const { services } = context, now = options.now ?? Date.now;
   const file = join(services.stateDir, "pr-watches.json");
   const skipped: string[] = [];
@@ -100,7 +121,9 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
   });
   if (skipped.length) services.log("review.watch-skipped", `Left out ${skipped.length} unreadable PR watch${skipped.length === 1 ? "" : "es"}: ${skipped.join("; ")}`);
   const watches = new Map((stored?.data ?? []).map((watch) => [key(watch), watch]));
-  let disposed = false, polling = false;
+  let disposed = false, polling = false, probing = false;
+  /** PRs a probe asked to read while a poll ran; they are read right after it. */
+  const queued = new Set<string>();
   let writes = Promise.resolve();
   const list = () => structuredClone([...watches.values()]);
   const changed = () => {
@@ -143,8 +166,11 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     const others = [...watches.values()].filter((watch) => watch.threadId === threadId && watch.status !== "ended" && !events.some((event) => event.watch === watch));
     await services.sessions.send(threadId, wakeText(events, others), { delivery: "queue", wake: { source: "pull-request", label: wakeLabel(events) } });
   };
-  const tick = async () => {
-    if (disposed || polling || ![...watches.values()].some((watch) => watch.status !== "ended")) return;
+  /** A poll of every watch, or with `only` of those PRs, between the minutes when a probe saw news. */
+  const tick = async (only?: ReadonlySet<string>) => {
+    if (disposed || ![...watches.values()].some((watch) => watch.status !== "ended")) return;
+    if (polling) { for (const url of only ?? []) queued.add(url); return; }
+    if (!only) queued.clear();
     polling = true;
     const reads = new Map<string, Promise<WatchSnapshot>>();
     const reread = new Set<string>();
@@ -153,14 +179,14 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
     const add = (event: WatchEvent & { watch: PullRequestWatch; unreadable?: true }) => due.set(event.watch.threadId, [...due.get(event.watch.threadId) ?? [], event]);
     try {
       // Start all distinct reads together so the reader can batch compact aliases.
-      for (const watch of watches.values()) if (watch.status !== "ended" && !(watch.retryAt && watch.retryAt > now()) && !reads.has(watch.ref.url)) {
+      for (const watch of watches.values()) if (watch.status !== "ended" && !(watch.retryAt && watch.retryAt > now()) && !reads.has(watch.ref.url) && (!only || only.has(watch.ref.url))) {
         const read = (options.read ?? readWatchSnapshot)(sources.tools, watch.ref);
         void read.catch(() => undefined);
         reads.set(watch.ref.url, read);
       }
       // All watches of one PR share its read, including ones that were added during this poll.
       for (const watch of [...watches.values()]) {
-        if (disposed || watch.status === "ended" || (watch.retryAt && watch.retryAt > now())) continue;
+        if (disposed || watch.status === "ended" || (watch.retryAt && watch.retryAt > now()) || (only && !only.has(watch.ref.url))) continue;
         try {
           let read = reads.get(watch.ref.url);
           if (!read) { read = (options.read ?? readWatchSnapshot)(sources.tools, watch.ref); reads.set(watch.ref.url, read); }
@@ -210,7 +236,54 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
           await changed();
         });
       }
-    } finally { polling = false; if (!disposed) await changed(); }
+    } finally {
+      polling = false;
+      if (!disposed) await changed();
+      if (!disposed && queued.size) { const next = new Set(queued); queued.clear(); await tick(next); }
+    }
+  };
+  const checkProbe = createCheckProbe();
+  const probe = options.probe ?? (async (ref: PullRequestRef) => {
+    const session = await sources.tools.githubSession?.(ref.host) ?? { identity: "unscoped", cli: sources.tools.cli.bind(sources.tools) };
+    return checkProbe(session.cli, ref, session.identity);
+  });
+  const facts = options.facts ?? (async (ref: PullRequestRef, checks: readonly PullRequestCheck[]) => {
+    const runs = [...new Set(checks.flatMap((check) => runIdOf(check.url) ?? []))];
+    return runs.length ? await sources.forUrl(ref.url)?.provider.pipeline?.(ref, runs).catch(() => ({})) ?? {} : {};
+  });
+  /** Per PR: the head its probes are for, since when, when the next is due, and the tag of the last one that asked for a read. */
+  const probes = new Map<string, { head: string; since: number; nextAt: number; tag?: string }>();
+  /**
+   * Between the minutes, a conditional read of a running PR's checks, which
+   * costs no quota while nothing changed: rarely while they usually still
+   * run, every few seconds around when they usually finish. News reads that
+   * PR right away, so its wake comes seconds after the checks end.
+   */
+  const probeTick = async () => {
+    if (disposed || probing) return;
+    probing = true;
+    try {
+      const live = new Map<string, PullRequestWatch>();
+      for (const watch of watches.values()) if (watch.status === "watching" && watch.baseline && !(watch.retryAt && watch.retryAt > now()) && !live.has(watch.ref.url)) live.set(watch.ref.url, watch);
+      for (const url of probes.keys()) if (!live.has(url)) probes.delete(url);
+      const due = new Set<string>();
+      for (const [url, watch] of live) {
+        const baseline = watch.baseline!;
+        let state = probes.get(url);
+        if (state?.head !== baseline.head) { state = { head: baseline.head, since: now(), nextAt: now() }; probes.set(url, state); }
+        const running = baseline.checks === "pending" || (baseline.checks === "none" && now() - state.since < QUIET_MS);
+        if (!running || state.nextAt > now()) continue;
+        try {
+          // oxlint-disable-next-line no-await-in-loop -- one conditional read at a time.
+          const seen = await probe(watch.ref);
+          // oxlint-disable-next-line no-await-in-loop -- usual durations are cached for hours.
+          state.nextAt = now() + checkDelay(expectedEnd(seen.checks, await facts(watch.ref, seen.checks), now()), now(), Infinity, PROBE_MS);
+          // A tag that already asked for a read asks no more: the read may disagree, as between two stages of a run.
+          if ((!seen.tag || seen.tag !== state.tag) && probeDiffers(baseline, seen)) { state.tag = seen.tag; due.add(url); }
+        } catch { state.nextAt = now() + PROBE_MS; }
+      }
+      if (due.size && !disposed) await tick(due);
+    } finally { probing = false; }
   };
   context.registerCommand("watch-list", () => ({ watches: list() }), { access: "read" });
   context.registerCommand("watch-start", (input) => { const v = fields(input); return start(String(v.threadId ?? ""), String(v.url ?? "")); }, { long: true, audit: { label: "started watching a pull request" } });
@@ -234,6 +307,7 @@ export async function registerPullRequestWatches(context: HostExtensionContext, 
   ];
   const disposers = [services.mcp.registerTools(tools), services.registerRuntimeExtension("tau-pull-request-watch", (pi, session) => { for (const tool of tools(session)) pi.registerTool(tool); pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${WATCH_INSTRUCTIONS}` })); }), services.mcp.registerInstructions?.(() => WATCH_INSTRUCTIONS) ?? (() => undefined), services.registerTurnObserver({ stopped: (id) => stop(id, "user") }), services.registerThreadLifecycle({ threadDeleted: async (id) => { for (const [watchKey, watch] of watches) if (watch.threadId === id) watches.delete(watchKey); await changed(); } })];
   const timer = setInterval(() => { void tick().catch((error) => services.log("review.watch", message(error))); }, options.period ?? PERIOD); timer.unref?.();
+  const prober = setInterval(() => { void probeTick().catch((error) => services.log("review.watch", message(error))); }, options.step ?? STEP); prober.unref?.();
   void tick().catch((error) => services.log("review.watch", message(error)));
-  return async () => { disposed = true; clearInterval(timer); for (const dispose of disposers.reverse()) dispose(); await writes; };
+  return async () => { disposed = true; clearInterval(timer); clearInterval(prober); for (const dispose of disposers.reverse()) dispose(); await writes; };
 }

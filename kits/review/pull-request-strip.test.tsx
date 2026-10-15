@@ -347,6 +347,55 @@ describe("live check completion", () => {
       expect(screen.getByRole("img", { name: "Checks: CI passed" })).toBeTruthy();
     } finally { cleanup(); vi.useRealTimers(); }
   });
+
+  it("keeps reading an empty answer after a push until the checks appear", async () => {
+    vi.useFakeTimers();
+    try {
+      const checks = vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([{ name: "smoke", status: "pending", workflow: "CI" }]);
+      setup({ branch: { ...BRANCH, url: `${BRANCH.url}06`, checks: undefined }, live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient });
+      await act(async () => undefined);
+      expect(checks).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(checks).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("img", { name: "Checks: CI running" })).toBeTruthy();
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it("reads checks that just finished again, as the next stage may not have started, and stops once they settle", async () => {
+    vi.useFakeTimers();
+    try {
+      const done = new Date().toISOString();
+      const checks = vi.fn().mockResolvedValue([{ name: "lint", status: "passed", workflow: "CI", completedAt: done }]);
+      setup({ branch: { ...BRANCH, url: `${BRANCH.url}07`, checks: { passed: 1, failed: 0, pending: 0, total: 1 } }, live: { checks, pipeline: vi.fn(async () => ({})) } as unknown as PullRequestClient });
+      await act(async () => undefined);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(checks).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+      // A minute after the last check ended, the answer is believed.
+      expect(checks).toHaveBeenCalledTimes(7);
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
+
+  it("reads running checks rarely while their usual end is far ahead", async () => {
+    vi.useFakeTimers();
+    try {
+      const RUN = "https://github.com/acme/lakebed/actions/runs/88/job/";
+      const checks = vi.fn().mockResolvedValue([{ name: "test", status: "pending", workflow: "CI", url: `${RUN}1`, startedAt: new Date().toISOString() }]);
+      const pipeline = vi.fn(async () => ({ 88: { jobs: [{ id: "test", needs: [] }], expected: { test: 20 * 60_000 } } }));
+      setup({ branch: { ...BRANCH, url: `${BRANCH.url}09`, checks: { passed: 0, failed: 0, pending: 1, total: 1 } }, live: { checks, pipeline } as unknown as PullRequestClient });
+      await act(async () => undefined);
+      expect(pipeline).toHaveBeenCalled();
+      // The first wait is the ordinary one, before the usual durations arrived; then once a minute.
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+      expect(checks).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(59_000); });
+      expect(checks).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(checks).toHaveBeenCalledTimes(3);
+    } finally { cleanup(); vi.useRealTimers(); }
+  });
 });
 
 it("rereads finished checks when the request summary changes within the cache lifetime", async () => {

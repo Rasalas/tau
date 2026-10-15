@@ -68,7 +68,7 @@ export function PullRequestWatchControl({ feed, threadId, request, others }: { f
           <button type="button" aria-label={running ? `Stop watching PR #${row.number}` : `Watch PR #${row.number}`} disabled={Boolean(busy) || !canManage || (!running && !canStart)} onClick={() => void change(running ? "watch-stop" : "watch-start", row.url)}>{busy === row.url ? "Working…" : running ? "Stop watching" : row.watch ? "Watch again" : "Watch"}</button>
         </li>;
       })}</ul>
-      <p>Checks once a minute. Ends on Stop, Settle, merge or close, ten consecutive comment wakes, or fifteen minutes without a readable host.</p>
+      <p>Checks once a minute, and every few seconds while its checks are about to finish. Ends on Stop, Settle, merge or close, ten consecutive comment wakes, or fifteen minutes without a readable host.</p>
       {error || state.error ? <p className="review-pr-watch-error" role="alert">{error ?? state.error}</p> : null}
     </Popover> : null}</>;
 }

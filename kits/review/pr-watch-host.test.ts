@@ -6,7 +6,8 @@ import type { HostMcpInstructionsProvider, HostSessionServices, HostTurnObserver
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import type { SourceControl } from "./provider-registry.js";
 import { parseRequestUrl } from "./pull-request-json.js";
-import { WATCH_INSTRUCTIONS, registerPullRequestWatches, wakeLabel as labelFor, wakeText } from "./pr-watch-host.js";
+import { WATCH_INSTRUCTIONS, probeDiffers, registerPullRequestWatches, wakeLabel as labelFor, wakeText } from "./pr-watch-host.js";
+import type { CheckProbe } from "./github-check-probe.js";
 import { RateLimitError } from "./provider-rate-limit.js";
 import { readWatchSnapshot } from "./pr-watch-github.js";
 import { watchChanges, watchStanding, type PullRequestWatch, type WatchSnapshot, type WatchState } from "./pr-watch-protocol.js";
@@ -17,7 +18,7 @@ const initial: WatchSnapshot = { state: "OPEN", head: "head-1", checks: "pending
 const cleanups: (() => Promise<unknown>)[] = [];
 const wakeLabel = (send: { mock: { calls: unknown[][] } }, index: number) => (send.mock.calls[index]?.[2] as { wake?: { label?: string } } | undefined)?.wake?.label;
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
-async function harness(directory?: string, current = initial) {
+async function harness(directory?: string, current = initial, extra: Partial<NonNullable<Parameters<typeof registerPullRequestWatches>[3]>> = {}) {
   const stateDir = directory ?? await mkdtemp(join(tmpdir(), "tau-pr-watch-"));
   if (!directory) cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   const snapshots = new Map<string, WatchSnapshot>();
@@ -32,7 +33,7 @@ async function harness(directory?: string, current = initial) {
     const stored = JSON.parse(await readFile(join(stateDir, "tau.review", "pr-watches.json"), "utf8"));
     for (const url of [URL, ...snapshots.keys()]) expect(JSON.stringify(stored)).toContain(snapshotOf(url).comments);
   });
-  const registry = await activateHostKit({ id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"], activate: (context) => registerPullRequestWatches(context, { tools: {}, forUrl: (url: string) => ({ ref: parseRequestUrl(url) }) } as unknown as SourceControl, { link: async () => undefined, review: async () => undefined, observe: async () => undefined, reread, dispose: () => undefined }, { period: 15, read, now: () => time }) }, {
+  const registry = await activateHostKit({ id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"], activate: (context) => registerPullRequestWatches(context, { tools: {}, forUrl: (url: string) => ({ ref: parseRequestUrl(url) }) } as unknown as SourceControl, { link: async () => undefined, review: async () => undefined, observe: async () => undefined, reread, dispose: () => undefined }, { period: 15, read, now: () => time, ...extra }) }, {
     stateDir, sessions: { list: async () => [{ sessionId: "a" }, { sessionId: "b" }], refreshIndex: async () => ({ type: "thread-index", index: { projects: [], sessions: ["a", "b", "claude-1"].map((id) => ({ id })) } }), send } as unknown as HostSessionServices,
     registerTurnObserver: (value) => { observer = value; return () => { observer = undefined; }; },
     mcp: { registerTools: () => () => undefined, gate: () => () => undefined, registerInstructions: (provider) => { instructions.push(provider); return () => undefined; }, connect: async () => undefined },
@@ -346,4 +347,49 @@ it("Stop during an in-flight poll prevents admission of its eventual result", as
   await new Promise((done) => setTimeout(done, 40));
   expect(h.send).not.toHaveBeenCalled();
   expect((await h.list()).watches[0]?.status).toBe("ended");
+});
+
+it("asks a probe of a watch's checks whether anything moved, and not again for the same answer", () => {
+  const probe = { head: "head-1", pending: true, failed: [] };
+  expect(probeDiffers(initial, probe)).toBe(false);
+  expect(probeDiffers(initial, { ...probe, pending: false })).toBe(true);
+  expect(probeDiffers(initial, { ...probe, head: "head-2" })).toBe(true);
+  expect(probeDiffers(initial, { ...probe, failed: [{ id: "7", name: "smoke" }] })).toBe(true);
+  expect(probeDiffers({ ...initial, failed: [{ id: "7", name: "smoke" }] }, { ...probe, failed: [{ id: "7", name: "smoke" }] })).toBe(false);
+  // No checks yet on either side is no news.
+  expect(probeDiffers({ ...initial, checks: "none" }, { pending: false, failed: [] })).toBe(false);
+});
+it("reads a watched PR as soon as its probe sees the checks finish, without waiting for the minute", async () => {
+  let answer: Pick<CheckProbe, "tag" | "pending"> = { tag: "t1", pending: true };
+  const probe = vi.fn(async (): Promise<CheckProbe> => ({ ...answer, head: "head-1", checks: [], failed: [], partial: false }));
+  const h = await harness(undefined, initial, { period: 3_600_000, step: 5, probe, facts: async () => ({}) });
+  await h.call("watch-start", { threadId: "a", url: URL });
+  await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1));
+  expect(h.read).toHaveBeenCalledTimes(1);
+  // Without a usual end it asks again half a minute later.
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(probe).toHaveBeenCalledTimes(1);
+  h.change({ checks: "done" });
+  answer = { tag: "t2", pending: false };
+  h.advance(30_000);
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+  expect(wakeLabel(h.send, 0)).toBe("PR #42 · checks passed");
+  expect(h.read).toHaveBeenCalledTimes(2);
+});
+it("reads once for a probe the full read disagrees with, as between two stages, until the probe's answer changes", async () => {
+  let tag = "t1";
+  const probe = vi.fn(async (): Promise<CheckProbe> => ({ tag, pending: false, head: "head-1", checks: [], failed: [], partial: false }));
+  const h = await harness(undefined, initial, { period: 3_600_000, step: 5, probe, facts: async () => ({}) });
+  await h.call("watch-start", { threadId: "a", url: URL });
+  await vi.waitFor(() => expect(h.read).toHaveBeenCalledTimes(2));
+  for (let round = 0; round < 3; round++) {
+    h.advance(30_000);
+    const asked = probe.mock.calls.length;
+    await vi.waitFor(() => expect(probe.mock.calls.length).toBeGreaterThan(asked));
+  }
+  expect(h.read).toHaveBeenCalledTimes(2);
+  tag = "t2";
+  h.advance(30_000);
+  await vi.waitFor(() => expect(h.read).toHaveBeenCalledTimes(3));
+  expect(h.send).not.toHaveBeenCalled();
 });
