@@ -383,6 +383,24 @@ describe("thread runtime backends", () => {
     await backend.dispose();
   });
 
+  it("clears a result the running turn handed to the model, and keeps one that came after its last tool result", async () => {
+    const { filePath, store } = await scratchStore();
+    const started = (id: string) => [
+      frame({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: id, task_type: "local_bash", description: id }] }),
+      frame({ type: "system", subtype: "task_started", task_id: id, description: id, is_backgrounded: true, task_type: "local_bash" }),
+    ];
+    const done = (id: string) => frame({ type: "system", subtype: "task_notification", task_id: id, status: "completed" });
+    const answer = turn("Done");
+    const { adapter } = scriptedAdapter(filePath, () => [
+      ...started("seen"), ...started("late"), done("seen"), ...answer.slice(0, 4), done("late"), answer[4]!,
+    ]);
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, projectName: "repo", now: () => 42 });
+    await backend.start("create");
+    await backend.prompt({ text: "Run both", delivery: "prompt" });
+    expect(backend.capabilities.background!.current()).toEqual([{ id: "late", kind: "command", label: "late", startedAt: 42, state: "reported" }]);
+    await backend.dispose();
+  });
+
   it("publishes what runs in the background, stops it through the CLI, and forgets it with the process", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, () => [
