@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 import { machineClass } from "./machine-class.mjs";
+import { rendererHarnessFiles } from "./performance-comparison.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // The release renderer leaves the benchmark out; this build (mode "benchmark") keeps it.
@@ -82,18 +83,7 @@ function buildArtifactSha256() {
     .digest("hex");
 }
 
-const harnessFiles = [
-  "benchmarks/renderer-fixtures.json",
-  "scripts/renderer-benchmark.mjs",
-  "scripts/renderer-benchmark-fixture.cjs",
-  "scripts/machine-class.mjs",
-  "scripts/renderer-budget.mjs",
-  "scripts/performance-budgets.json",
-  "src/renderer/RendererBenchmark.tsx",
-  "src/renderer/RendererBenchmarkApp.tsx",
-  "src/renderer/RendererBenchmarkActivityStream.tsx",
-  "src/renderer/RendererBenchmarkDiffStack.tsx",
-];
+const harnessFiles = rendererHarnessFiles;
 const harnessFileSha256 = Object.fromEntries(harnessFiles.map((file) => [file, createHash("sha256").update(readFileSync(join(ROOT, file))).digest("hex")]));
 const harnessSourceSha256 = createHash("sha256")
   .update(harnessFiles.map((file) => `${file}\0${harnessFileSha256[file]}`).join("\0"))
@@ -263,6 +253,7 @@ const report = {
   reproducibilityScript: "scripts/reproduce-renderer-baseline.mjs",
   buildArtifactSha256: buildArtifactSha256(),
   execution: {
+    profileMode: process.env.TAU_BENCHMARK_PROFILE_ROOT ? "fresh-per-process" : "default",
     electronExecutable: "node_modules/.bin/electron",
     gpu: { mode: "default" },
     parallelRuns: 1,

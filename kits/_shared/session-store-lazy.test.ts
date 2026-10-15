@@ -11,7 +11,7 @@ import { GrokSessionStore } from "../grok/session-store.js";
 import { OpenCodeSessionStore } from "../opencode/session-store.js";
 import { SessionStorePersistence } from "./session-store-persistence.js";
 import { ClaudeUsage, recoverUsageTurns } from "../claude-code/sdk-usage.js";
-import { mergeTallies } from "tau/host-extension";
+import { mergeTallies, THREAD_TEXT_CHARS } from "tau/host-extension";
 
 const constructors = [CodexSessionStore, ClaudeRuntimeSessionStore, AntigravitySessionStore, CursorSessionStore, GrokSessionStore, OpenCodeSessionStore];
 const cases = constructors.map(Constructor => [Constructor.name, Constructor] as const);
@@ -29,11 +29,11 @@ function append(store: Store, id: string, cwd: string, additions: Array<{ role: 
   const ui = additions.map(message => ({ ...message, id: `message-${message.timestamp}` }));
   return store instanceof ClaudeRuntimeSessionStore ? store.appendExchange(id, cwd, ui) : store.appendMessages(id, cwd, ui);
 }
-async function fixture(Constructor: (typeof constructors)[number], selectedInstance?: string) {
+async function fixture(Constructor: (typeof constructors)[number], selectedInstance?: string, extraThreads = 0) {
   const directory = await mkdtemp(join(tmpdir(), "tau-lazy-store-"));
   directories.push(directory);
   const filePath = join(directory, "sessions.json");
-  await writeFile(filePath, JSON.stringify({ version: 1, sessions: ["selected", "unseen"].map(tauThreadId => ({ tauThreadId, ...(tauThreadId === "selected" && selectedInstance ? { instance: selectedInstance } : {}), cwd: directory, updatedAt: 2, messages, usage, ...(Constructor === ClaudeRuntimeSessionStore ? { claudeSessionId: "123e4567-e89b-12d3-a456-426614174000" } : {}), ...(Constructor !== OpenCodeSessionStore ? { usageTurns: turns } : {}) })) }));
+  await writeFile(filePath, JSON.stringify({ version: 1, sessions: ["selected", "unseen", ...Array.from({ length: extraThreads }, (_, index) => `filler-${index}`)].map(tauThreadId => ({ tauThreadId, ...(tauThreadId === "selected" && selectedInstance ? { instance: selectedInstance } : {}), cwd: directory, updatedAt: 2, messages, usage, ...(Constructor === ClaudeRuntimeSessionStore ? { claudeSessionId: "123e4567-e89b-12d3-a456-426614174000" } : {}), ...(Constructor !== OpenCodeSessionStore ? { usageTurns: turns } : {}) })) }));
   const make = () => { const store = new Constructor({ filePath }); stores.push(store); return store; };
   const migrated = make();
   await migrated.listMetadata();
@@ -507,4 +507,168 @@ it("invalidates pre-decoder Claude summaries and commits exact SQLite deltas wit
     expect((await make().get("thread"))?.usageSnapshot?.[0]?.costUsd).toBe(16);
     expect((await resumed.get("thread"))?.usageTurns?.map(turn => turn.costUsd)).toEqual([10, 5, 1]);
   } finally { db.close(); }
+});
+
+it.each(cases)("%s reports an unavailable published database and retries after repair", async (_name, Constructor) => {
+  const { make, databasePath } = await fixture(Constructor);
+  const { readFile } = await import("node:fs/promises");
+  const original = await readFile(databasePath);
+  await writeFile(databasePath, "corrupt published SQLite database");
+  const store = make();
+  await expect(store.listMetadata()).rejects.toThrow();
+  await expect(store.listMetadata()).rejects.toThrow();
+  await writeFile(databasePath, original);
+  expect((await store.listMetadata()).map(record => record.tauThreadId)).toEqual(["selected", "unseen"]);
+  expect((await store.get("selected"))?.messages).toEqual(messages);
+});
+
+it.each(cases)("%s selects search changes before reading payloads and does not hydrate its cache", async (_name, Constructor) => {
+  const { make, databasePath } = await fixture(Constructor);
+  const db = new DatabaseSync(databasePath);
+  try {
+    poison(db, "messages", "selected");
+    poison(db, "usage_turns");
+    const store = make();
+    // The known thread's broken payload must never be read. Search is text-only.
+    expect(await store.threadTexts({ limit: 1 })).toMatchObject({ threads: [{ threadId: "selected" }], more: true });
+    expect(await store.threadTexts({ known: { unseen: 2, gone: 1 }, limit: 1 })).toEqual({
+      threads: [{ threadId: "selected", updatedAt: 2, messages: messages.map(({ role, text }) => ({ role, text })) }],
+      removed: ["gone"], more: false,
+    });
+    const persistence = (store as unknown as { persistence: { isUnloaded(id: string): boolean } }).persistence;
+    expect(persistence.isUnloaded("selected")).toBe(true);
+    expect(persistence.isUnloaded("unseen")).toBe(true);
+    expect(await store.threadTexts({ known: { selected: 2, unseen: 2 } })).toEqual({ threads: [], removed: [], more: false });
+  } finally { db.close(); }
+});
+
+it.each(cases)("%s bounds histories after browsing and releases cached payloads without losing later appends", async (_name, Constructor) => {
+  const directory = await mkdtemp(join(tmpdir(), "tau-history-cache-"));
+  directories.push(directory);
+  const filePath = join(directory, "sessions.json");
+  const ids = Array.from({ length: 12 }, (_, index) => `thread-${index}`);
+  const transcript = [...messages, { role: "assistant", text: "x".repeat(1_024), timestamp: 3 }];
+  await writeFile(filePath, JSON.stringify({ version: 1, sessions: ids.map(tauThreadId => ({ tauThreadId, cwd: directory, updatedAt: 3, messages: transcript,
+    ...(Constructor === ClaudeRuntimeSessionStore ? { claudeSessionId: "123e4567-e89b-12d3-a456-426614174000" } : {}), usage, usageTurns: turns })) }));
+  const store = new Constructor({ filePath });
+  stores.push(store);
+  for (const id of ids) expect((await store.get(id))?.messages).toEqual(transcript);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  const cache = (store as unknown as { records: Map<string, { messages: unknown[] }>; persistence: { histories: Map<string, unknown>; snapshots: Map<string, { messages?: unknown[]; usage: unknown[] }> } });
+  expect([...cache.records.values()].filter(record => record.messages.length > 1).length).toBeLessThanOrEqual(8);
+  expect(cache.persistence.histories.size).toBeLessThanOrEqual(8);
+  await store.flushAndRelease();
+  expect([...cache.records.values()].every(record => record.messages.length === 1)).toBe(true);
+  expect([...cache.persistence.snapshots.values()].every(snapshot => snapshot.messages === undefined && snapshot.usage.length === 0)).toBe(true);
+  await Promise.all([append(store, ids[0]!, directory, [{ role: "assistant", text: "accepted", timestamp: 4 }]),
+    append(store, ids[0]!, directory, [{ role: "assistant", text: "concurrent", timestamp: 5 }])]);
+  await store.flushAndRelease();
+  const reopened = new Constructor({ filePath });
+  stores.push(reopened);
+  expect((await reopened.get(ids[0]!))?.messages.map(message => message.text)).toEqual([...transcript.map(message => message.text), "accepted", "concurrent"]);
+  expect((await reopened.listMetadata()).map(record => record.messageCount)).toContain(5);
+});
+
+it.each(cases)("%s streams search text up to its UTF-16 budget without reading later rows", async (_name, Constructor) => {
+  const { make, databasePath } = await fixture(Constructor);
+  const db = new DatabaseSync(databasePath);
+  const long = "😀".repeat(200_000);
+  try {
+    const payload = { role: "assistant", timestamp: 2, ...(Constructor === ClaudeRuntimeSessionStore
+      ? { textChunks: [long.slice(0, 100_000), long.slice(100_000)] } : { text: long }) };
+    db.prepare("UPDATE messages SET payload=? WHERE thread_id='selected' AND ordinal=1").run(JSON.stringify(payload));
+    db.prepare("INSERT INTO messages VALUES ('selected',2,?)").run("invalid JSON after the budget");
+    db.exec("UPDATE sessions SET message_count=3 WHERE thread_id='selected'");
+    const store = make();
+    const answer = await store.threadTexts({ known: { unseen: 2 } });
+    expect(answer.threads[0]?.messages).toEqual([{ role: "user", text: messages[0]!.text },
+      { role: "assistant", text: long.slice(0, THREAD_TEXT_CHARS - messages[0]!.text.length) }]);
+    expect(answer.threads[0]!.messages.reduce((size, message) => size + message.text.length, 0)).toBe(THREAD_TEXT_CHARS);
+    expect((await store.listMetadata()).find(record => record.tauThreadId === "selected")?.messageCount).toBe(3);
+  } finally { db.close(); }
+});
+
+it.each(cases)("%s keeps search available for a future JSON store without changing its source", async (_name, Constructor) => {
+  const directory = await mkdtemp(join(tmpdir(), "tau-future-search-"));
+  directories.push(directory);
+  const filePath = join(directory, "sessions.json");
+  const original = JSON.stringify({ version: 99, sessions: [{ tauThreadId: "future", cwd: directory, updatedAt: 2, messages,
+    ...(Constructor === ClaudeRuntimeSessionStore ? { claudeSessionId: "123e4567-e89b-12d3-a456-426614174000" } : {}) }] });
+  await writeFile(filePath, original);
+  const store = new Constructor({ filePath });
+  stores.push(store);
+  expect(await store.threadTexts({})).toEqual({ threads: [{ threadId: "future", updatedAt: 2,
+    messages: messages.map(({ role, text }) => ({ role, text })) }], removed: [], more: false });
+  const { readFile } = await import("node:fs/promises");
+  expect(await readFile(filePath, "utf8")).toBe(original);
+});
+
+it("pins cached histories while a bulk listing hydrates its remaining threads", async () => {
+  const { make } = await fixture(CodexSessionStore, undefined, 10);
+  const store = make();
+  await store.listMetadata();
+  const persistence = (store as unknown as { persistence: {
+    scheduleEviction(): void; evictHistories(): void;
+    request(operation: string, values?: Record<string, unknown>): Promise<unknown>;
+  } }).persistence;
+  const request = persistence.request.bind(persistence), schedule = persistence.scheduleEviction.bind(persistence);
+  const responseReady = gate(), releaseResponse = gate();
+  // Control eviction timing only; histories, revisions, SQLite reads and adapter publication stay real.
+  persistence.scheduleEviction = () => undefined;
+  for (const id of ["selected", "unseen", ...Array.from({ length: 7 }, (_, index) => `filler-${index}`)]) await store.get(id);
+  persistence.request = async (operation, values) => {
+    const value = await request(operation, values);
+    if (operation === "histories") { responseReady.release(); await releaseResponse.promise; }
+    return value;
+  };
+  const listing = store.list();
+  try {
+    await responseReady.promise;
+    persistence.evictHistories();
+    releaseResponse.release();
+    const records = await listing;
+    expect(records).toHaveLength(12);
+    expect(records.every(record => JSON.stringify(record.messages) === JSON.stringify(messages))).toBe(true);
+  } finally {
+    releaseResponse.release();
+    await listing;
+    persistence.request = request; persistence.scheduleEviction = schedule;
+  }
+});
+
+it("pins a large accepted append until commit and then evicts it while preserving metadata and usage summaries", async () => {
+  const { make, directory } = await fixture(CodexSessionStore);
+  const store = make() as CodexSessionStore;
+  await store.setTitle("selected", directory, "kept title", "renamed");
+  const persistence = (store as unknown as { persistence: {
+    request(operation: string, values?: Record<string, unknown>): Promise<unknown>;
+    evictHistories(): void; isUnloaded(id: string): boolean;
+  } }).persistence;
+  const request = persistence.request.bind(persistence);
+  const responseReady = gate(), releaseResponse = gate();
+  persistence.request = async (operation, values) => {
+    const value = await request(operation, values);
+    if (operation === "write") { responseReady.release(); await releaseResponse.promise; }
+    return value;
+  };
+  const long = "x".repeat(5_000_000);
+  const accepted = store.appendMessages("selected", directory, [{ id: "large", role: "assistant", text: long, timestamp: 3 }]);
+  try {
+    await responseReady.promise;
+    persistence.evictHistories();
+    expect(persistence.isUnloaded("selected")).toBe(false);
+    releaseResponse.release();
+    await accepted;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(persistence.isUnloaded("selected")).toBe(true);
+    const metadata = (await store.listMetadata()).find(record => record.tauThreadId === "selected");
+    expect(metadata).toMatchObject({ title: "kept title", messageCount: 3, usage });
+    expect(metadata?.messages).toEqual([messages[0]]);
+    expect(store.talliesOf("selected")).toEqual(mergeTallies(turns));
+    expect((await make().get("selected"))?.messages.at(-1)?.text).toBe(long);
+    expect((await store.threadTexts({ known: { unseen: 2 } })).threads[0]!.messages.reduce((size, message) => size + message.text.length, 0)).toBe(THREAD_TEXT_CHARS);
+  } finally {
+    releaseResponse.release(); await accepted;
+    persistence.request = request;
+  }
 });

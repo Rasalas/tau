@@ -1,5 +1,11 @@
 const { app, BrowserWindow } = require("electron");
 const path = require("node:path");
+const fs = require("node:fs");
+
+if (process.env.TAU_BENCHMARK_PROFILE_ROOT) {
+  fs.mkdirSync(process.env.TAU_BENCHMARK_PROFILE_ROOT, { recursive: true });
+  app.setPath("userData", fs.mkdtempSync(path.join(process.env.TAU_BENCHMARK_PROFILE_ROOT, "start-")));
+}
 
 // Shared CI runners have no usable GPU process; software rendering keeps the
 // fixture alive there. Local runs keep hardware acceleration so numbers match the app.
@@ -70,6 +76,7 @@ app.whenReady().then(async () => {
         overlayStyles,
       };
     })()`);
+    result.electronVersion = process.versions.electron;
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally {
     window.destroy();

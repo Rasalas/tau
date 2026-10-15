@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { HostCommandError, THREAD_TEXTS_COMMAND, TurnActivityStore, registerSignIn, threadTextsDelta, type HostBackendThreadRecord, type SignInFlowContext, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
+import { HostCommandError, THREAD_TEXTS_COMMAND, TurnActivityStore, registerSignIn, type HostBackendThreadRecord, type SignInFlowContext, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
 import { customModelIds, withCustomModels } from "../_acp/custom-models.js";
 import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
 import { CommandOverride } from "./command-override.js";
@@ -280,7 +280,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
         }),
       }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
-      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => store.threadTexts(input), { long: true, callers: [SEARCH_KIT_ID] });
 
       // Signing in from the window: the agent's own `authenticate` for the chosen method, its link shown to open.
       const fetchUrl = options.fetch ?? globalThis.fetch;

@@ -38,6 +38,8 @@ import type { StageTab } from "../workbench/stage";
 import type { Platform, PlatformAttention } from "../workbench/platform";
 import type { PlatformEnvironments } from "../workbench/environments";
 import { PreferencesStore } from "./preferences";
+import { ExtensionServiceRegistry } from "./extension-service-registry";
+import { throwFailures } from "./extension-lifecycle-errors";
 import { errorMessage } from "../workbench/error-message";
 import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
@@ -1806,13 +1808,15 @@ export interface DesktopExtensionContext {
   /**
    * Publishes a value the extensions of one product may share, under an id
    * their own protocol file names. Core never looks inside it, and the offer
-   * is withdrawn when this extension deactivates.
+   * is withdrawn when this extension deactivates. If a waiting consumer throws,
+   * all bindings to this offer are released before publication throws.
    */
   provideService<T>(id: string, value: T): () => void;
   /**
    * Uses a value another extension published, now or as soon as it appears —
    * so activation order does not matter. `use` may return its own disposer,
    * which runs when the provider withdraws or this extension deactivates.
+   * Callback and disposer errors identify this consumer and the service id.
    */
   useService<T>(id: string, use: (value: T) => (() => void) | void): () => void;
   /**
@@ -1933,12 +1937,6 @@ interface ToolRenderer {
 
 type Owned<T> = T & ContributionOwner;
 
-/** One `useService` registration: the callback and whatever it left behind. */
-interface ServiceUser {
-  use(value: unknown): (() => void) | void;
-  dispose?: () => void;
-}
-
 /** Thrown when there is no host to route to, e.g. in the browser preview. */
 export class HostUnavailableError extends Error {
   constructor() { super("No machine is connected."); this.name = "HostUnavailableError"; }
@@ -2053,8 +2051,7 @@ export class ExtensionRegistry {
   private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
   private userKeymaps = new Map<string, Owned<UserKeymapContribution>>();
   /** Values one extension published for another; core only routes them by id. */
-  private extensionServices = new Map<string, ContributionOwner & { value: unknown }>();
-  private serviceUsers = new Map<string, Set<ServiceUser>>();
+  private readonly extensionServices = new ExtensionServiceRegistry();
   private renderers = new Map<string, Owned<ToolRenderer>>();
   private toolCards = new Map<string, Owned<ToolCardContribution>>();
   private options = new Map<string, ExtensionOption[]>();
@@ -2355,33 +2352,17 @@ export class ExtensionRegistry {
         return this.register(this.composerPlanners, planner.id, { ...planner, ...owner }, disposers);
       },
       provideService: (id, value) => {
-        const held = this.extensionServices.get(id);
-        if (held) throw new Error(`Extension service ${id} is already provided by ${held.extensionId}`);
+        const withdraw = this.extensionServices.provide(extension.id, id, value);
         note("services");
-        this.extensionServices.set(id, { value, ...owner });
-        this.rebindServiceUsers(id, value);
         const dispose = () => {
-          if (this.extensionServices.get(id)?.extensionId !== extension.id) return;
-          this.extensionServices.delete(id);
-          this.releaseServiceUsers(id);
-          this.changed();
+          try { withdraw(); } finally { this.changed(); }
         };
         disposers.push(dispose);
         this.changed();
         return dispose;
       },
       useService: (id, use) => {
-        const user: ServiceUser = { use: use as ServiceUser["use"] };
-        const users = this.serviceUsers.get(id) ?? new Set<ServiceUser>();
-        this.serviceUsers.set(id, users);
-        users.add(user);
-        const held = this.extensionServices.get(id);
-        if (held) user.dispose = user.use(held.value) ?? undefined;
-        const dispose = () => {
-          users.delete(user);
-          user.dispose?.();
-          user.dispose = undefined;
-        };
+        const dispose = this.extensionServices.use(extension.id, id, use);
         disposers.push(dispose);
         return dispose;
       },
@@ -2541,40 +2522,25 @@ export class ExtensionRegistry {
       });
       this.changed();
     } catch (error) {
-      let cleanupError: unknown;
-      try { this.disposeAll(disposers); } catch (failure) { cleanupError = failure; }
+      const errors = [error];
+      try { this.disposeAll(disposers); } catch (failure) { errors.push(failure); }
       this.contributionKinds.delete(extension.id);
       this.profiledContributions.delete(extension.id);
       this.activeExtensions.delete(extension.id);
-      if (cleanupError) throw new AggregateError([error, cleanupError], `Extension ${extension.id} activation and cleanup failed`, { cause: error });
-      throw error;
-    }
-  }
-
-  private rebindServiceUsers(id: string, value: unknown): void {
-    for (const user of this.serviceUsers.get(id) ?? []) {
-      user.dispose?.();
-      user.dispose = user.use(value) ?? undefined;
-    }
-  }
-
-  private releaseServiceUsers(id: string): void {
-    for (const user of this.serviceUsers.get(id) ?? []) {
-      user.dispose?.();
-      user.dispose = undefined;
+      throwFailures(errors);
     }
   }
 
   /** Ids of the values extensions have published for one another. */
   getServiceIds(): string[] {
-    return [...this.extensionServices.keys()];
+    return this.extensionServices.ids();
   }
 
   deactivate(id: string): void {
     const active = this.activeExtensions.get(id);
     if (!active) return;
-    let cleanupError: unknown;
-    try { active.dispose(); } catch (error) { cleanupError = error; }
+    const errors: unknown[] = [];
+    try { active.dispose(); } catch (error) { errors.push(error); }
     this.activeExtensions.delete(id);
     this.contributionKinds.delete(id);
     this.profiledContributions.delete(id);
@@ -2588,7 +2554,7 @@ export class ExtensionRegistry {
     this.problems.delete(id);
     for (const key of ["marks", "lineage", "project-icons", "provider-icons", "problems"]) this.dataChanged(key);
     this.changed();
-    if (cleanupError) throw cleanupError;
+    throwFailures(errors);
   }
 
   /** Records the user's answer on a known extension so the settings page stops asking. */
@@ -3274,7 +3240,7 @@ export class ExtensionRegistry {
     for (const dispose of [...disposers].reverse()) {
       try { dispose(); } catch (error) { errors.push(error); }
     }
-    if (errors.length > 0) throw new AggregateError(errors, "Extension contribution cleanup failed");
+    throwFailures(errors);
   }
 
   private register<T>(map: Map<string, T>, id: string, value: T, disposers: Array<() => void>): () => void {

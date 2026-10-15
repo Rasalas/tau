@@ -15,6 +15,55 @@ permissions:
   contents: read
 
 jobs:
+  timing-comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Allow Electron's sandbox on the runner
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Resolve exact comparison base
+        id: base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ]; then BASE_SHA=$(git rev-parse HEAD^); fi
+          if ! [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "An existing exact base SHA is required for timing comparison" >&2
+            exit 1
+          fi
+          printf 'sha=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
+      # checkout authenticates this exact fetch without retaining credentials,
+      # including in private repositories. The subsequent fetch is local.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ steps.base.outputs.sha }}
+          path: .performance-base
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Compare base and head on the same runner
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          git fetch --no-tags --depth=1 ./.performance-base "$BASE_SHA"
+          xvfb-run -a node scripts/run-performance-comparison.mjs --base "$BASE_SHA"
+      - name: Publish paired measurements and frozen harness
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: timing-comparison
+          path: |
+            reports/comparison-*
+            reports/timing-comparison*.json
+          if-no-files-found: error
+          retention-days: 7
   performance:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

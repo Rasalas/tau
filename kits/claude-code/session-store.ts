@@ -465,6 +465,7 @@ export class ClaudeRuntimeSessionStore {
       logger: options.logger, immutableUsageTurns: true,
       // Older summaries tallied SDK cumulative snapshots as independent turns.
       summaryVersion: 1,
+      publishEvicted: (id, record) => { this.records.set(id, record); },
       publishHydrated: (id, record) => {
         if (record) this.records.set(id, record);
         else this.records.delete(id);
@@ -494,7 +495,7 @@ export class ClaudeRuntimeSessionStore {
 
   async load(): Promise<void> {
     if (this.loaded) return;
-    if (!this.loading) this.loading = this.readFromDisk();
+    if (!this.loading) this.loading = this.readFromDisk().catch((error) => { this.loading = undefined; throw error; });
     await this.loading;
   }
 
@@ -509,18 +510,12 @@ export class ClaudeRuntimeSessionStore {
   }
 
   private async readFromDisk(): Promise<void> {
-    try {
-      const data = await this.persistence.loadMetadata();
-      if (data) {
-        for (const record of data.sessions) this.records.set(record.tauThreadId, record);
-        await chmod(this.options.filePath, 0o600).catch(() => undefined);
-      }
-    } catch {
-      // Missing or corrupt app state must not prevent the workbench from opening.
-      this.records.clear();
-    } finally {
-      this.loaded = true;
+    const data = await this.persistence.loadMetadata();
+    if (data) {
+      for (const record of data.sessions) this.records.set(record.tauThreadId, record);
+      await chmod(this.options.filePath, 0o600).catch(() => undefined);
     }
+    this.loaded = true;
   }
 
   /** What a listed thread was billed for, per model, for its row before it opens. */
@@ -547,13 +542,12 @@ export class ClaudeRuntimeSessionStore {
   }
 
   private async hydrateMany(threadIds: string[]): Promise<void> {
-    const ids = threadIds.filter(id => this.persistence.isUnloaded(id));
-    if (!ids.length) return;
-    await this.persistence.loadSessions(ids);
+    if (!threadIds.some(id => this.persistence.isUnloaded(id))) return;
+    await this.persistence.loadSessions(threadIds);
   }
 
   private async hydrate(tauThreadId: string): Promise<void> {
-    if (!this.persistence.isUnloaded(tauThreadId)) return;
+    if (!this.persistence.isUnloaded(tauThreadId)) { this.persistence.touch(tauThreadId); return; }
     await this.persistence.loadSession(tauThreadId);
   }
 
@@ -573,6 +567,12 @@ export class ClaudeRuntimeSessionStore {
       .filter((record) => (cwd === undefined || record.cwd === cwd) && (instance === undefined || sameInstance(record, instance)))
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .map(cloneRecord);
+  }
+
+  /** Search reads only changed text, without retaining full histories. */
+  async threadTexts(input: unknown) {
+    await this.load();
+    return this.persistence.threadTexts(this.records.values(), input);
   }
 
   /** Index recovery needs a title seed and count, never a transcript copy. */

@@ -2130,7 +2130,67 @@ Missing measurements, failed scenarios, excess DOM, startup network requests
 and forbidden blur remain failures; timing overruns are printed as advisory
 warnings. `--check` still enforces timing budgets for controlled local runs.
 Removing step-wide `continue-on-error` makes crashes and structural regressions
-block the workflow while timing overruns remain advisory.
+block the workflow while timing overruns in those reports remain advisory.
+
+### Paired timing comparison in CI
+
+The separate `timing-comparison` job in `.github/workflows/performance.yml`
+compares a pull request's exact head with its exact base SHA. On main pushes it
+uses the preceding push SHA; a manual run uses the head's first parent. It fetches
+that commit explicitly, checks out both subjects as detached worktrees, installs
+each lockfile once, and builds each production renderer and benchmark renderer
+once. Product components, build configuration and dependencies come from their
+respective commits. No dependency tree or build output is shared across subjects.
+
+Both builds receive identical copies of the gate checkout's benchmark sources,
+including `RendererBenchmark*.tsx`, the Electron fixtures and fixture JSON.
+Imported product components remain the subject's own code. This prevents a
+fixture change from looking like a product speedup. If the current measurement
+code cannot build against the base, the job fails and needs an explicit compatible
+measurement change; it never substitutes an old cached report or skips the gate.
+
+The job alternates base/head and head/base order for five pairs on one runner,
+with fresh Electron processes and no concurrent measurements. Every process gets
+a fresh userData directory under the comparison's temporary root, so neither
+subject inherits another sample's storage or disk cache. Each side of a pair
+has one warmup and three accepted samples. The fixed renderer subset covers
+150-KB code streaming, a streaming transcript with 1,000 turns, and typing in the
+long composer. The compared values are mount duration median, update duration
+p95 and frame interval p95 for each scenario. The startup comparison uses the
+median of three first-paint measurements from the existing production bundle
+fixture. It measures bundle paint, not host bootstrap or full desktop readiness.
+
+A metric fails when all five paired head values are slower, the median paired
+increase exceeds 20%, and the median paired absolute increase exceeds its floor.
+The floors are 5 ms for mount/update work, 8 ms for frame intervals and 50 ms for
+bundle first paint. One outlier cannot fail this rule. These comparisons catch
+repeatable material regressions; small incremental regressions, noisy regressions
+and scenarios outside the subset can pass. Existing full structural checks and
+local absolute timing checks remain in place. No timing or bundle budget rises.
+
+Missing samples, invalid timings, different fixtures, different harness hashes,
+different Electron versions, machine changes and GPU backend changes fail before
+comparison. A dependency upgrade that changes Electron requires a compatible
+measurement plan, because the gate cannot attribute that difference to product
+code. The report keeps raw paired values and policy, commit and dependency-lock
+hashes, benchmark build hashes and the frozen measurement sources. CI uploads
+these as the `timing-comparison` artifact, including an error report after a
+partial run. The runner script has a 24-minute deadline and the job a 30-minute
+limit, including setup and cleanup.
+
+To reproduce on a machine with Electron's sandbox and a working display:
+
+```sh
+node scripts/run-performance-comparison.mjs --base <exact-base-sha> --head <exact-head-sha>
+# Linux without a display:
+xvfb-run -a node scripts/run-performance-comparison.mjs --base <exact-base-sha> --head <exact-head-sha>
+```
+
+Fetch both commits first. The harness comes from the invoking checkout, whose
+commit and per-file hashes are recorded, so keep its sources for a repeat run.
+The command creates and removes its own detached worktrees and writes only
+reports in the invoking checkout. It never starts Tau's native host or uses a
+person's Tau profile.
 
 The activity-stream fixture acknowledges each committed transcript revision
 before sending the next update. Its tick starts at one, so production React's

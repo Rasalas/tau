@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
 import { isDeepStrictEqual } from "node:util";
-import { readPersistedJson, tryProcessLock, writePersistedJson, type PersistedJsonLogger } from "tau/host-extension";
+import { readPersistedJson, THREAD_TEXT_CHARS, threadTextsDelta, tryProcessLock, writePersistedJson, type PersistedJsonLogger, type StoredThreadText, type ThreadText, type ThreadTextsAnswer } from "tau/host-extension";
 import { sessionStoreSqliteWorkerMain, type SqliteChanges, type SqliteSessionChange, type SqliteStoreRead } from "./session-store-persistence-worker.js";
 
 interface SessionStoreData<T, M> { sessions: T[]; models?: Record<string, M[]> }
@@ -17,6 +17,8 @@ const LAYOUT = "sqlite-sessions";
 interface Snapshot { summary?: string; revision: string; messages?: unknown[]; count: number; usage: unknown[]; start: number; next: number }
 interface MessagePointer { epoch: string; count: number; parts: number; tailCount: number; tailBytes: number }
 const MESSAGE_CHUNK_MAX_COUNT = 64;
+const HISTORY_CACHE_ENTRIES = 8;
+const HISTORY_CACHE_CHARS = 4_000_000;
 
 /** Durable changed-row transactions; synchronous SQLite work stays off the host loop. */
 export class SessionStorePersistence<T extends { tauThreadId: string }, M = never> {
@@ -25,6 +27,11 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
   private databaseIdentity?: { dev: number; ino: number };
   private loading?: Promise<SessionStoreData<T, M> | undefined>;
   private readonly histories = new Map<string, T>();
+  private readonly historyWeights = new Map<string, { messages: number; usage: number }>();
+  private readonly pendingWrites = new Map<string, number>();
+  private readonly bulkReaders = new Map<string, number>();
+  private readonly failedHistories = new Set<string>();
+  private cacheTimer?: ReturnType<typeof setImmediate>;
   private readonly hydrating = new Map<string, Promise<T | undefined>>();
   private readonly unloaded = new Set<string>();
   private readonly committed = new Set<string>();
@@ -51,6 +58,11 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
      * signals only; their returned records must never be installed by a later continuation.
      */
     publishHydrated?(id: string, record: T | undefined): void;
+    /** Enables bounded caching. Adapter operations must consume or freeze a hydrated
+     * record in their promise continuation, without retaining it across further I/O.
+     * Eviction runs on a later event-loop turn and installs metadata atomically.
+     */
+    publishEvicted?(id: string, metadata: T): void;
     immutableUsageTurns?: boolean;
     summarizeUsage?(record: T): unknown[] | undefined;
     /** Invalidate summaries when a runtime changes how persisted usage is decoded. */
@@ -104,6 +116,7 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
       if (this.loading) await this.loading.catch(() => undefined);
       await this.locked(async () => {
         await this.closeWorker();
+        this.evictHistories(true);
       });
     });
     this.writing = release;
@@ -126,25 +139,34 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
 
   /** Explicit full listings hydrate their requested IDs in one bounded worker. */
   async loadSessions(ids: string[]): Promise<Array<T | undefined>> {
-    await this.loadMetadata();
-    await Promise.all(ids.map(id => this.hydrating.get(id)));
-    return this.locked(async () => {
-      const missing = ids.filter(id => this.unloaded.has(id));
-      if (missing.length) {
-        await this.checkMarker();
-        let records: Array<readonly [SqliteStoreRead["sessions"][number], T]>;
-        try {
-          const loaded = await this.request("histories", { threadIds: missing }) as SqliteStoreRead;
-          records = loaded.sessions.map(row => [row, this.decodeRow(row)] as const);
-        } finally { await this.closeWorker(); }
-        const found = new Set(records.map(([row]) => row.id));
-        for (const [row, record] of records) this.publishHydrated(row.id, row, record);
-        for (const id of missing) {
-          if (!found.has(id)) this.publishHydrated(id);
+    for (const id of ids) this.bulkReaders.set(id, (this.bulkReaders.get(id) ?? 0) + 1);
+    try {
+      await this.loadMetadata();
+      await Promise.all(ids.map(id => this.hydrating.get(id)));
+      return await this.locked(async () => {
+        const missing = ids.filter(id => this.unloaded.has(id));
+        if (missing.length) {
+          await this.checkMarker();
+          let records: Array<readonly [SqliteStoreRead["sessions"][number], T]>;
+          try {
+            const loaded = await this.request("histories", { threadIds: missing }) as SqliteStoreRead;
+            records = loaded.sessions.map(row => [row, this.decodeRow(row)] as const);
+          } finally { await this.closeWorker(); }
+          const found = new Set(records.map(([row]) => row.id));
+          for (const [row, record] of records) this.publishHydrated(row.id, row, record);
+          for (const id of missing) {
+            if (!found.has(id)) this.publishHydrated(id);
+          }
         }
+        return ids.map(id => this.histories.get(id));
+      });
+    } finally {
+      for (const id of ids) {
+        const count = this.bulkReaders.get(id)! - 1;
+        if (count) this.bulkReaders.set(id, count); else this.bulkReaders.delete(id);
       }
-      return ids.map(id => this.histories.get(id));
-    });
+      this.scheduleEviction();
+    }
   }
 
   loadMetadata(): Promise<SessionStoreData<T, M> | undefined> {
@@ -164,8 +186,29 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     });
   }
 
+  /** Select from the catalog first; the worker streams only the selected text prefixes. */
+  async threadTexts(records: Iterable<StoredThreadText>, input: unknown): Promise<ThreadTextsAnswer> {
+    const catalog = Array.from(records);
+    if (this.readOnlyData) return threadTextsDelta(catalog, input);
+    const answer = threadTextsDelta(catalog.map(record => ({ tauThreadId: record.tauThreadId, updatedAt: record.updatedAt, messages: [] })), input);
+    if (!answer.threads.length) return answer;
+    await this.writing;
+    return this.locked(async () => {
+      await this.checkMarker();
+      try {
+        const threads = await this.request("texts", { threadIds: answer.threads.map(thread => thread.threadId),
+          textChars: THREAD_TEXT_CHARS, version: this.options.version }) as ThreadText[];
+        return { ...answer, threads };
+      } finally { await this.closeWorker(); }
+    });
+  }
+
   messageCount(id: string): number | undefined { return this.snapshots.get(id)?.count; }
   isUnloaded(id: string): boolean { return this.unloaded.has(id); }
+  touch(id: string): void {
+    const record = this.histories.get(id);
+    if (record) { this.histories.delete(id); this.histories.set(id, record); }
+  }
   usageTallies(id: string): unknown[] | undefined { return this.summaries.get(id)?.tallies?.map(tally => ({ ...tally as object })); }
 
   /** One read transaction returns current metadata and exactly this history. */
@@ -184,13 +227,18 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     this.unloaded.delete(id);
     this.snapshots.delete(id);
     this.histories.delete(id);
+    this.historyWeights.delete(id);
+    this.failedHistories.delete(id);
     this.summaries.delete(id);
     this.committed.delete(id);
   }
 
   private async readSession(id: string): Promise<T | undefined> {
     await this.loadData();
-    if (!this.unloaded.has(id)) return this.histories.get(id);
+    if (!this.unloaded.has(id)) {
+      this.touch(id);
+      return this.histories.get(id);
+    }
     return this.locked(async () => {
       // Bulk hydration may have finished while this reader waited for the lock.
       // Reuse its live record and any revision already frozen by a queued write.
@@ -216,11 +264,50 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     if (row && record) {
       this.remember(row, record);
       this.histories.set(id, record);
+      const history = record as T & { messages?: unknown[]; usageTurns?: unknown[] };
+      this.historyWeights.set(id, { messages: this.payloadWeight(history.messages), usage: this.payloadWeight(history.usageTurns) });
       this.options.publishHydrated?.(id, record);
       this.unloaded.delete(id);
+      this.scheduleEviction();
     } else {
       this.options.publishHydrated?.(id, undefined);
       this.forgetAbsent(id);
+    }
+  }
+
+  private payloadWeight(value: unknown): number {
+    if (typeof value === "string") return value.length;
+    if (typeof value === "number" || typeof value === "boolean") return 8;
+    if (!value || typeof value !== "object") return 0;
+    return Object.values(value).reduce<number>((size, item) => size + this.payloadWeight(item), 128);
+  }
+
+  private scheduleEviction(): void {
+    if (!this.options.publishEvicted || this.cacheTimer) return;
+    // Await continuations may still be mutating the live adapter record. Only a
+    // later event-loop turn may replace it; frozen writes remain pinned below.
+    this.cacheTimer = setImmediate(() => { this.cacheTimer = undefined; this.evictHistories(); });
+    this.cacheTimer.unref();
+  }
+
+  private evictHistories(all = false): void {
+    if (!this.options.publishEvicted) return;
+    let weight = [...this.historyWeights.values()].reduce((total, item) => total + item.messages + item.usage, 0);
+    for (const [id, record] of this.histories) {
+      if (!all && this.histories.size <= HISTORY_CACHE_ENTRIES && weight <= HISTORY_CACHE_CHARS) break;
+      if (this.pendingWrites.has(id) || this.bulkReaders.has(id) || this.hydrating.has(id) || this.invalid.has(id) || this.failedHistories.has(id)) continue;
+      const history = record as T & { messages?: Array<{ role?: string }>; usageTurns?: unknown[] };
+      const { messages, usageTurns: _usageTurns, ...metadata } = history;
+      const firstUser = messages?.find(message => message.role === "user");
+      const catalog = { ...metadata, ...(messages ? { messages: firstUser ? [firstUser] : [] } : {}) } as T;
+      this.options.publishEvicted(id, catalog);
+      this.unloaded.add(id);
+      this.histories.delete(id);
+      const snapshot = this.snapshots.get(id);
+      if (snapshot) { snapshot.messages = undefined; snapshot.usage = []; }
+      const size = this.historyWeights.get(id);
+      weight -= (size?.messages ?? 0) + (size?.usage ?? 0);
+      this.historyWeights.delete(id);
     }
   }
 
@@ -294,7 +381,7 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
         // Close under the same load lock, before resolving the catalog.
         await this.closeWorker();
       }
-    });
+    }).catch((error) => { this.loading = undefined; throw error; });
     return this.loading;
   }
 
@@ -335,7 +422,11 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
       hasMessages: Array.isArray(messages), messageCount: messages?.length ?? 0,
       messages: { replace: !reuse, start: 0, next: messages?.length ?? 0, rows: (messages ?? []).slice(reuse ? prior!.count : 0).map((message, index) => ({ ordinal: (reuse ? prior!.count : 0) + index, payload: JSON.stringify(this.options.encodeMessage?.(message) ?? message) })) },
       hasUsage: Array.isArray(history?.usageTurns), usage: { replace: usageReplace, start: usageStart, next: usageNext, rows: usageRows } };
-    if (record) { this.histories.set(id, record); this.summaries.set(id, JSON.parse(summary!)); this.snapshots.set(id, { revision, summary, messages, count: messages?.length ?? 0, usage: usage.slice(), start: usageStart, next: usageNext }); }
+    if (record) {
+      this.histories.delete(id); this.histories.set(id, record);
+      this.historyWeights.set(id, { messages: (reuse ? this.historyWeights.get(id)?.messages ?? 0 : 0) + result.messages.rows.reduce((size, row) => size + row.payload.length, 0), usage: this.payloadWeight(usage) });
+      this.summaries.set(id, JSON.parse(summary!)); this.snapshots.set(id, { revision, summary, messages, count: messages?.length ?? 0, usage: usage.slice(), start: usageStart, next: usageNext });
+    }
     else { this.histories.delete(id); this.forgetAbsent(id); this.summaries.delete(id); }
     return result;
   }
@@ -347,12 +438,19 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     try { frozen = { sessions: (changes.sessions ?? []).map(({ id, record, appendOnly }) => this.freeze(id, record, appendOnly)),
       models: (changes.models ?? []).map(({ id, models }) => ({ id, version: this.options.version, payload: this.encode({ sessions: [], models: { [id]: models } }) })) }; }
     catch (error) { return Promise.reject(error); }
+    for (const change of frozen.sessions) this.pendingWrites.set(change.id, (this.pendingWrites.get(change.id) ?? 0) + 1);
     this.writing = this.writing.catch(() => undefined).then(async () => {
       if (generation !== this.generation) throw new Error("Earlier session write failed; retry the update");
       await this.loadData();
       await this.locked(async () => { await this.checkMarker(); await this.request("write", { changes: frozen }); });
-      for (const change of frozen.sessions) { if (change.metadata) this.committed.add(change.id); else this.committed.delete(change.id); }
-    }).catch((error) => { if (generation === this.generation) { this.generation++; for (const id of this.committed) this.invalid.add(id); this.snapshots.clear(); } throw error; });
+      for (const change of frozen.sessions) { if (change.metadata) this.committed.add(change.id); else this.committed.delete(change.id); this.failedHistories.delete(change.id); }
+    }).catch((error) => { if (generation === this.generation) { this.generation++; for (const id of this.committed) this.invalid.add(id); this.snapshots.clear(); } for (const change of frozen.sessions) this.failedHistories.add(change.id); throw error; }).finally(() => {
+      for (const change of frozen.sessions) {
+        const count = this.pendingWrites.get(change.id)! - 1;
+        if (count) this.pendingWrites.set(change.id, count); else this.pendingWrites.delete(change.id);
+      }
+      this.scheduleEviction();
+    });
     return this.writing;
   }
 
@@ -386,13 +484,15 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
       for (const record of data.sessions) {
         const pending = this.snapshots.get(record.tauThreadId);
         const pendingHistory = this.histories.get(record.tauThreadId);
+        const pendingWeight = this.historyWeights.get(record.tauThreadId);
         const pendingSummary = this.summaries.get(record.tauThreadId);
         changes.sessions.push(this.freeze(record.tauThreadId, record, false, version));
         if (pending) {
           this.snapshots.set(record.tauThreadId, pending);
           if (pendingHistory) this.histories.set(record.tauThreadId, pendingHistory);
+          if (pendingWeight) this.historyWeights.set(record.tauThreadId, pendingWeight);
           if (pendingSummary) this.summaries.set(record.tauThreadId, pendingSummary);
-        } else { this.snapshots.delete(record.tauThreadId); this.histories.delete(record.tauThreadId); }
+        } else { this.snapshots.delete(record.tauThreadId); this.histories.delete(record.tauThreadId); this.historyWeights.delete(record.tauThreadId); }
       }
       for (const [id, models] of Object.entries(data.models ?? {})) changes.models.push({ id, version, payload: this.encode({ sessions: [], models: { [id]: models } }) });
     };

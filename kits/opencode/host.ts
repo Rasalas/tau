@@ -31,7 +31,6 @@ import {
   type RuntimeToolVersion,
   type VersionPolicy,
   THREAD_TEXTS_COMMAND,
-  threadTextsDelta,
 } from "tau/host-extension";
 import { connectedProviders, openCodeNewThreadCatalog, parseModelRef, storedModels } from "./catalog.js";
 import type { OpenCodeProviderList } from "./client.js";
@@ -550,7 +549,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         })),
       }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
-      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => store.threadTexts(input), { long: true, callers: [SEARCH_KIT_ID] });
 
       /** A server over the default instance's data, or the fixture home an import root names. */
       const importServer = async (): Promise<OpenCodeServerHandle> => {
