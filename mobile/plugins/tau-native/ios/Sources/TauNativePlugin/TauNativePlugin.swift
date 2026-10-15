@@ -3,6 +3,7 @@ import AVFoundation
 import Capacitor
 import Foundation
 import UIKit
+import WebKit
 
 /// The Tau app's own native side: Keychain, pinned sockets, the QR scanner
 /// and Bonjour. `mobile/src/native.ts` is its TypeScript face.
@@ -29,6 +30,8 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "socketOpen", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "socketSend", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "socketClose", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "resourceRespond", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "resourceClose", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "scanQr", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "discoveryStart", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "discoveryStop", returnType: CAPPluginReturnPromise),
@@ -46,6 +49,7 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     override public func load() {
         SecureStore.forgetAfterReinstall()
+        BrowserResources.shared.request = { [weak self] request in self?.notifyListeners("browserResource", data: request) }
         dictationBackgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 if #available(iOS 26.0, *), let dictation = self?.localDictation as? LocalDictation { dictation.cancel(notify: true) }
@@ -158,6 +162,26 @@ public class TauNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     // MARK: Sockets
+
+    @objc func resourceRespond(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), let status = call.getInt("status"), let body = call.getString("body") else { call.reject("A resource response is required."); return }
+        var headers: [String: String] = [:]
+        for (name, value) in call.getObject("headers") ?? [:] { if let value = value as? String { headers[name.lowercased()] = value } }
+        DispatchQueue.main.async {
+            BrowserResources.shared.respond(id: id, status: status, headers: headers, body: body)
+            call.resolve()
+        }
+    }
+
+    @objc func resourceClose(_ call: CAPPluginCall) {
+        guard let connection = call.getString("connectionId") else { call.reject("A connection is required."); return }
+        DispatchQueue.main.async { BrowserResources.shared.close(connection: connection); call.resolve() }
+    }
+
+    @objc public override func shouldOverrideLoad(_ navigationAction: WKNavigationAction) -> NSNumber? {
+        guard navigationAction.request.url?.scheme == "tau-resource" else { return nil }
+        return NSNumber(value: navigationAction.targetFrame?.isMainFrame != false)
+    }
 
     @objc func socketOpen(_ call: CAPPluginCall) {
         guard let id = call.getString("id"), let text = call.getString("url"), let url = URL(string: text),

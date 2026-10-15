@@ -3,6 +3,7 @@ import type { NativeService } from "./discovery";
 import type { SecureStore } from "./hosts";
 import type { TextScalePort } from "./text-scale";
 import { trackedBridge, type NativeSocketEvent, type NativeSocketRequest, type SocketBridge } from "./native-socket";
+import { createBrowserResourceBridge, type BrowserResourceBridge, type BrowserResourceRequest, type BrowserResourceResponse } from "./browser-resources";
 
 export interface DeviceInfo {
   /** What the system calls the device ("iPhone", "Pixel 9"). */
@@ -33,6 +34,8 @@ interface TauNativePlugin {
   socketOpen(options: NativeSocketRequest): Promise<void>;
   socketSend(options: { id: string; data: string }): Promise<void>;
   socketClose(options: { id: string; code?: number; reason?: string }): Promise<void>;
+  resourceRespond(options: BrowserResourceResponse & { id: string }): Promise<void>;
+  resourceClose(options: { connectionId: string }): Promise<void>;
   /** Rejects with code `cancelled`, `camera-denied` or `no-camera`. */
   scanQr(): Promise<{ text: string }>;
   discoveryStart(options: { type: string }): Promise<void>;
@@ -43,12 +46,23 @@ interface TauNativePlugin {
   textScale(): Promise<{ scale: number }>;
   addListener(event: "activityToken", listener: (event: import("./activities").ActivityToken) => void): Promise<PluginListenerHandle>;
   addListener(event: "socket", listener: (event: NativeSocketEvent) => void): Promise<PluginListenerHandle>;
+  addListener(event: "browserResource", listener: (event: BrowserResourceRequest) => void): Promise<PluginListenerHandle>;
   addListener(event: "discovery", listener: (event: { services: NativeService[]; error?: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: "dictation", listener: (event: import("../../src/renderer/dictation").DictationUpdate & { id: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: "textScale", listener: (event: { scale: number }) => void): Promise<PluginListenerHandle>;
 }
 
 const TauNative = registerPlugin<TauNativePlugin>("TauNative");
+
+export async function createNativeBrowserResources(platform: "ios" | "android"): Promise<BrowserResourceBridge> {
+  const resources = await createBrowserResourceBridge({
+    listen: async (listener) => { const handle = await TauNative.addListener("browserResource", listener); return () => { void handle.remove(); }; },
+    respond: (response) => TauNative.resourceRespond(response),
+    close: (connectionId) => TauNative.resourceClose({ connectionId }),
+  }, platform);
+  window.addEventListener("pagehide", resources.close, { once: true });
+  return resources;
+}
 
 export const secureStore: SecureStore = {
   get: async (key) => (await TauNative.secureGet({ key })).value ?? undefined,

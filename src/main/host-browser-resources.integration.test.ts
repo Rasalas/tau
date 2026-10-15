@@ -4,11 +4,53 @@ import { BIND_BROWSER_RESOURCES, HostBrowserResourceStore } from "./host-browser
 import { runAsCaller } from "./host-invocation.js";
 import { HostPushLog } from "./host-push-log.js";
 import { startSocketHostTransport, type SocketHostTransport } from "./host-transport-socket.js";
+import { createHostMethods } from "./host-methods.js";
+import { HostJobRunner } from "./host-jobs.js";
+import { createSocketHostTransport } from "../shared/socket-host-transport.js";
+import { WebSocket } from "ws";
+import type { BrowserResourceResponse } from "../shared/browser-resource.js";
+import { HOST_TRANSPORT_VERSION } from "../shared/host-transport.js";
 
 let transport: SocketHostTransport | undefined;
 afterEach(async () => { await transport?.close(); transport = undefined; });
 
 describe("browser resources over the host's HTTP listener", () => {
+  it("also carries frames on the authenticated socket, bound to the publishing connection", async () => {
+    const resources = new HostBrowserResourceStore();
+    const unsupported = (): never => { throw new Error("not used"); };
+    const methods = createHostMethods({
+      browserResources: resources,
+      bootstrap: unsupported, requireHost: unsupported, host: () => undefined,
+      jobs: new HostJobRunner(() => undefined),
+      platform: {
+        copyText: unsupported, copyImage: unsupported, readImagePreview: unsupported,
+        inspectExtensions: unsupported, loadDesktopExtensions: unsupported, rebuildWorkbench: unsupported,
+        workbenchSource: unsupported, relaunchWorkbench: unsupported, installUpdate: unsupported,
+        notify: unsupported, setBadge: unsupported,
+      },
+    });
+    methods["test-publish"] = async (_params, context) => runAsCaller(context.principal, async () => resources.services[BIND_BROWSER_RESOURCES]("pages").publishFrame({ html: "<h1>Phone preview</h1>" }));
+    transport = await startSocketHostTransport({ listen: "127.0.0.1:0", browserResources: resources, methods, pushLog: new HostPushLog(), hostVersion: "test", capabilities: [], token: "test-secret" });
+    const url = `ws://127.0.0.1:${transport.port}`;
+    const phone = createSocketHostTransport(url, "test-secret", { createSocket: (address) => new WebSocket(address) as never });
+    const other = createSocketHostTransport(url, "test-secret", { createSocket: (address) => new WebSocket(address) as never });
+    try {
+      const hellos = await Promise.all([phone, other].map((client) => client.request("hello", [{ protocol: HOST_TRANSPORT_VERSION, profile: "compact" }])));
+      for (const hello of hellos) expect(hello.error).toBeUndefined();
+      const published = await phone.request("test-publish", []);
+      expect(published.error).toBeUndefined();
+      const path = published.result;
+      const response = await phone.request("read-browser-resource", [path]);
+      expect(response.error).toBeUndefined();
+      const resource = response.result as BrowserResourceResponse;
+      expect(resource.status).toBe(200);
+      expect(Buffer.from(resource.body, "base64").toString()).toContain("<h1>Phone preview</h1>");
+      expect(resource.headers["content-security-policy"]).toContain("sandbox allow-scripts allow-forms;");
+      expect(await other.request("read-browser-resource", [path])).toMatchObject({ result: { status: 404, body: "" } });
+      expect((await phone.request("start-job", ["read-browser-resource", [path]])).error?.message).toContain("cannot run as a job");
+    } finally { phone.close?.(); other.close?.(); resources.close(); }
+  });
+
   it("dispatches before static assets, streams ranges, and leaves other routes alone", async () => {
     let staticCalls = 0;
     const server = createServer((_request, response) => { staticCalls++; response.end("static"); });

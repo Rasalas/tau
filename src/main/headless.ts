@@ -402,6 +402,7 @@ async function main(): Promise<void> {
   });
   machineRoutes = new MachineKitRoute({ machines: () => machines, active: () => started.current()?.activeThreadIdentity() });
   const methods = createHostMethods({
+    browserResources,
     machineRoutes,
     updates: () => updates,
     clientCalls,

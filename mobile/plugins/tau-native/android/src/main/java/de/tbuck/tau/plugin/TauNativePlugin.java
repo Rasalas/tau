@@ -33,12 +33,17 @@ public class TauNativePlugin extends Plugin {
     private final Map<String, ConnectRelay> relays = new ConcurrentHashMap<>();
     private SecureStore store;
     private HostBrowser browser;
+    private BrowserResources browserResources;
 
     @Override
     public void load() {
         store = new SecureStore(getContext());
         // The web view would scale text by the font scale on its own, but not the rows around it; the page scales both.
         getBridge().executeOnMainThread(() -> getBridge().getWebView().getSettings().setTextZoom(100));
+        getActivity().runOnUiThread(() -> {
+            browserResources = new BrowserResources(getBridge(), (request) -> notifyListeners("browserResource", request));
+            getBridge().setWebViewClient(browserResources);
+        });
     }
 
     /** The system's font scale; the manifest keeps the activity through a change (`fontScale`), and `textScale` reports it. */
@@ -99,6 +104,24 @@ public class TauNativePlugin extends Plugin {
             return;
         }
         store.remove(key);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void resourceRespond(PluginCall call) {
+        String id = call.getString("id");
+        Integer status = call.getInt("status");
+        String body = call.getString("body");
+        if (id == null || status == null || body == null || browserResources == null) { call.reject("A resource response is required."); return; }
+        browserResources.respond(id, status, call.getObject("headers", new JSObject()), body);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void resourceClose(PluginCall call) {
+        String connection = call.getString("connectionId");
+        if (connection == null) { call.reject("A connection is required."); return; }
+        if (browserResources != null) browserResources.close(connection);
         call.resolve();
     }
 
@@ -240,6 +263,7 @@ public class TauNativePlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
+        if (browserResources != null) browserResources.close(null);
         for (PinnedSocket socket : sockets.values()) socket.close(1001, null);
         sockets.clear();
         for (ConnectRelay relay : relays.values()) relay.close();

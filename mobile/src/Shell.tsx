@@ -36,6 +36,7 @@ export interface AppContext {
   storage: ClientStorage;
   book: HostBook;
   bridge: SocketBridge;
+  resources?: import("./browser-resources").BrowserResourceBridge;
   device: DeviceInfo;
   environment: ClientEnvironment;
   wakes?: HostWakeSource;
@@ -153,6 +154,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     };
     const { client, connection } = connectHost(() => current, token, {
       bridge: context.bridge,
+      ...(context.resources ? { resources: context.resources } : {}),
       ...(connect ? { connect } : {}),
       device,
       ...(context.wakes ? { wakes: context.wakes } : {}),

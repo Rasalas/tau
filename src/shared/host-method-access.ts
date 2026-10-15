@@ -58,6 +58,7 @@ export const HOST_METHOD_ACCESS = {
   "tool-output": "read",
   "copy-thread-markdown": "read",
   "read-image-preview": "read",
+  "read-browser-resource": "read",
   "share-file": "read",
   // The extension registry decides per command (`registerCommand(…, { access: "read" })`).
   "host-extension": "read",
