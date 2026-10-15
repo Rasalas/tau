@@ -1,4 +1,4 @@
-import { BROWSER_RESOURCE_MAX_BYTES, type BrowserResourceResponse } from "../../src/shared/browser-resource";
+import { BROWSER_RESOURCE_MAX_BYTES, BROWSER_RESOURCE_PATH, browserResourceUrl, type BrowserResourceResponse } from "../../src/shared/browser-resource";
 export type { BrowserResourceResponse } from "../../src/shared/browser-resource";
 
 export interface BrowserResourceRequest { id: string; connectionId: string; path: string }
@@ -13,7 +13,6 @@ export interface BrowserResourceBridge {
   close(): void;
 }
 
-const PATH = /^\/resources\/[0-9a-f]{64}$/u;
 const MAX_PENDING = 16;
 const MAX_BASE64 = Math.ceil(BROWSER_RESOURCE_MAX_BYTES / 3) * 4;
 const EMPTY: BrowserResourceResponse = { status: 404, headers: {}, body: "" };
@@ -26,7 +25,7 @@ export async function createBrowserResourceBridge(native: BrowserResourceNative,
   const respond = (id: string, response: BrowserResourceResponse) => { void native.respond({ id, ...response }).catch(() => undefined); };
   const stop = await native.listen((request) => {
     const reader = readers.get(request.connectionId);
-    if (closed || !reader || !PATH.test(request.path) || pending.size >= MAX_PENDING || pending.has(request.id)) { respond(request.id, EMPTY); return; }
+    if (closed || !reader || !BROWSER_RESOURCE_PATH.test(request.path) || pending.size >= MAX_PENDING || pending.has(request.id)) { respond(request.id, EMPTY); return; }
     const timer = setTimeout(() => { if (pending.delete(request.id)) respond(request.id, { ...EMPTY, status: 504 }); }, 30_000);
     pending.set(request.id, { connectionId: request.connectionId, timer });
     void Promise.resolve().then(() => reader(request.path)).then((response) => {
@@ -61,8 +60,7 @@ export async function createBrowserResourceBridge(native: BrowserResourceNative,
       return {
         resourceUrl: (path) => {
           if (!readers.has(connectionId)) throw new Error("Browser resource connection is closed.");
-          if (!PATH.test(path)) throw new Error("Invalid host resource path.");
-          return `${origin}/${connectionId}${path}`;
+          return browserResourceUrl(`${origin}/${connectionId}`, path);
         },
         close: () => closeRoute(connectionId),
       };

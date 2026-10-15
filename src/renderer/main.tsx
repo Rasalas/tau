@@ -16,6 +16,7 @@ import { RendererServicesProvider } from "./renderer-services-context";
 import { followThemePreference } from "./theme";
 import { accessRefusal } from "../workbench/access-refusal";
 import { watchChunkLoadErrors } from "./chunk-reload";
+import { browserResourceUrl } from "../shared/browser-resource";
 import "./styles.css";
 // Loaded after the desktop rules so the narrow client can narrow them.
 import "./profile-compact.css";
@@ -48,10 +49,7 @@ function connect(): { client: HostClient; connection: HostConnection } | undefin
     // The window's process refused this host (its certificate is not the trusted one).
     const refused = search.get("hostRefused");
     if (refused) socket.connection.refuse(refused);
-    if (window.tau) return { ...socket, client: { ...socket.client, resourceUrl: (path: string) => {
-      if (!/^\/resources\/[0-9a-f]{64}$/u.test(path)) throw new Error("Invalid host resource path.");
-      return `tau-ext:/${path}`;
-    } } };
+    if (window.tau) return { ...socket, client: { ...socket.client, resourceUrl: (path: string) => browserResourceUrl("tau-ext:/", path) } };
     return socket;
   }
   return window.tau ? createElectronHostClient(window.tau) : undefined;
