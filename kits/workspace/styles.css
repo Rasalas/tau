@@ -164,7 +164,15 @@
   flex: 1 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column;
   padding: calc(10px * var(--density)) calc(10px * var(--density)) var(--space-3);
 }
-.rail-active-rows { flex: 1 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
+.rail-active-rows { position: relative; flex: 1 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
+/* A row on its way out (rail-motion.ts), and the marks of a thread changing place. */
+.rail-ghost { z-index: 1; pointer-events: none; }
+.rail-row.returned > .thread-row { animation: rail-row-returned 1.2s var(--ease); }
+@keyframes rail-row-returned { from { border-color: var(--acid-line); background: var(--acid-chip); } }
+.settled-shelf-toggle.received > span { animation: rail-shelf-received .9s var(--ease); }
+.settled-shelf-toggle.received > i { animation: rail-shelf-rule .9s var(--ease); }
+@keyframes rail-shelf-received { 25% { color: var(--acid-text); } }
+@keyframes rail-shelf-rule { 25% { background: var(--acid-line); } }
 .rail-shelves { display: flex; flex-direction: column; margin-top: auto; flex-shrink: 0; }
 /* The virtual list's cards, 2 px apart (the design's), inside their measured box. */
 .rail-virtual > .rail-row { padding-bottom: 2px; }

@@ -252,7 +252,7 @@ describe("Workspace Kit in the workbench", () => {
   });
 
   it("draws the sections, row menu and settle action another kit's organizer decides", async () => {
-    const sessions = ["alpha", "beta", "gamma"].map((id, index) => ({
+    const sessions = ["alpha", "beta", "gamma", "delta"].map((id, index) => ({
       id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 10 - index, projectPath: "/project", projectName: "project", messageCount: 1,
     }));
     const runMenu = vi.fn();
@@ -263,6 +263,7 @@ describe("Workspace Kit in the workbench", () => {
       sections: (threads) => [
         { id: "pinned", label: "Pinned", threads: threads.filter((thread) => thread.id === "gamma") },
         { id: "active", threads: threads.filter((thread) => thread.id === "alpha") },
+        { id: "working", label: "Working", shelf: true, collapsed: true, threads: threads.filter((thread) => thread.id === "delta") },
         { id: "snoozed", label: "Snoozed", shelf: true, collapsed: true, threads: threads.filter((thread) => thread.id === "beta") },
       ],
       menu: (session) => [{ items: [{ id: "pin", label: `Pin ${session.title}` }] }],
@@ -295,7 +296,10 @@ describe("Workspace Kit in the workbench", () => {
     expect(snoozed.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("Thread beta")).toBeNull();
     fireEvent.click(snoozed);
-    expect(screen.getByText("Thread beta")).toBeTruthy();
+    expect(screen.getByText("Thread beta").closest(".thread-row")?.classList.contains("compact")).toBe(true);
+    // Working threads keep the full card; only the parked shelves fold to one line.
+    fireEvent.click(screen.getByRole("button", { name: /Working · 1/u }));
+    expect(screen.getByText("Thread delta").closest(".thread-row")?.classList.contains("compact")).toBe(false);
 
     fireEvent.contextMenu(screen.getByText("Thread gamma"));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Pin Thread gamma" }));
