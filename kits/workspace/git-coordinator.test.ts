@@ -149,6 +149,27 @@ describe("GitCoordinator", () => {
     await expect(cancelled).rejects.toThrow("cancelled");
     expect(await coordinator.getBranch("/project")).toBe("main");
   });
+
+  it("reads a head branch with one git call, or from a fresh scan", async () => {
+    const fake = fakeGit({ "branch --show-current": "feature\n" });
+    const coordinator = new GitCoordinator({ runGit: fake.run, cacheTtlMs: 10_000 });
+    expect(await coordinator.getHeadBranch("/project")).toBe("feature");
+    expect(fake.calls).toEqual([["branch", "--show-current"]]);
+    await coordinator.getBranch("/project");
+    const scanned = fake.calls.length;
+    expect(await coordinator.getHeadBranch("/project")).toBe("main");
+    expect(fake.calls).toHaveLength(scanned);
+    coordinator.invalidate("/project");
+    await coordinator.getHeadBranch("/project");
+    expect(fake.calls).toHaveLength(scanned + 1);
+  });
+
+  it("names a detached head and leaves a plain folder without a head branch", async () => {
+    const detached = new GitCoordinator({ runGit: fakeGit({ "branch --show-current": "\n" }).run });
+    expect(await detached.getHeadBranch("/project")).toBe("detached");
+    const plain = new GitCoordinator({ runGit: async () => { throw new Error("not a repository"); } });
+    expect(await plain.getHeadBranch("/plain-folder")).toBeUndefined();
+  });
 });
 
 describe("bounded untracked statistics", () => {

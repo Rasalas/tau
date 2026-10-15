@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { HostExtensionServices, HostSessionFile, HostThread } from "tau/host-extension";
 import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
@@ -11,10 +11,12 @@ import {
   turnSnapshotRef,
 } from "./turn-checkpoint-codec.js";
 import type { StoredTurnCheckpoint } from "./turn-checkpoint-types.js";
+import type { WorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 import { createTurnWorkspaceSnapshot, getSnapshotFileDiff, validateWorkspaceSnapshotRefs } from "./workspace-git.js";
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -346,4 +348,33 @@ describe("checkpoint refs of a live thread whose session file lags", () => {
 
     expect(listRefs(cwd)).toEqual([]);
   }, 30_000);
+
+  it("collects orphaned refs on its schedule, and a deleted session's refs at once", async () => {
+    const cwd = await repository("tau-ref-sweep-schedule-");
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-ref-sweep-schedule-sessions-"));
+    directories.push(sessionsDir);
+    const cleanupLiveRefs = vi.fn(async () => undefined);
+    const cleanupSessionRefs = vi.fn(async () => undefined);
+    const maintenance = { cleanupLiveRefs, cleanupSessionRefs } as unknown as WorkspaceKitCheckpointMaintenance;
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const kit = createWorkspaceKitLifecycle(services(cwd, sessionsDir), {
+      emit: () => undefined, maintenance, liveRefSweep: { delayMs: 100, intervalMs: 1_000 },
+    });
+    const sweep = (deleted: { sessionId: string; cwd: string }[] = []) =>
+      kit.lifecycle.sweep!({ sessions: [], liveThreads: [], projectPaths: [cwd], deleted });
+
+    await sweep([{ sessionId: "gone-session", cwd }]);
+    expect(cleanupLiveRefs).not.toHaveBeenCalled();
+    expect(cleanupSessionRefs).toHaveBeenCalledWith(cwd, "gone-session");
+    now += 100;
+    await sweep();
+    expect(cleanupLiveRefs).toHaveBeenCalledTimes(1);
+    now += 999;
+    await sweep();
+    expect(cleanupLiveRefs).toHaveBeenCalledTimes(1);
+    now += 1;
+    await sweep();
+    expect(cleanupLiveRefs).toHaveBeenCalledTimes(2);
+  });
 });

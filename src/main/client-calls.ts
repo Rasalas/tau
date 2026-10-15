@@ -77,6 +77,8 @@ export class ClientCalls {
   private attachTimeoutMs = DISPLAY_WINDOW_ATTACH_TIMEOUT_MS;
   /** Calls waiting for a window the launcher started. */
   private readonly arrivals = new Set<() => void>();
+  /** The folder dialog call each window connection still owes an answer to. */
+  private readonly picks = new Map<string, string>();
 
   /** `send` answers false when the connection can no longer be written to. */
   constructor(
@@ -128,8 +130,7 @@ export class ClientCalls {
     catch { return false; }
   }
 
-  private sendTo(addressee: string, extensionId: string, command: string, input: unknown, timeoutMs: number): Promise<unknown> {
-    const callId = randomUUID();
+  private sendTo(addressee: string, extensionId: string, command: string, input: unknown, timeoutMs: number, callId: string = randomUUID()): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(callId);
@@ -165,8 +166,20 @@ export class ClientCalls {
    * the host's screen and get the answer.
    */
   async pickDirectory(options?: DirectoryPickerOptions, caller: string | undefined = currentCaller()): Promise<string | undefined> {
-    const path = await this.call(WINDOW_SERVICES_ID, "pick-directory", options, { timeoutMs: PICK_DIRECTORY_TIMEOUT_MS, callerOnly: true }, caller);
-    return typeof path === "string" ? path : undefined;
+    const callOptions = { timeoutMs: PICK_DIRECTORY_TIMEOUT_MS, callerOnly: true };
+    const addressee = this.addressee(WINDOW_SERVICES_ID, caller, callOptions);
+    if (!addressee) return asPath(await this.call(WINDOW_SERVICES_ID, "pick-directory", options, callOptions, caller));
+    // macOS can lose a panel it never showed; the user's next try replaces it, and the lost one ends as cancelled.
+    const earlier = this.picks.get(addressee);
+    if (earlier) this.settle(earlier, undefined, undefined, addressee);
+    const callId = randomUUID();
+    this.picks.set(addressee, callId);
+    if (this.launcher && onHostMachine(this.peers.get(addressee)!)) this.launcher.activity();
+    try {
+      return asPath(await this.sendTo(addressee, WINDOW_SERVICES_ID, "pick-directory", options, PICK_DIRECTORY_TIMEOUT_MS, callId));
+    } finally {
+      if (this.picks.get(addressee) === callId) this.picks.delete(addressee);
+    }
   }
 
   /**
@@ -256,6 +269,10 @@ export class ClientCalls {
 /** A window process beside the host: loopback, with the host token. */
 function onHostMachine(peer: ClientPeer): boolean {
   return peer.local && peer.pairedClient === undefined;
+}
+
+function asPath(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function noWindow(extensionId: string, callerOnly: boolean): string {

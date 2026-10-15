@@ -141,6 +141,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./runtime-instance-settings.js",   "./runtime-types.js",
   // Which runtimes may start work in a folder: the host's one gate (ADR 0033).
   "./runtime-gate.js",   "./runtime-versions.js",   "./self-signed-certificate.js",   "./session-entries.js",   "./session-events.js",
+  "./session-headers.js", // The header-only session list kits read (sessions.list).
   "./session-import.js",   "./session-info-index.js",   "./session-lineage.js",   "./session-locks.js",   "./session-model-provider.js",   "./session-usage.js",
   // Pi sessions read without Pi's repairs on open, and the Pi CLI taking the same session locks (K13).
   "./session-read.js",   "./pi-session-lock-extension.js",
