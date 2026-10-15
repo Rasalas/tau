@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArchiveRestore, ArrowLeft, Check, ChevronDown, Eye, Folder, FolderOpen, GitBranch, MessageSquare, PanelLeft, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
 import {
@@ -46,6 +46,7 @@ import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
 import { accessoryMarks, diffStat } from "./row-marks.js";
 import { useWorkspaceStore } from "./store-context.js";
 import { SidebarFooter } from "./sidebar-footer.js";
+import { createRailMotion, type RailPlace } from "./rail-motion.js";
 import { readShelvesOpen, SHELF_PAGE, shelfFirstPage, shelfHeading, shelfIsOpen, shelfRows as rowsOfShelf, writeShelvesOpen, type ShelvesOpen } from "./rail-shelves.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
@@ -988,6 +989,33 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return next;
   });
 
+  // Rows travel when a thread changes place; a drag moves them by hand.
+  const motionPlaces = new Map<string, RailPlace>();
+  for (const section of shownSections) {
+    const place = { section: section.id, shelf: Boolean(section.shelf), folded: !shelfIsOpen(section, shelfOpen) };
+    for (const session of section.threads) motionPlaces.set(session.id, place);
+  }
+  for (const session of main.threads) motionPlaces.set(session.id, { section: main.id, shelf: false, folded: false });
+  const motionKey = [
+    draftCount,
+    navigationRows.map((row) => row.id).join(","),
+    ...shownSections.map((section) => `${section.id}:${shelfIsOpen(section, shelfOpen)}:${section.threads.map((session) => session.id).join(",")}`),
+  ].join("|");
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const motion = useRef<ReturnType<typeof createRailMotion>>(undefined);
+  const motionKeyDrawn = useRef<string>(undefined);
+  useLayoutEffect(() => {
+    if (!rowsRef.current) return;
+    const created = createRailMotion(rowsRef.current);
+    motion.current = created;
+    return () => { created.dispose(); motion.current = undefined; motionKeyDrawn.current = undefined; };
+  }, []);
+  useLayoutEffect(() => {
+    if (motionKeyDrawn.current === motionKey) motion.current?.refresh(motionPlaces);
+    else motion.current?.update(motionPlaces, !drag);
+    motionKeyDrawn.current = motionKey;
+  });
+
   /** Every row on screen, top to bottom: what the arrow keys walk and a shift-click spans. */
   const orderIds = [
     ...shownSections.slice(0, mainIndex).flatMap(shelfRows).map((session) => session.id),
@@ -1054,7 +1082,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           const status = section.settled ? SETTLED_STATUS : activityFor(session.id);
           return (
             <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} {...rowData(section.id, session.id)}>
-              {renderRow(session, status, Boolean(section.shelf))}
+              {/* Working threads keep the full card; only parked shelves fold to one line. */}
+              {renderRow(session, status, Boolean(section.shelf) && section.id !== "working")}
             </div>
           );
         })}
@@ -1213,7 +1242,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         {/* One scroll; the shelves consume the free space above them on short lists. */}
         {organizer?.isLoading?.() ? <p className="sidebar-empty" role="status">Loading threads…</p> : null}
         <div ref={listRef} className="rail-active" style={organizer?.isLoading?.() ? { visibility: "hidden" } : undefined} inert={organizer?.isLoading?.() === true}>
-        <div className="rail-active-rows">
+        <div ref={rowsRef} className="rail-active-rows">
         {shownSections.slice(0, mainIndex).map(renderSection)}
         <RailDrafts actions={actions} {...(projectFilter ? { project: projectFilter } : {})} listed={listedIds} />
         {main.label === undefined && drag && sections.length > 1 ? (
