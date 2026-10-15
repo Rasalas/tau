@@ -10,10 +10,10 @@
 /* On the workbench's dialog card (.confirm-dialog). */
 .thread-rail-snooze { width: 380px; gap: 14px; }
 .thread-rail-snooze > h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Rename's form: one field above the answers. */
 .thread-rail-snooze > form { display: flex; flex-direction: column; gap: 14px; }
 .thread-rail-snooze-row { display: flex; gap: 8px; }
-.thread-rail-snooze-row > :is(input, select) { flex: 1; min-width: 0; }
-.thread-rail-snooze-row > input[type="number"] { flex: 0 0 90px; }
+.thread-rail-snooze-row > input { flex: 1; min-width: 0; }
 
 .thread-rail-fanout { color: var(--cyan); }
 

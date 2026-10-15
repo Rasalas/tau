@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, UiQueuedMessage } from "../../shared/contracts";
@@ -31,13 +31,16 @@ type Options = {
   streaming?: boolean;
   held?: boolean;
   queue?: UiQueuedMessage[];
-  onOpenQueue?: () => void;
+  onSteerQueued?: (id: string) => void;
+  onReturnQueued?: (id: string) => void;
+  onCancelQueued?: (id: string) => void;
+  onReorderQueue?: (id: string, toIndex: number) => void;
   onNotify?: (message: string) => void;
   registry?: ExtensionRegistry;
   actions?: Partial<WorkbenchActions>;
 };
 
-function renderComposer({ onSubmit = async () => ({ accepted: true as const }), streaming = false, held = false, queue = [], onOpenQueue, onNotify, registry, actions }: Options = {}) {
+function renderComposer({ onSubmit = async () => ({ accepted: true as const }), streaming = false, held = false, queue = [], onSteerQueued = () => {}, onReturnQueued, onCancelQueued = () => {}, onReorderQueue, onNotify, registry, actions }: Options = {}) {
   const composer = (
     <Composer
       scopeStore={new ComposerScopeStore()}
@@ -47,9 +50,10 @@ function renderComposer({ onSubmit = async () => ({ accepted: true as const }), 
       textareaRef={createRef<HTMLTextAreaElement>()}
       onSubmit={onSubmit}
       onAbort={() => {}}
-      onCancelQueued={() => {}}
-      onSteerQueued={() => {}}
-      onOpenQueue={onOpenQueue}
+      onCancelQueued={onCancelQueued}
+      onSteerQueued={onSteerQueued}
+      {...(onReturnQueued ? { onReturnQueued } : {})}
+      {...(onReorderQueue ? { onReorderQueue } : {})}
       onSetModel={() => {}}
       onSetThinking={() => {}}
       onCompactContext={() => {}}
@@ -126,31 +130,37 @@ describe("a send that cannot go yet", () => {
 describe("the send button while a turn runs", () => {
   it("draws a queue for a follow-up and a turn for a steer, and the tooltip says the same", () => {
     renderComposer({ streaming: true });
-    expect(iconOf(sendButton())).toBe("lucide-list-plus");
-    expect(sendButton().dataset.tooltip).toMatch(/^Queue after this turn/u);
+    expect(iconOf(sendButton())).toBe("lucide-corner-up-right");
+    expect(sendButton().dataset.tooltip).toMatch(/^Steer this turn/u);
     cleanup();
 
     const registry = new ExtensionRegistry();
-    registry.activate({ id: "steering", name: "Steering", activate(context) { context.registerPromptHook({ id: "steering.hook", streamingDelivery: () => "steer" }); } });
+    registry.activate({ id: "queueing", name: "Queueing", activate(context) { context.registerPromptHook({ id: "queueing.hook", streamingDelivery: () => "followUp" }); } });
     renderComposer({ streaming: true, registry });
-    expect(iconOf(sendButton())).toBe("lucide-corner-up-right");
-    expect(sendButton().dataset.tooltip).toMatch(/^Steer this turn/u);
+    expect(iconOf(sendButton())).toBe("lucide-list-plus");
+    expect(sendButton().dataset.tooltip).toMatch(/^Queue after this turn/u);
   });
 });
 
-describe("the queued count", () => {
+describe("what waits, over the composer", () => {
   const queue: UiQueuedMessage[] = [{ id: "q1", text: "later", attachments: 0 }, { id: "q2", text: "and later", attachments: 0 }];
 
-  it("opens the queue when the composer can show it", () => {
-    const onOpenQueue = vi.fn();
-    renderComposer({ streaming: true, queue, onOpenQueue });
-    fireEvent.click(screen.getByRole("button", { name: "2 queued" }));
-    expect(onOpenQueue).toHaveBeenCalledOnce();
-  });
-
-  it("stays a plain count where nothing can show the queue", () => {
-    renderComposer({ streaming: true, queue });
-    expect(screen.queryByRole("button", { name: "2 queued" })).toBeNull();
-    expect(screen.getByText("2 queued").tagName).toBe("SPAN");
+  it("shows the next message with Steer now and Edit, and the rest behind Then 1 more", async () => {
+    const onSteerQueued = vi.fn();
+    const onReturnQueued = vi.fn();
+    const onReorderQueue = vi.fn();
+    renderComposer({ streaming: true, queue, onSteerQueued, onReturnQueued, onReorderQueue });
+    const shelf = await screen.findByRole("region", { name: "Queued messages" });
+    expect(within(shelf).getByText("Next · sends when the turn ends")).toBeTruthy();
+    expect(within(shelf).queryByText("and later")).toBeNull();
+    fireEvent.click(within(shelf).getByRole("button", { name: /Steer now/u }));
+    expect(onSteerQueued).toHaveBeenCalledWith("q1");
+    fireEvent.click(within(shelf).getByText("later"));
+    expect(onReturnQueued).toHaveBeenCalledWith("q1");
+    fireEvent.click(within(shelf).getByRole("button", { name: /Then 1 more/u }));
+    fireEvent.click(within(shelf).getByRole("button", { name: /Move to front/u }));
+    expect(onReorderQueue).toHaveBeenCalledWith("q2", 0);
+    // The footer no longer counts them: the shelf above shows them.
+    expect(screen.queryByText("2 queued")).toBeNull();
   });
 });

@@ -28,12 +28,14 @@ const channels = (file: string) => new Set(read(file).match(/tau:[a-z-]+/gu) ?? 
  * sends `machines-overview`, `machines-pair`, `machines-forget` and
  * `machines-update`. `start-thread` and `send-to-thread` let another host
  * drive a thread off screen; the renderer has no wrappers for them (ADR 0030).
+ * `read-browser-resource` belongs to the native phone's resource bridge.
  */
 const CLIENT_SIDE = new Set([
   "hello", "start-job", "cancel-job", "job-methods", "client-call-result", "machines-list", "machines-add", "machines-remove",
   "blob-put", "blob-commit", "blob-abort", "host-resources", "readiness", "machines-overview", "machines-pair", "machines-forget",
   "machines-update",
   "start-thread", "send-to-thread",
+  "read-browser-resource",
 ]);
 
 function tableMethods(): Set<string> {

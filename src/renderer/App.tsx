@@ -235,6 +235,7 @@ export default function App() {
   const openInstructions = useCallback(() => workbenchControlRef.current?.openInstructions(), []);
   const focusStage = useCallback(() => workbenchControlRef.current?.focusStage(), []);
   const showThread = useCallback((options?: ShowThreadOptions) => workbenchControlRef.current?.showThread(options), []);
+  const showThreadList = useCallback(() => workbenchControlRef.current?.showThreadList() ?? false, []);
   const toggleSidebar = useCallback(() => workbenchControlRef.current?.toggleSidebar(), []);
   const toggleSpine = useCallback(() => workbenchControlRef.current?.toggleSpine(), []);
   const threadView = useCallback(() => workbenchControlRef.current?.threadView(), []);
@@ -284,7 +285,7 @@ export default function App() {
   );
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
   const currentActions = useCallback(() => actionsRef.current, []);
-  const { queue, cancelQueued, steerQueued, reorderQueue, returnQueued, steerQueuedMessage } = useFollowUpQueue({
+  const { queue, cancelQueued, steerQueued, reorderQueue, planQueued, returnQueued, steerQueuedMessage } = useFollowUpQueue({
     client,
     threads: threadStore,
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
@@ -492,7 +493,7 @@ export default function App() {
     applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay, openConversationView, closeConversationView, navigateHistory,
     openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
     steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, showThread, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
+    openModelPicker, openInstructions, focusStage, showThread, showThreadList, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
     executeCommand: (id) => {
       if (!actionsRef.current) throw new Error("Actions are not ready yet.");
       return registry.executeCommand(id, actionsRef.current);
@@ -638,13 +639,13 @@ export default function App() {
     controlRef: composerControlRef,
     scopeStore: composerScopeStore, seed: composerSeed, textareaRef: composerRef,
     attachmentRef: composerAttachmentRef, queue, holds: composerHolds, prompts: conversationPrompts,
-    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue, returnQueued,
+    submit: submitPrompt, abort: abortThread, cancelQueued, steerQueued, reorderQueue, planQueued, returnQueued,
     setModel: setComposerModel, setThinking: setComposerThinking,
     selectRuntime: selectDraftRuntime, carryModel: newThreadController.carryToNextDraft,
     answerUiPrompt: threadCommands.answerUiPrompt, compactContext: threadCommands.compactContext,
   }), [
     abortThread, cancelQueued, threadCommands, composerHolds, composerScopeStore, composerSeed,
-    conversationPrompts, queue, reorderQueue, returnQueued, setComposerModel, setComposerThinking, steerQueued, submitPrompt,
+    conversationPrompts, queue, planQueued, reorderQueue, returnQueued, setComposerModel, setComposerThinking, steerQueued, submitPrompt,
     selectDraftRuntime, newThreadController,
   ]);
 

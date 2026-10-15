@@ -407,6 +407,21 @@ the token is unencrypted on the wire, so a plaintext listener refuses a
 non-loopback address unless `TAU_HOST_INSECURE=1` says otherwise; with TLS
 (below) any interface is fine.
 
+Native phones read frame documents with `read-browser-resource [path]` over
+that same pinned socket, including when it runs through a relay. The path must
+be a live `/resources/<capability>` published for that connection. The reply is
+`{ status, headers, body }`, with a base64 body limited to 10 MiB and a 15-second
+read deadline. This read-only method cannot run as a job, whose result would
+be broadcast to other clients.
+
+The native client serves those bytes at a local resource URL, separate from
+the installed workbench's origin. Android intercepts
+`https://tau-resources.localhost/`; iOS handles `tau-resource://localhost/`.
+Both preserve the response CSP and add an opaque sandbox. Only frames may
+load these origins under the workbench CSP. Frame scripts cannot call the
+native plugin bridge. `node scripts/html-preview-smoke.mjs`, after a build,
+checks the mobile CSP, frame interaction and isolation in Chromium.
+
 Before an authenticated hello, the socket accepts messages of at most 64 KiB,
 including accumulated fragments and decompressed bytes. Oversized messages
 close with WebSocket code 1009 before JSON parsing. Pairing keeps this limit;

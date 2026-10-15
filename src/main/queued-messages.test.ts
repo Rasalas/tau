@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueuedMessages, markWake, type QueuedMessage, type QueuedMessagesView } from "./queued-messages.js";
 
 const dirs: string[] = [];
@@ -276,6 +276,88 @@ describe("QueuedMessages", () => {
       expect(marked.wake!.label.length).toBeLessThanOrEqual(160);
       expect(markWake("plain", undefined)).toEqual({ text: "plain" });
     });
+  });
+});
+
+describe("QueuedMessages, planned", () => {
+  const HOUR = 3_600_000;
+  afterEach(() => { vi.useRealTimers(); });
+  const clock = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: Date.UTC(2026, 9, 14, 20) });
+
+  it("sends a planned message at its time, not before, and leaves the line to the rest", async () => {
+    clock();
+    const { queue, delivered, settle } = bench();
+    queue.add("t", { ...text("tomorrow"), deliverAt: Date.now() + HOUR });
+    await settle("t");
+    expect(delivered).toEqual([]);
+    expect(queue.continues("t")).toBe(false);
+    vi.advanceTimersByTime(HOUR);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(delivered).toEqual([{ sessionId: "t", text: "tomorrow" }]);
+  });
+
+  it("leaves from a held queue and stays when Stop takes the user's messages back", async () => {
+    clock();
+    const { queue, busy, delivered, settle } = bench();
+    busy.add("t");
+    queue.add("t", text("after the turn"));
+    const plan = queue.add("t", { ...text("at nine"), deliverAt: Date.now() + HOUR });
+    expect(queue.take("t").map((message) => message.text)).toEqual(["after the turn"]);
+    queue.add("t", text("held"));
+    queue.hold("t");
+    vi.advanceTimersByTime(HOUR);
+    await settle("t");
+    expect(delivered.map((entry) => entry.text)).toEqual(["at nine"]);
+    expect(queue.list("t").map((message) => message.id)).not.toContain(plan.id);
+    busy.delete("t");
+    await settle("t");
+    expect(delivered.map((entry) => entry.text)).toEqual(["at nine"]);
+  });
+
+  it("plans a message for another time, or puts it back in the line", async () => {
+    clock();
+    const { queue, busy, delivered, published, settle } = bench();
+    busy.add("t");
+    const plan = queue.add("t", { ...text("later"), deliverAt: Date.now() + HOUR });
+    queue.reschedule("t", plan.id, Date.now() + 2 * HOUR);
+    expect(published.get("t")?.messages[0]?.deliverAt).toBe(Date.now() + 2 * HOUR);
+    queue.reschedule("t", plan.id, undefined);
+    expect(published.get("t")?.messages[0]?.deliverAt).toBeUndefined();
+    await settle("t");
+    expect(delivered.map((entry) => entry.text)).toEqual(["later"]);
+    expect(() => queue.reschedule("t", plan.id, Date.now())).toThrow("already left");
+  });
+
+  it("holds a refused plan as an ordinary message instead of offering it again", async () => {
+    clock();
+    const { queue, delivered, published, settle, refuseWith } = bench();
+    refuseWith("That thread is not open any more.");
+    queue.add("t", { ...text("at nine"), deliverAt: Date.now() + HOUR });
+    vi.advanceTimersByTime(HOUR);
+    await settle("t");
+    expect(delivered).toEqual([]);
+    expect(published.get("t")).toMatchObject({ held: true, messages: [{ text: "at nine" }] });
+    expect(queue.list("t")[0]?.deliverAt).toBeUndefined();
+  });
+
+  it("keeps a plan across a restart, and holds one whose time passed meanwhile", async () => {
+    const filePath = await tempFile();
+    const now = Date.now();
+    await writeFile(filePath, JSON.stringify({ version: 1, threads: {
+      missed: [{ id: "a", text: "too late", attachments: [], queuedAt: 0, deliverAt: now - HOUR }],
+      waiting: [{ id: "b", text: "still ahead", attachments: [], queuedAt: 0, deliverAt: now + HOUR }],
+    } }));
+    const after = bench(filePath);
+    await after.queue.restore();
+    expect(after.published.get("missed")).toMatchObject({ held: true, messages: [{ text: "too late" }] });
+    expect(after.queue.list("missed")[0]?.deliverAt).toBeUndefined();
+    expect(after.queue.list("waiting")[0]?.deliverAt).toBe(now + HOUR);
+    await after.settle("missed");
+    await after.settle("waiting");
+    expect(after.delivered).toEqual([]);
+    after.queue.freeze();
+    // The restore's own write must land before the folder goes.
+    await after.queue.flush();
   });
 });
 

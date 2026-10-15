@@ -536,9 +536,9 @@ export function ProjectSwitcherPopover({
 }
 
 /**
- * The rail's project filter between the search and "+": a folder for every
- * project, the shown project's tile and name while one is (design 1k). Its
- * footer opens a project and the project settings.
+ * The rail's project filter, followed by search and "+". A chosen project's
+ * tile and name replace "All projects"; its footer opens a project and the
+ * project settings.
  */
 function ProjectFilterButton({ actions }: { actions: WorkbenchActions }) {
   const threadStore = useThreadStore();
@@ -999,7 +999,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       ? organizer.sections(matching, {
         ...activityState,
         waitingThreadIds: [...activityState.waitingThreadIds, ...attentionMarkIds(rowStatuses)],
-        backgroundThreadIds: matching.filter((session) => markedRowStatus(threadRowStatus(session.id, activityState, session), rowStatuses[session.id]).activity === "background").map((session) => session.id),
+        // Work that wakes a thread, and runs this host does not see (another machine's, through a kit's mark).
+        backgroundThreadIds: matching.filter((session) => ["background", "working"].includes(markedRowStatus(threadRowStatus(session.id, activityState, session), rowStatuses[session.id]).activity)).map((session) => session.id),
       })
       : defaultRailSections(matching, settings.pinnedThreadIds, settings.settledThreadIds, showSettledShelf),
     // The organizer's version says when the same threads would land elsewhere.
@@ -1255,7 +1256,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     <aside className="session-rail">
       <div className="sidebar-controls">
         <div className="rail-head">
-          {/* On macOS it sits right of the traffic lights, where the closed sidebar's title bar has it too. */}
+          {/* On macOS it sits at the title bar's right edge, above the new-thread button. */}
           {actions.toggleSidebar ? <button
             type="button"
             className="sidebar-action sidebar-toggle"
@@ -1266,7 +1267,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             <PanelLeft size={16} />
           </button> : null}
           <ProjectFilterButton actions={actions} />
-          {/* On macOS these sit in the title bar strip beside the traffic lights. */}
+          {/* Search and new thread share the project filter's row on every platform. */}
           <div className="rail-head-actions">
             {/* Design 1a: the palette's door, ⌘K from anywhere. */}
             <button

@@ -181,7 +181,8 @@ export class WorkbenchSession {
             enqueueFollowUp: async (threadId, item) => {
               const client = adapter.client();
               if (!client) throw new Error("Queued messages need a connection to the machine.");
-              await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
+              if (item.deliverAt === undefined) await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
+              else await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft, item.deliverAt);
             },
           });
           this.submission = controller;

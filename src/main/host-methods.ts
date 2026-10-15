@@ -19,7 +19,7 @@ import type { PiHost } from "./pi-host.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
 import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
-import { isHostOwner, WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
+import { isHostOwner, runAsCaller, WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
 import { createConnectMethods, type HostConnect } from "./host-connect.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
@@ -156,6 +156,8 @@ export interface HostMethodDeps {
   machineRoutes?: MachineKitRoute;
   /** The machine's load, for `host-resources`; absent for a host in the window's process. */
   resources?(): HostResourceSampler | undefined;
+  /** Native clients read capability responses through their authenticated connection. */
+  browserResources?: Pick<import("./host-browser-resources.js").HostBrowserResourceStore, "readForClient">;
   /** Files other machines send here; absent for a host in the window's process. */
   blobs?(): HostBlobStore | undefined;
   /** The machine's own Tau updates (K103); absent for a host in the window's process. */
@@ -163,8 +165,8 @@ export interface HostMethodDeps {
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
-/** Answer with the access key: a job's result is pushed to every client and kept for replay, so these never run as jobs. */
-const SECRET_METHODS = new Set(["connections-host-token", "connections-rotate-host-token"]);
+/** Private results must not become jobs: job results are broadcast and kept for replay. */
+const PRIVATE_RESULT_METHODS = new Set(["connections-host-token", "connections-rotate-host-token", "read-browser-resource"]);
 /** Calls that can wait on a runtime starting or reopening, which outlasts a remote request's timeout on a busy host. */
 const DECLARED_JOB_METHODS = Object.entries(HOST_COMMANDS).flatMap(([method, declaration]) => declaration.job ? [method] : []);
 
@@ -216,12 +218,13 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "run-shell-action": bindHostCommand(HOST_COMMANDS["run-shell-action"], async ([command, includeInContext, expectedCwd]) => (await host()).runShellAction(command, includeInContext, expectedCwd === undefined ? undefined : resolveWorkspace(await host(), expectedCwd))),
     "steer": bindHostCommand(HOST_COMMANDS["steer"], async (args) => (await host()).steer(...args)),
     "follow-up": bindHostCommand(HOST_COMMANDS["follow-up"], async (args) => (await host()).followUp(...args)),
-    "queue-message": bindHostCommand(HOST_COMMANDS["queue-message"], async ([sessionId, text, attachments, skillDraft]) => {
-      const queued = await (await host()).queue.submit(sessionId, { text, attachments: attachments ?? [], ...(skillDraft ? { skillDraft } : {}) });
+    "queue-message": bindHostCommand(HOST_COMMANDS["queue-message"], async ([sessionId, text, attachments, skillDraft, deliverAt]) => {
+      const queued = await (await host()).queue.submit(sessionId, { text, attachments: attachments ?? [], ...(skillDraft ? { skillDraft } : {}), ...(deliverAt !== undefined ? { deliverAt } : {}) });
       return { id: queued.id };
     }),
-    "take-queued": bindHostCommand(HOST_COMMANDS["take-queued"], async ([sessionId, queuedId]) => (await host()).queue.take(sessionId, queuedId).map(({ id, text, attachments, skillDraft, wake }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}) }))),
+    "take-queued": bindHostCommand(HOST_COMMANDS["take-queued"], async ([sessionId, queuedId]) => (await host()).queue.take(sessionId, queuedId).map(({ id, text, attachments, skillDraft, wake, deliverAt }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}), ...(deliverAt !== undefined ? { deliverAt } : {}) }))),
     "move-queued": bindHostCommand(HOST_COMMANDS["move-queued"], async (args) => (await host()).queue.move(...args)),
+    "plan-queued": bindHostCommand(HOST_COMMANDS["plan-queued"], async (args) => (await host()).queue.reschedule(...args)),
     "resume-limited": bindHostCommand(HOST_COMMANDS["resume-limited"], async ([sessionId, when]) => {
       const limits = (await host()).limits;
       if (when === "now") return limits.resumeNow(sessionId);
@@ -410,6 +413,10 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ...createMachineMethods(() => deps.machines?.()),
     ...createMachinePairingMethods({ machines: () => deps.machines?.(), window: () => localWindowPort(deps.clientCalls) }),
     ...createResourceMethods({ resources: () => deps.resources?.(), runtimes: host }),
+    "read-browser-resource": bindHostCommand(HOST_COMMANDS["read-browser-resource"], async ([path], context) => {
+      if (!deps.browserResources) throw Object.assign(new Error("This machine cannot serve browser resources."), { code: HOST_ERROR.unsupported });
+      return runAsCaller(context.principal, () => deps.browserResources!.readForClient(path));
+    }),
     ...createBlobMethods(() => deps.blobs?.()),
     ...createUpdateMethods(() => deps.updates?.()),
 
@@ -432,7 +439,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const jobParams = params[1] === undefined ? [] : params[1];
       if (!Array.isArray(jobParams)) throw new Error("start-job: params must be an array");
       authorizeMethod(context.principal, method, jobParams);
-      if (SECRET_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
+      if (PRIVATE_RESULT_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       return { jobId: deps.jobs.start((jobContext) => target(jobParams as unknown[], jobContext), context.principal) };
     }),
     "cancel-job": bindHostCommand(HOST_CORE_COMMANDS["cancel-job"], async (params) => ({ cancelled: deps.jobs.cancel(params[0]) })),

@@ -40,7 +40,7 @@ function renderComposer(
   streaming = false,
   snapshotOverride: HostSnapshot = snapshot,
   queueHandlers: { queue?: UiQueuedMessage[]; onSteerQueued?: (id: string) => void; onCancelQueued?: (id: string) => void } = {},
-  handlers: { onRunShellAction?: (command: string) => Promise<unknown>; onOpenPromptEditor?: () => void; onNotify?: (msg: string) => void } = {},
+  handlers: { onRunShellAction?: (command: string) => Promise<unknown>; onOpenPromptEditor?: () => void; onNotify?: (msg: string) => void; newThread?: boolean } = {},
   controlRef?: React.RefObject<ComposerControlHandle | null>,
 ) {
   const scopeStore = new ComposerScopeStore();
@@ -62,6 +62,7 @@ function renderComposer(
       onRunShellAction={handlers.onRunShellAction}
       onOpenPromptEditor={handlers.onOpenPromptEditor}
       onNotify={handlers.onNotify}
+      newThread={handlers.newThread ?? false}
     />
   </TestProviders>);
   return onSubmit;
@@ -119,22 +120,23 @@ describe("Composer command menu", () => {
     expect(onSubmit).toHaveBeenCalledWith("/tdd fix the parser", [], undefined, { source: "skill", name: "tdd", visibleText: "fix the parser", command: "/skill:tdd" });
   });
 
-  it("queues Enter and steers with Command-Enter while streaming", async () => {
+  it("steers with Enter and queues through the send menu with Command-Enter while streaming", async () => {
     const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })), true);
     const textarea = screen.getByPlaceholderText(/queue a follow-up/u) as HTMLTextAreaElement;
 
-    fireEvent.change(textarea, { target: { value: "after this turn", selectionStart: 15 } });
+    fireEvent.change(textarea, { target: { value: "adjust now", selectionStart: 10 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenLastCalledWith("after this turn", [], "followUp");
+    expect(onSubmit).toHaveBeenLastCalledWith("adjust now", [], "steer");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    fireEvent.change(textarea, { target: { value: "adjust now", selectionStart: 10 } });
+    fireEvent.change(textarea, { target: { value: "after this turn", selectionStart: 15 } });
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
-    expect(onSubmit).toHaveBeenLastCalledWith("adjust now", [], "steer");
+    fireEvent.keyDown(await screen.findByRole("menuitem", { name: /Queue after this turn/u }), { key: "Enter" });
+    await waitFor(() => expect(onSubmit).toHaveBeenLastCalledWith("after this turn", [], "followUp"));
   });
 
-  it("sends with the modifier held as the alternate send while idle", async () => {
-    const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })));
+  it("sends a new thread's draft with the modifier held as the alternate send", async () => {
+    const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })), false, snapshot, {}, { newThread: true });
     const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "start it elsewhere", selectionStart: 18 } });
@@ -142,7 +144,7 @@ describe("Composer command menu", () => {
     expect(onSubmit).toHaveBeenLastCalledWith("start it elsewhere", [], "alternate");
   });
 
-  it("releases the head of the queue with Command-Enter on an empty field", () => {
+  it("releases the head of the queue with Command-Enter on an empty field", async () => {
     const onSteerQueued = vi.fn();
     const onSubmit = renderComposer(vi.fn(async () => ({ accepted: true as const })), true, snapshot, {
       queue: [queued("first", "after this turn"), queued("second", "and then this")],
@@ -156,7 +158,8 @@ describe("Composer command menu", () => {
 
     fireEvent.change(textarea, { target: { value: "typed instead", selectionStart: 13 } });
     fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
-    expect(onSubmit).toHaveBeenLastCalledWith("typed instead", [], "steer");
+    fireEvent.keyDown(await screen.findByRole("menuitem", { name: /Queue after this turn/u }), { key: "Enter" });
+    await waitFor(() => expect(onSubmit).toHaveBeenLastCalledWith("typed instead", [], "followUp"));
     expect(onSteerQueued).toHaveBeenCalledTimes(1);
   });
 
@@ -191,9 +194,10 @@ describe("Composer command menu", () => {
       onCompactContext={() => {}}
     /></TestProviders>);
 
+    // The queue's tab sits above the question; nothing comes between the question and its field.
     const stack = container.querySelector(".composer-surface");
-    expect(Array.from(stack?.children ?? []).slice(0, 2).map((element) => element.classList[0]))
-      .toEqual(["prompt-arrival", "composer-frame"]);
+    expect(Array.from(stack?.children ?? []).slice(0, 3).map((element) => element.classList[0]))
+      .toEqual(["queue-shelf", "prompt-arrival", "composer-frame"]);
     expect(stack?.querySelector(".prompt-arrival > .extension-prompt")).not.toBeNull();
   });
 

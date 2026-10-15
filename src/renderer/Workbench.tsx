@@ -23,8 +23,7 @@ import { threadCostLabel } from "./cost-format";
 import { retryPrompt } from "./components/TurnError";
 import { useThreadShell } from "./use-thread-shell";
 import { declareRuntimeMarks } from "./runtime-marks";
-import { PairingRequestWatcher, QueuedMessages } from "./deferred-surfaces";
-import { revealQueuedMessages } from "./queue-reveal";
+import { PairingRequestWatcher } from "./deferred-surfaces";
 import { ToastLayer } from "./components/ui/ToastLayer";
 import { TooltipLayer, tooltipProps } from "./components/ui/Tooltip";
 import { ContextMenuLayer } from "./components/ui/ContextMenu";
@@ -72,7 +71,7 @@ import { STORAGE_KEYS } from "../workbench/storage-keys";
 import { usePreferences } from "./renderer-services-context";
 import { effectiveNewThreadRuntime, newThreadSetup, offeredBackends } from "./new-thread-runtime";
 import { useRuntimeCatalogs } from "./use-runtime-catalog";
-import { threadListOrder } from "../workbench/thread-supervision";
+import type * as TouchThreadBrowserModule from "./touch/TouchThreadBrowser";
 import { useHostCapabilities, useHostName } from "./use-host-capabilities";
 import { usePlatform } from "./platform-context";
 import type { PreferencesState } from "./preferences";
@@ -114,6 +113,9 @@ const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").th
 const LazyProjectSourcesModal = lazy(() => import("./components/ProjectSources").then(({ ProjectSourcesModal }) => ({ default: ProjectSourcesModal })));
 const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal").then(({ SystemPromptModal }) => ({ default: SystemPromptModal })));
 // The touch layout's own pieces: none of them is in a desktop window's first paint.
+// The compact list's order comes with the compact list's own chunk, never in the desktop's first bundle.
+let compactOrder: Pick<typeof TouchThreadBrowserModule, "compactListOrder"> | undefined;
+const loadCompactOrder = () => import("./touch/TouchThreadBrowser").then((module) => { compactOrder = module; });
 const LazyTouchLayer = lazy(() => import("./touch/TouchLayer").then(({ TouchLayer }) => ({ default: TouchLayer })));
 const LazyTouchThreadBrowser = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadBrowser }) => ({ default: TouchThreadBrowser })));
 const LazyPhoneNav = lazy(() => import("./touch/PhoneNav").then(({ RegistryPhoneNav }) => ({ default: RegistryPhoneNav })));
@@ -155,6 +157,8 @@ export interface WorkbenchControlHandle {
   showThread(options?: ShowThreadOptions): void;
   /** Whether something covers the thread, and on a compact client the order of its thread list. */
   threadView(): { covered: boolean; listOrder?: readonly string[] };
+  /** On a phone, where the thread list is a screen of its own, shows it: true; false elsewhere. */
+  showThreadList(): boolean;
 }
 
 /** Window chrome, slots and the modals that belong to the shell. */
@@ -281,11 +285,13 @@ export interface WorkbenchComposer {
   queue: readonly UiQueuedMessage[];
   holds: number;
   prompts: ExtensionUiPrompt[];
-  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: "followUp" | "steer" | "alternate", skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
+  submit: (value: string, attachments?: import("../shared/contracts").UiPromptAttachment[], delivery?: import("../workbench/submission-queue").SubmitDelivery, skillDraft?: import("../shared/contracts").UiSkillDraft) => Promise<SubmitResult>;
   abort(sessionId?: string): void;
   cancelQueued(id: string): void;
   steerQueued(id: string): void;
   reorderQueue(id: string, toIndex: number): void;
+  /** Gives a waiting message another time; `undefined` puts it in the line of the queue. */
+  planQueued(id: string, deliverAt: number | undefined): void;
   /** Takes a queued message back into the composer. */
   returnQueued(id: string): void;
   setModel(provider: string, id: string): Promise<void>;
@@ -398,6 +404,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const split = compact && compactForm === "split";
   const compactRef = useRef({ compact, split, stacked: false, maximized: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
+  useEffect(() => { if (compact && !compactOrder) void loadCompactOrder(); }, [compact]);
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
   // The project the touch thread list is narrowed to; a new thread from it starts there. A path no project has anymore shows all.
   const [touchProjectPath, setTouchProjectPath] = useState(() => clientStorage.get(STORAGE_KEYS.touchProject) ?? undefined);
@@ -458,14 +465,22 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       if (compactRef.current.stacked) setChatFocused(true);
       if (options?.focusComposer) setComposerFocusRequest((count) => count + 1);
     },
+    showThreadList: () => {
+      if (!compactRef.current.compact || compactRef.current.split) return false;
+      setPanelSheet(undefined);
+      phoneNav.showList();
+      return true;
+    },
     threadView: () => {
       const { covered, project } = threadViewRef.current;
       if (!compactRef.current.compact) return { covered };
       // Settled threads keep their unsettled rank: one settling right now still has its place.
       const { threads } = threadStore.getSnapshot();
-      return { covered, listOrder: threadListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, marks: registry.getThreadRowMarks(), ...(project ? { project } : {}) }) };
+      const working = registry.getThreadListLayouts().some((entry) => entry.working());
+      const listOrder = compactOrder?.compactListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, marks: registry.getThreadRowMarks(), ...(project ? { project } : {}), working });
+      return { covered, ...(listOrder ? { listOrder } : {}) };
     },
-  }), [clientStorage, phoneNav.showChat, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
+  }), [clientStorage, phoneNav.showChat, phoneNav.showList, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
   // After the commit that shows the chat: a hidden tab's composer cannot take focus.
   useEffect(() => {
     if (composerFocusRequest > 0) composer.textareaRef.current?.focus();
@@ -617,7 +632,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     if (phone) phoneNav.openSettings(card ?? "providers");
     else actions.openSettings(card ?? "providers");
   }, [actions, phone, phoneNav.openSettings, registry]);
-  const openQueue = useCallback(() => revealQueuedMessages(thread.transcriptRef.current), [thread.transcriptRef]);
 
   const conversationComposer = <ConversationComposer
     current={contentCurrent}
@@ -633,7 +647,6 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     openProviders={openProviders}
     threadStore={threadStore}
     floating={floating}
-    onOpenQueue={openQueue}
   />;
 
   // The frame goes around the card too: bare, it would fall into the shell grid's next free cell.
@@ -1181,9 +1194,7 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
   const onForkMessage = useCallback((message: UiMessage, turn?: TranscriptTurn) => void forkMessage(message, turn), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
   const { readOnly } = useHostCapabilities();
-  const { queue, steerQueued, returnQueued, reorderQueue } = composer;
   const running = Boolean(conversationSnapshot?.isStreaming);
-  const steerShortcut = registry.keybindingLabel("thread.steerQueuedMessage");
   const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
   // Stable across deltas, like the callbacks above.
   const latestMessages = useRef(messages);
@@ -1195,14 +1206,10 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
   }, [submit]);
   // The composer's bar retries a failed turn, and says when a limit resets.
   const limit = pendingNewThread || running ? undefined : shell?.limit;
-  const queueHeld = shell?.queueHeld === true;
-  const liveStatus = useMemo(() => {
-    const status = liveStatusLabel !== undefined
-      ? <LiveStatus label={liveStatusLabel} />
-      : thinking ? <LiveStatus startedAt={runStartedAt} /> : undefined;
-    if (pendingNewThread || queue.length === 0) return status;
-    return <>{status}<QueuedMessages queue={queue} streaming={running} held={queueHeld} steerShortcut={steerShortcut} onSteer={steerQueued} onReturn={returnQueued} onReorder={reorderQueue} /></>;
-  }, [liveStatusLabel, pendingNewThread, queue, queueHeld, reorderQueue, returnQueued, runStartedAt, running, thinking, steerQueued, steerShortcut]);
+  // What waits is drawn over the composer (QueueShelf), not at the end of the transcript.
+  const liveStatus = useMemo(() => liveStatusLabel !== undefined
+    ? <LiveStatus label={liveStatusLabel} />
+    : thinking ? <LiveStatus startedAt={runStartedAt} /> : undefined, [liveStatusLabel, runStartedAt, thinking]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
     showControl={!pendingNewThread && messages.length > 0}
@@ -1236,10 +1243,9 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
 });
 
 /** The context meter reads token estimates at its displayed precision. */
-const ConversationComposer = memo(function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating, onOpenQueue, current = true }: {
+const ConversationComposer = memo(function ConversationComposer({ view, composer, snapshot, conversationSnapshot, pendingNewThread, draftRuntime, activeDraftKey, onNotify, actions, openProviders, lead, threadStore, floating, current = true }: {
   current?: boolean;
   view: ThreadViewStore;
-  onOpenQueue(): void;
   floating?: boolean;
   threadStore: ThreadStore;
   lead?: React.ReactNode;
@@ -1270,7 +1276,7 @@ const ConversationComposer = memo(function ConversationComposer({ view, composer
   const setup = draftKind ? newThreadSetup(draftKind, snapshot, catalogs) : undefined;
   const {
     scopeStore, seed, textareaRef, attachmentRef, controlRef, queue, holds, prompts, submit, abort,
-    cancelQueued, steerQueued, setModel, setThinking, answerUiPrompt, compactContext,
+    cancelQueued, steerQueued, returnQueued, reorderQueue, planQueued, setModel, setThinking, answerUiPrompt, compactContext,
   } = composer;
   const shell = useThreadShell(conversationSnapshot?.sessionId ?? "");
   const { readOnly } = useHostCapabilities();
@@ -1317,7 +1323,10 @@ const ConversationComposer = memo(function ConversationComposer({ view, composer
     onAbort={() => abort(snapshot?.sessionId)}
     onCancelQueued={cancelQueued}
     onSteerQueued={steerQueued}
-    onOpenQueue={onOpenQueue}
+    queueHeld={shell?.queueHeld === true}
+    onReturnQueued={returnQueued}
+    onReorderQueue={reorderQueue}
+    onPlanQueued={planQueued}
     onSetModel={(provider, id) => void setModel(provider, id)}
     onSetThinking={(level) => void setThinking(level)}
     runtimeChoice={runtimeChoice}

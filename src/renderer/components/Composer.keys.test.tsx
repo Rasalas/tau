@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, SubmissionResult } from "../../shared/contracts";
@@ -99,17 +99,46 @@ describe("composer keys an extension and the preferences decide", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
   });
 
-  it("steers with ↵ while a turn runs when a prompt hook asks for it, and queues with ⌘↵", async () => {
-    const { onSubmit, textarea } = renderComposer({
-      streaming: true,
-      extend: (context) => context.registerPromptHook({ id: "steer", streamingDelivery: () => "steer" }),
-    });
+  it("steers with ↵ while a turn runs, and ⌘↵ opens the send menu on Queue", async () => {
+    const { onSubmit, textarea } = renderComposer({ streaming: true });
     expect(textarea.placeholder).toBe("Steer, or queue a follow-up…");
-    expect(screen.getByRole("button", { name: "Steer this turn" }).dataset.tooltip).toBe("Steer this turn ↵ — ⌘↵ queues, ⌥↑ dequeues");
+    expect(screen.getByRole("button", { name: "Steer this turn" }).dataset.tooltip).toBe("Steer this turn ↵ — ⌘↵ queue or plan, ⌥↑ dequeues");
     fireEvent.change(textarea, { target: { value: "turn left" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit.mock.calls[0]?.[2 as never]).toBe("steer");
+
+    fireEvent.change(textarea, { target: { value: "and then the docs" } });
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    const queue = await screen.findByRole("menuitem", { name: /Queue after this turn/u });
+    await waitFor(() => expect(document.activeElement).toBe(queue));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(queue, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(onSubmit.mock.calls[1]?.[2 as never]).toBe("followUp");
+  });
+
+  it("picks from the send menu with the arrows or a digit, and opens Plan for a time", async () => {
+    const { onSubmit, textarea } = renderComposer({ streaming: true });
+    fireEvent.change(textarea, { target: { value: "check the build tomorrow" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue or plan" }));
+    const plan = await screen.findByRole("menuitem", { name: /Plan…/u });
+    await waitFor(() => expect(document.activeElement).toBe(plan));
+    fireEvent.keyDown(plan, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: /Steer this turn/u })));
+    fireEvent.keyDown(document.activeElement!, { key: "3" });
+    const sheet = await screen.findByRole("dialog", { name: "Plan message" });
+    expect(within(sheet).getByText("check the build tomorrow")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(within(sheet).getByRole("listbox", { name: "When" })));
+    expect(within(sheet).getByRole("option", { name: /Tomorrow morning/u })).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(within(sheet).getByRole("option", { name: /Tomorrow morning/u }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Plan" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    expect(onSubmit.mock.calls[0]?.[2 as never]).toEqual({ deliverAt: tomorrow.getTime() });
   });
 
   it("hands composer controls the workbench actions", () => {
@@ -132,30 +161,30 @@ describe("composer keys an extension and the preferences decide", () => {
 });
 
 describe("the composer's buttons while a turn runs", () => {
-  it("keeps send beside stop, resting until there is a draft, and it queues a follow-up", async () => {
+  it("keeps Plan and Stop before send, resting until there is a draft, and it steers", async () => {
     const onAbort = vi.fn();
     const { onSubmit, textarea } = renderComposer({ streaming: true, onAbort });
-    expect((screen.getByRole("button", { name: "Queue after this turn" }) as HTMLButtonElement).disabled).toBe(true);
-    // Stop sits before send, never in its place.
+    expect((screen.getByRole("button", { name: "Steer this turn" }) as HTMLButtonElement).disabled).toBe(true);
+    // Plan, then Stop, sit before send, never in its place.
     const buttons = [...document.querySelectorAll(".composer-toolbar > button")].map((button) => button.getAttribute("aria-label"));
-    expect(buttons.slice(-2)).toEqual(["Stop the run", "Queue after this turn"]);
+    expect(buttons.slice(-3)).toEqual(["Queue or plan", "Stop the run", "Steer this turn"]);
     fireEvent.change(textarea, { target: { value: "and then the tests" } });
-    fireEvent.click(screen.getByRole("button", { name: "Queue after this turn" }));
+    fireEvent.click(screen.getByRole("button", { name: "Steer this turn" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0]?.[2 as never]).toBe("followUp");
+    expect(onSubmit.mock.calls[0]?.[2 as never]).toBe("steer");
     fireEvent.click(screen.getByRole("button", { name: "Stop the run" }));
     expect(onAbort).toHaveBeenCalledOnce();
   });
 
-  it("steers from the button when a prompt hook makes steering the default", async () => {
+  it("queues from the button when a prompt hook makes queueing the default", async () => {
     const { onSubmit, textarea } = renderComposer({
       streaming: true,
-      extend: (context) => context.registerPromptHook({ id: "steer", streamingDelivery: () => "steer" }),
+      extend: (context) => context.registerPromptHook({ id: "queue", streamingDelivery: () => "followUp" }),
     });
     fireEvent.change(textarea, { target: { value: "turn left" } });
-    fireEvent.click(screen.getByRole("button", { name: "Steer this turn" }));
+    fireEvent.click(screen.getByRole("button", { name: "Queue after this turn" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0]?.[2 as never]).toBe("steer");
+    expect(onSubmit.mock.calls[0]?.[2 as never]).toBe("followUp");
     expect(screen.getByRole("button", { name: "Stop the run" })).toBeTruthy();
   });
 

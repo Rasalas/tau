@@ -18,7 +18,7 @@ import { DictationSettings } from "../../src/renderer/settings/DictationSettings
 import { PUSH_RELAY_URL } from "../../kits/push/protocol";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
-import { nativeRemoteActivities, installActivityKey, nativeActivities, nativeDictation, browseHosts, createSocketBridge, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
+import { nativeRemoteActivities, installActivityKey, nativeActivities, nativeDictation, browseHosts, createSocketBridge, createNativeBrowserResources, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
 import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
 import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar, tapRoute } from "./push";
@@ -39,6 +39,7 @@ async function boot(): Promise<void> {
   const book = new HostBook(secureStore);
   const activityKeys = new PushKeys({ get: (key) => secureStore.get("activity:" + key), set: (key, value) => secureStore.set("activity:" + key, value), remove: (key) => secureStore.remove("activity:" + key) });
   const isNative = Capacitor.isNativePlatform();
+  const resources = isNative ? await createNativeBrowserResources(device.platform) : undefined;
   const remoteControl = isNative && device.platform === "ios" ? remoteActivities(book, activityKeys, nativeRemoteActivities, device.virtual) : undefined;
   const activityPort = { ...nativeActivities, clear: async (hostId: string) => { await remoteControl?.revoke(hostId); await nativeActivities.clear(hostId); } };
   const pushRoutes = new Map<string, "direct" | "relay">();
@@ -51,6 +52,7 @@ async function boot(): Promise<void> {
     storage: createLocalStorageAdapter(),
     book,
     bridge,
+    ...(resources ? { resources } : {}),
     device,
     environment: { ...webClientEnvironment("compact"), ...(appInfo ? { mobileApp: { platform: device.platform, version: appInfo.version } } : {}), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation, Settings: DictationSettings } } : {}) },
     wakes: nativeWakeSource(App, Network),

@@ -197,14 +197,14 @@ describe("Prompt Tools: citing a reply", () => {
 });
 
 describe("Prompt Tools: queue or steer", () => {
-  it("queues by default, steers once the option says so, and the palette switches it", async () => {
+  it("steers by default, queues once the option says so, and the palette switches it", async () => {
     const { registry, preferences, actions, state } = activate();
-    expect(registry.streamingDelivery()).toBe("followUp");
-    preferences.setValue(PROMPT_TOOLS_ID, FOLLOW_UP_OPTION, "steer");
     expect(registry.streamingDelivery()).toBe("steer");
-    await registry.executeCommand("prompt-tools.toggle-follow-up", actions);
+    preferences.setValue(PROMPT_TOOLS_ID, FOLLOW_UP_OPTION, "queue");
     expect(registry.streamingDelivery()).toBe("followUp");
-    expect(state.notices).toEqual(["While a turn runs, the send key queues a follow-up."]);
+    await registry.executeCommand("prompt-tools.toggle-follow-up", actions);
+    expect(registry.streamingDelivery()).toBe("steer");
+    expect(state.notices).toEqual(["While a turn runs, the send key steers it."]);
     expect(registry.getExtensionSummaries().find((summary) => summary.id === PROMPT_TOOLS_ID)?.options.map((option) => option.id)).toEqual([FOLLOW_UP_OPTION]);
   });
 });

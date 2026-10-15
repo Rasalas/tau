@@ -27,8 +27,9 @@ const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-dig
 const rowState = (watch: PullRequestWatch | undefined) => !watch ? "Not watched" : watch.status === "unreadable" ? "Can't read GitHub" : watch.status === "watching" ? `Watching · ${watchStanding(watch.baseline)}` : "Watch ended";
 
 /**
- * The watch of one PR on its strip row: the first click watches it; then it opens
- * its state with a stop. With `others`, that list also offers the thread's other open PRs.
+ * The watch of one PR on its strip row, an eye that names its state only in its
+ * tooltip, or in words when GitHub cannot be read: the first click watches it;
+ * then it opens its state with a stop. With `others`, that list also offers the thread's other open PRs.
  */
 export function PullRequestWatchControl({ feed, threadId, request, others }: { feed: PullRequestWatchFeed; threadId: string; request: StripRequest; others?: readonly StripRequest[] }) {
   const canManage = useCommandAllowed("tau.review", "watch-start");
@@ -52,8 +53,8 @@ export function PullRequestWatchControl({ feed, threadId, request, others }: { f
     finally { setBusy(undefined); }
   };
   const Icon = unreadable ? CircleAlert : live ? Eye : watch ? EyeOff : Eye;
-  const tooltip = !canManage ? "This device is read-only." : live ? `#${request.number} · ${rowState(watch)}` : !startable(request) ? "This PR is closed." : TRIGGERS;
-  return <><button ref={anchor} type="button" className={`review-pr-watch ${unreadable ? "unreadable" : live ? "watching" : watch?.status ?? "off"}`} aria-label={`${label} for PR #${request.number}`} aria-expanded={open} disabled={disabled} {...tooltipProps(tooltip)} onClick={() => { if (watch || error) setOpen(!open); else void change("watch-start", request.url); }}><Icon key={blinks} size={13} {...(blinks ? { className: "blink" } : {})} />{watch ? <span>{label}</span> : null}</button>
+  const tooltip = !canManage ? "This device is read-only." : watch ? `#${request.number} · ${rowState(watch)}` : !startable(request) ? "This PR is closed." : TRIGGERS;
+  return <><button ref={anchor} type="button" className={`review-pr-watch ${unreadable ? "unreadable" : live ? "watching" : watch?.status ?? "off"}`} aria-label={`${label} for PR #${request.number}`} aria-expanded={open} disabled={disabled} {...tooltipProps(tooltip)} onClick={() => { if (watch || error) setOpen(!open); else void change("watch-start", request.url); }}><Icon key={blinks} size={13} {...(blinks ? { className: "blink" } : {})} />{unreadable ? <span>{label}</span> : null}</button>
     {open ? <Popover anchor={anchor} label={rows.length > 1 ? "Watched pull requests" : `Watch PR #${request.number}`} align="end" className="review-pr-watch-popover" onClose={() => setOpen(false)}>
       <h3>{rows.length > 1 ? "Watched pull requests" : `Watch PR #${request.number}`}</h3><p>{TRIGGERS}</p>
       <ul className="review-pr-watch-list">{rows.map((row) => {

@@ -47,6 +47,8 @@ export interface UseWorkbenchActionsOptions {
   focusStage: () => void;
   /** Brings the chat into view (out of a maximized stage, a sheet); with `focusComposer`, the composer takes the keyboard once drawn. */
   showThread?: (options: { focusComposer: true }) => void;
+  /** A phone's thread list, its home screen: true when it is shown now. */
+  showThreadList?: () => boolean;
   toggleSidebar?: () => void;
   toggleSpine?: () => void;
   openPanel: (id: string) => void;
@@ -302,6 +304,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         };
       },
       threadListOrder: () => options.threadView?.()?.listOrder,
+      showThreadList: () => options.showThreadList?.() ?? false,
       openFile: options.openFile,
       openThread,
       runShellAction: options.threadCommands.runShellAction,

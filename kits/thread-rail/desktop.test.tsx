@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { NewThreadClaimEvent, UiModel, UiSession, WorkbenchActions } from "tau";
-import { createKitHarness, setHostClient, ToastStore, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
+import { readWhenPick } from "tau";
+import { ClientStorageProvider, createKitHarness, createMemoryStorage, setClientStorage, setHostClient, ToastStore, ThreadStore, ThreadStoreContext, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import threadRailExtension from "./desktop.js";
@@ -197,8 +198,26 @@ describe("Thread Rail on the desktop", () => {
     const snooze = organizer().menu(thread("a")).flatMap((section) => section.items).find((item) => item.id === "snooze");
     expect(snooze?.submenu?.[0]?.items[0]).toMatchObject({ id: "snooze:1h", label: "In 1 hour" });
     expect(organizer().menu(thread("d")).flatMap((section) => section.items).some((item) => item.id === "snooze")).toBe(false);
-    organizer().runMenu(thread("a"), "snooze:1h", actions);
-    expect(calls("patch").at(-1)).toMatchObject({ patches: { a: { snoozedUntil: expect.any(Number) } } });
+    const storage = createMemoryStorage();
+    setClientStorage(storage);
+    const marks = (items: ReturnType<RailOrganizer["menu"]>) =>
+      items.flatMap((section) => section.items).find((item) => item.id === "snooze")!.submenu![0]!.items.map((item) => item.selected);
+    try {
+      // Nothing used yet: plain items, no choice marked.
+      expect(new Set(marks(organizer().menu(thread("a"))))).toEqual(new Set([undefined]));
+      organizer().runMenu(thread("a"), "snooze:1h", actions);
+      expect(calls("patch").at(-1)).toMatchObject({ patches: { a: { snoozedUntil: expect.any(Number) } } });
+      // The Snooze dialog opens on the preset last picked here.
+      expect(readWhenPick(storage, "thread-rail.snooze")).toBe("1h");
+      organizer().runBulkMenu!([thread("a"), thread("b")], "snooze:tomorrow", actions);
+      expect(readWhenPick(storage, "thread-rail.snooze")).toBe("tomorrow");
+      const presets = organizer().menu(thread("c")).flatMap((section) => section.items).find((item) => item.id === "snooze")!.submenu![0]!.items;
+      expect(presets.filter((item) => item.selected).map((item) => item.id)).toEqual(["snooze:tomorrow"]);
+      expect(organizer().bulkMenu!([thread("c")])[0]!.items.find((item) => item.id === "snooze")!.submenu![0]!.items.find((item) => item.selected)?.id).toBe("snooze:tomorrow");
+      expect(organizer().rowActions!(thread("c"))[0]!.menu()[0]!.items.find((item) => item.selected)?.id).toBe("snooze:tomorrow");
+    } finally {
+      setClientStorage(undefined);
+    }
   });
 
   it("hands core's old pins and settled threads to the host once, then mirrors the host into the preferences", async () => {
@@ -758,9 +777,9 @@ describe("parking the thread on screen", () => {
     vi.mocked(actions.activeThread).mockImplementation(() => ({ sessionId, draftPending: false, ...extra }));
   function renderLayer(registry: ReturnType<typeof setup>["registry"], organizer: () => RailOrganizer, actions: WorkbenchActions) {
     const Layer = organizer().Layer!;
-    render(<WorkbenchShellContext.Provider value={{ registry } as never}>
+    render(<ClientStorageProvider storage={createMemoryStorage()}><WorkbenchShellContext.Provider value={{ registry } as never}>
       <ThreadStoreContext.Provider value={new ThreadStore()}><Layer actions={actions} /></ThreadStoreContext.Provider>
-    </WorkbenchShellContext.Provider>);
+    </WorkbenchShellContext.Provider></ClientStorageProvider>);
   }
 
   it("opens the next active thread once the host has the settle, from the row menu and the shortcut", async () => {
@@ -829,8 +848,12 @@ describe("parking the thread on screen", () => {
     onScreen(actions, "c");
     organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)]);
     await act(async () => { await registry.executeCommand("thread.snooze", actions); });
-    const form = document.querySelector<HTMLFormElement>(".thread-rail-snooze form")!;
-    await act(async () => { fireEvent.submit(form); await flush(); });
+    const snooze = await waitFor(() => {
+      const button = [...document.querySelectorAll<HTMLButtonElement>(".thread-rail-snooze footer button")].find((entry) => entry.textContent === "Snooze");
+      expect(button?.disabled).toBe(false);
+      return button!;
+    });
+    await act(async () => { fireEvent.click(snooze); await flush(); });
     expect(opened(actions)).toEqual(["/sessions/c.jsonl", "/sessions/a.jsonl"]);
   });
 
@@ -852,6 +875,39 @@ describe("parking the thread on screen", () => {
     organizer().runMenu(thread("b"), "settle", actions);
     await flush();
     expect(opened(actions)).toEqual(["/sessions/a.jsonl"]);
+  });
+
+  it("goes back to a phone's thread list instead of opening another thread", async () => {
+    const { organizer, actions } = setup();
+    await flush();
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)]);
+    actions.threadListOrder = () => ["a", "b", "c"];
+    const showThreadList = vi.fn(() => true);
+    actions.showThreadList = showThreadList;
+    organizer().runMenu(thread("b"), "settle", actions);
+    await flush();
+    expect(showThreadList).toHaveBeenCalledTimes(1);
+    expect(opened(actions)).toEqual([]);
+    expect(actions.newSession).not.toHaveBeenCalled();
+  });
+
+  it("skips threads in the Working section, which do not need the reader", async () => {
+    const { organizer, actions } = setup({ initial: { threads: {}, settings: { onMerged: true, onClosed: false, workingSection: true } } });
+    await flush();
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)], { runningThreadIds: ["c"], waitingThreadIds: [], failedThreadIds: [] });
+    organizer().runMenu(thread("b"), "settle", actions);
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/a.jsonl"]);
+  });
+
+  it("goes to the top of a compact list that leaves the Working thread on screen out", async () => {
+    const { organizer, actions } = setup();
+    await flush();
+    organizer().sections([thread("a", 3), thread("b", 2), thread("c", 1)]);
+    actions.threadListOrder = () => ["c", "a"];
+    organizer().runMenu(thread("b"), "settle", actions);
+    await flush();
+    expect(opened(actions)).toEqual(["/sessions/c.jsonl"]);
   });
 
   it("stays when something covers the thread, when the reader moved first, or when the host refused", async () => {

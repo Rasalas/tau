@@ -1,9 +1,10 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Laptop, Server } from "lucide-react";
-import { Menu, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type ThreadStore, type UiEnvironment, type UiEnvironmentThread, type UiSession, type WorkbenchActions } from "tau";
+import { Menu, tooltipProps, useThreadStore, type HostExtensionClient, type PlatformEnvironments, type ThreadRowMark as RowMark, type ThreadStore, type UiEnvironment, type UiEnvironmentThread, type UiSession, type WorkbenchActions } from "tau";
 import { otherMachines, shownMachine, statusText, unavailableReason } from "./machines.js";
 import { AGENTS_EVENT, type AgentMachines, type MachineCardRowProps, type RemoteAgentThreadsService } from "./protocol.js";
 
+type ThreadRowMark = RowMark<ReactNode>;
 const noSubscription = () => () => undefined;
 /** Offline machines' reasons say how long ago they were seen; the rail reads them again this often. */
 const REASON_REFRESH_MS = 30_000;
@@ -32,6 +33,18 @@ export function watchingIn(state: unknown): ReadonlySet<string> {
     const { threadId, status } = (watch && typeof watch === "object" ? watch : {}) as { threadId?: unknown; status?: unknown };
     return typeof threadId === "string" && status === "watching" ? [threadId] : [];
   }));
+}
+
+/**
+ * The row state of a machine's thread that this host lists as its own proxy
+ * (`machine~session`, as `machineThreadId`): this host runs no runtime for it
+ * until it opens, so only the window's own connection there knows what it does.
+ */
+export function proxyMark(machine: Pick<UiEnvironment, "name">, thread: UiEnvironmentThread, watching: boolean): ThreadRowMark | undefined {
+  if (thread.waiting) return { label: "Question", hint: `Waits for an answer on ${machine.name}.` };
+  if (thread.running) return { label: "Working", hint: `Runs on ${machine.name}.`, tone: "working" };
+  if (thread.background || watching) return { label: "Waiting", hint: `Work on ${machine.name} wakes it again.`, tone: "background" };
+  return undefined;
 }
 
 /** Thread Rail's patch that settles a thread, or takes it back (`settlePatch`, `unsettlePatch` in `kits/thread-rail/meta.ts`). */
@@ -128,6 +141,7 @@ export function railSession(machine: UiEnvironment, thread: UiEnvironmentThread)
 export function createMachineThreads(environments: PlatformEnvironments, host?: HostExtensionClient) {
   const listeners = new Set<() => void>();
   let threads: readonly MachineRailThread[] = [];
+  let marks: Readonly<Record<string, ThreadRowMark>> = {};
   let opening: string | undefined;
   let stops: Array<() => void> = [];
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -201,9 +215,19 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
     for (const machine of agents?.machines ?? []) if (machine.status === "connected") represented.add(machine.id);
     const now = Date.now();
     const next: MachineRailThread[] = [];
+    const nextMarks: Record<string, ThreadRowMark> = {};
     for (const machine of list ? otherMachines(list) : []) {
       // The own index keeps proxy rows across disconnection; do not list them twice then either.
-      if (represented.has(machine.id)) continue;
+      if (represented.has(machine.id)) {
+        if (machine.status !== "connected") continue;
+        readWatches(machine, now);
+        const watches = watching.get(machine.id)?.ids ?? NO_THREADS;
+        for (const thread of machine.threads) {
+          const mark = proxyMark(machine, thread, watches.has(thread.id));
+          if (mark) nextMarks[`${machine.id}~${thread.id}`] = mark;
+        }
+        continue;
+      }
       const reason = unavailableReason(machine, now);
       // Threads this machine's sub-agents run there show in the Agents panel, not here.
       const subagents = agentThreadsSource.threadsOn(machine.id);
@@ -246,6 +270,7 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
       }
     }
     threads = next;
+    if (JSON.stringify(nextMarks) !== JSON.stringify(marks)) marks = nextMarks;
   };
   const changed = () => {
     rebuild();
@@ -306,6 +331,8 @@ export function createMachineThreads(environments: PlatformEnvironments, host?: 
       if (listeners.size === 0 && (builtFrom?.list !== environments.getSnapshot() || builtFrom?.agents !== agentThreadsSource.getVersion() || builtFrom?.own !== ownThreads?.getSnapshot().threads)) rebuild();
       return threads;
     },
+    /** Row states for the proxies of machines whose threads this host lists itself; the same object until one changes. */
+    marks: () => marks,
   };
 }
 

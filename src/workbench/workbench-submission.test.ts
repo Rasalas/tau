@@ -72,6 +72,31 @@ describe("workbench submission", () => {
     expect(load).toHaveBeenCalledOnce();
   });
 
+  it("passes a planned message through the session queue port and accepts it after the host", async () => {
+    const queueMessage = vi.fn(async () => ({ id: "planned" }));
+    const accepted = vi.fn();
+    const preparePrompt = vi.fn();
+    const session = new WorkbenchSession({
+      storage: createMemoryStorage(),
+      submission: {
+        client: () => ({ queueMessage, preparePrompt }) as unknown as HostClient,
+        environment: { command: () => undefined, accepted } as unknown as SubmissionEnvironment,
+      },
+    });
+    session.applySnapshot(snapshot);
+    const deliverAt = 1_800_000_000_000;
+    await expect(session.submit({ text: "later", delivery: { deliverAt } })).resolves.toEqual({ accepted: true });
+    expect(queueMessage).toHaveBeenCalledExactlyOnceWith("previous", "later", [], undefined, deliverAt);
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(preparePrompt).not.toHaveBeenCalled();
+    expect(session.view.getOptimisticMessages()).toEqual([]);
+
+    queueMessage.mockRejectedValueOnce(new Error("Queue refused"));
+    await expect(session.submit({ text: "later again", delivery: { deliverAt } }))
+      .resolves.toEqual({ accepted: false, message: "Queue refused" });
+    expect(accepted).toHaveBeenCalledOnce();
+  });
+
   it("reconciles an existing thread's live echo during its run before any detail arrives", async () => {
     const h = harness();
     h.session.newThread.set(undefined);

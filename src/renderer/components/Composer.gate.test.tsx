@@ -30,7 +30,7 @@ function Ask({ context, proceed, cancel }: ComposerGateProps) {
   );
 }
 
-function renderComposer(model: UiModel, gates: ComposerGateContribution[], badges: ModelBadgeContribution[] = [], onRunShellAction?: (command: string) => Promise<unknown>, modelSet?: ModelSelectionContribution) {
+function renderComposer(model: UiModel, gates: ComposerGateContribution[], badges: ModelBadgeContribution[] = [], onRunShellAction?: (command: string) => Promise<unknown>, modelSet?: ModelSelectionContribution, newThread = modelSet !== undefined) {
   const registry = new ExtensionRegistry();
   registry.activate({
     id: "test.policy",
@@ -60,7 +60,7 @@ function renderComposer(model: UiModel, gates: ComposerGateContribution[], badge
         onSetThinking={() => {}}
         onCompactContext={() => {}}
         onRunShellAction={onRunShellAction}
-        newThread={modelSet !== undefined}
+        newThread={newThread}
       />
     </WorkbenchShellContext.Provider>
   </TestProviders>);
@@ -135,7 +135,8 @@ describe("composer gates", () => {
   });
 
   it("hold the alternate send, the one that starts a thread in the background", async () => {
-    const { onSubmit } = renderComposer(guarded, [asksFor("acme")]);
+    // A new thread's draft: on a thread that exists the chord opens the send menu instead.
+    const { onSubmit } = renderComposer(guarded, [asksFor("acme")], [], undefined, undefined, true);
     const field = screen.getByPlaceholderText(/Ask anything/u);
     fireEvent.change(field, { target: { value: "in the background" } });
     fireEvent.keyDown(field, { key: "Enter", metaKey: true });

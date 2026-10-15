@@ -183,7 +183,8 @@ export const reviewExtension: DesktopExtension = {
     const settlement = new SettlementSource();
     const releaseSettlement = plugin.useService<SettlementService>(SETTLEMENT_SERVICE, (service) => { settlement.set(service); return () => settlement.set(undefined); });
     const watches = new PullRequestWatchFeed(plugin.host);
-    const Strip = createPullRequestStrip({ watches, rows, links, preferences: plugin.preferences, client, host: plugin.host, settlement });
+    const endings = plugin.registerTranscriptRows("review.request-endings", 40, { profiles: ["desktop", "web", "compact"] });
+    const Strip = createPullRequestStrip({ watches, rows, links, preferences: plugin.preferences, client, host: plugin.host, settlement, endings });
     const releaseWatchMarks = markWatchingThreads(plugin, watches);
     const releaseStrip = plugin.registerRegion({ id: "review.pull-request-strip", placement: "composer-above", order: 80, profiles: ["desktop", "web", "compact"], Component: Strip });
     const releaseStore = plugin.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => {
@@ -208,7 +209,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
   },
 };
 

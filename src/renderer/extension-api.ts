@@ -84,6 +84,9 @@ export { MiddleTruncate, splitMiddle } from "./components/ui/MiddleTruncate";
 export { PrivateAccountText } from "./components/ui/PrivateAccountText";
 export { useContextMenu } from "./components/ui/ContextMenu";
 export { ConfirmDialog, Dialog, Popover, Sheet } from "./deferred-surfaces";
+// A list of times to pick one from, as Snooze and the composer's Plan sheet show it (API 1.65.0).
+export { WhenPicker } from "./deferred-surfaces";
+export { CUSTOM_WHEN, readWhenPick, rememberWhenPick, shortWhen, type WhenPick, type WhenPreset } from "./components/when-pick";
 // Core's image and video viewer (API 1.63.0).
 export { AttachmentLightbox } from "./deferred-surfaces";
 export type { AttachmentImage } from "./components/MessageImages";
@@ -107,6 +110,8 @@ export { FileKindIcon } from "./components/FileKindIcon";
 export { projectHue, ThreadRow } from "./components/ThreadRow";
 // A project's mark, with the picture a kit published (`setProjectIcons`) before the host's (API 1.28.0).
 export { ProjectIcon, useProjectIcon, type ProjectIconSubject } from "./components/ProjectIcon";
+// Saved project pictures remain available when a client's Workspace interface cannot load (API 1.66.0).
+export { projectIconKey, readProjectIcon, type ProjectIconChoice } from "../shared/project-icon-choice";
 export { DraftRow, draftTitle } from "./components/DraftRow";
 // A runtime's or provider's mark from core's asset pipeline, which a bundled package has no loader for (API 1.15.0).
 export { ProviderIconStack, providerHasMark, providerStackLabel } from "./components/ProviderIconStack";
@@ -162,6 +167,8 @@ export type {
   ComposerSendMode,
   ComposerSendModeContribution,
   ComposerSendOption,
+  ComposerPlannerContribution,
+  ComposerPlannerProps,
   ComposerChipDetailProps,
   ComposerChipIcon,
   ComposerInlineChip,

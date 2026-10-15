@@ -1,4 +1,4 @@
-import type { PreparedPrompt, PreparedThreadCapability, UiQueuedPrompt, ShellActionResult, UiComposerCommand } from "./contracts.js";
+import type { PreparedPrompt, PreparedThreadCapability, UiQueuedPrompt, ShellActionResult, UiComposerCommand, UiPromptAttachment, UiSkillDraft } from "./contracts.js";
 import type { HostActionResult, NewThreadResult } from "./host-protocol.js";
 import { command } from "./host-command-definition.js";
 import {
@@ -13,6 +13,12 @@ function promptArgs(method: string, params: readonly unknown[]) {
 }
 function decodeIndex(method: string, value: unknown) {
   if (typeof value !== "number" || !Number.isInteger(value)) throw new Error(`${method}: toIndex must be an integer.`);
+  return value;
+}
+/** A planned message's time: epoch ms, or nothing for one that waits for the turn. */
+function decodeDeliverAt(channel: string, value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error(`${channel}: deliverAt must be a time in epoch milliseconds.`);
   return value;
 }
 function resumeWhen(value: unknown) {
@@ -38,12 +44,13 @@ export const HOST_TURN_COMMANDS = {
   "prompt": command<void>()({ access: "write", job: true, audit: { label: "sent a prompt", thread: 2 }, decode: (p) => promptArgs("prompt", p) }),
   "steer": command<void>()({ access: "write", job: true, audit: { label: "steered a run", thread: 2 }, decode: (p) => promptArgs("steer", p) }),
   "follow-up": command<void>()({ access: "write", job: true, audit: { label: "sent a follow-up", thread: 2 }, decode: (p) => promptArgs("follow-up", p) }),
-  "queue-message": command<{ id: string }>()({
+  "queue-message": command<{ id: string }, [sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft | null, deliverAt?: number]>()({
     access: "write", audit: { label: "queued a message", thread: 0 },
-    decode: (p) => [decodeString("queue-message", "sessionId", p[0]), decodeText("queue-message", "text", p[1]), decodeUiPromptAttachments("queue-message", "attachments", p[2]) ?? [], decodeUiSkillDraft("queue-message", "skillDraft", p[3])] as const,
+    decode: (p) => [decodeString("queue-message", "sessionId", p[0]), decodeText("queue-message", "text", p[1]), decodeUiPromptAttachments("queue-message", "attachments", p[2]) ?? [], decodeUiSkillDraft("queue-message", "skillDraft", p[3] ?? undefined), decodeDeliverAt("queue-message", p[4])] as const,
   }),
   "take-queued": command<UiQueuedPrompt[]>()({ access: "write", audit: { label: "took a queued message", thread: 0 }, decode: (p) => [decodeString("take-queued", "sessionId", p[0]), decodeOptionalString("take-queued", "id", p[1])] as const }),
   "move-queued": command<void>()({ access: "write", audit: { label: "reordered queued messages", thread: 0 }, decode: (p) => [decodeString("move-queued", "sessionId", p[0]), decodeString("move-queued", "id", p[1]), decodeIndex("move-queued", p[2])] as const }),
+  "plan-queued": command<void, [sessionId: string, id: string, deliverAt?: number | null]>()({ access: "write", audit: { label: "planned a queued message", thread: 0 }, decode: (p) => [decodeString("plan-queued", "sessionId", p[0]), decodeString("plan-queued", "id", p[1]), decodeDeliverAt("plan-queued", p[2])] as const }),
   "resume-limited": command<void>()({ access: "write", audit: { label: "resumed a thread after a limit", thread: 0 }, decode: (p) => [decodeString("resume-limited", "sessionId", p[0]), resumeWhen(p[1])] as const }),
   "thread-goal": command<void>()({ access: "write", audit: { label: "changed a goal", thread: 0 }, decode: (p) => [decodeString("thread-goal", "sessionId", p[0]), goalAction(p[1]), decodeOptionalText("thread-goal", "objective", p[2])] as const }),
   "thread-background-stop": command<void>()({ access: "write", audit: { label: "stopped background work", thread: 0 }, decode: (p) => [decodeString("thread-background-stop", "sessionId", p[0]), decodeOptionalString("thread-background-stop", "taskId", p[1])] as const }),

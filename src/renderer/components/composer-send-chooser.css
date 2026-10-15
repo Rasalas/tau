@@ -1,0 +1,15 @@
+/* The send menu over the send button (design C2), loaded with it. */
+.composer-send-chooser { width: 264px; padding: 4px; border-radius: 12px; background: var(--float); box-shadow: var(--elevation-2); }
+.composer-send-chooser-list { display: flex; flex-direction: column; gap: 1px; }
+.composer-send-choice {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 6px 10px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink-2); text-align: left; font: var(--text-md) var(--sans); cursor: pointer; outline: none;
+}
+.composer-send-choice > svg { flex: none; color: var(--muted); }
+.composer-send-choice > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.composer-send-choice em { font-style: normal; }
+.composer-send-choice small { color: var(--muted); font: var(--text-xs)/1.35 var(--sans); }
+.composer-send-choice > kbd { flex: none; min-width: 18px; padding: 1px 4px; border-radius: var(--radius-xs); box-shadow: inset 0 0 0 1px var(--line-control); color: var(--faint); font: var(--text-2xs) var(--mono); text-align: center; }
+.composer-send-choice.active { background: var(--raised); color: var(--ink); }
+.composer-send-choice.active > svg { color: var(--acid-text); }
+.composer-send-choice[aria-disabled] { opacity: .45; cursor: default; }

@@ -1,6 +1,6 @@
 import { AlarmClock, AlarmClockOff, Archive, ArchiveRestore, ArrowDown, ArrowRightLeft, ArrowUp, ArrowUpDown, Check, Copy, CopyPlus, CornerUpLeft, Folder, Funnel, FunnelX, GitBranch, GitFork, Hash, ListTree, MessageSquareDot, MessageSquareText, Pencil, Pin, PinOff, ScrollText, Settings, Sparkles, SquareArrowOutUpRight, SquarePen, Trash2, type LucideIcon } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { ConfirmDialog, Dialog, errorMessage, hostIsReadOnly, READ_ONLY_REASON, useThreadStore, useWorkbenchShell, type MenuItem, type MenuSection, type ThreadMenuLookup, type ToastHandle, type UiSession, type WorkbenchActions } from "tau";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ConfirmDialog, CUSTOM_WHEN, Dialog, errorMessage, getClientStorage, hostIsReadOnly, READ_ONLY_REASON, readWhenPick, rememberWhenPick, useClientStorage, useThreadStore, useWorkbenchShell, WhenPicker, type MenuItem, type MenuSection, type ThreadMenuLookup, type ToastHandle, type UiSession, type WhenPick, type WhenPreset, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
   WAKE_PATCH,
@@ -130,14 +130,19 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   const parkAndMove = (threadIds: readonly string[], actions: WorkbenchActions | undefined, park: () => Promise<boolean>) => {
     const leaving = inView(actions);
     if (!actions || !leaving || !threadIds.includes(leaving)) { void park(); return; }
-    const order = actions.threadListOrder?.() ?? store.displayed.map((thread) => thread.id);
+    const listed = actions.threadListOrder?.() ?? store.displayed.map((thread) => thread.id);
+    // A thread leaving from Working, which the order may leave out, goes to the top of the list.
+    const order = listed.includes(leaving) ? listed : [leaving, ...listed];
     const parking = new Set(threadIds);
+    const busy = new Set(last.working.map((thread) => thread.id));
     const at = now();
-    const next = nextActiveThread(order, leaving, (id) => !parking.has(id) && ["pinned", "active"].includes(sectionOf(meta(id), at)));
+    const next = nextActiveThread(order, leaving, (id) => !parking.has(id) && !busy.has(id) && ["pinned", "active"].includes(sectionOf(meta(id), at)));
     const target = next ? store.session(next) : undefined;
     const project = store.session(leaving);
     void park().then((parked) => {
       if (!parked || inView(store.actions ?? actions) !== leaving || ["pinned", "active"].includes(sectionOf(meta(leaving), now()))) return;
+      // A phone goes back to its list, its home, rather than into another thread.
+      if (actions.showThreadList?.()) return;
       if (target) void actions.switchSession(target.path);
       else actions.newSession(project ? { workspace: project.workspaceId ?? project.projectPath } : undefined);
     });
@@ -195,10 +200,23 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
 
   const notify = (actions: WorkbenchActions | undefined, message: string, level?: "info" | "warning" | "error") => { if (level) actions?.notify(message, level); else actions?.notify(message); };
 
-  const snoozeSubmenu = (): MenuSection[] => [
-    { items: snoozePresets(new Date(now())).map(({ id, label, when }) => ({ id, label, hint: when })) },
-    { items: [{ id: "snooze:custom", label: "Custom…" }] },
-  ];
+  /** The presets, the one last used marked as the menu marks a current choice. */
+  const snoozeSubmenu = (): MenuSection[] => {
+    const presets = snoozePresets(new Date(now()));
+    const storage = getClientStorage();
+    const remembered = storage ? readWhenPick(storage, SNOOZE_REMEMBER_KEY) : undefined;
+    const marked = presets.some((preset) => snoozePick(preset.id) === remembered);
+    return [
+      { items: presets.map(({ id, label, when }) => ({ id, label, hint: when, ...(marked ? { selected: snoozePick(id) === remembered } : {}) })) },
+      { items: [{ id: "snooze:custom", label: "Custom…" }] },
+    ];
+  };
+
+  /** A preset picked from the menu is the one the Snooze dialog opens on next. */
+  const rememberSnooze = (presetId: string) => {
+    const storage = getClientStorage();
+    if (storage) rememberWhenPick(storage, SNOOZE_REMEMBER_KEY, snoozePick(presetId));
+  };
 
   /** Runs an action of the thread on screen for `session`, opening it first when it is elsewhere. */
   const onThread = async (session: UiSession, actions: WorkbenchActions, run: () => unknown) => {
@@ -487,7 +505,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       else if (itemId.startsWith("command:")) void onThread(session, actions, () => actions.executeCommand?.(itemId.slice("command:".length)));
       else {
         const preset = snoozePresets(new Date(now())).find((entry) => entry.id === itemId);
-        if (preset) snooze(session.id, preset.until, actions);
+        if (preset) { rememberSnooze(preset.id); snooze(session.id, preset.until, actions); }
       }
     },
     // The selection menu: what fits every selected thread, with how many it touches.
@@ -545,7 +563,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         })();
       } else {
         const preset = snoozePresets(new Date(at)).find((entry) => entry.id === itemId);
-        if (preset) snoozeMany(sessions.map((session) => session.id), preset.until, actions);
+        if (preset) { rememberSnooze(preset.id); snoozeMany(sessions.map((session) => session.id), preset.until, actions); }
       }
     },
     toggleSettled: (session) => toggleSettledById(session.id),
@@ -608,56 +626,53 @@ function RailConfirmation({ question, onDone }: { question: RailQuestion; onDone
   );
 }
 
-type Unit = "minutes" | "hours" | "days";
-const UNIT_MS: Record<Unit, number> = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 };
+/** Where Snooze keeps the last pick, the dialog's and the row menu's alike. */
+export const SNOOZE_REMEMBER_KEY = "thread-rail.snooze";
 
-/** `YYYY-MM-DDTHH:mm` in local time, what a datetime-local field reads and writes. */
-function localInput(epoch: number): string {
-  const date = new Date(epoch);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
+/** A snooze preset's id as the picker remembers it: "tomorrow" for the menu's "snooze:tomorrow". */
+const snoozePick = (presetId: string): WhenPick => presetId.replace(/^snooze:/, "");
 
-/** A duration starts when the user confirms; a date is read in local time. */
+/** The list of times, as the composer's Plan sheet shows it; the picker opens on the last pick used. */
 export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
   sessions: readonly UiSession[];
   now: () => number;
   onClose(): void;
   onSnooze(until: number): void;
 }) {
-  const [mode, setMode] = useState<"duration" | "date">("duration");
-  const [amount, setAmount] = useState("1");
-  const [unit, setUnit] = useState<Unit>("hours");
-  const [date, setDate] = useState(() => localInput(snoozePresets(new Date(now())).find((preset) => preset.id === "snooze:tomorrow")!.until));
-  const until = mode === "duration" ? now() + Number(amount) * UNIT_MS[unit] : new Date(date).getTime();
-  const valid = Number.isFinite(until) && until > now() && (mode === "date" || Number(amount) > 0);
+  const storage = useClientStorage();
+  // Fixed while the dialog is open: the picker reports a new time whenever a preset's changes.
+  const [presets] = useState<WhenPreset[]>(() => snoozePresets(new Date(now())).map(({ id, label, when, until }) => ({ id: snoozePick(id), label, when, at: until })));
+  const [choice, setChoice] = useState<{ at: number | undefined; pick: WhenPick }>();
+  const picker = useRef<HTMLDivElement>(null);
+  const shown = choice !== undefined;
+  // The dialog focuses its first control on opening, which may come before the list has loaded.
+  useEffect(() => {
+    if (shown) picker.current?.querySelector<HTMLElement>("[role='listbox']")?.focus({ preventScroll: true });
+  }, [shown]);
+  const confirm = () => {
+    if (!choice || choice.at === undefined) return;
+    rememberWhenPick(storage, SNOOZE_REMEMBER_KEY, choice.pick);
+    // "In 1 hour" counts from the confirm, not from when the dialog opened.
+    const fresh = choice.pick === CUSTOM_WHEN ? undefined : snoozePresets(new Date(now())).find((preset) => snoozePick(preset.id) === choice.pick)?.until;
+    onSnooze(fresh ?? choice.at);
+  };
   return (
     <Dialog className="confirm-dialog thread-rail-snooze" label="Snooze thread" onClose={onClose}>
       <h2>{sessions.length === 1 ? <>Snooze “{sessions[0]!.title}”</> : `Snooze ${sessions.length} threads`}</h2>
-      <div className="segmented" role="group" aria-label="Snooze by">
-        <button type="button" className={mode === "duration" ? "active" : ""} aria-pressed={mode === "duration"} onClick={() => setMode("duration")}>For a while</button>
-        <button type="button" className={mode === "date" ? "active" : ""} aria-pressed={mode === "date"} onClick={() => setMode("date")}>Until a date</button>
+      <div ref={picker}>
+        <WhenPicker
+          presets={presets}
+          rememberKey={SNOOZE_REMEMBER_KEY}
+          label="Snooze until"
+          now={now}
+          onChange={(at, pick) => setChoice({ at, pick })}
+          onConfirm={confirm}
+        />
       </div>
-      <form onSubmit={(event) => { event.preventDefault(); if (valid) onSnooze(until); }}>
-        {mode === "duration" ? (
-          <div className="thread-rail-snooze-row">
-            <input aria-label="How long" type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} autoFocus />
-            <select aria-label="Unit" value={unit} onChange={(event) => setUnit(event.target.value as Unit)}>
-              <option value="minutes">minutes</option>
-              <option value="hours">hours</option>
-              <option value="days">days</option>
-            </select>
-          </div>
-        ) : (
-          <div className="thread-rail-snooze-row">
-            <input aria-label="Wake at" type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
-          </div>
-        )}
-        <footer>
-          <button type="button" className="text-button" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary" disabled={!valid}>Snooze</button>
-        </footer>
-      </form>
+      <footer>
+        <button type="button" className="text-button" onClick={onClose}>Cancel</button>
+        <button type="button" className="primary" disabled={choice?.at === undefined} onClick={confirm}>Snooze</button>
+      </footer>
     </Dialog>
   );
 }

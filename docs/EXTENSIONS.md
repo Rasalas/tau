@@ -1061,6 +1061,19 @@ sends the draft as usual, past `beforeSend`. Core asks only for a thread's own
 composer at rest: never while it streams, answers a question or drafts a new
 thread. Resume Compaction uses it for "Compact and send".
 
+`registerComposerPlanner({ id, label, order?, Component })` (API 1.65.0) adds
+a tab to the composer's Plan sheet, beside "Once" (core's own: the draft goes
+into this thread at a time, through the thread's queue). The sheet opens from
+Plan… in the send menu, the clock before Stop and Send, or from ⌘↵ (⌘⇧↵ where
+⌘↵ sends). It draws the header and the tabs; `Component` gets `{ draft,
+snapshot, actions, onPlanned(summary), onCancel }` (`draft` is `{ text,
+attachments }`, the text with chips as plain text and the count of files
+beside it) and draws everything below the tabs, its footer included: give the
+body `plan-sheet-body` and the footer `plan-sheet-footer`, with a note in
+`plan-sheet-note`, a `text-button` Cancel and a `primary` action, as the
+sheet's own tab does. `onPlanned` clears the draft, closes the sheet and shows
+the summary. Scheduling Kit adds "Repeat" this way.
+
 `registerRegion({ placement: "thread-title", … })` draws before the thread's
 title in the conversation header — a mark about the thread on screen, which
 reads the `snapshot` it is given. `title-bar` is the thread header's end,
@@ -1749,18 +1762,25 @@ and the shift that keeps it clear of a native view (below).
 projects with, keyed by a project's `workspaceId` or, for a host without ids,
 its `path`; each value is a `data:image/` URL (anything else is dropped), and
 `undefined` withdraws them, as deactivation does. Every project mark core
-draws takes them before the host's own picture (`UiProject.icon`: a
+draws takes them before the saved picture chosen in Project settings, then the host's own picture (`UiProject.icon`: a
 `favicon.*`, a macOS app icon (`build/icon.icns` and its neighbours, drawn from the PNG inside), `t3.json`) and before the initial: the new thread's project pill,
 the project picker, the thread rows and draft rows, the phone's and tablet's
 thread lists and project filter. When two extensions name the same project,
-the one activated first wins. Core never reads an extension's settings for
-this; Workspace Kit publishes the icon chosen in Project settings from its own
-values. `ProjectIcon` (`project`: `{ path, name, workspaceId?, icon? }`,
+the one activated first wins. Saved project pictures are shared presentation
+data since API 1.66.0.
+Core reads the saved choice even when Workspace Kit's interface is disabled or
+the native client rejects its version. Workspace Kit edits it through the same
+`ProjectIconChoice`, `projectIconKey(project)` and `readProjectIcon(preferences, project)`
+helpers exported by `tau`. The existing `tau.workspace.project-icon:<workspaceId/path>`
+storage remains compatible. A workspace-id entry takes precedence over an older
+path entry, including an explicit clear. `ProjectIcon` (`project`: `{ path, name, workspaceId?, icon? }`,
 optional `icon` as the caller's own fallback, `hue` for what the tint is
 hashed from, `className`) is that mark as a component, and `useProjectIcon(project)`
 answers the picture alone, so a kit's own lists (Workspace Kit's filter and
 thread card, Review Kit's page) draw the same mark. `ThreadRow`'s and
-`DraftRow`'s `projectIcon` is such a fallback: a published picture wins over it.
+`DraftRow`'s `projectIcon` is such a fallback: a published or saved picture wins over it.
+If a picture cannot load, `ProjectIcon` tries the remaining available pictures,
+then shows the project's initial and hue. A changed source gets a fresh attempt.
 
 #### Provider pictures (new in API 1.29.0)
 
@@ -1792,6 +1812,7 @@ are Tau's own, not a component library; the reasons and the numbers are in
 | `AttachmentLightbox` | New in API 1.63.0. Core's viewer for images and videos, the one a message's attachments open in: `images` (`AttachmentImage[]`: `key`, `src`, `alt`, optional `label` and `kind` `"image"` or `"video"`), the `index` to show first, an optional `origin` line ("from this page") and `onClose`. It draws over the whole window on a dark ground, with zoom, copy, save, arrow keys between the items and Escape to close; focus goes back where it was. HTML Pages Kit opens a page's images in it. |
 | `ConfirmDialog` | A yes-or-no question on `Dialog`: `title`, `message`, `confirmLabel` (`destructive` draws it red; `icon` goes before its label, API 1.38.0), `cancelLabel`, and with `dontAskAgain` a box whose state `onConfirm(dontAskAgain)` hears; `onCancel` on Cancel, Escape or the scrim. The action has focus, so Enter answers it. Thread Rail's delete, archive and unpin questions and core's quit question use it (API 1.12.0). |
 | `Popover` | A card beside an element (`anchor`, a ref) or a point, `side` and `align` preferred and flipped or shifted to stay in the window; a press outside it or Escape closes it, and focus goes back. Opened from the keyboard it takes focus on its first control, opened by a press on itself (unless a control inside already has it), so Tab and a screen reader continue inside; `takeFocus={false}` (API 1.61.0) leaves focus where it is, for a card that opens on hover and only previews. |
+| `WhenPicker` | New in API 1.65.0. The list of times Snooze and the composer's Plan sheet show: `presets` (`WhenPreset[]`: a stable `id` such as `tomorrow`, `label`, the short time `when`, epoch `at`), then "Pick a date and time…", which opens a date and time field. ↑↓, Home and End move, Enter or a double click calls `onConfirm`; `autoFocus` puts the focus on the list when it appears; `onChange(at, pick)` hears the time (undefined while a date of the user's own is not in the future) and the row. With `rememberKey` it opens on the pick saved under that key; save it with `rememberWhenPick(storage, rememberKey, pick)` when the pick is used, and read it with `readWhenPick` (both take `getClientStorage()` or `useClientStorage()`). `shortWhen(at, now)` words a time as the rows do ("09:00", "Thu 09:00", "19 Oct 09:00"); `CUSTOM_WHEN` is the custom row's pick. Thread Rail's Snooze dialog uses it. |
 | `Sheet` | A modal sheet from the bottom edge for a compact client (phone, tablet), where a desktop would use a `Dialog` or a `Popover`: `title`, `className`, `onClose` and the content as children. It has a grip, the title and a 44 px close button on top; the content scrolls under them. The X, Escape, the scrim and a pull down close it; the pull starts anywhere but on a control, and inside the content only once it is scrolled to the top. Review Kit's filters for the Pull Requests page on a phone use it. |
 | `SandboxFrame`, `useColorScheme()` | New in API 1.59.0. A document a host serves, drawn in an opaque-origin frame (ADR 0032). `src` is the capability URL (`host.resourceUrl(path)`); the frame keeps the first non-empty one for its whole life, because a changed `src` would reload the app, and renders nothing while it is `undefined`. `title`, `permissions` (`SandboxFramePermissions`, becomes the `allow` attribute and nothing else is delegated), `height` (what the document asked for, clamped to 80..2000 px, 320 by default, `clampFrameHeight` is exported), `bordered`, `label`, `stoppedLabel`, `onWidth(width)` (the box's width in CSS px as it changes). The frame is `sandbox="allow-scripts allow-forms"`: never `allow-same-origin`, popups or top navigation, no `srcdoc`, `referrerPolicy="no-referrer"`. `onMessage(data)` hears only messages whose `event.source` is this frame's own window; answer with `handleRef`'s `post(message)`, which targets `"*"` (an opaque origin has no other target) and does nothing before the document loaded or spoke, after it stopped or after unmount. The frame is locked to the document that was served: a second `load` means it navigated itself away, so `onStopped()` runs, a notice replaces the frame and nothing more is delivered; mount it again with a different `key` to open the document anew. The handle also has `hasUserActivation()` (true only while the frame has focus and `navigator.userActivation.isActive`: the one moment to open a link the app asked for, through your own code), `width()` and `size()`. `fullscreen` is controlled: the same box moves to the top layer with the Popover API, so the iframe is not reloaded and the app keeps its state; Escape pressed outside the document, focus moving outside the box and the exit button call `onFullscreenChange(false)`, and where the browser has no Popover API the frame ignores `fullscreen` and stays inline. `useColorScheme()` answers `"light"` or `"dark"` for the workbench, live (theme, a custom theme's `color-scheme`, the OS preference); the frame sets its `color-scheme` from it and tells the document on every change after it loaded (the bootstrap the host serves with it listens for that message, from its parent only). Since API 1.62.0 a click into the document no longer takes the app's shortcuts with it. Inside a workbench the frame names the Cmd/Ctrl chords of commands that only change the view (`access: "read"`, plus the two that open a new thread's draft) to the document; the bootstrap passes one back when no text field has the keyboard and the page's own listeners left the key alone. The frame replays it as a keydown on the iframe element only while the frame has focus and the user's activation is live, and only if the command the app would run for that key is one of those, because a document can claim any key; anything else, and every chord of a command that changes a thread, stays with the page. These messages are the frame's own and never reach `onMessage`. |
 | `FileSource` | A text file as a file tab shows it (API 1.20.0): `content` (a `UiFileContent` of kind `text`, as a document source's `loadFile` answers), line numbers, highlighting while the file is under 200 KB and its language known, the note for a truncated file, and `line` marked and scrolled to (`reveal` counts requests for the same line). The Files panel reads a file with it in a phone's sheet. |
@@ -1908,7 +1929,9 @@ moves the reader because of the thread on screen checks it first.
 `actions.threadListOrder()` (new in API 1.20.0) answers the thread ids of the
 list core draws itself, a compact client's, top to bottom and past its paging,
 with settled threads ranked where they would stand unsettled (so a thread that
-is settling has its place still); it is undefined where a kit's rail is the list. Thread Rail reads both when the
+is settling has its place still) and without the Working group (API 1.64.0); it is undefined where a kit's rail is the list.
+`actions.showThreadList()` (API 1.64.0) shows a phone's thread list, its home
+screen, and answers true; elsewhere it answers false and does nothing. Thread Rail reads both when the
 user parks the thread on screen (below).
 
 `threadStore.getDrafts()` with `subscribeToDrafts` (new in API 1.21.0, on the
@@ -2240,7 +2263,9 @@ threads on their shelf. Thread Rail is the organizer Tau ships.
 Settling or snoozing the thread on screen moves the reader on once the host
 has the change: to the next pinned or active thread below it in the rail
 (on a compact client, in `threadListOrder()`), wrapping round to the top and
-skipping threads parked in the same batch, else to a new draft in its project.
+skipping threads parked in the same batch and threads in the Working section,
+else to a new draft in its project. A phone goes back to its thread list
+instead (`showThreadList()`).
 That holds for the user's own settle and snooze (row button and menu, title
 menu, shortcut, palette, drag onto the shelf, a selection, a phone's swipe),
 not for the host's automatic settles, and not while `covered` or once the
@@ -3880,11 +3905,16 @@ the user, like a question: the row says the label in amber and sorts with the
 questions. `tone: "background"` is work that wakes the thread again: the new
 `ThreadActivity` `background`, drawn grey with the icon (an eye by default),
 only in place of an idle or ready row, so Working, a question or a failure still
-show. The desktop rail, the tablet's list and the phone's list and search all
+show. `tone: "working"` (API 1.64.0) is a run this host does not see, drawn as
+Working and likewise only in place of an idle or ready row; both tones fold the
+row into the Working section. The desktop rail, the tablet's list and the phone's list and search all
 derive a row's state through the same `markedRowStatus`, so a mark looks alike
 everywhere. Takeover Kit marks "Your turn" this way, and Review Kit marks every
 thread with an active pull request watch "Waiting", naming the watched requests
-in the hint. Workspace Kit's older `setThreadRowStatuses(owner, statuses)` still
+in the hint. Machines Kit marks the threads of a paired machine that this host
+lists as its own (`machine~session`) from the window's connection there:
+"Question", "Working" (`tone: "working"`) or "Waiting" for a background task or a
+watched pull request on that machine. Workspace Kit's older `setThreadRowStatuses(owner, statuses)` still
 works and draws the same, on the desktop rail only.
 
 ### Marks on the compact list's rows (new after API 1.59.0)
@@ -5703,7 +5733,7 @@ from the existing catalog and sign-in checks. Passing `kind` reads only that
 runtime instance; omitting it lists registered, visible backends. A missing or
 unavailable catalog never implies a valid model.
 
-### Home-machine routing (API 1.65.0)
+### Home-machine routing (API 1.67.0)
 
 A host extension opts into the thread's home-machine routing with
 `context.registerMachineRouting()`. A call that names a remote `workspace` or

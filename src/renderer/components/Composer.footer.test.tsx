@@ -128,7 +128,7 @@ describe("the composer's slim footer", () => {
     renderFooter();
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
     const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "More composer controls", "Context 20 percent used", "Attach files", "Send"]);
+    expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "More composer controls", "Context 20 percent used", "Attach files", "Queue or plan", "Send"]);
     // The ring keeps its percentage in the accessible label and the details.
     expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("");
     fireEvent.click(screen.getByLabelText("More composer controls"));
@@ -136,17 +136,18 @@ describe("the composer's slim footer", () => {
     expect(within(menu).queryByRole("button", { name: /Attach files/u })).toBeNull();
   });
 
-  it("says how many follow-ups wait, at the row's end before send", () => {
+  it("leaves the follow-ups that wait to the shelf above it, not the row", async () => {
     renderFooter(vi.fn(), undefined, 20, [{ id: "q1", text: "and then the tests", attachments: 0 }]);
+    expect(await screen.findByText("and then the tests")).toBeTruthy();
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-chips") as HTMLElement;
-    expect(row.querySelector(".composer-queued")?.textContent).toBe("1 queued");
+    expect(row.textContent).not.toMatch(/queued/u);
   });
 
   it("keeps send in view with nothing to send, resting until there is a draft", () => {
     renderFooter();
     const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    expect(send.dataset.tooltip).toMatch(/⇧↵ newline, \$ skills, \/ commands, @ files/u);
+    expect(send.dataset.tooltip).toMatch(/⇧↵ newline, ⌘↵ plan, \$ skills, \/ commands, @ files/u);
     fireEvent.change(screen.getByPlaceholderText("Ask anything, or hand it work…"), { target: { value: "go" } });
     expect(send.disabled).toBe(false);
   });

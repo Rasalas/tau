@@ -29,7 +29,9 @@ export async function showPage(store: PageStore, thread: { sessionId: string; cw
   if (hasHtml === hasPath) throw new PageError("Give either html (the document) or path (an HTML file), not both and not neither.");
   const origins = readOrigins(input.origins);
 
-  const roots = [thread.cwd, tmpdir()].filter((root) => root !== "");
+  // macOS's per-user tmpdir() differs from /tmp, where agents also write pages.
+  // Both roots still go through the document reader's canonical path checks.
+  const roots = [thread.cwd, tmpdir(), ...(process.platform === "win32" ? [] : ["/tmp"])].filter((root) => root !== "");
   let html: string;
   let baseDir = thread.cwd || process.cwd();
   if (hasPath) {

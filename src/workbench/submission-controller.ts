@@ -36,14 +36,17 @@ import {
   removeOptimisticMessage,
   retargetOptimisticMessage,
 } from "./submission-optimistic";
-import { shouldQueueSubmission, formatQueuedFollowUp } from "./submission-queue";
+import { shouldQueueSubmission, formatQueuedFollowUp, type SubmitDelivery } from "./submission-queue";
 
 /** One message leaving the composer, whatever it turns into. */
 export interface SubmissionInput {
   text: string;
   attachments?: UiPromptAttachment[];
-  /** Where the message goes; a plain prompt when absent. `alternate` is a plain prompt sent with the modifier held. */
-  delivery?: "followUp" | "steer" | "alternate";
+  /**
+   * Where the message goes; a plain prompt when absent. `alternate` is a plain
+   * prompt sent with the modifier held; `{ deliverAt }` plans it into the queue.
+   */
+  delivery?: SubmitDelivery;
   skillDraft?: UiSkillDraft;
 }
 
@@ -114,7 +117,7 @@ export interface SubmissionControllerPorts {
   turn: TranscriptTurnPort;
   host: HostUpdatePort;
   /** Parks the message in the host's queue for the thread; rejects when the host refused it. */
-  enqueueFollowUp(threadId: string, item: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft }): Promise<void>;
+  enqueueFollowUp(threadId: string, item: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft; deliverAt?: number }): Promise<void>;
 }
 
 /**
@@ -211,7 +214,8 @@ export class SubmissionController {
     const { client: getClient, view, threads, scopes, environment, newThread, turn, host } = this.ports;
     const { skillDraft } = input;
     const alternate = input.delivery === "alternate";
-    const delivery = input.delivery === "alternate" ? undefined : input.delivery;
+    const deliverAt = typeof input.delivery === "object" ? input.delivery.deliverAt : undefined;
+    const delivery = input.delivery === "alternate" || typeof input.delivery === "object" ? undefined : input.delivery;
     const attachments = input.attachments ?? [];
     const text = skillDraft ? input.text : input.text.trim();
     const commandText = text.trim();
@@ -222,6 +226,18 @@ export class SubmissionController {
     const client = getClient();
     let pendingNewThread = newThread.current();
     const newThreadRequestId = newThread.requestId();
+    // A planned message waits in the thread's queue for its time, whether or not a turn runs.
+    if (deliverAt !== undefined) {
+      const planFor = view.getSnapshot();
+      if (pendingNewThread || !planFor) return { accepted: false, message: "Send the first message before planning one." };
+      try {
+        await this.ports.enqueueFollowUp(planFor.sessionId, { ...formatQueuedFollowUp(input.text, attachments, skillDraft), deliverAt });
+      } catch (error) {
+        return { accepted: false, message: errorMessage(error) };
+      }
+      environment.accepted();
+      return { accepted: true };
+    }
     try {
       if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments, skillDraft)) {
         environment.accepted();

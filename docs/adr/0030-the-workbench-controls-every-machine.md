@@ -161,7 +161,7 @@ an agents connection and for explicit `tau machines open` commands.
 ## Amendment, 2026-10-14: kits contribute their routing policy
 
 Host extensions opt in with `registerMachineRouting`, introduced in extension
-API 1.65.0. Core resolves workspace and thread identities, checks command
+API 1.67.0. Core resolves workspace and thread identities, checks command
 authority, forwards calls and relays topics. It contains no list of bundled kit
 IDs. Unregistered kits remain local. A policy may keep device commands local;
 worker extensions can register this declarative policy too.

@@ -1,4 +1,5 @@
 import { HostCommandError } from "tau/host-extension";
+import { CRON_MAX_LENGTH, knownTimeZone, parseCron } from "./cron.js";
 import type { AccessLevel, JobConfig } from "./protocol.js";
 
 export function object(input: unknown, keys: string[]): Record<string, unknown> {
@@ -31,7 +32,7 @@ export function decodeConfig(input: unknown): JobConfig {
   const backend = text(v.backend, "Runtime backend", 128);
   if (!/^[a-z0-9][a-z0-9@._-]*$/u.test(backend) || backend === "machine" || backend.startsWith("machine@")) throw new HostCommandError("Select a local runtime backend.");
   const prompt = text(v.prompt, "Prompt", 16_384);
-  const s = object(v.schedule, ["kind", "at", "time", "timezone"]);
+  const s = object(v.schedule, ["kind", "at", "time", "timezone", "expression"]);
   if (s.kind === "webhook") {
     object(s, ["kind"]);
     return { ...execution, name, workspace, backend, prompt, schedule: { kind: "webhook" } };
@@ -39,6 +40,15 @@ export function decodeConfig(input: unknown): JobConfig {
   if (s.kind === "once") {
     object(s, ["kind", "at"]);
     return { ...execution, name, workspace, backend, prompt, schedule: { kind: "once", at: timestamp(s.at) } };
+  }
+  if (s.kind === "cron") {
+    object(s, ["kind", "expression", "timezone"]);
+    const timezone = text(s.timezone, "Time zone", 64);
+    if (!knownTimeZone(timezone)) throw new HostCommandError(`Unknown time zone ${timezone}. Use an IANA zone such as Europe/Berlin.`);
+    let expression: string;
+    try { expression = parseCron(text(s.expression, "Cron expression", CRON_MAX_LENGTH)).source; }
+    catch (error) { throw error instanceof HostCommandError ? error : new HostCommandError((error as Error).message); }
+    return { ...execution, name, workspace, backend, prompt, schedule: { kind: "cron", expression, timezone } };
   }
   object(s, ["kind", "time", "timezone"]);
   if (s.kind !== "daily" || s.timezone !== "UTC" || typeof s.time !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(s.time)) throw new HostCommandError("Daily schedules use HH:mm and timezone UTC only.");

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { HostCommandError, tryProcessLock, writePersistedJson, type HostExtension, type SecretStore } from "tau/host-extension";
-import { SCHEDULING_ID, type Job, type JobConfig, type SchedulingState } from "./protocol.js";
+import { nextRuns } from "./cron.js";
+import { SCHEDULING_ID, repeats, type Job, type JobConfig, type SchedulingState } from "./protocol.js";
 import { decodeAccessLevel, decodeConfig, object, text } from "./validation.js";
 import { assertStateBudget, readState } from "./store.js";
 import { DELIVERY_WINDOW_MS, SECRET_SERVICE, WebhookListener, verifyDelivery, webhookSecretStore, type WebhookDelivery } from "./webhooks.js";
@@ -10,6 +11,10 @@ import { WebhookSecrets } from "./secrets.js";
 function nextAt(config: JobConfig, now: number): string | undefined {
   if (config.schedule.kind === "webhook") return undefined;
   if (config.schedule.kind === "once") return config.schedule.at;
+  if (config.schedule.kind === "cron") {
+    const [next] = nextRuns(config.schedule.expression, config.schedule.timezone, now, 1);
+    return next === undefined ? undefined : new Date(next).toISOString();
+  }
   const date = new Date(now);
   const [hours, minutes] = config.schedule.time.split(":").map(Number);
   date.setUTCHours(hours, minutes, 0, 0);
@@ -200,7 +205,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
             job.deliveries = [...recent, `${delivery.timestamp}:${delivery.id}`];
           }
           job.lastRun = { intentId: randomUUID(), at: new Date().toISOString(), outcome: "starting" };
-          job.nextAt = job.config.schedule.kind === "daily" ? nextAt(job.config, Date.now()) : undefined;
+          job.nextAt = repeats(job.config.schedule) ? nextAt(job.config, Date.now()) : undefined;
           if (job.config.schedule.kind === "once") job.enabled = false;
           // Await the atomic intent write before the host can create a thread.
           await replace(job);
@@ -245,7 +250,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           await mutate(async () => {
             if (job.status === "uncertain") job.enabled = false;
             job.status = "ready"; job.detail = undefined;
-            job.nextAt = job.config.schedule.kind === "daily" ? nextAt(job.config, Date.now()) : undefined;
+            job.nextAt = repeats(job.config.schedule) ? nextAt(job.config, Date.now()) : undefined;
             if (job.config.schedule.kind === "once") job.enabled = false;
             await replace(job);
           });

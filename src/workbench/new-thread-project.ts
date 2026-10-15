@@ -3,7 +3,7 @@ import { isFilesystemRoot } from "../shared/filesystem-root";
 import { namesWorkspace } from "../shared/workspace-identity";
 import type { NewThreadDraft } from "./draft-store";
 import type { NewThreadSelection } from "./new-thread-controller";
-import { inProject } from "./thread-supervision";
+import { inProject } from "../shared/session-project";
 
 /** What is on screen when a new thread is asked for; `covered` when a page, Settings or a phone's list hides it. */
 export interface NewThreadScreen {

@@ -12,6 +12,8 @@ export interface QueuedMessage extends UiQueuedPrompt {
   fromThreadId?: string;
   /** Not the user's: a kit woke the thread. Stop drops it; the user's own messages stay. */
   wake?: UiWake;
+  /** Planned: it leaves at this time (epoch ms), whatever the queue does meanwhile. */
+  deliverAt?: number;
 }
 
 /** What a thread's queue looks like to the thread list; `undefined` when it is empty. */
@@ -39,7 +41,14 @@ export interface QueuedMessagesOptions {
   /** `<userData>/queued-messages.json`; without one the queue only lasts for this run. */
   filePath?: string;
   logger?: PersistedJsonLogger;
+  /** The clock planned messages are due by; tests pass their own. */
+  now?(): number;
 }
+
+/** setTimeout's longest delay; a later plan rearms when it fires. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+const planned = (message: QueuedMessage) => message.deliverAt !== undefined;
 
 function decodeAttachment(value: unknown): UiPromptAttachment | undefined {
   const item = value as Partial<UiPromptAttachment> | undefined;
@@ -84,6 +93,7 @@ function decodeMessage(value: unknown): QueuedMessage | undefined {
     ...(skillDraft ? { skillDraft } : {}),
     ...(typeof item.fromThreadId === "string" ? { fromThreadId: item.fromThreadId } : {}),
     ...(wake ? { wake } : {}),
+    ...(typeof item.deliverAt === "number" && Number.isFinite(item.deliverAt) && !wake ? { deliverAt: item.deliverAt } : {}),
   };
 }
 
@@ -104,6 +114,11 @@ function decodeQueues(value: unknown): Map<string, QueuedMessage[]> {
  * waits here per thread and leaves as an ordinary prompt when the thread
  * settles. The host owns it so the queue outlives a window, a reload and a
  * host restart; a restored queue is held until the user sends from it.
+ *
+ * A planned message (`deliverAt`) is not part of that line: it leaves at its
+ * time, once the thread is idle, even from a held queue, and Stop leaves it in
+ * place. One whose time passed while the host was down is not sent late by
+ * itself: it becomes an ordinary message of the held queue.
  */
 export class QueuedMessages {
   private readonly queues = new Map<string, QueuedMessage[]>();
@@ -115,9 +130,14 @@ export class QueuedMessages {
   private restored: boolean;
   private restoring?: Promise<void>;
   private frozen = false;
+  private timer?: ReturnType<typeof setTimeout>;
 
   constructor(private readonly port: QueuedMessagesPort, private readonly options: QueuedMessagesOptions = {}) {
     this.restored = !options.filePath;
+  }
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
   }
 
   /**
@@ -140,7 +160,14 @@ export class QueuedMessages {
       ...(this.options.logger ? { logger: this.options.logger } : {}),
       decode: (value) => decodeQueues(value),
     });
-    for (const [sessionId, messages] of read?.data ?? []) {
+    const now = this.now();
+    for (const [sessionId, entries] of read?.data ?? []) {
+      // A plan whose time passed while nothing ran is not sent late by itself.
+      const messages = entries.map((message) => {
+        if (message.deliverAt === undefined || message.deliverAt > now) return message;
+        const { deliverAt: _missed, ...rest } = message;
+        return rest;
+      });
       this.queues.set(sessionId, [...messages, ...this.list(sessionId)]);
       this.held.add(sessionId);
       this.publish(sessionId);
@@ -148,6 +175,7 @@ export class QueuedMessages {
     }
     this.restored = true;
     this.persist();
+    this.arm();
     for (const sessionId of this.queues.keys()) this.settled(sessionId);
   }
 
@@ -165,6 +193,7 @@ export class QueuedMessages {
         attachments: message.attachments.length,
         ...(message.fromThreadId ? { fromThreadId: message.fromThreadId } : {}),
         ...(message.wake ? { wake: { ...message.wake } } : {}),
+        ...(message.deliverAt !== undefined ? { deliverAt: message.deliverAt } : {}),
       })),
       held: this.held.has(sessionId),
     };
@@ -177,7 +206,7 @@ export class QueuedMessages {
   /** A message waits to be sent on its own, or is on its way: the thread's run goes on. */
   continues(sessionId: string): boolean {
     if (this.frozen) return false;
-    return this.delivering.has(sessionId) || (!this.held.has(sessionId) && this.list(sessionId).length > 0);
+    return this.delivering.has(sessionId) || (!this.held.has(sessionId) && this.list(sessionId).some((message) => !planned(message)));
   }
 
   /** `add` for a caller that may be refused: a thread whose runtime is off takes no message (ADR 0033). */
@@ -190,18 +219,33 @@ export class QueuedMessages {
   add(sessionId: string, message: Omit<QueuedMessage, "id" | "queuedAt">): QueuedMessage {
     const queued: QueuedMessage = { ...message, id: `queued-${randomUUID()}`, queuedAt: Date.now() };
     this.write(sessionId, [...this.list(sessionId), queued]);
+    if (planned(queued)) this.arm();
     void this.pump(sessionId);
     return queued;
   }
 
+  /** Plans a waiting message for another time, or with `undefined` puts it back in the line of the queue. */
+  reschedule(sessionId: string, id: string, deliverAt: number | undefined): void {
+    const current = this.list(sessionId);
+    const index = current.findIndex((message) => message.id === id);
+    if (index < 0) throw new Error("That message has already left the queue.");
+    const { deliverAt: _previous, ...message } = current[index]!;
+    const next = [...current];
+    next[index] = deliverAt === undefined ? message : { ...message, deliverAt };
+    this.write(sessionId, next);
+    this.arm();
+    void this.pump(sessionId);
+  }
+
   /**
    * Takes messages out without sending them: one by id, or every message of the
-   * user's. Wakes stay for `dropWakes`, so a Stop that first hands the user's
-   * messages back to the composer still drops and counts them.
+   * user's that waits for the turn. Wakes stay for `dropWakes`, so a Stop that
+   * first hands the user's messages back to the composer still drops and
+   * counts them; planned messages keep their time.
    */
   take(sessionId: string, id?: string): QueuedMessage[] {
     const current = this.list(sessionId);
-    const taken = id === undefined ? current.filter((message) => !message.wake) : current.filter((message) => message.id === id);
+    const taken = id === undefined ? current.filter((message) => !message.wake && !planned(message)) : current.filter((message) => message.id === id);
     if (taken.length > 0) this.write(sessionId, current.filter((message) => !taken.includes(message)));
     return [...taken];
   }
@@ -257,6 +301,45 @@ export class QueuedMessages {
   /** The host is stopping: the aborts of its shutdown must not send anything, and the file keeps what waits. */
   freeze(): void {
     this.frozen = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  /** Wakes at the next planned message's time and offers every due one to its thread. */
+  private arm(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+    if (this.frozen || !this.restored) return;
+    let next: number | undefined;
+    for (const messages of this.queues.values()) {
+      for (const message of messages) if (message.deliverAt !== undefined && (next === undefined || message.deliverAt < next)) next = message.deliverAt;
+    }
+    if (next === undefined) return;
+    const delay = Math.max(0, next - this.now());
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      const now = this.now();
+      for (const [sessionId, messages] of this.queues) {
+        if (messages.some((message) => message.deliverAt !== undefined && message.deliverAt <= now)) this.settled(sessionId);
+      }
+      this.arm();
+    }, Math.min(delay, MAX_TIMER_MS));
+    this.timer.unref?.();
+  }
+
+  /**
+   * What leaves next: a planned message whose time has come, the earliest
+   * first, even from a held queue; else, unless the queue is held, the first
+   * message that waits for the turn.
+   */
+  private headOf(sessionId: string): QueuedMessage | undefined {
+    const current = this.list(sessionId);
+    const now = this.now();
+    const due = current
+      .filter((message) => message.deliverAt !== undefined && message.deliverAt <= now)
+      .sort((a, b) => a.deliverAt! - b.deliverAt!)[0];
+    if (due) return due;
+    return this.held.has(sessionId) ? undefined : current.find((message) => !planned(message));
   }
 
   flush(): Promise<void> {
@@ -265,13 +348,14 @@ export class QueuedMessages {
 
   /** Sends the head when nothing holds the thread back; a refusal puts it back and holds the queue. */
   async pump(sessionId: string): Promise<void> {
-    if (!this.restored || this.frozen || this.held.has(sessionId) || this.delivering.has(sessionId)) return;
+    if (!this.restored || this.frozen || this.delivering.has(sessionId)) return;
     const current = this.list(sessionId);
-    if (!current[0] || this.port.busy(sessionId)) return;
+    const first = this.headOf(sessionId);
+    if (!first || this.port.busy(sessionId)) return;
     // A wake at the head takes every waiting wake with it, as one message.
-    const wakes = current[0].wake ? current.filter((message) => message.wake) : [];
-    const head: QueuedMessage = wakes.length > 1 ? { ...wakes[0]!, ...combineWakes(wakes.map((wake) => wake.text)), attachments: wakes.flatMap((wake) => wake.attachments) } : current[0];
-    const rest = current.filter((message) => message !== current[0] && !(wakes.length > 1 && message.wake));
+    const wakes = first.wake ? current.filter((message) => message.wake) : [];
+    const head: QueuedMessage = wakes.length > 1 ? { ...wakes[0]!, ...combineWakes(wakes.map((wake) => wake.text)), attachments: wakes.flatMap((wake) => wake.attachments) } : first;
+    const rest = current.filter((message) => message !== first && !(wakes.length > 1 && message.wake));
     this.delivering.set(sessionId, head);
     // Out of the list at once, so no client sends it too; the file keeps it until the thread accepted it.
     this.queues.set(sessionId, rest);
@@ -285,7 +369,9 @@ export class QueuedMessages {
     } catch (error) {
       // A refused wake is not the user's to resend; its kit wakes the thread again if it still should.
       if (!head.wake) {
-        this.queues.set(sessionId, [head, ...this.list(sessionId)]);
+        // A refused plan waits with the held queue; kept due, it would be offered again at once.
+        const { deliverAt: _due, ...back } = head;
+        this.queues.set(sessionId, [back, ...this.list(sessionId)]);
         this.held.add(sessionId);
       } else this.persist();
       this.publish(sessionId);

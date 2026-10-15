@@ -43,10 +43,13 @@ export interface HostClient {
   followUp: CommandClient<"follow-up">;
   abort: CommandClient<"abort">;
   /** Parks a message in the thread's host-kept queue; it leaves when the thread's turn ends. */
+  /** With `deliverAt` (epoch ms, API 1.65.0) the message is planned: it leaves at that time instead of after the turn. */
   queueMessage: CommandClient<"queue-message">;
   /** Takes queued messages back out, in full: one by id, or all of them. */
   takeQueued: CommandClient<"take-queued">;
   moveQueued: CommandClient<"move-queued">;
+  /** Plans a waiting message for another time; `undefined` puts it in the line of the queue (API 1.65.0). */
+  planQueued: CommandClient<"plan-queued">;
   /** Continues a thread a provider limit stopped: now, at the reset, or cancels the scheduled resume. */
   resumeLimited: CommandClient<"resume-limited">;
   /** A thread's native goal (API 1.52.0); `set` needs the objective. */
@@ -332,9 +335,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     followUp: (text, attachments, sessionId, clientMessageIdOrIdentity, prepared) =>
       commandCall("follow-up", [text, attachments, sessionId, clientMessageIdOrIdentity, prepared]),
     abort: (sessionId) => commandCall("abort", [sessionId]),
-    queueMessage: (sessionId, text, attachments, skillDraft) => commandCall("queue-message", [sessionId, text, attachments, skillDraft]),
+    queueMessage: (sessionId, text, attachments, skillDraft, deliverAt) => commandCall("queue-message", deliverAt === undefined ? [sessionId, text, attachments, skillDraft] : [sessionId, text, attachments, skillDraft ?? null, deliverAt]),
     takeQueued: (sessionId, id) => commandCall("take-queued", [sessionId, id]),
     moveQueued: (sessionId, id, toIndex) => commandCall("move-queued", [sessionId, id, toIndex]),
+    planQueued: (sessionId, id, deliverAt) => commandCall("plan-queued", [sessionId, id, deliverAt ?? null]),
     resumeLimited: (sessionId, when) => commandCall("resume-limited", [sessionId, when]),
     threadGoal: (sessionId, action, objective) => commandCall("thread-goal", objective === undefined ? [sessionId, action] : [sessionId, action, objective]),
     stopBackground: (sessionId, taskId) => commandCall("thread-background-stop", taskId === undefined ? [sessionId] : [sessionId, taskId]),

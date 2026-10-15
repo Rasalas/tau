@@ -28,7 +28,6 @@ export const COMMON_MODULES = [
   "renderer/settings/connections-format.ts",
   "renderer/cost-sections.ts",
   "renderer/components/FileSource.tsx",
-  "renderer/components/QueuedMessages.tsx",
   "renderer/components/TranscriptSearch.tsx",
   "renderer/pairing/PairingRequestWatcher.tsx",
   "renderer/components/ExtensionPrompt.tsx",

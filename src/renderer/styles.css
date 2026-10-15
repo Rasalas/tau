@@ -77,8 +77,8 @@ button > svg { pointer-events: none; }
 /* macOS draws its traffic lights over the sidebar's top: that strip is room for them and the window's handle. */
 .app-shell.window-inset { --window-top: 40px; }
 .sidebar-top { grid-area: 1 / 1 / 2 / 2; align-self: start; z-index: 2; height: var(--window-top, 0px); -webkit-app-region: drag; }
-/* Past the traffic lights and the sidebar toggle, centred on them (26 px down). */
-.sidebar-brand { display: flex; align-items: center; gap: 6px; height: 28px; margin: 12px 0 0 calc(114px / var(--page-zoom, 1)); }
+/* Just past the native traffic lights, centred on them (26 px down). Their position ignores page zoom. */
+.sidebar-brand { display: flex; align-items: center; gap: 6px; height: 28px; margin: 12px 0 0 calc(88px / var(--page-zoom, 1)); }
 .sidebar-brand-mark { width: 16px; height: 16px; flex: none; }
 .tau-mark rect { fill: var(--brand); }
 .tau-mark path { fill: none; stroke: var(--brand-on); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
@@ -117,7 +117,7 @@ button > svg { pointer-events: none; }
 /* Centred over the stage, right of the 200 px spine. */
 .workbench-center.spine > .conversation-column .conversation-composer-host { left: calc(50% + 100px); width: min(520px, calc(100% - 232px)); }
 .composer-floating .composer-zone { padding: 0; }
-.composer-floating .composer-frame { display: flex; flex-wrap: wrap; align-items: flex-end; border-radius: 10px; background: var(--float); box-shadow: var(--elevation-3); }
+.composer-floating .composer-frame { display: flex; flex-wrap: wrap; align-items: flex-end; border-radius: var(--composer-radius); background: var(--float); box-shadow: var(--elevation-3); }
 .composer-floating .composer-frame > * { flex-basis: 100%; }
 .composer-floating .composer-frame > textarea { flex: 1 1 0; min-width: 0; padding: 10px 14px; min-height: 40px; }
 .composer-floating .composer-frame > .composer-toolbar { flex: none; padding: 6px; }
@@ -579,7 +579,6 @@ body:not([data-profile="compact"]) .conversation-start:not(:has(.fresh-start)) .
 body:not([data-profile="compact"]) .conversation-start:not(:has(.fresh-start)) .conversation-start-content::after { content: ""; flex: 1 1 0; order: 4; }
 body:not([data-profile="compact"]) .conversation-start .conversation-start-content > .region-composer-below { order: 3; }
 /* T3's draft card: rounder, with room for a few lines before the controls. */
-body:not([data-profile="compact"]) .conversation-start .composer-frame { border-radius: var(--radius-xl); }
 body:not([data-profile="compact"]) .conversation-start .composer-frame textarea { min-height: 78px; padding-inline: calc(16px * var(--density)); }
 .conversation-column.conversation-start .conversation-thread { display: none; }
 /*
@@ -1263,39 +1262,6 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .turn-error-line.recovered > svg { color: var(--faint); }
 
 /* Messages waiting for the run: dashed user bubbles at the end of the conversation. */
-.queued-messages { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-.queued-message {
-  max-width: 78%; min-width: 220px; padding: 10px 12px 6px 14px;
-  border: 1px dashed var(--line-strong); border-radius: 14px 14px 4px 14px;
-  color: var(--ink-3); font-size: var(--text-md); line-height: 1.55;
-}
-.queued-message.dragging { opacity: .45; }
-.queued-message > p { margin: 0; white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
-.queued-message > small { display: block; margin-top: 4px; font-size: var(--text-xs); color: var(--muted-2); }
-.queued-message > footer { display: flex; align-items: center; gap: 2px; margin-top: 6px; color: var(--muted-2); font-size: var(--text-xs); }
-.queued-message > footer .spacer { flex: 1; }
-.queued-message > footer button {
-  width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm);
-  background: transparent; color: var(--muted); cursor: pointer;
-}
-.queued-message > footer button:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
-.queued-message > footer button:disabled { opacity: .35; cursor: default; }
-.queued-message-grip { cursor: grab; color: var(--faint); }
-.queued-message.dragging .queued-message-grip { cursor: grabbing; }
-.queued-message-status { display: inline-flex; align-items: center; gap: 4px; margin-left: 2px; }
-/* A wake waits as one quiet row, never a bubble of the user's. */
-.queued-message.queued-wake {
-  min-width: 0; max-width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
-  border-radius: 10px; font-size: var(--text-sm); line-height: 1.3;
-}
-.queued-wake-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
-.queued-wake > .queued-message-status { flex: none; color: var(--faint); font-size: var(--text-xs); }
-.queued-wake > button {
-  flex: none; display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--muted); cursor: pointer;
-}
-.queued-wake > button:hover { background: var(--raised); color: var(--ink); }
-@media (pointer: coarse) { .queued-wake > button { width: var(--touch-target); height: var(--touch-target); } }
 
 /* --------------------------------------------------------------- tasks */
 
@@ -1356,10 +1322,14 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 }
 .composer-read-only svg { flex: none; }
 
-/* Filled and edgeless, as the design draws it; an edge shows only while answering a question. */
+/*
+ * Filled and edgeless, as the design draws it; an edge shows only while answering a question.
+ * Its corners follow the round send button: 16px of button plus the toolbar's 6px inset.
+ */
 .composer-frame {
+  --composer-radius: 22px;
   max-width: var(--content-max); margin: 0 auto; position: relative;
-  border: 1px solid transparent; border-radius: var(--radius-lg);
+  border: 1px solid transparent; border-radius: var(--composer-radius);
   background: var(--field);
 }
 .composer-frame.stacked { z-index: 2; margin-top: -9px; }
@@ -1457,7 +1427,7 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .composer-fast { flex: none; margin-left: -2px; color: var(--warn); }
 /* A choice cost the thread its level or Fast: one line above the composer, with Undo (K142, design D). */
 .composer-adjusted {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 12px;
+  position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 12px;
   border: 1px solid var(--line-float); border-radius: 10px; background: var(--float); box-shadow: var(--elevation-1);
   font-size: var(--text-sm); color: var(--ink-2);
 }
@@ -1506,10 +1476,20 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .send-button:not(:disabled, .stop):hover { background: var(--acid-strong); }
 /* Nothing to send: the accent at rest, still the send button. */
 .send-button:disabled { background: color-mix(in srgb, var(--acid) 42%, var(--field)); cursor: default; }
-/* Stop is a quiet word beside send, red only under the pointer; send is the row's one round button (design 1a). */
-.send-button.stop { width: auto; margin-right: 2px; padding: 0 8px; border-radius: 6px; background: transparent; color: var(--muted); font: var(--text-2xs) var(--sans); }
-.send-button.stop:hover { background: var(--hover); color: var(--stop); }
-.send-button.stop > i { display: none; }
+/* Stop, only while a turn runs: a red round button with a square, filled under the pointer (design C2). */
+.send-button.stop {
+  color: var(--stop); background: color-mix(in srgb, var(--stop) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stop) 38%, transparent);
+}
+.send-button.stop:hover { background: var(--stop); color: var(--stop-ink); box-shadow: none; }
+.send-button.stop > span { display: none; }
+.send-button.stop > i { display: block; width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
+/* The send menu's trigger before Stop: a quiet clock and chevron, so Send stays the row's one filled button. */
+.composer-plan-button {
+  flex: none; display: inline-flex; align-items: center; gap: 1px; height: 28px; padding: 0 6px 0 8px;
+  border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--faint); cursor: pointer;
+}
+.composer-plan-button:hover, .composer-plan-button.open { background: var(--raised); color: var(--ink); }
 /* A kit's send mode: its words in the accent pill, the plain send in a menu behind the chevron. */
 .send-split { display: inline-flex; flex: none; align-items: stretch; }
 .send-button.send-mode { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; font: 500 var(--text-sm) var(--sans); white-space: nowrap; }
@@ -1528,9 +1508,6 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
   background: conic-gradient(var(--muted) 0 var(--used), var(--line-control) var(--used) 100%);
 }
 .context-dial > i { width: 10px; height: 10px; border-radius: 50%; background: var(--field); }
-.composer-queued { padding-right: 6px; color: var(--muted); font-size: var(--text-2xs); white-space: nowrap; }
-button.composer-queued { border: 0; background: none; font-family: inherit; cursor: pointer; }
-button.composer-queued:hover { color: var(--ink); text-decoration: underline; }
 .context-popover {
   position: absolute; bottom: 28px; right: -52px; width: 252px; z-index: 30;
   display: flex; flex-direction: column; gap: 10px;
@@ -1673,8 +1650,9 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .prompt-arrival-note { max-width: var(--content-max); margin: 0 auto; padding: 0 14px 14px; background: var(--field); color: var(--muted); font: 12px/1.4 var(--sans); }
 /* The question and the composer under it read as one filled card, a hairline between them (design 1c/1n). */
 /* Leave 5 px below the footer after the composer's 9 px overlap. */
+/* Positioned, so it paints over the queue's tab tucked under it (QueueShelf). */
 .extension-prompt {
-  max-width: var(--content-max); margin: 0 auto; padding: 10px 10px 14px; display: flex; flex-direction: column; gap: 6px;
+  position: relative; max-width: var(--content-max); margin: 0 auto; padding: 10px 10px 14px; display: flex; flex-direction: column; gap: 6px;
   border: 1px solid transparent; border-bottom: 0;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--field); font-size: var(--text-md);
 }

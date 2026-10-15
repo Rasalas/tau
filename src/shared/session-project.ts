@@ -36,3 +36,10 @@ export function findProjectForSession(
 
   return containing[0];
 }
+
+/** A thread belongs to a project by its id, or by its path where one side has no id. */
+export function inProject(thread: Pick<UiSession, "workspaceId" | "projectPath">, project: Pick<UiProject, "path" | "workspaceId">): boolean {
+  return project.workspaceId !== undefined && thread.workspaceId !== undefined
+    ? thread.workspaceId === project.workspaceId
+    : thread.projectPath === project.path;
+}

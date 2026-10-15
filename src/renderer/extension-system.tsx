@@ -42,6 +42,7 @@ import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
 import { DEFAULT_CLIENT_PROFILES, rendersOnProfile, type ClientProfile, type ProfiledContribution, type ProfileScoped } from "../workbench/client-profile";
 import { providerIconKey } from "./runtime-marks";
+import { readProjectIcon } from "../shared/project-icon-choice";
 import type { CustomizablePart, CustomizationLayer, PartKind } from "./customization";
 import { ExtensionCustomizations } from "./extension-customizations";
 
@@ -154,6 +155,8 @@ export interface WorkbenchActions {
    * kit's rail is the list (API 1.20.0).
    */
   threadListOrder?(): readonly string[] | undefined;
+  /** On a phone, where the thread list is a screen of its own, shows it and answers true; false elsewhere (API 1.64.0). */
+  showThreadList?(): boolean;
   /** Opens a document in the stage, as source or as its working-tree diff; `line` scrolls the source to it and marks it. */
   /** `trace`: the agent opened it; it joins the stage's end without coming to the front (design 1a). */
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number; trace?: boolean }): void;
@@ -803,6 +806,32 @@ export interface ComposerSendModeContribution extends ProfileScoped {
   order?: number;
   read(snapshot: HostSnapshot): ComposerSendMode | undefined;
   subscribe(listener: () => void): () => void;
+}
+
+/** What a planner's tab in the Plan sheet gets (API 1.65.0). */
+export interface ComposerPlannerProps {
+  /** The draft's text, with its chips as plain text, and how many files wait beside it. */
+  draft: { text: string; attachments: number };
+  /** The thread the composer writes to. */
+  snapshot: HostSnapshot;
+  actions: WorkbenchActions | undefined;
+  /** Saved: the composer clears its draft, closes the sheet and shows `summary` ("Every Monday at 09:00"). */
+  onPlanned(summary: string): void;
+  onCancel(): void;
+}
+
+/**
+ * Another way to plan the composer's draft, beside sending it once into this
+ * thread later: the Plan sheet shows it as a tab (API 1.65.0). The tab draws
+ * everything below the tabs, its footer included; `.plan-sheet-body` and
+ * `.plan-sheet-footer` give it the sheet's spacing.
+ */
+export interface ComposerPlannerContribution extends ProfileScoped {
+  id: string;
+  /** The tab's name: "Repeat". */
+  label: string;
+  order?: number;
+  Component: ComponentType<ComposerPlannerProps>;
 }
 
 /** A mark on a model's row in the model picker, and optionally words after the highlighted row's facts. */
@@ -1655,6 +1684,8 @@ export interface DesktopExtensionContext {
   registerComposerSpeed(speed: ComposerSpeedContribution): () => void;
   /** Changes what the send button does for a thread, such as compacting first. */
   registerComposerSendMode(mode: ComposerSendModeContribution): () => void;
+  /** A tab of the composer's Plan sheet, such as a repeating schedule (API 1.65.0). */
+  registerComposerPlanner(planner: ComposerPlannerContribution): () => void;
   /** Rows this extension shows in the transcript; `order` sorts rows sharing an anchor. */
   registerTranscriptRows(id: string, order?: number, options?: ProfileScoped): TranscriptRowsHandle;
   /** Replaces the transcript's waiting label for a thread while the label is set; `undefined` clears it. */
@@ -1883,6 +1914,7 @@ export class ExtensionRegistry {
   private modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
   private composerSpeeds = new Map<string, Owned<ComposerSpeedContribution>>();
   private composerSendModes = new Map<string, Owned<ComposerSendModeContribution>>();
+  private composerPlanners = new Map<string, Owned<ComposerPlannerContribution>>();
   private regions = new Map<string, Owned<RegionContribution>>();
   private statusItems = new Map<string, Owned<StatusItemContribution>>();
   private overlays = new Map<string, Owned<OverlayContribution>>();
@@ -2212,6 +2244,11 @@ export class ExtensionRegistry {
         note("composer send mode");
         return this.register(this.composerSendModes, mode.id, { ...mode, ...owner }, disposers);
       },
+      registerComposerPlanner: (planner) => {
+        if (!this.scopeToProfile(owner, "composer planner", planner.id, planner.label, planner)) return noContribution;
+        note("composer planners");
+        return this.register(this.composerPlanners, planner.id, { ...planner, ...owner }, disposers);
+      },
       provideService: (id, value) => {
         const held = this.extensionServices.get(id);
         if (held) throw new Error(`Extension service ${id} is already provided by ${held.extensionId}`);
@@ -2508,13 +2545,13 @@ export class ExtensionRegistry {
     return this.problemCache ??= [...this.problems.values()].flat();
   }
 
-  /** The picture an extension chose for a project, if any (`setProjectIcons`). */
+  /** Published pictures take precedence over the saved choice, even without a Workspace interface. */
   projectIcon(project: { workspaceId?: string | undefined; path: string }): string | undefined {
     for (const icons of this.projectIcons.values()) {
       const icon = (project.workspaceId ? icons[project.workspaceId] : undefined) ?? icons[project.path];
       if (icon) return icon;
     }
-    return undefined;
+    return readProjectIcon(this.services.preferences, project)?.image;
   }
 
   /** The picture an extension chose for a model provider, if any (`setProviderIcons`). */
@@ -2602,6 +2639,10 @@ export class ExtensionRegistry {
 
   getComposerSendModes(): Array<Owned<ComposerSendModeContribution>> {
     return this.sorted("composer-send-modes", this.composerSendModes);
+  }
+
+  getComposerPlanners(): Array<Owned<ComposerPlannerContribution>> {
+    return this.sorted("composer-planners", this.composerPlanners);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
@@ -2919,7 +2960,11 @@ export class ExtensionRegistry {
   getDataVersion = (key: string): number => this.dataVersions.get(key) ?? 0;
 
   subscribeMarks = (listener: () => void) => this.subscribeData("marks", listener);
-  subscribeProjectIcons = (listener: () => void) => this.subscribeData("project-icons", listener);
+  subscribeProjectIcons = (listener: () => void): (() => void) => {
+    const stopData = this.subscribeData("project-icons", listener);
+    const stopPreferences = this.services.preferences.subscribe(listener);
+    return () => { stopData(); stopPreferences(); };
+  };
   subscribeProviderIcons = (listener: () => void) => this.subscribeData("provider-icons", listener);
 
   private dataChanged(key: string, transcript = false): void {

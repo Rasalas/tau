@@ -136,6 +136,13 @@ export const environmentsExtension: DesktopExtension = {
     context.registerPromptHook(runOnHook);
     const ArrivalRail = createRailSection(environments);
     const threads = createMachineThreads(environments, context.host);
+    // Another machine's runs and waits on the proxies this host lists, on every client (API 1.64.0 for `working`).
+    let shownMarks = threads.marks();
+    const stopMarks = threads.subscribe(() => {
+      if (threads.marks() === shownMarks) return;
+      shownMarks = threads.marks();
+      context.setThreadRowStatuses?.(shownMarks);
+    });
     function RailSection(props: { actions: WorkbenchActions }) {
       threads.useOwnThreads();
       return <ArrivalRail {...props} />;
@@ -166,6 +173,7 @@ export const environmentsExtension: DesktopExtension = {
       agentThreadsSource.set(service);
       return () => agentThreadsSource.set(undefined);
     });
+    return stopMarks;
   },
 };
 

@@ -51,6 +51,20 @@ describe("shared turn command contracts", () => {
     expect(() => HOST_COMMANDS["compact-and-send"].decode(["t"])).toThrow("compact-and-send: prompt is required");
   });
 
+  it("accepts planned messages with an empty skill slot and validates their time", () => {
+    const at = 1_800_000_000_000;
+    expect(HOST_COMMANDS["queue-message"].decode(["thread", "later", [], null, at]))
+      .toEqual(["thread", "later", [], undefined, at]);
+    expect(HOST_COMMANDS["plan-queued"].decode(["thread", "queued", null]))
+      .toEqual(["thread", "queued", undefined]);
+    for (const invalid of [0, -1, NaN, Infinity, "tomorrow"]) {
+      expect(() => HOST_COMMANDS["queue-message"].decode(["thread", "later", [], null, invalid]))
+        .toThrow("deliverAt must be a time in epoch milliseconds.");
+      expect(() => HOST_COMMANDS["plan-queued"].decode(["thread", "queued", invalid]))
+        .toThrow("deliverAt must be a time in epoch milliseconds.");
+    }
+  });
+
   it("declares access, jobs and thread audit positions with the arguments", () => {
     expect(HOST_COMMANDS.prompt).toMatchObject({ access: "write", job: true, audit: { thread: 2 } });
     expect(HOST_COMMANDS["prepare-prompt"]).toMatchObject({ access: "write", audit: { thread: 1, automatic: true } });

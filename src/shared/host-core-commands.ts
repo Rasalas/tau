@@ -23,6 +23,7 @@ import type {
 } from "./contracts.js";
 import type { HostActionResult, ForkThreadResult, TranscriptPage } from "./host-protocol.js";
 import type { ConfigLayers } from "./config-layers.js";
+import type { BrowserResourceResponse } from "./browser-resource.js";
 
 import type { SystemNotificationOutcome } from "./system-attention.js";
 
@@ -68,6 +69,10 @@ function runtimeToolsInput(value: unknown): { on?: boolean; kind?: string } {
 
 /** Non-turn protocol commands, decoded before their host implementation runs. */
 export const HOST_CORE_COMMANDS = {
+  "read-browser-resource": command<BrowserResourceResponse>()({
+    decode: (params) => [decodeString("read-browser-resource", "path", params[0])] as const,
+    access: "read",
+  }),
   "copy-text": command<void>()({
     decode: (params) => [decodeString("copy-text", "text", params[0])] as const,
     access: "write",

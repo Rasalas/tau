@@ -45,3 +45,6 @@ export function createWorkingClock(now: () => number = Date.now): ObservedWorkin
     workingSince: (threadId) => since.get(threadId),
   };
 }
+
+/** The compact list's clock; module scope keeps the order across screens that unmount the list. */
+export const compactWorkingClock = createWorkingClock();

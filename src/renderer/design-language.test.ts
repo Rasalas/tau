@@ -27,9 +27,12 @@ describe("the workbench design language", () => {
     expect(send).toMatch(/border-radius: 50%/u);
     expect(send).toMatch(/background: var\(--acid\)/u);
     expect(send).toMatch(/color: var\(--acid-ink\)/u);
-    // With nothing to send it rests, still in the accent; stop beside it is quiet, never a second filled button.
+    // With nothing to send it rests, still in the accent; stop beside it is red but only tinted, filled under the pointer alone.
     expect(rule(STYLES, ".send-button:disabled")).toMatch(/background: color-mix\(in srgb, var\(--acid\)/u);
-    expect(rule(STYLES, ".send-button.stop")).toMatch(/background: transparent/u);
+    const stop = rule(STYLES, ".send-button.stop");
+    expect(stop).toMatch(/color: var\(--stop\)/u);
+    expect(stop).toMatch(/background: color-mix\(in srgb, var\(--stop\) 16%, transparent\)/u);
+    expect(rule(STYLES, ".send-button.stop:hover")).toMatch(/background: var\(--stop\)/u);
   });
 
   it("keeps the model quiet until hovered", () => {
@@ -47,7 +50,7 @@ describe("the workbench design language", () => {
 
   it("heads the rail with the project filter and quiet search and plus icons", () => {
     expect(rule(WORKSPACE, ".sidebar-action")).toMatch(/background: transparent/u);
-    expect(rule(WORKSPACE, ".window-inset .rail-head-actions")).toMatch(/-webkit-app-region: no-drag/u);
+    expect(rule(WORKSPACE, ".rail-head-actions")).toMatch(/-webkit-app-region: no-drag/u);
     expect(rule(WORKSPACE, ".session-rail")).not.toMatch(/border/u);
   });
 

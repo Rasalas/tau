@@ -183,13 +183,14 @@ const promptTools: DesktopExtension = {
       },
     });
 
-    const followUp = (): FollowUpBehavior => context.preferences.value(PROMPT_TOOLS_ID, FOLLOW_UP_OPTION) === "steer" ? "steer" : "queue";
+    // Steering is the default; the send menu (⌘↵) queues one message instead.
+    const followUp = (): FollowUpBehavior => context.preferences.value(PROMPT_TOOLS_ID, FOLLOW_UP_OPTION) === "queue" ? "queue" : "steer";
     context.registerOptions([{
       id: FOLLOW_UP_OPTION,
       kind: "select",
       label: "While a turn runs, the send key",
-      values: [{ value: "queue", label: "queues a follow-up" }, { value: "steer", label: "steers the turn" }],
-      defaultValue: "queue",
+      values: [{ value: "steer", label: "steers the turn" }, { value: "queue", label: "queues a follow-up" }],
+      defaultValue: "steer",
     }]);
     context.registerPromptHook({ id: "prompt-tools.delivery", streamingDelivery: () => followUp() === "steer" ? "steer" : "followUp" });
     context.registerCommand({

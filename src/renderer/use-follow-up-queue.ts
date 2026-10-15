@@ -5,12 +5,13 @@ import type { WorkbenchActions } from "./extension-system";
 import type { SubmitResult } from "./components/Composer";
 import { errorMessage } from "../workbench/error-message";
 import type { HostClient } from "../workbench/host-client";
+import type { SubmitDelivery } from "../workbench/submission-queue";
 import type { ThreadStore } from "../workbench/thread-store";
 
 export type SubmitPrompt = (
   value: string,
   attachments?: UiPromptAttachment[],
-  delivery?: "followUp" | "steer" | "alternate",
+  delivery?: SubmitDelivery,
   skillDraft?: UiSkillDraft,
 ) => Promise<SubmitResult>;
 
@@ -66,6 +67,9 @@ export function useFollowUpQueue({ client, threads, sessionId, isRunning, submit
   const reorderQueue = useCallback((id: string, toIndex: number) => {
     if (sessionId && client) void client.moveQueued(sessionId, id, toIndex).catch(report);
   }, [client, report, sessionId]);
+  const planQueued = useCallback((id: string, deliverAt: number | undefined) => {
+    if (sessionId && client) void client.planQueued(sessionId, id, deliverAt).catch(report);
+  }, [client, report, sessionId]);
   const queueRef = useRef(queue);
   queueRef.current = queue;
   // Sends one queued message ahead of the queue: as a steer while the thread
@@ -89,5 +93,5 @@ export function useFollowUpQueue({ client, threads, sessionId, isRunning, submit
     if (head) void steerQueued(head.id);
     return Boolean(head);
   }, [steerQueued]);
-  return { queue, held, cancelQueued, reorderQueue, steerQueued, takeQueued, returnQueued, steerQueuedMessage };
+  return { queue, held, cancelQueued, reorderQueue, planQueued, steerQueued, takeQueued, returnQueued, steerQueuedMessage };
 }

@@ -311,6 +311,15 @@ describe("SubmissionController", () => {
     expect(view.getOptimisticMessages()).toEqual([]);
   });
 
+  it("keeps a planned message out of a new thread's first submission", async () => {
+    const h = harness({ pending: DRAFT });
+    await expect(h.submission.submit({ text: "later", delivery: { deliverAt: 1_800_000_000_000 } }))
+      .resolves.toEqual({ accepted: false, message: "Send the first message before planning one." });
+    expect(h.followUps).toEqual([]);
+    expect(h.workbenchEvents).not.toHaveBeenCalled();
+    expect(h.client.calls).toEqual([]);
+  });
+
   it("runs a desktop slash command and never reaches the runtime", async () => {
     const run = vi.fn(async () => undefined);
     const { submission, client } = harness({

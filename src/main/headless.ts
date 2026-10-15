@@ -404,6 +404,7 @@ async function main(): Promise<void> {
   });
   machineRoutes = new MachineKitRoute({ machines: () => machines, active: () => started.current()?.activeThreadIdentity(), routing: (id) => started.current()?.hostExtensionMachineRouting?.(id), observeRouting: (listener) => started.current()?.observeHostExtensionMachineRouting?.(listener) });
   const methods = createHostMethods({
+    browserResources,
     machineRoutes,
     updates: () => updates,
     clientCalls,
