@@ -213,6 +213,27 @@ export class GitCoordinator {
     return (await this.getState(cwd, signal, "branch")).branch;
   }
 
+  /**
+   * `getBranch` without a status scan: a fresh cached state, else one git call.
+   * For labels the thread index asks of every project on each scan.
+   */
+  async getHeadBranch(cwd: string): Promise<string | undefined> {
+    const record = this.record(cwd);
+    if (record.cached && record.cached.expiresAt > Date.now() && !record.invalidated.has("branch")) return record.cached.state.branch;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    timeout.unref?.();
+    try {
+      const out = await this.runCoordinated(cwd, ["branch", "--show-current"], undefined, controller.signal);
+      // Empty on a detached HEAD; the worktree list names that "detached" too.
+      return out.trim() || "detached";
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   getRefreshStatus(cwd: string): GitRefreshStatus {
     return this.record(cwd).status;
   }

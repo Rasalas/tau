@@ -38,6 +38,7 @@ import { McpEndpoint } from "./mcp-endpoint.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy } from "./host-execution-policy.js";
 import { resolvePiSessionsDirOverride } from "./pi-session-dir.js";
+import { SessionHeaderIndex } from "./session-headers.js";
 import { isSessionHeldElsewhere, SessionHeldElsewhereError, type SessionLocks } from "./session-locks.js";
 import { openSessionLocked, piRewritesOnOpen, readSessionFile } from "./session-read.js";
 import { defaultGlobalThemesDir } from "./user-themes.js";
@@ -278,6 +279,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
 
   /** Files read while another process held them: read in memory, every write refused with this. */
   const readOnlyFiles = new WeakMap<HostSessionFile, SessionHeldElsewhereError>();
+  const sessionHeaders = new SessionHeaderIndex(resolvePiSessionsDirOverride());
   const sessionFile = (manager: SessionManager, readOnly?: { path: string; refusal: SessionHeldElsewhereError }): HostSessionFile => {
     const path = readOnly?.path ?? manager.getSessionFile();
     if (!path) throw new Error("This session has no file yet.");
@@ -378,7 +380,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
       },
     },
     sessions: {
-      list: async () => (await SessionManager.listAll(resolvePiSessionsDirOverride())).map((info) => ({ sessionId: info.id, path: info.path, cwd: info.cwd })),
+      list: () => sessionHeaders.list(),
       open: (path) => {
         // Pi falls back to process.cwd() for a missing file; never hand that out.
         if (!existsSync(path)) throw new Error(`No session file at ${path}.`);

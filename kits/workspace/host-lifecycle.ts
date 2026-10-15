@@ -63,7 +63,15 @@ export interface WorkspaceKitLifecycleOptions {
   hasSnapshotRefs?(cwd: string, checkpoint: StoredTurnCheckpoint): Promise<boolean>;
   /** An old record read again after a branch change inside its turn. */
   revised?(sessionId: string, checkpoint: StoredTurnCheckpoint): void;
+  /** When the index sweep may collect orphaned refs; every sweep when absent. */
+  liveRefSweep?: { delayMs: number; intervalMs: number };
 }
+
+/**
+ * The orphan-ref pass reads every session journal and lists refs in every known
+ * checkout. The index sweeps every 30 s; orphans can wait well past that.
+ */
+export const LIVE_REF_SWEEP = { delayMs: 2 * 60_000, intervalMs: 15 * 60_000 };
 
 /** The checkpoint side of Workspace Kit's host entry: capture, restore, recovery and ref upkeep. */
 export interface WorkspaceKitLifecycle {
@@ -115,6 +123,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     onSkipped: (cwd) => services.log("turn.checkpoint.maintenance-skipped", `${cwd}: workspace busy`),
   });
   const features = new Map<string, SessionFeature>();
+  let nextLiveRefSweepAt = Date.now() + (options.liveRefSweep?.delayMs ?? 0);
   const git = options.git ?? { invalidate: () => undefined };
   const branchOf = (cwd: string) => options.branch?.(cwd);
   /** A restore of this workspace is in progress; its own activation must not replay its journal. */
@@ -934,37 +943,49 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     sweep: async ({ sessions, liveThreads, projectPaths, deleted }: HostSessionSweep) => {
       const trash = await services.sessions.trash();
       const retainedSessionIds = new Set(trash.map((session) => session.sessionId));
-      // Reconcile every journal against the namespaced snapshot refs. Both
-      // sides of a session are roots: the file on disk and the live thread,
-      // whose newest entries may not have reached that file yet.
-      const claims = new Map<string, WorkspaceKitLiveCheckpointSession>();
-      for (const session of sessions) {
-        // A trash move can race the index read; its missing file is still retained.
-        if (retainedSessionIds.has(session.sessionId)) continue;
-        const record = sessionCheckpoints(session);
-        if (record) claims.set(record.sessionId, record);
+      if (Date.now() >= nextLiveRefSweepAt) {
+        nextLiveRefSweepAt = Date.now() + (options.liveRefSweep?.intervalMs ?? 0);
+        await sweepLiveRefs(sessions, liveThreads, projectPaths, retainedSessionIds);
       }
-      for (const thread of liveThreads) {
-        if (thread.backendKind !== "pi" || retainedSessionIds.has(thread.sessionId)) continue;
-        const claim = claimOf(thread.sessionId, thread.cwd, thread.entries());
-        const persisted = claims.get(thread.sessionId);
-        claims.set(thread.sessionId, persisted ? mergeClaims(persisted, claim) : claim);
-      }
-      const live = [...claims.values()];
-      const workspaces = new Map<string, string>();
-      const remember = async (cwd: string) => {
-        try { workspaces.set(await leaseManager.canonicalKey(cwd), cwd); } catch { /* invalid path */ }
-      };
-      for (const session of sessions) await remember(session.cwd || services.cwd());
-      for (const thread of liveThreads) await remember(thread.cwd);
-      // A project can outlive its last session in the persisted project
-      // history; include those roots so pruning the final session is recovered.
-      for (const path of projectPaths) await remember(path);
-      await Promise.allSettled([...workspaces.values()].map((cwd) => maintenance.cleanupLiveRefs(cwd, live)));
       // Runtime eviction keeps persisted history; only a missing session file is deletion.
       await Promise.allSettled(deleted.filter((session) => !retainedSessionIds.has(session.sessionId))
         .map((session) => maintenance.cleanupSessionRefs(session.cwd, session.sessionId)));
     },
+  };
+
+  const sweepLiveRefs = async (
+    sessions: HostSessionSweep["sessions"],
+    liveThreads: HostSessionSweep["liveThreads"],
+    projectPaths: HostSessionSweep["projectPaths"],
+    retainedSessionIds: ReadonlySet<string>,
+  ): Promise<void> => {
+    // Reconcile every journal against the namespaced snapshot refs. Both
+    // sides of a session are roots: the file on disk and the live thread,
+    // whose newest entries may not have reached that file yet.
+    const claims = new Map<string, WorkspaceKitLiveCheckpointSession>();
+    for (const session of sessions) {
+      // A trash move can race the index read; its missing file is still retained.
+      if (retainedSessionIds.has(session.sessionId)) continue;
+      const record = sessionCheckpoints(session);
+      if (record) claims.set(record.sessionId, record);
+    }
+    for (const thread of liveThreads) {
+      if (thread.backendKind !== "pi" || retainedSessionIds.has(thread.sessionId)) continue;
+      const claim = claimOf(thread.sessionId, thread.cwd, thread.entries());
+      const persisted = claims.get(thread.sessionId);
+      claims.set(thread.sessionId, persisted ? mergeClaims(persisted, claim) : claim);
+    }
+    const live = [...claims.values()];
+    const workspaces = new Map<string, string>();
+    const remember = async (cwd: string) => {
+      try { workspaces.set(await leaseManager.canonicalKey(cwd), cwd); } catch { /* invalid path */ }
+    };
+    for (const session of sessions) await remember(session.cwd || services.cwd());
+    for (const thread of liveThreads) await remember(thread.cwd);
+    // A project can outlive its last session in the persisted project
+    // history; include those roots so pruning the final session is recovered.
+    for (const path of projectPaths) await remember(path);
+    await Promise.allSettled([...workspaces.values()].map((cwd) => maintenance.cleanupLiveRefs(cwd, live)));
   };
 
   const turns: HostTurnObserver = {

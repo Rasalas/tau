@@ -88,6 +88,22 @@ describe("calls from the host into a client's process", () => {
     await expect(answer).resolves.toBe("/chosen");
   });
 
+  it("ends a folder dialog the window never answered as cancelled when the user asks again", async () => {
+    const { calls: pending, sent } = calls(10_000);
+    pending.attach("win", hostWindow);
+    pending.attach("other", { local: true, windowId: "w-other", windowHalves: ["window"] });
+    const lost = pending.pickDirectory(undefined, "win");
+    const elsewhere = pending.pickDirectory(undefined, "other");
+    const retry = pending.pickDirectory(undefined, "win");
+
+    await expect(lost).resolves.toBeUndefined();
+    pending.settle(sent[0]!.callId, "/late", undefined, "win");
+    pending.settle(sent[2]!.callId, "/chosen", undefined, "win");
+    await expect(retry).resolves.toBe("/chosen");
+    pending.settle(sent[1]!.callId, "/other", undefined, "other");
+    await expect(elsewhere).resolves.toBe("/other");
+  });
+
   it("ignores an answer to a call it does not know", () => {
     const { calls: pending } = calls();
     expect(() => pending.settle("never-asked", "x", undefined, "win")).not.toThrow();

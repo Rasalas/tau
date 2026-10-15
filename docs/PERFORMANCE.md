@@ -2253,3 +2253,61 @@ The work moves to first open: for one 20,000-message thread, catalog time fell f
 Hydration installs the adapter record synchronously before publishing loaded state. Later promise continuations do not install stale records. Controlled real-SQLite tests cover appends and deletion at that boundary across all six public stores, both selected and bulk readers, subsequent mutations and fresh-store contents. Claude summary versions invalidate summaries created before cumulative usage normalization; metadata reads do not publish the accounting marker, and normalized usage rows and that marker commit together.
 
 `node scripts/session-cold-start-benchmark.mjs <output.json>` measures catalog load, first open, first write and RSS while asserting payload isolation and exact message order. The existing `npm run benchmark:sessions -- --check` retains its row-write gates. This follow-up does not raise timing or bundle budgets.
+
+## Startup overload and the lost folder picker, 2026-10-15
+
+On the nightly 0.7.43-nightly.20261015.69, first content appeared 57 s before
+`bootstrap.full-ready`, and the host event loop stayed busy throughout. The log
+held over 6,000 `host.event-loop.stall` entries. While idle, `host.heap.compacted`
+appeared every 0.5 s. A CPU profile of a headless host on the real session stores
+showed three costs:
+
+- `services.sessions.list()` called the runtime's `SessionManager.listAll()`,
+  which parsed every session in full: 189 MB and about 530 ms per call. About
+  20 kits call it.
+- The workspace kit's live-ref sweep ran on every index refresh, so every 30 s.
+  Each workspace got `git for-each-ref`, two lease-folder reads and checkpoint
+  parsing.
+- Each index refresh asked every project for its branch label through the full
+  Git state scan: six Git processes, `status --untracked-files=all` and
+  untracked line counts. The scan cache lasts 30 s, so it had always expired by
+  the next refresh.
+
+`SessionHeaderIndex` (`src/main/session-headers.ts`) reads only the header of
+each session file and caches it by file stamp. On the same stores it returned
+the same 125 sessions as `listAll()` in 3–6 ms. The live-ref sweep now runs
+2 minutes after start and then every 15 minutes. A deleted session's refs are
+still removed at once. The branch label is now one `git branch --show-current`,
+or comes from a scan that is still fresh.
+
+| Headless host, first 100 s | Nightly | After |
+| --- | ---: | ---: |
+| Main thread busy | 49.6 s | 21.6 s |
+| Stalls after first content | 32 (7.3 s) | 8 (1.8 s) |
+| Stalls after 60 s | 17 | 0 |
+
+An isolated window instance using a copy of the same 189 MB session store
+compared the build before and after the branch-label change. Each column is
+a single run, with load average around 15:
+
+| Window instance, first 100 s | Without label change | With it |
+| --- | ---: | ---: |
+| First content → full ready | 4.1 s | 0.9 s |
+| Stalls after first content | 29 (5.2 s) | 6 (1.4 s) |
+| `host.heap.compacted` | 7 | 1 |
+
+### The folder picker
+
+The 600 s "No window answered window/pick-directory" error was not a transport
+loss. macOS's unified log shows the window process starting the open panel
+(`_initBridgeAndStuff`, `beginServicePanel`) when the call arrived. AppKit then
+reported `deferral block timed out after 500ms` and `deferral block executed
+twice`, and brought the panel up a second time. The first panel never answered.
+The user's next attempt 30 s later worked, and the abandoned call failed ten
+minutes after that. In an isolated instance the same AppKit errors appeared and
+the panel still opened, so this cannot be reproduced on demand.
+
+`ClientCalls.pickDirectory` now ends an unanswered folder dialog as cancelled
+once the same window connection asks for another. The window logs
+`window.pick-directory.opened` and `.closed`, so the next case shows whether the
+dialog ever returned.

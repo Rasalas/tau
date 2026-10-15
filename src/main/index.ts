@@ -179,6 +179,8 @@ const hostOptions = {
   warmRuntimeCatalogs: true,
   platform: {
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
+      // A host-side timeout alone cannot tell a lost call from a dialog that never closed.
+      hostLog.info("window.pick-directory.opened", { visible: mainWindow?.isVisible(), minimized: mainWindow?.isMinimized() });
       const result = await dialog.showOpenDialog(mainWindow!, {
         // Electron 43+ opens in Downloads unless told otherwise; start where the last pick ended.
         ...(lastPickedDirectory ? { defaultPath: lastPickedDirectory } : {}),
@@ -187,6 +189,7 @@ const hostOptions = {
         properties: ["openDirectory", ...(options?.createDirectory ? ["createDirectory" as const] : [])],
       });
       const picked = result.filePaths[0];
+      hostLog.info("window.pick-directory.closed", { picked: Boolean(picked) });
       if (picked) lastPickedDirectory = dirname(picked);
       return picked;
     },

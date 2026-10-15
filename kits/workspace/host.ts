@@ -32,7 +32,7 @@ import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditor
 import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, HEAD_CHANGED_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createBranchRequests } from "./branch-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
-import { createWorkspaceKitLifecycle } from "./host-lifecycle.js";
+import { createWorkspaceKitLifecycle, LIVE_REF_SWEEP } from "./host-lifecycle.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
 import { registerAppOpen } from "./app-open.js";
 import { branchBaseConfigKey, captureStartingState, readBranchBase, worktreeSetupCommand } from "./agent-worktrees.js";
@@ -844,6 +844,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         git,
         branch: (project) => labels.get(project),
         revised: (sessionId, checkpoint) => void turnStats.record(sessionId, turnStatOf(checkpoint)),
+        liveRefSweep: LIVE_REF_SWEEP,
       });
       const disposers = [
         services.describeProjects({
@@ -851,7 +852,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           name: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve("No project") : workspaceGit.repositoryDisplayName(project),
           label: async (project) => {
             if (isScratchWorkspace(services.stateDir, project)) return undefined;
-            const branch = await git.getBranch(project);
+            const branch = await git.getHeadBranch(project);
             labels.set(project, branch);
             return branch;
           },
