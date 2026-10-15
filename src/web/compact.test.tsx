@@ -102,9 +102,17 @@ const rowNamed = (title: string) => screen.getAllByRole("button", { name: `Open 
 
 const running = (sessionId: string): HostEvent => ({ type: "agent-status", sessionId, running: true });
 
-// Load the Settings screen and extension API before the tests, so their first
+// Load the compact surfaces and extension API before the tests, so their first
 // imports on a busy machine do not count against findByRole's wait.
-beforeAll(async () => { await Promise.all([import("../renderer/settings/SettingsScreen"), loadTauApi()]); });
+beforeAll(async () => {
+  await Promise.all([
+    import("../renderer/settings/SettingsScreen"),
+    import("../renderer/touch/TouchThreadBrowser"),
+    import("../renderer/touch/TouchLayer"),
+    import("../renderer/touch/PhoneNav"),
+    loadTauApi(),
+  ]);
+});
 beforeEach(() => { window.history.replaceState(null, "", "/"); installPointerEvents(); setViewport(400); archived.length = 0; });
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); setViewport(1024); window.history.replaceState(null, "", "/"); });
 
