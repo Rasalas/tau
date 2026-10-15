@@ -16,7 +16,7 @@ import type { PiHost } from "./pi-host.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
 import { openExternalEditor } from "./external-editor.js";
 import { HostJobRunner, NO_JOB_CONTEXT, type HostMethodContext } from "./host-jobs.js";
-import { isHostOwner, WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
+import { isHostOwner, runAsCaller, WORKBENCH_CLIENT_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import { createConnectionsMethods, type HostConnectionsService } from "./host-connections.js";
 import { createConnectMethods, type HostConnect } from "./host-connect.js";
 import { createHostServiceMethods, type HostServiceManager } from "./host-service.js";
@@ -182,6 +182,8 @@ export interface HostMethodDeps {
   machineRoutes?: MachineKitRoute;
   /** The machine's load, for `host-resources`; absent for a host in the window's process. */
   resources?(): HostResourceSampler | undefined;
+  /** Native clients read capability responses through their authenticated connection. */
+  browserResources?: Pick<import("./host-browser-resources.js").HostBrowserResourceStore, "readForClient">;
   /** Files other machines send here; absent for a host in the window's process. */
   blobs?(): HostBlobStore | undefined;
   /** The machine's own Tau updates (K103); absent for a host in the window's process. */
@@ -189,8 +191,8 @@ export interface HostMethodDeps {
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
-/** Answer with the access key: a job's result is pushed to every client and kept for replay, so these never run as jobs. */
-const SECRET_METHODS = new Set(["connections-host-token", "connections-rotate-host-token"]);
+/** Private results must not become jobs: job results are broadcast and kept for replay. */
+const PRIVATE_RESULT_METHODS = new Set(["connections-host-token", "connections-rotate-host-token", "read-browser-resource"]);
 /** Calls that can wait on a runtime starting or reopening, which outlasts a remote request's timeout on a busy host. */
 const RUNTIME_START_METHODS = ["new-session", "prompt", "steer", "follow-up"];
 
@@ -547,6 +549,11 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     ...createMachineMethods(() => deps.machines?.()),
     ...createMachinePairingMethods({ machines: () => deps.machines?.(), window: () => localWindowPort(deps.clientCalls) }),
     ...createResourceMethods({ resources: () => deps.resources?.(), runtimes: host }),
+    "read-browser-resource": async (params, context) => {
+      const path = decodeString("read-browser-resource", "path", params[0]);
+      if (!deps.browserResources) throw Object.assign(new Error("This machine cannot serve browser resources."), { code: HOST_ERROR.unsupported });
+      return runAsCaller(context.principal, () => deps.browserResources!.readForClient(path));
+    },
     ...createBlobMethods(() => deps.blobs?.()),
     ...createUpdateMethods(() => deps.updates?.()),
 
@@ -569,7 +576,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       const jobParams = params[1] === undefined ? [] : params[1];
       if (!Array.isArray(jobParams)) throw new Error("start-job: params must be an array");
       authorizeMethod(context.principal, method, jobParams);
-      if (SECRET_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
+      if (PRIVATE_RESULT_METHODS.has(method)) throw new Error(`start-job: ${method} cannot run as a job`);
       return { jobId: deps.jobs.start((jobContext) => target(jobParams as unknown[], jobContext), context.principal) };
     },
     "cancel-job": async (params) => ({ cancelled: deps.jobs.cancel(decodeString("cancel-job", "jobId", params[0])) }),
