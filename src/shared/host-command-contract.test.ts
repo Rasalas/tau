@@ -3,6 +3,8 @@ import { HOST_COMMANDS, HOST_TRANSPORT_COMMANDS, type HostCommandName, type Comm
 import { HOST_CORE_COMMANDS } from "./host-core-commands.js";
 import { HOST_FACTORY_COMMANDS } from "./host-factory-commands.js";
 import { HOST_TURN_COMMANDS } from "./host-turn-commands.js";
+import { attachCommandMetadata, command } from "./host-command-definition.js";
+import { HOST_COMMAND_METADATA } from "./host-command-metadata.js";
 import type { ClientTurnIdentity } from "./contracts.js";
 
 // These checks must compile. They never send requests at runtime.
@@ -30,7 +32,29 @@ function checkClientContract(send: CommandClient<"prompt">, move: CommandClient<
 }
 void checkClientContract;
 
+function checkMetadataCoverage() {
+  const policy = { sample: { access: "read" } } as const;
+  const declaration = command<string>()({ decode: () => [] as const });
+  attachCommandMetadata(policy, { sample: declaration });
+  // @ts-expect-error Every policy entry needs a decoder declaration.
+  attachCommandMetadata(policy, {});
+  // @ts-expect-error Decoder declarations cannot introduce unclassified commands.
+  attachCommandMetadata(policy, { sample: declaration, extra: declaration });
+}
+void checkMetadataCoverage;
+
+
 describe("shared turn command contracts", () => {
+  it("attaches the client policy without exposing decoders in the policy catalog", () => {
+    expect(Object.keys(HOST_COMMANDS).sort()).toEqual(Object.keys(HOST_COMMAND_METADATA).sort());
+    for (const name of Object.keys(HOST_COMMAND_METADATA) as HostCommandName[]) {
+      expect(HOST_COMMANDS[name].access).toBe(HOST_COMMAND_METADATA[name].access);
+      expect(HOST_COMMANDS[name].job).toBe(HOST_COMMAND_METADATA[name].job);
+      expect(HOST_COMMAND_METADATA[name]).not.toHaveProperty("decode");
+      expect(HOST_COMMAND_METADATA[name]).not.toHaveProperty("audit");
+    }
+  });
+
   it("declares each command exactly once across the catalog groups", () => {
     const names = [HOST_CORE_COMMANDS, HOST_FACTORY_COMMANDS, HOST_TURN_COMMANDS, HOST_TRANSPORT_COMMANDS].flatMap(Object.keys);
     expect(names.length).toBe(new Set(names).size);

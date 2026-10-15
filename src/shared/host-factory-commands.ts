@@ -1,5 +1,6 @@
+import { HOST_FACTORY_COMMAND_METADATA } from "./host-command-metadata.js";
 import type { TauConfig } from "./contracts.js";
-import { command } from "./host-command-definition.js";
+import { attachCommandMetadata, command } from "./host-command-definition.js";
 import { decodeString, decodeOptionalText, decodeSettingKeys, decodeHostTranscriptCursor } from "./host-command-input.js";
 import { HOST_ERROR } from "./host-transport.js";
 import {
@@ -197,197 +198,153 @@ function whole(method: string, field: string, value: unknown): number {
   return value;
 }
 
-export const HOST_FACTORY_COMMANDS = {
+export const HOST_FACTORY_COMMANDS = attachCommandMetadata(HOST_FACTORY_COMMAND_METADATA, {
   "connections-list": command<UiConnections>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "connections-revoke-others": command<{ revoked: number }>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "connections-reload-certificate": command<{ changed: boolean }>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "connections-host-token": command<{ token: string }>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "connections-rotate-host-token": command<{ token: string }>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "connections-discover": command<UiDiscoveredHosts, [options?: { timeoutMs?: number }]>()({
-    access: "owner",
     decode: (params) => { const { timeoutMs } = decodeObject("connections-discover", params[0]);
     if (timeoutMs !== undefined && (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs))) throw new Error("connections-discover: timeoutMs must be a number.");
     return [typeof timeoutMs === "number" ? { timeoutMs } : {}] as const; },
   }),
   "connections-create-link": command<UiCreatedPairingLink, [input?: { label?: string; lifetimeMs?: number; access?: DeviceAccess }]>()({
-    access: "owner",
     decode: (params) => [decodeLinkInput(params[0])] as const,
   }),
   "connections-revoke-link": command<{ revoked: boolean }>()({
-    access: "owner",
     decode: (params) => [decodeString("connections-revoke-link", "id", params[0])] as const,
   }),
   "connections-revoke-client": command<{ revoked: boolean }>()({
-    access: "owner",
     decode: (params) => [decodeString("connections-revoke-client", "id", params[0])] as const,
   }),
   "connections-deny": command<{ denied: boolean }>()({
-    access: "owner",
     decode: (params) => [decodeString("connections-deny", "id", params[0])] as const,
   }),
   "connections-update-client": command<{ updated: boolean }>()({
-    access: "owner",
     decode: (params) => [decodeString("connections-update-client", "id", params[0]), decodeClientUpdate(params[1])] as const,
   }),
   "connections-approve": command<{ approved: boolean }, [id: string, choice?: { access?: DeviceAccess; label?: string }]>()({
-    access: "owner",
     decode: (params) => [decodeString("connections-approve", "id", params[0]), decodeApproval(params[1])] as const,
   }),
   "connections-set-network": command<UiNetworkAccess>()({
-    access: "owner",
     decode: (params) => [decodeNetworkSettingsInput(params[0])] as const,
   }),
   "connect-status": command<ConnectStatus>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "connect-link": command<{ link: string }>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "connect-remove": command<ConnectStatus>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "connect-configure": command<ConnectStatus>()({
-    access: "owner",
     decode: (params) => { const input = params[0] as ConnectSetup | undefined;
     if (typeof input?.relay !== "string" || typeof input.enrollmentToken !== "string" || input.relay.length > 2_048 || input.enrollmentToken.length > 128) throw new Error("Tau Connect requires a relay address and enrollment token.");
     return [input] as const; },
   }),
   "service-status": command<UiHostService>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "service-allow-sandbox": command<UiHostService>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "service-uninstall": command<UiHostService>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "service-install": command<UiHostService, [options?: { display?: boolean }]>()({
-    access: "owner",
     decode: (params) => { const option = params[0] as { display?: unknown } | undefined;
     return [typeof option?.display === "boolean" ? { display: option.display } : {}] as const; },
   }),
   "host-resources": command<HostResources>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "readiness": command<HostReadiness>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "update-status": command<HostUpdateStatus>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "update-check": command<HostUpdateStatus>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "update-install": command<HostUpdateStatus>()({
-    access: "write",
     audit: { label: "started a Tau update" },
     decode: (_params) => [] as const,
   }),
   "update-settings": command<HostUpdateStatus>()({
-    access: "write",
     audit: { label: "changed automatic updates" },
     decode: (params) => [decodeSettings(params[0])] as const,
   }),
   "blob-put": command<{ received: number }>()({
-    access: "write",
     audit: { label: "sent part of a file", automatic: true, quiet: true },
     decode: (params) => [blobText("blob-put", "id", params[0]), whole("blob-put", "index", params[1]), blobText("blob-put", "data", params[2])] as const,
   }),
   "blob-commit": command<{ id: string; size: number; sha256: string }>()({
-    access: "write",
     audit: { label: "sent a file" },
     decode: (params) => { const sha256 = blobText("blob-commit", "sha256", params[1]);
     if (!/^[0-9a-f]{64}$/iu.test(sha256)) throw failure("blob-commit: sha256 is 64 hex digits.");
     return [blobText("blob-commit", "id", params[0]), sha256, whole("blob-commit", "size", params[2])] as const; },
   }),
   "blob-abort": command<{ aborted: boolean }>()({
-    access: "write",
     audit: { label: "cancelled sending a file", automatic: true },
     decode: (params) => [blobText("blob-abort", "id", params[0])] as const,
   }),
   "machines-list": command<{ machines: HostMachine[] }>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "machines-add": command<{ added: boolean }>()({
-    access: "owner",
     decode: (params) => [decodeMachineEntry(params[0])] as const,
   }),
   "machines-remove": command<{ removed: boolean }>()({
-    access: "owner",
     decode: (params) => [decodeString("machines-remove", "id", params[0])] as const,
   }),
   "machines-overview": command<MachinesOverview>()({
-    access: "owner",
     decode: (_params) => [] as const,
   }),
   "machines-pair": command<MachinePairResult, [input: { link: string; agents?: boolean; name?: string; id?: string }]>()({
-    access: "owner",
     decode: (params) => [decodePairInput(params[0])] as const,
   }),
   "machines-update": command<{ id: string; name: string; update: HostUpdateStatus }, [machine: string, action?: "status" | "check" | "install"]>()({
-    access: "owner",
     decode: (params) => { const action = params[1] ?? "install";
     if (action !== "status" && action !== "check" && action !== "install") throw failure("machines-update: action must be status, check or install.");
     return [decodeString("machines-update", "machine", params[0]), action] as const; },
   }),
   "machines-forget": command<{ id: string; name: string; window: boolean; agents: boolean }>()({
-    access: "owner",
     decode: (params) => [decodeString("machines-forget", "machine", params[0])] as const,
   }),
   "environments-list": command<UiEnvironments>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "environments-discover": command<UiDiscoveredHosts>()({
-    access: "write",
     audit: { label: "looked for machines" },
     decode: (_params) => [] as const,
   }),
   "environments-wsl-list": command<string[]>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "environments-cancel-pairing": command<void>()({
-    access: "write",
     audit: { label: "cancelled pairing a machine" },
     decode: (_params) => [] as const,
   }),
   "environments-take-arrival": command<EnvironmentTarget | null>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "environments-person-preferences": command<PersonPreferences>()({
-    access: "read",
     decode: (_params) => [] as const,
   }),
   "environments-pair": command<EnvironmentPairResult>()({
-    access: "write",
     audit: { label: "paired a machine" },
     decode: (params) => { const input = params[0] as { text?: unknown; nearby?: unknown; ssh?: unknown; wsl?: unknown; deviceName?: unknown; agents?: unknown } | undefined;
     const decoded: EnvironmentPairInput = {
@@ -399,87 +356,71 @@ export const HOST_FACTORY_COMMANDS = {
     }; return [decoded] as const; },
   }),
   "environments-set-preferences": command<void, [preferences: EnvironmentPreferences]>()({
-    access: "write",
     audit: { label: "changed machine preferences" },
     decode: (params) => { const input = params[0] as { reopenShown?: unknown } | undefined;
     if (typeof input?.reopenShown !== "boolean") throw failure("environments-set-preferences: reopenShown must be a boolean.");
     return [{ reopenShown: input.reopenShown }] as const; },
   }),
   "environments-set-agents": command<EnvironmentAgentsResult>()({
-    access: "write",
     audit: { label: "changed where this machine's agents may work" },
     decode: (params) => { if (typeof params[1] !== "boolean") throw failure("environments-set-agents: on must be a boolean."); return [environmentText("environments-set-agents", "id", params[0], 200), params[1]] as const; },
   }),
   "environments-watch-thread": command<UiEnvironmentThreadView | null>()({
-    access: "read",
     decode: (params) => { if (typeof params[2] !== "boolean") throw failure("environments-watch-thread: on must be a boolean."); return [environmentText("environments-watch-thread", "machine", params[0], 200), environmentText("environments-watch-thread", "sessionId", params[1], 512), params[2]] as const; },
   }),
   "environments-extension-follow": command<void>()({
-    access: "read",
     decode: (params) => { if (typeof params[2] !== "boolean") throw failure("environments-extension-follow: on must be a boolean."); return [environmentText("environments-extension-follow", "machine", params[0], 200), environmentText("environments-extension-follow", "extensionId", params[1], 200), params[2]] as const; },
   }),
   "environments-rename": command<{ renamed: boolean }>()({
-    access: "write",
     audit: { label: "renamed a machine" },
     decode: (params) => [environmentText("environments-rename", "id", params[0], 200), environmentText("environments-rename", "name", params[1], 80)] as const,
   }),
   "environments-remove": command<{ removed: boolean }>()({
-    access: "write",
     audit: { label: "removed a machine" },
     decode: (params) => [environmentText("environments-remove", "id", params[0], 200)] as const,
   }),
   "environments-retry": command<void>()({
-    access: "write",
     audit: { label: "reconnected a machine" },
     decode: (params) => [environmentText("environments-retry", "id", params[0], 200)] as const,
   }),
   "environments-config": command<ConfigLayers>()({
-    access: "read",
     decode: (params) => [environmentText("environments-config", "machine", params[0], 200)] as const,
   }),
   "environments-clear-config": command<TauConfig, [machine: string, keys: readonly string[]]>()({
-    access: "write",
     audit: { label: "reset another machine's settings" },
     decode: (params) => [environmentText("environments-clear-config", "machine", params[0], 200), decodeSettingKeys("environments-clear-config", "keys", params[1])] as const,
   }),
   "environments-transcript-page": command<TranscriptPage>()({
-    access: "read",
     decode: (params) => [environmentText("environments-transcript-page", "machine", params[0], 200), environmentText("environments-transcript-page", "sessionId", params[1], 512), decodeHostTranscriptCursor("environments-transcript-page", "cursor", params[2])] as const,
   }),
   "environments-extension-read": command<unknown>()({
-    access: "read",
     decode: (params) => [environmentText("environments-extension-read", "machine", params[0], 200), environmentText("environments-extension-read", "extensionId", params[1], 200), environmentText("environments-extension-read", "command", params[2], 200), params[3]] as const,
   }),
   "environments-open": command<void>()({
-    access: "write",
     audit: { label: "opened a machine" },
     decode: (params) => { const target = params[1] === undefined ? undefined : decodeEnvironmentOpenTarget(params[1]);
     return [environmentText("environments-open", "id", params[0], 200), target] as const; },
   }),
   "environments-update": command<HostUpdateStatus>()({
-    access: "write",
     audit: { label: "updated a machine's Tau" },
     decode: (params) => { const action = params[1]; const automatic = (action as { automatic?: unknown } | null)?.automatic;
     if (action !== "status" && action !== "check" && action !== "install" && typeof automatic !== "boolean") throw failure("environments-update: action must be status, check, install or { automatic }.");
     return [environmentText("environments-update", "machine", params[0], 200), typeof automatic === "boolean" ? { automatic } : action as "status" | "check" | "install"] as const; },
   }),
   "environments-set-person-preferences": command<PersonPreferences>()({
-    access: "write",
     audit: { label: "changed how the workbench looks", automatic: true, quiet: true },
     decode: (params) => { if (params[0] === null || typeof params[0] !== "object" || Array.isArray(params[0])) throw failure("environments-set-person-preferences: patch must be an object.");
     return [personPreferences(params[0])] as const; },
   }),
   "environments-update-config": command<TauConfig>()({
-    access: "write",
     audit: { label: "changed another machine's settings" },
     decode: (params) => { if (params[1] === null || typeof params[1] !== "object" || Array.isArray(params[1])) throw failure("environments-update-config: patch must be an object.");
     return [environmentText("environments-update-config", "machine", params[0], 200), params[1] as Record<string, unknown>] as const; },
   }),
   "environments-extension-invoke": command<unknown>()({
-    access: "write",
     audit: { label: "ran a command on another machine" },
     decode: (params) => { const options = params[4];
     if (options !== undefined && (options === null || typeof options !== "object" || Array.isArray(options) || ("timeoutMs" in options && (typeof options.timeoutMs !== "number" || !Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)))) throw failure("environments-extension-invoke: options must contain a positive timeoutMs.");
     return [environmentText("environments-extension-invoke", "machine", params[0], 200), environmentText("environments-extension-invoke", "extensionId", params[1], 200), environmentText("environments-extension-invoke", "command", params[2], 200), params[3], options as { timeoutMs?: number } | undefined] as const; },
   }),
-};
+});

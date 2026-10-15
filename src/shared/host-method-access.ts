@@ -1,4 +1,4 @@
-import { HOST_COMMANDS, type HostCommandName } from "./host-command-contract.js";
+import { HOST_COMMAND_METADATA, type HostCommandName } from "./host-command-metadata.js";
 /**
  * What each host method does, for a device paired Read only (ADR 0024).
  * `read` only looks; `write` changes something on the host, runs something,
@@ -11,7 +11,7 @@ import { HOST_COMMANDS, type HostCommandName } from "./host-command-contract.js"
 export type MethodAccess = "read" | "write" | "owner";
 
 export const HOST_METHOD_ACCESS: Readonly<Record<string, MethodAccess>> = Object.fromEntries(
-  Object.entries(HOST_COMMANDS).map(([name, declaration]) => [name, declaration.access]),
+  Object.entries(HOST_COMMAND_METADATA).map(([name, declaration]) => [name, declaration.access]),
 );
 
 export function methodAccess(method: string): MethodAccess {

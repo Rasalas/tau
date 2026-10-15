@@ -120,9 +120,13 @@ rather than substituting the currently active project.
 ## Amendment, 2026-10-14: shared command declarations
 
 Core commands are declared under `src/shared/host-*-commands.ts`. Each
-declaration owns the parameter decoder, result type, access level, job flag
-and audit metadata. The host binds implementations against the decoded tuple;
-HostClient derives its method arguments and results from the same declaration.
+declaration owns the parameter decoder, result type and audit metadata.
+`host-command-metadata.ts` owns access levels and job flags; the type system
+requires a matching declaration for every metadata entry in each command group.
+The host combines both and binds implementations against the decoded tuple.
+HostClient derives its method arguments and results from the same declaration,
+but imports only the small metadata table at runtime. Importing the full catalog
+would ship every host decoder to the client and exceed the bundle budgets.
 The positional arrays and version 1 transport remain compatible with existing
 clients.
 

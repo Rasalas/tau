@@ -10,6 +10,8 @@ const LUCIDE_ICON = /\/lucide-react\/dist\/esm\/icons\/([\w-]+)\.mjs$/u;
 export const COMMON_MODULES = [
   "shared/runtime-version.ts",
   "shared/host-updates.ts",
+  "shared/background-work.ts",
+  "workbench/thread-row-status.ts",
   "workbench/host-update-store.ts",
   "renderer/runtime-models.ts",
   "renderer/machine-updates.ts",
@@ -19,6 +21,7 @@ export const COMMON_MODULES = [
   "renderer/pairing/pairing-format.ts",
   "renderer/touch/sheet-drag.ts",
   "renderer/components/composer-fold.ts",
+  "renderer/components/when-pick.ts",
   "renderer/components/VirtualList.tsx",
   "renderer/components/ChangesTree.tsx",
   "renderer/components/ui/Feedback.tsx",
@@ -131,8 +134,8 @@ export const rendererBuild = {
         return entry.modules.has(id) ? undefined : "common";
       }
       // Pairing stays lazy unless the entry itself needs one of its helpers.
-      // Host command validation also reads managed routes: forcing that helper
-      // into this chunk would make the entry and pairing import each other.
+      // Forcing an entry dependency into this chunk would make the entry and
+      // pairing import each other.
       if (/\/src\/web\/connect\/(?:offer|socket|storage)\.ts$|\/src\/shared\/managed-connections\.ts$/u.test(id)) return entry.modules.has(id) ? undefined : "browser-connect";
       // These surfaces are loaded together on compact clients. One lazy chunk
       // avoids repeated imports and keeps message sheets out of the entry.

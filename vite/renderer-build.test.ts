@@ -104,12 +104,9 @@ describe("rendererBuild.output.manualChunks, browser client", () => {
     expect(chunk("/repo/src/web/main.tsx")).toBeUndefined();
   });
 
-  it("keeps a pairing helper in the entry when command validation imports it statically", () => {
+  it("keeps a pairing helper in the entry when the client also imports it statically", () => {
     const graph = meta({
-      "/repo/src/web/main.tsx": { isEntry: true, importedIds: ["/repo/src/workbench/host-client.ts"] },
-      "/repo/src/workbench/host-client.ts": { importedIds: ["/repo/src/shared/host-command-contract.ts"] },
-      "/repo/src/shared/host-command-contract.ts": { importedIds: ["/repo/src/shared/host-factory-commands.ts"] },
-      "/repo/src/shared/host-factory-commands.ts": { importedIds: ["/repo/src/shared/managed-connections.ts", "/repo/src/shared/connections.ts"] },
+      "/repo/src/web/main.tsx": { isEntry: true, importedIds: ["/repo/src/shared/managed-connections.ts", "/repo/src/shared/connections.ts"] },
       "/repo/src/shared/managed-connections.ts": {},
       "/repo/src/shared/connections.ts": {},
       // The offer also uses connections from the entry, so moving the helper

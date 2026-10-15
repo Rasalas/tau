@@ -1,4 +1,5 @@
-import { HOST_COMMANDS, type HostCommandName, type CommandArgs, type CommandResult, type CommandClient } from "../shared/host-command-contract";
+import type { HostCommandName, CommandArgs, CommandResult, CommandClient } from "../shared/host-command-contract";
+import { HOST_COMMAND_METADATA } from "../shared/host-command-metadata";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu";
 import type { HostUpdateStatus } from "../shared/host-updates";
 import type { HostEvent } from "../shared/contracts";
@@ -295,7 +296,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
   const commandCall = <Name extends HostCommandName>(method: Name, ...[params]: [] extends CommandArgs<Name> ? [params?: CommandArgs<Name>] : [params: CommandArgs<Name>]): Promise<CommandResult<Name>> => {
     const target = route(method);
     if (refused(target, method)) return Promise.reject(readOnlyRefusal());
-    return HOST_COMMANDS[method].job && target.isJobMethod(method)
+    return HOST_COMMAND_METADATA[method].job && target.isJobMethod(method)
       ? target.runJob<CommandResult<Name>>(method, params ?? [])
       : target.request<CommandResult<Name>>(method, params ?? []);
   };
