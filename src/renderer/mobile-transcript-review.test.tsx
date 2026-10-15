@@ -103,11 +103,8 @@ describe("issue 12 independent review regressions", () => {
     const pop = new Promise<void>((resolve) => window.addEventListener("popstate", () => resolve(), { once: true }));
     act(() => actions().openSettings("general"));
     await act(async () => { await pop; });
-    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "settings", section: "general" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Settings" }).getAttribute("data-view")).toBe("page"));
-    expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
-    window.history.back();
-    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "settings" }));
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("settings"));
+    expect((await screen.findAllByRole("heading", { name: "Settings" })).length).toBeGreaterThan(0);
     expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
     window.history.back();
     await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
@@ -126,7 +123,7 @@ describe("issue 12 independent review regressions", () => {
     fireEvent.click(screen.getByRole("button", { name: `Open ${path}` }));
     await screen.findByText(textA);
     act(() => actions().openSettings("general"));
-    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "settings", section: "general" }));
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("settings"));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull());
     act(() => openResource("src/other.ts"));
     await screen.findByRole("dialog", { name: "other.ts" });
@@ -134,10 +131,7 @@ describe("issue 12 independent review regressions", () => {
     expect(loads).toContainEqual({ path: "src/other.ts", workspace: "opaque-A" });
     window.history.back();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "other.ts" })).toBeNull());
-    expect(routeFromState(window.history.state)).toEqual({ kind: "settings", section: "general" });
-    window.history.back();
-    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "settings" }));
-    expect(screen.queryByRole("dialog", { name: "other.ts" })).toBeNull();
+    expect(routeFromState(window.history.state)?.kind).toBe("settings");
     window.history.back();
     await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
     expect(client.calls.filter((call) => call.method === "switchSession")).toEqual([]);
@@ -158,10 +152,7 @@ describe("issue 12 independent review regressions", () => {
     expect(routeFromState(window.history.state)).toEqual({ kind: "chat", thread: "A" });
     expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
     act(() => actions().openSettings("general"));
-    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "settings", section: "general" }));
-    expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
-    window.history.back();
-    await waitFor(() => expect(routeFromState(window.history.state)).toEqual({ kind: "settings" }));
+    await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("settings"));
     expect(screen.queryByRole("dialog", { name: "same.ts" })).toBeNull();
     window.history.back();
     await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));

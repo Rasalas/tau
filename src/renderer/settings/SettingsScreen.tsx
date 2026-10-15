@@ -237,8 +237,9 @@ export function SettingsScreen({
   useEffect(() => {
     if (!anchor) return;
     setScrollTarget(anchor);
+    if (onViewChange) onViewChange("page"); else setOwnShowingPage(true);
     onSetPage(page);
-  }, [anchor, onSetPage, page]);
+  }, [anchor, onSetPage, onViewChange, page]);
   // A page by an older name, or a runtime's card by its kit's id, is shown and kept under the page it became.
   const renamed = requested !== (target.split("#", 1)[0] || "general");
   useEffect(() => {

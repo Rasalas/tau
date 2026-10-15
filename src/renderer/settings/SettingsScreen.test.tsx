@@ -478,6 +478,35 @@ describe("the page head", () => {
 });
 
 describe("Settings on a phone (design 1s)", () => {
+  it.each([false, true])("opens an anchored updates link from the section list with controlled view %s", async (controlled) => {
+    const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore() });
+    const onSetPage = vi.fn();
+    function Harness() {
+      const [page, setPage] = useState("about");
+      const [view, setView] = useState<"sections" | "page">("sections");
+      return <>
+        <button type="button" onClick={() => setPage("about#setting-check-for-updates")}>Open updates</button>
+        <SettingsScreen
+          page={page}
+          stacked
+          {...(controlled ? { view, onViewChange: setView } : {})}
+          registry={registry}
+          onSetPage={(next) => { onSetPage(next); setPage(next); }}
+          onClose={vi.fn()}
+          onNotify={vi.fn()}
+        />
+      </>;
+    }
+    render(<HostClientProvider client={undefined}><TestProviders><Harness /></TestProviders></HostClientProvider>);
+    const settings = screen.getByRole("dialog", { name: "Settings" });
+    await waitFor(() => expect(settings.getAttribute("data-view")).toBe("sections"));
+    fireEvent.click(screen.getByRole("button", { name: "Open updates" }));
+    await waitFor(() => expect(settings.getAttribute("data-view")).toBe("page"));
+    await waitFor(() => expect(onSetPage).toHaveBeenCalledWith("about"));
+    expect(settings.querySelector(".settings-content")?.getAttribute("data-page")).toBe("about");
+    expect(settings.querySelector("#setting-check-for-updates")).toBeTruthy();
+  });
+
   it("lists the sections as cards with their values, leaves the keys out, and says where keys live", async () => {
     const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile: "compact" });
     await registry.activate({ id: "test.machines", name: "Machines", activate(context) {
