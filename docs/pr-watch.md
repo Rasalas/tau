@@ -25,7 +25,21 @@ covers instead of asking again, and unwatches a PR before it merges or closes
 it itself, so its own merge does not wake the thread.
 
 The host checks once a minute using one compact GraphQL read per PR. Threads
-watching the same PR share that read. All checks finishing, a check failing,
+watching the same PR share that read. Between those reads, while a PR's checks
+run, the host probes its head commit (`refs/pull/N/head`) with conditional
+REST reads of its check runs and statuses (`If-None-Match`; GitHub counts a
+304 against no rate limit). The probe paces itself by when the checks usually
+finish: the end of each workflow run's stages, from the usual job durations
+the pipeline view reads (the median of recent successful runs on the default
+branch). Before about 90 seconds ahead of that end it does not probe at all;
+from then until three minutes past it, every 10 seconds; without a usual end
+or once the run is overdue, every 30 seconds. After a new head with no checks
+yet it looks for the first ones for three minutes. When a probe sees checks
+finish, a new failure, checks starting or a new head, that PR is read at once,
+so its wake follows seconds after the last check ends rather than up to a
+minute. A probe whose answer the full read does not confirm (between two
+stages every check that exists is done while the run is not) asks once per
+answer, not on every step. All checks finishing, a check failing,
 new comments or reviews, a new branch conflict, and merge or close produce a
 marked wake. One poll sends a thread at most one wake: it names every watched
 PR that changed and the outcome of finished checks ("checks passed" or "checks

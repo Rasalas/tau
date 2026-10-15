@@ -1,5 +1,5 @@
 import { HostCommandError } from "tau/host-extension";
-import { PROVIDERS, type MergeOutcome, type PullRequestLabel, type PullRequestRef, type PullRequestViewedState } from "./protocol.js";
+import { PROVIDERS, type MergeOutcome, type PullRequestCheck, type PullRequestLabel, type PullRequestRef, type PullRequestViewedState } from "./protocol.js";
 import type { ChangedFileEntry, ProviderTools, SourceControlProvider } from "./provider.js";
 import { readFileText } from "./provider-file.js";
 import { listCall, pullRequestCalls } from "./pull-request-cli.js";
@@ -8,6 +8,7 @@ import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThre
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { createGitHubStacks } from "./github-stacks.js";
 import { createGitHubPipelines } from "./github-pipeline.js";
+import { createCheckProbe } from "./github-check-probe.js";
 import { GITHUB_BRANCH_FIELDS, parseGitHubBranchRequest } from "./branch-request-json.js";
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs, SERVICES } from "./request-cli.js";
 
@@ -17,6 +18,10 @@ export const FILE_BUFFER = 4 * 1024 * 1024;
 const LIST_BUFFER = 32 * 1024 * 1024;
 /** Pages of 100 read at most per connection: 3,000 threads or files. */
 const MAX_PAGES = 30;
+/** How long a request's checks are served again while their ETags stay the same. */
+const CHECKS_REUSE_MS = 5 * 60_000;
+/** Requests whose checks are kept that way; the oldest is forgotten first. */
+const CHECKS_HELD = 100;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
@@ -112,6 +117,24 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
   }, true);
 
   const stacks = createGitHubStacks(tools);
+  const probe = createCheckProbe();
+  const rollups = new Map<string, { tag: string; at: number; checks: PullRequestCheck[] }>();
+  /**
+   * The checks as the rollup names them, read again only when a conditional
+   * read of the head's check runs and statuses has news (a 304 costs no quota)
+   * or the last read is a few minutes old.
+   */
+  const checks = async (ref: PullRequestRef): Promise<PullRequestCheck[]> => {
+    const seen = await probe(tools.cli, ref).catch(() => undefined);
+    const tag = seen && !seen.partial ? seen.tag : "";
+    const held = rollups.get(ref.url);
+    if (tag && held?.tag === tag && tools.now() - held.at < CHECKS_REUSE_MS) return held.checks;
+    const read = parseGitHubChecks(record(JSON.parse(await cli(ref, pullRequestCalls.checks(ref), `Reading the checks of ${noun(ref)}`))).statusCheckRollup);
+    rollups.delete(ref.url);
+    if (tag) rollups.set(ref.url, { tag, at: tools.now(), checks: read });
+    while (rollups.size > CHECKS_HELD) rollups.delete(rollups.keys().next().value!);
+    return read;
+  };
 
   const provider: SourceControlProvider = {
     kind,
@@ -165,7 +188,7 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       return markBotComments(parseGitHubDetail(ref, view), bots);
     },
     pipeline: createGitHubPipelines(tools),
-    checks: async (ref) => parseGitHubChecks(record(JSON.parse(await cli(ref, pullRequestCalls.checks(ref), `Reading the checks of ${noun(ref)}`))).statusCheckRollup),
+    checks,
     threads: async (ref, fresh) => (await threads(ref, fresh)).threads,
     changes: async (ref): Promise<ChangedFileEntry[]> => {
       try {

@@ -169,6 +169,26 @@ export function checksPipelines(checks: readonly PullRequestCheck[], facts: Pipe
   });
 }
 
+/** How often running checks are read while they are about to finish. */
+export const NEAR_MS = 10_000;
+/** How long before their usual end that begins. */
+const LEAD_MS = 90_000;
+/** How long after it, before a run counts as overdue and is read at the ordinary pace again. */
+const OVERRUN_MS = 3 * 60_000;
+
+/**
+ * When to look at running checks next: rarely while their usual end is well
+ * ahead (`far` at most, never past the moment the lead begins), every
+ * `NEAR_MS` from shortly before it until a while after, and every
+ * `otherwise` without a usual end or once the run is overdue.
+ */
+export function checkDelay(end: number | undefined, now: number, far: number, otherwise: number): number {
+  if (end === undefined) return otherwise;
+  const near = end - LEAD_MS;
+  if (now < near) return Math.max(NEAR_MS, Math.min(far, near - now));
+  return now <= end + OVERRUN_MS ? NEAR_MS : otherwise;
+}
+
 /** A local check's run, as Project Scripts reports it. */
 export interface ScriptRunLike {
   name: string;
@@ -192,6 +212,64 @@ export function runsPipeline(runs: readonly ScriptRunLike[]): Pipeline {
 }
 
 const DONE = new Set<JobState>(["passed", "failed", "cancelled", "skipped"]);
+
+/**
+ * When the checks will usually have finished: per workflow run, its stages
+ * one after the other, each ending with its slowest job, a job taking its
+ * usual duration from when it started or could start. Jobs the file declares
+ * in later stages that have no check yet count too, where their usual
+ * duration is known. The
+ * end can lie in the past while a job runs longer than usual. Undefined while
+ * a job that is not done has no usual duration, a check belongs to no
+ * workflow run and is not done, or there are no checks.
+ */
+export function expectedEnd(checks: readonly PullRequestCheck[], facts: PipelineFacts, now: number): number | undefined {
+  const runs = new Map<string, PullRequestCheck[]>();
+  for (const check of checks) {
+    const id = runIdOf(check.url);
+    if (!id) {
+      if (!DONE.has(checkState(check))) return undefined;
+      continue;
+    }
+    runs.set(id, [...runs.get(id) ?? [], check]);
+  }
+  let end: number | undefined;
+  for (const [id, group] of runs) {
+    const known = facts[id];
+    const declared = known?.jobs ?? [];
+    const levels = stageLevels(declared);
+    const stages: { startedAt?: number; endedAt?: number; expectedMs?: number; done: boolean }[][] = [];
+    const seen = new Set<string>();
+    for (const check of group) {
+      const name = check.workflow && check.name.startsWith(`${check.workflow} / `) ? check.name.slice(check.workflow.length + 3) : check.name;
+      const job = jobFor(name, declared);
+      if (job) seen.add(job.id);
+      (stages[levels.get(job?.id ?? "") ?? 0] ??= []).push({
+        startedAt: time(check.startedAt), endedAt: time(check.completedAt), expectedMs: known?.expected[name], done: DONE.has(checkState(check)),
+      });
+    }
+    // A declared job without a check below the last stage that has one was skipped; one after it is still to come.
+    const reached = stages.length - 1;
+    for (const job of declared) {
+      const expectedMs = known?.expected[job.name ?? job.id];
+      const level = levels.get(job.id) ?? 0;
+      if (!seen.has(job.id) && expectedMs && level > reached) (stages[level] ??= []).push({ expectedMs, done: false });
+    }
+    let from = Math.min(now, ...group.flatMap((check) => time(check.startedAt) ?? []));
+    for (const stage of stages.filter(Boolean)) {
+      let last = from;
+      for (const job of stage) {
+        if (job.done) { last = Math.max(last, job.endedAt ?? from); continue; }
+        if (!job.expectedMs) return undefined;
+        // A job running longer than usual leaves the end in the past; a job yet to start starts now at the earliest.
+        last = Math.max(last, (job.startedAt ?? Math.max(from, now)) + job.expectedMs);
+      }
+      from = last;
+    }
+    end = Math.max(end ?? from, from);
+  }
+  return end;
+}
 
 /** How far a job is, 0 to 1; undefined for a running job without a usual duration to measure against. */
 export function jobProgress(job: PipelineJob, now: number): number | undefined {

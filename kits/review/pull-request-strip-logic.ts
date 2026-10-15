@@ -1,5 +1,6 @@
 import type { ClientStorage, UiReviewRequestChecks } from "tau";
-import type { RequestService, ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
+import type { PullRequestCheck, RequestService, ReviewRequest, ThreadPullRequestLink } from "./protocol.js";
+import { checksUnfinished } from "./pull-request-logic.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import type { PullRequestWatch } from "./pr-watch-protocol.js";
 
@@ -158,6 +159,25 @@ export function checksPulse(request: StripRequest, watch?: PullRequestWatch): st
   const { checks } = request, read = liveWatch(watch) ? watch.baseline : undefined;
   return JSON.stringify([request.state, request.headSha, checks?.passed, checks?.failed, checks?.pending, checks?.total,
     read?.head, read?.checks, read?.failed?.map((check) => check.id)]);
+}
+
+/** A finished answer's last check ended this long ago, or it came this long ago, before it is believed. */
+export const SETTLE_MS = 60_000;
+/** An empty answer counts as a request without checks once it has come this long. */
+export const EMPTY_MS = 2 * 60_000;
+
+/**
+ * Whether checks with none running can be believed done, `quietSince` being
+ * when the answers stopped naming one. Right after a push GitHub answers
+ * with no checks for a while, and between two stages of a run every check it
+ * names is done, so a fresh finished answer is read again before the chip
+ * stops asking. A check without an end time is believed at once.
+ */
+export function checksSettled(checks: readonly PullRequestCheck[], now: number, quietSince: number): boolean {
+  if (checksUnfinished(checks)) return false;
+  if (!checks.length) return now - quietSince >= EMPTY_MS;
+  const last = Math.max(...checks.map((check) => Date.parse(check.completedAt ?? "") || 0));
+  return now - last >= SETTLE_MS || now - quietSince >= SETTLE_MS;
 }
 
 /** What a hidden strip stays hidden for: the same request in the same state. */

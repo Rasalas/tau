@@ -3,17 +3,17 @@ import type { SettlementSource } from "./settlement.js";
 import { PublicationStrip } from "./publication-strip.js";
 import { PullRequestWatchControl } from "./pr-watch-control.js";
 import type { PullRequestWatchFeed } from "./pr-watch-client.js";
-import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { CircleAlert, CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
 import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps, type TranscriptRowsHandle, type WorkbenchActions } from "tau";
 import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck, type ThreadPullRequestLink } from "./protocol.js";
-import { checksPipelines } from "./pipeline.js";
+import { checkDelay, checksPipelines, expectedEnd, NEAR_MS, type PipelineFacts } from "./pipeline.js";
 import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { checksRollup, checksSummary, checksUnfinished } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
 import { openPullRequest, openThreadPullRequests } from "./pull-request-open.js";
-import { STRIP_OPTION, StripDismissals, checksPulse, requestEndings, stripEnded, stripRequests, watchTally, watchedRequests, type RequestEnding, type StripRequest, type StripState, type WatchTone } from "./pull-request-strip-logic.js";
+import { STRIP_OPTION, StripDismissals, checksPulse, checksSettled, requestEndings, stripEnded, stripRequests, watchTally, watchedRequests, type RequestEnding, type StripRequest, type StripState, type WatchTone } from "./pull-request-strip-logic.js";
 import type { PullRequestWatch } from "./pr-watch-protocol.js";
 import { useChangeCount, usePresence, type Presence } from "./strip-motion.js";
 import { useRequestLifecycle } from "./request-lifecycle.js";
@@ -36,8 +36,10 @@ export interface StripParts {
   endings?: TranscriptRowsHandle;
 }
 
-/** As often as the open request's view asks while checks run. */
+/** As often as the open request's view asks while checks run without a usual end. */
 const LIVE_MS = 20_000;
+/** How rarely running checks are read while their usual end is still well ahead. */
+const FAR_MS = 60_000;
 
 const STATE_WORDS: Record<StripState, string> = { open: "Open", draft: "Draft", merged: "Merged", closed: "Closed" };
 const shared = { dismissals: undefined as StripDismissals | undefined };
@@ -56,15 +58,17 @@ function ChecksIcon({ tone }: { tone: "passed" | "failed" | "pending" }) {
 
 /** Reads a finished pipeline is shown from, so switching threads asks nothing new. */
 const FINISHED_MS = 5 * 60_000;
-const seen = new WeakMap<PullRequestClient, Map<string, { at: number; revision: string; checks: PullRequestCheck[] }>>();
+const seen = new WeakMap<PullRequestClient, Map<string, { at: number; revision: string; checks: PullRequestCheck[]; quietSince?: number }>>();
 
 /**
- * The request's checks: read once, then while the last answer still had some
- * running and the window is visible, and again whenever its pulse changes (a
- * push, new counts, its watch's last read). The previous answer stays on the
- * chip while the next one loads.
+ * The request's checks: read once, then while they run and the window is
+ * visible, and again whenever its pulse changes (a push, new counts, its
+ * watch's last read). While they run, rarely when their usual end is well
+ * ahead and every few seconds around it; a finished answer is read again
+ * until it settles. The previous answer stays on the chip while the next one
+ * loads.
  */
-function useLiveChecks(client: PullRequestClient | undefined, request: StripRequest, revision: string): PullRequestCheck[] | undefined {
+function useLiveChecks(client: PullRequestClient | undefined, request: StripRequest, revision: string, facts: { readonly current: PipelineFacts | undefined }): PullRequestCheck[] | undefined {
   const { url, checks: counted } = request;
   const pending = Boolean(counted?.pending);
   const [read, setRead] = useState<{ client: PullRequestClient; url: string; checks: PullRequestCheck[] }>();
@@ -74,23 +78,24 @@ function useLiveChecks(client: PullRequestClient | undefined, request: StripRequ
     if (!cache) { cache = new Map(); seen.set(client, cache); }
     const known = cache.get(url);
     if (known?.revision === revision) setRead({ client, url, checks: known.checks });
-    if (known?.revision === revision && !pending && !checksUnfinished(known.checks) && Date.now() - known.at < FINISHED_MS) return;
+    if (known?.revision === revision && !pending && known.quietSince !== undefined && checksSettled(known.checks, Date.now(), known.quietSince) && Date.now() - known.at < FINISHED_MS) return;
     let live = true;
-    let reading = false;
     let timer = 0;
+    const later = (ms: number) => { timer = window.setTimeout(() => { if (document.visibilityState === "visible") ask(); else later(LIVE_MS); }, ms); };
     const ask = () => {
-      if (reading) return;
-      reading = true;
       client.checks(url).then((checks) => {
         if (!live) return;
-        cache.set(url, { at: Date.now(), revision, checks });
+        const now = Date.now();
+        const before = cache.get(url);
+        const quietSince = checksUnfinished(checks) ? undefined : before?.revision === revision && before.quietSince !== undefined ? before.quietSince : now;
+        cache.set(url, { at: now, revision, checks, ...(quietSince !== undefined ? { quietSince } : {}) });
         setRead({ client, url, checks });
-        if (!checksUnfinished(checks)) window.clearInterval(timer);
-      }, () => undefined).finally(() => { reading = false; });
+        if (quietSince === undefined) later(checkDelay(expectedEnd(checks, facts.current ?? {}, now), now, FAR_MS, LIVE_MS));
+        else if (!checksSettled(checks, now, quietSince)) later(NEAR_MS);
+      }, () => { if (live) later(LIVE_MS); });
     };
     ask();
-    timer = window.setInterval(() => { if (document.visibilityState === "visible") ask(); }, LIVE_MS);
-    return () => { live = false; window.clearInterval(timer); };
+    return () => { live = false; window.clearTimeout(timer); };
   }, [client, url, pending, revision]);
   return read && read.client === client && read.url === url ? read.checks : undefined;
 }
@@ -99,8 +104,11 @@ const TONES = { failing: "failed", pending: "pending", passing: "passed" } as co
 
 function StripChecks({ request, watch, client, open }: { request: StripRequest; watch?: PullRequestWatch; client: PullRequestClient | undefined; open(): void }) {
   const counted = checksTone(request.checks);
-  const live = useLiveChecks(client, request, checksPulse(request, watch));
+  // The usual durations pace the next read; they arrive after the first one.
+  const factsRef = useRef<PipelineFacts | undefined>(undefined);
+  const live = useLiveChecks(client, request, checksPulse(request, watch), factsRef);
   const facts = usePipelineFacts(client, request.url, live ?? []);
+  useEffect(() => { factsRef.current = facts; }, [facts]);
   const rollup = live ? checksRollup(live) : undefined;
   const tone = rollup ? TONES[rollup] : counted;
   // A changed outcome pops the chip once, ringed in its new colour.

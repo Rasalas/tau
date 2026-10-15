@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { usualDurations } from "./github-pipeline.js";
-import { checksPipelines, formatDuration, jobFor, jobProgress, jobTiming, median, runIdOf, runsPipeline, stageLevels, stageProgress, stageState, workflowJobs, type JobState } from "./pipeline.js";
+import { checkDelay, checksPipelines, expectedEnd, formatDuration, NEAR_MS, jobFor, jobProgress, jobTiming, median, runIdOf, runsPipeline, stageLevels, stageProgress, stageState, workflowJobs, type JobState } from "./pipeline.js";
 import type { PullRequestCheck } from "./protocol.js";
 
 const WORKFLOW = `
@@ -171,5 +171,43 @@ describe("progress", () => {
     expect(jobTiming({ ...running, expectedMs: undefined }, 61_000)).toBe("Running · 1m 0s, no usual time yet");
     expect(jobTiming({ name: "x", state: "passed", startedAt: 1_000, endedAt: 126_000 }, 0)).toBe("Passed · 2m 5s");
     expect(jobTiming({ name: "x", state: "queued", expectedMs: 60_000 }, 0)).toBe("Queued · usually 1m 0s");
+  });
+});
+
+describe("when checks usually finish", () => {
+  const at = (ms: number) => new Date(ms).toISOString();
+  const now = Date.parse("2026-10-15T08:00:00Z");
+  const jobs = [{ id: "lint", needs: [] }, { id: "test", needs: ["lint"] }, { id: "e2e", needs: ["test"] }];
+  const facts = { 42: { jobs, expected: { lint: 60_000, test: 300_000, e2e: 120_000 } } };
+
+  it("adds each stage's slowest job after the one before, counting declared jobs that have no check yet", () => {
+    const checks: PullRequestCheck[] = [
+      { name: "lint", status: "passed", url: `${RUN}1`, startedAt: at(now - 120_000), completedAt: at(now - 60_000) },
+      { name: "test", status: "pending", url: `${RUN}2`, startedAt: at(now - 60_000) },
+    ];
+    // test ends 4 minutes from now, e2e two more after it.
+    expect(expectedEnd(checks, facts, now)).toBe(now + 240_000 + 120_000);
+    // A job yet to start starts now at the earliest.
+    expect(expectedEnd([{ ...checks[0]!, completedAt: at(now - 600_000) }, { name: "test", status: "pending", url: `${RUN}2`, queued: true }], facts, now)).toBe(now + 300_000 + 120_000);
+  });
+
+  it("leaves the end in the past for a job running long, and knows none without usual durations or checks", () => {
+    const late: PullRequestCheck[] = [{ name: "e2e", status: "pending", url: `${RUN}3`, startedAt: at(now - 600_000) }];
+    expect(expectedEnd(late, facts, now)).toBe(now - 480_000);
+    expect(expectedEnd(late, {}, now)).toBeUndefined();
+    expect(expectedEnd([{ name: "deploy", status: "pending" }], facts, now)).toBeUndefined();
+    expect(expectedEnd([], facts, now)).toBeUndefined();
+    // A finished check outside any run changes nothing.
+    expect(expectedEnd([...late, { name: "deploy", status: "passed" }], facts, now)).toBe(now - 480_000);
+  });
+
+  it("reads rarely while the end is far, often around it, and at the ordinary pace without one or long after", () => {
+    expect(checkDelay(undefined, now, 60_000, 20_000)).toBe(20_000);
+    expect(checkDelay(now + 10 * 60_000, now, 60_000, 20_000)).toBe(60_000);
+    // Never past the moment reads quicken, 90 seconds before the end.
+    expect(checkDelay(now + 120_000, now, Infinity, 30_000)).toBe(30_000);
+    expect(checkDelay(now + 60_000, now, 60_000, 20_000)).toBe(NEAR_MS);
+    expect(checkDelay(now - 2 * 60_000, now, 60_000, 20_000)).toBe(NEAR_MS);
+    expect(checkDelay(now - 4 * 60_000, now, 60_000, 20_000)).toBe(20_000);
   });
 });
