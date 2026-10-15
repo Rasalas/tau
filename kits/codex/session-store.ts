@@ -244,6 +244,7 @@ export class CodexSessionStore {
       filePath: options.filePath,
       version: CURRENT_VERSION,
       logger: options.logger, immutableUsageTurns: true,
+      publishEvicted: (id, record) => { this.records.set(id, record); },
       publishHydrated: (id, record) => {
         if (record) this.records.set(id, record);
         else this.records.delete(id);
@@ -275,7 +276,7 @@ export class CodexSessionStore {
         for (const record of data?.sessions ?? []) this.records.set(record.tauThreadId, record);
         this.models = new Map(Object.entries(data?.models ?? {}));
       })
-      .catch(() => undefined);
+      .catch((error) => { this.loading = undefined; throw error; });
     return this.loading;
   }
 
@@ -303,13 +304,12 @@ export class CodexSessionStore {
   }
 
   private async hydrateMany(threadIds: string[]): Promise<void> {
-    const ids = threadIds.filter(id => this.persistence.isUnloaded(id));
-    if (!ids.length) return;
-    await this.persistence.loadSessions(ids);
+    if (!threadIds.some(id => this.persistence.isUnloaded(id))) return;
+    await this.persistence.loadSessions(threadIds);
   }
 
   private async hydrate(tauThreadId: string): Promise<void> {
-    if (!this.persistence.isUnloaded(tauThreadId)) return;
+    if (!this.persistence.isUnloaded(tauThreadId)) { this.persistence.touch(tauThreadId); return; }
     await this.persistence.loadSession(tauThreadId);
   }
 
@@ -329,6 +329,12 @@ export class CodexSessionStore {
       .filter((record) => instance === undefined || sameInstance(record, instance))
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .map(clone);
+  }
+
+  /** Search reads only changed text, without retaining full histories. */
+  async threadTexts(input: unknown) {
+    await this.load();
+    return this.persistence.threadTexts(this.records.values(), input);
   }
 
   /** Index recovery needs a title seed and count, never a transcript copy. */

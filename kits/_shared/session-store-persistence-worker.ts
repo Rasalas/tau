@@ -246,7 +246,42 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   };
 
-  port.on("message", (request: { id: number; operation: string; changes?: SqliteChanges; digest?: string; threadId?: string; threadIds?: string[]; summaries?: Array<{ id: string; revision: string; payload: string }> }) => {
+  const texts = (threadIds: string[], textChars: number, version: number) => {
+    const db = open(false);
+    const session = db.prepare("SELECT record_version,metadata,message_count FROM sessions WHERE thread_id = ?");
+    const messages = db.prepare("SELECT ordinal,payload FROM messages WHERE thread_id = ? ORDER BY ordinal");
+    db.exec("BEGIN");
+    try {
+      const threads = threadIds.flatMap(threadId => {
+        const row = session.get(threadId);
+        if (!row) return [];
+        if (Number(row.record_version) > version) throw new Error(`Unsupported SQLite session record version: ${row.record_version}`);
+        const record = JSON.parse(String(row.metadata)).sessions[0];
+        const kept: Array<{ role: "user" | "assistant"; text: string }> = [];
+        let left = textChars, ordinal = 0;
+        // Iterate instead of all(): text past the budget and every usage row stay on disk.
+        // One large message may be decoded in the worker, but never crosses to the host.
+        for (const messageRow of messages.iterate(threadId)) {
+          if (Number(messageRow.ordinal) !== ordinal++) throw new Error(`Incomplete SQLite transcript: ${threadId}`);
+          const message = JSON.parse(String(messageRow.payload));
+          const text = typeof message.text === "string" ? message.text
+            : Array.isArray(message.textChunks) && message.textChunks.every((chunk: unknown) => typeof chunk === "string") ? message.textChunks.join("") : undefined;
+          if (text === undefined || !["user", "assistant", "notice"].includes(message.role)) throw new Error(`Invalid SQLite history: ${threadId}`);
+          if (message.role === "notice" || !text.trim()) continue;
+          const prefix = text.slice(0, left);
+          kept.push({ role: message.role, text: prefix });
+          left -= prefix.length;
+          if (!left) break;
+        }
+        if (left && ordinal !== Number(row.message_count)) throw new Error(`Incomplete SQLite transcript: ${threadId}`);
+        return [{ threadId, updatedAt: record.updatedAt, messages: kept }];
+      });
+      db.exec("COMMIT");
+      return threads;
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  };
+
+  port.on("message", (request: { id: number; operation: string; changes?: SqliteChanges; digest?: string; threadId?: string; threadIds?: string[]; textChars?: number; version?: number; summaries?: Array<{ id: string; revision: string; payload: string }> }) => {
     try {
       let value: unknown;
       if (request.operation === "initialize") {
@@ -262,6 +297,7 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
       else if (request.operation === "histories") value = load(false, undefined, false, request.threadIds);
       else if (request.operation === "usage") value = load(true, undefined, true);
       else if (request.operation === "history") value = load(false, request.threadId);
+      else if (request.operation === "texts") value = texts(request.threadIds!, request.textChars!, request.version!);
       else if (request.operation === "summaries") transaction((db) => {
         const save = db.prepare("INSERT INTO session_summaries VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload");
         for (const summary of request.summaries!) {

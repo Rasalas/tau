@@ -5,7 +5,8 @@ import { isImeComposing } from "../../keybindings";
 /**
  * A yes-or-no question over the window: the title asks, the
  * message says what follows, Cancel and the action sit at the bottom right.
- * The action has focus, so Enter answers it and Escape cancels. With
+ * Cancel has focus for destructive actions; other questions focus the action.
+ * Escape cancels. With
  * `dontAskAgain` a box under the message lets the user turn the question off;
  * `onConfirm` hears whether it was ticked. With `confirmText` the action
  * stays off until that text is typed, for a loss that is hard to repair.
@@ -58,8 +59,8 @@ export function ConfirmDialog({
         </label>
       ) : null}
       <footer>
-        <button type="button" className="text-button" onClick={onCancel}>{cancelLabel}</button>
-        <button type="button" className={destructive ? "danger" : "primary"} autoFocus={confirmText === undefined} disabled={locked} onClick={() => onConfirm(skip)}>{icon}{confirmLabel}</button>
+        <button type="button" className="text-button" autoFocus={destructive && confirmText === undefined} onClick={onCancel}>{cancelLabel}</button>
+        <button type="button" className={destructive ? "danger" : "primary"} autoFocus={!destructive && confirmText === undefined} disabled={locked} onClick={() => onConfirm(skip)}>{icon}{confirmLabel}</button>
       </footer>
     </Dialog>
   );

@@ -57,6 +57,10 @@ async function main() {
     schemaVersion: 1,
     measurement: "renderer-bundle-fixture",
     generatedAt: new Date().toISOString(),
+    execution: {
+      electronVersion: measurements.electronVersion,
+      profileMode: process.env.TAU_BENCHMARK_PROFILE_ROOT ? "fresh-per-process" : "default",
+    },
     firstPaintMs: measurements.firstPaintMs,
     firstContentfulPaintMs: measurements.firstContentfulPaintMs,
     loadedResourceCount: measurements.loadedResourceCount,

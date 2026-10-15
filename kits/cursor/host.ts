@@ -11,7 +11,6 @@ import {
   executableFingerprint,
   runtimeUpdateCommand,
   runtimeVersionPolicy,
-  threadTextsDelta,
   updateAvailable,
   type CliPackageSpec,
   type HostBackendThreadRecord,
@@ -436,7 +435,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
           return { threadId: entry.tauThreadId, cwd: entry.cwd, updatedAt: entry.updatedAt, ...(model ? { model } : {}), ...(entry.usage ? { usage: { ...entry.usage } } : {}) };
         }),
       }), { access: "read", callers: [USAGE_KIT_ID] });
-      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => store.threadTexts(input), { long: true, callers: [SEARCH_KIT_ID] });
 
       for (const instance of settings.list()) register(instance.id);
       return async () => { for (const id of [...states.keys()]) unregister(id); await store.flushAndRelease(); };

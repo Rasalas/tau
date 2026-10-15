@@ -37,6 +37,8 @@ import type { StageTab } from "../workbench/stage";
 import type { Platform, PlatformAttention } from "../workbench/platform";
 import type { PlatformEnvironments } from "../workbench/environments";
 import { PreferencesStore } from "./preferences";
+import { ExtensionServiceRegistry } from "./extension-service-registry";
+import { throwFailures } from "./extension-lifecycle-errors";
 import { errorMessage } from "../workbench/error-message";
 import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
@@ -1711,13 +1713,15 @@ export interface DesktopExtensionContext {
   /**
    * Publishes a value the extensions of one product may share, under an id
    * their own protocol file names. Core never looks inside it, and the offer
-   * is withdrawn when this extension deactivates.
+   * is withdrawn when this extension deactivates. If a waiting consumer throws,
+   * all bindings to this offer are released before publication throws.
    */
   provideService<T>(id: string, value: T): () => void;
   /**
    * Uses a value another extension published, now or as soon as it appears —
    * so activation order does not matter. `use` may return its own disposer,
    * which runs when the provider withdraws or this extension deactivates.
+   * Callback and disposer errors identify this consumer and the service id.
    */
   useService<T>(id: string, use: (value: T) => (() => void) | void): () => void;
   /**
@@ -1838,12 +1842,6 @@ interface ToolRenderer {
 
 type Owned<T> = T & ContributionOwner;
 
-/** One `useService` registration: the callback and whatever it left behind. */
-interface ServiceUser {
-  use(value: unknown): (() => void) | void;
-  dispose?: () => void;
-}
-
 /** Thrown when there is no host to route to, e.g. in the browser preview. */
 export class HostUnavailableError extends Error {
   constructor() { super("No machine is connected."); this.name = "HostUnavailableError"; }
@@ -1874,7 +1872,7 @@ export function hostExtensionBridge(client: HostClient | undefined): HostExtensi
 }
 
 export class ExtensionRegistry {
-  private readonly hostEventListeners = new Map<string, Map<string, Set<(payload: unknown) => void>>>();
+  readonly #hostEventListeners = new Map<string, Map<string, Set<(payload: unknown) => void>>>();
 
   private readonly services: { preferences: PreferencesStore; platform?: () => Platform | undefined };
 
@@ -1903,81 +1901,80 @@ export class ExtensionRegistry {
     return this.profile;
   }
 
-  private panels = new Map<string, Owned<PanelContribution>>();
-  private stageTabKinds = new Map<string, Owned<StageTabContribution>>();
-  private settingsPages = new Map<string, Owned<SettingsPageContribution>>();
-  private pages = new Map<string, Owned<PageContribution>>();
-  private settingsSections = new Map<string, Owned<SettingsSectionContribution>>();
-  private composerControls = new Map<string, Owned<ComposerControlContribution>>();
-  private composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
-  private composerGates = new Map<string, Owned<ComposerGateContribution>>();
-  private modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
-  private composerSpeeds = new Map<string, Owned<ComposerSpeedContribution>>();
-  private composerSendModes = new Map<string, Owned<ComposerSendModeContribution>>();
-  private composerPlanners = new Map<string, Owned<ComposerPlannerContribution>>();
-  private regions = new Map<string, Owned<RegionContribution>>();
-  private statusItems = new Map<string, Owned<StatusItemContribution>>();
-  private overlays = new Map<string, Owned<OverlayContribution>>();
-  private conversationViews = new Map<string, Owned<ConversationViewContribution>>();
-  private readonly workbenchEventListeners = new Map<WorkbenchEventType, Set<(event: WorkbenchEvent) => void>>();
-  private transcriptRows = new Map<string, { order: number; owner: ContributionOwner; bySession: Map<string, readonly TranscriptRow[]> }>();
+  #panels = new Map<string, Owned<PanelContribution>>();
+  #stageTabKinds = new Map<string, Owned<StageTabContribution>>();
+  #settingsPages = new Map<string, Owned<SettingsPageContribution>>();
+  #pages = new Map<string, Owned<PageContribution>>();
+  #settingsSections = new Map<string, Owned<SettingsSectionContribution>>();
+  #composerControls = new Map<string, Owned<ComposerControlContribution>>();
+  #composerInlines = new Map<string, Owned<ComposerInlineContribution>>();
+  #composerGates = new Map<string, Owned<ComposerGateContribution>>();
+  #modelBadges = new Map<string, Owned<ModelBadgeContribution>>();
+  #composerSpeeds = new Map<string, Owned<ComposerSpeedContribution>>();
+  #composerSendModes = new Map<string, Owned<ComposerSendModeContribution>>();
+  #composerPlanners = new Map<string, Owned<ComposerPlannerContribution>>();
+  #regions = new Map<string, Owned<RegionContribution>>();
+  #statusItems = new Map<string, Owned<StatusItemContribution>>();
+  #overlays = new Map<string, Owned<OverlayContribution>>();
+  #conversationViews = new Map<string, Owned<ConversationViewContribution>>();
+  readonly #workbenchEventListeners = new Map<WorkbenchEventType, Set<(event: WorkbenchEvent) => void>>();
+  #transcriptRows = new Map<string, { order: number; owner: ContributionOwner; bySession: Map<string, readonly TranscriptRow[]> }>();
   /** Waiting labels per extension and thread; the first extension's label wins. */
-  private liveStatuses = new Map<string, Map<string, string>>();
-  private rowMarks = new Map<string, Readonly<Record<string, ThreadRowMark<ReactNode>>>>();
-  private mergedRowMarks: { version: number; marks: Readonly<Record<string, ThreadRowMark<ReactNode>>> } | undefined;
+  #liveStatuses = new Map<string, Map<string, string>>();
+  #rowMarks = new Map<string, Readonly<Record<string, ThreadRowMark<ReactNode>>>>();
+  #mergedRowMarks: { version: number; marks: Readonly<Record<string, ThreadRowMark<ReactNode>>> } | undefined;
   /** Thread lineage per extension; entries merge, the first extension's answer wins. */
-  private lineages = new Map<string, ThreadLineage>();
-  private lineageCache: { version: number; value: ThreadLineage } | undefined;
-  private projectIcons = new Map<string, Readonly<Record<string, string>>>();
-  private providerIcons = new Map<string, Readonly<Record<string, string>>>();
-  private problems = new Map<string, Array<ExtensionProblem & ContributionOwner>>();
-  private sidebarContributions = new Map<string, Owned<SidebarContribution>>();
-  private projectSources = new Map<string, Owned<ProjectSourceContribution>>();
-  private threadListSources = new Map<string, Owned<ThreadListSource>>();
-  private threadListAccessories = new Map<string, Owned<ThreadListAccessoryContribution>>();
-  private threadListLayouts = new Map<string, Owned<ThreadListLayout>>();
-  private commands = new Map<string, Owned<CommandContribution>>();
-  private paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
-  private slashCommands = new Map<string, Owned<SlashCommandContribution>>();
-  private promptHooks = new Map<string, Owned<PromptHookContribution>>();
-  private modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
-  private threadMenus = new Map<string, Owned<ThreadMenuContribution>>();
-  private forkPrompts = new Map<string, Owned<ForkPromptContribution>>();
-  private messageActions = new Map<string, Owned<MessageActionContribution>>();
-  private messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
-  private transcriptFinders = new Map<string, Owned<TranscriptFinderContribution>>();
-  private promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
-  private documentSources = new Map<string, Owned<DocumentSourceContribution>>();
-  private userKeymaps = new Map<string, Owned<UserKeymapContribution>>();
+  #lineages = new Map<string, ThreadLineage>();
+  #lineageCache: { version: number; value: ThreadLineage } | undefined;
+  #projectIcons = new Map<string, Readonly<Record<string, string>>>();
+  #providerIcons = new Map<string, Readonly<Record<string, string>>>();
+  #problems = new Map<string, Array<ExtensionProblem & ContributionOwner>>();
+  #sidebarContributions = new Map<string, Owned<SidebarContribution>>();
+  #projectSources = new Map<string, Owned<ProjectSourceContribution>>();
+  #threadListSources = new Map<string, Owned<ThreadListSource>>();
+  #threadListAccessories = new Map<string, Owned<ThreadListAccessoryContribution>>();
+  #threadListLayouts = new Map<string, Owned<ThreadListLayout>>();
+  #commands = new Map<string, Owned<CommandContribution>>();
+  #paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
+  #slashCommands = new Map<string, Owned<SlashCommandContribution>>();
+  #promptHooks = new Map<string, Owned<PromptHookContribution>>();
+  #modelSelections = new Map<string, Owned<ModelSelectionContribution>>();
+  #threadMenus = new Map<string, Owned<ThreadMenuContribution>>();
+  #forkPrompts = new Map<string, Owned<ForkPromptContribution>>();
+  #messageActions = new Map<string, Owned<MessageActionContribution>>();
+  #messageBlocks = new Map<string, Owned<MessageBlockContribution>>();
+  #transcriptFinders = new Map<string, Owned<TranscriptFinderContribution>>();
+  #promptRenderers = new Map<string, Owned<PromptRendererContribution>>();
+  #documentSources = new Map<string, Owned<DocumentSourceContribution>>();
+  #userKeymaps = new Map<string, Owned<UserKeymapContribution>>();
   /** Values one extension published for another; core only routes them by id. */
-  private extensionServices = new Map<string, ContributionOwner & { value: unknown }>();
-  private serviceUsers = new Map<string, Set<ServiceUser>>();
-  private renderers = new Map<string, Owned<ToolRenderer>>();
-  private toolCards = new Map<string, Owned<ToolCardContribution>>();
-  private options = new Map<string, ExtensionOption[]>();
-  private contributionKinds = new Map<string, string[]>();
+  readonly #extensionServices = new ExtensionServiceRegistry();
+  #renderers = new Map<string, Owned<ToolRenderer>>();
+  #toolCards = new Map<string, Owned<ToolCardContribution>>();
+  #options = new Map<string, ExtensionOption[]>();
+  #contributionKinds = new Map<string, string[]>();
   /** Every renderable contribution an active extension offered, with the clients it claims. */
-  private profiledContributions = new Map<string, ProfiledContribution[]>();
+  #profiledContributions = new Map<string, ProfiledContribution[]>();
   /** The first runtime and icon each extension's contributions named, drawn here or not; kept while it is off. */
-  private marks = new Map<string, { runtime?: string; Icon?: PanelIconComponent }>();
-  private known = new Map<string, DesktopExtension>();
+  #marks = new Map<string, { runtime?: string; Icon?: PanelIconComponent }>();
+  #known = new Map<string, DesktopExtension>();
   /** Ids core activated itself; they are listed but never switched off. */
-  private readonly coreIds = new Set<string>();
-  private activeExtensions = new Map<string, { extension: DesktopExtension; dispose: () => void }>();
-  private listeners = new Set<() => void>();
-  private version = 0;
-  private legacyVersion = 0;
-  private registrationListeners = new Set<() => void>();
-  private dataListeners = new Map<string, Set<() => void>>();
-  private dataVersions = new Map<string, number>();
-  private problemCache: Array<ExtensionProblem & ContributionOwner> | undefined;
-  private readonly emptyTranscriptRows: TranscriptRow[] = [];
-  private transcriptCache = new Map<string, TranscriptRow[]>();
-  private loadingExtensions = false;
+  readonly #coreIds = new Set<string>();
+  #activeExtensions = new Map<string, { extension: DesktopExtension; dispose: () => void }>();
+  #listeners = new Set<() => void>();
+  #version = 0;
+  #legacyVersion = 0;
+  #registrationListeners = new Set<() => void>();
+  #dataListeners = new Map<string, Set<() => void>>();
+  #dataVersions = new Map<string, number>();
+  #problemCache: Array<ExtensionProblem & ContributionOwner> | undefined;
+  readonly #emptyTranscriptRows: TranscriptRow[] = [];
+  #transcriptCache = new Map<string, TranscriptRow[]>();
+  #loadingExtensions = false;
   /** The last failure per extension entry path; an entry that builds again drops out. */
-  private readonly loadFailures = new Map<string, string>();
-  private sortedCache = new Map<string, { version: number; value: unknown[] }>();
-  private readonly customization = new ExtensionCustomizations(() => this.changed());
+  readonly #loadFailures = new Map<string, string>();
+  #sortedCache = new Map<string, { version: number; value: unknown[] }>();
+  readonly #customization = new ExtensionCustomizations(() => this.changed());
 
   /**
    * Records a renderable contribution and answers whether this client draws it.
@@ -1985,13 +1982,13 @@ export class ExtensionRegistry {
    * component never mounts; it stays on the list Settings shows.
    */
   private scopeToProfile(owner: ContributionOwner, kind: string, id: string, label: string | undefined, scoped: ProfileScoped | undefined): boolean {
-    const own = this.profiledContributions.get(owner.extensionId) ?? [];
-    this.profiledContributions.set(owner.extensionId, own);
+    const own = this.#profiledContributions.get(owner.extensionId) ?? [];
+    this.#profiledContributions.set(owner.extensionId, own);
     const { runtime, Icon } = (scoped ?? {}) as { runtime?: unknown; Icon?: PanelIconComponent };
-    const mark = this.marks.get(owner.extensionId) ?? {};
+    const mark = this.#marks.get(owner.extensionId) ?? {};
     if (typeof runtime === "string" && !mark.runtime) mark.runtime = runtime;
     if (Icon && !mark.Icon) mark.Icon = Icon;
-    if (mark.runtime || mark.Icon) this.marks.set(owner.extensionId, mark);
+    if (mark.runtime || mark.Icon) this.#marks.set(owner.extensionId, mark);
     own.push({
       ...owner,
       kind,
@@ -2005,7 +2002,7 @@ export class ExtensionRegistry {
 
   /** Every renderable contribution the active extensions offered, drawn here or not. */
   getProfiledContributions(): ProfiledContribution[] {
-    return [...this.profiledContributions.values()].flat();
+    return [...this.#profiledContributions.values()].flat();
   }
 
   /**
@@ -2014,7 +2011,7 @@ export class ExtensionRegistry {
    * mark though its page is the desktop's.
    */
   getContributionMarks(): ReadonlyMap<string, { runtime?: string; Icon?: PanelIconComponent }> {
-    return this.marks;
+    return this.#marks;
   }
 
   /** What this client cannot draw: the "not on this client" list in Settings. */
@@ -2028,21 +2025,21 @@ export class ExtensionRegistry {
    * and it is on in safe mode too, where no extension is.
    */
   activateCore(extension: DesktopExtension): void {
-    this.coreIds.add(extension.id);
+    this.#coreIds.add(extension.id);
     this.activate(extension);
   }
 
   /** Make an extension known without activating it, so settings can list and enable it. */
   addKnown(extension: DesktopExtension): void {
-    this.known.set(extension.id, extension);
+    this.#known.set(extension.id, extension);
     this.changed();
   }
 
   activate(extension: DesktopExtension): void {
     this.deactivate(extension.id);
-    this.known.set(extension.id, extension);
+    this.#known.set(extension.id, extension);
     const owner: ContributionOwner = { extensionId: extension.id, extensionName: extension.name };
-    this.profiledContributions.delete(extension.id);
+    this.#profiledContributions.delete(extension.id);
     const kinds: string[] = [];
     const disposers: Array<() => void> = [];
     // Before `activate`, so the rules are in place when the first component mounts.
@@ -2056,8 +2053,8 @@ export class ExtensionRegistry {
       invoke: (command, input) => this.hostBridge.invoke(extensionId, command, input),
       ...(this.hostBridge.resourceUrl ? { resourceUrl: (path: string) => this.hostBridge.resourceUrl!(path) } : {}),
       onEvent: (name, listener) => {
-        const byName = this.hostEventListeners.get(extensionId) ?? new Map<string, Set<(payload: unknown) => void>>();
-        this.hostEventListeners.set(extensionId, byName);
+        const byName = this.#hostEventListeners.get(extensionId) ?? new Map<string, Set<(payload: unknown) => void>>();
+        this.#hostEventListeners.set(extensionId, byName);
         const listeners = byName.get(name) ?? new Set<(payload: unknown) => void>();
         byName.set(name, listeners);
         listeners.add(listener);
@@ -2084,36 +2081,36 @@ export class ExtensionRegistry {
       registerPanel: (panel) => {
         if (!this.scopeToProfile(owner, "panel", panel.id, panel.label, panel)) return noContribution;
         note(panel.label.toLowerCase());
-        return this.register(this.panels, panel.id, { ...panel, ...owner }, disposers);
+        return this.register(this.#panels, panel.id, { ...panel, ...owner }, disposers);
       },
       registerStageTab: (tab) => {
         const contribution = tab as unknown as StageTabContribution;
         if (!this.scopeToProfile(owner, "stage tab", contribution.kind, contribution.kind, contribution)) return noContribution;
         note("stage tabs");
-        return this.register(this.stageTabKinds, contribution.kind, { ...contribution, ...owner }, disposers);
+        return this.register(this.#stageTabKinds, contribution.kind, { ...contribution, ...owner }, disposers);
       },
       registerSettingsPage: (page) => {
         if (!this.scopeToProfile(owner, "settings page", page.id, page.label, page)) return noContribution;
         note("settings page");
-        return this.register(this.settingsPages, page.id, { ...page, ...owner }, disposers);
+        return this.register(this.#settingsPages, page.id, { ...page, ...owner }, disposers);
       },
       registerPage: (page) => {
         if (!this.scopeToProfile(owner, "page", page.id, page.label, page)) return noContribution;
         note("page");
-        return this.register(this.pages, page.id, { ...page, ...owner }, disposers);
+        return this.register(this.#pages, page.id, { ...page, ...owner }, disposers);
       },
       registerSettingsSection: (section) => {
         if (!this.scopeToProfile(owner, "settings section", section.id, section.id, section)) return noContribution;
         note("settings section");
-        return this.register(this.settingsSections, section.id, { ...section, ...owner }, disposers);
+        return this.register(this.#settingsSections, section.id, { ...section, ...owner }, disposers);
       },
       inspectPackages: (cwd) => this.hostBridge.inspect
         ? this.hostBridge.inspect(cwd)
         : Promise.reject(new HostUnavailableError()),
       events: {
         on: (type, listener) => {
-          const listeners = this.workbenchEventListeners.get(type) ?? new Set<(event: WorkbenchEvent) => void>();
-          this.workbenchEventListeners.set(type, listeners);
+          const listeners = this.#workbenchEventListeners.get(type) ?? new Set<(event: WorkbenchEvent) => void>();
+          this.#workbenchEventListeners.set(type, listeners);
           const wrapped = listener as (event: WorkbenchEvent) => void;
           listeners.add(wrapped);
           const dispose = () => { listeners.delete(wrapped); };
@@ -2124,69 +2121,69 @@ export class ExtensionRegistry {
       registerRegion: (region) => {
         if (!this.scopeToProfile(owner, `${region.placement} region`, region.id, undefined, region)) return noContribution;
         note(`${region.placement} region`);
-        return this.register(this.regions, region.id, { ...region, ...owner }, disposers);
+        return this.register(this.#regions, region.id, { ...region, ...owner }, disposers);
       },
       registerStatusItem: (item) => {
         if (!this.scopeToProfile(owner, "status item", item.id, undefined, item)) return noContribution;
         note("status line");
-        return this.register(this.statusItems, item.id, { ...item, ...owner }, disposers);
+        return this.register(this.#statusItems, item.id, { ...item, ...owner }, disposers);
       },
       registerOverlay: (overlay) => {
         if (!this.scopeToProfile(owner, "overlay", overlay.id, undefined, overlay)) return noContribution;
         note("overlay");
-        return this.register(this.overlays, overlay.id, { ...overlay, ...owner }, disposers);
+        return this.register(this.#overlays, overlay.id, { ...overlay, ...owner }, disposers);
       },
       registerConversationView: (view) => {
         if (!this.scopeToProfile(owner, "conversation view", view.id, undefined, view)) return noContribution;
         note("conversation view");
-        return this.register(this.conversationViews, view.id, { ...view, ...owner }, disposers);
+        return this.register(this.#conversationViews, view.id, { ...view, ...owner }, disposers);
       },
       setLiveStatus: (sessionId, label) => {
-        const own = this.liveStatuses.get(extension.id) ?? new Map<string, string>();
+        const own = this.#liveStatuses.get(extension.id) ?? new Map<string, string>();
         if (own.get(sessionId) === label) return;
         if (label === undefined) own.delete(sessionId);
         else own.set(sessionId, label);
-        if (own.size === 0) this.liveStatuses.delete(extension.id);
-        else this.liveStatuses.set(extension.id, own);
+        if (own.size === 0) this.#liveStatuses.delete(extension.id);
+        else this.#liveStatuses.set(extension.id, own);
         this.dataChanged(`thread:${sessionId}`);
       },
       setThreadRowStatuses: (statuses) => {
-        if (Object.keys(statuses).length) this.rowMarks.set(extension.id, statuses);
-        else if (!this.rowMarks.delete(extension.id)) return;
+        if (Object.keys(statuses).length) this.#rowMarks.set(extension.id, statuses);
+        else if (!this.#rowMarks.delete(extension.id)) return;
         this.dataChanged("marks");
       },
       setThreadLineage: (lineage) => {
-        if (lineage) this.lineages.set(extension.id, lineage);
-        else this.lineages.delete(extension.id);
+        if (lineage) this.#lineages.set(extension.id, lineage);
+        else this.#lineages.delete(extension.id);
         this.dataChanged("lineage");
       },
       setProjectIcons: (icons) => {
         const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")));
-        if (Object.keys(pictures).length > 0) this.projectIcons.set(extension.id, pictures);
-        else if (!this.projectIcons.delete(extension.id)) return;
+        if (Object.keys(pictures).length > 0) this.#projectIcons.set(extension.id, pictures);
+        else if (!this.#projectIcons.delete(extension.id)) return;
         this.dataChanged("project-icons");
       },
       setProviderIcons: (icons) => {
         const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")).map(([id, image]) => [providerIconKey(id), image]));
-        if (Object.keys(pictures).length > 0) this.providerIcons.set(extension.id, pictures);
-        else if (!this.providerIcons.delete(extension.id)) return;
+        if (Object.keys(pictures).length > 0) this.#providerIcons.set(extension.id, pictures);
+        else if (!this.#providerIcons.delete(extension.id)) return;
         this.dataChanged("provider-icons");
       },
       setProblems: (problems) => {
-        if (problems.length === 0 && !this.problems.has(extension.id)) return;
-        if (problems.length === 0) this.problems.delete(extension.id);
-        else this.problems.set(extension.id, problems.map((problem) => ({ ...problem, ...owner })));
+        if (problems.length === 0 && !this.#problems.has(extension.id)) return;
+        if (problems.length === 0) this.#problems.delete(extension.id);
+        else this.#problems.set(extension.id, problems.map((problem) => ({ ...problem, ...owner })));
         this.dataChanged("problems");
       },
       registerTranscriptRows: (id, order = 0, options) => {
         if (!this.scopeToProfile(owner, "transcript rows", id, undefined, options)) return noTranscriptRows;
         note("transcript rows");
-        if (this.transcriptRows.has(id)) throw new Error(`Contribution id ${id} from ${extension.id} collides with another transcript row source`);
+        if (this.#transcriptRows.has(id)) throw new Error(`Contribution id ${id} from ${extension.id} collides with another transcript row source`);
         const source = { order, owner, bySession: new Map<string, readonly TranscriptRow[]>() };
-        this.transcriptRows.set(id, source);
+        this.#transcriptRows.set(id, source);
         const dispose = () => {
-          if (this.transcriptRows.get(id) !== source) return;
-          this.transcriptRows.delete(id);
+          if (this.#transcriptRows.get(id) !== source) return;
+          this.#transcriptRows.delete(id);
           for (const sessionId of source.bySession.keys()) this.dataChanged(`thread:${sessionId}`, true);
           this.changed();
         };
@@ -2194,13 +2191,13 @@ export class ExtensionRegistry {
         this.changed();
         return {
           setRows: (sessionId, rows) => {
-            if (this.transcriptRows.get(id) !== source) return;
+            if (this.#transcriptRows.get(id) !== source) return;
             if (rows.length === 0) source.bySession.delete(sessionId);
             else source.bySession.set(sessionId, rows);
             this.dataChanged(`thread:${sessionId}`, true);
           },
           clear: (sessionId) => {
-            if (this.transcriptRows.get(id) !== source) return;
+            if (this.#transcriptRows.get(id) !== source) return;
             const sessions = sessionId === undefined ? [...source.bySession.keys()] : [sessionId];
             if (sessionId === undefined) source.bySession.clear();
             else source.bySession.delete(sessionId);
@@ -2212,7 +2209,7 @@ export class ExtensionRegistry {
       registerComposerControl: (control) => {
         if (!this.scopeToProfile(owner, "composer control", control.id, undefined, control)) return noContribution;
         note("composer controls");
-        return this.register(this.composerControls, control.id, { ...control, ...owner }, disposers);
+        return this.register(this.#composerControls, control.id, { ...control, ...owner }, disposers);
       },
       registerComposerInline: (inline) => {
         for (const trigger of inline.triggers ?? []) {
@@ -2222,67 +2219,51 @@ export class ExtensionRegistry {
         }
         if (!this.scopeToProfile(owner, "composer inline", inline.id, undefined, inline)) return noContribution;
         note("composer context");
-        return this.register(this.composerInlines, inline.id, { ...inline, ...owner }, disposers);
+        return this.register(this.#composerInlines, inline.id, { ...inline, ...owner }, disposers);
       },
       registerComposerGate: (gate) => {
         if (!this.scopeToProfile(owner, "composer gate", gate.id, undefined, gate)) return noContribution;
         note("composer gates");
-        return this.register(this.composerGates, gate.id, { ...gate, ...owner }, disposers);
+        return this.register(this.#composerGates, gate.id, { ...gate, ...owner }, disposers);
       },
       registerModelBadge: (badge) => {
         if (!this.scopeToProfile(owner, "model badge", badge.id, badge.label, badge)) return noContribution;
         note("model badges");
-        return this.register(this.modelBadges, badge.id, { ...badge, ...owner }, disposers);
+        return this.register(this.#modelBadges, badge.id, { ...badge, ...owner }, disposers);
       },
       registerComposerSpeed: (speed) => {
         if (!this.scopeToProfile(owner, "composer speed", speed.id, undefined, speed)) return noContribution;
         note("composer speed");
-        return this.register(this.composerSpeeds, speed.id, { ...speed, ...owner }, disposers);
+        return this.register(this.#composerSpeeds, speed.id, { ...speed, ...owner }, disposers);
       },
       registerComposerSendMode: (mode) => {
         if (!this.scopeToProfile(owner, "composer send mode", mode.id, undefined, mode)) return noContribution;
         note("composer send mode");
-        return this.register(this.composerSendModes, mode.id, { ...mode, ...owner }, disposers);
+        return this.register(this.#composerSendModes, mode.id, { ...mode, ...owner }, disposers);
       },
       registerComposerPlanner: (planner) => {
         if (!this.scopeToProfile(owner, "composer planner", planner.id, planner.label, planner)) return noContribution;
         note("composer planners");
-        return this.register(this.composerPlanners, planner.id, { ...planner, ...owner }, disposers);
+        return this.register(this.#composerPlanners, planner.id, { ...planner, ...owner }, disposers);
       },
       provideService: (id, value) => {
-        const held = this.extensionServices.get(id);
-        if (held) throw new Error(`Extension service ${id} is already provided by ${held.extensionId}`);
+        const withdraw = this.#extensionServices.provide(extension.id, id, value);
         note("services");
-        this.extensionServices.set(id, { value, ...owner });
-        this.rebindServiceUsers(id, value);
         const dispose = () => {
-          if (this.extensionServices.get(id)?.extensionId !== extension.id) return;
-          this.extensionServices.delete(id);
-          this.releaseServiceUsers(id);
-          this.changed();
+          try { withdraw(); } finally { this.changed(); }
         };
         disposers.push(dispose);
         this.changed();
         return dispose;
       },
       useService: (id, use) => {
-        const user: ServiceUser = { use: use as ServiceUser["use"] };
-        const users = this.serviceUsers.get(id) ?? new Set<ServiceUser>();
-        this.serviceUsers.set(id, users);
-        users.add(user);
-        const held = this.extensionServices.get(id);
-        if (held) user.dispose = user.use(held.value) ?? undefined;
-        const dispose = () => {
-          users.delete(user);
-          user.dispose?.();
-          user.dispose = undefined;
-        };
+        const dispose = this.#extensionServices.use(extension.id, id, use);
         disposers.push(dispose);
         return dispose;
       },
       registerCustomizations: (layer) => {
         note("customizations");
-        const dispose = this.customization.register(layer);
+        const dispose = this.#customization.register(layer);
         disposers.push(dispose);
         return dispose;
       },
@@ -2295,30 +2276,30 @@ export class ExtensionRegistry {
       registerSidebar: (contribution) => {
         if (!this.scopeToProfile(owner, "sidebar", contribution.id, undefined, contribution)) return noContribution;
         note("sidebar");
-        return this.register(this.sidebarContributions, contribution.id, { ...contribution, ...owner }, disposers);
+        return this.register(this.#sidebarContributions, contribution.id, { ...contribution, ...owner }, disposers);
       },
       registerProjectSource: (source) => {
         if (!this.scopeToProfile(owner, "project source", source.id, source.label, source)) return noContribution;
         note("project sources");
-        return this.register(this.projectSources, source.id, { ...source, ...owner }, disposers);
+        return this.register(this.#projectSources, source.id, { ...source, ...owner }, disposers);
       },
       registerThreadListSource: (source) => {
         note("thread list sources");
-        return this.register(this.threadListSources, source.id, { ...source, ...owner }, disposers);
+        return this.register(this.#threadListSources, source.id, { ...source, ...owner }, disposers);
       },
       registerThreadListAccessory: (accessory) => {
         note("thread list accessories");
-        return this.register(this.threadListAccessories, accessory.id, { ...accessory, ...owner }, disposers);
+        return this.register(this.#threadListAccessories, accessory.id, { ...accessory, ...owner }, disposers);
       },
       registerThreadListLayout: (layout) => {
         note("thread list layouts");
-        return this.register(this.threadListLayouts, layout.id, { ...layout, ...owner }, disposers);
+        return this.register(this.#threadListLayouts, layout.id, { ...layout, ...owner }, disposers);
       },
       registerCommand: (command) =>
-        this.register(this.commands, command.id, { ...command, ...owner }, disposers),
+        this.register(this.#commands, command.id, { ...command, ...owner }, disposers),
       registerPaletteSource: (source) => {
         note("palette sources");
-        return this.register(this.paletteSources, source.id, { ...source, ...owner }, disposers);
+        return this.register(this.#paletteSources, source.id, { ...source, ...owner }, disposers);
       },
       registerKeybinding: (binding) => {
         const dispose = this.keybindings.register(binding, owner);
@@ -2330,65 +2311,65 @@ export class ExtensionRegistry {
       registerSlashCommand: (command) => {
         if (!/^[a-z][a-z0-9:-]*$/u.test(command.name)) throw new Error(`Slash command name "${command.name}" from ${extension.id} must be lowercase letters, digits, ":" or "-"`);
         note("slash commands");
-        return this.register(this.slashCommands, command.name, { ...command, ...owner }, disposers);
+        return this.register(this.#slashCommands, command.name, { ...command, ...owner }, disposers);
       },
       registerPromptRenderer: (renderer) => {
         if (!this.scopeToProfile(owner, "prompt renderer", renderer.id, undefined, renderer)) return noContribution;
         note("prompt renderers");
-        return this.register(this.promptRenderers, renderer.id, { ...renderer, ...owner }, disposers);
+        return this.register(this.#promptRenderers, renderer.id, { ...renderer, ...owner }, disposers);
       },
       registerPromptHook: (hook) => {
         note("prompt hooks");
-        return this.register(this.promptHooks, hook.id, { ...hook, ...owner }, disposers);
+        return this.register(this.#promptHooks, hook.id, { ...hook, ...owner }, disposers);
       },
       registerModelSelection: (selection) => {
         note("model selection");
-        return this.register(this.modelSelections, selection.id, { ...selection, ...owner }, disposers);
+        return this.register(this.#modelSelections, selection.id, { ...selection, ...owner }, disposers);
       },
       registerThreadMenu: (menu) => {
         note("thread menu");
-        return this.register(this.threadMenus, menu.id, { ...menu, ...owner }, disposers);
+        return this.register(this.#threadMenus, menu.id, { ...menu, ...owner }, disposers);
       },
-      registerForkPrompt: (prompt) => this.register(this.forkPrompts, prompt.id, { ...prompt, ...owner }, disposers),
+      registerForkPrompt: (prompt) => this.register(this.#forkPrompts, prompt.id, { ...prompt, ...owner }, disposers),
       registerMessageAction: (action) => {
         if (!this.scopeToProfile(owner, "message action", action.id, action.label, action)) return noContribution;
         note("message actions");
-        return this.register(this.messageActions, action.id, { ...action, ...owner }, disposers);
+        return this.register(this.#messageActions, action.id, { ...action, ...owner }, disposers);
       },
       registerMessageBlock: (block) => {
         if (!this.scopeToProfile(owner, "message block", block.id, undefined, block)) return noContribution;
         note("message blocks");
-        return this.register(this.messageBlocks, block.id, { ...block, ...owner }, disposers);
+        return this.register(this.#messageBlocks, block.id, { ...block, ...owner }, disposers);
       },
       registerTranscriptFinder: (finder) => {
         if (!this.scopeToProfile(owner, "transcript finder", finder.id, undefined, finder)) return noContribution;
         note("transcript finder");
-        return this.register(this.transcriptFinders, finder.id, { ...finder, ...owner }, disposers);
+        return this.register(this.#transcriptFinders, finder.id, { ...finder, ...owner }, disposers);
       },
       registerUserKeymap: (keymap) => {
         note("user keymap");
-        return this.register(this.userKeymaps, keymap.id, { ...keymap, ...owner }, disposers);
+        return this.register(this.#userKeymaps, keymap.id, { ...keymap, ...owner }, disposers);
       },
       registerDocumentSource: (source) => {
         if (!this.scopeToProfile(owner, "document source", source.id, undefined, source)) return noContribution;
         note("documents");
-        return this.register(this.documentSources, source.id, { ...source, ...owner }, disposers);
+        return this.register(this.#documentSources, source.id, { ...source, ...owner }, disposers);
       },
       registerToolRenderer: (id, match, render, options) => {
         if (!this.scopeToProfile(owner, "tool renderer", id, undefined, options)) return noContribution;
         note("tool renderers");
-        return this.register(this.renderers, id, { id, match, render, ...owner }, disposers);
+        return this.register(this.#renderers, id, { id, match, render, ...owner }, disposers);
       },
       registerToolCard: (card) => {
         if (!this.scopeToProfile(owner, "tool card", card.id, undefined, card)) return noContribution;
         note("tool cards");
-        return this.register(this.toolCards, card.id, { ...card, ...owner }, disposers);
+        return this.register(this.#toolCards, card.id, { ...card, ...owner }, disposers);
       },
       registerOptions: (options) => {
-        if (this.options.has(extension.id)) throw new Error(`Extension ${extension.id} registered options more than once`);
-        this.options.set(extension.id, options);
+        if (this.#options.has(extension.id)) throw new Error(`Extension ${extension.id} registered options more than once`);
+        this.#options.set(extension.id, options);
         const dispose = () => {
-          this.options.delete(extension.id);
+          this.#options.delete(extension.id);
           this.changed();
         };
         disposers.push(dispose);
@@ -2399,66 +2380,51 @@ export class ExtensionRegistry {
     try {
       const extensionDispose = extension.activate(context);
       if (extensionDispose) disposers.push(extensionDispose);
-      this.contributionKinds.set(extension.id, kinds);
-      this.activeExtensions.set(extension.id, {
+      this.#contributionKinds.set(extension.id, kinds);
+      this.#activeExtensions.set(extension.id, {
         extension,
         dispose: () => this.disposeAll(disposers),
       });
       this.changed();
     } catch (error) {
-      let cleanupError: unknown;
-      try { this.disposeAll(disposers); } catch (failure) { cleanupError = failure; }
-      this.contributionKinds.delete(extension.id);
-      this.profiledContributions.delete(extension.id);
-      this.activeExtensions.delete(extension.id);
-      if (cleanupError) throw new AggregateError([error, cleanupError], `Extension ${extension.id} activation and cleanup failed`, { cause: error });
-      throw error;
-    }
-  }
-
-  private rebindServiceUsers(id: string, value: unknown): void {
-    for (const user of this.serviceUsers.get(id) ?? []) {
-      user.dispose?.();
-      user.dispose = user.use(value) ?? undefined;
-    }
-  }
-
-  private releaseServiceUsers(id: string): void {
-    for (const user of this.serviceUsers.get(id) ?? []) {
-      user.dispose?.();
-      user.dispose = undefined;
+      const errors = [error];
+      try { this.disposeAll(disposers); } catch (failure) { errors.push(failure); }
+      this.#contributionKinds.delete(extension.id);
+      this.#profiledContributions.delete(extension.id);
+      this.#activeExtensions.delete(extension.id);
+      throwFailures(errors);
     }
   }
 
   /** Ids of the values extensions have published for one another. */
   getServiceIds(): string[] {
-    return [...this.extensionServices.keys()];
+    return this.#extensionServices.ids();
   }
 
   deactivate(id: string): void {
-    const active = this.activeExtensions.get(id);
+    const active = this.#activeExtensions.get(id);
     if (!active) return;
-    let cleanupError: unknown;
-    try { active.dispose(); } catch (error) { cleanupError = error; }
-    this.activeExtensions.delete(id);
-    this.contributionKinds.delete(id);
-    this.profiledContributions.delete(id);
-    const statusThreads = [...(this.liveStatuses.get(id)?.keys() ?? [])];
-    this.liveStatuses.delete(id);
+    const errors: unknown[] = [];
+    try { active.dispose(); } catch (error) { errors.push(error); }
+    this.#activeExtensions.delete(id);
+    this.#contributionKinds.delete(id);
+    this.#profiledContributions.delete(id);
+    const statusThreads = [...(this.#liveStatuses.get(id)?.keys() ?? [])];
+    this.#liveStatuses.delete(id);
     for (const sessionId of statusThreads) this.dataChanged(`thread:${sessionId}`);
-    this.rowMarks.delete(id);
-    this.lineages.delete(id);
-    this.projectIcons.delete(id);
-    this.providerIcons.delete(id);
-    this.problems.delete(id);
+    this.#rowMarks.delete(id);
+    this.#lineages.delete(id);
+    this.#projectIcons.delete(id);
+    this.#providerIcons.delete(id);
+    this.#problems.delete(id);
     for (const key of ["marks", "lineage", "project-icons", "provider-icons", "problems"]) this.dataChanged(key);
     this.changed();
-    if (cleanupError) throw cleanupError;
+    throwFailures(errors);
   }
 
   /** Records the user's answer on a known extension so the settings page stops asking. */
   setGranted(id: string, granted: boolean): void {
-    const extension = this.known.get(id);
+    const extension = this.#known.get(id);
     if (!extension) return;
     extension.granted = granted;
     this.changed();
@@ -2466,39 +2432,39 @@ export class ExtensionRegistry {
 
   setActive(id: string, active: boolean): void {
     if (active) {
-      const extension = this.known.get(id);
-      if (extension && !this.activeExtensions.has(id)) this.activate(extension);
+      const extension = this.#known.get(id);
+      if (extension && !this.#activeExtensions.has(id)) this.activate(extension);
     } else {
       this.deactivate(id);
     }
   }
 
   isActive(id: string): boolean {
-    return this.activeExtensions.has(id);
+    return this.#activeExtensions.has(id);
   }
 
   getPanels(): Array<Owned<PanelContribution>> {
-    return this.customized("panel", this.panels);
+    return this.customized("panel", this.#panels);
   }
 
   /** The kind that draws a stage tab, while the extension offering it is active. */
   getStageTabKind(kind: string): Owned<StageTabContribution> | undefined {
-    return this.stageTabKinds.get(kind);
+    return this.#stageTabKinds.get(kind);
   }
 
   /** Every stage tab kind on offer; a tab of a kind that is gone is closed with it. */
   getStageTabKinds(): Array<Owned<StageTabContribution>> {
-    return this.sorted("stage-tab-kinds", this.stageTabKinds, false);
+    return this.sorted("stage-tab-kinds", this.#stageTabKinds, false);
   }
 
   /** Pages extensions added to Settings, in `order`. */
   getSettingsPages(): Array<Owned<SettingsPageContribution>> {
-    return this.sorted("settings-pages", this.settingsPages);
+    return this.sorted("settings-pages", this.#settingsPages);
   }
 
   /** Pages of the app extensions added, in `order`. */
   getPages(): Array<Owned<PageContribution>> {
-    return this.customized("page", this.pages);
+    return this.customized("page", this.#pages);
   }
 
   getPage(id: string | undefined): Owned<PageContribution> | undefined {
@@ -2507,14 +2473,14 @@ export class ExtensionRegistry {
 
   /** Sections packages added to one of core's Settings pages, in `order`. */
   getSettingsSections(page?: SettingsSectionPage): Array<Owned<SettingsSectionContribution>> {
-    const sections = this.sorted("settings-sections", this.settingsSections);
+    const sections = this.sorted("settings-sections", this.#settingsSections);
     return page === undefined ? sections : sections.filter((section) => section.page === page);
   }
 
   /** The section that took over the page `pageId` (its `replaces`), when no page of that id is registered. */
   settingsSectionReplacing(pageId: string): Owned<SettingsSectionContribution> | undefined {
-    if (this.settingsPages.has(pageId)) return undefined;
-    return this.sorted("settings-sections", this.settingsSections).find((section) => section.replaces?.includes(pageId));
+    if (this.#settingsPages.has(pageId)) return undefined;
+    return this.sorted("settings-sections", this.#settingsSections).find((section) => section.replaces?.includes(pageId));
   }
 
   /** The page a section took over `pageId` for (its `replaces`), when no page of that id is registered. */
@@ -2524,16 +2490,16 @@ export class ExtensionRegistry {
 
   /** Every extension's row states by thread id; the same object until one changes. */
   getThreadRowMarks = (): Readonly<Record<string, ThreadRowMark<ReactNode>>> => {
-    if (this.mergedRowMarks?.version !== (this.dataVersions.get("marks") ?? 0)) {
-      this.mergedRowMarks = { version: this.dataVersions.get("marks") ?? 0, marks: Object.assign({}, ...this.rowMarks.values()) as Record<string, ThreadRowMark<ReactNode>> };
+    if (this.#mergedRowMarks?.version !== (this.#dataVersions.get("marks") ?? 0)) {
+      this.#mergedRowMarks = { version: this.#dataVersions.get("marks") ?? 0, marks: Object.assign({}, ...this.#rowMarks.values()) as Record<string, ThreadRowMark<ReactNode>> };
     }
-    return this.mergedRowMarks.marks;
+    return this.#mergedRowMarks.marks;
   };
 
   /** The waiting label an extension set for a thread, if any. */
   getLiveStatus(sessionId: string | undefined): string | undefined {
     if (!sessionId) return undefined;
-    for (const own of this.liveStatuses.values()) {
+    for (const own of this.#liveStatuses.values()) {
       const label = own.get(sessionId);
       if (label !== undefined) return label;
     }
@@ -2542,12 +2508,12 @@ export class ExtensionRegistry {
 
   /** What the active extensions reported as wrong, in activation order. */
   getProblems(): Array<ExtensionProblem & ContributionOwner> {
-    return this.problemCache ??= [...this.problems.values()].flat();
+    return this.#problemCache ??= [...this.#problems.values()].flat();
   }
 
   /** Published pictures take precedence over the saved choice, even without a Workspace interface. */
   projectIcon(project: { workspaceId?: string | undefined; path: string }): string | undefined {
-    for (const icons of this.projectIcons.values()) {
+    for (const icons of this.#projectIcons.values()) {
       const icon = (project.workspaceId ? icons[project.workspaceId] : undefined) ?? icons[project.path];
       if (icon) return icon;
     }
@@ -2556,61 +2522,61 @@ export class ExtensionRegistry {
 
   /** The picture an extension chose for a model provider, if any (`setProviderIcons`). */
   providerIcon(provider: string): string | undefined {
-    if (this.providerIcons.size === 0) return undefined;
+    if (this.#providerIcons.size === 0) return undefined;
     const key = providerIconKey(provider);
-    for (const icons of this.providerIcons.values()) if (icons[key]) return icons[key];
+    for (const icons of this.#providerIcons.values()) if (icons[key]) return icons[key];
     return undefined;
   }
 
   /** Lineage of every extension, merged into one map the navigator can read. */
   getThreadLineage(): ThreadLineage {
-    if (this.lineageCache?.version === (this.dataVersions.get("lineage") ?? 0)) return this.lineageCache.value;
-    const value: ThreadLineage = this.lineages.size === 0
+    if (this.#lineageCache?.version === (this.#dataVersions.get("lineage") ?? 0)) return this.#lineageCache.value;
+    const value: ThreadLineage = this.#lineages.size === 0
       ? EMPTY_THREAD_LINEAGE
-      : [...this.lineages.values()].reduce((merged, lineage) => ({
+      : [...this.#lineages.values()].reduce((merged, lineage) => ({
         parents: { ...lineage.parents, ...merged.parents },
         workingChildren: { ...lineage.workingChildren, ...merged.workingChildren },
       }), EMPTY_THREAD_LINEAGE);
-    this.lineageCache = { version: this.dataVersions.get("lineage") ?? 0, value };
+    this.#lineageCache = { version: this.#dataVersions.get("lineage") ?? 0, value };
     return value;
   }
 
   /** Rows every extension published for one thread, sorted by source order; ids are namespaced by source. */
   getTranscriptRows(sessionId: string | undefined): TranscriptRow[] {
-    if (!sessionId) return this.emptyTranscriptRows;
-    const cached = this.transcriptCache.get(sessionId);
+    if (!sessionId) return this.#emptyTranscriptRows;
+    const cached = this.#transcriptCache.get(sessionId);
     if (cached) return cached;
-    const value = [...this.transcriptRows.entries()]
+    const value = [...this.#transcriptRows.entries()]
       .sort(([, a], [, b]) => a.order - b.order)
       .flatMap(([id, source]) => (source.bySession.get(sessionId) ?? []).map((row) => ({ ...row, id: `${id}:${row.id}` })));
-    this.transcriptCache.set(sessionId, value);
+    this.#transcriptCache.set(sessionId, value);
     return value;
   }
 
   getRegions(placement: RegionPlacement | SlotPlacement): Array<Owned<RegionContribution>> {
     const key = `regions:placed:${placement}`;
-    const cached = this.sortedCache.get(key);
-    if (cached?.version === this.version) return cached.value as Array<Owned<RegionContribution>>;
-    const value = this.customized("region", this.regions).filter((region) => region.placement === placement);
-    this.sortedCache.set(key, { version: this.version, value });
+    const cached = this.#sortedCache.get(key);
+    if (cached?.version === this.#version) return cached.value as Array<Owned<RegionContribution>>;
+    const value = this.customized("region", this.#regions).filter((region) => region.placement === placement);
+    this.#sortedCache.set(key, { version: this.#version, value });
     return value;
   }
 
   getStatusItems(): Array<Owned<StatusItemContribution>> {
-    return this.customized("status", this.statusItems);
+    return this.customized("status", this.#statusItems);
   }
 
   getOverlay(id: string | undefined): Owned<OverlayContribution> | undefined {
-    return id ? this.overlays.get(id) : undefined;
+    return id ? this.#overlays.get(id) : undefined;
   }
 
   getConversationView(id: string | undefined): Owned<ConversationViewContribution> | undefined {
-    return id ? this.conversationViews.get(id) : undefined;
+    return id ? this.#conversationViews.get(id) : undefined;
   }
 
   /** Forwards one core event to the extensions listening for its type. */
   dispatchWorkbenchEvent(event: WorkbenchEvent): void {
-    const listeners = this.workbenchEventListeners.get(event.type);
+    const listeners = this.#workbenchEventListeners.get(event.type);
     if (!listeners) return;
     for (const listener of [...listeners]) {
       try { listener(event); } catch (error) { console.error(`Extension listener for ${event.type} failed`, error); }
@@ -2618,74 +2584,74 @@ export class ExtensionRegistry {
   }
 
   getComposerControls(): Array<Owned<ComposerControlContribution>> {
-    return this.customized("composer-control", this.composerControls);
+    return this.customized("composer-control", this.#composerControls);
   }
 
   getComposerInlines(): Array<Owned<ComposerInlineContribution>> {
-    return this.sorted("composer-inlines", this.composerInlines, false);
+    return this.sorted("composer-inlines", this.#composerInlines, false);
   }
 
   getComposerGates(): Array<Owned<ComposerGateContribution>> {
-    return this.sorted("composer-gates", this.composerGates);
+    return this.sorted("composer-gates", this.#composerGates);
   }
 
   getModelBadges(): Array<Owned<ModelBadgeContribution>> {
-    return this.sorted("model-badges", this.modelBadges);
+    return this.sorted("model-badges", this.#modelBadges);
   }
 
   getComposerSpeeds(): Array<Owned<ComposerSpeedContribution>> {
-    return this.sorted("composer-speeds", this.composerSpeeds);
+    return this.sorted("composer-speeds", this.#composerSpeeds);
   }
 
   getComposerSendModes(): Array<Owned<ComposerSendModeContribution>> {
-    return this.sorted("composer-send-modes", this.composerSendModes);
+    return this.sorted("composer-send-modes", this.#composerSendModes);
   }
 
   getComposerPlanners(): Array<Owned<ComposerPlannerContribution>> {
-    return this.sorted("composer-planners", this.composerPlanners);
+    return this.sorted("composer-planners", this.#composerPlanners);
   }
 
   getSidebarContributions(): Array<Owned<SidebarContribution>> {
-    return this.customized("sidebar", this.sidebarContributions);
+    return this.customized("sidebar", this.#sidebarContributions);
   }
 
   getProjectSources(): Array<Owned<ProjectSourceContribution>> {
-    return this.sorted("sources", this.projectSources);
+    return this.sorted("sources", this.#projectSources);
   }
 
   getThreadListSources(): Array<Owned<ThreadListSource>> {
-    return this.sorted("thread-list-sources", this.threadListSources, false);
+    return this.sorted("thread-list-sources", this.#threadListSources, false);
   }
 
   getThreadListAccessories(): Array<Owned<ThreadListAccessoryContribution>> {
-    return this.sorted("thread-list-accessories", this.threadListAccessories, false);
+    return this.sorted("thread-list-accessories", this.#threadListAccessories, false);
   }
 
   getThreadListLayouts(): Array<Owned<ThreadListLayout>> {
-    return this.sorted("thread-list-layouts", this.threadListLayouts, false);
+    return this.sorted("thread-list-layouts", this.#threadListLayouts, false);
   }
 
   getCommands(): Array<Owned<CommandContribution>> {
-    const cached = this.sortedCache.get("commands:listed");
-    if (cached?.version === this.version) return cached.value as Array<Owned<CommandContribution>>;
+    const cached = this.#sortedCache.get("commands:listed");
+    if (cached?.version === this.#version) return cached.value as Array<Owned<CommandContribution>>;
     // A command that a registered command's binding `replaces` is its stand-in; listing both would show one action twice.
-    const standIns = this.keybindings.standIns((id) => this.commands.has(id));
-    const value = this.sorted("commands", this.commands, false).filter((command) => !standIns.has(command.id));
-    this.sortedCache.set("commands:listed", { version: this.version, value });
+    const standIns = this.keybindings.standIns((id) => this.#commands.has(id));
+    const value = this.sorted("commands", this.#commands, false).filter((command) => !standIns.has(command.id));
+    this.#sortedCache.set("commands:listed", { version: this.#version, value });
     return value;
   }
 
   /** The palette's sources, in `order`. */
   getPaletteSources(): Array<Owned<PaletteSourceContribution>> {
-    return this.sorted("palette-sources", this.paletteSources);
+    return this.sorted("palette-sources", this.#paletteSources);
   }
 
   getCommandsFor(surface: CommandSurface): Array<Owned<CommandContribution>> {
     const key = `commands:${surface}`;
-    const cached = this.sortedCache.get(key);
-    if (cached?.version === this.version) return cached.value as Array<Owned<CommandContribution>>;
+    const cached = this.#sortedCache.get(key);
+    if (cached?.version === this.#version) return cached.value as Array<Owned<CommandContribution>>;
     const value = this.getCommands().filter((command) => command.surfaces?.includes(surface));
-    this.sortedCache.set(key, { version: this.version, value });
+    this.#sortedCache.set(key, { version: this.#version, value });
     return value;
   }
 
@@ -2703,41 +2669,41 @@ export class ExtensionRegistry {
 
   matchKeybinding(event: KeyboardEvent, page: (name: string) => boolean = domKeybindingContext()): { command: Owned<CommandContribution>; binding: ResolvedKeybinding; modified: boolean; specific: boolean } | undefined {
     const match = this.keybindings.matchKeybinding(event, page);
-    const command = match && this.commands.get(match.binding.commandId);
+    const command = match && this.#commands.get(match.binding.commandId);
     return match && command ? { ...match, command } : undefined;
   }
 
   /** Where recorded chords are written, from the extension that registered last. */
   getUserKeymap(): Owned<UserKeymapContribution> | undefined {
-    return [...this.userKeymaps.values()].at(-1);
+    return [...this.#userKeymaps.values()].at(-1);
   }
 
   /** Finds a registered command by its ID, if any. */
   getCommand(id: string): Owned<CommandContribution> | undefined {
-    return this.commands.get(id);
+    return this.#commands.get(id);
   }
 
   /** Executes a command registered with `registerCommand`. */
   async executeCommand(id: string, actions: WorkbenchActions): Promise<void> {
-    const command = this.commands.get(id);
+    const command = this.#commands.get(id);
     if (!command) throw new Error(`Command "${id}" is not registered.`);
     await command.run(actions);
   }
 
   getSlashCommands(): Array<Owned<SlashCommandContribution>> {
-    return this.sorted("slash-commands", this.slashCommands, false);
+    return this.sorted("slash-commands", this.#slashCommands, false);
   }
 
   /** Splits `/name rest` and finds the desktop command for it, if any. */
   findSlashCommand(text: string): { command: Owned<SlashCommandContribution>; args: string } | undefined {
     const match = /^\/([^\s]+)(?:\s+([^]*))?$/u.exec(text.trim());
     if (!match) return undefined;
-    const command = this.slashCommands.get(match[1]!);
+    const command = this.#slashCommands.get(match[1]!);
     return command ? { command, args: (match[2] ?? "").trim() } : undefined;
   }
 
   getPromptRenderer(prompt: ExtensionUiPrompt): Owned<PromptRendererContribution> | undefined {
-    for (const renderer of this.promptRenderers.values()) if (renderer.match(prompt)) return renderer;
+    for (const renderer of this.#promptRenderers.values()) if (renderer.match(prompt)) return renderer;
     return undefined;
   }
 
@@ -2762,19 +2728,19 @@ export class ExtensionRegistry {
   }
 
   getDocumentSource(): Owned<DocumentSourceContribution> | undefined {
-    return this.sorted("documents", this.documentSources)[0];
+    return this.sorted("documents", this.#documentSources)[0];
   }
 
   getExtensionSummaries(): ExtensionSummary[] {
-    return [...this.known.values()].map((extension) => ({
+    return [...this.#known.values()].map((extension) => ({
       id: extension.id,
       name: extension.name,
-      active: this.activeExtensions.has(extension.id),
-      contributes: (this.contributionKinds.get(extension.id) ?? []).join(" · "),
-      options: this.options.get(extension.id) ?? [],
+      active: this.#activeExtensions.has(extension.id),
+      contributes: (this.#contributionKinds.get(extension.id) ?? []).join(" · "),
+      options: this.#options.get(extension.id) ?? [],
       permissions: extension.permissions,
       granted: extension.granted,
-      ...(this.coreIds.has(extension.id) ? { core: true } : {}),
+      ...(this.#coreIds.has(extension.id) ? { core: true } : {}),
     }));
   }
 
@@ -2785,7 +2751,7 @@ export class ExtensionRegistry {
    * draft already has.
    */
   async prepareNewThread(event: NewThreadPromptEvent, actions: WorkbenchActions): Promise<NewThreadPromptGate | undefined> {
-    for (const hook of this.promptHooks.values()) {
+    for (const hook of this.#promptHooks.values()) {
       if (!hook.beforeNewThread) continue;
       try {
         const result = await hook.beforeNewThread(event, actions);
@@ -2802,7 +2768,7 @@ export class ExtensionRegistry {
    * in registration order; the first that answers `true` has taken it.
    */
   async claimNewThread(event: NewThreadClaimEvent, actions: WorkbenchActions): Promise<boolean> {
-    for (const hook of this.promptHooks.values()) {
+    for (const hook of this.#promptHooks.values()) {
       if (!hook.claimNewThread) continue;
       // Claims run in order; a rejection must keep the draft out of later hooks.
       // oxlint-disable-next-line no-await-in-loop
@@ -2813,23 +2779,23 @@ export class ExtensionRegistry {
 
   /** The model set a new thread's picker builds, from the extension that registered last. */
   getModelSelection(): Owned<ModelSelectionContribution> | undefined {
-    return [...this.modelSelections.values()].at(-1);
+    return [...this.#modelSelections.values()].at(-1);
   }
 
   getTranscriptFinder(): Owned<TranscriptFinderContribution> | undefined {
-    return [...this.transcriptFinders.values()].at(-1);
+    return [...this.#transcriptFinders.values()].at(-1);
   }
 
   getThreadMenu(): Owned<ThreadMenuContribution> | undefined {
-    return [...this.threadMenus.values()].at(-1);
+    return [...this.#threadMenus.values()].at(-1);
   }
 
   getForkPrompt(): Owned<ForkPromptContribution> | undefined {
-    return [...this.forkPrompts.values()].at(-1);
+    return [...this.#forkPrompts.values()].at(-1);
   }
 
   streamingDelivery(): "followUp" | "steer" | undefined {
-    for (const hook of this.promptHooks.values()) {
+    for (const hook of this.#promptHooks.values()) {
       const delivery = hook.streamingDelivery?.();
       if (delivery) return delivery;
     }
@@ -2837,16 +2803,16 @@ export class ExtensionRegistry {
   }
 
   getMessageActions(): Array<Owned<MessageActionContribution>> {
-    return this.sorted("message-actions", this.messageActions, false);
+    return this.sorted("message-actions", this.#messageActions, false);
   }
 
   getMessageBlocks(): Array<Owned<MessageBlockContribution>> {
-    return this.sorted("message-blocks", this.messageBlocks, false);
+    return this.sorted("message-blocks", this.#messageBlocks, false);
   }
 
   async notifyPromptSubmitted(event: PromptSubmittedEvent, actions: WorkbenchActions): Promise<void> {
     this.dispatchWorkbenchEvent({ type: "prompt-accepted" });
-    for (const hook of this.promptHooks.values()) {
+    for (const hook of this.#promptHooks.values()) {
       try {
         await hook.afterPrompt?.(event, actions);
       } catch (error) {
@@ -2857,7 +2823,7 @@ export class ExtensionRegistry {
 
   /** Routes a host extension event to the desktop entry that subscribed to it. */
   dispatchExtensionEvent(event: ExtensionEvent): void {
-    const listeners = this.hostEventListeners.get(event.extensionId)?.get(event.name);
+    const listeners = this.#hostEventListeners.get(event.extensionId)?.get(event.name);
     if (!listeners) return;
     for (const listener of [...listeners]) {
       try { listener(event.payload); } catch (error) { console.error(`Extension ${event.extensionId} event handler failed`, error); }
@@ -2865,23 +2831,23 @@ export class ExtensionRegistry {
   }
 
   getExtensionNames(): string[] {
-    return [...this.activeExtensions.values()].map(({ extension }) => extension.name);
+    return [...this.#activeExtensions.values()].map(({ extension }) => extension.name);
   }
 
   /** The card that draws this tool, when one claimed it. */
   toolCardFor(tool: UiToolRun): Owned<ToolCardContribution> | undefined {
-    for (const card of this.toolCards.values()) {
+    for (const card of this.#toolCards.values()) {
       if (card.match(tool)) return card;
     }
     return undefined;
   }
 
   toolCard(id: string): Owned<ToolCardContribution> | undefined {
-    return this.toolCards.get(id);
+    return this.#toolCards.get(id);
   }
 
   presentTool(tool: UiToolRun): ToolPresentation {
-    for (const renderer of this.renderers.values()) {
+    for (const renderer of this.#renderers.values()) {
       if (renderer.match(tool)) return renderer.render(tool);
     }
     return {
@@ -2900,10 +2866,10 @@ export class ExtensionRegistry {
    */
   noteLoadFailure(path: string, message: string | undefined): void {
     if (message === undefined) {
-      if (!this.loadFailures.delete(path)) return;
+      if (!this.#loadFailures.delete(path)) return;
     } else {
-      if (this.loadFailures.get(path) === message) return;
-      this.loadFailures.set(path, message);
+      if (this.#loadFailures.get(path) === message) return;
+      this.#loadFailures.set(path, message);
     }
     this.changed();
   }
@@ -2913,7 +2879,7 @@ export class ExtensionRegistry {
    * load of a workspace's set); a page no package registered yet may still come.
    */
   isLoadingExtensions(): boolean {
-    return this.loadingExtensions;
+    return this.#loadingExtensions;
   }
 
   /** All active URL stylesheets currently in the document, loaded or failed. */
@@ -2923,41 +2889,41 @@ export class ExtensionRegistry {
   }
 
   setLoadingExtensions(loading: boolean): void {
-    if (this.loadingExtensions === loading) return;
-    this.loadingExtensions = loading;
+    if (this.#loadingExtensions === loading) return;
+    this.#loadingExtensions = loading;
     this.changed();
   }
 
   getLoadFailures(): Array<{ path: string; message: string }> {
-    return [...this.loadFailures].map(([path, message]) => ({ path, message }));
+    return [...this.#loadFailures].map(([path, message]) => ({ path, message }));
   }
 
   subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
   };
 
   /** Cheap identity for useSyncExternalStore — changes whenever contributions change. */
-  getVersion = (): number => this.legacyVersion;
+  getVersion = (): number => this.#legacyVersion;
 
   /** Static contributions and lifecycle changes, independent of extension data. */
-  getRegistrationVersion = (): number => this.version;
+  getRegistrationVersion = (): number => this.#version;
   subscribeRegistrations = (listener: () => void): (() => void) => {
-    this.registrationListeners.add(listener);
-    return () => this.registrationListeners.delete(listener);
+    this.#registrationListeners.add(listener);
+    return () => this.#registrationListeners.delete(listener);
   };
 
   /** Dynamic data belongs to a domain, or to one thread's transcript and status. */
   subscribeData = (key: string, listener: () => void): (() => void) => {
-    const listeners = this.dataListeners.get(key) ?? new Set<() => void>();
-    this.dataListeners.set(key, listeners);
+    const listeners = this.#dataListeners.get(key) ?? new Set<() => void>();
+    this.#dataListeners.set(key, listeners);
     listeners.add(listener);
     return () => {
       listeners.delete(listener);
-      if (!listeners.size) this.dataListeners.delete(key);
+      if (!listeners.size) this.#dataListeners.delete(key);
     };
   };
-  getDataVersion = (key: string): number => this.dataVersions.get(key) ?? 0;
+  getDataVersion = (key: string): number => this.#dataVersions.get(key) ?? 0;
 
   subscribeMarks = (listener: () => void) => this.subscribeData("marks", listener);
   subscribeProjectIcons = (listener: () => void): (() => void) => {
@@ -2968,12 +2934,12 @@ export class ExtensionRegistry {
   subscribeProviderIcons = (listener: () => void) => this.subscribeData("provider-icons", listener);
 
   private dataChanged(key: string, transcript = false): void {
-    this.dataVersions.set(key, this.getDataVersion(key) + 1);
-    if (key === "problems") this.problemCache = undefined;
-    if (transcript && key.startsWith("thread:")) this.transcriptCache.delete(key.slice(7));
-    this.dataListeners.get(key)?.forEach((listener) => listener());
-    this.legacyVersion += 1;
-    this.listeners.forEach((listener) => listener());
+    this.#dataVersions.set(key, this.getDataVersion(key) + 1);
+    if (key === "problems") this.#problemCache = undefined;
+    if (transcript && key.startsWith("thread:")) this.#transcriptCache.delete(key.slice(7));
+    this.#dataListeners.get(key)?.forEach((listener) => listener());
+    this.#legacyVersion += 1;
+    this.#listeners.forEach((listener) => listener());
   }
 
   private disposeAll(disposers: Array<() => void>): void {
@@ -2981,7 +2947,7 @@ export class ExtensionRegistry {
     for (const dispose of [...disposers].reverse()) {
       try { dispose(); } catch (error) { errors.push(error); }
     }
-    if (errors.length > 0) throw new AggregateError(errors, "Extension contribution cleanup failed");
+    throwFailures(errors);
   }
 
   private register<T>(map: Map<string, T>, id: string, value: T, disposers: Array<() => void>): () => void {
@@ -3005,42 +2971,42 @@ export class ExtensionRegistry {
     map: Map<string, T>,
     byOrder = true,
   ): T[] {
-    const cached = this.sortedCache.get(key);
-    if (cached?.version === this.version) return cached.value as T[];
+    const cached = this.#sortedCache.get(key);
+    if (cached?.version === this.#version) return cached.value as T[];
     const value = [...map.values()];
     if (byOrder) value.sort((a, b) =>
       ((a as { order?: number }).order ?? 0) - ((b as { order?: number }).order ?? 0),
     );
-    this.sortedCache.set(key, { version: this.version, value });
+    this.#sortedCache.set(key, { version: this.#version, value });
     return value;
   }
 
   /** A kind's contributions as the user customized them, in their (possibly overridden) order. */
   private customized<T extends { id: string; order?: number }>(kind: PartKind, map: Map<string, T>): T[] {
     const key = `customized:${kind}`;
-    const cached = this.sortedCache.get(key);
-    if (cached?.version === this.version) return cached.value as T[];
-    const value = this.customization.apply(kind, [...map.values()]);
-    this.sortedCache.set(key, { version: this.version, value });
+    const cached = this.#sortedCache.get(key);
+    if (cached?.version === this.#version) return cached.value as T[];
+    const value = this.#customization.apply(kind, [...map.values()]);
+    this.#sortedCache.set(key, { version: this.#version, value });
     return value;
   }
 
   /** Every part on offer on this client, including contributions another profile draws. */
   getCustomizableParts(): CustomizablePart[] {
-    return this.customization.parts([
-      { kind: "region", items: this.regions.values() },
-      { kind: "status", items: this.statusItems.values() },
-      { kind: "panel", items: this.panels.values() },
-      { kind: "page", items: this.pages.values() },
-      { kind: "sidebar", items: this.sidebarContributions.values() },
-      { kind: "composer-control", items: this.composerControls.values() },
+    return this.#customization.parts([
+      { kind: "region", items: this.#regions.values() },
+      { kind: "status", items: this.#statusItems.values() },
+      { kind: "panel", items: this.#panels.values() },
+      { kind: "page", items: this.#pages.values() },
+      { kind: "sidebar", items: this.#sidebarContributions.values() },
+      { kind: "composer-control", items: this.#composerControls.values() },
     ], this.getUnrenderedContributions());
   }
 
   private changed(): void {
-    this.version += 1;
-    this.legacyVersion += 1;
-    this.registrationListeners.forEach((listener) => listener());
-    this.listeners.forEach((listener) => listener());
+    this.#version += 1;
+    this.#legacyVersion += 1;
+    this.#registrationListeners.forEach((listener) => listener());
+    this.#listeners.forEach((listener) => listener());
   }
 }

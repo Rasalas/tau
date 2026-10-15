@@ -123,7 +123,7 @@ describe("ExtensionRegistry contribution selectors", () => {
       context.registerCommand({ id: "temporary", label: "Temporary", group: "Test", run() {} });
       return () => { finalDisposed = true; throw new Error("dispose failed"); };
     } });
-    expect(() => registry.deactivate("cleanup")).toThrow("cleanup failed");
+    expect(() => registry.deactivate("cleanup")).toThrow("dispose failed");
     expect(finalDisposed).toBe(true);
     expect(registry.getCommands()).toEqual([]);
     expect(registry.isActive("cleanup")).toBe(false);
@@ -137,6 +137,18 @@ describe("ExtensionRegistry contribution selectors", () => {
     } })).toThrow("activation failed");
     expect(registry.getCommands()).toEqual([]);
     expect(registry.isActive("broken")).toBe(false);
+  });
+
+  it("preserves a cleanup failure even when an extension throws undefined", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "cleanup", name: "Cleanup", activate() { return () => { throw undefined; }; } });
+    let failed = false;
+    try { registry.deactivate("cleanup"); } catch (error) {
+      failed = true;
+      expect(error).toBeUndefined();
+    }
+    expect(failed).toBe(true);
+    expect(registry.isActive("cleanup")).toBe(false);
   });
 
   it("hands the stage one document source and drops it with its extension", () => {
@@ -153,6 +165,206 @@ describe("ExtensionRegistry contribution selectors", () => {
     expect(registry.getDocumentSource()?.id).toBe("workspace.documents");
     registry.deactivate("workspace");
     expect(registry.getDocumentSource()).toBeUndefined();
+  });
+});
+
+describe("ExtensionRegistry service lifecycle", () => {
+  it.each([true, false])("binds and releases services in either activation order, provider first: %s", (providerFirst) => {
+    const registry = new ExtensionRegistry();
+    const cleanup = vi.fn();
+    const use = vi.fn(() => cleanup);
+    const value = { ready: true };
+    const provider: DesktopExtension = { id: "provider", name: "Provider", activate(context) { context.provideService("shared", value); } };
+    const consumer: DesktopExtension = { id: "consumer", name: "Consumer", activate(context) { context.useService("shared", use); } };
+    for (const extension of providerFirst ? [provider, consumer] : [consumer, provider]) registry.activate(extension);
+    expect(use).toHaveBeenCalledExactlyOnceWith(value);
+    registry.deactivate("provider");
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    registry.activate(provider);
+    expect(use).toHaveBeenCalledTimes(2);
+    registry.deactivate("consumer");
+    registry.deactivate("provider");
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(registry.getServiceIds()).toEqual([]);
+  });
+
+  it("removes a consumer whose immediate callback throws", () => {
+    const registry = new ExtensionRegistry();
+    const provider: DesktopExtension = { id: "provider", name: "Provider", activate(context) { context.provideService("shared", {}); } };
+    registry.activate(provider);
+    const use = vi.fn(() => { throw new Error("consumer failed"); });
+    expect(() => registry.activate({ id: "consumer", name: "Consumer", activate(context) { context.useService("shared", use); } })).toThrow("consumer");
+    expect(registry.isActive("consumer")).toBe(false);
+    expect(registry.getServiceIds()).toEqual(["shared"]);
+    registry.deactivate("provider");
+    expect(() => registry.activate(provider)).not.toThrow();
+    expect(use).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back a provider after deferred callback failure and releases every successful binding", () => {
+    const registry = new ExtensionRegistry();
+    const firstCleanup = vi.fn();
+    const lastCleanup = vi.fn();
+    const firstUse = vi.fn(() => firstCleanup);
+    const lastUse = vi.fn(() => lastCleanup);
+    registry.activate({ id: "first", name: "First", activate(context) { context.useService("shared", firstUse); } });
+    registry.activate({ id: "broken", name: "Broken", activate(context) { context.useService("shared", () => { throw new Error("consumer failed"); }); } });
+    registry.activate({ id: "last", name: "Last", activate(context) { context.useService("shared", lastUse); } });
+    const provider: DesktopExtension = { id: "provider", name: "Provider", activate(context) { context.provideService("shared", {}); } };
+    expect(() => registry.activate(provider)).toThrow(/broken.*shared.*consumer failed/);
+    expect(registry.getServiceIds()).toEqual([]);
+    expect(registry.isActive("provider")).toBe(false);
+    expect(firstCleanup).toHaveBeenCalledTimes(1);
+    expect(lastUse).toHaveBeenCalledTimes(1);
+    expect(lastCleanup).toHaveBeenCalledTimes(1);
+    registry.deactivate("broken");
+    expect(() => registry.activate(provider)).not.toThrow();
+    expect(firstUse).toHaveBeenCalledTimes(2);
+    expect(lastUse).toHaveBeenCalledTimes(2);
+    registry.deactivate("provider");
+    registry.deactivate("first");
+    registry.deactivate("last");
+    expect(firstCleanup).toHaveBeenCalledTimes(2);
+    expect(lastCleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases every binding when one cleanup throws and can reactivate the provider", () => {
+    const registry = new ExtensionRegistry();
+    const brokenCleanup = vi.fn(() => { throw new Error("cleanup failed"); });
+    const healthyCleanup = vi.fn();
+    registry.activate({ id: "broken", name: "Broken", activate(context) { context.useService("shared", () => brokenCleanup); } });
+    registry.activate({ id: "healthy", name: "Healthy", activate(context) { context.useService("shared", () => healthyCleanup); } });
+    const provider: DesktopExtension = { id: "provider", name: "Provider", activate(context) { context.provideService("shared", {}); } };
+    registry.activate(provider);
+    expect(() => registry.deactivate("provider")).toThrow("cleanup failed");
+    expect(registry.isActive("provider")).toBe(false);
+    expect(registry.getServiceIds()).toEqual([]);
+    expect(brokenCleanup).toHaveBeenCalledTimes(1);
+    expect(healthyCleanup).toHaveBeenCalledTimes(1);
+    registry.deactivate("broken");
+    expect(brokenCleanup).toHaveBeenCalledTimes(1);
+    expect(() => registry.activate(provider)).not.toThrow();
+    registry.deactivate("healthy");
+    registry.deactivate("provider");
+    expect(healthyCleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it("makes a subscription disposer idempotent even when its cleanup throws", () => {
+    const registry = new ExtensionRegistry();
+    let stop = () => {};
+    const cleanup = vi.fn(() => { throw new Error("cleanup failed"); });
+    registry.activate({ id: "provider", name: "Provider", activate(context) { context.provideService("shared", {}); } });
+    registry.activate({ id: "consumer", name: "Consumer", activate(context) { stop = context.useService("shared", () => cleanup); } });
+    expect(stop).toThrow("cleanup failed");
+    expect(stop).not.toThrow();
+    expect(() => registry.deactivate("consumer")).not.toThrow();
+    registry.deactivate("provider");
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("keeps consumer and service attribution through extension cleanup, multiple failures: %s", (multipleFailures) => {
+    const registry = new ExtensionRegistry();
+    const cause = new Error("consumer cleanup failed");
+    registry.activate({ id: "consumer", name: "Consumer", activate(context) {
+      context.useService("shared", () => () => { throw cause; });
+    } });
+    registry.activate({ id: "provider", name: "Provider", activate(context) {
+      context.registerCommand({ id: "before", label: "Before", group: "Test", run() {} });
+      context.provideService("shared", {});
+      context.registerCommand({ id: "after", label: "After", group: "Test", run() {} });
+      if (multipleFailures) return () => { throw new Error("provider cleanup failed"); };
+    } });
+    let failure: unknown;
+    try { registry.deactivate("provider"); } catch (error) { failure = error; }
+    expect((failure as Error).message).toContain("Extension consumer releasing service shared: consumer cleanup failed");
+    if (multipleFailures) {
+      expect((failure as Error).message).toContain("provider cleanup failed");
+      expect((failure as AggregateError).errors[1].cause).toBe(cause);
+    } else expect((failure as Error).cause).toBe(cause);
+    expect(registry.isActive("provider")).toBe(false);
+    expect(registry.getServiceIds()).toEqual([]);
+    expect(registry.getCommands()).toEqual([]);
+    expect(() => registry.deactivate("consumer")).not.toThrow();
+  });
+
+  it("preserves the originating activation error when service rollback also fails", () => {
+    const registry = new ExtensionRegistry();
+    const activationError = new Error("consumer activation failed");
+    const cleanupError = new Error("consumer cleanup failed");
+    registry.activate({ id: "provider", name: "Provider", activate(context) { context.provideService("shared", {}); } });
+    let failure: unknown;
+    try {
+      registry.activate({ id: "consumer", name: "Consumer", activate(context) {
+        context.registerCommand({ id: "temporary", label: "Temporary", group: "Test", run() {} });
+        context.useService("shared", () => () => { throw cleanupError; });
+        throw activationError;
+      } });
+    } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors[0]).toBe(activationError);
+    expect((failure as AggregateError).errors[1].cause).toBe(cleanupError);
+    expect((failure as Error).message).toContain("consumer activation failed");
+    expect((failure as Error).message).toContain("Extension consumer releasing service shared: consumer cleanup failed");
+    expect(registry.isActive("consumer")).toBe(false);
+    expect(registry.getCommands()).toEqual([]);
+    expect(() => registry.deactivate("provider")).not.toThrow();
+  });
+
+  it("collects callback and rollback cleanup failures without leaving bindings behind", () => {
+    const registry = new ExtensionRegistry();
+    const cause = new Error("callback failed");
+    const brokenCleanup = vi.fn(() => { throw new Error("rollback failed"); });
+    const healthyCleanup = vi.fn();
+    const lastUse = vi.fn(() => healthyCleanup);
+    registry.activate({ id: "cleanup", name: "Cleanup", activate(context) { context.useService("shared", () => brokenCleanup); } });
+    registry.activate({ id: "broken", name: "Broken", activate(context) { context.useService("shared", () => { throw cause; }); } });
+    registry.activate({ id: "last", name: "Last", activate(context) { context.useService("shared", lastUse); } });
+    let failure: unknown;
+    try {
+      registry.activate({ id: "provider", name: "Provider", activate(context) { context.provideService("shared", {}); } });
+    } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors[0].cause).toBe(cause);
+    expect((failure as Error).message).toContain("Extension broken using service shared: callback failed");
+    expect((failure as Error).message).toContain("Extension cleanup releasing service shared: rollback failed");
+    expect(registry.getServiceIds()).toEqual([]);
+    expect(lastUse).toHaveBeenCalledTimes(1);
+    expect(brokenCleanup).toHaveBeenCalledTimes(1);
+    expect(healthyCleanup).toHaveBeenCalledTimes(1);
+    expect(() => registry.deactivate("cleanup")).not.toThrow();
+    registry.deactivate("broken");
+    registry.deactivate("last");
+    expect(brokenCleanup).toHaveBeenCalledTimes(1);
+    expect(healthyCleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back successful service registration when extension activation later fails", () => {
+    const registry = new ExtensionRegistry();
+    const cleanup = vi.fn();
+    registry.activate({ id: "consumer", name: "Consumer", activate(context) { context.useService("shared", () => cleanup); } });
+    expect(() => registry.activate({ id: "provider", name: "Provider", activate(context) {
+      context.provideService("shared", {});
+      throw new Error("activation failed");
+    } })).toThrow("activation failed");
+    expect(registry.getServiceIds()).toEqual([]);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    registry.deactivate("consumer");
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps provider ownership across collisions and stale disposers", () => {
+    const registry = new ExtensionRegistry();
+    let withdraw = () => {};
+    const provider: DesktopExtension = { id: "provider", name: "Provider", activate(context) { withdraw = context.provideService("shared", {}); } };
+    registry.activate(provider);
+    const staleWithdraw = withdraw;
+    expect(() => registry.activate({ id: "other", name: "Other", activate(context) { context.provideService("shared", {}); } })).toThrow("already provided by provider");
+    expect(registry.getServiceIds()).toEqual(["shared"]);
+    withdraw();
+    registry.activate(provider);
+    staleWithdraw();
+    expect(registry.getServiceIds()).toEqual(["shared"]);
+    registry.deactivate("provider");
   });
 });
 

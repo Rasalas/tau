@@ -36,7 +36,6 @@ import {
   type UiModelBilling,
   type VersionPolicy,
   THREAD_TEXTS_COMMAND,
-  threadTextsDelta,
 } from "tau/host-extension";
 import { readAgentSdkIdentity, type AccountIdentity } from "./account-identity.js";
 import { claudeConfigDir, claudeProjectDirs, importClaudeSessions, scanClaudeSessions } from "./history-import.js";
@@ -493,7 +492,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         }),
       }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
-      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => store.threadTexts(input), { long: true, callers: [SEARCH_KIT_ID] });
       // The plan's windows, for the Usage kit: read through the CLI at most every few minutes, fresher when a turn reported them.
       context.registerCommand("usage-limits", async (input) => {
         const refresh = Boolean(input && typeof input === "object" && (input as { refresh?: unknown }).refresh);

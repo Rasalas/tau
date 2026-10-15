@@ -195,6 +195,7 @@ export class AcpSessionStore<K extends string = string> {
       filePath: options.filePath,
       version: CURRENT_VERSION,
       immutableUsageTurns: true,
+      publishEvicted: (id, record) => { this.records.set(id, record as AcpSessionRecord<K>); },
       publishHydrated: (id, record) => {
         if (record) this.records.set(id, record as AcpSessionRecord<K>);
         else this.records.delete(id);
@@ -221,7 +222,7 @@ export class AcpSessionStore<K extends string = string> {
         this.models = new Map(Object.entries(data?.models ?? {}));
         if (data) await chmod(this.options.filePath, 0o600).catch(() => undefined);
       })
-      .catch(() => undefined);
+      .catch((error) => { this.loading = undefined; throw error; });
     return this.loading;
   }
 
@@ -238,13 +239,12 @@ export class AcpSessionStore<K extends string = string> {
   }
 
   private async hydrateMany(threadIds: string[]): Promise<void> {
-    const ids = threadIds.filter(id => this.persistence.isUnloaded(id));
-    if (!ids.length) return;
-    await this.persistence.loadSessions(ids);
+    if (!threadIds.some(id => this.persistence.isUnloaded(id))) return;
+    await this.persistence.loadSessions(threadIds);
   }
 
   private async hydrate(tauThreadId: string): Promise<void> {
-    if (!this.persistence.isUnloaded(tauThreadId)) return;
+    if (!this.persistence.isUnloaded(tauThreadId)) { this.persistence.touch(tauThreadId); return; }
     await this.persistence.loadSession(tauThreadId);
   }
 
@@ -271,6 +271,12 @@ export class AcpSessionStore<K extends string = string> {
       .filter((record) => instance === undefined || sameInstance(record, instance))
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .map(clone);
+  }
+
+  /** Search reads only changed text, without retaining full histories. */
+  async threadTexts(input: unknown) {
+    await this.load();
+    return this.persistence.threadTexts(this.records.values(), input);
   }
 
   /** Recovery and sidebar listing read the catalog, never histories. */

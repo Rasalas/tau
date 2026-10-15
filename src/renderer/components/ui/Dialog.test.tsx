@@ -221,6 +221,66 @@ it("keeps a parent popover open while a nested portal is selected and dismisses 
 });
 
 describe("ConfirmDialog (1v)", () => {
+  it("opens a destructive question on Cancel and returns focus after keyboard cancellation", () => {
+    const onConfirm = vi.fn();
+    function DeleteHarness() {
+      const [open, setOpen] = useState(false);
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>Delete archived thread</button>
+        {open ? <ConfirmDialog title="Delete thread for good?" confirmLabel="Delete for good" destructive dontAskAgain
+          onConfirm={onConfirm} onCancel={() => setOpen(false)} /> : null}
+      </>;
+    }
+    render(<DeleteHarness />);
+    const trigger = screen.getByRole("button", { name: "Delete archived thread" });
+    act(() => { trigger.focus(); });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    // jsdom does not implement a button's native Enter activation.
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    fireEvent.click(document.activeElement!);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps ordinary confirmations on their action and lets a destructive action be chosen explicitly", () => {
+    const onConfirm = vi.fn();
+    const view = render(<ConfirmDialog title="Continue?" confirmLabel="Continue" onConfirm={onConfirm} onCancel={() => undefined} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(document.activeElement!);
+    expect(onConfirm).toHaveBeenCalledWith(false);
+    view.unmount();
+    onConfirm.mockClear();
+    render(<ConfirmDialog title="Delete it?" confirmLabel="Delete" destructive onConfirm={onConfirm} onCancel={() => undefined} />);
+    const action = screen.getByRole("button", { name: "Delete" });
+    act(() => { action.focus(); });
+    fireEvent.keyDown(action, { key: "Enter" });
+    fireEvent.click(action);
+    expect(onConfirm).toHaveBeenCalledWith(false);
+  });
+
+  it("focuses typed confirmation and keeps Enter locked until the requested text matches", () => {
+    const onConfirm = vi.fn();
+    render(<ConfirmDialog title="Delete it?" confirmText="thread" confirmLabel="Delete" destructive onConfirm={onConfirm} onCancel={() => undefined} />);
+    const input = screen.getByRole("textbox");
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "wrong" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Delete" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "thread" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onConfirm).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
   it.each([{ isComposing: true }, { keyCode: 229 }])("does not confirm typed text on IME Enter (%j)", (composition) => {
     const onConfirm = vi.fn();
     render(<ConfirmDialog title="Delete it?" confirmText="日本語" confirmLabel="Delete" onConfirm={onConfirm} onCancel={() => undefined} />);

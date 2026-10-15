@@ -10,7 +10,6 @@ import {
   cliMaintenance,
   executableFingerprint,
   runtimeVersionPolicy,
-  threadTextsDelta,
   versionCompatibility,
   type HostBackendThreadRecord,
   type HostExtension,
@@ -413,7 +412,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
         }));
         return { accounts };
       }, { access: "read", long: true, callers: [USAGE_KIT_ID] });
-      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => threadTextsDelta(await store.list(), input), { long: true, callers: [SEARCH_KIT_ID] });
+      context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => store.threadTexts(input), { long: true, callers: [SEARCH_KIT_ID] });
 
       for (const instance of settings.list()) register(instance.id);
       return async () => { for (const id of [...states.keys()]) unregister(id); await store.flushAndRelease(); };
