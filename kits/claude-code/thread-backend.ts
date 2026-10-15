@@ -661,6 +661,10 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       return;
     }
     if (frame.type === "result") turn.cumulativeUsage = Object.keys(frame.modelUsage ?? {}).length > 0;
+    // The CLI hands a result reported mid-turn to the next model call, which follows a tool result (#373).
+    if (frame.type === "user" && Array.isArray(frame.message.content) && frame.message.content.some((block) => block.type === "tool_result")) {
+      turn.reportedTasks = [...new Set([...turn.reportedTasks ?? [], ...this.background.reported()])];
+    }
     const events = turn.translator.push(frame);
     for (const event of events) this.handleEvent(event);
     if (frame.type !== "result" || !turn.translator.outcome) return;
