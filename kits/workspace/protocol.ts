@@ -33,6 +33,7 @@ import type { TurnCheckpointStatus, UiTurnCheckpoint } from "./turn-checkpoint-t
 import type { CommitFilesInput, CommitFilesResult, MergeBranchResult } from "./branch-commit.js";
 import type { CheckoutTurn } from "./checkout-turns.js";
 import type { ThreadChangesCount } from "./thread-changes.js";
+import type { GitHostService } from "../_git-hosts/hosts.js";
 
 /** `workspace-info`; a private "No project" folder says so, being no repository and no project to open. */
 export type WorkspaceReport = WorkspaceInfo & { projectless?: boolean };
@@ -228,11 +229,14 @@ export const WORKSPACE_CHANGES_PANEL = "changes";
 export const WORKSPACE_REVIEW_OVERLAY = "review.workspace";
 export const WORKSPACE_CHECKPOINT_REVIEW_OVERLAY = "workspace.checkpoint-review";
 
+/** A folder that is a Git repository, by the host its `origin` names; "git" when no known one. */
+export type RepositoryHost = GitHostService | "git";
+
 export interface UiDirectoryListing {
   /** Host coordinates of the browsed folder; browsing is a host-side operation. */
   path: string;
   parent?: string;
-  directories: Array<{ name: string; path: string }>;
+  directories: Array<{ name: string; path: string; repository?: RepositoryHost }>;
   /** How the client names this folder once it keeps it. */
   workspace: WorkspaceRef;
 }
@@ -258,6 +262,15 @@ export interface ReviewRequestContext {
   template?: string;
 }
 
+/** The folders below `root` the folder picker searches; repositories are leaves. */
+export interface UiFolderIndex {
+  root: string;
+  /** POSIX paths relative to `root`, sorted. */
+  folders: Array<{ path: string; repository?: RepositoryHost }>;
+  /** The walk hit its size or time limit, so some folders are missing. */
+  truncated: boolean;
+}
+
 /**
  * Workspace Kit's commands. A file inside a workspace travels as `relPath`, a
  * POSIX path relative to the workspace root; a workspace itself travels as the
@@ -269,6 +282,8 @@ export interface WorkspaceHostCommands {
   "create-scratch": { input: undefined; output: WorkspaceRef };
   "create-project": { input: { name: string; parentPath?: string }; output: { workspace: WorkspaceRef; warning?: string } | undefined };
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
+  /** Indexes the folders below `path` (the home folder without one) for the picker's finder. */
+  "find-folders": { input: { path?: string } | undefined; output: UiFolderIndex };
   /** Native folder dialog; `undefined` when cancelled. */
   "pick-folder": { input: undefined; output: WorkspaceRef | undefined };
   /**
@@ -373,6 +388,7 @@ export interface WorkspaceHostClient {
   createScratch(): Promise<WorkspaceRef>;
   createProject(name: string, parentPath?: string): Promise<{ workspace: WorkspaceRef; warning?: string } | undefined>;
   listDirectories(path?: string): Promise<UiDirectoryListing>;
+  findFolders(path?: string): Promise<UiFolderIndex>;
   pickFolder(): Promise<WorkspaceRef | undefined>;
   startClone(repositoryUrl: string, parentPath?: string): Promise<CloneSnapshot | undefined>;
   cancelClone(id: string): Promise<boolean>;
@@ -432,6 +448,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     createScratch: () => call("create-scratch", undefined),
     createProject: (name, parentPath) => call("create-project", { name, ...(parentPath ? { parentPath } : {}) }),
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
+    findFolders: (path) => call("find-folders", path === undefined ? undefined : { path }),
     pickFolder: () => call("pick-folder", undefined),
     startClone: (repositoryUrl, parentPath) => call("clone-start", parentPath === undefined ? { repositoryUrl } : { repositoryUrl, parentPath }),
     cancelClone: (id) => call("clone-cancel", { id }),

@@ -1173,9 +1173,12 @@ host refuses an absolute path or a `..` segment before it resolves anything;
 `isWorkspaceRelativePath` (`src/shared/workspace-identity.ts`) is the guard
 core uses, and Workspace Kit's `assertWorkspacePath` throws when it fails.
 Folder browsing
-(`list-directories`, `pick-folder`, `clone`, `create-worktree`) is a host-side
+(`list-directories`, `find-folders`, `pick-folder`, `clone`, `create-worktree`) is a host-side
 operation and still deals in host paths, but it answers with a
 `workspaceId`/`displayPath` pair for anything the client keeps.
+`find-folders` indexes the folders below one for the local-folder picker's
+search: Git repositories are leaves, hidden folders and symlinks are skipped,
+and on macOS the home folders behind a privacy prompt are never entered from above.
 
 The `local-files` capability says whether the host's files are files of the
 machine the client runs on. Electron IPC announces it — it is in process. The

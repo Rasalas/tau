@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CornerLeftUp, Eye, Folder, FolderOpen, GitBranch, MessageSquare, PanelLeft, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, Eye, Folder, FolderOpen, GitBranch, MessageSquare, PanelLeft, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
 import {
   DraftRow,
   errorMessage,
@@ -33,7 +33,8 @@ import {
   type UiSession,
   type WorkbenchActions,
 } from "tau";
-import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailSection, type ThreadRailOrganizer, type ThreadRailRowAction, type UiDirectoryListing } from "./protocol.js";
+import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailSection, type ThreadRailOrganizer, type ThreadRailRowAction } from "./protocol.js";
+import { homeRelative } from "./folder-finder.js";
 import { railActivity } from "./rail-activity.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
@@ -116,153 +117,6 @@ function fuzzyMatch(value: string, query: string): boolean {
     at += 1;
   }
   return true;
-}
-
-/** `/Users/me/x` reads as `~/x`; the host expands `~` again when the path is typed back. */
-function homeRelative(path: string): string {
-  const home = path.match(/^\/(?:Users|home)\/[^/]+/u)?.[0];
-  return home ? `~${path.slice(home.length)}` : path;
-}
-
-function withSeparator(path: string): string {
-  return /[\\/]$/u.test(path) ? path : `${path}/`;
-}
-
-/** The folder part of a typed path and the name being typed after it. */
-function splitTypedPath(text: string): { folder: string; leaf: string } {
-  const cut = Math.max(text.lastIndexOf("/"), text.lastIndexOf("\\")) + 1;
-  return { folder: text.slice(0, cut), leaf: text.slice(cut) };
-}
-
-/** Names that start with what was typed, then names that contain it. */
-function namesMatching<T extends { name: string }>(entries: readonly T[], typed: string): T[] {
-  const needle = typed.toLocaleLowerCase();
-  if (!needle) return [...entries];
-  const starts = entries.filter((entry) => entry.name.toLocaleLowerCase().startsWith(needle));
-  return [...starts, ...entries.filter((entry) => !starts.includes(entry) && entry.name.toLocaleLowerCase().includes(needle))];
-}
-
-const MOD_LABEL = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform) ? "⌘" : "Ctrl";
-
-/**
- * Browse the host's folders by typing a path:
- * the part before the last `/` is the folder listed, the rest filters it.
- */
-export function LocalFolderSource({ actions, onBack, onDone }: ProjectSourceProps) {
-  const store = useWorkspaceStore();
-  const host = store.host;
-  const { localFiles } = useHostCapabilities();
-  const [listing, setListing] = useState<UiDirectoryListing>();
-  const [text, setText] = useState("");
-  const [selected, setSelected] = useState(-1);
-  const [missing, setMissing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const request = useRef(0);
-  const { folder, leaf } = splitTypedPath(text);
-  const current = missing ? undefined : listing;
-  const directories = useMemo(() => namesMatching(current?.directories ?? [], leaf), [current, leaf]);
-  const highlighted = selected >= 0 ? directories[selected] : undefined;
-
-  /** Lists `path`; a typed folder keeps the text, a clicked one replaces it. */
-  const load = useCallback(async (path?: string, options: { fallBack?: boolean; keepText?: boolean } = {}) => {
-    const ticket = ++request.current;
-    try {
-      const next = await host.listDirectories(path).catch((failure: unknown) => {
-        // A base folder that is gone opens the home folder instead of an error.
-        if (options.fallBack) return host.listDirectories();
-        throw failure;
-      });
-      if (ticket !== request.current) return;
-      setListing(next);
-      setMissing(false);
-      setSelected(-1);
-      if (!options.keepText) setText(withSeparator(homeRelative(next.path)));
-      if (localFiles || document.activeElement === inputRef.current) inputRef.current?.focus();
-    } catch {
-      if (ticket === request.current) setMissing(true);
-    }
-  }, [host, localFiles]);
-  useEffect(() => {
-    const base = store.projectBaseDirectory();
-    void load(base, { fallBack: base !== undefined });
-  }, [load, store]);
-
-  const listedFolder = listing ? withSeparator(homeRelative(listing.path)) : undefined;
-  useEffect(() => {
-    if (!folder || folder === listedFolder) { setMissing(false); return; }
-    const timer = window.setTimeout(() => void load(folder, { keepText: true }), 120);
-    return () => window.clearTimeout(timer);
-  }, [folder, listedFolder, load]);
-
-  const add = async (directory?: { path: string }) => {
-    if (!current || busy) return;
-    setBusy(true);
-    try {
-      const target = directory ? await host.listDirectories(directory.path) : current;
-      if (await actions.openWorkspace(target.workspace.workspaceId)) onDone();
-    } catch (error) {
-      actions.notify(errorMessage(error), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const choose = async () => {
-    try {
-      const picked = await host.pickFolder();
-      if (picked && await actions.openWorkspace(picked.workspaceId)) onDone();
-    } catch (error) {
-      actions.notify(errorMessage(error), "error");
-    }
-  };
-  const addLabel = highlighted ? `${MOD_LABEL} ↵` : "↵";
-
-  return <div className="folder-browser">
-    <header className="project-modal-bar">
-      <button type="button" className="project-modal-bar-glyph" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={15} /></button>
-      <input
-        ref={inputRef}
-        value={text}
-        spellCheck={false}
-        onChange={(event) => { setText(event.target.value); setSelected(-1); }}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown") { event.preventDefault(); setSelected((value) => Math.min(value + 1, directories.length - 1)); }
-          if (event.key === "ArrowUp") { event.preventDefault(); setSelected((value) => Math.max(-1, value - 1)); }
-          if (event.key === "Tab" && (highlighted ?? directories[0])) { event.preventDefault(); void load((highlighted ?? directories[0]).path); }
-          if (event.key === "Enter") {
-            event.preventDefault();
-            if (event.metaKey || event.ctrlKey) void add(highlighted);
-            else if (highlighted) void load(highlighted.path);
-            else void add();
-          }
-          if (event.key === "Backspace" && !leaf && listing?.parent && folder === listedFolder) { event.preventDefault(); void load(listing.parent); }
-        }}
-        placeholder="~/path/to/project"
-        aria-label="Folder path"
-      />
-      <button type="button" className="project-modal-bar-action" disabled={!current || busy} onClick={() => void add(highlighted)}>
-        Add <kbd>{addLabel}</kbd>
-      </button>
-    </header>
-    <div className="project-picker-heading"><span>Folders</span> <small>{current ? directories.length : ""}</small></div>
-    <div className="folder-browser-results" role="listbox" aria-label="Folders">
-      {current?.parent && !leaf ? <button type="button" onClick={() => void load(current.parent)}><CornerLeftUp size={15} /><span>..</span></button> : null}
-      {current ? directories.map((directory, index) => <button
-        type="button"
-        role="option"
-        aria-selected={selected === index}
-        className={selected === index ? "selected" : ""}
-        key={directory.path}
-        onMouseMove={() => setSelected(index)}
-        onClick={() => void load(directory.path)}
-      ><Folder size={15} /><span>{directory.name}</span></button>) : null}
-      {missing ? <p>No folder at {folder}</p> : current && directories.length === 0 ? <p>{leaf ? `Enter adds ${folder} — no folder here matches “${leaf}”` : "No folders in here"}</p> : null}
-    </div>
-    <footer className="project-modal-footer">
-      {localFiles ? <button type="button" onClick={() => void choose()}><FolderOpen size={14} /> Choose a folder…</button> : null}
-      <small className="keyboard-hint"><kbd>↑↓</kbd> select <kbd>⇥</kbd> complete</small>
-    </footer>
-  </div>;
 }
 
 /** A name and the host's parent folder create a ready project. */

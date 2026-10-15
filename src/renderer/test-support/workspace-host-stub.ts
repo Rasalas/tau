@@ -7,6 +7,7 @@ const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
  */
 interface WorkspaceHostClient {
   listDirectories(path?: string): Promise<unknown>;
+  findFolders(path?: string): Promise<unknown>;
   pickFolder(): Promise<unknown>;
   createScratch(): Promise<unknown>;
   startClone(repositoryUrl: string, parentPath?: string): Promise<unknown>;
@@ -67,6 +68,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
   const unsupported = (name: string) => async () => { throw new Error(`workspaceHostStub: ${name} is not stubbed`); };
   const client: WorkspaceHostStubOverrides & Required<WorkspaceHostStubOverrides> = {
     listDirectories: unsupported("listDirectories"),
+    findFolders: unsupported("findFolders"),
     pickFolder: unsupported("pickFolder"),
     createScratch: unsupported("createScratch"),
     startClone: unsupported("startClone"),
@@ -128,6 +130,7 @@ export function workspaceHostStub(overrides: WorkspaceHostStubOverrides = {}, ex
     if (extensionId !== WORKSPACE_HOST_EXTENSION_ID) throw new Error(`Host extension ${extensionId} is not installed.`);
     switch (command) {
       case "list-directories": return client.listDirectories(...optional(field<string>(input, "path")));
+      case "find-folders": return client.findFolders(...optional(field<string>(input, "path")));
       case "pick-folder": return client.pickFolder();
       case "create-scratch": return client.createScratch();
       case "clone-start": return client.startClone(field(input, "repositoryUrl")!, ...optional(field<string>(input, "parentPath")));

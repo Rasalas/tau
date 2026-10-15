@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import type { UiEditor, UiFileDiff, UiReviewRequest, UiSession, UiWorkspaceChanges, WorkbenchActions } from "tau";
+import { GIT_HOST_SERVICES, type GitHostService } from "../_git-hosts/hosts.js";
 
 export const REVIEW_HOST_EXTENSION_ID = "tau.review";
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
@@ -120,8 +121,8 @@ export interface ReviewRequestContext {
 }
 
 /** The source-control hosts Review Kit reaches, each through its own CLI or credential helper. */
-export type RequestService = "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops";
-export const REQUEST_SERVICES: readonly RequestService[] = ["github", "gitlab", "forgejo", "bitbucket", "azure-devops"];
+export type RequestService = GitHostService;
+export const REQUEST_SERVICES: readonly RequestService[] = GIT_HOST_SERVICES;
 export type MergeMethod = "merge" | "squash" | "rebase";
 
 /**
