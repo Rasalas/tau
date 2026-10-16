@@ -16,12 +16,15 @@ const selected = { provider: "openai-codex", id: "gpt-6.1-sol", name: "GPT-6.1 S
 afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
 
 it.each([
-  { explicit: false, runtime: "codex", label: "Codex" },
-  { explicit: true, runtime: "codex", label: "Codex" },
-  { explicit: false, runtime: "pi", label: "Pi" },
-  { explicit: true, runtime: "pi", label: "Pi" },
-])("keeps $label and the selected model through launch and hydration, explicit draft=$explicit", async ({ explicit, runtime, label }) => {
+  { explicit: false, runtime: "codex", label: "Codex", missingProject: false },
+  { explicit: true, runtime: "codex", label: "Codex", missingProject: false },
+  { explicit: false, runtime: "pi", label: "Pi", missingProject: false },
+  { explicit: true, runtime: "pi", label: "Pi", missingProject: false },
+  { explicit: false, runtime: "codex", label: "Codex", missingProject: true },
+  { explicit: false, runtime: "pi", label: "Pi", missingProject: true },
+])("keeps $label and the selected model through launch and hydration, explicit draft=$explicit, missing project=$missingProject", async ({ explicit, runtime, label, missingProject }) => {
   const project = { path: "/project", name: "project", lastOpenedAt: 1 };
+  const chosen = { ...selected, provider: runtime === "codex" ? "openai" : "openai-codex" };
   const capabilities = PI_AGENT_RUNTIME_ADAPTER.capabilities;
   const preparePrompt = vi.fn<HostClient["preparePrompt"]>(async (text, _session, _skill, backend) => ({
     backendKind: backend ?? "pi", runtimeCapabilities: capabilities, visibleText: text, runtimeText: text, sourceFingerprint: "selected-model",
@@ -31,18 +34,20 @@ it.each([
     updates: [
       { version: 1, type: "thread-index", index: { projects: [project], sessions: [{ id: "created", path: "/created", title: "Untitled thread", modifiedAt: 1, projectPath: project.path, projectName: project.name, messageCount: 1 }] } },
       { version: 1, type: "thread-detail", detail: { sessionId: "created", messages: [{ id: "first", role: "user", text: text!, timestamp: Date.now(), ...(typeof identity === "object" ? identity : {}) }], isStreaming: false, activeTools: [] } },
-      { version: 1, type: "catalog", catalog: { sessionId: "created", backendKind: prepared!.backendKind, models: [old, selected], model: { ...selected, ...configuration?.model }, thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, runtimeCapabilities: capabilities } },
+      { version: 1, type: "catalog", catalog: { sessionId: "created", backendKind: prepared!.backendKind, models: [old, chosen], model: { ...chosen, ...configuration?.model }, thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, runtimeCapabilities: capabilities } },
     ],
   }));
-  const setModel = vi.fn(async () => ({ version: 1 as const, updates: [] as never[] }));
+  const setModel = vi.fn<HostClient["setModel"]>(async (provider, id) => {
+    throw new Error(`No API key for ${provider}/${id}`);
+  });
   const catalogs = [
     { kind: "pi", models: [old, selected], model: old, thinkingLevels: {} },
-    { kind: "codex", models: [selected], model: selected, thinkingLevels: {} },
+    { kind: "codex", models: [chosen], model: chosen, thinkingLevels: {} },
   ];
   const client = createFakeHostClient({
     bootstrap: async () => ({
       version: 1,
-      threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
+      threadIndex: { projects: missingProject ? [] : [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions: [] },
       detail: { sessionId: "startup", messages: [], isStreaming: false, activeTools: [] },
       catalog: { sessionId: "startup", backendKind: "pi", runtimeBackends: [{ kind: "pi", label: "Pi" }, { kind: "codex", label: "Codex" }], models: [old, selected], model: old, thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0 },
       project: { cwd: "/project" },
@@ -66,6 +71,7 @@ it.each([
   const picker = await screen.findByRole("dialog", { name: "Select model" });
   fireEvent.click(await within(picker).findByRole("radio", { name: label }));
   fireEvent.click(await within(picker).findByRole("option", { name: new RegExp(`^GPT-6.1 Sol, ${label}`) }));
+  expect(setModel, "A draft's choice must not reach the placeholder Pi session").not.toHaveBeenCalled();
   expect(await screen.findByRole("button", { name: /Select (runtime and )?model: GPT-6.1 Sol/ })).toBeTruthy();
   expect(screen.getByRole("img", { name: new RegExp(`GPT-6.1 Sol · ${label}`) })).toBeTruthy();
   expect(setModel).not.toHaveBeenCalled();
@@ -81,12 +87,13 @@ it.each([
   fireEvent.change(composer, { target: { value: "launch selected model" } });
   fireEvent.keyDown(composer, { key: "Enter" });
   await waitFor(() => expect(newSession).toHaveBeenCalledWith("launch selected model", [], "/project", expect.anything(), expect.objectContaining({ backendKind: runtime }),
-    { model: { provider: "openai-codex", id: "gpt-6.1-sol" } }));
+    { model: { provider: chosen.provider, id: "gpt-6.1-sol" } }));
   expect(preparePrompt).toHaveBeenCalledWith("launch selected model", undefined, undefined, runtime, "/project");
   await waitFor(() => expect(screen.queryByRole("heading", { name: /do next\?$/ })).toBeNull());
   expect((await screen.findByRole("button", { name: "Select model: GPT-6.1 Sol" })).hasAttribute("disabled")).toBe(false);
   expect(screen.getByRole("img", { name: new RegExp(`GPT-6.1 Sol · ${label}`) })).toBeTruthy();
-  expect(headerStructure()).toEqual(before);
+  if (missingProject) expect(header.querySelector(".thread-crumb-project")?.textContent).toContain("project");
+  else expect(headerStructure()).toEqual(before);
   expect(screen.queryByRole("button", { name: "Change device" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Change project, current project project" })).toBeNull();
 });
