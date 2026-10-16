@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { HostBootstrap, UiProject } from "../shared/contracts";
 import { namesWorkspace } from "../shared/workspace-identity";
+import { isFilesystemRoot } from "../shared/filesystem-root";
 import { optimisticThreadSnapshot, threadDetailFromPage } from "../workbench/app-state";
 import type { ClientStorage } from "../workbench/client-storage";
 import type { ComposerScopeStore, DraftKey } from "../workbench/composer-scope-store";
@@ -157,8 +158,21 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     if (newThread.current() || !snapshot || snapshot.isStreaming || view.getTranscript().messages.length) return;
     // An uncached thread has an empty transcript until its history arrives.
     if ((threads.getThread(snapshot.sessionId)?.messageCount ?? 0) > 0) return;
-    const project = threads.getProjects().find((candidate) => namesWorkspace(snapshot.workspaceId ?? snapshot.cwd, candidate.workspaceId, candidate.path));
-    if (project && !client?.isReadOnly()) moveDraftToProject(project);
+    if (client?.isReadOnly()) return;
+    const listed = threads.getProjects().find((candidate) => namesWorkspace(snapshot.workspaceId ?? snapshot.cwd, candidate.workspaceId, candidate.path));
+    if (listed) {
+      moveDraftToProject(listed);
+    } else if (snapshot.cwd && !isFilesystemRoot(snapshot.cwd)) {
+      // A freshly opened workspace can precede its project-index update.
+      // An explicit composer choice still belongs to a draft, never Pi's placeholder.
+      const displayPath = snapshot.displayPath ?? snapshot.cwd;
+      moveDraftToProject({
+        path: snapshot.cwd,
+        ...(snapshot.workspaceId ? { workspaceId: snapshot.workspaceId } : {}),
+        name: displayPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? displayPath,
+        lastOpenedAt: Date.now(),
+      });
+    }
   }, [client, moveDraftToProject, newThread, threads, view]);
 
   /** At startup the host opens an empty thread; a draft takes its place, as "New thread" would. */
