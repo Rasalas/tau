@@ -1,5 +1,6 @@
 import { basename, resolve } from "node:path";
 import { realpath } from "node:fs/promises";
+import { HostCommandError } from "./host-extension-errors.js";
 import { skillDraftOf } from "../shared/prepared-prompt.js";
 import type { ClientTurnIdentity, PreparedPrompt, ThreadBackendKind, UiSkillDraft } from "../shared/contracts.js";
 
@@ -54,7 +55,7 @@ export async function findKnownWorkspacePath(cwd: string, candidates: Iterable<s
     const canonical = await realpath(candidate).catch(() => resolve(candidate));
     if (canonical === requested) return canonical;
   }
-  throw new Error("Workspace is not a known Tau project.");
+  throw new HostCommandError("Workspace is not a known Tau project.");
 }
 
 export function workspaceLabel(cwd: string): string {

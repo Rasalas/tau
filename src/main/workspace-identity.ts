@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { WORKSPACE_ID_PREFIX, isWorkspaceId, type WorkspaceRef } from "../shared/workspace-identity.js";
+import { HostCommandError } from "./host-extension-errors.js";
 
 /**
  * The host's own id, kept next to its other state. It survives restarts, so a
@@ -77,7 +78,7 @@ export class WorkspaceIdentity {
   pathFor(value: string): string {
     if (!isWorkspaceId(value)) return value;
     const path = this.resolve(value);
-    if (!path) throw new Error("This host does not know that workspace.");
+    if (!path) throw new HostCommandError("This host does not know that workspace.");
     return path;
   }
 }

@@ -36,7 +36,10 @@ describe("modelSupportsImageInput", () => {
 });
 
 describe("workspace metadata scope", () => {
-  it("canonicalizes and rejects paths outside known projects", async () => {
+  it.each([
+    ["/not-a-project", "Workspace is not a known Tau project."],
+    ["ws1_unknown", "This host does not know that workspace."],
+  ])("canonicalizes and rejects paths outside known projects without deactivating the extension: %s", async (cwd, message) => {
     const history = {
       list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }],
       isHidden: () => false, iconFor: async () => undefined,
@@ -51,8 +54,14 @@ describe("workspace metadata scope", () => {
     };
     const host = new PiHost("/known", () => undefined, history as never, false, false, { hostExtensions: [paths] });
     await activateHostExtensions(host);
-    await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/known/../known" })).resolves.toBe("/known");
-    await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/not-a-project" })).rejects.toThrow("known Tau project");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/known/../known" })).resolves.toBe("/known");
+    }
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(host.invokeHostExtension("test.paths", "canonical", { cwd })).rejects.toThrow(message);
+    }
+    expect(host.listHostExtensions().find((extension) => extension.id === "test.paths")).toMatchObject({ active: true });
+    await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/known" })).resolves.toBe("/known");
   });
 
   it("accepts a folder an extension admitted, by id, before any thread runs there", async () => {
@@ -71,7 +80,10 @@ describe("workspace metadata scope", () => {
     await activateHostExtensions(host);
     // A folder the extension only found gets an identity, not admission.
     const found = await host.invokeHostExtension("test.worktrees", "found", {}) as { workspaceId: string };
-    await expect(host.invokeHostExtension("test.worktrees", "canonical", { workspace: found.workspaceId })).rejects.toThrow("known Tau project");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(host.invokeHostExtension("test.worktrees", "canonical", { workspace: found.workspaceId })).rejects.toThrow("known Tau project");
+    }
+    expect(host.listHostExtensions().find((extension) => extension.id === "test.worktrees")).toMatchObject({ active: true });
     const created = await host.invokeHostExtension("test.worktrees", "create", {}) as { workspaceId: string; displayPath: string };
     expect(created.displayPath).toBe("/worktrees/known-feature");
     await expect(host.invokeHostExtension("test.worktrees", "canonical", { workspace: created.workspaceId })).resolves.toBe("/worktrees/known-feature");
