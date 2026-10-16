@@ -24,7 +24,8 @@ export interface PendingUploadRow {
   path: string;
   change: SyncChange;
   size?: number;
-  /** The upload's default: deletions are chosen too (the user's decision 3), credential files are not. */
+  unchecked?: boolean;
+  /** A local selection starts empty; files and deletions are chosen explicitly. */
   selected: boolean;
   /** Set when the local file or the server's copy holds credentials: labels of what was found, never a value. */
   credentials?: string[];
@@ -55,6 +56,8 @@ export interface TargetStatus {
   label: string;
   /** `sftp://user@host:port/path`. */
   address: string;
+  connectionFingerprint?: string;
+  remotePath?: string;
   protocol: ServerProtocol;
   /** Local folder relative to the project, `""` for the project itself. */
   context: string;
@@ -63,7 +66,7 @@ export interface TargetStatus {
   state: ServerSyncState;
   /** A check of the server is running. */
   checking: boolean;
-  /** Absent before the first download. */
+  /** Absent until a selected server file or an explicit download is recorded. */
   mirror?: MirrorInfo;
   /** Local changes the server does not have yet, the upload list's rows; capped at `PENDING_ROW_CAP`. */
   pending: PendingUploadRow[];
@@ -100,6 +103,8 @@ export interface ServersStatus {
   file?: string;
   /** The folder has Git; one without (sftp.json only) can get it from the server state. */
   repository: boolean;
+  branch?: string;
+  head?: string;
   targets: TargetStatus[];
 }
 

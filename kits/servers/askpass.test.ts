@@ -119,6 +119,21 @@ describe.skipIf(skipOnWindows)("AskpassBridge", () => {
     session.dispose();
     await waiting.close();
   });
+
+  it("cancels a login question when the transport's parent signal aborts", async () => {
+    const dialogs = new ServerPrompts(() => undefined, () => true);
+    const waiting = new AskpassBridge({ stateDir: join(dir, "state2"), socketDir: dir, sources: [new AskpassPrompts(dialogs)] });
+    const parent = new AbortController();
+    const session = await waiting.session({ id: "site", label: "site" }, parent.signal);
+    const asking = helper(session.env, "Password: ");
+    try {
+      await expect.poll(() => dialogs.pending().length).toBe(1);
+      parent.abort();
+      expect((await asking).code).toBe(1);
+      expect(dialogs.pending()).toEqual([]);
+      await expect(waiting.session({ id: "site", label: "site" }, parent.signal)).rejects.toThrow();
+    } finally { session.dispose(); await waiting.close(); }
+  });
 });
 
 describe("AskpassPrompts", () => {

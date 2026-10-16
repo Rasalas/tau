@@ -18,10 +18,12 @@ export interface WorkspaceStoreSlice {
 export interface TargetTabParams extends Record<string, unknown> {
   workspace: string;
   targetId: string;
+  paths?: string[];
+  threadId?: string;
 }
 
-export function openTarget(actions: Pick<WorkbenchActions, "openStageTab">, workspace: string, targetId: string): string {
-  const params: TargetTabParams = { workspace, targetId };
+export function openTarget(actions: Pick<WorkbenchActions, "openStageTab">, workspace: string, targetId: string, selection?: { paths: string[]; threadId?: string }): string {
+  const params: TargetTabParams = { workspace, targetId, ...selection };
   return actions.openStageTab(SERVER_TARGET_TAB, params);
 }
 

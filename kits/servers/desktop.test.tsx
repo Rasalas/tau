@@ -88,6 +88,47 @@ describe("Settings → Servers", () => {
   });
 });
 
+describe("server questions cannot trap the workbench", () => {
+  const prompt: ServerPrompt = { id: "connect", kind: "confirm", title: "Connect?", message: "A server connection", confirmLabel: "Connect" };
+  it("dismisses a question that the host already answered, without waiting for an event", async () => {
+    const host = { onEvent: () => () => undefined, invoke: vi.fn(async (name: string) => name === "prompts" ? { prompts: [prompt] } : { answered: false }) };
+    const feed = new ServerPromptFeed({ host } as unknown as DesktopExtensionContext);
+    const stop = feed.start();
+    const Layer = createServerPromptLayer(feed);
+    render(<Layer />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect" }));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    stop();
+  });
+
+  it("keeps Cancel available while an answer is in flight", async () => {
+    const host = { onEvent: () => () => undefined, invoke: vi.fn((name: string) => name === "prompts" ? Promise.resolve({ prompts: [prompt] }) : new Promise(() => undefined)) };
+    const feed = new ServerPromptFeed({ host } as unknown as DesktopExtensionContext);
+    const stop = feed.start();
+    const Layer = createServerPromptLayer(feed);
+    render(<Layer />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect" }));
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(host.invoke).toHaveBeenCalledWith("answer-prompt", { id: "connect", action: "cancel" });
+    stop();
+  });
+
+  it("does not resurrect a question from a stale initial request", async () => {
+    let initial!: (value: unknown) => void;
+    let event!: (value: unknown) => void;
+    const host = { onEvent: (_name: string, listener: (value: unknown) => void) => { event = listener; return () => undefined; }, invoke: () => new Promise((resolve) => { initial = resolve; }) };
+    const feed = new ServerPromptFeed({ host } as unknown as DesktopExtensionContext);
+    const stop = feed.start();
+    event({ prompts: [] });
+    initial({ prompts: [prompt] });
+    await flush();
+    expect(feed.get()).toEqual([]);
+    stop();
+  });
+});
+
 describe("the rows Settings → Servers names for the search", () => {
   it("each lands on an element once a server project is open", async () => {
     const STATUS: CredentialStatus = { targetId: APP.id, password: { source: "Tau's keychain item", session: false, saved: false, foreignItem: { label: "item", allowed: true } } };

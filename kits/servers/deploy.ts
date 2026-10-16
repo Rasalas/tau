@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
@@ -22,7 +23,12 @@ import { byPath, isSyncPath } from "./sync/paths.js";
 import type { SyncChange } from "./sync/protocol.js";
 import { scanLocal } from "./sync/scan.js";
 import { answerError, type SyncService, type SyncSession } from "./sync/service.js";
-import { readTrust } from "./trust.js";
+import { readTrust, recordLiveConfigs } from "./trust.js";
+import { scanText } from "./secrets-scan.js";
+import type { ServerFolders } from "./folders.js";
+import { diffBlobs } from "./history.js";
+import { LOCAL_CHANGES_FILE, completeLocalServerChange, saveLocalServerChange, undoLocalServerChange } from "./local-changes.js";
+import { blobId } from "./sync/mirror.js";
 
 /*
  * Deployments (ADR 0028, plan §1.2 and §1.5): the user's upload of chosen
@@ -49,6 +55,7 @@ export interface DeployServiceOptions {
   };
   git?: GitCall;
   now?(): Date;
+  folders?: Pick<ServerFolders, "check">;
 }
 
 /** What `execute` writes and how the deployment it records reads. */
@@ -57,6 +64,7 @@ export interface DeploymentSpec {
   rollbackOf?: number;
   origin: DeploymentOrigin;
   note?: string;
+  checkout?: DeploymentCheckout;
   /** Chosen files decided without the server. */
   plans: DeployFilePlan[];
   inspected: InspectedIntent[];
@@ -72,13 +80,15 @@ interface DeployInput {
   threadId?: string;
   via: "view" | "card";
   note?: string;
+  operationId?: string;
+  preview?: Pick<DeployPreview, "source" | "observed" | "local">;
 }
 
-function decodeRef(raw: unknown): { cwd: string; targetId: string } {
+function decodeRef(raw: unknown): { cwd: string; targetId: string; operationId?: string } {
   const input = (raw ?? {}) as Record<string, unknown>;
   if (typeof input.cwd !== "string" || !input.cwd) throw new HostCommandError("Open a project first.");
   if (typeof input.targetId !== "string" || !input.targetId) throw new HostCommandError("Name the server.");
-  return { cwd: input.cwd, targetId: input.targetId };
+  return { cwd: input.cwd, targetId: input.targetId, ...(typeof input.operationId === "string" ? { operationId: input.operationId } : {}) };
 }
 
 export function decodeDeployInput(raw: unknown): DeployInput {
@@ -93,7 +103,7 @@ export function decodeDeployInput(raw: unknown): DeployInput {
   const force = new Set(Array.isArray(input.force) ? input.force.filter((path): path is string => typeof path === "string" && isSyncPath(path)) : []);
   const threadId = typeof input.threadId === "string" && input.threadId && input.threadId.length <= 200 ? input.threadId : undefined;
   const note = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 2000) : undefined;
-  return { ...ref, files: [...files.values()], force, via: input.via === "card" ? "card" : "view", ...(threadId ? { threadId } : {}), ...(note ? { note } : {}) };
+  return { ...ref, files: [...files.values()], force, via: input.via === "card" ? "card" : "view", ...(threadId ? { threadId } : {}), ...(note ? { note } : {}), ...(typeof input.operationId === "string" ? { operationId: input.operationId } : {}), ...(input.preview && typeof input.preview === "object" ? { preview: input.preview as DeployInput["preview"] } : {}) };
 }
 
 interface Prepared {
@@ -149,11 +159,11 @@ export class DeployService {
    * unmerged drift branches and unresolved conflict markers never do.
    */
   private async prepare(session: SyncSession, input: DeployInput): Promise<Prepared> {
-    const state = await loadMirrorState(this.options.store, session.key, session.mirror);
-    if (!state) throw new HostCommandError("Tau has not read this server yet: download it first.");
     const local = await scanLocal(session.localDir, session.ignore, { signal: session.signal });
+    const state = await loadMirrorState(this.options.store, session.key, session.mirror)
+      ?? await saveMirrorState(this.options.store, session.key, session.mirror, new Map(), "Server files have not been read yet", new Set());
     const { uploadBlocklist } = await readTrust(this.options.store, session.key);
-    const pending = await comparePending(session.localDir, local, state, session.ignore, { blocklist: uploadBlocklist, signal: session.signal });
+    const pending = await comparePending(session.localDir, local, state, session.ignore, { thorough: true, blocklist: uploadBlocklist, signal: session.signal });
     const rows = new Map(pending.rows.map((row) => [row.path, row]));
     const withheld = new Set(pending.withheld);
     const drift = await this.options.drift?.state(session.workspace).catch(() => undefined);
@@ -167,7 +177,7 @@ export class DeployService {
       if (OPS[row.change] !== op) { plans.push({ path, op, outcome: "stale", reason: `Now ${DEPLOY_OP_WORDS[OPS[row.change]]} here, not ${DEPLOY_OP_WORDS[op]}; choose it again.` }); continue; }
       const branch = unmerged.get(path);
       if (branch) { plans.push({ path, op, outcome: "blocked", reason: unmergedDriftReason(branch) }); continue; }
-      const expect = state.entries.get(path)?.oid ?? null;
+      const expect = state.known && !state.known.has(path) ? undefined : state.entries.get(path)?.oid ?? null;
       const force = input.force.has(path) ? { force: true } : {};
       if (op === "delete") { intents.push({ path, op, newMode: 0o644, expect, ...force }); continue; }
       const file = await readLocalFile(session.localDir, path);
@@ -201,13 +211,38 @@ export class DeployService {
   async preview(raw: unknown): Promise<DeployPreview> {
     const input = decodeDeployInput(raw);
     return this.options.sync.exclusive(input, async (session) => {
+      const folder = await this.options.folders?.check(session);
+      if (folder?.weak) return { targetId: session.target.id, files: [], kept: [], warnings: [], folder };
       const prepared = await this.prepare(session, input);
       const fs = await session.connect();
-      const inspected = await inspectIntents(fs, prepared.intents, { signal: session.signal });
+      const inspected = await inspectIntents(fs, prepared.intents, { mirror: session.mirror, signal: session.signal });
+      session.signal.throwIfAborted();
+      const findings = inspected.flatMap(({ intent, now }) => now.kind === "file" && now.data.length <= 1024 * 1024 ? scanText(intent.path, now.data.toString("utf8")) : []);
+      await recordLiveConfigs(this.options.store, session.key, findings, inspected.map(({ intent }) => intent.path));
+      for (const item of inspected) {
+        if (item.intent.expect === undefined && item.plan.outcome === "upload" && findings.some((finding) => finding.path === item.intent.path)) item.plan = { ...item.plan, outcome: "conflict", forced: false, reason: "This server file holds live credentials. Review its settings before replacing it." };
+      }
+      // Learn only the selected paths. Never replace a known base with a colleague's new edit.
+      const entries = new Map(prepared.state.entries);
+      const known = prepared.state.known ? new Set(prepared.state.known) : undefined;
+      for (const { intent, now } of inspected) {
+        if (intent.expect !== undefined || now.kind === "other") continue;
+        known?.add(intent.path);
+        if (now.kind === "file") entries.set(intent.path, now.entry); else entries.delete(intent.path);
+      }
+      if (inspected.some(({ intent, now }) => intent.expect === undefined && now.kind !== "other")) await saveMirrorState(this.options.store, session.key, session.mirror, entries, "Read selected files for an upload preview", known);
       const files = [...prepared.plans, ...inspected.map((item) => item.plan)].sort(byOutcome);
       const checkout = await this.checkout(session.workspace);
-      return { targetId: session.target.id, files, kept: prepared.kept, warnings: await this.warnings(session.key, checkout, files) };
+      return { targetId: session.target.id, files, kept: prepared.kept, warnings: await this.warnings(session.key, checkout, files), checkout, source: this.source(checkout), local: Object.fromEntries(prepared.intents.map((intent) => [intent.path, this.localVersion(intent)])), observed: Object.fromEntries(inspected.filter(({ now }) => now.kind !== "other").map(({ intent, now }) => [intent.path, now.kind === "file" ? now.entry.oid : null])) };
     });
+  }
+
+  private source(checkout: DeploymentCheckout): string {
+    return createHash("sha256").update(JSON.stringify(checkout)).digest("hex");
+  }
+
+  private localVersion(intent: DeployIntent): string {
+    return createHash("sha256").update(`${intent.op === "delete" ? "delete" : intent.newMode}\0`).update(intent.content ?? Buffer.alloc(0)).digest("hex");
   }
 
   /** The upload itself, on the user's click. */
@@ -218,12 +253,27 @@ export class DeployService {
   }
 
   private async run(session: SyncSession, input: DeployInput): Promise<DeployResult> {
+    if (this.options.folders && (await readDeployments(this.options.store, session.key)).some((record) => record.status === "in-progress" || record.status === "incomplete")) throw new HostCommandError("Review the interrupted upload in History before starting another upload.");
+    const folder = await this.options.folders?.check(session);
+    if (folder?.weak) throw new HostCommandError("Check the server folder before uploading. Nothing was written.");
     const prepared = await this.prepare(session, input);
+    const checkout = await this.checkout(session.workspace);
+    if (this.options.folders && !input.preview?.source) throw new HostCommandError("Review an upload preview before confirming it.");
+    if (input.preview?.source && (input.preview.source !== this.source(checkout) || prepared.intents.some((intent) => input.preview?.local?.[intent.path] !== this.localVersion(intent)))) throw new HostCommandError("The branch or selected files changed after the preview. Review the upload again.");
+    if (prepared.intents.some((intent) => intent.expect === undefined)) throw new HostCommandError("Preview these files before uploading them for the first time.");
     const fs = await session.connect();
     // Reading again is the backup: every blob read lands in the shadow repository before a write.
     const inspected = await inspectIntents(fs, prepared.intents, { mirror: session.mirror, signal: session.signal });
+    for (const item of inspected) {
+      const observed = input.preview?.observed?.[item.intent.path];
+      const current = item.now.kind === "file" ? item.now.entry.oid : null;
+      if (observed !== undefined && current !== observed && item.now.kind !== "other") {
+        item.plan = { ...item.plan, outcome: "conflict", forced: false, reason: "Changed on the server after the upload preview. Review it again." };
+      }
+    }
     const outcome = await this.execute(session, prepared.state, fs, {
       kind: "upload",
+      checkout,
       origin: { actor: "user", via: input.via, ...(input.threadId ? { threadId: input.threadId } : {}) },
       ...(input.note ? { note: input.note } : {}),
       plans: prepared.plans,
@@ -231,6 +281,22 @@ export class DeployService {
       subject: (seq, files) => `Deployment ${seq}: ${deployCounts(files)}`,
     });
     return { targetId: session.target.id, ...outcome };
+  }
+
+  /** Explicit file inspection reads exactly one server file; no tree traversal. */
+  async fileDiff(raw: unknown) {
+    const ref = decodeRef(raw);
+    const path = (raw as { path?: unknown }).path;
+    if (typeof path !== "string" || !isSyncPath(path)) throw new HostCommandError("Choose a file.");
+    return this.options.sync.exclusive(ref, async (session) => {
+      await session.mirror.ensure();
+      const now = await readServerFile(await session.connect(), path, session.signal);
+      if (now.kind === "other") throw new HostCommandError("The server path is not a regular file.");
+      const local = await readLocalFile(session.localDir, path);
+      const before = now.kind === "file" ? await session.mirror.writeBlob(now.data) : undefined;
+      const after = local ? await session.mirror.writeBlob(local.data) : undefined;
+      return diffBlobs(this.git, session.mirror, path, before, after);
+    }, { recover: false });
   }
 
   /**
@@ -258,7 +324,7 @@ export class DeployService {
       const beforeCommit = sameTree(before, state.entries)
         ? state.commit
         : await session.mirror.commit(sortedEntries(before), `Server state ${fs.root} ${at.toISOString()} (before deployment ${seq})`, state.commit);
-      const checkout = await this.checkout(session.workspace);
+      const checkout = spec.checkout ?? await this.checkout(session.workspace);
       const planned = new Map(before);
       const plannedFiles: DeploymentFile[] = [];
       for (const { intent, now, plan } of inspected) {
@@ -356,8 +422,8 @@ export class DeployService {
     const path = input.path;
     const action: DeployResolveAction = input.action;
     return this.options.sync.exclusive(ref, async (session) => {
-      const state = await loadMirrorState(this.options.store, session.key, session.mirror);
-      if (!state) throw new HostCommandError("Tau has not read this server yet: download it first.");
+      const state = await loadMirrorState(this.options.store, session.key, session.mirror)
+        ?? await saveMirrorState(this.options.store, session.key, session.mirror, new Map(), "Read selected server file", new Set());
       const fs = await session.connect();
       const now = await readServerFile(fs, path, session.signal);
       if (now.kind === "other") throw new HostCommandError(`On the server ${path} is a ${now.stat.type}, not a file.`);
@@ -365,26 +431,28 @@ export class DeployService {
       // Both sides stay in the shadow repository, whatever the local file becomes.
       if (now.kind === "file") await session.mirror.writeBlob(now.data);
       if (local) await session.mirror.writeBlob(local.data);
-      let result: DeployResolveResult;
-      if (action === "take-server") {
-        if (now.kind === "absent") {
-          await removeLocalFile(session.localDir, path);
-          result = { path, action, conflicts: 0, deleted: true };
-        } else {
-          await writeLocalFile(session.localDir, path, now.data, { mode: execBit(now.stat.mode) ? 0o755 : 0o644, mtime: now.stat.mtime });
-          result = { path, action, conflicts: 0 };
-        }
-      } else {
-        if (!local || now.kind !== "file") throw new HostCommandError(`Merging needs ${path} here and on the server; take the server's version or upload yours instead.`);
+      let conflicts = 0;
+      let data = now.kind === "file" ? now.data : undefined;
+      let mode = now.kind === "file" && execBit(now.stat.mode) ? 0o755 : 0o644;
+      if (action === "merge") {
+        if (!local || now.kind !== "file") throw new HostCommandError(`Merging needs ${path} here and on the server.`);
         const base = state.entries.get(path);
-        const merged = await mergeFileContents(this.git, { ours: local.data, base: base ? await session.mirror.readBlob(base.oid) : Buffer.alloc(0), theirs: now.data }, ["local", "last read from the server", "server"]);
-        await writeLocalFile(session.localDir, path, merged.data, { mode: local.mode });
-        result = { path, action, conflicts: merged.conflicts };
+        if (!base) throw new HostCommandError("No shared file version is known yet. Compare both versions before replacing either.");
+        const merged = await mergeFileContents(this.git, { ours: local.data, base: await session.mirror.readBlob(base.oid), theirs: now.data }, ["local", "last read from the server", "server"]);
+        data = merged.data; conflicts = merged.conflicts; mode = local.mode;
       }
+      const backup = await saveLocalServerChange(this.options.store, session, path, local, data);
+      const latest = await readLocalFile(session.localDir, path);
+      if ((latest ? blobId(latest.data) : undefined) !== (local ? blobId(local.data) : undefined)) throw new HostCommandError("This file changed locally while reading the server. Review it again.");
+      session.signal.throwIfAborted();
+      if (data) await writeLocalFile(session.localDir, path, data, { mode });
+      else await removeLocalFile(session.localDir, path);
+      await completeLocalServerChange(this.options.store, session, backup.id);
+      const result: DeployResolveResult = { path, action, conflicts, ...(data ? {} : { deleted: true }), undoId: backup.id };
       const next = new Map(state.entries);
       if (now.kind === "file") next.set(path, now.entry); else next.delete(path);
       if (!sameTree(next, state.entries) || next.get(path)?.mtime !== state.entries.get(path)?.mtime) {
-        await saveMirrorState(this.options.store, session.key, session.mirror, next, `Server state ${fs.root} ${this.now().toISOString()} (${action === "merge" ? "merged" : "taken"}: ${path})`);
+        await saveMirrorState(this.options.store, session.key, session.mirror, next, `Server state ${fs.root} ${this.now().toISOString()} (${action === "merge" ? "merged" : "taken"}: ${path})`, state.known ? new Set([...state.known, path]) : undefined);
       }
       await this.settle(session, [path]);
       return result;
@@ -419,6 +487,24 @@ export class DeployService {
     context.registerCommand("deploy", wrap((input) => this.deploy(input)), { long: true, audit: { label: "uploaded to a server" } });
     context.registerCommand("deploy-resolve", wrap((input) => this.resolve(input)), { long: true, audit: { label: "resolved an upload conflict locally" } });
     context.registerCommand("deployments", wrap((input) => this.list(input)), { access: "read" });
+    context.registerCommand("server-file-diff", wrap((input) => this.fileDiff(input)), { long: true, access: "read" });
+    context.registerCommand("local-server-history", wrap(async (raw) => {
+      const { cwd, targetId } = decodeRef(raw);
+      const workspace = await this.context.services.knownWorkspacePath(cwd);
+      const { project, target } = await this.options.target(workspace, targetId);
+      const file = await this.options.store.read({ workspaceId: project.workspaceId, targetId: target.id }, LOCAL_CHANGES_FILE);
+      return { changes: (file?.changes ?? []).filter((change) => change.workspace === workspace).reverse() };
+    }), { access: "read" });
+    context.registerCommand("undo-server-take", wrap(async (raw) => {
+      const ref = decodeRef(raw);
+      const id = (raw as { id?: unknown }).id;
+      if (typeof id !== "string") throw new HostCommandError("Choose a local change to undo.");
+      return this.options.sync.exclusive(ref, async (session) => {
+        await undoLocalServerChange(this.options.store, session, id);
+        await this.settle(session, []);
+        return { undone: true };
+      }, { recover: false });
+    }), { audit: { label: "undid taking a server file locally" } });
   }
 }
 

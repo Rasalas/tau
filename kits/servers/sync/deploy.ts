@@ -26,7 +26,7 @@ export interface DeployIntent {
   /** The mode of a file the server does not have yet. */
   newMode: number;
   /** The blob the change was made against (the mirror state's); `null`: no file was there. */
-  expect: string | null;
+  expect: string | null | undefined;
   /** The user confirmed overwriting a server that changed meanwhile. */
   force?: boolean;
 }
@@ -82,14 +82,14 @@ export async function inspectIntents(fs: ServerFs, intents: readonly DeployInten
       if (now.kind === "file") await options.mirror.writeBlob(now.data);
       if (intent.content) await options.mirror.writeBlob(intent.content);
     }
-    const base = { path: intent.path, op: intent.op, ...(now.kind !== "absent" ? { server: stampOf(now.stat) } : {}) };
+    const base = { path: intent.path, op: intent.expect === undefined && now.kind === "file" && intent.op !== "delete" ? "modify" as const : intent.op, ...(now.kind !== "absent" ? { server: stampOf(now.stat) } : {}) };
     if (now.kind === "other") {
       inspected.push({ intent, now, plan: { ...base, outcome: "blocked", reason: `On the server this is a ${now.stat.type}, not a file; Tau does not replace it.` } });
       continue;
     }
     const theirs = now.kind === "file" ? now.entry.oid : null;
     const ours = intent.op === "delete" ? null : blobId(intent.content ?? Buffer.alloc(0));
-    const way = threeWay(intent.expect, theirs, ours);
+    const way = threeWay(intent.expect === undefined ? theirs : intent.expect, theirs, ours);
     let plan: DeployFilePlan;
     if (way === "same") plan = { ...base, outcome: intent.op === "delete" ? "gone" : "same" };
     else if (way === "apply") plan = { ...base, outcome: intent.op === "delete" ? "delete" : "upload" };

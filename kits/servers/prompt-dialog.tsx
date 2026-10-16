@@ -12,9 +12,11 @@ export class ServerPromptFeed {
   constructor(private readonly context: DesktopExtensionContext) {}
 
   start(): () => void {
-    const stop = this.context.host.onEvent(SERVERS_PROMPTS_EVENT, (payload) => this.set(decodeServerPrompts(payload)));
-    void this.context.host.invoke("prompts").then((payload) => this.set(decodeServerPrompts(payload)), () => undefined);
-    return stop;
+    let live = true;
+    let received = false;
+    const stop = this.context.host.onEvent(SERVERS_PROMPTS_EVENT, (payload) => { received = true; this.set(decodeServerPrompts(payload)); });
+    void this.context.host.invoke("prompts").then((payload) => { if (live && !received) this.set(decodeServerPrompts(payload)); }, () => undefined);
+    return () => { live = false; stop(); };
   }
 
   subscribe = (listener: () => void) => {
@@ -24,9 +26,15 @@ export class ServerPromptFeed {
 
   get = () => this.prompts;
 
-  answer(id: string, answer: ServerPromptAnswer): Promise<unknown> {
-    return this.context.host.invoke("answer-prompt", { id, ...answer });
+  async answer(id: string, answer: ServerPromptAnswer): Promise<unknown> {
+    // Cancel is an immediate local dismissal, even while a previous answer waits.
+    if (answer.action === "cancel") this.dismiss(id);
+    const result = await this.context.host.invoke("answer-prompt", { id, ...answer });
+    this.dismiss(id);
+    return result;
   }
+
+  private dismiss(id: string): void { this.set(this.prompts.filter((prompt) => prompt.id !== id)); }
 
   private set(prompts: ServerPrompt[]): void {
     this.prompts = prompts;
@@ -41,7 +49,7 @@ function PromptDialog({ prompt, feed }: { prompt: ServerPrompt; feed: ServerProm
   const send = (answer: ServerPromptAnswer) => {
     setBusy(true);
     setError(undefined);
-    feed.answer(prompt.id, answer).catch((failure: unknown) => { setError(errorMessage(failure)); setBusy(false); });
+    feed.answer(prompt.id, answer).catch((failure: unknown) => { setError(errorMessage(failure)); }).finally(() => setBusy(false));
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -50,7 +58,7 @@ function PromptDialog({ prompt, feed }: { prompt: ServerPrompt; feed: ServerProm
     setValue("");
   };
   return createPortal(
-    <Dialog className="confirm-dialog servers-prompt" label={prompt.title} onClose={() => { if (!busy) send({ action: "cancel" }); }}>
+    <Dialog className="confirm-dialog servers-prompt" label={prompt.title} onClose={() => send({ action: "cancel" })}>
       <form onSubmit={submit}>
         <header>
           <h2>{prompt.title}</h2>
@@ -73,7 +81,7 @@ function PromptDialog({ prompt, feed }: { prompt: ServerPrompt; feed: ServerProm
         {error ? <p className="servers-prompt-error" role="alert">{error}</p> : null}
         <footer>
           {prompt.alternativeLabel ? <button type="button" className="servers-prompt-alternative" disabled={busy} onClick={() => send({ action: "alternative" })}>{prompt.alternativeLabel}</button> : null}
-          <button type="button" disabled={busy} onClick={() => send({ action: "cancel" })}>{prompt.cancelLabel ?? "Cancel"}</button>
+          <button type="button" onClick={() => send({ action: "cancel" })}>{prompt.cancelLabel ?? "Cancel"}</button>
           <button type="submit" className="primary" disabled={busy || (prompt.kind === "secret" && !value)}>{prompt.confirmLabel}</button>
         </footer>
       </form>

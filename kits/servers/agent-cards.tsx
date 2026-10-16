@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Server, Upload } from "lucide-react";
 import {
-  READ_ONLY_REASON, errorMessage, tooltipProps, useCommandAllowed,
+  READ_ONLY_REASON, tooltipProps, useCommandAllowed,
   type DesktopExtensionContext, type HostExtensionClient, type ToolCardProps, type ToolPresentation, type UiToolRun,
 } from "tau";
 import { SERVER_TOOLS, parseServerMark, parseUploadProposal, serverToolName, type UploadProposal } from "./agent-protocol.js";
-import { deployCounts, planSummary, type DeployFilePlan, type DeployOp, type DeploymentRecord, type DeployResult } from "./deploy-protocol.js";
+import { deployCounts, type DeployFilePlan, type DeployOp, type DeploymentRecord } from "./deploy-protocol.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import { openTarget } from "./status-parts.js";
+import { SERVERS_COMPACT_PANEL } from "./view-protocol.js";
 
 const LETTERS: Record<DeployOp, string> = { add: "A", modify: "M", delete: "D" };
 const CHANGE_CLASS: Record<DeployOp, string> = { add: "added", modify: "modified", delete: "deleted" };
@@ -58,7 +59,7 @@ function fromThisCard(record: DeploymentRecord, proposal: UploadProposal, propos
     && record.files.length > 0 && record.files.every((file) => proposed.has(file.path));
 }
 
-type CardStage = { kind: "idle" } | { kind: "confirming" } | { kind: "uploading" } | { kind: "done"; result: DeployResult } | { kind: "recorded"; seq: number; counts: string };
+type CardStage = { kind: "idle" } | { kind: "recorded"; seq: number; counts: string };
 
 function ProposalView({ tool, host, actions, compact }: { tool: UiToolRun; host: HostExtensionClient; actions: ToolCardProps["actions"]; compact: boolean }) {
   const proposal = tool.status === "done" ? parseUploadProposal(tool.output) : undefined;
@@ -93,19 +94,10 @@ function ProposalView({ tool, host, actions, compact }: { tool: UiToolRun; host:
     );
   }
   const chosen = proposal.files.filter(writes);
-  const summary = planSummary(chosen);
-  const upload = () => {
-    setStage({ kind: "uploading" });
-    host.invoke("deploy", {
-      cwd: proposal.workspace, targetId: proposal.target.id, files: chosen.map((file) => ({ path: file.path, op: file.op })),
-      via: "card", threadId: proposal.threadId, ...(proposal.note ? { note: proposal.note } : {}),
-    }).then(
-      (value) => setStage({ kind: "done", result: value as DeployResult }),
-      (failure: unknown) => { actions.notify(errorMessage(failure), "error"); setStage({ kind: "idle" }); },
-    );
+  const open = () => {
+    if (compact) actions.openPanel(SERVERS_COMPACT_PANEL);
+    else openTarget(actions, proposal.workspace, proposal.target.id, { paths: proposal.files.filter(writes).map((file) => file.path), threadId: proposal.threadId });
   };
-  const open = () => { openTarget(actions, proposal.workspace, proposal.target.id); };
-  const done = stage.kind === "done" ? stage.result : undefined;
   return (
     <section className={`servers-proposal${compact ? " compact" : ""}`} aria-label={`Upload proposed for ${proposal.target.label}`}>
       <header>
@@ -128,35 +120,12 @@ function ProposalView({ tool, host, actions, compact }: { tool: UiToolRun; host:
         ))}
       </ul>
       {proposal.kept.length ? <p className="servers-proposal-note">{proposal.kept.length} local {proposal.kept.length === 1 ? "deletion stays" : "deletions stay"} on the server.</p> : null}
-      {done ? (
-        done.deployment
-          ? <p className="servers-banner ok" role="status"><CheckCircle2 size={13} aria-hidden="true" /><span>Deployment {done.deployment.seq}: {deployCounts(done.deployment.files)} on the server.{done.failed.length || done.files.some((file) => file.outcome === "conflict") ? " Some files did not go up; the server view has them." : ""}</span></p>
-          : <p className="servers-banner warn" role="status"><AlertTriangle size={13} aria-hidden="true" /><span>Nothing was uploaded: {done.files.some((file) => file.outcome === "conflict") ? "the server changed since Tau last read it" : "nothing in it would change the server any more"}. The server view shows why.</span></p>
-      ) : stage.kind === "recorded" ? (
-        <p className="servers-banner ok" role="status"><CheckCircle2 size={13} aria-hidden="true" /><span>Uploaded as deployment {stage.seq}: {stage.counts}.</span></p>
-      ) : null}
-      {stage.kind === "confirming" ? (
-        <footer role="group" aria-label={`Upload to ${proposal.target.label}?`}>
-          <span className="servers-proposal-hint">Upload to {proposal.target.label} now?</span>
-          <button type="button" className="chrome-button" onClick={() => setStage({ kind: "idle" })}>Cancel</button>
-          <button type="button" className="chrome-button primary" onClick={upload}>{summary.label}</button>
-        </footer>
-      ) : (
+      {stage.kind === "recorded" ? <p className="servers-banner ok" role="status"><CheckCircle2 size={13} aria-hidden="true" /><span>Uploaded as deployment {stage.seq}: {stage.counts}.</span></p> : null}
       <footer>
-        <span className="servers-proposal-hint">{done || stage.kind === "recorded" ? "" : chosen.length ? "Nothing goes up until you click Upload." : "Nothing to upload."}</span>
+        <span className="servers-proposal-hint">{stage.kind === "recorded" ? "" : "The upload preview checks the selected files on the server."}</span>
         <button type="button" className="chrome-button" onClick={open}>Server view</button>
-        {done || stage.kind === "recorded" || !chosen.length ? null : (
-          <button
-            type="button"
-            className="chrome-button primary"
-            disabled={!canDeploy || stage.kind === "uploading"}
-            {...tooltipProps(canDeploy ? "Tau reads the server again and never overwrites a change made there" : READ_ONLY_REASON)}
-            // On a phone a tap asks once more before anything goes up.
-            onClick={compact ? () => setStage({ kind: "confirming" }) : upload}
-          >{stage.kind === "uploading" ? "Uploading…" : summary.label}</button>
-        )}
+        {stage.kind !== "recorded" && chosen.length ? <button type="button" className="chrome-button primary" disabled={!canDeploy} {...tooltipProps(canDeploy ? "Review the files before uploading" : READ_ONLY_REASON)} onClick={open}>Review upload…</button> : null}
       </footer>
-      )}
     </section>
   );
 }

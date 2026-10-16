@@ -40,7 +40,7 @@ export async function comparePending(localDir: string, local: Listing, mirror: M
     options.signal?.throwIfAborted();
     if (blocked.has(path)) { withheld.push(path); continue; }
     const entry = mirror.entries.get(path);
-    if (!entry) { rows.push({ path, change: "added", size: info.size }); continue; }
+    if (!entry) { rows.push({ path, change: "added", size: info.size, ...(mirror.known && !mirror.known.has(path) ? { unchecked: true } : {}) }); continue; }
     if (info.size !== entry.size) { rows.push({ path, change: "modified", size: info.size }); continue; }
     // The download set the local mtime to the server's: equal means untouched since.
     if (!options.thorough && info.mtime === entry.mtime) continue;

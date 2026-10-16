@@ -1,4 +1,4 @@
-import type { HostExtension } from "tau/host-extension";
+import { HostCommandError, type HostExtension } from "tau/host-extension";
 import { ServerAgentTools, registerServerAgentTools } from "./agent-tools.js";
 import { HistoryCleanup } from "./cleanup.js";
 import { CredentialAskpassSource, ServerCredentials, registerCredentialCommands } from "./credentials.js";
@@ -18,6 +18,9 @@ import { gitCall } from "./sync/git.js";
 import { readTargetFile } from "./target-settings.js";
 import { SyncService } from "./sync/service.js";
 import { ServerTargets } from "./targets.js";
+import { ConnectionConsent, connectionFingerprint } from "./connection-consent.js";
+import { updateTargetFile } from "./target-settings.js";
+import { ServerFolders } from "./folders.js";
 
 const ACCESS_KIT_ID = "tau.access";
 
@@ -40,6 +43,24 @@ export function createServersHostExtension(): HostExtension {
       const targets = new ServerTargets({ services, store, checkouts });
       targets.register(context);
       const prompts = new ServerPrompts((event, payload) => context.emit(event, payload), () => (services.clients?.count() ?? 0) > 0);
+      const consent = new ConnectionConsent(prompts, {
+        read: async (cwd, target) => {
+          const project = await targets.project(cwd);
+          const file = await readTargetFile(store, { workspaceId: project.workspaceId, targetId: target.id });
+          return typeof file.connectionGrant === "string" ? file.connectionGrant : undefined;
+        },
+        write: async (cwd, target, fingerprint) => {
+          const project = await targets.project(cwd);
+          await updateTargetFile(store, { workspaceId: project.workspaceId, targetId: target.id }, (file) => ({ ...file, connectionGrant: fingerprint }));
+        },
+      });
+      context.registerCommand("authorize-server", async (raw) => {
+        const input = (raw ?? {}) as Record<string, unknown>;
+        const { target } = await targets.target(input.cwd, input.targetId);
+        if (typeof input.cwd !== "string" || input.fingerprint !== connectionFingerprint(target)) throw new HostCommandError("The server settings changed. Review the new address before continuing.");
+        await consent.grant(input.cwd, target);
+        return { authorized: true };
+      }, { audit: { label: "allowed the project's server connection" } });
       const stopPromptClients = services.clients?.observe({ detached: () => prompts.surfaceChanged() });
       const credentials = new ServerCredentials({
         prompts,
@@ -52,11 +73,12 @@ export function createServersHostExtension(): HostExtension {
       registerCredentialCommands(context, credentials, prompts, lookup, (cwd) => targets.list(cwd));
       const ssh = new ServerSsh(context, {
         prompts,
+        consent,
         credentialSources: [new CredentialAskpassSource(credentials, lookup)],
         lookupTarget: async (cwd, targetId) => (await lookup(cwd, targetId)).target,
       });
       ssh.register();
-      const ftp = new ServerFtp(context, { prompts, credentials, store, lookupTarget: lookup });
+      const ftp = new ServerFtp(context, { prompts, consent, credentials, store, lookupTarget: lookup });
       ftp.register();
       // The transport by the target's protocol; everything above it is the same.
       const transport = async (input: { cwd: string; targetId: string }) =>
@@ -67,8 +89,15 @@ export function createServersHostExtension(): HostExtension {
         target: (cwd, targetId) => targets.target(cwd, targetId),
         transport,
         git,
+        withSignal: (signal, run) => prompts.withSignal(signal, run),
+        cancelTransport: async ({ cwd, targetId }) => {
+          const workspace = await services.knownWorkspacePath(cwd);
+          await Promise.all([ssh.connections.closeTarget(workspace, targetId), ftp.connections.closeTarget(workspace, targetId)]);
+        },
       });
       sync.register();
+      const folders = new ServerFolders(store, sync);
+      folders.register(context);
       const drift = new DriftService(context, {
         store,
         list: (cwd) => targets.list(cwd),
@@ -83,6 +112,7 @@ export function createServersHostExtension(): HostExtension {
         target: (cwd, targetId) => targets.target(cwd, targetId),
         drift: { state: (cwd) => drift.state(cwd), settled: (key, root, paths) => drift.settled(key, root, paths) },
         git,
+        folders,
       });
       deploy.register();
       new RollbackService(context, { store, sync, deploy, git }).register();

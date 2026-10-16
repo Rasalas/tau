@@ -217,7 +217,10 @@ describe.skipIf(!ready)("sync against the fake SSH server", () => {
 
   it("answers a bad request as the user's mistake, not a broken command", async () => {
     await expect(harness.call("scan", { targetId: "site" })).rejects.toMatchObject({ name: "HostCommandError" });
+    mkdirSync(join(dir, "fresh"), { recursive: true });
     const none = await harness.call<CompareResult>("compare", { cwd: join(dir, "fresh"), targetId: "never-downloaded" });
-    expect(none).toEqual({ targetId: "never-downloaded" });
+    expect(none.targetId).toBe("never-downloaded");
+    expect(none.mirror).toBeUndefined();
+    expect(none.pending?.rows.every((row) => row.unchecked)).toBe(true);
   });
 });

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ComposerGateContext, HostSnapshot } from "tau";
+import type { ComposerGateContext, HostSnapshot, DesktopExtension } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { TestProviders } from "../../src/renderer/test-support/test-providers.js";
 import servers from "./desktop.js";
 import type { DriftImport, DriftState } from "./drift-protocol.js";
-import { DriftFeed, DriftPanel } from "./drift-view.js";
+import { DriftFeed, DriftPanel, createDriftGate, createDriftRefresh, driftGateAsks } from "./drift-view.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -37,12 +37,32 @@ function host(states: Record<string, DriftState>, first: DriftState) {
 
 const gateContext = (messages: unknown[] = []): ComposerGateContext => ({ action: "prompt", snapshot: { cwd: CWD, messages } as unknown as HostSnapshot });
 
-describe("server drift gate", () => {
+const legacyDrift: DesktopExtension = {
+  id: SERVERS_EXTENSION_ID, name: "Explicit legacy drift controls",
+  activate(context) {
+    const feed = new DriftFeed(context);
+    const stop = feed.start();
+    const gate = context.registerComposerGate({ id: "servers.drift", profiles: ["desktop"], check: (input) => driftGateAsks(feed, input), Component: createDriftGate(feed) });
+    const refresh = context.registerComposerControl({ id: "servers.drift-refresh", placement: "footer", profiles: ["desktop"], Component: createDriftRefresh(feed) });
+    return () => { stop(); gate(); refresh(); };
+  },
+};
+
+it("does not register automatic server checks or a first-prompt gate", () => {
+  const invoke = host({}, DRIFTING);
+  const { registry } = createKitHarness(invoke);
+  registry.activate(servers);
+  expect(registry.getComposerGates().some((entry) => entry.id === "servers.drift")).toBe(false);
+  expect(registry.getComposerControls().some((entry) => entry.id === "servers.drift-refresh")).toBe(false);
+  expect(invoke.mock.calls.some(([, command]) => command === "check-drift")).toBe(false);
+});
+
+describe("explicit legacy server drift controls", () => {
   it("checks the server again when a new thread's draft opens, at most once a minute", async () => {
     const CLEAN: DriftState = { workspace: CWD, branch: "main", targets: [target({ check: { at: "2026-09-25T07:00:00.000Z", baseline: "mirror", later: false, files: [] } })] };
     const invoke = host({ "check-drift": DRIFTING }, CLEAN);
     const { registry } = createKitHarness(invoke);
-    registry.activate(servers);
+    registry.activate(legacyDrift);
     const control = registry.getComposerControls().find((entry) => entry.id === "servers.drift-refresh")!;
     const gate = registry.getComposerGates().find((entry) => entry.id === "servers.drift")!;
     const draft = { activeThread: () => ({ cwd: CWD, draftPending: false }) } as never;
@@ -65,7 +85,7 @@ describe("server drift gate", () => {
   it("asks before a thread's first prompt, imports as a branch, then merges on the click", async () => {
     const invoke = host({ "import-drift": IMPORTED, "merge-drift": MERGED }, DRIFTING);
     const { registry, preferences } = createKitHarness(invoke);
-    registry.activate(servers);
+    registry.activate(legacyDrift);
     const gate = registry.getComposerGates().find((entry) => entry.id === "servers.drift")!;
     // The first ask loads the state and lets the prompt through.
     expect(gate.check(gateContext())).toBe(false);
@@ -99,7 +119,7 @@ describe("server drift gate", () => {
     const later: DriftState = { ...DRIFTING, targets: [target({ check: { ...DRIFTING.targets[0]!.check!, later: true } })] };
     const invoke = host({ "drift-later": later }, DRIFTING);
     const { registry, preferences } = createKitHarness(invoke);
-    registry.activate(servers);
+    registry.activate(legacyDrift);
     const gate = registry.getComposerGates().find((entry) => entry.id === "servers.drift")!;
     gate.check(gateContext());
     await flush();
@@ -122,7 +142,7 @@ describe("drift panel", () => {
       return both;
     });
     const { registry, preferences } = createKitHarness(invoke);
-    registry.activate(servers);
+    registry.activate(legacyDrift);
     const context = { host: { invoke: (command: string, input?: unknown) => invoke(SERVERS_EXTENSION_ID, command, input), onEvent: () => () => undefined }, events: { on: () => () => undefined } };
     const feed = new DriftFeed(context as never);
     render(<TestProviders preferences={preferences}><DriftPanel context={context as never} feed={feed} cwd={CWD} /></TestProviders>);

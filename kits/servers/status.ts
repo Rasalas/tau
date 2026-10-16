@@ -20,6 +20,7 @@ import type { DeploymentRecord } from "./deploy-protocol.js";
 import { readDeployments } from "./journal.js";
 import { isTargetLevel, readTargetFile, updateTargetFile } from "./target-settings.js";
 import { readTrust } from "./trust.js";
+import { connectionFingerprint } from "./connection-consent.js";
 import {
   PENDING_ROW_CAP, SERVERS_STATUS_EVENT, SERVERS_STATUS_TOPIC,
   HISTORY_FILE_CAP, type HistoryDeployment, type HistoryEntry, type LiveConfigRow, type PendingUploadRow, type ServerGitInfo, type ServerHistory, type ServersStatus, type ServersStatusEvent, type TargetStatus,
@@ -155,13 +156,14 @@ export class ServerStatusService {
     const findings: SecretFinding[] = [...scanned, ...trust.liveConfigs.map((entry) => ({ path: entry.path, kind: entry.kind, line: 0 }))];
     const guarded = guardUploadSelection(rows.map((row) => ({ ...row, op: OPS[row.change] })), { findings, blocklist: trust.uploadBlocklist });
     const unmerged = unmergedDriftPaths(await this.options.drift?.state(workspace).catch(() => undefined), target.id);
-    const pending = guarded.rows.map(({ candidate, selected, guard }): PendingUploadRow => {
+    const pending = guarded.rows.map(({ candidate, guard }): PendingUploadRow => {
       const branch = unmerged.get(candidate.path);
       return {
         path: candidate.path,
         change: candidate.change,
         ...(candidate.size !== undefined ? { size: candidate.size } : {}),
-        selected: selected && !branch,
+        ...(candidate.unchecked ? { unchecked: true } : {}),
+        selected: false,
         ...(guard ? { credentials: guard.kinds.length ? guard.kinds.map((kind) => SECRET_KIND_LABELS[kind]) : ["Framework config"] } : {}),
         ...(branch ? { blocked: unmergedDriftReason(branch) } : {}),
       };
@@ -189,6 +191,8 @@ export class ServerStatusService {
         targetId: target.id,
         label: target.name ?? (target.context || target.host || "sftp.json"),
         address: formatAddress(target),
+        connectionFingerprint: connectionFingerprint(target),
+        remotePath: target.remotePath,
         protocol: target.protocol,
         context: target.context,
         ...(target.profile ? { profile: target.profile } : {}),
@@ -217,7 +221,12 @@ export class ServerStatusService {
       return status;
     }));
     const repository = Boolean(await lstat(join(workspace, ".git")).catch(() => undefined));
-    return { workspace, ...(hasFile ? { file } : {}), repository, targets: rows };
+    const readGit = async (args: string[]) => {
+      const result = await this.git(args, { cwd: workspace, env: { GIT_OPTIONAL_LOCKS: "0" } }).catch(() => undefined);
+      return result?.code === 0 ? result.stdout.toString("utf8").trim() : undefined;
+    };
+    const [branch, head] = repository ? await Promise.all([readGit(["symbolic-ref", "--quiet", "--short", "HEAD"]), readGit(["rev-parse", "--verify", "--quiet", "HEAD"])]) : [];
+    return { workspace, ...(hasFile ? { file } : {}), repository, ...(branch ? { branch } : {}), ...(head ? { head } : {}), targets: rows };
   }
 
   private async publish(workspace: string): Promise<void> {

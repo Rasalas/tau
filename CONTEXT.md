@@ -199,16 +199,20 @@ runs on the server. Not to be confused with the Tau host or a remote host.
 
 ## Mirror state
 
-What Tau last read of a server target: the tree of its non-ignored files, kept
-in a shadow repository in Tau's own data, never in the project. Pending changes
-are the working tree against the mirror state; server drift is the server now
-against it.
+What Tau reliably knows of a server target, shared across the project's branches
+and worktrees. It grows as selected files are read or uploaded and records known
+absences as well as contents. An unread path is unknown, rather than an empty
+file or an instruction to delete it. Pending changes compare the current local
+files with this state; server drift is a later server change against it. Changing
+the destination or folder mapping selects a separate state and history.
 
 ## Server drift
 
-Changes made on a server target that the mirror state does not know, such as a
-colleague's live edit. Tau commits them on a branch `server-drift/<date>` and
-merges them only when the user asks.
+Changes made on a server target since Tau last read a file, such as a colleague's
+live edit. Tau checks selected paths before uploading and asks how to handle a
+conflict. Taking a server version changes the local working tree with a retained
+backup and undo. Older explicit imports on `server-drift/<date>` remain available;
+opening projects and starting threads do not check or import server changes.
 
 ## Deployment
 

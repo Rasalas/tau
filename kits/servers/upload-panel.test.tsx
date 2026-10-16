@@ -62,23 +62,15 @@ function harness(options: { readOnly?: boolean; result?: DeployResult } = {}) {
 const box = (path: string) => screen.getByRole("checkbox", { name: new RegExp(`for the upload: ${path.replace(".", "\\.")}$`, "u") }) as HTMLInputElement;
 
 describe("the upload", () => {
-  it("chooses deletions by default, leaves one out only on a second click, and names the count on the button", async () => {
+  it("lets a person deselect or select a deletion with one click", async () => {
     harness();
     expect(box("about.php").checked).toBe(true);
     expect(box("wp-config.php").checked).toBe(false);
     expect(box("shop.php").disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Upload: 2 changed, 2 deleted…" })).toBeTruthy();
-
     fireEvent.click(box("contact.php"));
-    // Not yet: the row asks first.
-    expect(box("contact.php").checked).toBe(true);
-    const ask = screen.getByRole("group", { name: "Leave contact.php on the server?" });
-    fireEvent.click(within(ask).getByRole("button", { name: "Leave on the server" }));
     expect(box("contact.php").checked).toBe(false);
-    expect(screen.getByText("Stays on the server")).toBeTruthy();
-    expect(screen.getByText("1 deletion stays on the server")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upload: 2 changed, 1 deleted…" })).toBeTruthy();
-    // Choosing it again takes one click.
+    expect(screen.queryByRole("group", { name: "Leave contact.php on the server?" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Review upload · 3" })).toBeTruthy();
     fireEvent.click(box("contact.php"));
     expect(box("contact.php").checked).toBe(true);
   });
@@ -97,18 +89,17 @@ describe("the upload", () => {
       },
     });
     fireEvent.click(box("contact.php"));
-    fireEvent.click(within(screen.getByRole("group", { name: "Leave contact.php on the server?" })).getByRole("button", { name: "Leave on the server" }));
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload: 2 changed, 1 deleted…" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review upload · 3" })); });
     await flush();
-    expect(h.invoke).toHaveBeenCalledWith("deploy-preview", {
+    expect(h.invoke).toHaveBeenCalledWith("deploy-preview", expect.objectContaining({
       cwd: "/work/site", targetId: "sftp-site-1", force: [],
       files: [{ path: "about.php", op: "delete" }, { path: "index.php", op: "modify" }, { path: "lib/new.php", op: "add" }],
-    });
+    }));
     expect(within(screen.getByRole("region", { name: "Goes up" })).getByText("lib/new.php")).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Deleted on the server" })).getByText("about.php")).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Stays on the server" })).getByText("contact.php")).toBeTruthy();
     expect(screen.getByText("index.php last went up from feature; this upload is from main.")).toBeTruthy();
-    const conflicts = screen.getByRole("region", { name: "Changed on the server" });
+    const conflicts = screen.getByRole("region", { name: "Review before uploading" });
     expect(screen.getByRole("button", { name: "Upload: 1 changed, 1 deleted" })).toBeTruthy();
 
     fireEvent.click(within(conflicts).getByRole("button", { name: "Overwrite anyway…" }));
@@ -116,10 +107,10 @@ describe("the upload", () => {
     expect(within(conflicts).getByText("Will overwrite the server's change")).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload: 2 changed, 1 deleted" })); });
     await flush();
-    expect(h.invoke).toHaveBeenCalledWith("deploy", {
+    expect(h.invoke).toHaveBeenCalledWith("deploy", expect.objectContaining({
       cwd: "/work/site", targetId: "sftp-site-1", force: ["index.php"], threadId: "thread-7",
       files: [{ path: "lib/new.php", op: "add" }, { path: "about.php", op: "delete" }, { path: "index.php", op: "modify" }],
-    });
+    }));
     expect(screen.getByRole("status").textContent).toContain("Deployment 3: 2 changed, 1 deleted on the server.");
     expect(within(screen.getByRole("region", { name: "Uploaded" })).getByText("index.php")).toBeTruthy();
     expect(h.invoke).toHaveBeenCalledWith("status", { cwd: "/work/site", fresh: true });
@@ -127,31 +118,60 @@ describe("the upload", () => {
 
   it("merges a conflict into the local file on a click and says how many conflicts it marked", async () => {
     const h = harness();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload: 2 changed, 2 deleted…" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review upload · 4" })); });
     await flush();
-    await act(async () => { fireEvent.click(within(screen.getByRole("region", { name: "Changed on the server" })).getByRole("button", { name: "Merge" })); });
+    await act(async () => { fireEvent.click(within(screen.getByRole("region", { name: "Review before uploading" })).getByRole("button", { name: "Merge" })); });
     await flush();
-    expect(h.invoke).toHaveBeenCalledWith("deploy-resolve", { cwd: "/work/site", targetId: "sftp-site-1", path: "index.php", action: "merge" });
+    expect(h.invoke).toHaveBeenCalledWith("deploy-resolve", expect.objectContaining({ cwd: "/work/site", targetId: "sftp-site-1", path: "index.php", action: "merge", operationId: expect.any(String) }));
     expect(h.actions.notify).toHaveBeenCalledWith("index.php merged with 2 conflicts marked; resolve them, then upload.");
     expect(h.onOpen).toHaveBeenCalledWith("index.php");
     // Back at the list.
-    expect(screen.getByRole("button", { name: "Upload: 2 changed, 2 deleted…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Review upload · 4" })).toBeTruthy();
   });
 
   it("uploads nothing from a Read-only device", async () => {
     harness({ readOnly: true });
     expect(box("index.php").disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Upload: 2 changed, 2 deleted…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Review upload · 4" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("lists the files that failed and those that did not go", async () => {
     harness({ result: { targetId: "sftp-site-1", files: [{ path: "lib/new.php", op: "add", outcome: "upload" }, { path: "index.php", op: "modify", outcome: "conflict", reason: "Changed on the server during the upload." }], failed: [{ path: "lib/new.php", op: "add", message: "Permission denied: lib/new.php" }] } });
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload: 2 changed, 2 deleted…" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Review upload · 4" })); });
     await flush();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload: 1 changed, 1 deleted" })); });
     await flush();
     expect(screen.getByRole("status").textContent).toContain("Nothing was uploaded.");
     expect(within(screen.getByRole("region", { name: "Failed" })).getByText("Permission denied: lib/new.php")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Changed on the server" })).getByText("Changed on the server during the upload.")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Review before uploading" })).getByText("Changed on the server during the upload.")).toBeTruthy();
   });
+  it("cancels a waiting preview and ignores its late answer", async () => {
+    const h = harness();
+    let finish!: (value: DeployPreview) => void;
+    const normal = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation((command, input) => command === "deploy-preview" ? new Promise((resolve) => { finish = resolve; }) : normal(command, input));
+    fireEvent.click(screen.getByRole("button", { name: "Review upload · 4" }));
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(h.invoke).toHaveBeenCalledWith("cancel-server-operation", expect.objectContaining({ targetId: TARGET.targetId, operationId: expect.any(String) }));
+    await act(async () => { finish(PREVIEW); });
+    expect(screen.queryByRole("heading", { name: "Upload preview" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Review upload · 4" })).toBeTruthy();
+  });
+
+  it("keeps Stop available while an upload is waiting", async () => {
+    const h = harness();
+    let finish!: (value: DeployResult) => void;
+    const normal = h.invoke.getMockImplementation()!;
+    h.invoke.mockImplementation((command, input) => command === "deploy" ? new Promise((resolve) => { finish = resolve; }) : normal(command, input));
+    fireEvent.click(screen.getByRole("button", { name: "Review upload · 4" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Upload: 1 changed, 1 deleted" }));
+    expect((screen.getByRole("button", { name: "Stop" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(h.invoke).toHaveBeenCalledWith("cancel-server-operation", expect.objectContaining({ operationId: expect.any(String) }));
+    expect((screen.getByRole("button", { name: "Stopping…" }) as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { finish({ targetId: TARGET.targetId, files: [], failed: [] }); });
+    expect(await screen.findByRole("button", { name: "Done" })).toBeTruthy();
+  });
+
 });
