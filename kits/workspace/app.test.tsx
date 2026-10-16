@@ -231,7 +231,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     const toggle = await screen.findByRole("button", { name: "Settled" });
-    expect(screen.getByText("No active threads")).toBeTruthy();
+    expect(screen.getByText("All caught up")).toBeTruthy();
     expect(screen.queryByText("No threads yet.")).toBeNull();
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(toggle.textContent).toBe("Settled");
@@ -309,6 +309,45 @@ describe("Workspace Kit in the workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settle Thread gamma" }));
     expect(runMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "gamma" }), "settle", expect.anything());
     expect(screen.queryByRole("button", { name: "Snooze Thread gamma" })).toBeNull();
+  });
+
+  it("says nothing needs the user, not that nothing is active, while threads work", async () => {
+    const sessions = ["alpha", "beta"].map((id, index) => ({
+      id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 10 - index, projectPath: "/project", projectName: "project", messageCount: 1,
+    }));
+    const organizer: ThreadRailOrganizer = {
+      subscribe: () => () => undefined,
+      getVersion: () => 1,
+      sections: (threads) => [
+        { id: "active", threads: [] },
+        { id: "working", label: "Working", shelf: true, threads },
+      ],
+      menu: () => [],
+      runMenu: () => undefined,
+      toggleSettled: () => undefined,
+      dropLabel: () => "Move",
+      drop: () => undefined,
+    };
+    const organizing: DesktopExtension = {
+      id: "test.organizer",
+      name: "Organizer",
+      activate: (context) => context.useService<WorkspaceStoreApi>(WORKSPACE_STORE_SERVICE, (store) => store.registerThreadRailOrganizer(organizer)),
+    };
+    const client = createFakeHostClient({
+      bootstrap: async () => ({
+        version: 1,
+        threadIndex: { projects: [{ path: "/project", name: "project", lastOpenedAt: 1 }], sessions },
+        detail: { sessionId: "alpha", messages: [], isStreaming: false, activeTools: [] },
+        catalog: { sessionId: "alpha", models: [], thinkingLevel: "off", thinkingLevels: ["off"], allTools: [], extensionCount: 0, supportsImageInput: true },
+        project: { cwd: "/project" },
+      }),
+      invokeHostExtension: workspaceHostStub(),
+    });
+    renderApp(client, { extensions: [workspaceExtension, organizing] });
+
+    expect(await screen.findByText("Nothing needs you yet")).toBeTruthy();
+    expect(screen.getByText("2 working")).toBeTruthy();
+    expect(screen.queryByText("All caught up")).toBeNull();
   });
 
   it("switches to an existing thread while a new-thread message is still being delivered", async () => {

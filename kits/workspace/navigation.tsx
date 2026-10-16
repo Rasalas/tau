@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArchiveRestore, ArrowLeft, Check, ChevronDown, Eye, Folder, FolderOpen, GitBranch, MessageSquare, PanelLeft, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CircleCheck, Eye, Folder, FolderOpen, GitBranch, MessageSquare, PanelLeft, Plus, Search, Server, Settings, SlidersHorizontal, SquarePen, Trash2 } from "lucide-react";
 import {
   DraftRow,
   errorMessage,
@@ -900,6 +900,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     }),
     [outsideSettled, outsideWorking, sections, shelfIndex, workingIndex],
   );
+  const workingCount = shownSections.find((section) => section.id === "working")?.threads.length ?? 0;
   const listedIds = useMemo(() => new Set(matching.map((session) => session.id)), [matching]);
   // A draft on screen is the active row; the thread the host holds behind it is not.
   const draftOnScreen = useSyncExternalStore(threadStore.subscribeToDrafts, () => threadStore.getDrafts().some((draft) => draft.active));
@@ -1300,7 +1301,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         ) : null}
 
         {draftCount === 0 && main.threads.length === 0 && shownSections.slice(0, mainIndex).every((section) => section.threads.length === 0) && shownSections.slice(mainIndex + 1).some((section) => section.threads.length > 0) ? (
-          <p className="sidebar-empty active">No active threads</p>
+          <div className="sidebar-empty active"><i><CircleCheck size={16} aria-hidden /></i>{workingCount
+            ? <p>Nothing needs you yet<small>{workingCount} working</small></p>
+            : <p>All caught up</p>}</div>
         ) : null}
 
         {(() => {
