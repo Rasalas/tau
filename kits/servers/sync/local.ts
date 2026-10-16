@@ -23,8 +23,9 @@ export async function readLocalFile(localDir: string, path: string): Promise<Loc
     const [info, real, root] = await Promise.all([lstat(file), realpath(file), realpath(localDir)]);
     if (!info.isFile() || !isInside(real, root)) return undefined;
     return { data: await readFile(real), mode: info.mode & 0o7777 };
-  } catch {
-    return undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
   }
 }
 

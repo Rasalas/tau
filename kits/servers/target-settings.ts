@@ -8,6 +8,8 @@ import type { ServersStore, TargetFileSpec, TargetKey } from "./store.js";
  */
 export interface TargetFile extends Record<string, unknown> {
   level: TargetLevel;
+  sourceScope?: string;
+  mapping?: { source: string; remotePath: string; context: string };
 }
 
 export const TARGET_FILE: TargetFileSpec<TargetFile> = {

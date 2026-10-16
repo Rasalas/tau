@@ -11,6 +11,7 @@ import { SshConnectError, SshConnections, SshTransport } from "./transport-ssh.j
 export interface ServerSshOptions {
   /** The kit's dialogs; ssh's questions become some of them. */
   prompts: PromptAsker;
+  consent?: ConnectionConsent;
   /**
    * Asked before the dialog, in order: the credentials' keychain and command
    * source goes here. The dialog answers what they pass on.
@@ -86,7 +87,7 @@ export class ServerSsh {
   private unhook: (() => void) | undefined;
 
   constructor(private readonly context: HostExtensionContext, private readonly options: ServerSshOptions) {
-    this.consent = new ConnectionConsent(options.prompts);
+    this.consent = options.consent ?? new ConnectionConsent(options.prompts);
     const services = context.services;
     this.sources = [...(options.credentialSources ?? []), new AskpassPrompts(options.prompts)];
     this.askpass = new AskpassBridge({ stateDir: services.stateDir, sources: this.sources, ...(options.controlRoot ? { controlRoot: options.controlRoot } : {}) });

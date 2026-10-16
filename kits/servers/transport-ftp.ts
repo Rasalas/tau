@@ -170,6 +170,7 @@ export class FtpTransport implements ServerFs {
   private pinned: string | undefined;
   private limit: number;
   private readonly clients = new Set<Client>();
+  private readonly dialing = new Set<Client>();
   private readonly idle: Client[] = [];
   private readonly waiting: Array<() => void> = [];
   private opening = 0;
@@ -206,11 +207,14 @@ export class FtpTransport implements ServerFs {
       throw new FtpConnectError(`${this.label} is plain FTP; Tau sends the password unencrypted only after you allow it.`);
     }
     const client = await this.firstLogin();
+    this.dialing.add(client);
     try {
       await this.settle(client);
     } catch (error) {
       client.close();
       throw error;
+    } finally {
+      this.dialing.delete(client);
     }
     this.clients.add(client);
     this.idle.push(client);
@@ -243,7 +247,9 @@ export class FtpTransport implements ServerFs {
 
   /** Socket, TLS and the certificate check; no login yet. */
   private async dial(): Promise<Client> {
+    if (this.closed) throw new FtpConnectError("The connection was closed.");
     const client = new Client(Math.max(MIN_TIMEOUT, this.target.connectTimeout));
+    this.dialing.add(client);
     const address = this.address ?? this.target.host;
     const secure = this.target.secure;
     try {
@@ -259,6 +265,8 @@ export class FtpTransport implements ServerFs {
       client.close();
       if (error instanceof FtpConnectError) throw error;
       throw new FtpConnectError(`Could not connect to ${this.label}: ${messageOf(error)}`);
+    } finally {
+      this.dialing.delete(client);
     }
   }
 
@@ -283,22 +291,20 @@ export class FtpTransport implements ServerFs {
     const attempt = this.options.attempt();
     for (let tries = 1; tries <= LOGIN_TRIES; tries += 1) {
       const client = await this.dial();
-      const password = await attempt.secret("password").catch((error: unknown) => {
-        client.close();
-        throw error;
-      });
-      if (password === undefined) {
-        client.close();
-        throw new FtpConnectError(`No password for ${this.label}: the question was cancelled.`);
-      }
+      this.dialing.add(client);
       try {
+        const password = await attempt.secret("password");
+        if (password === undefined) throw new FtpConnectError(`No password for ${this.label}: the question was cancelled.`);
         await client.login(this.target.username, password);
         await attempt.accepted();
         this.password = password;
         return client;
       } catch (error) {
         client.close();
+        if (error instanceof FtpConnectError) throw error;
         if (!(error instanceof FTPError && error.code === 530)) throw new FtpConnectError(`Could not log in to ${this.label}: ${messageOf(error)}`);
+      } finally {
+        this.dialing.delete(client);
       }
     }
     await attempt.rejected();
@@ -334,6 +340,7 @@ export class FtpTransport implements ServerFs {
   /** Another connection of the pool, with the password the first one used. */
   private async extraLogin(): Promise<Client> {
     const client = await this.dial();
+    this.dialing.add(client);
     try {
       await client.login(this.target.username, this.password);
       await client.useDefaultSettings();
@@ -341,6 +348,8 @@ export class FtpTransport implements ServerFs {
     } catch (error) {
       client.close();
       throw new FtpConnectError(`Could not log in to ${this.label} again: ${messageOf(error)}`);
+    } finally {
+      this.dialing.delete(client);
     }
   }
 
@@ -594,8 +603,9 @@ export class FtpTransport implements ServerFs {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    await this.connecting?.catch(() => undefined);
+    for (const client of this.dialing) client.close();
     for (const client of this.clients) client.close();
+    await this.connecting?.catch(() => undefined);
     this.clients.clear();
     this.idle.length = 0;
     for (const wake of this.waiting.splice(0)) wake();
@@ -644,6 +654,13 @@ export class FtpConnections {
       closing.push(entry.transport.close());
     }
     await Promise.all(closing);
+  }
+
+  async closeTarget(workspace: string, targetId: string): Promise<void> {
+    const key = `${workspace}\0${targetId}`;
+    const entry = this.open.get(key);
+    this.open.delete(key);
+    await entry?.transport.close();
   }
 
   async closeAll(): Promise<void> {

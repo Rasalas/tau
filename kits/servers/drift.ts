@@ -461,10 +461,7 @@ export class DriftService {
     context.registerCommand("drift-later", wrap((input) => this.later(input)), { audit: { label: "put server drift off" } });
     context.registerCommand("drift-diff", wrap((input) => this.diff(input)), { long: true, access: "read" });
     // On opening a project: targets Tau has read before, in the background.
-    this.unhook = context.services.registerThreadLifecycle({
-      // Not awaited: a slow server or a login dialog must not hold the project's first thread.
-      beforeWorkspace: async (cwd) => { void this.check({ cwd }, { quiet: true, onlyMirrored: true }).catch((error: unknown) => context.services.log("servers.drift", message(error))); },
-    });
+    // Server access starts with an explicit action in the server view, never with local work.
   }
 
   dispose(): void {

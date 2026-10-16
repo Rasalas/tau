@@ -26,6 +26,8 @@ export interface SyncServiceOptions {
   /** The connected transport of a project's target. */
   transport(input: { cwd: string; targetId: string }): Promise<ServerFs>;
   git?: GitCall;
+  withSignal?<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T>;
+  cancelTransport?(input: { cwd: string; targetId: string }): Promise<void>;
 }
 
 interface SyncInput {
@@ -88,6 +90,7 @@ const PROGRESS_STEP = 50;
 export class SyncService {
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly stopped = new AbortController();
+  private readonly operations = new Map<string, { cwd: string; targetId: string; stop: AbortController }>();
 
   constructor(private readonly context: HostExtensionContext, private readonly options: SyncServiceOptions) {}
 
@@ -118,7 +121,7 @@ export class SyncService {
       patterns: target.ignore,
       ...(target.ignoreFile ? { ignoreFile: target.ignoreFile } : {}),
       projectDir: workspace,
-      exclude: input.exclude,
+      exclude: [".vscode/sftp.json", ...input.exclude],
       ...(internal.gitRules === false ? { gitRules: false } : {}),
       ...(this.options.git ? { git: this.options.git } : {}),
     });
@@ -132,12 +135,48 @@ export class SyncService {
   }
 
   /** Runs `run` alone on the target's queue, with the session the sync commands use. */
-  async exclusive<T>(input: { cwd: string; targetId: string }, run: (session: SyncSession) => Promise<T>): Promise<T> {
-    const session = await this.open(decodeInput(input));
-    return this.serial(session.key, async () => {
-      await recoverDeployments(this.options.store, session, this.options.git ?? gitCall());
-      return run(session);
-    });
+  async exclusive<T>(input: { cwd: string; targetId: string; operationId?: string }, run: (session: SyncSession) => Promise<T>, options: { recover?: false } = {}): Promise<T> {
+    const stop = new AbortController();
+    const cleanups: Array<() => void> = [];
+    const id = input.operationId;
+    if (id && (!/^[A-Za-z0-9_-]{1,100}$/u.test(id) || this.operations.has(id))) throw new HostCommandError("This server operation is already running.");
+    if (id) this.operations.set(id, { cwd: input.cwd, targetId: input.targetId, stop });
+    try {
+      const session = await this.open(decodeInput(input));
+      session.signal = AbortSignal.any([this.stopped.signal, stop.signal]);
+      const connect = session.connect;
+      session.connect = async () => {
+        session.signal.throwIfAborted();
+        return new Promise<ServerFs>((resolve, reject) => {
+          const aborted = () => reject(new HostCommandError("The server operation was stopped."));
+          session.signal.addEventListener("abort", aborted, { once: true });
+          void connect().then((fs) => {
+            session.signal.removeEventListener("abort", aborted);
+            if (session.signal.aborted) { void fs.close().catch(() => undefined); aborted(); return; }
+            const close = () => { void fs.close().catch(() => undefined); };
+            session.signal.addEventListener("abort", close, { once: true });
+            cleanups.push(() => session.signal.removeEventListener("abort", close));
+            resolve(fs);
+          }, (error: unknown) => { session.signal.removeEventListener("abort", aborted); reject(error); });
+        });
+      };
+      return await this.serial(session.key, async () => {
+        session.signal.throwIfAborted();
+        const work = async () => {
+          if (options.recover !== false) await recoverDeployments(this.options.store, session, this.options.git ?? gitCall());
+          return run(session);
+        };
+        return this.options.withSignal ? this.options.withSignal(session.signal, work) : work();
+      });
+    } finally { for (const cleanup of cleanups) cleanup(); if (id) this.operations.delete(id); }
+  }
+
+  cancel(input: { cwd: string; targetId: string; operationId: string }): void {
+    const operation = this.operations.get(input.operationId);
+    if (operation?.cwd === input.cwd && operation.targetId === input.targetId) {
+      operation.stop.abort();
+      void this.options.cancelTransport?.(input).catch((error: unknown) => this.context.services.log("servers.cancel", String(error)));
+    }
   }
 
   private async connect(input: SyncInput, report: ReturnType<SyncService["progress"]>): Promise<ServerFs> {
@@ -168,14 +207,13 @@ export class SyncService {
       if (wantDrift) await recoverDeployments(this.options.store, session, this.options.git ?? gitCall());
       const state = await loadMirrorState(this.options.store, session.key, session.mirror);
       const result: CompareResult = { targetId: session.target.id };
-      if (!state) return result;
-      result.mirror = { commit: state.commit, at: state.at, files: state.entries.size };
+      if (state) result.mirror = { commit: state.commit, at: state.at, files: state.entries.size };
       if (wantPending) {
         const local = await scanLocal(session.localDir, session.ignore, { signal: session.signal });
         const { uploadBlocklist } = await readTrust(this.options.store, session.key);
-        result.pending = await comparePending(session.localDir, local, state, session.ignore, { thorough, blocklist: uploadBlocklist, signal: session.signal });
+        result.pending = await comparePending(session.localDir, local, state ?? { commit: "", at: "", entries: new Map(), known: new Set() }, session.ignore, { thorough: true, blocklist: uploadBlocklist, signal: session.signal });
       }
-      if (wantDrift) {
+      if (wantDrift && state) {
         const fs = await this.connect(input, report);
         const server = await scanServer(fs, session.ignore, { method: input.sftpOnly ? "sftp" : "auto", signal: session.signal, onProgress: (listed) => report("list", listed, {}, true) });
         const rows = await compareDrift(fs, server, state, session.ignore, {
@@ -242,6 +280,12 @@ export class SyncService {
     context.registerCommand("scan", wrap((input) => this.scan(input)), { long: true, access: "read", audit: { label: "listed a server" } });
     context.registerCommand("compare", wrap((input) => this.compare(input)), { long: true, access: "read", audit: { label: "compared with a server" } });
     context.registerCommand("download", wrap((input) => this.download(input)), { long: true, audit: { label: "downloaded from a server" } });
+    context.registerCommand("cancel-server-operation", (input) => {
+      const ref = decodeInput(input);
+      const operationId = (input as { operationId?: unknown }).operationId;
+      if (typeof operationId === "string") this.cancel({ ...ref, operationId });
+      return { stopped: true };
+    });
   }
 
   dispose(): void {

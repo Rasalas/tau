@@ -97,6 +97,7 @@ export class SshTransport implements ServerFs {
   private opening: Promise<SftpClient> | undefined;
   private controlDir: string | undefined;
   private closed = false;
+  private readonly closing = new AbortController();
   private readonly platform: NodeJS.Platform;
   private readonly env: NodeJS.ProcessEnv;
 
@@ -178,7 +179,7 @@ export class SshTransport implements ServerFs {
   private async checkLoopback(): Promise<void> {
     const { args, destination } = this.baseArgs();
     if (!args.includes("-F")) throw new SshConnectError(`${SERVERS_SSH_CONFIG_ENV} is not set; with the loopback guard on, Tau never reads the real ssh config.`);
-    const resolved = await this.spawnCollect(["-G", ...args, "--", destination], { timeoutMs: 10_000, maxOutputBytes: 256 * 1024 });
+    const resolved = await this.spawnCollect(["-G", ...args, "--", destination], { timeoutMs: 10_000, maxOutputBytes: 256 * 1024, signal: this.closing.signal });
     if (resolved.code !== 0) throw new SshConnectError(`ssh -G ${destination} failed: ${sshFailure(resolved.stderr)}`, resolved.stderr);
     const refusal = loopbackRefusal(parseSshResolution(resolved.stdout));
     if (refusal) throw new SshConnectError(`Connection refused: loopback only (${refusal}).`);
@@ -205,7 +206,7 @@ export class SshTransport implements ServerFs {
 
   private async openSftp(): Promise<SftpClient> {
     const { args, destination } = this.baseArgs();
-    const session = await this.options.askpass.session(this.askpassTarget());
+    const session = await this.options.askpass.session(this.askpassTarget(), this.closing.signal);
     this.options.onSpawn?.();
     const child = spawn(this.options.ssh, [...args, "-T", "-s", "--", destination, "sftp"], {
       env: this.childEnv(session.env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
@@ -215,12 +216,16 @@ export class SshTransport implements ServerFs {
     child.stderr.on("data", (chunk: string) => { if (stderr.length < 16_384) stderr += chunk; });
     child.stdin.on("error", () => undefined);
     const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
+    const stop = () => { client.end(); child.kill("SIGTERM"); };
     child.once("error", () => undefined);
     void exited.then(() => {
+      this.closing.signal.removeEventListener("abort", stop);
       session.dispose();
       if (this.process === child) { this.process = undefined; this.client?.end(); }
     });
     const client = new SftpClient(child.stdout, child.stdin, { concurrency: this.target.concurrency ?? 16 });
+    this.closing.signal.addEventListener("abort", stop, { once: true });
+    if (this.closing.signal.aborted) stop();
     try {
       await client.init();
     } catch {
@@ -268,9 +273,9 @@ export class SshTransport implements ServerFs {
   /** One ssh call through the master, with its own askpass token. */
   private async run(extra: string[], command: string, options: { timeoutMs: number; maxOutputBytes: number; signal?: AbortSignal }): Promise<ServerExecResult> {
     const { args, destination } = this.baseArgs();
-    const session = await this.options.askpass.session(this.askpassTarget());
+    const session = await this.options.askpass.session(this.askpassTarget(), this.closing.signal);
     try {
-      return await this.spawnCollect([...args, "-T", ...extra, "--", destination, command], { ...options, env: session.env });
+      return await this.spawnCollect([...args, "-T", ...extra, "--", destination, command], { ...options, signal: options.signal ? AbortSignal.any([options.signal, this.closing.signal]) : this.closing.signal, env: session.env });
     } finally {
       session.dispose();
     }
@@ -414,7 +419,7 @@ export class SshTransport implements ServerFs {
   async execStream(command: string, options: ServerExecStreamOptions = {}): Promise<ServerExecStream> {
     const cwd = await this.execCwd(options.cwd);
     const { args, destination } = this.baseArgs();
-    const session = await this.options.askpass.session(this.askpassTarget());
+    const session = await this.options.askpass.session(this.askpassTarget(), this.closing.signal);
     this.options.onSpawn?.();
     const child = spawn(this.options.ssh, [...args, "-T", "--", destination, commandIn(cwd, command)], {
       env: this.childEnv(session.env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
@@ -472,6 +477,7 @@ export class SshTransport implements ServerFs {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.closing.abort();
     await this.connecting?.catch(() => undefined);
     this.client?.end();
     const child = this.process;
@@ -516,6 +522,13 @@ export class SshConnections {
       closing.push(entry.transport.close());
     }
     await Promise.all(closing);
+  }
+
+  async closeTarget(workspace: string, targetId: string): Promise<void> {
+    const key = `${workspace}\0${targetId}`;
+    const entry = this.open.get(key);
+    this.open.delete(key);
+    await entry?.transport.close();
   }
 
   async closeAll(): Promise<void> {

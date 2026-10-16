@@ -427,7 +427,7 @@ export class ServerAgentTools {
         description: "Present local changes for the user's upload approval. Uploads nothing itself; files holding live credentials remain for the user to select.",
         promptSnippet: "server_propose_upload: propose local changes for upload; only the user uploads",
         parameters: Type.Object({
-          files: Type.Optional(Type.Array(Type.String(), { description: "Paths relative to the site's folder; every pending change chosen by default when left out." })),
+          files: Type.Optional(Type.Array(Type.String(), { description: "Paths relative to the site's folder. Omit for regular changed files; deletions and credentials need explicit paths." })),
           note: Type.Optional(Type.String({ description: "One or two sentences for the user: what the change does and how you tested it." })),
           target: TARGET_PARAM,
         }),
@@ -450,13 +450,12 @@ export class ServerAgentTools {
               else chosen.push(file);
             }
           } else {
-            chosen = pending.filter((file) => file.selected);
+            chosen = pending.filter((file) => !file.credentials && !file.blocked && file.change !== "deleted");
             for (const file of pending) if (!file.selected && file.credentials) leftOut.push({ path: file.path, reason: `holds live credentials (${file.credentials.join(", ")})` });
           }
           const ops = { added: "add", modified: "modify", deleted: "delete" } as const;
-          const preview: DeployPreview = chosen.length
-            ? await this.options.preview({ cwd, targetId: resolved.target.id, files: chosen.map((file) => ({ path: file.path, op: ops[file.change] })) })
-            : { targetId: resolved.target.id, files: [], kept: [], warnings: [] };
+          // A proposal is local. Reading the server starts with the person's review click.
+          const preview: DeployPreview = { targetId: resolved.target.id, files: chosen.map((file) => ({ path: file.path, op: ops[file.change], outcome: file.change === "deleted" ? "delete" : "upload" })), kept: pending.filter((file) => file.change === "deleted" && !chosen.some((picked) => picked.path === file.path)).map((file) => file.path), warnings: [] };
           const writes = preview.files.filter((file) => file.outcome === "upload" || file.outcome === "delete").length;
           const note = text(input.note)?.slice(0, 2000);
           const proposal: UploadProposal = {
@@ -470,7 +469,7 @@ export class ServerAgentTools {
             warnings: preview.warnings,
             leftOut,
             message: writes
-              ? `Nothing was uploaded. The user now sees a card proposing ${writes} ${writes === 1 ? "file" : "files"} for ${resolved.label} with an Upload button; only their click uploads. Do not say the files are on the server.`
+              ? `Nothing was uploaded. The user now sees a card proposing ${writes} ${writes === 1 ? "file" : "files"} for ${resolved.label} with a Review upload button. The review checks the server; only their final confirmation uploads. Do not say the files are on the server.`
               : `Nothing was uploaded, and nothing in this proposal would change the server${preview.files.length ? " (see each file's outcome)" : ""}.`,
           };
           return result(`${this.mark(resolved)}\n${JSON.stringify(proposal, null, 2)}`);

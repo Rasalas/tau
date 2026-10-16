@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { HostCommandError, type HostExtensionContext, type HostExtensionServices } from "tau/host-extension";
@@ -11,6 +11,9 @@ import {
 } from "./sftp-json.js";
 import { listSshHosts, resolveSshHost, type ResolvedSshHost } from "./ssh-hosts.js";
 import { MainCheckouts, isStoreSegment, type GitRunner, type ServersStore } from "./store.js";
+import { readTargetFile, updateTargetFile } from "./target-settings.js";
+import { targetScope } from "./target-scope.js";
+import { isInside } from "./sync/paths.js";
 
 const MANAGER_LABELS: Record<string, string> = {
   keychain: "Keychain",
@@ -99,7 +102,8 @@ export class ServerTargets {
     const profileChoices = await readProfileChoices(choicesPath);
     const read = await readSftpJsonFile(root, { profileChoices });
     if (!read) return { workspace: root, targets: [], issues: [] };
-    return { workspace: root, file: join(root, SFTP_JSON_PATH), targets: read.targets.map(targetRow), issues: read.issues.map(issueRow) };
+    const { targets } = await this.list(cwd);
+    return { workspace: root, file: join(root, SFTP_JSON_PATH), targets: targets.map(targetRow), issues: read.issues.map(issueRow) };
   }
 
   /** The project's targets as they read now, profiles applied; for connecting and for their secrets. */
@@ -108,7 +112,35 @@ export class ServerTargets {
     // Most projects have no servers; they are answered without reading the profile choices.
     if (!await hasSftpJson(root)) return { project: { root, workspaceId }, targets: [] };
     const read = await readSftpJsonFile(root, { profileChoices: await readProfileChoices(choicesPath) });
-    return { project: { root, workspaceId }, targets: read?.targets ?? [] };
+    const targets = await Promise.all((read?.targets ?? []).map(async (original) => {
+      const key = { workspaceId, targetId: original.id };
+      const source = targetScope(original);
+      let file = await readTargetFile(this.options.store, key);
+      // Adopt existing state once. Subsequent destination changes get their own history.
+      if (!file.sourceScope) file = await updateTargetFile(this.options.store, key, (current) => ({ ...current, sourceScope: current.sourceScope ?? source }));
+      const mapping = file.mapping;
+      const target = mapping?.source === source && typeof mapping.remotePath === "string" && typeof mapping.context === "string"
+        ? { ...original, remotePath: mapping.remotePath, context: mapping.context } : original;
+      const scope = targetScope(target);
+      return { ...target, configurationId: original.id, configurationScope: source, id: scope === file.sourceScope ? original.id : `${original.id.slice(0, 100)}--${scope.slice(0, 12)}` };
+    }));
+    return { project: { root, workspaceId }, targets };
+  }
+
+  async setFolders(input: unknown): Promise<{ targetId: string }> {
+    const { cwd, targetId, remotePath, context } = (input ?? {}) as Record<string, unknown>;
+    const found = await this.target(cwd, targetId);
+    if (typeof remotePath !== "string" || !remotePath.trim() || remotePath.includes("\0") || remotePath.split("/").includes(".git")) throw new HostCommandError("Choose a server folder.");
+    if (typeof context !== "string" || (context !== "" && (!context.split("/").every((part) => part && part !== "." && part !== ".." && part !== ".git") || context.includes("\\") || context.includes("\0")))) throw new HostCommandError("Choose a folder inside this project.");
+    const workspace = await this.options.services.knownWorkspacePath(cwd as string);
+    const local = await realpath(join(workspace, ...context.split("/"))).catch(() => undefined);
+    if (!local || !isInside(local, await realpath(workspace)) || !(await stat(local)).isDirectory()) throw new HostCommandError("Choose an existing folder inside this project.");
+    const { target, project } = found;
+    const configurationId = target.configurationId ?? target.id;
+    const source = target.configurationScope ?? targetScope(target);
+    await updateTargetFile(this.options.store, { workspaceId: project.workspaceId, targetId: configurationId }, (file) => ({ ...file, mapping: { source, remotePath: remotePath.trim(), context } }));
+    const updated = (await this.list(cwd)).targets.find((candidate) => candidate.configurationId === configurationId)!;
+    return { targetId: updated.id };
   }
 
   async target(cwd: unknown, targetId: unknown): Promise<{ project: { root: string; workspaceId: string }; target: SftpJsonTarget }> {
@@ -193,6 +225,7 @@ export class ServerTargets {
   register(context: HostExtensionContext): void {
     context.registerCommand("targets", (input) => this.state((input as { cwd?: unknown } | undefined)?.cwd), { access: "read" });
     context.registerCommand("set-profile", (input) => this.setProfile(input), { audit: { label: "chose a server profile" } });
+    context.registerCommand("set-server-folders", (input) => this.setFolders(input), { audit: { label: "chose the project's server folder" } });
     context.registerCommand("write-sftp-json", (input) => this.writeSftpJson(input), { audit: { label: "wrote an sftp.json" } });
     context.registerCommand("ssh-hosts", () => this.sshHosts(), { access: "read" });
     context.registerCommand("resolve-ssh-host", (input) => this.resolveSshHost(input), { access: "read" });

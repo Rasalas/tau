@@ -15,6 +15,7 @@ import { FtpConnections, FtpTransport, type FtpCertificate } from "./transport-f
 
 export interface ServerFtpOptions {
   prompts: PromptAsker;
+  consent?: ConnectionConsent;
   credentials: ServerCredentials;
   store: ServersStore;
   lookupTarget(cwd: string, targetId: string): Promise<{ project: CredentialProject; target: SftpJsonTarget }>;
@@ -46,7 +47,7 @@ export class ServerFtp {
   private unhook: (() => void) | undefined;
 
   constructor(private readonly context: HostExtensionContext, private readonly options: ServerFtpOptions) {
-    this.consent = new ConnectionConsent(options.prompts);
+    this.consent = options.consent ?? new ConnectionConsent(options.prompts);
   }
 
   /** The connected transport of a project's FTP target. */

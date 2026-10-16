@@ -43,9 +43,9 @@ export const STATE_LABELS: Readonly<Record<ServerSyncState, string>> = {
   incomplete: "Incomplete deployment",
   conflict: "Conflict",
   drift: "Server changed",
-  pending: "Not uploaded",
-  "never-read": "Not read yet",
-  "in-sync": "In sync",
+  pending: "Files to upload",
+  "never-read": "Choose files",
+  "in-sync": "No known changes",
 };
 
 /** The dot's tone: the same four colours the rest of the workbench uses for status. */
@@ -74,12 +74,12 @@ export function statusSentence(target: Pick<TargetStatus, "state" | "pendingTota
   switch (target.state) {
     case "unusable": return target.unusable ?? "sftp.json names no server Tau can reach.";
     case "unreachable": return `Could not reach the server${target.unreachable ? `: ${target.unreachable}` : "."}`;
-    case "never-read": return target.checking ? "Reading the server…" : "Tau has not read this server yet.";
+    case "never-read": return "Choose local files to preview an upload. The server has not been read.";
     case "conflict": return `${files(target.conflicts.length)} changed here and on the server.`;
     case "drift": return `The server changed ${files(drift)}${target.pendingTotal ? `; ${files(target.pendingTotal)} not uploaded` : ""}.`;
     case "incomplete": return "An upload was interrupted. Review the deployment in History before uploading again.";
     case "pending": return `${files(target.pendingTotal)} not uploaded.`;
-    case "in-sync": return "The server matches the local copy.";
+    case "in-sync": return "Local files match the last known server state.";
   }
 }
 

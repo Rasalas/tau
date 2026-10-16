@@ -38,6 +38,8 @@ export interface MirrorIndexFile extends Record<string, unknown> {
   commit: string;
   at: string;
   entries: Record<string, MirrorEntry>;
+  /** Present for a partial state: verified paths, including known absences. */
+  known?: string[];
 }
 
 const HEX40 = /^[0-9a-f]{40}$/u;
@@ -64,7 +66,9 @@ export const MIRROR_INDEX_FILE: TargetFileSpec<MirrorIndexFile> = {
       if (!ok) return undefined;
       decoded[path] = ok;
     }
-    return { commit, at, entries: decoded };
+    const known = (value as Record<string, unknown>).known;
+    if (known !== undefined && (!Array.isArray(known) || !known.every((path) => typeof path === "string" && isSyncPath(path)))) return undefined;
+    return { commit, at, entries: decoded, ...(Array.isArray(known) ? { known } : {}) };
   },
 };
 
@@ -198,6 +202,7 @@ export interface MirrorState {
   commit: string;
   at: string;
   entries: Map<string, MirrorEntry>;
+  known?: Set<string>;
 }
 
 /**
@@ -215,26 +220,29 @@ export async function loadMirrorState(store: ServersStore, key: TargetKey, mirro
       return undefined;
     }
   }
-  return { commit: index.commit, at: index.at, entries: new Map(Object.entries(index.entries)) };
+  return { commit: index.commit, at: index.at, entries: new Map(Object.entries(index.entries)), ...(index.known ? { known: new Set(index.known) } : {}) };
 }
 
 export function sortedEntries(entries: ReadonlyMap<string, MirrorEntry>): Record<string, MirrorEntry> {
   return Object.fromEntries([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
-export async function saveMirrorState(store: ServersStore, key: TargetKey, mirror: Mirror, entries: ReadonlyMap<string, MirrorEntry>, message: string): Promise<MirrorState> {
+export async function saveMirrorState(store: ServersStore, key: TargetKey, mirror: Mirror, entries: ReadonlyMap<string, MirrorEntry>, message: string, known?: ReadonlySet<string>): Promise<MirrorState> {
   await mirror.ensure();
   const sorted = sortedEntries(entries);
   const previous = await mirror.head();
   const commit = await mirror.commit(sorted, message);
-  return recordMirrorState(store, key, mirror, entries, commit, previous);
+  return recordMirrorState(store, key, mirror, entries, commit, previous, known);
 }
 
 /** Makes `commit` (whose tree holds `entries`) the mirror state, index first as `loadMirrorState` expects. */
-export async function recordMirrorState(store: ServersStore, key: TargetKey, mirror: Mirror, entries: ReadonlyMap<string, MirrorEntry>, commit: string, previous: string | undefined): Promise<MirrorState> {
+export async function recordMirrorState(store: ServersStore, key: TargetKey, mirror: Mirror, entries: ReadonlyMap<string, MirrorEntry>, commit: string, previous: string | undefined, known?: ReadonlySet<string>): Promise<MirrorState> {
   const sorted = sortedEntries(entries);
   const at = new Date().toISOString();
-  await store.write(key, MIRROR_INDEX_FILE, { commit, at, entries: sorted });
+  const old = await store.read(key, MIRROR_INDEX_FILE);
+  const paths = known ?? (old?.known ? new Set(old.known) : undefined);
+  const verified = paths ? [...new Set([...paths, ...entries.keys()])].sort() : undefined;
+  await store.write(key, MIRROR_INDEX_FILE, { commit, at, entries: sorted, ...(verified ? { known: verified } : {}) });
   await mirror.setHead(commit, previous);
-  return { commit, at, entries: new Map(Object.entries(sorted)) };
+  return { commit, at, entries: new Map(Object.entries(sorted)), ...(verified ? { known: new Set(verified) } : {}) };
 }

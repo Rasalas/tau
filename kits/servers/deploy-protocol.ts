@@ -1,6 +1,7 @@
 // Deployments as the host half records and answers them; type imports only, so the desktop half may read it.
 // Paths are relative to the target: its `remotePath` on the server, its `context` folder locally.
 import type { DeploymentStatus } from "./protocol.js";
+import type { ServerFolderMatch } from "./folder-protocol.js";
 
 /** Emitted with `{ workspace, targetId, seq? }` once a deployment or a resolved conflict changed a target. */
 export const DEPLOY_EVENT = "deployed";
@@ -52,6 +53,12 @@ export interface DeployPreview {
   kept: string[];
   /** Worth a look before confirming, such as a file the last deployment took from another branch. */
   warnings: string[];
+  checkout?: DeploymentCheckout;
+  /** Binds confirmation to the selected local bytes and the branch shown in the preview. */
+  source?: string;
+  local?: Record<string, string>;
+  observed?: Record<string, string | null>;
+  folder?: ServerFolderMatch;
 }
 
 /** One file a deployment changed on the server, with the blobs (in the shadow repository) that undo it. */
@@ -135,6 +142,7 @@ export interface DeployResolveResult {
   conflicts: number;
   /** The server had deleted the file; taking it deleted the local one. */
   deleted?: boolean;
+  undoId?: string;
 }
 
 export const DEPLOY_OP_WORDS: Readonly<Record<DeployOp, string>> = { add: "new", modify: "changed", delete: "deleted" };

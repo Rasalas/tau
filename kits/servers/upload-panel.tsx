@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, GitMerge, Lock, Trash2, Upload } from "lucide-react";
 import { READ_ONLY_REASON, Skeleton, errorMessage, tooltipProps, useCommandAllowed, type WorkbenchActions } from "tau";
 import {
@@ -8,8 +8,8 @@ import {
 import { PendingList, type PendingSelection } from "./pending-list.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
 import type { ServerViewParts } from "./server-view.js";
-import { uploadSummary } from "./status-model.js";
 import type { PendingUploadRow, TargetStatus } from "./view-protocol.js";
+import { ServerFolderPicker } from "./folder-picker.js";
 
 const OPS = { added: "add", modified: "modify", deleted: "delete" } as const;
 const LETTERS: Record<DeployOp, string> = { add: "A", modify: "M", delete: "D" };
@@ -118,7 +118,7 @@ function PlanGroups({ files, kept, force, canResolve, busy, done = false, onOpen
       <Group label="Deleted on the server" files={deletes} tone="danger" icon={<Trash2 size={12} aria-hidden="true" />} note={done ? "Tau kept a copy of each." : "Tau keeps a copy of each before deleting it."}>
         {deletes.map((file) => <PlanRow key={file.path} file={file} onOpen={onOpen} />)}
       </Group>
-      <Group label="Changed on the server" files={conflicts} tone="warn" icon={<AlertTriangle size={12} aria-hidden="true" />} note="Not uploaded: the server changed since Tau last read it. Nothing is overwritten unless you say so.">
+      <Group label="Review before uploading" files={conflicts} tone="warn" icon={<AlertTriangle size={12} aria-hidden="true" />} note="These files need your decision. Nothing is overwritten unless you say so.">
         {conflicts.map((file) => (
           <PlanRow key={file.path} file={file} onOpen={onOpen}>
             <ConflictActions file={file} forced={force.has(file.path)} canResolve={canResolve} busy={busy} onResolve={onResolve} onForce={onForce} />
@@ -142,32 +142,36 @@ function PlanGroups({ files, kept, force, canResolve, busy, done = false, onOpen
 }
 
 /**
- * The pending tab's upload: choose files (deletions chosen by default and
- * left out only on purpose), look at what an upload would do against the
- * server as it is now, confirm with the count on the button, and see what
- * went through. Only this click uploads; the agent never does.
+ * Choose files, inspect the current server versions, then confirm the upload.
+ * Deletions are explicit choices. Only this click uploads; the agent never does.
  */
-export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHolding }: {
+export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHolding, initialPaths, proposedThread }: {
   parts: ServerViewParts;
   actions: WorkbenchActions;
   cwd: string;
   target: TargetStatus;
   active?: string;
+  initialPaths?: readonly string[];
+  proposedThread?: string;
   onOpen(path: string): void;
   /** True from the preview until Done: keep the panel although nothing is left to upload, so the result stays. */
   onHolding?(holding: boolean): void;
 }) {
   const canDeploy = useCommandAllowed(SERVERS_EXTENSION_ID, "deploy");
   const canResolve = useCommandAllowed(SERVERS_EXTENSION_ID, "deploy-resolve");
-  const [choices, setChoices] = useState<Record<string, boolean>>({});
-  const [confirming, setConfirming] = useState<string>();
+  const [choices, setChoices] = useState<Record<string, boolean>>(() => Object.fromEntries((initialPaths ?? []).filter((path) => target.pending.some((row) => row.path === path && !row.credentials && !row.blocked)).map((path) => [path, true])));
   const [stage, setStage] = useState<Stage>({ kind: "choose" });
   const [force, setForce] = useState<ReadonlySet<string>>(new Set());
   const [resolving, setResolving] = useState(false);
+  const [folderPicker, setFolderPicker] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const operation = useRef<string | undefined>(undefined);
+  const fingerprint = target.connectionFingerprint;
   const targetId = target.targetId;
   const holding = stage.kind !== "choose";
   useEffect(() => { onHolding?.(holding); }, [onHolding, holding]);
   useEffect(() => () => onHolding?.(false), [onHolding]);
+  useEffect(() => () => { const operationId = operation.current; if (operationId) void parts.host.invoke("cancel-server-operation", { cwd, targetId, operationId }).catch(() => undefined); }, [parts.host, cwd, targetId]);
 
   const chosen = (row: PendingUploadRow) => !row.blocked && (choices[row.path] ?? row.selected);
   const set = (path: string, value: boolean) => setChoices((current) => ({ ...current, [path]: value }));
@@ -175,24 +179,28 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHol
     chosen,
     toggle(row) {
       if (row.blocked) return;
-      // A deletion is chosen by default; leaving it out takes a second, deliberate click.
-      if (row.change === "deleted" && chosen(row)) { setConfirming(row.path); return; }
       set(row.path, !chosen(row));
     },
     ...(canDeploy ? {} : { disabledReason: READ_ONLY_REASON }),
-    ...(confirming ? { confirming } : {}),
-    keep(row) { set(row.path, false); setConfirming(undefined); },
-    cancelKeep() { setConfirming(undefined); },
   };
   const picked = target.pending.filter(chosen);
   const keptCount = target.pending.filter((row) => row.change === "deleted" && !row.blocked && !chosen(row)).length;
 
+  const authorize = () => fingerprint ? parts.host.invoke("authorize-server", { cwd, targetId, fingerprint }) : Promise.resolve();
+  const cancel = () => {
+    const operationId = operation.current;
+    if (operationId) void parts.host.invoke("cancel-server-operation", { cwd, targetId, operationId }).catch((failure: unknown) => actions.notify(errorMessage(failure), "error"));
+    if (stage.kind === "uploading") { setStopping(true); return; }
+    operation.current = undefined;
+    setStage({ kind: "choose" }); setForce(new Set()); setResolving(false);
+  };
   const preview = (files: DeployRequestFile[]) => {
+    const operationId = crypto.randomUUID(); operation.current = operationId;
     setStage({ kind: "preview", files });
-    parts.host.invoke("deploy-preview", { cwd, targetId, files, force: [...force] }).then(
-      (value) => setStage((current) => (current.kind === "preview" && current.files === files ? { ...current, preview: value as DeployPreview } : current)),
-      (failure: unknown) => setStage((current) => (current.kind === "preview" && current.files === files ? { ...current, error: errorMessage(failure) } : current)),
-    );
+    authorize().then(() => operation.current === operationId ? parts.host.invoke("deploy-preview", { cwd, targetId, files, force: [...force], operationId }) : undefined).then(
+      (value) => { if (operation.current === operationId) setStage((current) => current.kind === "preview" && current.files === files ? { ...current, preview: value as DeployPreview } : current); },
+      (failure: unknown) => { if (operation.current === operationId) setStage((current) => current.kind === "preview" && current.files === files ? { ...current, error: errorMessage(failure) } : current); },
+    ).finally(() => { if (operation.current === operationId) operation.current = undefined; });
   };
 
   const threadId = () => {
@@ -204,18 +212,22 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHol
     const files = shown.files
       .filter((file) => file.outcome === "upload" || file.outcome === "delete" || (file.outcome === "conflict" && force.has(file.path)))
       .map((file) => ({ path: file.path, op: file.op }));
-    const thread = threadId();
+    const thread = proposedThread ?? threadId();
+    const operationId = crypto.randomUUID(); operation.current = operationId;
+    setStopping(false);
     setStage({ kind: "uploading", preview: shown });
-    parts.host.invoke("deploy", { cwd, targetId, files, force: [...force].filter((path) => files.some((file) => file.path === path)), ...(thread ? { threadId: thread } : {}) }).then(
+    parts.host.invoke("deploy", { cwd, targetId, files, operationId, via: proposedThread ? "card" : "view", preview: { source: shown.source, observed: shown.observed, local: shown.local }, force: [...force].filter((path) => files.some((file) => file.path === path)), ...(thread ? { threadId: thread } : {}) }).then(
       (value) => { setStage({ kind: "result", result: value as DeployResult }); setChoices({}); setForce(new Set()); },
       (failure: unknown) => { actions.notify(errorMessage(failure), "error"); setStage({ kind: "preview", files, preview: shown }); },
-    ).finally(() => { void parts.store.load(cwd, true); });
+    ).finally(() => { if (operation.current === operationId) operation.current = undefined; setStopping(false); void parts.store.load(cwd, true); });
   };
 
   const resolve = (path: string, action: DeployResolveAction) => {
     setResolving(true);
-    parts.host.invoke("deploy-resolve", { cwd, targetId, path, action }).then(
+    const operationId = crypto.randomUUID(); operation.current = operationId;
+    parts.host.invoke("deploy-resolve", { cwd, targetId, path, action, operationId }).then(
       (value) => {
+        if (operation.current !== operationId) return;
         const result = value as DeployResolveResult;
         actions.notify(action === "take-server"
           ? result.deleted ? `${path} is deleted here too, as on the server.` : `${path} now holds the server's version.`
@@ -224,7 +236,7 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHol
         onOpen(path);
       },
       (failure: unknown) => actions.notify(errorMessage(failure), "error"),
-    ).finally(() => { setResolving(false); void parts.store.load(cwd, true); });
+    ).finally(() => { if (operation.current === operationId) operation.current = undefined; setResolving(false); void parts.store.load(cwd, true); });
   };
 
   const setForced = (path: string, value: boolean) => setForce((current) => {
@@ -233,20 +245,23 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHol
     return next;
   });
 
+  if (folderPicker) return <ServerFolderPicker host={parts.host} cwd={cwd} target={target} actions={actions} onClose={() => { setFolderPicker(false); setStage({ kind: "choose" }); void parts.store.load(cwd, true); }} />;
+
   if (stage.kind === "choose") {
-    const label = uploadSummary(target.pending, chosen);
     return (
       <div className="servers-upload">
+        <div className="servers-upload-select"><button type="button" className="text-button" disabled={!canDeploy} onClick={() => setChoices(Object.fromEntries(target.pending.filter((row) => row.change !== "deleted" && !row.blocked && !row.credentials).map((row) => [row.path, true])))}>Select files</button><button type="button" className="text-button" onClick={() => setChoices(Object.fromEntries(target.pending.map((row) => [row.path, false])))}>Clear</button></div>
+        {target.pending.some((row) => row.unchecked) ? <p className="servers-group-note">Choose files from your current branch. The preview reads only your selection on the server.</p> : null}
         <PendingList rows={target.pending} total={target.pendingTotal} withheld={target.withheld} {...(active ? { active } : {})} onOpen={onOpen} selection={selection} />
         <footer className="servers-upload-bar">
           {keptCount > 0 ? <p className="servers-upload-note"><Trash2 size={12} aria-hidden="true" />{keptCount} {keptCount === 1 ? "deletion stays" : "deletions stay"} on the server</p> : null}
           <button
             type="button"
             className="chrome-button primary"
-            disabled={!canDeploy || picked.length === 0}
+            disabled={!canDeploy || target.state === "incomplete" || picked.length === 0}
             {...tooltipProps(canDeploy ? "See what goes up before anything is written" : READ_ONLY_REASON)}
             onClick={() => preview(picked.map(requestOf))}
-          >{label}…</button>
+          >{picked.length ? `Review upload · ${picked.length}` : "Choose files to upload"}</button>
         </footer>
       </div>
     );
@@ -292,7 +307,7 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHol
   return (
     <div className="servers-upload">
       <header className="servers-upload-head">
-        <button type="button" className="icon-button" aria-label="Back to the list" disabled={busy} onClick={() => setStage({ kind: "choose" })}><ArrowLeft size={14} /></button>
+        <button type="button" className="icon-button" aria-label="Back to the list" onClick={cancel}><ArrowLeft size={14} /></button>
         <h2>Upload preview</h2>
       </header>
       <div className="servers-upload-plan" aria-busy={!shown}>
@@ -300,17 +315,19 @@ export function UploadPanel({ parts, actions, cwd, target, active, onOpen, onHol
           : !shown ? <><p className="servers-group-note">Reading the chosen files on the server…</p><Skeleton shape="block" /></>
           : (
             <>
+              {shown.checkout ? <p className="servers-upload-source">Upload from <strong>{shown.checkout.branch ?? "detached HEAD"}</strong>{shown.checkout.head ? <code>{shown.checkout.head.slice(0, 8)}</code> : null}</p> : null}
+              {shown.folder?.weak ? <section className="servers-folder-warning" aria-label="Check server folder"><h3>This server folder looks different from your project</h3><p>{shown.folder.listing.matches} of {shown.folder.listing.localItems} local names appear in <code>{shown.folder.listing.root}</code>. Tau has only listed this folder.</p><p className="servers-group-note">{shown.folder.listing.entries.slice(0, 12).map((entry) => `${entry.name}${entry.directory ? "/" : ""}`).join(" · ")}</p><div className="servers-folder-footer"><button type="button" className="chrome-button" onClick={() => setFolderPicker(true)}>Choose folder</button><button type="button" className="text-button" onClick={() => { const files = stage.kind === "preview" ? stage.files : []; void parts.host.invoke("confirm-server-folder", { cwd, targetId }).then(() => preview(files), (failure: unknown) => actions.notify(errorMessage(failure), "error")); }}>This is intentional</button></div></section> : null}
               {shown.warnings.map((warning) => <p key={warning} className="servers-banner warn" role="note"><AlertTriangle size={13} aria-hidden="true" /><span>{warning}</span></p>)}
               <PlanGroups files={shown.files} kept={shown.kept} force={force} canResolve={canResolve} busy={busy} onOpen={onOpen} onResolve={resolve} onForce={setForced} />
             </>
           )}
       </div>
       <footer className="servers-upload-bar">
-        <button type="button" className="chrome-button" disabled={busy} onClick={() => setStage({ kind: "choose" })}>Cancel</button>
+        <button type="button" className="chrome-button" onClick={cancel}>{stage.kind === "uploading" ? stopping ? "Stopping…" : "Stop" : "Cancel"}</button>
         <button
           type="button"
           className="chrome-button primary"
-          disabled={!shown || busy || !canDeploy || (summary?.changed ?? 0) + (summary?.deleted ?? 0) === 0}
+          disabled={!shown || busy || !canDeploy || target.state === "incomplete" || (summary?.changed ?? 0) + (summary?.deleted ?? 0) === 0}
           onClick={() => { if (shown) upload(shown); }}
         >{stage.kind === "uploading" ? "Uploading…" : summary?.label ?? "Upload"}</button>
       </footer>

@@ -16,6 +16,7 @@ import { MIRROR_INDEX_FILE } from "./sync/mirror";
 import type { CompareResult } from "./sync/protocol";
 import { SyncService } from "./sync/service";
 import { blockUpload } from "./trust";
+import { ServerFolders } from "./folders.js";
 import type { ServerHistory, ServersStatus, TargetStatus } from "./view-protocol";
 
 const posix = process.platform !== "win32";
@@ -57,7 +58,7 @@ interface World {
   call<T>(name: string, input?: unknown): Promise<T>;
 }
 
-function world(options: { shell?: boolean; filePerm?: number; dir?: string } = {}): World {
+function world(options: { shell?: boolean; filePerm?: number; dir?: string; folderChecks?: boolean } = {}): World {
   const dir = options.dir ?? mkdtempSync(join(tmpdir(), "tau-deploy-"));
   const server = join(dir, "server");
   const local = join(dir, "local");
@@ -99,9 +100,12 @@ function world(options: { shell?: boolean; filePerm?: number; dir?: string } = {
   sync.register();
   const list = async () => ({ project, targets: [target] });
   const drift = new DriftService(context, { store, list, sync, workspace: async () => { throw new Error("no Workspace Kit here"); } });
+  const folders = new ServerFolders(store, sync);
+  if (options.folderChecks) folders.register(context);
   const deploy = new DeployService(context, {
     store, sync, target: async () => ({ project, target }),
     drift: { state: (cwd) => drift.state(cwd), settled: (key, root, paths) => drift.settled(key, root, paths) },
+    ...(options.folderChecks ? { folders } : {}),
   });
   deploy.register();
   const status = new ServerStatusService(context, {
@@ -131,12 +135,116 @@ describe.skipIf(!posix)("deployments", () => {
   beforeEach(() => { w = world(); });
   afterEach(async () => { await w.status.idle(); w.status.dispose(); rmSync(w.dir, { recursive: true, force: true }); });
 
+  async function uploadChosen(files: Array<{ path: string; op: "add" | "modify" | "delete" }>) {
+    const preview = await w.call<DeployPreview>("deploy-preview", { ...ref(w), files });
+    const result = await w.call<DeployResult>("deploy", { ...ref(w), files: preview.files.filter((file) => file.outcome === "upload" || file.outcome === "delete").map(({ path, op }) => ({ path, op })), preview: { source: preview.source, observed: preview.observed, local: preview.local } });
+    return result;
+  }
+
+  it("previews the first upload without a download and reads only the selected server file", async () => {
+    put(w.local, "index.php", "local home\n");
+    put(w.local, "new.php", "not selected\n");
+    put(w.local, ".vscode/sftp.json", '{"password":"do not upload"}');
+    const status = await pendingOf(w);
+    expect(status.pending.map((row) => ({ path: row.path, unchecked: row.unchecked, selected: row.selected }))).toEqual([
+      { path: "index.php", unchecked: true, selected: false }, { path: "new.php", unchecked: true, selected: false },
+    ]);
+    expect(w.fs.calls).toEqual([]);
+    const preview = await w.call<DeployPreview>("deploy-preview", { ...ref(w), files: [{ path: "index.php", op: "add" }] });
+    expect(preview.files).toMatchObject([{ path: "index.php", op: "modify", outcome: "upload" }]);
+    expect(w.fs.calls).toEqual(["stat index.php", "read index.php"]);
+    expect((await w.store.read(KEY, MIRROR_INDEX_FILE))?.known).toEqual(["index.php"]);
+    expect(read(w.local, "index.php")).toBe("local home\n");
+    expect(read(w.server, "index.php")).toContain("echo 'home'");
+  });
+
+  it("uploads main, a feature, and main again against one server state, deleting only the feature file", async () => {
+    git(w.local, "checkout", "-B", "main");
+    put(w.local, "index.php", "main content\n");
+    git(w.local, "add", "."); git(w.local, "commit", "-qm", "Main");
+    await uploadChosen([{ path: "index.php", op: "add" }]);
+    git(w.local, "checkout", "-b", "feature/events");
+    put(w.local, "index.php", "feature content\n"); put(w.local, "feature.php", "feature only\n");
+    git(w.local, "add", "."); git(w.local, "commit", "-qm", "Events");
+    await uploadChosen([{ path: "index.php", op: "modify" }, { path: "feature.php", op: "add" }]);
+    git(w.local, "checkout", "main");
+    const pending = await pendingOf(w);
+    expect(pending.pending.map(({ path, change, selected }) => ({ path, change, selected }))).toEqual([
+      { path: "feature.php", change: "deleted", selected: false }, { path: "index.php", change: "modified", selected: false },
+    ]);
+    const result = await uploadChosen([{ path: "feature.php", op: "delete" }, { path: "index.php", op: "modify" }]);
+    expect(result.deployment?.checkout.branch).toBe("main");
+    expect(read(w.server, "index.php")).toBe("main content\n");
+    expect(existsSync(join(w.server, "feature.php"))).toBe(false);
+    expect(read(w.server, "contact.php")).toContain("echo 'contact'");
+    expect((await pendingOf(w)).pending).toEqual([]);
+    expect((await readDeployments(w.store, KEY)).map((record) => record.checkout.branch)).toEqual(["main", "feature/events", "main"]);
+  });
+
+  it("rejects a branch or file change after preview without writing to the server", async () => {
+    put(w.local, "index.php", "reviewed\n");
+    const preview = await w.call<DeployPreview>("deploy-preview", { ...ref(w), files: [{ path: "index.php", op: "add" }] });
+    put(w.local, "index.php", "not reviewed\n");
+    w.fs.calls.length = 0;
+    await expect(w.call("deploy", { ...ref(w), files: [{ path: "index.php", op: "modify" }], preview })).rejects.toThrow(/changed after the preview/u);
+    expect(w.fs.calls).toEqual([]);
+    expect(read(w.server, "index.php")).toContain("echo 'home'");
+  });
+
+  it("does not force an additional server edit that happened after the preview", async () => {
+    put(w.local, "index.php", "local\n");
+    const preview = await w.call<DeployPreview>("deploy-preview", { ...ref(w), files: [{ path: "index.php", op: "add" }] });
+    put(w.server, "index.php", "colleague\n");
+    const result = await w.call<DeployResult>("deploy", { ...ref(w), files: [{ path: "index.php", op: "modify" }], force: ["index.php"], preview });
+    expect(result.deployment).toBeUndefined();
+    expect(result.files).toMatchObject([{ outcome: "conflict", forced: false }]);
+    expect(read(w.server, "index.php")).toBe("colleague\n");
+  });
+
+  it("keeps a mismatching folder at one listing until the person confirms the mapping", async () => {
+    await w.status.idle(); w.status.dispose(); rmSync(w.dir, { recursive: true }); w = world({ folderChecks: true });
+    put(w.local, "different.html", "local\n");
+    const files = [{ path: "different.html", op: "add" }];
+    const preview = await w.call<DeployPreview>("deploy-preview", { ...ref(w), files });
+    expect(preview.folder?.weak).toBe(true);
+    expect(preview.files).toEqual([]);
+    expect(w.fs.calls).toEqual(["list "]);
+    await w.call("confirm-server-folder", ref(w));
+    const checked = await w.call<DeployPreview>("deploy-preview", { ...ref(w), files });
+    expect(checked.files).toMatchObject([{ path: "different.html", outcome: "upload" }]);
+    await expect(w.call("deploy", { ...ref(w), files })).rejects.toThrow(/preview/u);
+    const result = await w.call<DeployResult>("deploy", { ...ref(w), files, preview: checked });
+    expect(result.deployment?.files).toMatchObject([{ path: "different.html", op: "add" }]);
+  });
+
+  it("takes one server file with a durable local backup and undoes it without reading the server", async () => {
+    put(w.local, "index.php", "local work\n");
+    w.fs.calls.length = 0;
+    const taken = await w.call<DeployResolveResult>("deploy-resolve", { ...ref(w), path: "index.php", action: "take-server" });
+    expect(taken.undoId).toBeTruthy();
+    expect(read(w.local, "index.php")).toContain("echo 'home'");
+    expect(w.fs.calls).toEqual(["stat index.php", "read index.php"]);
+    mirrorGit(w.store, "gc", "--prune=now", "--quiet");
+    w.fs.calls.length = 0;
+    await w.call("undo-server-take", { ...ref(w), id: taken.undoId });
+    expect(read(w.local, "index.php")).toBe("local work\n");
+    expect(w.fs.calls).toEqual([]);
+  });
+
+  it("does not undo over new local edits after taking a server file", async () => {
+    put(w.local, "index.php", "before\n");
+    const taken = await w.call<DeployResolveResult>("deploy-resolve", { ...ref(w), path: "index.php", action: "take-server" });
+    put(w.local, "index.php", "new local work\n");
+    await expect(w.call("undo-server-take", { ...ref(w), id: taken.undoId })).rejects.toThrow(/changed locally/u);
+    expect(read(w.local, "index.php")).toBe("new local work\n");
+  });
+
   it.each(["", "site"])("refuses deletion proposals when the local sync root is missing (context %j)", async (context) => {
     w.target.context = context;
     await downloaded(w);
     const localDir = context ? join(w.local, context) : w.local;
     unlinkSync(join(localDir, "contact.php"));
-    expect((await pendingOf(w)).pending).toContainEqual({ path: "contact.php", change: "deleted", selected: true });
+    expect((await pendingOf(w)).pending).toContainEqual({ path: "contact.php", change: "deleted", selected: false });
     await w.status.idle();
     rmSync(localDir, { recursive: true });
     w.fs.calls.length = 0;
@@ -256,7 +364,7 @@ describe.skipIf(!posix)("deployments", () => {
 
     const before = await pendingOf(w);
     expect(before.pending.map((row) => [row.path, row.change, row.selected])).toEqual([
-      ["bin/cron.sh", "modified", true], ["contact.php", "deleted", true], ["css/site.css", "modified", true], ["index.php", "modified", true], ["pages/new.php", "added", true],
+      ["bin/cron.sh", "modified", false], ["contact.php", "deleted", false], ["css/site.css", "modified", false], ["index.php", "modified", false], ["pages/new.php", "added", false],
     ]);
     const files = before.pending.map((row) => ({ path: row.path, op: row.change === "added" ? "add" : row.change === "deleted" ? "delete" : "modify" }));
 
@@ -338,7 +446,7 @@ describe.skipIf(!posix)("deployments", () => {
     expect(conflicted.pending.map((row) => row.path)).toEqual(["index.php"]);
 
     const merged = await w.call<DeployResolveResult>("deploy-resolve", { ...ref(w), path: "index.php", action: "merge" });
-    expect(merged).toEqual({ path: "index.php", action: "merge", conflicts: 1 });
+    expect(merged).toMatchObject({ path: "index.php", action: "merge", conflicts: 1 });
     const text = read(w.local, "index.php");
     expect(text).toContain("<<<<<<< local\necho 'local';\n=======\necho 'hotfix';\n>>>>>>> server\n");
     // With the markers in it the file does not go up.
@@ -361,7 +469,7 @@ describe.skipIf(!posix)("deployments", () => {
     put(w.server, "about.php", "<?php echo 'theirs too';\n", { mtime: 1_700_000_200 });
 
     const taken = await w.call<DeployResolveResult>("deploy-resolve", { ...ref(w), path: "index.php", action: "take-server" });
-    expect(taken).toEqual({ path: "index.php", action: "take-server", conflicts: 0 });
+    expect(taken).toMatchObject({ path: "index.php", action: "take-server", conflicts: 0 });
     expect(read(w.local, "index.php")).toBe("<?php echo 'theirs';\n");
     expect((await pendingOf(w)).pending.map((row) => row.path)).toEqual(["about.php"]);
 
@@ -412,7 +520,7 @@ describe.skipIf(!posix)("deployments", () => {
     await w.call<DeployResult>("deploy", { ...ref(w), files });
     expect(existsSync(join(w.server, "about.php"))).toBe(false);
     expect(existsSync(join(w.server, "contact.php"))).toBe(true);
-    expect((await pendingOf(w)).pending).toEqual([{ path: "contact.php", change: "deleted", selected: true }]);
+    expect((await pendingOf(w)).pending).toEqual([{ path: "contact.php", change: "deleted", selected: false }]);
   });
 
   it("blocks the paths of an unmerged drift branch, in the list and in the upload", async () => {

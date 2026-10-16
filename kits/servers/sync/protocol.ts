@@ -58,6 +58,8 @@ export interface PendingRow {
   change: SyncChange;
   /** Local size; absent for a deletion. */
   size?: number;
+  /** Local candidate whose server content has not yet been read. */
+  unchecked?: boolean;
 }
 
 export interface FileStamp {
@@ -85,7 +87,7 @@ export interface MirrorInfo {
 
 export interface CompareResult {
   targetId: string;
-  /** Absent before the first download: nothing to compare against. */
+  /** Absent until verified server contents are recorded. */
   mirror?: MirrorInfo;
   pending?: {
     rows: PendingRow[];

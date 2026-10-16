@@ -167,11 +167,20 @@ export class AskpassBridge {
    * The environment one ssh call runs with. Its token is good for that call
    * only: `dispose` when ssh exits, and any question still open is cancelled.
    */
-  async session(target: AskpassTarget): Promise<{ env: Record<string, string>; dispose(): void }> {
+  async session(target: AskpassTarget, signal?: AbortSignal): Promise<{ env: Record<string, string>; dispose(): void }> {
+    signal?.throwIfAborted();
     await this.start();
+    signal?.throwIfAborted();
     const token = randomBytes(24).toString("base64url");
     const session: Session = { target, attempts: new Map(), controller: new AbortController() };
     this.sessions.set(token, session);
+    const dispose = () => {
+      signal?.removeEventListener("abort", dispose);
+      if (this.sessions.get(token) !== session) return;
+      this.sessions.delete(token);
+      session.controller.abort();
+    };
+    signal?.addEventListener("abort", dispose, { once: true });
     return {
       env: {
         SSH_ASKPASS: this.helperPath!,
@@ -181,11 +190,7 @@ export class AskpassBridge {
         TAU_ASKPASS_SOCKET: this.socketPath!,
         TAU_ASKPASS_TOKEN: token,
       },
-      dispose: () => {
-        if (this.sessions.get(token) !== session) return;
-        this.sessions.delete(token);
-        session.controller.abort();
-      },
+      dispose,
     };
   }
 

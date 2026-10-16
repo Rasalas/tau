@@ -5,6 +5,10 @@
 Accepted, 2026-09-25. The Servers kit (`kits/servers/`, id `tau.servers`)
 implements it over the tickets of wave I.
 
+[ADR 0043](0043-server-uploads-from-existing-local-projects.md) revises the entry
+flow for existing folders, partial mirror state, automatic drift checks and
+connection approval lifetime. Manual uploads and backups still apply.
+
 ## Context
 
 Many projects still live on a server that is reached over SSH/SFTP or FTP: a

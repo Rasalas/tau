@@ -9,6 +9,7 @@ import type { ServerViewParts } from "./server-view.js";
 import { ago } from "./status-model.js";
 import { Group, PlanRow } from "./upload-panel.js";
 import type { HistoryDeployment, HistoryEntry, ServerDiffSource, ServerHistory, TargetStatus } from "./view-protocol.js";
+import type { LocalServerChange } from "./local-changes.js";
 
 const DEPLOYMENT_STATUS: Record<HistoryDeployment["status"], string> = { "in-progress": "in progress", incomplete: "incomplete upload", uploaded: "not committed", verified: "checked, not committed", committed: "committed", "rolled-back": "rolled back" };
 
@@ -314,11 +315,14 @@ export function HistoryPanel({ parts, actions, cwd, target, active, onFile, main
   const [rolling, setRolling] = useState<HistoryEntry & { deployment: HistoryDeployment }>();
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
+  const [localChanges, setLocalChanges] = useState<LocalServerChange[]>([]);
+  const canUndoLocal = useCommandAllowed(SERVERS_EXTENSION_ID, "undo-server-take");
   const targetId = target.targetId;
   const mirrorCommit = target.mirror?.commit;
 
   useEffect(() => {
     let live = true;
+    void parts.host.invoke("local-server-history", { cwd, targetId }).then((value) => { if (live) setLocalChanges((value as { changes?: LocalServerChange[] } | undefined)?.changes ?? []); }, () => undefined);
     parts.host.invoke("server-history", { cwd, targetId }).then(
       (value) => { if (live) setHistory({ entries: (value as ServerHistory).entries, truncated: (value as ServerHistory).truncated === true }); },
       (failure: unknown) => { if (live) setHistory({ error: errorMessage(failure) }); },
@@ -336,7 +340,7 @@ export function HistoryPanel({ parts, actions, cwd, target, active, onFile, main
 
   if (history.error) return <p className="servers-error" role="alert">{history.error}</p>;
   if (!history.entries) return <Skeleton shape="card" />;
-  if (history.entries.length === 0) {
+  if (history.entries.length === 0 && localChanges.length === 0) {
     return <Empty icon={<History size={18} />} title="No history yet" description={history.truncated ? HISTORY_CLEANED : "Each read of the server, and each upload, is recorded here."} />;
   }
   const other = (seq: number) => {
@@ -356,7 +360,10 @@ export function HistoryPanel({ parts, actions, cwd, target, active, onFile, main
       onOther={other}
     />
   ) : (
-    <HistoryList entries={history.entries} truncated={history.truncated === true} active={active} busy={busy} onFile={onFile} onRollBack={setRolling} onMark={mark} />
+    <>
+      {localChanges.length ? <section className="servers-local-history" aria-label="Files taken from the server"><h3>Files taken from the server</h3>{localChanges.map((change) => <div key={change.id} className="servers-local-history-row"><span><code>{change.path}</code><small>{change.undone ? "Undone" : change.applied ? "Replaced locally" : "Local replacement interrupted"} · {ago(change.at)}</small></span>{!change.undone ? <button type="button" className="text-button" disabled={busy || !canUndoLocal} onClick={() => { setBusy(true); void parts.host.invoke("undo-server-take", { cwd, targetId, id: change.id }).then(() => { setReload((value) => value + 1); void parts.store.load(cwd, true); }, (failure: unknown) => actions.notify(errorMessage(failure), "error")).finally(() => setBusy(false)); }}>Undo local change</button> : null}</div>)}</section> : null}
+      <HistoryList entries={history.entries} truncated={history.truncated === true} active={active} busy={busy} onFile={onFile} onRollBack={setRolling} onMark={mark} />
+    </>
   );
   if (stacked) return <div className="servers-stack">{list}{main}</div>;
   return (

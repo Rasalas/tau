@@ -1,5 +1,6 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { ServerPrompt, ServerPromptAnswer, ServerPromptRequest } from "./protocol.js";
 import { SERVERS_PROMPTS_EVENT } from "./protocol.js";
 
@@ -17,6 +18,7 @@ interface Pending {
 export class ServerPrompts {
   private stopped = false;
   private readonly open = new Map<string, Pending>();
+  private readonly signals = new AsyncLocalStorage<AbortSignal>();
 
   constructor(private readonly publish: (event: string, payload: unknown) => void, private readonly available: () => boolean = () => false) {}
 
@@ -26,6 +28,7 @@ export class ServerPrompts {
 
   /** Answers `cancel` when `signal` aborts or the kit stops. */
   ask(request: ServerPromptRequest, signal?: AbortSignal): Promise<ServerPromptAnswer> {
+    signal ??= this.signals.getStore();
     if (signal?.aborted) return Promise.resolve({ action: "cancel" });
     if (this.stopped || !this.available()) return Promise.reject(this.unavailable());
     return new Promise((resolve, reject) => {
@@ -46,6 +49,8 @@ export class ServerPrompts {
       this.changed();
     });
   }
+
+  withSignal<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> { return this.signals.run(signal, run); }
 
   /** False when the prompt is gone (answered elsewhere, cancelled). */
   answer(id: string, answer: ServerPromptAnswer): boolean {

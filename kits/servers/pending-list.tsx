@@ -13,10 +13,7 @@ export interface PendingSelection {
   toggle(row: PendingUploadRow): void;
   /** Why the boxes cannot be changed here, such as a Read-only device. */
   disabledReason?: string;
-  /** A chosen deletion the user is leaving out: it asks first, in its row. */
-  confirming?: string;
-  keep?(row: PendingUploadRow): void;
-  cancelKeep?(): void;
+
 }
 
 function splitPath(path: string): { name: string; dir: string } {
@@ -53,28 +50,21 @@ function Row({ row, active, selection, onOpen }: { row: PendingUploadRow; active
   return (
     <li className={`servers-file${active ? " active" : ""}${row.credentials ? " guarded" : ""}${row.blocked ? " blocked" : ""}`}>
       <Choice row={row} selection={selection} />
-      <button type="button" className="servers-file-open" aria-current={active} aria-label={`${row.path}, ${WORDS[row.change]}`} onClick={() => onOpen(row.path)}>
-        <span className={`servers-change ${row.change}`} aria-hidden="true">{LETTERS[row.change]}</span>
+      <button type="button" className="servers-file-open" aria-current={active} aria-label={`${row.path}, ${row.unchecked ? "not compared" : WORDS[row.change]}`} onClick={() => onOpen(row.path)}>
+        <span className={`servers-change ${row.unchecked ? "unchecked" : row.change}`} aria-hidden="true">{row.unchecked ? "?" : LETTERS[row.change]}</span>
         <span className="servers-file-name">{name}{dir ? <small>{dir}</small> : null}</span>
+        {row.unchecked ? <span className="servers-file-tag unchecked">Not compared</span> : null}
         {left ? <span className="servers-file-tag">Stays on the server</span> : null}
         {row.blocked ? <span className="servers-file-guard" role="img" aria-label={row.blocked} {...tooltipProps(row.blocked)}><Lock size={13} /></span> : null}
         {row.credentials ? <span className="servers-file-guard" role="img" aria-label={CREDENTIALS_GUARD_NOTE} {...tooltipProps(`${CREDENTIALS_GUARD_NOTE}\n${row.credentials.join(", ")}`, { variant: "lines" })}><ShieldAlert size={13} /></span> : null}
       </button>
-      {selection?.confirming === row.path ? (
-        <div className="servers-file-confirm" role="group" aria-label={`Leave ${row.path} on the server?`}>
-          <span>Leave it on the server? It stays listed as not uploaded.</span>
-          <button type="button" className="text-button" onClick={() => selection.cancelKeep?.()}>Cancel</button>
-          <button type="button" className="text-button danger" onClick={() => selection.keep?.(row)}>Leave on the server</button>
-        </div>
-      ) : null}
+
     </li>
   );
 }
 
 /**
- * The files an upload would take: new and changed ones, then the local
- * deletions as a group of their own — chosen by default, never left behind
- * without a word — and the files on the upload block list, which never go.
+ * Local candidates, explicit server deletions, and files excluded from uploads.
  */
 export function PendingList({ rows, total, withheld, active, onOpen, selection }: {
   rows: readonly PendingUploadRow[];
@@ -89,14 +79,14 @@ export function PendingList({ rows, total, withheld, active, onOpen, selection }
     <div className="servers-pending">
       {changed.length > 0 ? (
         <section aria-label="New and changed files">
-          <h3 className="servers-group-head">New and changed <span className="servers-count">{changed.length}</span></h3>
+          <h3 className="servers-group-head">Files <span className="servers-count">{changed.length}</span></h3>
           <ul className="servers-files">{changed.map((row) => <Row key={row.path} row={row} active={row.path === active} selection={selection} onOpen={onOpen} />)}</ul>
         </section>
       ) : null}
       {deleted.length > 0 ? (
-        <section className="servers-deleted" aria-label="Will be deleted on the server">
-          <h3 className="servers-group-head"><Trash2 size={12} aria-hidden="true" />Will be deleted on the server <span className="servers-count">{deleted.length}</span></h3>
-          <p className="servers-group-note">Deleted here. An upload deletes them on the server too, after keeping a copy. Leaving one out keeps it on the server and in this list.</p>
+        <section className="servers-deleted" aria-label="Deleted locally">
+          <h3 className="servers-group-head"><Trash2 size={12} aria-hidden="true" />Deleted locally <span className="servers-count">{deleted.length}</span></h3>
+          <p className="servers-group-note">Previously read on the server and now missing here. Select explicitly to delete on the server; a backup is kept.</p>
           <ul className="servers-files">{deleted.map((row) => <Row key={row.path} row={row} active={row.path === active} selection={selection} onOpen={onOpen} />)}</ul>
         </section>
       ) : null}

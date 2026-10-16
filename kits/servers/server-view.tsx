@@ -1,19 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Download, GitBranch, KeyRound, RefreshCw, Server, Settings2, SquareTerminal } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, RefreshCw, Server, Settings2 } from "lucide-react";
 import {
-  DiffView, Empty, READ_ONLY_REASON, Skeleton, Spinner, errorMessage, tooltipProps, useCommandAllowed,
+  DiffView, Empty, Skeleton, Spinner, errorMessage, tooltipProps, useCommandAllowed,
   type HostExtensionClient, type StageTabHandle, type UiFileDiff, type WorkbenchActions,
 } from "tau";
-import { DriftPanel, type DriftFeed } from "./drift-view.js";
+import { type DriftFeed } from "./drift-view.js";
 import { HistoryPanel } from "./history-panel.js";
-import { plural } from "./plural.js";
+import { ServerFolderPicker } from "./folder-picker.js";
 import { SERVERS_EXTENSION_ID } from "./protocol.js";
-import { STATE_LABELS, ago, statusSentence } from "./status-model.js";
-import { StatusDot, openTarget, useServersStatus, type TargetTabParams } from "./status-parts.js";
+import { statusSentence } from "./status-model.js";
+import { openTarget, useServersStatus, type TargetTabParams } from "./status-parts.js";
 import type { ServersStatusStore } from "./status-store.js";
 import { UploadPanel } from "./upload-panel.js";
-import { SYNC_PROGRESS_EVENT, SYNC_PROGRESS_TOPIC, type SyncProgress } from "./sync/protocol.js";
-import { SERVERS_SETTINGS_PAGE, type ServerDiffSource, type ServerGitInfo, type TargetStatus } from "./view-protocol.js";
+import { SERVERS_SETTINGS_PAGE, type ServerDiffSource } from "./view-protocol.js";
 
 /** Terminal Kit's `tau.terminal/run`, named here: a kit never imports another. */
 export const TERMINAL_RUN_SERVICE = "tau.terminal/run";
@@ -29,112 +28,74 @@ export interface ServerViewParts {
   terminal(): TerminalRunService | undefined;
 }
 
-type Tab = "pending" | "drift" | "history";
+type Tab = "pending" | "history";
 
 /** One file's diff, loaded when it is chosen. */
-function FileDiff({ host, cwd, targetId, source }: { host: HostExtensionClient; cwd: string; targetId: string; source: ServerDiffSource | undefined }) {
+export function FileDiff({ host, cwd, targetId, source, onChanged, onClose }: { host: HostExtensionClient; cwd: string; targetId: string; source: ServerDiffSource | undefined; onChanged?(): void; onClose?(): void }) {
   const [loaded, setLoaded] = useState<{ key: string; diff?: UiFileDiff; error?: string }>();
+  const [revision, setRevision] = useState(0);
+  const [confirming, setConfirming] = useState(false);
+  const [taking, setTaking] = useState(false);
+  const [undoId, setUndoId] = useState<string>();
+  const mutation = useRef<string | undefined>(undefined);
+  const canTake = useCommandAllowed(SERVERS_EXTENSION_ID, "deploy-resolve");
   const key = source ? JSON.stringify(source) : "";
   useEffect(() => {
     if (!source) return;
     let live = true;
-    host.invoke("server-diff", { cwd, targetId, ...source }).then(
+    const operationId = crypto.randomUUID();
+    host.invoke(source.source === "pending" ? "server-file-diff" : "server-diff", { cwd, targetId, operationId, ...source }).then(
       (diff) => { if (live) setLoaded({ key, diff: diff as UiFileDiff }); },
       (failure: unknown) => { if (live) setLoaded({ key, error: errorMessage(failure) }); },
     );
-    return () => { live = false; };
-  }, [host, cwd, targetId, key]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { live = false; if (source.source === "pending") void host.invoke("cancel-server-operation", { cwd, targetId, operationId }).catch(() => undefined); };
+  }, [host, cwd, targetId, key, revision]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => {
+    if (mutation.current) void host.invoke("cancel-server-operation", { cwd, targetId, operationId: mutation.current }).catch(() => undefined);
+  }, [host, cwd, targetId]);
   if (!source) return <p className="servers-empty-line">Choose a file to see what changed.</p>;
   const shown = loaded?.key === key ? loaded : undefined;
-  if (shown?.error) return <p className="servers-error" role="alert">{shown.error}</p>;
-  return <DiffView key={key} {...(shown?.diff ? { diff: shown.diff } : {})} mode="unified" path={source.path} />;
+  const take = async () => {
+    setTaking(true); setConfirming(false);
+    const operationId = crypto.randomUUID();
+    mutation.current = operationId;
+    try {
+      const result = await host.invoke("deploy-resolve", { cwd, targetId, operationId, path: source.path, action: "take-server" }) as { undoId?: string };
+      setUndoId(result.undoId); setRevision((current) => current + 1); onChanged?.();
+    } catch (failure) { setLoaded({ key, error: errorMessage(failure) }); }
+    finally { mutation.current = undefined; setTaking(false); }
+  };
+  const undo = async () => {
+    setTaking(true);
+    const operationId = crypto.randomUUID();
+    mutation.current = operationId;
+    try { await host.invoke("undo-server-take", { cwd, targetId, operationId, id: undoId }); setUndoId(undefined); setRevision((current) => current + 1); onChanged?.(); }
+    catch (failure) { setLoaded({ key, error: errorMessage(failure) }); }
+    finally { mutation.current = undefined; setTaking(false); }
+  };
+  return <>
+    {source.source === "pending" ? <div className="servers-file-actions">
+      {onClose ? <button type="button" className="text-button" onClick={onClose}>Close comparison</button> : null}
+      {undoId ? <><span>Server version taken. Your previous file is backed up.</span><button type="button" className="text-button" disabled={taking || !canTake} onClick={() => void undo()}>Undo</button></> : confirming ? <><span>Replace this local file with the server version? A backup is kept in History.</span><button type="button" className="text-button" onClick={() => setConfirming(false)}>Cancel</button><button type="button" className="chrome-button" disabled={taking || !canTake} onClick={() => void take()}>Replace local file</button></> : shown?.diff ? <button type="button" className="text-button" disabled={taking || !canTake} onClick={() => setConfirming(true)}>{taking ? "Taking server version…" : "Use server version…"}</button> : null}
+    </div> : null}
+    {shown?.error ? <p className="servers-error" role="alert">{shown.error}</p> : <DiffView key={`${key}:${revision}`} {...(shown?.diff ? { diff: shown.diff } : {})} mode="unified" path={source.path} />}
+  </>;
 }
 
-export function ServerGitLine({ git }: { git: ServerGitInfo | undefined }) {
-  if (!git) return null;
-  if (!git.repository) return <span className="servers-git muted"><GitBranch size={12} aria-hidden="true" />{git.reason}</span>;
-  const last = git.commits[0];
-  const tip = [
-    git.upstream ? `Tracks ${git.upstream}${git.ahead ? `, ${git.ahead} ahead` : ""}${git.behind ? `, ${git.behind} behind` : ""}` : "",
-    git.files.length ? `Changed on the server:\n${git.files.map((file) => `${file.code} ${file.path}`).join("\n")}` : "",
-    git.commits.length ? `Recent commits:\n${git.commits.slice(0, 8).map((commit) => `${commit.sha.slice(0, 7)} ${commit.subject}`).join("\n")}` : "",
-  ].filter(Boolean).join("\n\n");
-  return (
-    <span className="servers-git" {...(tip ? tooltipProps(tip, { variant: "lines" }) : {})}>
-      <GitBranch size={12} aria-hidden="true" />
-      <span>Server Git: {git.branch ?? "detached"}</span>
-      <span>{git.changed === 0 ? "clean" : `${git.changed} uncommitted`}</span>
-      {last ? <span className="servers-git-commit">{last.sha.slice(0, 7)} {last.subject}</span> : null}
-    </span>
-  );
-}
-
-/** Actions a view offers on a target: check the server, log in to it, read it the first time. */
-export function useTargetActions(parts: ServerViewParts, actions: WorkbenchActions, cwd: string, target: TargetStatus | undefined) {
-  const [busy, setBusy] = useState<"check" | "download" | "terminal" | "git">();
-  const [progress, setProgress] = useState<SyncProgress>();
-  const canDownload = useCommandAllowed(SERVERS_EXTENSION_ID, "download");
-  const canTerminal = useCommandAllowed(SERVERS_EXTENSION_ID, "ssh-terminal");
-  const canLink = useCommandAllowed(SERVERS_EXTENSION_ID, "link-folder");
-  const targetId = target?.targetId;
-  const run = useCallback((kind: "check" | "download" | "terminal" | "git", step: () => Promise<unknown>) => {
-    setBusy(kind);
-    step().catch((failure: unknown) => actions.notify(errorMessage(failure), "error")).finally(() => { setBusy(undefined); setProgress(undefined); });
-  }, [actions]);
-  const check = () => { if (targetId) run("check", () => parts.store.check(cwd, targetId)); };
-  const download = () => {
-    if (!targetId) return;
-    run("download", async () => {
-      const unwatch = parts.host.watch?.(SYNC_PROGRESS_TOPIC);
-      const unlisten = parts.host.onEvent(SYNC_PROGRESS_EVENT, (payload) => {
-        const next = payload as SyncProgress;
-        if (next.targetId === targetId) setProgress(next);
-      });
-      try {
-        await parts.host.invoke("download", { cwd, targetId });
-      } finally {
-        unlisten();
-        unwatch?.();
-      }
-      await parts.store.check(cwd, targetId);
-    });
-  };
-  /** A folder with sftp.json and no Git: commit 1 is the server state, the files stay as they are (I08's `link-folder`). */
-  const makeGit = () => {
-    if (!targetId) return;
-    run("git", async () => {
-      const made = await parts.host.invoke("link-folder", { path: cwd, exclude: {}, download: false }) as { commit: string; files: number; branch: string };
-      actions.notify(`Git made: ${plural(made.files, "file")} of the server state on ${made.branch} (${made.commit.slice(0, 7)}). git status shows your local changes.`);
-      await parts.store.load(cwd, true);
-      await parts.store.check(cwd, targetId);
-    });
-  };
-  const terminal = () => {
-    if (!targetId || !target) return;
-    const service = parts.terminal();
-    if (!service) { actions.notify("The SSH terminal needs the Terminal extension, which is off."); return; }
-    run("terminal", async () => {
-      const { command } = await parts.host.invoke("ssh-terminal", { cwd, targetId }) as { command: string };
-      void service.run({ command, label: `ssh ${target.label}` }, actions);
-    });
-  };
-  const sshOnly = target?.protocol === "sftp" && target.state !== "unusable";
-  return { busy, progress, check, download, terminal, makeGit, canDownload, canTerminal, canLink, sshOnly };
-}
-
-export function progressWords(progress: SyncProgress | undefined): string {
-  if (!progress) return "Starting…";
-  if (progress.phase === "connect") return "Connecting…";
-  if (progress.phase === "list") return `Listing the server… ${plural(progress.done, "file")}`;
-  if (progress.phase === "fetch") return `Downloading ${progress.done} of ${progress.total === undefined ? "? files" : plural(progress.total, "file")}…`;
-  if (progress.phase === "record") return "Recording the mirror state…";
-  return "Finishing…";
+/** Refreshing this view reads local files only. */
+function useTargetActions(parts: ServerViewParts, actions: WorkbenchActions, cwd: string) {
+  const [busy, setBusy] = useState<"check">();
+  const check = useCallback(() => {
+    setBusy("check");
+    parts.store.load(cwd, true)
+      .catch((failure: unknown) => actions.notify(errorMessage(failure), "error"))
+      .finally(() => setBusy(undefined));
+  }, [parts.store, cwd, actions]);
+  return { busy, check };
 }
 
 /**
- * A server target on the stage: its state and the server's own Git, the
- * files an upload would take (with the diff of each against the mirror
- * state), what changed on the server, and the recorded states.
+ * Upload the local checkout, inspect a chosen file, or review earlier uploads.
  */
 export default function ServerView({ params, handle, actions, parts }: { params: TargetTabParams; handle: StageTabHandle; actions: WorkbenchActions; parts: ServerViewParts }) {
   const cwd = params.workspace;
@@ -144,7 +105,9 @@ export default function ServerView({ params, handle, actions, parts }: { params:
   const [diff, setDiff] = useState<ServerDiffSource>();
   // An upload's preview and result stay on screen although nothing is left to upload.
   const [uploading, setUploading] = useState(false);
-  const act = useTargetActions(parts, actions, cwd, target);
+  const [folders, setFolders] = useState(false);
+  const act = useTargetActions(parts, actions, cwd);
+  const canAuthorize = useCommandAllowed(SERVERS_EXTENSION_ID, "authorize-server");
 
   useEffect(() => { handle.setTitle(target ? `Server · ${target.label}` : "Server"); }, [handle, target?.label]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -157,12 +120,43 @@ export default function ServerView({ params, handle, actions, parts }: { params:
   }
 
   const others = entry.status.targets.filter((candidate) => candidate.targetId !== target.targetId);
-  const driftCount = target.drift?.length ?? 0;
-  const firstPending = target.pending[0]?.path;
-  const pendingDiff = diff?.source === "pending" ? diff : firstPending ? { source: "pending" as const, path: firstPending } : undefined;
+  const pendingDiff = diff?.source === "pending" ? diff : undefined;
   const historyDiff = diff?.source === "history" ? diff : undefined;
-  const readOnlyTip = (allowed: boolean, tip: string) => tooltipProps(allowed ? tip : READ_ONLY_REASON);
-
+  const inspect = async (path: string) => {
+    try {
+      if (target.connectionFingerprint && canAuthorize) await parts.host.invoke("authorize-server", { cwd, targetId: target.targetId, fingerprint: target.connectionFingerprint });
+      setDiff({ source: "pending", path });
+    } catch (failure) { actions.notify(errorMessage(failure), "error"); }
+  };
+  let content: ReactNode;
+  if (folders) {
+    content = <ServerFolderPicker host={parts.host} cwd={cwd} target={target} actions={actions} onClose={() => {
+      setFolders(false);
+      void parts.store.load(cwd, true);
+    }} />;
+  } else if (tab === "history") {
+    content = <HistoryPanel parts={parts} actions={actions} cwd={cwd} target={target} active={historyDiff}
+      onFile={(item, path) => setDiff({ source: "history", commit: item.commit, path })}
+      main={<FileDiff host={parts.host} cwd={cwd} targetId={target.targetId} source={historyDiff} />} />;
+  } else if (target.pendingTotal === 0 && target.withheld.length === 0 && !uploading && !pendingDiff) {
+    content = <Empty icon={<Server size={18} />} title="Nothing to upload"
+      description={target.mirror
+        ? "Your local files match the last known server state. The server is checked again before an upload."
+        : "This local folder has no uploadable files. Check its folder mapping and exclusions."} />;
+  } else {
+    content = <div className={`servers-split${pendingDiff ? "" : " servers-upload-only"}`}>
+      <aside className="servers-aside" aria-label="Files to upload">
+        <UploadPanel key={`${target.targetId}:${entry.status.branch ?? ""}:${entry.status.head ?? ""}`}
+          parts={parts} actions={actions} cwd={cwd} target={target} initialPaths={params.paths} proposedThread={params.threadId}
+          {...(pendingDiff ? { active: pendingDiff.path } : {})} onOpen={(path) => void inspect(path)} onHolding={setUploading} />
+      </aside>
+      {pendingDiff ? <main className="servers-main">
+        <FileDiff key={`${entry.status.branch}:${entry.status.head}:${pendingDiff.path}`}
+          host={parts.host} cwd={cwd} targetId={target.targetId} source={pendingDiff}
+          onChanged={() => void parts.store.load(cwd, true)} onClose={() => setDiff(undefined)} />
+      </main> : null}
+    </div>;
+  }
   return (
     <div className="servers-view" aria-label={`Server ${target.label}`}>
       <header className="servers-head">
@@ -170,109 +164,19 @@ export default function ServerView({ params, handle, actions, parts }: { params:
           <Server size={15} aria-hidden="true" />
           <h1 className="servers-title">{target.label}</h1>
           {target.profile ? <span className="servers-tag">{target.profile}</span> : null}
-          <span className={`servers-state tone-${target.state}`}><StatusDot state={target.state} checking={target.checking} />{target.checking ? "Checking…" : STATE_LABELS[target.state]}</span>
           <span className="spacer" />
-          {others.length > 0 ? (
-            <select className="settings-select servers-switch" aria-label="Another server of this project" value="" onChange={(event) => { if (event.target.value) openTarget(actions, cwd, event.target.value); }}>
-              <option value="">Other servers…</option>
-              {others.map((other) => <option key={other.targetId} value={other.targetId}>{other.label} · {STATE_LABELS[other.state]}</option>)}
-            </select>
-          ) : null}
-          <button type="button" className="icon-button" aria-label="Check the server" disabled={act.busy !== undefined || target.checking || target.state === "unusable"} {...tooltipProps("Check the server")} onClick={act.check}>
-            {target.checking || act.busy === "check" ? <Spinner size="xs" /> : <RefreshCw size={14} />}
-          </button>
-          {act.sshOnly ? (
-            <button type="button" className="icon-button" aria-label="Open an SSH terminal" disabled={!act.canTerminal || act.busy !== undefined} {...readOnlyTip(act.canTerminal, "Open an SSH terminal in the server folder")} onClick={act.terminal}>
-              <SquareTerminal size={14} />
-            </button>
-          ) : null}
-          <button type="button" className="icon-button" aria-label="Server settings" {...tooltipProps("Settings → Servers")} onClick={() => actions.openSettings(SERVERS_SETTINGS_PAGE)}>
-            <Settings2 size={14} />
-          </button>
+          {others.length ? <select className="settings-select servers-switch" aria-label="Another server of this project" value="" onChange={(event) => { if (event.target.value) openTarget(actions, cwd, event.target.value); }}><option value="">Other servers…</option>{others.map((other) => <option key={other.targetId} value={other.targetId}>{other.label}</option>)}</select> : null}
+          <button type="button" className="icon-button" aria-label="Refresh local files" disabled={act.busy !== undefined} {...tooltipProps("Refresh local files without connecting to the server")} onClick={act.check}>{act.busy === "check" ? <Spinner size="xs" /> : <RefreshCw size={14} />}</button>
+          <button type="button" className="icon-button" aria-label="Server settings" {...tooltipProps("Settings → Servers")} onClick={() => actions.openSettings(SERVERS_SETTINGS_PAGE)}><Settings2 size={14} /></button>
         </div>
-        <div className="servers-head-meta">
-          <code {...tooltipProps(target.address, { variant: "code" })}>{target.address}</code>
-          <span>{target.context ? <>Local folder <code>{target.context}</code></> : "The project folder"}</span>
-          {target.mirror ? <span {...tooltipProps(new Date(target.mirror.at).toLocaleString())}>Read {ago(target.mirror.at)}</span> : null}
-          {target.checkedAt ? <span {...tooltipProps(new Date(target.checkedAt).toLocaleString())}>Checked {ago(target.checkedAt)}</span> : null}
-          <ServerGitLine git={target.serverGit} />
-        </div>
-        {target.state === "unreachable" ? (
-          <p className="servers-banner danger" role="alert">
-            <AlertTriangle size={13} aria-hidden="true" /><span>{statusSentence(target)}</span>
-            <button type="button" className="text-button" disabled={act.busy !== undefined || target.checking} onClick={act.check}>Try again</button>
-          </p>
-        ) : null}
-        {target.state === "incomplete" ? (
-          <p className="servers-banner warn" role="status">
-            <AlertTriangle size={13} aria-hidden="true" /><span>{statusSentence(target)}</span>
-            <button type="button" className="text-button" onClick={() => setTab("history")}>Review deployment…</button>
-          </p>
-        ) : null}
-        {target.state === "unusable" ? <p className="servers-banner danger" role="alert"><AlertTriangle size={13} aria-hidden="true" /><span>{statusSentence(target)}</span></p> : null}
-        {target.error ? <p className="servers-banner warn" role="status"><AlertTriangle size={13} aria-hidden="true" /><span>{target.error}</span></p> : null}
-        {target.liveConfigs.length > 0 ? (
-          <p className="servers-banner warn" role="note">
-            <KeyRound size={13} aria-hidden="true" />
-            <span>Live credentials on the server: {target.liveConfigs.map((config) => `${config.path} (${config.label})`).join(", ")}. An upload leaves a change to them out unless you choose it.</span>
-          </p>
-        ) : null}
+        <div className="servers-head-meta"><code>{target.address}</code><button type="button" className="text-button" onClick={() => setFolders(true)}>Folders…</button></div>
+        <p className="servers-upload-source">Upload from <strong>{entry.status.branch ?? "project files"}</strong>{entry.status.head ? <code>{entry.status.head.slice(0, 8)}</code> : null}{target.context ? <span> · {target.context}/</span> : null}</p>
+        {target.state === "incomplete" ? <p className="servers-banner warn" role="status"><AlertTriangle size={13} /><span>An upload was interrupted. Review its backup and result before uploading again.</span><button type="button" className="text-button" onClick={() => setTab("history")}>History</button></p> : null}
+        {target.state === "unusable" ? <p className="servers-error" role="alert">{statusSentence(target)}</p> : null}
+        {target.error ? <p className="servers-error" role="alert">{target.error}</p> : null}
       </header>
-
-      <nav className="servers-tabs">
-        <div className="toggle-group" role="tablist" aria-label="Server sections">
-          <button role="tab" aria-selected={tab === "pending"} className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}>Not uploaded {target.pendingTotal}</button>
-          <button role="tab" aria-selected={tab === "drift"} className={tab === "drift" ? "active" : ""} onClick={() => setTab("drift")}>Changed on the server{driftCount > 0 ? ` ${driftCount}` : ""}</button>
-          <button role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History</button>
-        </div>
-      </nav>
-
-      <div className="servers-body">
-        {tab === "pending" ? (
-          !target.mirror && !entry.status.repository ? (
-            <Empty icon={<GitBranch size={18} />} title="This folder has no Git yet" description="Tau reads the server and makes its state the first commit, without touching your files. Git then shows exactly what differs here from the server.">
-              <button
-                type="button"
-                className="chrome-button primary"
-                disabled={!act.canLink || act.busy !== undefined || target.state === "unusable"}
-                {...(act.canLink ? {} : tooltipProps(READ_ONLY_REASON))}
-                onClick={act.makeGit}
-              >{act.busy === "git" ? "Reading the server…" : "Make Git from the server state"}</button>
-            </Empty>
-          ) : !target.mirror ? (
-            <Empty icon={<Download size={18} />} title="Tau has not read this server yet" description="Download the server's files once: Tau keeps them as the mirror state, compares your local copy with it and keeps local files that differ.">
-              <button
-                type="button"
-                className="chrome-button primary"
-                disabled={!act.canDownload || act.busy !== undefined || target.state === "unusable"}
-                {...(act.canDownload ? {} : tooltipProps(READ_ONLY_REASON))}
-                onClick={act.download}
-              >{act.busy === "download" ? progressWords(act.progress) : "Download the server state"}</button>
-            </Empty>
-          ) : target.pendingTotal === 0 && target.withheld.length === 0 && !uploading ? (
-            <Empty icon={<Server size={18} />} title="Nothing to upload" description={`Your local copy matches the server as Tau last read it, ${ago(target.mirror.at)}.`} />
-          ) : (
-            <div className="servers-split">
-              <aside className="servers-aside" aria-label="Files not uploaded">
-                <UploadPanel parts={parts} actions={actions} cwd={cwd} target={target} {...(pendingDiff ? { active: pendingDiff.path } : {})} onOpen={(path) => setDiff({ source: "pending", path })} onHolding={setUploading} />
-              </aside>
-              <main className="servers-main"><FileDiff host={parts.host} cwd={cwd} targetId={target.targetId} source={pendingDiff} /></main>
-            </div>
-          )
-        ) : null}
-        {tab === "drift" ? <DriftPanel context={{ host: parts.host }} feed={parts.drift} cwd={cwd} targetId={target.targetId} /> : null}
-        {tab === "history" ? (
-          <HistoryPanel
-            parts={parts}
-            actions={actions}
-            cwd={cwd}
-            target={target}
-            active={historyDiff}
-            onFile={(item, path) => setDiff({ source: "history", commit: item.commit, path })}
-            main={<FileDiff host={parts.host} cwd={cwd} targetId={target.targetId} source={historyDiff} />}
-          />
-        ) : null}
-      </div>
+      <nav className="servers-tabs"><div className="toggle-group" role="tablist" aria-label="Server sections"><button type="button" role="tab" aria-selected={tab === "pending"} className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}>Upload</button><button type="button" role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History</button></div></nav>
+      <div className="servers-body">{content}</div>
     </div>
   );
 }

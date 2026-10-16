@@ -291,7 +291,9 @@ describe.skipIf(!posix)("the agent's server tools", () => {
     const hooks = await piHooks(w, w.local);
     expect((await toolCall(hooks, SERVER_TOOLS.proposeUpload, {})).asked).toEqual([]);
     const writesBefore = writesIn(w.fs.calls).length;
-    const output = await run(hooks, SERVER_TOOLS.proposeUpload, { note: "Home page greets." });
+    const callsBefore = w.fs.calls.length;
+    const output = await run(hooks, SERVER_TOOLS.proposeUpload, { note: "Home page greets.", files: ["index.php", "about.php", "wp-config.php"] });
+    expect(w.fs.calls).toHaveLength(callsBefore);
     const proposal = parseUploadProposal(output)!;
     expect(proposal).toMatchObject({ workspace: w.local, threadId: "thread-1", target: { id: TARGET_ID, label: "site" }, note: "Home page greets." });
     expect(proposal.files.map((file) => [file.path, file.outcome])).toEqual([["index.php", "upload"], ["about.php", "delete"]]);

@@ -45,7 +45,7 @@ function harness(options: { readOnly?: boolean; compact?: boolean; journal?: Dep
     return undefined;
   });
   const host: HostExtensionClient = { invoke, onEvent: () => () => undefined, watch: vi.fn(() => () => undefined) };
-  const actions = { notify: vi.fn(), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
+  const actions = { notify: vi.fn(), openStageTab: vi.fn(() => "tab"), openPanel: vi.fn() } as unknown as WorkbenchActions;
   const Card = createProposalCard(host, { compact: options.compact === true });
   render(<HostClientProvider client={createFakeHostClient({ isReadOnly: () => options.readOnly === true })}><TestProviders><Card tools={[options.tool ?? run()]} actions={actions} /></TestProviders></HostClientProvider>);
   return { invoke, actions };
@@ -60,38 +60,22 @@ describe("the agent's server tools in the transcript", () => {
     expect(serverToolPresentation({ id: "3", name: "server_put_tmp", args: { path: "probe.php" }, status: "running", startedAt: 0 })).toMatchObject({ tone: "write", title: "server", source: "server", detail: "~/tmp/probe.php" });
   });
 
-  it("shows the proposal and uploads only on the click, as the card and for its thread", async () => {
-    const { invoke } = harness();
-    await flush();
-    expect(screen.getByText("Upload proposed for site")).toBeTruthy();
-    expect(screen.getByText("The home page greets visitors.")).toBeTruthy();
-    expect(screen.getByText("changed on the server")).toBeTruthy();
-    expect(screen.getByText("wp-config.php")).toBeTruthy();
-    expect(invoke.mock.calls.map(([command]) => command)).toEqual(["deployments"]);
-
-    fireEvent.click(screen.getByRole("button", { name: "Upload: 1 changed, 1 deleted" }));
-    await flush();
-    expect(invoke).toHaveBeenCalledWith("deploy", {
-      cwd: "/work/site", targetId: "sftp-site-1", files: [{ path: "index.php", op: "modify" }, { path: "about.php", op: "delete" }],
-      via: "card", threadId: "thread-7", note: "The home page greets visitors.",
-    });
-    expect(screen.getByText("Deployment 4: 1 changed, 1 deleted on the server.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Upload:/u })).toBeNull();
+  it("opens the shared upload review with the proposed files and never uploads directly", async () => {
+    const { invoke, actions } = harness();
+    await screen.findByText("Upload proposed for site");
+    fireEvent.click(screen.getByRole("button", { name: "Review upload…" }));
+    expect(actions.openStageTab).toHaveBeenCalledWith("servers.target", { workspace: "/work/site", targetId: "sftp-site-1", paths: ["index.php", "about.php"], threadId: "thread-7" });
+    expect(invoke.mock.calls.some(([command]) => command === "deploy" || command === "deploy-preview")).toBe(false);
   });
 
-  it("asks once more on a phone, and never lets a read-only device upload", async () => {
+  it("uses the same review on a phone and disables writes on read-only devices", async () => {
     const phone = harness({ compact: true });
-    await flush();
-    fireEvent.click(screen.getByRole("button", { name: "Upload: 1 changed, 1 deleted" }));
-    expect(phone.invoke.mock.calls.some(([command]) => command === "deploy")).toBe(false);
-    expect(screen.getByText("Upload to site now?")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review upload…" }));
+    expect(phone.actions.openPanel).toHaveBeenCalledWith("servers");
     expect(phone.invoke.mock.calls.some(([command]) => command === "deploy")).toBe(false);
     cleanup();
-
     harness({ readOnly: true });
-    await flush();
-    expect((screen.getByRole("button", { name: "Upload: 1 changed, 1 deleted" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((await screen.findByRole("button", { name: "Review upload…" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("knows after a reload that its click went up, from the journal", async () => {
@@ -108,6 +92,6 @@ describe("the agent's server tools in the transcript", () => {
     cleanup();
     const { actions } = harness();
     fireEvent.click(screen.getByRole("button", { name: "Server view" }));
-    expect(actions.openStageTab).toHaveBeenCalledWith("servers.target", { workspace: "/work/site", targetId: "sftp-site-1" });
+    expect(actions.openStageTab).toHaveBeenCalledWith("servers.target", { workspace: "/work/site", targetId: "sftp-site-1", paths: ["index.php", "about.php"], threadId: "thread-7" });
   });
 });

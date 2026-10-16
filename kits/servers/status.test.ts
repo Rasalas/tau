@@ -147,9 +147,9 @@ describe.skipIf(!posix)("the server view's status", () => {
     expect(status.state).toBe("pending");
     expect(status.pendingTotal).toBe(4);
     expect(status.pending).toEqual([
-      { path: "about.php", change: "deleted", selected: true },
-      { path: "index.php", change: "modified", size: 22, selected: true },
-      { path: "new.php", change: "added", size: 6, selected: true },
+      { path: "about.php", change: "deleted", selected: false },
+      { path: "index.php", change: "modified", size: 22, selected: false },
+      { path: "new.php", change: "added", size: 6, selected: false },
       { path: "wp-config.php", change: "modified", size: 38, selected: false, credentials: ["WordPress database settings"] },
     ]);
     expect(status.withheld).toEqual(["wp-config-local.php"]);

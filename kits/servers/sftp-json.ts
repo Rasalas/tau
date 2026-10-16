@@ -67,6 +67,9 @@ export interface SftpJsonIssue {
 }
 
 export interface SftpJsonTarget {
+  /** Source configuration and scope, before a machine-local folder override. */
+  configurationId?: string;
+  configurationScope?: string;
   /** Filesystem-safe and stable for one config and profile; the key of the target's state folder. */
   id: string;
   /** Stable for one config across profiles: `name`, else `context`, else `.`; the key of the profile choice. */

@@ -112,6 +112,25 @@ describe.skipIf(!ready)("the FTP transport against the fake server", () => {
     expect(commands().slice(before)).toEqual([]);
   }, 30_000);
 
+  it("closes a connection even while its login reply is pending", async () => {
+    running = await startFtpCli(dir, ["--mode", "plain"]);
+    let entered = false;
+    const login = vi.spyOn(Client.prototype, "login").mockImplementation(function (this: Client) {
+      entered = true;
+      return this.ftp.handle("USER tester", (response, task) => {
+        if (response instanceof Error) task.reject(response);
+      });
+    });
+    const { fs } = transport({});
+    try {
+      const connected = fs.connect();
+      const rejected = expect(connected).rejects.toThrow(/closed/iu);
+      await vi.waitFor(() => expect(entered).toBe(true));
+      await fs.close();
+      await rejected;
+    } finally { login.mockRestore(); }
+  }, 30_000);
+
   it("lists, reads, uploads through a temp file and RNTO, and keeps the mode", async () => {
     put(site, "index.php", "<?php echo 'home';\n", 0o640);
     put(site, "sub dir/-dash [x].txt", "odd name\n");
