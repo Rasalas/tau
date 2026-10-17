@@ -1219,9 +1219,29 @@ describe("ExtensionRegistry scoped data", () => {
     expect(registry.getLiveStatus("thread")).toBeUndefined();
   });
 
-  it.each(["deactivate", "rollback", "replace"] as const)("ignores writers from an ended activation: %s", async (ending) => {
-    const invoke = vi.fn(async () => undefined);
+  it.each(["host", "hostExtension"] as const)("allows a late resource release through %s after deactivation", async (entry) => {
+    let finishOpen!: (resource: string) => void;
+    const pending = new Promise<string>((resolve) => { finishOpen = resolve; });
+    const invoke = vi.fn(async (_id: string, command: string) => command === "open" ? pending : undefined);
     const registry = new ExtensionRegistry({ invoke });
+    let completion!: Promise<unknown>;
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(context) {
+      const host = entry === "host" ? context.host : context.hostExtension("provider");
+      completion = host.invoke("open").then((resource) => {
+        if (context.signal?.aborted) return host.invoke("close", resource);
+        context.setLiveStatus("thread", "Open");
+        return undefined;
+      });
+    } });
+    registry.deactivate("lifetime");
+    finishOpen("resource");
+    await completion;
+    expect(invoke).toHaveBeenLastCalledWith(entry === "host" ? "lifetime" : "provider", "close", "resource");
+    expect(registry.getLiveStatus("thread")).toBeUndefined();
+  });
+
+  it.each(["deactivate", "rollback", "replace"] as const)("ignores writers from an ended activation: %s", async (ending) => {
+    const registry = new ExtensionRegistry();
     let previous!: DesktopExtensionContext;
     const extension: DesktopExtension = { id: "lifetime", name: "Lifetime", activate(context) {
       previous = context;
@@ -1251,8 +1271,6 @@ describe("ExtensionRegistry scoped data", () => {
     const event = vi.fn();
     old.events.on("agent-status", event);
     old.host.onEvent("event", event);
-    await expect(old.host.invoke("ghost")).rejects.toThrow("no longer active");
-    expect(invoke).not.toHaveBeenCalled();
     expect(registry.getLiveStatus("thread")).toBe(ending === "replace" ? "Current" : undefined);
     expect(registry.getThreadRowMarks()).toEqual({});
     expect(registry.getThreadLineage().parents).toEqual({});

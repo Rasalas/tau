@@ -2091,9 +2091,7 @@ export class ExtensionRegistry {
       return this.register(map, id, { ...value, ...owner }, activation);
     };
     const hostClient = (extensionId: string): HostExtensionClient => ({
-      invoke: (command, input) => activation.active
-        ? this.hostBridge.invoke(extensionId, command, input)
-        : Promise.reject(new Error(`Extension ${extension.id} is no longer active.`)),
+      invoke: (command, input) => this.hostBridge.invoke(extensionId, command, input),
       ...(this.hostBridge.resourceUrl ? { resourceUrl: (path: string) => this.hostBridge.resourceUrl!(path) } : {}),
       onEvent: (name, listener) => {
         if (!activation.active) return noContribution;

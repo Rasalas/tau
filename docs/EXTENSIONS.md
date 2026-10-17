@@ -115,9 +115,11 @@ A package has up to two halves, sharing one `id`:
   activation cleanup. Pass it to asynchronous work that supports cancellation.
   Each activation has its own signal and resource lifetime. Published data and
   registrations from an ended activation are ignored, including callbacks that
-  complete after the same extension has activated again. Host invocations from
-  an ended activation reject. Registration disposers are idempotent and cannot
-  remove a replacement activation's contributions.
+  complete after the same extension has activated again. Registration disposers
+  are idempotent and cannot remove a replacement activation's contributions.
+  Host commands remain available for cleanup, including React unmounts and
+  resources whose acquisition finishes after deactivation. Use the signal to
+  stop new background work; the registry does not cancel host commands.
   Who may call a host command is its `access` (below): Full devices by
   default, Read-only devices too with `"read"`, only the host token on this
   machine with `"owner"`.
