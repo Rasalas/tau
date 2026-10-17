@@ -43,7 +43,11 @@ export const HEADLESS_DOCUMENT_URL = "https://tau-preview.invalid/";
 export async function createHeadlessPreviewSurface(options: PreviewSurfaceOptions, executable: string, stateDir: string, document?: HeadlessDocument): Promise<PreviewSurface> {
   const profile = profilePath(stateDir, options.partition);
   await mkdir(profile, { recursive: true, mode: 0o700 });
+  options.signal?.throwIfAborted();
   const browser = new PreviewBrowserProcess(executable, profile);
+  const abort = () => { void browser.close().catch(() => undefined); };
+  options.signal?.addEventListener("abort", abort, { once: true });
+  void browser.exited.then(() => options.signal?.removeEventListener("abort", abort));
   let destroyed = false;
   let closing: Promise<void> | undefined;
   let pageSession = "";

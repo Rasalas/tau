@@ -42,22 +42,25 @@ export class PagePreviewer {
 
   private async capture(thread: { cwd: string }, input: PagePreviewInput, caller: AbortSignal): Promise<PagePreview> {
     const signal = AbortSignal.any([caller, AbortSignal.timeout(30_000)]);
-    signal.throwIfAborted();
-    const page = await preparePage(thread, input);
-    const executable = previewBrowserCommand((name) => this.services.findCommand(name));
-    if (!executable) throw new PageError("HTML preview needs Chrome or Chromium installed on this machine, or TAU_PREVIEW_BROWSER pointing to it.");
-    await mkdir(this.services.stateDir, { recursive: true, mode: 0o700 });
-    const directory = await mkdtemp(join(this.services.stateDir, "html-preview-"));
+    let directory: string | undefined;
     let surface: PreviewSurface | undefined;
     const abort = () => { void Promise.resolve(surface?.destroy()).catch(() => undefined); };
     signal.addEventListener("abort", abort, { once: true });
     try {
+      signal.throwIfAborted();
+      const page = await preparePage(thread, input, signal);
+      const executable = previewBrowserCommand((name) => this.services.findCommand(name));
+      if (!executable) throw new PageError("HTML preview needs Chrome or Chromium installed on this machine, or TAU_PREVIEW_BROWSER pointing to it.");
+      signal.throwIfAborted();
+      await mkdir(this.services.stateDir, { recursive: true, mode: 0o700 });
+      directory = await mkdtemp(join(this.services.stateDir, "html-preview-"));
       signal.throwIfAborted();
       const colorScheme = input.colorScheme === "dark" ? "dark" : "light";
       const csp = { resourceDomains: page.origins };
       this.services.noteSubprocess();
       surface = await this.createSurface({
         partition: "persist:tau-preview", workspaceRoot: () => "", onChange: () => undefined, log: () => undefined,
+        signal,
       }, executable, directory, {
         html: prepareFrameDocument(preparePageDocument(page.html, {}), { csp, colorScheme }),
         contentSecurityPolicy: frameResponsePolicy(csp),
@@ -82,7 +85,7 @@ export class PagePreviewer {
     } finally {
       signal.removeEventListener("abort", abort);
       await surface?.destroy();
-      await rm(directory, { recursive: true, force: true });
+      if (directory) await rm(directory, { recursive: true, force: true });
     }
   }
 }

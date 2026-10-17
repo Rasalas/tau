@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -77,6 +78,20 @@ describe("local images", () => {
 });
 
 describe("readPageFile", () => {
+  it.skipIf(process.platform === "win32")("refuses a named pipe instead of waiting for a writer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-page-pipe-"));
+    const path = join(root, "page.html");
+    execFileSync("mkfifo", [path]);
+    const reading = readPageFile(path, { cwd: root, roots: [root] }).then(() => "read", (error: unknown) => error instanceof Error ? error.message : String(error));
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const verdict = await Promise.race([reading, new Promise<string>((resolve) => { timer = setTimeout(() => resolve("blocked waiting for writer"), 250); })]);
+      // Release the old blocking implementation so a red regression leaves no I/O behind.
+      if (verdict === "blocked waiting for writer") await Promise.all([writeFile(path, "<p>release</p>"), reading]);
+      expect(verdict).toContain("regular file");
+    } finally { clearTimeout(timer); await rm(root, { recursive: true, force: true }); }
+  });
+
   it("reads a file under a root and refuses the rest", async () => {
     const root = await mkdtemp(join(tmpdir(), "tau-pages-file-"));
     try {

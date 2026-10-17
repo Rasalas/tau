@@ -22,7 +22,8 @@ const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
  * page for the thread. Every refusal is a `PageError` whose text tells the
  * agent what to change.
  */
-export async function preparePage(thread: { cwd: string }, input: ShowInput): Promise<PreparedPage> {
+export async function preparePage(thread: { cwd: string }, input: ShowInput, signal?: AbortSignal): Promise<PreparedPage> {
+  signal?.throwIfAborted();
   const title = typeof input.title === "string" ? input.title.replace(/\s+/gu, " ").trim().slice(0, HTML_PAGE_LIMITS.titleLength) : "";
   if (!title) throw new PageError("The HTML page needs a title.");
   const hasHtml = typeof input.html === "string" && input.html.trim() !== "";
@@ -36,7 +37,7 @@ export async function preparePage(thread: { cwd: string }, input: ShowInput): Pr
   let html: string;
   let baseDir = thread.cwd || process.cwd();
   if (hasPath) {
-    const file = await readPageFile((input.path as string).trim(), { cwd: baseDir, roots });
+    const file = await readPageFile((input.path as string).trim(), { cwd: baseDir, roots, signal });
     html = file.html;
     baseDir = file.baseDir;
   } else {
@@ -44,7 +45,7 @@ export async function preparePage(thread: { cwd: string }, input: ShowInput): Pr
     if (Buffer.byteLength(html, "utf8") > HTML_PAGE_LIMITS.htmlBytes) throw new PageError(`The page is larger than ${HTML_PAGE_LIMITS.htmlBytes / 1024} KiB. Write it to a file and pass path, or shrink it.`);
   }
 
-  const inlined = await inlineLocalImages(html, { baseDir, roots });
+  const inlined = await inlineLocalImages(html, { baseDir, roots, signal });
   if (Buffer.byteLength(inlined.html, "utf8") > MAX_DOCUMENT_BYTES) throw new PageError("The page with its images is larger than 5 MiB. Use smaller images.");
 
   const height = typeof input.height === "number" && Number.isFinite(input.height) ? Math.round(Math.min(2000, Math.max(80, input.height))) : HTML_PAGE_LIMITS.defaultMaxHeight;
