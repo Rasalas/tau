@@ -66,6 +66,113 @@ describe("preview snapshot", () => {
     expect(previewSnapshot(8_000)).toContain('value="Ada"');
   });
 
+  it("keeps password controls actionable without returning their values or copies", () => {
+    const secret = "TAU_SYNTHETIC_SECRET_1729";
+    document.body.innerHTML = `
+      <label for="password">Password</label>
+      <input id="password" type="password">
+      <button aria-label="Continue with ${secret}">Continue</button>
+      <p>Repeated: ${secret}</p>
+      <input aria-label="Account" value="Ada">
+    `;
+    const field = document.querySelector<HTMLInputElement>("#password")!;
+    field.value = secret;
+
+    const tree = previewSnapshot(8_000);
+
+    expect(tree).not.toContain(secret);
+    expect(tree).toContain('textbox "Password" [ref=e');
+    expect(tree).toContain('button "Continue with [redacted]"');
+    expect(tree).toContain('text "Repeated: [redacted]"');
+    expect(tree).toContain('textbox "Account"');
+    expect(tree).toContain('value="Ada"');
+    expect(previewFind({ ref: field.getAttribute("data-tau-ref")! })).toBe(field);
+    expect(field.value).toBe(secret);
+  });
+
+  it("redacts before clipping, including whitespace-normalized and overlapping passwords", () => {
+    const longSecret = "TAU_SECRET_".repeat(10);
+    document.body.innerHTML = `
+      <input id="long" type="password"><input id="overlap" type="password">
+      <input id="spaced" type="password" hidden>
+      <h1>${longSecret}</h1>
+      <p>line one   line two</p>
+    `;
+    document.querySelector<HTMLInputElement>("#long")!.value = longSecret;
+    document.querySelector<HTMLInputElement>("#overlap")!.value = "TAU_SECRET_";
+    document.querySelector<HTMLInputElement>("#spaced")!.value = "line one\tline two";
+
+    const tree = previewSnapshot(8_000);
+
+    expect(tree).not.toContain("TAU_SECRET_");
+    expect(tree).not.toContain("line one");
+    expect(tree).toContain('heading "[redacted]"');
+    expect(tree).toContain('text "[redacted]"');
+  });
+
+  it("redacts secrets copied into the page title and URL", () => {
+    const secret = "TAU_SYNTHETIC_SECRET_1729";
+    document.title = `Sign in ${secret}`;
+    document.body.innerHTML = `<input type="password" value="${secret}">`;
+    const previousUrl = window.location.href;
+    window.history.replaceState(null, "", `?echo=${secret}`);
+    try {
+      expect(previewSnapshot(8_000)).not.toContain(secret);
+    } finally {
+      window.history.replaceState(null, "", previousUrl);
+    }
+  });
+
+  it("treats password characters literally and redacts URL-encoded copies", () => {
+    const secret = "p.a+$[s](s)? /雪";
+    document.body.innerHTML = '<input type="PASSWORD"><p></p>';
+    document.querySelector<HTMLInputElement>("input")!.value = secret;
+    const encoded = encodeURIComponent(secret);
+    const formEncoded = new URLSearchParams({ value: secret }).toString().slice("value=".length);
+    document.querySelector("p")!.textContent = `${secret} ${encoded} ${formEncoded}`;
+
+    const tree = previewSnapshot(8_000);
+
+    expect(tree).not.toContain(secret);
+    expect(tree).not.toContain(encoded);
+    expect(tree).not.toContain(formEncoded);
+    expect(tree).toContain('text "[redacted] [redacted] [redacted]"');
+  });
+
+  it("redacts intersecting copies rather than leaving either password's tail", () => {
+    document.body.innerHTML = `
+      <input type="password" value="first-prefix">
+      <input type="password" value="prefix-SECOND_SECRET_TAIL">
+      <p>first-prefix-SECOND_SECRET_TAIL</p>
+    `;
+
+    const tree = previewSnapshot(8_000);
+
+    expect(tree).not.toContain("first-prefix");
+    expect(tree).not.toContain("SECOND_SECRET_TAIL");
+    expect(tree).toContain('text "[redacted]"');
+  });
+
+  it.each([
+    ["p/a", "p%2fa"],
+    ["password", "%70assword"],
+    ["a b", "a+b"],
+    ["tau\tsecret", "%74au%09secret"],
+    ["tau  secret", "%74au%20%20secret"],
+  ])("redacts equivalent URL encodings of %s", (secret, encoded) => {
+    document.body.innerHTML = '<input type="password">';
+    document.querySelector<HTMLInputElement>("input")!.value = secret;
+    const previousUrl = window.location.href;
+    window.history.replaceState(null, "", `?echo=${encoded}`);
+    try {
+      const tree = previewSnapshot(8_000);
+      expect(tree).not.toContain(encoded);
+      expect(tree).toContain("[redacted URL]");
+    } finally {
+      window.history.replaceState(null, "", previousUrl);
+    }
+  });
+
   it("truncates a tree that exceeds the cap", () => {
     document.body.innerHTML = Array.from({ length: 200 }, (_value, index) => `<button>Item ${index}</button>`).join("");
     const tree = previewSnapshot(500);

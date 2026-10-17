@@ -65,13 +65,51 @@ export function previewSnapshot(maxChars: number): string {
   const interactive = new Set(["link", "button", "textbox", "checkbox", "radio", "combobox"]);
   for (const marked of Array.from(document.querySelectorAll("[data-tau-ref]"))) marked.removeAttribute("data-tau-ref");
 
+  // A page can repeat a password in a label, its title or ordinary text.
+  // Collect before clipping; otherwise a long password leaves its prefix behind.
+  const passwords = new Set<string>();
+  for (const input of Array.from(document.querySelectorAll<HTMLInputElement>("input"))) {
+    if (input.type !== "password" || !input.value) continue;
+    passwords.add(input.value);
+    passwords.add(input.value.replace(/\s+/gu, " ").trim());
+    const parameter = new URLSearchParams({ value: input.value });
+    const encoded = parameter.toString().slice("value=".length);
+    passwords.add(encodeURIComponent(parameter.get("value")!));
+    passwords.add(encoded);
+    passwords.add(encoded.replace(/\+/gu, "%20"));
+  }
+  passwords.delete("");
+  const redact = (value: string): string => {
+    const text = value.replace(/\s+/gu, " ").trim();
+    const ranges: Array<{ start: number; end: number }> = [];
+    for (const password of passwords) {
+      for (let start = text.indexOf(password); start !== -1; start = text.indexOf(password, start + 1)) {
+        ranges.push({ start, end: start + password.length });
+      }
+    }
+    ranges.sort((a, b) => a.start - b.start);
+    const merged: typeof ranges = [];
+    for (const range of ranges) {
+      const previous = merged.at(-1);
+      if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
+      else merged.push({ ...range });
+    }
+    let result = "";
+    let cursor = 0;
+    for (const range of merged) {
+      result += `${text.slice(cursor, range.start)}[redacted]`;
+      cursor = range.end;
+    }
+    return result + text.slice(cursor);
+  };
+
   const hidden = (element: Element): boolean => {
     if (element.getAttribute("aria-hidden") === "true" || element.hasAttribute("hidden")) return true;
     const style = element.ownerDocument.defaultView?.getComputedStyle(element);
     return style?.display === "none" || style?.visibility === "hidden";
   };
   const clip = (value: string, limit: number): string => {
-    const text = value.replace(/\s+/gu, " ").trim();
+    const text = redact(value);
     return text.length > limit ? `${text.slice(0, limit)}…` : text;
   };
   const roleOf = (element: Element): string => {
@@ -122,7 +160,8 @@ export function previewSnapshot(maxChars: number): string {
         parts.push(`[ref=${ref}]`);
       }
       const value = (element as HTMLInputElement).value;
-      if (role === "textbox" && typeof value === "string" && value) parts.push(`value="${clip(value, 40)}"`);
+      const password = element.tagName === "INPUT" && (element as HTMLInputElement).type === "password";
+      if (role === "textbox" && !password && typeof value === "string" && value) parts.push(`value="${clip(value, 40)}"`);
       if (role === "checkbox" || role === "radio") parts.push((element as HTMLInputElement).checked ? "checked" : "unchecked");
       if ((element as HTMLInputElement).disabled) parts.push("disabled");
       lines.push(parts.join(" "));
@@ -135,7 +174,19 @@ export function previewSnapshot(maxChars: number): string {
   };
   walk(document.body, 0);
 
-  const header = `${document.title || "(untitled)"} — ${document.location.href}`;
+  let url = document.location.href;
+  if (passwords.size) {
+    try {
+      // Decode once as a URI and as form data, so equivalent percent escapes
+      // cannot carry a password past a comparison with its literal encoding.
+      const candidates = [url, decodeURIComponent(url), decodeURIComponent(url.replace(/\+/gu, "%20"))];
+      if (candidates.some((candidate) => [...passwords].some((password) => candidate.includes(password)))) url = "[redacted URL]";
+    } catch {
+      // A malformed URL cannot be checked safely; keep the rest of the snapshot.
+      url = "[redacted URL]";
+    }
+  }
+  const header = `${redact(document.title || "(untitled)")} — ${url}`;
   let body = lines.join("\n");
   if (body.length > maxChars) body = `${body.slice(0, maxChars)}\n… snapshot truncated`;
   return `${header}\n${body}`;
