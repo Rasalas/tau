@@ -120,9 +120,12 @@ async function verifyStyleStates(window: BrowserWindow): Promise<void> {
     assert.equal(await style(target!, "outlineStyle"), "solid");
     assert.equal(await style(`#${id} > .message-shell`, "outlineStyle"), "none");
   }
-  const { x, y } = await evaluate("(() => {const r=document.querySelector('.virtual-transcript').getBoundingClientRect();return {x:r.x+10,y:r.y+10};})()");
-  for (const type of ["mousePressed", "mouseReleased"]) {
-    await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+  for (const selector of ["#before-transcript", ".virtual-transcript"]) {
+    const { x, y } = await evaluate(`(() => {const r=document.querySelector('${selector}').getBoundingClientRect();return {x:r.x+10,y:r.y+10};})()`);
+    assert.equal(await evaluate(`!!document.elementFromPoint(${x},${y})?.closest('${selector}')`), true, "pointer input must hit its target");
+    for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
+      await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+    }
   }
   assert.equal(await style(".message.user .message-text", "outlineStyle"), "none");
   console.log("PASS keyboard focus rings on notices and message bodies; pointer focus stays quiet");
