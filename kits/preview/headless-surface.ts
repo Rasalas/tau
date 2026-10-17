@@ -10,8 +10,10 @@ import { cdpInputCommands } from "./remote-input.js";
 /** The program is shared; user data is always Preview's own, never Chrome's. */
 export function previewBrowserCommand(find: (name: string) => string | undefined): string | undefined {
   if (process.env.TAU_PREVIEW_BROWSER) return process.env.TAU_PREVIEW_BROWSER;
-  const installed = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"].map(find).find(Boolean);
-  if (installed) return installed;
+  for (const name of ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]) {
+    const installed = find(name);
+    if (installed) return installed;
+  }
   return [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -121,6 +123,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
     const { sessionId } = await browser.send<{ sessionId: string }>("Target.attachToTarget", { targetId, flatten: true });
     pageSession = sessionId;
     await send("Page.enable");
+    await send("Page.setLifecycleEventsEnabled", { enabled: true });
     await send("Runtime.enable");
     await send("Network.enable");
     await send("Fetch.enable", { patterns: [{ urlPattern: "file://*" }] });
@@ -149,16 +152,25 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
       options.onChange();
       let release: () => void = () => undefined;
       let timer: NodeJS.Timeout | undefined;
+      let wantedLoader: string | undefined;
+      const loadedLoaders = new Set<string>();
       const loaded = new Promise<void>((resolve, reject) => {
-        release = browser.onEvent((event) => { if (event.sessionId === pageSession && event.method === "Page.loadEventFired") resolve(); });
+        release = browser.onEvent((event) => {
+          if (event.sessionId !== pageSession || event.method !== "Page.lifecycleEvent" || event.params.name !== "load") return;
+          const loader = String(event.params.loaderId);
+          loadedLoaders.add(loader);
+          if (loader === wantedLoader) resolve();
+        });
         timer = setTimeout(() => reject(new Error("Preview navigation timed out.")), timeoutMs);
       });
       // A rejected command must not leave a second, unhandled timer rejection.
       void loaded.catch(() => undefined);
       try {
-        const result = await send<{ errorText?: string }>("Page.navigate", { url });
+        const result = await send<{ errorText?: string; loaderId?: string }>("Page.navigate", { url });
         if (result.errorText) throw new Error(result.errorText);
-        await loaded;
+        wantedLoader = result.loaderId;
+        // Same-document navigation has no loader and no load event.
+        if (wantedLoader && !loadedLoaders.has(wantedLoader)) await loaded;
         await refresh();
       } finally { clearTimeout(timer); release(); snapshot = { ...snapshot, loading: false }; options.onChange(); }
     },
@@ -192,23 +204,28 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
     },
     async download(url, destination) {
       if (!/^https?:$/u.test(new URL(url).protocol)) throw new Error("A download needs an http(s) URL.");
+      const deadline = Date.now() + 20_000;
+      const request = <T>(method: string, params: object) => browser.send<T>(method, params, pageSession, Math.max(1, deadline - Date.now()));
       const { frameTree } = await send<{ frameTree: { frame: { id: string } } }>("Page.getFrameTree");
-      const { resource } = await send<{ resource: { success: boolean; httpStatusCode?: number; stream?: string } }>("Network.loadNetworkResource", {
+      const { resource } = await request<{ resource: { success: boolean; httpStatusCode?: number; stream?: string } }>("Network.loadNetworkResource", {
         frameId: frameTree.frame.id, url, options: { disableCache: false, includeCredentials: true },
       });
-      if (!resource.success || !resource.stream) throw new Error(`Download failed: ${resource.httpStatusCode ?? "network error"}.`);
+      if (!resource.success || !resource.stream || (resource.httpStatusCode !== undefined && (resource.httpStatusCode < 200 || resource.httpStatusCode >= 300))) {
+        if (resource.stream) await browser.send("IO.close", { handle: resource.stream }, pageSession, 2_000).catch(() => undefined);
+        throw new Error(`Download failed: ${resource.httpStatusCode ?? "network error"}.`);
+      }
       const chunks: Buffer[] = [];
       let size = 0;
       try {
         for (;;) {
-          const part = await send<{ data: string; base64Encoded?: boolean; eof: boolean }>("IO.read", { handle: resource.stream, size: 64 * 1024 });
+          const part = await request<{ data: string; base64Encoded?: boolean; eof: boolean }>("IO.read", { handle: resource.stream, size: 64 * 1024 });
           const bytes = Buffer.from(part.data, part.base64Encoded ? "base64" : "utf8");
           size += bytes.length;
           if (size > 50 * 1024 * 1024) throw new Error("Download exceeds 50 MB.");
           chunks.push(bytes);
           if (part.eof) break;
         }
-      } finally { await send("IO.close", { handle: resource.stream }).catch(() => undefined); }
+      } finally { await browser.send("IO.close", { handle: resource.stream }, pageSession, 2_000).catch(() => undefined); }
       return savePreviewDownload(options.workspaceRoot(), destination, Buffer.concat(chunks));
     },
     async destroy() { if (destroyed) return; destroyed = true; await browser.close(); },

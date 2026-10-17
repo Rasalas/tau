@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, open, type FileHandle } from "node:fs/promises";
+import { mkdir, open, rm, type FileHandle } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext, type MenuPoint, type NativeMenuEntry, type RuntimeExtensionFactory } from "tau/host-extension";
@@ -110,6 +110,7 @@ export interface PreviewSurfaceOptions {
   /** Persistent state and executable discovery for the host's own browser. */
   stateDir?: string;
   findCommand?(name: string): string | undefined;
+  noteSubprocess?(): void;
   /** The session partition of the profile in use. */
   partition: string;
   onChange(): void;
@@ -294,6 +295,7 @@ export function agentAction(
 class PreviewController implements PreviewToolController {
   private view: PreviewSurface | undefined;
   private opening: Promise<PreviewSurface> | undefined;
+  private profileChanges: Promise<unknown> = Promise.resolve();
 
   private bounds: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 
@@ -307,6 +309,7 @@ class PreviewController implements PreviewToolController {
   /** The last window call found no window on this machine; cleared once one is there. */
   private windowCallFoundNone = false;
   private windowCannotDraw = false;
+  private browserAvailable: { at: number; available: boolean } | undefined;
 
   private readonly profiles: PreviewProfileStore;
 
@@ -400,7 +403,7 @@ class PreviewController implements PreviewToolController {
   }
 
   private noWindow(): PreviewNoWindow | undefined {
-    if (this.view?.state().surface === "headless" || previewBrowserCommand((name) => this.context.services.findCommand?.(name))) return undefined;
+    if (this.view?.state().surface === "headless") return undefined;
     let attached: boolean | undefined;
     try {
       attached = this.context.services.clientWindow ? this.context.services.clientWindow() !== undefined : undefined;
@@ -411,13 +414,19 @@ class PreviewController implements PreviewToolController {
     // Only a successful call proves that this connected process can draw again.
     if (this.windowCannotDraw) attached = false;
     if (attached) this.windowCallFoundNone = false;
-    return missingWindow({
+    const missing = missingWindow({
       inWindowProcess: process.type === "browser",
       windowAttached: attached,
       platform: process.platform,
       display: Boolean(process.env.DISPLAY),
       callFoundNone: this.windowCallFoundNone,
     });
+    if (!missing) return undefined;
+    const now = Date.now();
+    if (!this.browserAvailable || now - this.browserAvailable.at > 5_000) {
+      this.browserAvailable = { at: now, available: Boolean(previewBrowserCommand((name) => this.context.services.findCommand?.(name))) };
+    }
+    return this.browserAvailable.available ? undefined : missing;
   }
 
   /** The workspace of the thread whose runtime asked, which gates `file://`. */
@@ -441,6 +450,7 @@ class PreviewController implements PreviewToolController {
     const created = await this.createSurface({
       stateDir: this.context.services.stateDir,
       findCommand: (name) => this.context.services.findCommand(name),
+      noteSubprocess: () => this.context.services.noteSubprocess(),
       partition: profilePartition(active),
       onChange: () => this.publish(),
       onChord: (chord) => { void this.chord(chord).catch(() => undefined); },
@@ -880,6 +890,7 @@ class PreviewController implements PreviewToolController {
     } catch (error) {
       await surface.evaluate(pageCall(previewInputOverlayEnd), true).catch(() => undefined);
       await file.close();
+      await rm(path, { force: true });
       throw error;
     }
     const timer = setInterval(() => this.drain(), RECORDING_DRAIN_MS);
@@ -958,10 +969,19 @@ class PreviewController implements PreviewToolController {
 
   /** Another profile means another session, so the view is built again and the page reloaded in it. */
   async useProfile(name: unknown): Promise<PreviewProfiles> {
-    const before = (await this.profiles.read()).active;
-    const profiles = await this.profiles.use(name);
-    if (profiles.active !== before) await this.reopenInActiveProfile();
-    return profiles;
+    return this.changeProfile(async () => {
+      await this.opening?.catch(() => undefined);
+      const before = (await this.profiles.read()).active;
+      const profiles = await this.profiles.use(name);
+      if (profiles.active !== before) await this.reopenInActiveProfile();
+      return profiles;
+    });
+  }
+
+  private changeProfile<T>(work: () => Promise<T>): Promise<T> {
+    const changed = this.profileChanges.then(work);
+    this.profileChanges = changed.catch(() => undefined);
+    return changed;
   }
 
   private async reopenInActiveProfile(): Promise<void> {
@@ -973,20 +993,23 @@ class PreviewController implements PreviewToolController {
 
   async renameProfile(input: unknown): Promise<PreviewProfiles> {
     const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
-    return this.profiles.rename(fields.id, fields.name);
+    return this.changeProfile(() => this.profiles.rename(fields.id, fields.name));
   }
 
   /** Forgets a profile and its cookies; a page open in it moves to the default profile. */
   async deleteProfile(input: unknown): Promise<PreviewProfiles> {
-    const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
-    const before = (await this.profiles.read()).active;
-    const profiles = await this.profiles.remove(fields.id);
-    const id = String(fields.id);
-    // The partition goes with its view: a session in use cannot be cleared under it.
-    if (before === id) await this.reopenInActiveProfile();
-    await this.clearPartition(profilePartition(id), (command, value) => this.window.call(command, value), this.context.services.stateDir)
-      .catch((error: unknown) => this.context.services.log("preview.profile.clear-failed", error instanceof Error ? error.message : String(error)));
-    return profiles;
+    return this.changeProfile(async () => {
+      await this.opening?.catch(() => undefined);
+      const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
+      const before = (await this.profiles.read()).active;
+      const profiles = await this.profiles.remove(fields.id);
+      const id = String(fields.id);
+      // The partition goes with its view: a session in use cannot be cleared under it.
+      if (before === id) await this.reopenInActiveProfile();
+      await this.clearPartition(profilePartition(id), (command, value) => this.window.call(command, value), this.context.services.stateDir)
+        .catch((error: unknown) => this.context.services.log("preview.profile.clear-failed", error instanceof Error ? error.message : String(error)));
+      return profiles;
+    });
   }
 
   historyList(): Promise<PreviewHistoryEntry[]> {
@@ -1027,10 +1050,10 @@ class PreviewController implements PreviewToolController {
     return servers;
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.pickToken += 1;
-    void this.history.flush();
-    void this.close();
+    try { await this.profileChanges; await this.history.flush(); }
+    finally { await this.close(); }
   }
 }
 
@@ -1043,13 +1066,14 @@ const electronSurface: PreviewSurfaceFactory = async (options) => {
   const executable = previewBrowserCommand(options.findCommand ?? (() => undefined));
   const headless = () => {
     if (!executable || !options.stateDir) throw new Error("Preview needs Chrome or Chromium on this machine. Install it or set TAU_PREVIEW_BROWSER to its executable, then retry.");
+    options.noteSubprocess?.();
     return createHeadlessPreviewSurface(options, executable, options.stateDir);
   };
   // An explicit browser path also selects the host browser on a desktop machine.
   if (process.env.TAU_PREVIEW_BROWSER) return headless();
   if (process.type === "browser") {
     const { createElectronPreviewSurface } = await import("./view.js");
-    return createElectronPreviewSurface(options);
+    return createElectronPreviewSurface(options) ?? headless();
   }
   if (!options.callClient) return headless();
   const { createRemotePreviewSurface } = await import("./remote-surface.js");
@@ -1170,10 +1194,14 @@ export function createPreviewHostExtension(
       }));
       // Only the panel's own dialog reaches these; no agent tool imports cookies.
       // Cookies go into the view's sessions, so into the window that holds the view.
-      const cookies = new CookieImportHost(cookieWindow((command, input) => {
-        if (controller.state().surface === "headless" || process.env.TAU_PREVIEW_BROWSER) throw new Error("Cookie import requires the desktop Preview. Sign in directly in this browser to retain its login.");
-        return controller.windowCall(command, input);
-      }), {
+      const importer = cookieWindow((command, input) => controller.windowCall(command, input));
+      const cookies = new CookieImportHost({
+        inProcess: importer.inProcess,
+        call: (command, input) => {
+          if (controller.state().surface === "headless" || process.env.TAU_PREVIEW_BROWSER) throw new Error("Cookie import requires the desktop Preview. Sign in directly in this browser to retain its login.");
+          return importer.call(command, input);
+        },
+      }, {
         profiles: () => controller.profileList(),
         partition: profilePartition,
         reload: (profile) => controller.reloadIn(profile),
@@ -1205,7 +1233,7 @@ export function createPreviewHostExtension(
         ended: async (sessionId) => controller.releaseDriver(sessionId),
         closed: async (sessionId) => controller.releaseDriver(sessionId),
       });
-      return () => { stopConfig(); stopLifecycle(); release(); releaseMcp(); releaseObserver(); cookies.dispose(); controller.dispose(); };
+      return async () => { stopConfig(); stopLifecycle(); release(); releaseMcp(); releaseObserver(); cookies.dispose(); await controller.dispose(); };
     },
   };
 }

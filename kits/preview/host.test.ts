@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -463,6 +463,16 @@ describe("annotate mode", () => {
 });
 
 describe("recording", () => {
+  it("removes the recording file when the browser cannot start recording", async () => {
+    const stateDir = await stateDirectory();
+    const { surface } = fakeSurface({ record: async () => { throw new Error("Recording unsupported"); } });
+    const kit = await activate(async () => surface, "/project", stateDir);
+    try {
+      await kit.call("preview_open", { url: "http://localhost:8000" });
+      await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-start")).rejects.toThrow("unsupported");
+      expect(await readdir(join(stateDir, PREVIEW_HOST_EXTENSION_ID, "recordings"))).toEqual([]);
+    } finally { await kit.registry.dispose(); }
+  });
   it("writes the chunks the view hands over into a webm under the kit's state", async () => {
     const stateDir = await stateDirectory();
     const record = vi.fn(async (action: "start" | "take" | "stop") => ({
@@ -484,6 +494,44 @@ describe("recording", () => {
 });
 
 describe("profiles", () => {
+  it("switches the actual browser when the profile changes during startup", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const starting = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const partitions: string[] = [];
+    const destroyed = vi.fn();
+    const kit = await activate(async (options) => {
+      partitions.push(options.partition);
+      if (partitions.length === 1) { entered(); await gate; }
+      return fakeSurface({ destroy: destroyed }).surface;
+    }, "/project", await stateDirectory());
+    try {
+      const first = kit.call("preview_open", { url: "http://localhost:8000" });
+      await starting;
+      const switching = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: "other" });
+      release();
+      await Promise.all([first, switching]);
+      expect(partitions).toEqual(["persist:tau-preview", "persist:tau-preview-other"]);
+      expect(destroyed).toHaveBeenCalledTimes(1);
+    } finally { release(); await kit.registry.dispose(); }
+  });
+
+  it("waits for browser shutdown when the extension is disposed", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const stopping = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const kit = await activate(async () => fakeSurface({ destroy: async () => { entered(); await gate; } }).surface);
+    await kit.call("preview_open", { url: "http://localhost:8000" });
+    let stopped = false;
+    const disposing = kit.registry.dispose().then(() => { stopped = true; });
+    await stopping;
+    expect(stopped).toBe(false);
+    release();
+    await disposing;
+    expect(stopped).toBe(true);
+  });
   it("builds the view again in the new profile's partition and reloads the page there", async () => {
     const stateDir = await stateDirectory();
     const partitions: string[] = [];

@@ -40,16 +40,16 @@ async function start(fresh) {
   await client.request("start-thread", [{ cwd: host.workspace, prompt: "say one word", backend: "pi", model: { provider: "tau-fake", id: "fake-1" } }]);
   return host;
 }
-async function stop() {
+async function stop(closePreview = true) {
   if (!owned) return;
-  await preview("close").catch(() => undefined);
+  if (closePreview) await preview("close").catch(() => undefined);
   client.close();
   client = undefined;
   await stopTestHost(name);
   owned = false;
 }
 async function cleanup() {
-  await stop();
+  await stop(false);
   await new Promise((resolve) => fixture.close(resolve));
   await model.close();
 }
@@ -62,6 +62,8 @@ try {
   assert.equal(state.title, "Headless Preview fixture");
   assert.equal(state.noWindow, undefined);
   assert(state.consoleErrors.some((error) => error.includes("synthetic console error")));
+  await preview("open", { url: `${url}/login#section` });
+  assert.equal((await preview("state")).url, `${url}/login#section`);
   await preview("input", { kind: "click", x: 0.04, y: 0.02 });
   assert.deepEqual(await preview("input", { kind: "text", text: "Ada" }), { focus: "field" });
   const deadline = Date.now() + 5_000;
@@ -77,7 +79,7 @@ try {
   assert.equal(await readFile(join(host.workspace, "report.txt"), "utf8"), "authenticated");
   await assert.rejects(preview("download", { url: `${url}/download`, destination: "report.txt" }));
   await assert.rejects(preview("download", { url: `${url}/download`, destination: "../escape.txt" }), /outside the workspace/u);
-  await stop();
+  await stop(false);
   host = await start(false);
   await preview("open", { url: `${url}/check` });
   await preview("download", { url: `${url}/download`, destination: "after-restart.txt" });
