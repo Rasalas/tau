@@ -66,6 +66,21 @@ describe("worker service declarations", () => {
   });
 
   it.each([
+    { provider: 123 }, { provider: null }, { model: [] }, { model: false },
+    { billing: "invalid" }, { billing: 123 }, { billing: null },
+  ])("rejects malformed optional usage identity %j before pricing", async (identity) => {
+    const handler = vi.fn();
+    const tally = { inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 3, costUsd: 0, turns: 1, ...identity };
+    await expect(C.priceUsage.implement(handler).dispatch([[tally]], 1)).rejects.toThrow();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each(["subscription", "api-key", "free", "local"] as const)("preserves valid usage identity and %s billing", (billing) => {
+    const tally = { provider: "acme", model: "model", billing, inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 3, costUsd: 0, turns: 1 };
+    expect(C.priceUsage.decode([[tally]])).toEqual([[tally]]);
+  });
+
+  it.each([
     ["sessions.start", { cwd: "/repo", prompt: "go", model: { provider: 1, id: "x" } }],
     ["sessions.start", { cwd: "/repo", prompt: "go", tools: [1] }],
     ["sessions.start", { cwd: "/repo", prompt: "go", attachments: [{}] }],

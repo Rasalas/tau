@@ -110,6 +110,11 @@ function importSession(value: unknown): HostThreadImportOptions {
 function tallies(value: unknown): readonly UsageTally[] {
   if (!Array.isArray(value)) throw new Error("priceUsage: expected tallies");
   return value.map((item) => {
+    const raw = record("priceUsage", item);
+    for (const field of ["provider", "model"] as const) {
+      if (raw[field] !== undefined) text("priceUsage", raw[field]);
+    }
+    if (raw.billing !== undefined) choice("priceUsage", raw.billing, ["subscription", "api-key", "free", "local"]);
     const tally = readUsageTally(item);
     if (!tally) throw new Error("priceUsage: invalid tally");
     return tally;
