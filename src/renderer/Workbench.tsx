@@ -860,7 +860,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             : "Idle"}{threadCostLabel(conversationSnapshot?.usage) ? ` · ${threadCostLabel(conversationSnapshot?.usage)}` : null}</p>
           <Region registry={registry} placement="spine" snapshot={conversationSnapshot} actions={actions} />
           {composer.queue.length > 0 ? <p>{composer.queue.length} queued</p> : null}
-          <button type="button" onClick={() => sendLayout({ type: "reveal-conversation" })}><MessageSquare size={13} />Open conversation</button>
+          <button type="button" onClick={() => sendLayout({ type: "reveal-conversation", stacked })}><MessageSquare size={13} />Open conversation</button>
         </aside> : null}
         {/* A render error in the head, transcript or composer takes the column, not the sidebar; another thread clears it. */}
         <RenderErrorBoundary scope="conversation" resetKey={`${conversationSnapshot?.sessionId ?? ""}|${activeDraftKey ?? ""}|${showStartScreen}`}>
