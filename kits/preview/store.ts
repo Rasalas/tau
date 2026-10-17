@@ -29,7 +29,7 @@ export const PREVIEW_PANEL = "preview";
  */
 export function drawsFrames(): boolean {
   const client = typeof document === "undefined" ? undefined : document.body.dataset.client;
-  return (client !== undefined && client !== "desktop") || !hostHasLocalFiles();
+  return (client !== undefined && client !== "desktop") || !hostHasLocalFiles() || previewStore.getSnapshot().surface === "headless";
 }
 
 /**

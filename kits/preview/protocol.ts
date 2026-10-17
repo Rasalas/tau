@@ -80,8 +80,10 @@ export interface PreviewState {
   canGoForward: boolean;
   /** Console errors and failed requests of the current page, newest last. */
   consoleErrors: string[];
-  /** False on a host without a window: the tools and the panel are unavailable. */
+  /** False when the machine cannot provide a browser. */
   available: boolean;
+  /** A host browser is shown through frames even on a local desktop client. */
+  surface?: "headless";
   /** The browser profile the view runs in; each has its own cookies and storage. */
   profile: string;
   /** The page is taking a pick or annotations, not clicks. */

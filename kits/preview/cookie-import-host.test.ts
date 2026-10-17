@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createPreviewHostExtension } from "./host.js";
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
@@ -11,6 +11,19 @@ const target = (reloaded: string[] = []) => ({
 });
 
 describe("the host's side of cookie import", () => {
+  it.each([true, false])("refuses cookie import for an explicitly selected headless browser, inProcess=%s", async (inProcess) => {
+    vi.stubEnv("TAU_PREVIEW_BROWSER", "/test/chromium");
+    const call = vi.fn(async () => ({ imported: 1, skipped: 0, skippedSites: [] }));
+    const registry = await activateHostKit(createPreviewHostExtension(async () => undefined, () => ({ inProcess, call })), {
+      stateDir: "",
+      findCommand: () => undefined,
+    });
+    try {
+      await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "import-cookies", { source: "chrome", profile: "Default", sites: ["example.test"], into: "default" }))
+        .rejects.toThrow("Cookie import requires the desktop Preview");
+      expect(call).not.toHaveBeenCalled();
+    } finally { await registry.dispose(); vi.unstubAllEnvs(); }
+  });
   it("names the partition, runs in-process imports directly and reloads the page in that profile", async () => {
     const calls: Array<{ command: string; input: unknown }> = [];
     const window: CookieImportWindow = {

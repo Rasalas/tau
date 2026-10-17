@@ -86,6 +86,12 @@ jobs:
         run: npm run smoke:extension-install
       - name: Smoke — remote work
         run: npm run smoke:remote-work
+      - name: Smoke — Preview without a display
+        env:
+          TAU_PREVIEW_BROWSER: /usr/bin/google-chrome
+        run: |
+          "$TAU_PREVIEW_BROWSER" --version
+          npm run smoke:preview-headless
       # Requiring electron downloads its binary first, where npm ci left it out.
       - name: Electron's sandbox helper as setuid root
         run: |

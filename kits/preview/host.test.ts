@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,6 +39,12 @@ function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
     ...overrides,
   };
   return { surface, placed, loaded, evaluated };
+}
+
+function latch() {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  return { wait, release };
 }
 
 /** Activates the kit and returns its Pi tools, as a thread's runtime would see them. */
@@ -159,6 +165,34 @@ describe("preview URLs", () => {
 });
 
 describe("preview tools", () => {
+  it("shares a browser that is still starting between simultaneous tools", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const starting = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const made = fakeSurface();
+    const create = vi.fn(async () => { entered(); await gate; return made.surface; });
+    const bench = await activate(create);
+    try {
+      const first = bench.text("preview_open", { url: "http://localhost:3000" });
+      await starting;
+      const second = bench.text("preview_open", { url: "http://localhost:3000" });
+      release();
+      expect((await Promise.all([first, second])).every((result) => !result.isError)).toBe(true);
+      expect(create).toHaveBeenCalledTimes(1);
+    } finally { release(); await bench.registry.dispose(); }
+  });
+
+  it("lets the next tool retry a failed browser start", async () => {
+    const made = fakeSurface();
+    const create = vi.fn().mockRejectedValueOnce(new Error("Browser could not start")).mockResolvedValue(made.surface);
+    const bench = await activate(create);
+    try {
+      expect((await bench.text("preview_open", { url: "http://localhost:3000" })).isError).toBe(true);
+      expect((await bench.text("preview_open", { url: "http://localhost:3000" })).isError).toBe(false);
+      expect(create).toHaveBeenCalledTimes(2);
+    } finally { await bench.registry.dispose(); }
+  });
   it("leaves the tools to tool_search in Pi and lists all of them over MCP", async () => {
     const kit = await activate(async () => fakeSurface().surface);
     expect(kit.tools.length).toBeGreaterThan(10);
@@ -435,6 +469,16 @@ describe("annotate mode", () => {
 });
 
 describe("recording", () => {
+  it("removes the recording file when the browser cannot start recording", async () => {
+    const stateDir = await stateDirectory();
+    const { surface } = fakeSurface({ record: async () => { throw new Error("Recording unsupported"); } });
+    const kit = await activate(async () => surface, "/project", stateDir);
+    try {
+      await kit.call("preview_open", { url: "http://localhost:8000" });
+      await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-start")).rejects.toThrow("unsupported");
+      expect(await readdir(join(stateDir, PREVIEW_HOST_EXTENSION_ID, "recordings"))).toEqual([]);
+    } finally { await kit.registry.dispose(); }
+  });
   it("writes the chunks the view hands over into a webm under the kit's state", async () => {
     const stateDir = await stateDirectory();
     const record = vi.fn(async (action: "start" | "take" | "stop") => ({
@@ -456,6 +500,96 @@ describe("recording", () => {
 });
 
 describe("profiles", () => {
+  it("finishes a profile change requested before the first browser opens", async () => {
+    const partitions: string[] = [];
+    const kit = await activate(async (options) => { partitions.push(options.partition); return fakeSurface().surface; }, "/project", await stateDirectory());
+    try {
+      const switching = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: "other" });
+      const opening = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000" });
+      await Promise.all([switching, opening]);
+      expect(partitions).toEqual(["persist:tau-preview-other"]);
+    } finally { await kit.registry.dispose(); }
+  });
+
+  it("retains the page when the profile changes during its first slow navigation", async () => {
+    const loading = latch(), finish = latch();
+    const browsers: ReturnType<typeof fakeSurface>[] = [];
+    const kit = await activate(async () => {
+      const browser = fakeSurface();
+      browsers.push(browser);
+      if (browsers.length === 1) {
+        const load = browser.surface.load;
+        browser.surface.load = async (url, timeout) => { loading.release(); await finish.wait; await load(url, timeout); };
+      }
+      return browser.surface;
+    }, "/project", await stateDirectory());
+    try {
+      const opening = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000" });
+      await loading.wait;
+      const switching = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: "other" });
+      finish.release();
+      await Promise.all([opening, switching]);
+      expect(browsers).toHaveLength(2);
+      expect(browsers[1]!.loaded).toEqual(["http://localhost:8000/"]);
+    } finally { finish.release(); await kit.registry.dispose(); }
+  });
+
+  it("waits for concurrent closes before opening the next browser", async () => {
+    const stopping = latch(), finish = latch();
+    const create = vi.fn(async () => fakeSurface({ destroy: async () => { stopping.release(); await finish.wait; } }).surface);
+    const kit = await activate(create);
+    try {
+      await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000" });
+      const first = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close");
+      await stopping.wait;
+      let secondDone = false;
+      const second = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close").then(() => { secondDone = true; });
+      const opening = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000" });
+      expect(secondDone).toBe(false);
+      expect(create).toHaveBeenCalledTimes(1);
+      finish.release();
+      await Promise.all([first, second, opening]);
+      expect(create).toHaveBeenCalledTimes(2);
+    } finally { finish.release(); await kit.registry.dispose(); }
+  });
+  it("switches the actual browser when the profile changes during startup", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const starting = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const partitions: string[] = [];
+    const destroyed = vi.fn();
+    const kit = await activate(async (options) => {
+      partitions.push(options.partition);
+      if (partitions.length === 1) { entered(); await gate; }
+      return fakeSurface({ destroy: destroyed }).surface;
+    }, "/project", await stateDirectory());
+    try {
+      const first = kit.call("preview_open", { url: "http://localhost:8000" });
+      await starting;
+      const switching = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: "other" });
+      release();
+      await Promise.all([first, switching]);
+      expect(partitions).toEqual(["persist:tau-preview", "persist:tau-preview-other"]);
+      expect(destroyed).toHaveBeenCalledTimes(1);
+    } finally { release(); await kit.registry.dispose(); }
+  });
+
+  it("waits for browser shutdown when the extension is disposed", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const stopping = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const kit = await activate(async () => fakeSurface({ destroy: async () => { entered(); await gate; } }).surface);
+    await kit.call("preview_open", { url: "http://localhost:8000" });
+    let stopped = false;
+    const disposing = kit.registry.dispose().then(() => { stopped = true; });
+    await stopping;
+    expect(stopped).toBe(false);
+    release();
+    await disposing;
+    expect(stopped).toBe(true);
+  });
   it("builds the view again in the new profile's partition and reloads the page there", async () => {
     const stateDir = await stateDirectory();
     const partitions: string[] = [];
