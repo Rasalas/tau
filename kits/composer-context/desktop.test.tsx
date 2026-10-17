@@ -6,7 +6,7 @@ import { THREAD_PULL_REQUESTS_SERVICE, type ThreadPullRequest, type ThreadPullRe
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import composerContext, { ExcerptDetail, parseFileQuery, storeInChunks, storeWithRetry } from "./desktop.js";
 import { ChipStore } from "./chips.js";
-import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, UPLOAD_CHUNK_BYTES, type ComposerContextChips, type PullRequestSummary } from "./protocol.js";
+import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, PULL_REQUEST_DRAG_TYPE, UPLOAD_CHUNK_BYTES, type ComposerContextChips, type PullRequestSummary } from "./protocol.js";
 
 afterEach(cleanup);
 
@@ -131,6 +131,24 @@ function activate(storeAttachment?: () => void) {
 }
 
 describe("Composer Context desktop", () => {
+  it("takes a dragged merge request into the target draft's existing chip, persistence and send paths", async () => {
+    const { contribution, saved } = activate();
+    const payload = { number: 42, title: "Dragged change", url: "https://git.example/team/repo/-/merge_requests/42", branch: "feature/drag" };
+    expect(contribution.drop!.mimeType).toBe(PULL_REQUEST_DRAG_TYPE);
+    act(() => { expect(contribution.drop!.take(JSON.stringify(payload), inline())).toBe(true); });
+    expect(contribution.chips!.list(SCOPE)[0]).toMatchObject({ label: "!42" });
+    expect(contribution.chips!.list("session:other")).toEqual([]);
+    await waitFor(() => expect(saved.value).toMatchObject({ chips: [{ kind: "pull-request", payload }] }));
+    expect((await contribution.prepareSend!({ ...inline(), text: "Review this" }))?.context)
+      .toBe(`Merge request [!42](${payload.url}): Dragged change`);
+  });
+
+  it.each(["not JSON", "null", JSON.stringify({ number: 0, title: "Bad", url: "https://example.com" }), JSON.stringify({ number: 1, title: "Bad", url: "javascript:alert(1)" }), JSON.stringify({ number: 1, title: "Bad", url: "https://user:secret@example.com/pr/1" }), "x".repeat(16_385)])("refuses malformed drag data without adding context: %.40s", (text) => {
+    const { contribution, labels } = activate();
+    expect(contribution.drop!.take(text, inline())).toBe(false);
+    expect(labels()).toEqual([]);
+  });
+
   it("lets another kit add a chip through the service and hands it to core to draw in the text", async () => {
     const { service, contribution, labels } = activate();
     let id = "";

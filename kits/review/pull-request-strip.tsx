@@ -3,10 +3,10 @@ import type { SettlementSource } from "./settlement.js";
 import { PublicationStrip } from "./publication-strip.js";
 import { PullRequestWatchControl } from "./pr-watch-control.js";
 import type { PullRequestWatchFeed } from "./pr-watch-client.js";
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { CircleAlert, CircleCheck, CircleDashed, CircleX, X } from "lucide-react";
 import { getClientStorage, tooltipProps, type DesktopExtensionContext, type RegionProps, type TranscriptRowsHandle, type WorkbenchActions } from "tau";
-import { REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck, type ThreadPullRequestLink } from "./protocol.js";
+import { PULL_REQUEST_DRAG_TYPE, REVIEW_HOST_EXTENSION_ID, providerInfo, type PullRequestCheck, type ThreadPullRequestLink } from "./protocol.js";
 import { checkDelay, checksPipelines, expectedEnd, NEAR_MS, type PipelineFacts } from "./pipeline.js";
 import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
 import type { PullRequestClient } from "./pull-request-client.js";
@@ -153,7 +153,17 @@ function FoldedWatches({ watches, onOpen }: { watches: readonly PullRequestWatch
   </button>;
 }
 
-/** One request's line: state, number, title and live checks; a click opens its tab, the chip its checks. */
+function dragRequest(event: DragEvent<HTMLButtonElement>, request: StripRequest): void {
+  event.dataTransfer.effectAllowed = "copy";
+  event.dataTransfer.setData(PULL_REQUEST_DRAG_TYPE, JSON.stringify({
+    number: request.number, title: request.title ?? request.repo ?? request.url, url: request.url,
+    ...(request.headRef ? { branch: request.headRef } : {}),
+  }));
+  event.dataTransfer.setData("text/uri-list", request.url);
+  event.dataTransfer.setData("text/plain", request.url);
+}
+
+/** One request's line: state, number, title and live checks; a click opens its tab, a drag adds composer context. */
 function StripRow({ request, watch, client, actions, cwd, label, motion, children }: {
   request: StripRequest;
   /** A watched row that just came or is folding away. */
@@ -171,7 +181,7 @@ function StripRow({ request, watch, client, actions, cwd, label, motion, childre
   const leaving = motion?.state === "leaving";
   return <div className={`review-pr-strip state-${request.state}${motion && motion.state !== "settled" ? ` ${motion.state}` : ""}`}
     {...(motion?.state === "arriving" ? { style: { "--arrive": motion.order } as CSSProperties } : {})} {...(leaving ? { inert: true, "aria-hidden": true } : {})}>
-    <button type="button" className="review-pr-strip-open" aria-label={label} onClick={() => open()}>
+    <button type="button" className="review-pr-strip-open" aria-label={label} draggable onDragStart={(event) => dragRequest(event, request)} onClick={() => open()}>
       <RequestStateIcon state={request.state} size={14} className="review-pr-strip-glyph" />
       <span className="review-pr-strip-number" {...tooltipProps(request.title)}>{info.sign}{request.number}</span>
       <span className="review-pr-strip-service" {...tooltipProps(where ? `${info.name} · ${where}` : info.name)}><ServiceIcon service={request.service} /></span>
@@ -192,7 +202,7 @@ function RequestEndLine({ ending: { request, watched }, open }: { ending: Reques
   const word = STATE_WORDS[request.state].toLowerCase();
   const at = request.endedAt!;
   return <div className={`review-request-end state-${request.state}`} role="note" aria-label={`${info.short} ${info.sign}${request.number} ${word}`}>
-    <button type="button" aria-label={`Open ${info.noun} ${info.sign}${request.number}, ${word}${request.title ? `: ${request.title}` : ""}`} {...tooltipProps(request.title)} onClick={open}>
+    <button type="button" aria-label={`Open ${info.noun} ${info.sign}${request.number}, ${word}${request.title ? `: ${request.title}` : ""}`} {...tooltipProps(request.title)} draggable onDragStart={(event) => dragRequest(event, request)} onClick={open}>
       <RequestStateIcon state={request.state} size={13} />
       <span>{info.short} {info.sign}{request.number} {word}{watched ? " · watch ended" : ""}</span>
       <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()}>{endedAt(at)}</time>

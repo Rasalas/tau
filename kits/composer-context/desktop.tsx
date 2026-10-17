@@ -13,11 +13,13 @@ import type {
   UiPromptFileAttachment,
 } from "tau";
 import { SentExcerptChip } from "./sent-excerpt.js";
+import { readPullRequestDrop } from "./pull-request-drop.js";
 import { ChipStore, formatBytes, isVideo, requestNumberOf, selectFiles, serializeChips, shouldFoldPaste, type ChipEntry } from "./chips.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   COMPOSER_CONTEXT_ID,
   EXCERPT_TAG,
+  PULL_REQUEST_DRAG_TYPE,
   WORKSPACE_STORE_SERVICE,
   type Chip,
   type ChipInput,
@@ -356,6 +358,15 @@ const composerContext: DesktopExtension = {
         const name = `pasted-text-${store.nextPasteNumber(inline.scope)}.txt`;
         upload(inline.scope, name, "text/plain", bytes.length, async (start, end) => bytes.subarray(start, end));
         return true;
+      },
+      drop: {
+        mimeType: PULL_REQUEST_DRAG_TYPE,
+        take: (text, inline) => {
+          const payload = readPullRequestDrop(text);
+          if (!payload) return false;
+          store.add(inline.scope, { kind: "pull-request", payload });
+          return true;
+        },
       },
       takeFiles: (files, inline) => {
         const { take, leave, error } = selectFiles(files, store.list(inline.scope), inline.imageInput);

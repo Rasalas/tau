@@ -318,6 +318,9 @@ export interface PublishResult {
  */
 export const COMPOSER_CONTEXT_CHIPS_SERVICE = "tau.composer-context/chips";
 
+/** Composer Context's drag contract: JSON of PullRequestChip["payload"]. */
+export const PULL_REQUEST_DRAG_TYPE = "application/x-tau-pull-request+json";
+
 export interface ReviewCommentChip {
   kind: "text-excerpt";
   label?: string;

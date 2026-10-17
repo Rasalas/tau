@@ -749,6 +749,7 @@ plugin.registerComposerInline({
 | `Component` | Drawn inside the input frame, above the text. It gets the `ComposerInlineContext` — `scope`, `snapshot`, `fileAttachments`, `imageInput` — and `draftState`, the extension's own slot beside the draft's text in the draft store (`read()`, `write(json)`, `write(undefined)` to drop it), so a reload brings the chips back with the text. |
 | `triggers` | A character that opens core's autocomplete menu at the start of a word. `search` answers rows (`{ id, label, description?, hint? }`), `select` gets the chosen row once core has removed the typed trigger. `/` and `$` are core's; an extension's `@` replaces core's own file list. |
 | `pasteText` | Asked for every text paste; `true` keeps the text out of the field. |
+| `drop` | API 1.71.0: `{ mimeType, take(value, context) }`. A matching type enables a copy drop inside the composer frame. Core reads that type's string only on drop; `take` validates the payload and returns `true` to claim it. A claimed drop prevents native insertion and stops propagation. Unknown types, refusals and errors leave the file and native text paths available. Read-only composers do not accept it. |
 | `takeFiles` | Offered every file of a drop, a paste or "Attach files" in the composer's "…" menu before core; answers with the files it left, which core treats as images. While any contribution takes files, "Attach files" accepts any type and the thread-wide drop overlay lets any file through — the contribution checks its own limits. |
 | `hasContent`, `subscribe` | Whether the draft has something worth sending with no text at all; Send enables on it. |
 | `prepareSend` | Runs once per prompt, after `beginSubmission` captured the draft. `context` is put before the user's text (after it when a skill is selected, which reads its instruction first); `attachments` join the images. A throw refuses the send and keeps the draft. A `/command` never asks. |
@@ -845,6 +846,13 @@ order and before the user's text:
 | `text-excerpt` | `{ source, text, comment?, messageId? }` | `<excerpt>` … `</excerpt>` around `From <source>:`, the text as a `>` quote, then `My comment on this excerpt: <comment>` when the user wrote one in the chip's popover; `messageId` (the transcript message the text was taken from) becomes the tag's `message` attribute |
 | `pull-request` | `{ number, title, url, branch? }` | `Pull request [#n](url): title` |
 | `attachment` | `{ name, mimeType, size, path? }`, `path` on the host | a `kind: "file"` attachment for a runtime that opens files; otherwise the text inline (200 KB at most) or, for anything else, a sentence naming the path |
+
+Review's request strip and ended-request lines also offer the `pull-request`
+payload as JSON under `application/x-tau-pull-request+json`, alongside
+`text/uri-list` and `text/plain` URL fallbacks. Composer Context validates that
+drop through the generic `drop` hook and adds the same chip to the active draft.
+It uses the existing persistence and send path. Kits copy this MIME contract
+along with the payload type; they do not import each other.
 
 Composer Context fills `chips`, so its chips sit in the text; a click on an
 excerpt opens it in full with a field for the user's comment on it. Once sent,

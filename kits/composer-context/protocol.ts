@@ -12,6 +12,9 @@ export const COMPOSER_CONTEXT_ID = "tau.composer-context";
  */
 export const COMPOSER_CONTEXT_CHIPS_SERVICE = "tau.composer-context/chips";
 
+/** Drag contract: JSON of ChipPayloads["pull-request"], also copied by Review Kit. */
+export const PULL_REQUEST_DRAG_TYPE = "application/x-tau-pull-request+json";
+
 /** The tag a sent excerpt is wrapped in; the transcript draws the block as a chip with a popover. */
 export const EXCERPT_TAG = "excerpt";
 
