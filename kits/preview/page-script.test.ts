@@ -157,6 +157,8 @@ describe("preview snapshot", () => {
     ["p/a", "p%2fa"],
     ["password", "%70assword"],
     ["a b", "a+b"],
+    ["tau\tsecret", "%74au%09secret"],
+    ["tau  secret", "%74au%20%20secret"],
   ])("redacts equivalent URL encodings of %s", (secret, encoded) => {
     document.body.innerHTML = '<input type="password">';
     document.querySelector<HTMLInputElement>("input")!.value = secret;

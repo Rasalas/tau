@@ -70,6 +70,7 @@ export function previewSnapshot(maxChars: number): string {
   const passwords = new Set<string>();
   for (const input of Array.from(document.querySelectorAll<HTMLInputElement>("input"))) {
     if (input.type !== "password" || !input.value) continue;
+    passwords.add(input.value);
     passwords.add(input.value.replace(/\s+/gu, " ").trim());
     const parameter = new URLSearchParams({ value: input.value });
     const encoded = parameter.toString().slice("value=".length);
