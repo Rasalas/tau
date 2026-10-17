@@ -22,6 +22,7 @@ function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}):
       setThinking: vi.fn(),
       runShellAction: vi.fn(),
     } as any,
+    thinking: { snapshot: undefined, set: vi.fn() },
     snapshot: { sessionId: "sess-1", workspaceId: "ws-1", model: { provider: "anthropic", id: "claude-3-7-sonnet" } } as HostSnapshot,
     pendingNewThread: undefined,
     workspaceCwd: "/path/to/project",
@@ -61,6 +62,55 @@ function createMockOptions(overrides: Partial<UseWorkbenchActionsOptions> = {}):
 }
 
 describe("useWorkbenchActions", () => {
+  describe("composer reasoning steps", () => {
+    it.each([
+      ["low", ["low", "medium", "high"], 1, "medium"],
+      ["high", ["low", "medium", "high"], -1, "medium"],
+      ["high", ["low", "medium", "high"], 1, undefined],
+      ["low", ["low", "medium", "high"], -1, undefined],
+      ["unknown", ["low", "high"], 1, undefined],
+      ["high", [], -1, undefined],
+      ["only", ["only"], 1, undefined],
+      ["default", ["default", "light", "deep"], 1, "light"],
+    ] as const)("steps from %s through %j by %i to %s", async (current, levels, direction, expected) => {
+      const set = vi.fn();
+      const options = createMockOptions({ thinking: { snapshot: { thinkingLevel: current, thinkingLevels: [...levels] } as HostSnapshot, set } });
+      const { result } = renderHook(() => useWorkbenchActions(options));
+      await result.current.cycleThinking?.(direction, true);
+      if (expected) expect(set).toHaveBeenCalledExactlyOnceWith(expected);
+      else expect(set).not.toHaveBeenCalled();
+      expect(options.threadCommands.setThinking).not.toHaveBeenCalled();
+    });
+
+    it("keeps the existing cycle wrapping, and leaves a runtime that owns its model selection alone", async () => {
+      const set = vi.fn();
+      const snapshot = { thinkingLevel: "high", thinkingLevels: ["low", "high"] } as HostSnapshot;
+      const options = createMockOptions({ thinking: { snapshot, set } });
+      const { result, rerender } = renderHook(useWorkbenchActions, { initialProps: options });
+      await result.current.cycleThinking?.();
+      expect(set).toHaveBeenCalledExactlyOnceWith("low");
+      set.mockClear();
+      rerender({ ...options, thinking: { snapshot: { ...snapshot, runtimeCapabilities: { ownsModelSelection: true, skillInvocationDialect: "pi" } }, set } });
+      await result.current.cycleThinking?.(-1, true);
+      expect(set).not.toHaveBeenCalled();
+    });
+
+    it("reads the latest composer model and writer even through an action retained across a draft change", async () => {
+      const first = vi.fn();
+      const next = vi.fn();
+      const options = createMockOptions({ thinking: { snapshot: { thinkingLevel: "low", thinkingLevels: ["low", "medium"] } as HostSnapshot, set: first } });
+      const { result, rerender } = renderHook(useWorkbenchActions, { initialProps: options });
+      const retained = result.current;
+      rerender({ ...options, thinking: { snapshot: { thinkingLevel: "deep", thinkingLevels: ["light", "deep"] } as HostSnapshot, set: next } });
+      await retained.cycleThinking?.(-1, true);
+      expect(next).toHaveBeenCalledExactlyOnceWith("light");
+      expect(first).not.toHaveBeenCalled();
+      await retained.setThinkingLevel?.("deep");
+      expect(next).toHaveBeenLastCalledWith("deep");
+      expect(options.threadCommands.setThinking).not.toHaveBeenCalled();
+    });
+  });
+
   it.each([
     { resourceOrigin: null },
     { resourceOrigin: { sessionId: "a", workspace: "ws-other", sourceId: "source" } },
@@ -295,6 +345,25 @@ describe("useWorkbenchActions", () => {
     const cycled = await result.current.cycleModel?.(1);
     expect(cycled).toBe(true);
     expect(setComposerModel).toHaveBeenCalledWith("google", "gemini-2.5-flash");
+  });
+
+  it.each([
+    ["GEMINI", "google", "gemini-2.5-flash"],
+    ["anthropic/claude-3-7", "anthropic", "claude-3-7-sonnet"],
+    ["Claude 3.7 SONNET", "anthropic", "claude-3-7-sonnet"],
+  ])("keeps model queries matching %s", async (query, provider, id) => {
+    const options = createMockOptions();
+    const { result } = renderHook(() => useWorkbenchActions(options));
+    expect(await result.current.setModel?.(query)).toBe(true);
+    expect(options.setComposerModel).toHaveBeenCalledExactlyOnceWith(provider, id);
+  });
+
+  it("uses the runtime's models when no stored favourite belongs to it", async () => {
+    const preferences = { getSnapshot: () => ({ favouriteModels: ["codex:openai/other"] }) } as any;
+    const options = createMockOptions({ preferences });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+    expect(await result.current.cycleModel?.(1)).toBe(true);
+    expect(options.setComposerModel).toHaveBeenCalledExactlyOnceWith("anthropic", "claude-3-7-sonnet");
   });
 
   it("reads and replaces the draft's images, and writes a draft it sets through to storage", () => {

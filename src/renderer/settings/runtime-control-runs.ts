@@ -1,4 +1,7 @@
 import type { SlashCommandContribution, WorkbenchActions } from "../extension-system";
+import { errorMessage } from "../../workbench/error-message";
+import { goalCommandRefusal, shownGoal } from "../goal-state";
+export { modelItems, runtimeItems, themeItems } from "./palette-menus";
 
 /**
  * What core's slash commands and its wordier commands do. Loaded on their
@@ -35,7 +38,37 @@ async function copyChat(app: WorkbenchActions, done: string, missing: string): P
   return undefined;
 }
 
+/**
+ * `/goal <objective>` sets the thread's native goal; `pause`, `resume` and
+ * `end` act on it, and `/goal` alone says where it stands. Answers a line
+ * when it could not act.
+ */
+async function runGoalCommand(args: string, app: WorkbenchActions): Promise<string | void> {
+  if (!app.threadGoal) return "This Tau has no goals.";
+  const current = shownGoal();
+  if (!current?.supported) return "This thread's runtime keeps no goals. Codex and Claude Code threads do.";
+  const word = args.trim();
+  const command = word.toLowerCase();
+  try {
+    if (!word) {
+      const goal = current.goal;
+      app.notify(goal ? `Goal (${goal.status}): ${goal.objective}` : "No goal is set. Use /goal <objective>.");
+    } else if (command === "pause" || command === "resume") {
+      const refusal = goalCommandRefusal(command);
+      if (refusal) return refusal;
+      await app.threadGoal(command);
+    } else if (command === "end" || command === "clear") {
+      const refusal = goalCommandRefusal("end");
+      if (refusal) return refusal;
+      await app.threadGoal("clear");
+    } else await app.threadGoal("set", word);
+  } catch (error) {
+    return errorMessage(error);
+  }
+}
+
 export const slashRuns: Record<string, SlashRun> = {
+  goal: runGoalCommand,
   reload: async (_args, app) => (await app.reloadWorkbench()) ? undefined : "Tau reload failed.",
   source: async (_args, app) => (await app.openWorkbenchSource()) ? undefined : "Tau source could not be opened.",
   tree: (_args, app) => app.openThreadTree("navigate"),

@@ -250,7 +250,7 @@ export interface WorkbenchActions {
   openModelPicker?(): void;
   /** Sets the model for the active thread or pending new thread. Accepts (provider, id) or query string. */
   setModel?(provider: string, id?: string): Promise<boolean> | void;
-  /** Sets the thinking level for the active thread. */
+  /** Sets the thinking level for the composer on screen, including a new thread's draft (API 1.72.0). */
   setThinkingLevel?(level: string): Promise<void>;
   /**
    * The interaction mode the thread on screen runs its next turns in, or the
@@ -290,8 +290,8 @@ export interface WorkbenchActions {
    * model (API 1.12.0).
    */
   startThreadOn?(runtime: string, model?: UiModel): void;
-  /** Cycles to the next thinking level. */
-  cycleThinking?(): Promise<void>;
+  /** Cycles thinking forward by default; API 1.72.0 adds direction and bounded steps that stop at either end. */
+  cycleThinking?(direction?: 1 | -1, bounded?: boolean): Promise<void>;
 }
 
 /** One runtime as `runtimeModels` answers: its catalog is absent until the host has one. */

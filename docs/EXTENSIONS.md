@@ -2572,6 +2572,13 @@ it) and its images with `composerImages()` and `setComposerImages(images)`, the
 `UiPromptImageAttachment` shape a prompt sends. Chips belong to whoever drew
 them; Composer Context's are reached through its chip service.
 
+API 1.72.0 extends `actions.cycleThinking(direction?, bounded?)`: direction is
+`1` by default or `-1`; `bounded: true` stops at either end of the composer's
+offered levels. With no arguments it keeps cycling. Both it and
+`actions.setThinkingLevel(level)` use the selection on screen, including a new
+thread's draft, through the same writer as the thinking menu. A runtime that
+owns model selection, or a composer without offered levels, is not stepped.
+
 The composer's footer is one slim row (API 1.27.0, the workbench design):
 the model chip with its marks, the thinking chip ("High · 1M ⚡": level,
 context window, Fast; K142), the controls a
