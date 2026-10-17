@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { UiWorkspaceChanges } from "tau/host-extension";
 import { MAX_TURN_HEAD_STEPS } from "./turn-checkpoint-codec.js";
 import type { TurnChangesSummary, TurnHead, TurnHeadMove, TurnHeadStep } from "./turn-checkpoint-types.js";
-import { runGitCommand, type GitRunner } from "./workspace-git.js";
+import { runGitCommand, type GitRunner } from "./git-command.js";
 
 /**
  * Which of a turn's changed files the turn made, when HEAD moved under it.

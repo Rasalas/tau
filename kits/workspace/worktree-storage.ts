@@ -4,7 +4,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { promisify } from "node:util";
 import { HostCommandError, gitExecutable, readPersistedJson, writePersistedJson } from "tau/host-extension";
 import { readBranchBase, worktreeParentOf } from "./agent-worktrees.js";
-import { ensureWorktree, resolveDefaultBaseRef, type GitRunner } from "./workspace-git.js";
+import { ensureWorktree } from "./workspace-worktrees.js";
+import { resolveDefaultBaseRef } from "./git-refs.js";
+import { type GitRunner } from "./git-command.js";
 import type { UiWorktreeRemoval } from "./protocol.js";
 import {
   EMPTY_POLICY,

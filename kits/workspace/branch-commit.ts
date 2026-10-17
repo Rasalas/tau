@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { isWorkspaceRelativePath } from "tau/host-extension";
-import { runGitCommand } from "./workspace-git.js";
+import { runGitCommand } from "./git-command.js";
 
 /*
  * Commits a kit hands in without touching the checkout: a new branch whose

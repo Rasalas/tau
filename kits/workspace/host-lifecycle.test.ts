@@ -11,8 +11,8 @@ import {
   type HostThread,
 } from "tau/host-extension";
 import { TURN_CHECKPOINT_CUSTOM_TYPE, TURN_RESTORE_BACKUP_CUSTOM_TYPE, TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, turnRestoreBackupsFromEntries, turnRestoreTransactionsFromEntries } from "./turn-checkpoint-codec.js";
-import { createTurnWorkspaceSnapshot } from "./workspace-git.js";
-import * as workspaceGit from "./workspace-git.js";
+import { createTurnWorkspaceSnapshot } from "./workspace-snapshots.js";
+import * as snapshots from "./workspace-snapshots.js";
 import type { TurnRestoreTransaction, UiTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { WorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
 import { createWorkspaceKitLifecycle, prioritizeRestoreTargetSession, type WorkspaceKitLifecycleOptions } from "./host-lifecycle.js";
@@ -454,8 +454,8 @@ describe("recovering an interrupted restore", () => {
 
   it("leaves the workspace and pending transaction intact when the safety copy is incomplete", async () => {
     const fixture = await recoveryFixture("checkpoint-restore");
-    const capture = workspaceGit.createTurnWorkspaceSnapshot;
-    vi.spyOn(workspaceGit, "createTurnWorkspaceSnapshot").mockImplementation(async (...args) => ({
+    const capture = snapshots.createTurnWorkspaceSnapshot;
+    vi.spyOn(snapshots, "createTurnWorkspaceSnapshot").mockImplementation(async (...args) => ({
       ...await capture(...args), complete: false,
     }));
 
@@ -470,8 +470,8 @@ describe("recovering an interrupted restore", () => {
 
   it.each(["checkpoint-restore", "backup-open"] as const)("rolls back a failed %s recovery to the post-crash tree", async (kind) => {
     const fixture = await recoveryFixture(kind);
-    const restore = workspaceGit.restoreWorkspaceSnapshot;
-    vi.spyOn(workspaceGit, "restoreWorkspaceSnapshot").mockImplementation((cwd, ref, options) => restore(cwd, ref, {
+    const restore = snapshots.restoreWorkspaceSnapshot;
+    vi.spyOn(snapshots, "restoreWorkspaceSnapshot").mockImplementation((cwd, ref, options) => restore(cwd, ref, {
       ...options,
       onPhase: (phase) => { if (phase === "cleaned") throw new Error("injected apply failure"); },
     }));

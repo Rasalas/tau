@@ -1,4 +1,5 @@
-import { readDefaultBranch, runGitCommand, type GitRunner } from "./workspace-git.js";
+import { readDefaultBranch } from "./git-refs.js";
+import { runGitCommand, type GitRunner } from "./git-command.js";
 
 /** Why a checkout was left as it was; none of these touches it. */
 export type FastForwardSkip =
