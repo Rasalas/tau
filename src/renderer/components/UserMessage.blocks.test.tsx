@@ -29,6 +29,13 @@ function renderWith(message: UiMessage, roles?: readonly ("user" | "assistant")[
 const prompt: UiMessage = { id: "u1", role: "user", text: "<context_note>\nWhat the other thread did.\n</context_note>\n\nNow continue.", timestamp: 1 };
 
 describe("message blocks in a user message", () => {
+  it("keeps a focus target when a contribution replaces the entire text body", () => {
+    const view = renderWith({ ...prompt, text: "<context_note>\nOnly a context card.\n</context_note>" }, ["user"]);
+    expect(screen.getByRole("region", { name: "Context card" }).textContent).toBe("Only a context card.");
+    expect(view.container.querySelector(".message-text")).toBeNull();
+    expect(view.container.querySelector(".message-shell.user.message-without-text")).toBeTruthy();
+  });
+
   it("draws a block that asks for user messages above the bubble and keeps it out of the text", async () => {
     const view = renderWith(prompt, ["user"]);
     expect(screen.getByRole("region", { name: "Context card" }).textContent).toBe("What the other thread did.");

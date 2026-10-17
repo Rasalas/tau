@@ -806,7 +806,7 @@ tau-part { display: contents; }
 }
 .virtual-transcript:focus-visible .virtual-transcript-row.focused .message.assistant { border-radius: 6px; }
 /* A row with neither (a tool run, a notice) rings what it draws. */
-.virtual-transcript:focus-visible .virtual-transcript-row.focused > :first-child:not(.message-shell) {
+.virtual-transcript:focus-visible .virtual-transcript-row.focused > :is(:not(.message-shell), .message-without-text):first-child {
   outline: 1px solid var(--focus);
   outline-offset: 2px;
   border-radius: 8px;

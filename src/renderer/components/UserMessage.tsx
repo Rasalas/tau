@@ -104,7 +104,7 @@ export function UserMessage({
   };
 
   return (
-    <div className="message-shell user">
+    <div className={`message-shell user${hasMessageContent ? "" : " message-without-text"}`}>
       {blocks.length > 0 ? <div className="message-user-blocks">{blocks}</div> : null}
       <PersistedMessageImages images={persistedImages} text={message.text} />
       {hasLocalImages ? <MessageImages text={message.text} /> : null}

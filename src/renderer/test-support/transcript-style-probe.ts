@@ -89,6 +89,8 @@ async function verifyStyleStates(window: BrowserWindow): Promise<void> {
           <div id="notice" class="virtual-transcript-row focused"><div class="notice-message">Notice</div></div>
           <div id="assistant" class="virtual-transcript-row"><div class="message-shell assistant"><article class="message assistant">Answer</article></div></div>
           <div id="user" class="virtual-transcript-row"><div class="message-shell user"><article class="message user"><div class="message-text">Prompt</div></article></div></div>
+          <div id="image-only" class="virtual-transcript-row"><div class="message-shell user message-without-text"><div class="message-images">Image attachment</div><article class="message user"></article></div></div>
+          <div id="block-only" class="virtual-transcript-row"><div class="message-shell user message-without-text"><div class="message-user-blocks"><section>Context card</section></div><article class="message user"></article></div></div>
         </div>
       </div></div>
       <section class="conversation-start-screen"><div class="conversation-start-content">
@@ -115,10 +117,10 @@ async function verifyStyleStates(window: BrowserWindow): Promise<void> {
   }
   assert.equal(await evaluate("document.activeElement.matches('.virtual-transcript:focus-visible')"), true);
   assert.equal(await style(".notice-message", "outlineStyle"), "solid");
-  for (const [id, target] of [["assistant", ".message.assistant"], ["user", ".message.user .message-text"]]) {
+  for (const [id, target] of [["assistant", "#assistant .message.assistant"], ["image-only", "#image-only > .message-shell"], ["block-only", "#block-only > .message-shell"], ["user", "#user .message-text"]]) {
     await evaluate(`document.querySelector('.focused').classList.remove('focused'); document.getElementById('${id}').classList.add('focused')`);
     assert.equal(await style(target!, "outlineStyle"), "solid");
-    assert.equal(await style(`#${id} > .message-shell`, "outlineStyle"), "none");
+    if (id === "assistant" || id === "user") assert.equal(await style(`#${id} > .message-shell`, "outlineStyle"), "none");
   }
   for (const selector of ["#before-transcript", ".virtual-transcript"]) {
     const { x, y } = await evaluate(`(() => {const r=document.querySelector('${selector}').getBoundingClientRect();return {x:r.x+10,y:r.y+10};})()`);

@@ -31,6 +31,7 @@ describe("message images", () => {
     expect(screen.getByRole("img", { name: "Attached image" })).toBeTruthy();
     expect(view.container.querySelector("article.message.user")).toBeTruthy();
     expect(view.container.querySelector(".message-text")).toBeNull();
+    expect(view.container.querySelector(".message-shell.user.message-without-text")).toBeTruthy();
     expect(screen.queryByText("Image attached")).toBeNull();
     expect(screen.getByLabelText(/^Sent /u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
@@ -50,6 +51,7 @@ describe("message images", () => {
     await screen.findByRole("img", { name: "preview.png" });
     expect(view.container.querySelector("article.message.user")).toBeTruthy();
     expect(view.container.querySelector(".message-text")).toBeNull();
+    expect(view.container.querySelector(".message-shell.user.message-without-text")).toBeTruthy();
   });
 
   it("offers a viewport-safe image context menu and copies persisted image data", async () => {
