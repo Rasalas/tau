@@ -311,6 +311,18 @@ describe("a local target that fell behind origin", () => {
     expect(branch?.targetBehind).toBeUndefined();
   });
 
+  it("reads a branch that left from origin against origin when main also holds local merges", async () => {
+    const repo = await stale();
+    await repo.commit(repo.cwd, "local-only.txt", "x\n");
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+    const dir = repo.fresh("tau/from-origin");
+    await repo.commit(dir, "b.txt", "mine\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ comparedRef: "origin/main", targetBehind: 3, targetAhead: 1, ahead: 1, behind: 0, files: 1, conflicts: [] });
+    // Merging here would carry origin's commits into a main that has its own; it says so instead.
+    await expect(mergeThreadBranch(dir)).rejects.toThrow(/main has 1 commit origin\/main lacks and is 3 commits behind it/u);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+  });
+
   it("fast-forwards the main checkout before it merges", async () => {
     const repo = await stale();
     const dir = repo.fresh("tau/lands");

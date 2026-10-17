@@ -53,6 +53,8 @@ export interface ThreadBranch {
   comparedRef?: string;
   /** Commits `origin/<target>` has that the local target lacks; set with `comparedRef`. */
   targetBehind?: number;
+  /** Commits the local target has that `origin/<target>` lacks, such as merges made here; set with `comparedRef`. */
+  targetAhead?: number;
   /** Why no merge can be checked (a detached main checkout, the same branch). */
   unavailable?: string;
   /** Why integration cannot write to the main checkout yet; review reads still work. */
@@ -223,13 +225,23 @@ export async function isLinkedWorktree(path: string, runGit: AgentGitRunner = ru
   return Boolean(gitDir && commonDir && resolve(gitDir) !== resolve(commonDir));
 }
 
-/** The origin ref and its distance when the local target is a strict ancestor of `origin/<target>`. */
-async function readTargetBehind(root: string, target: string, local: string, runGit: AgentGitRunner): Promise<{ head: string; behind: number } | undefined> {
+/**
+ * The origin ref when the branch left from it rather than from the local
+ * target: the local target only behind origin, or diverged by local merges
+ * while the branch forked from a newer origin. `ahead` counts local-only commits.
+ */
+async function readOriginBase(root: string, target: string, local: string, tip: string, runGit: AgentGitRunner): Promise<{ head: string; behind: number; ahead: number } | undefined> {
   const head = (await runGit(root, ["rev-parse", "--verify", `refs/remotes/origin/${target}^{commit}`]).catch(() => "")).trim();
   if (!head || head === local) return undefined;
-  if (!await runGit(root, ["merge-base", "--is-ancestor", local, head]).then(() => true, () => false)) return undefined;
-  const behind = Number((await runGit(root, ["rev-list", "--count", `${local}..${head}`]).catch(() => "")).trim());
-  return behind > 0 ? { head, behind } : undefined;
+  const [behind = 0, ahead = 0] = (await runGit(root, ["rev-list", "--left-right", "--count", `${head}...${local}`]).catch(() => "")).trim().split(/\s+/u).map(Number);
+  if (behind === 0) return undefined;
+  if (ahead > 0) {
+    const fromLocal = (await runGit(root, ["merge-base", local, tip]).catch(() => "")).trim();
+    const fromOrigin = (await runGit(root, ["merge-base", head, tip]).catch(() => "")).trim();
+    const newer = fromLocal && fromOrigin && fromLocal !== fromOrigin && await runGit(root, ["merge-base", "--is-ancestor", fromLocal, fromOrigin]).then(() => true, () => false);
+    if (!newer) return undefined;
+  }
+  return { head, behind, ahead };
 }
 
 /** The ref a branch's counts, diff and merge preview were read against. */
@@ -262,15 +274,18 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   const targetRef = remoteTarget ? `refs/remotes/origin/${target}` : `refs/heads/${target}`;
   let head = (await runGit(root, ["rev-parse", "--verify", `${targetRef}^{commit}`]).catch(() => "")).trim();
   if (!head) return { ...base, ...into, ...empty, unavailable: `The review target ${remoteTarget ? `origin/${target}` : target} is not available locally.` };
-  // A local target nobody pulls goes stale; compare against origin while it is only behind, not diverged.
-  const behindOrigin = remoteTarget ? undefined : await readTargetBehind(root, target, head, runGit);
+  // A local target nobody pulls goes stale; read the branch against the origin it left from.
+  const behindOrigin = remoteTarget ? undefined : await readOriginBase(root, target, head, tip, runGit);
   if (behindOrigin) head = behindOrigin.head;
-  const origin = behindOrigin ? { comparedRef: `origin/${target}`, targetBehind: behindOrigin.behind } : {};
-  const behindNote = behindOrigin ? ` ${target} is ${behindOrigin.behind} commit${behindOrigin.behind === 1 ? "" : "s"} behind origin/${target}.` : "";
+  const origin = behindOrigin ? { comparedRef: `origin/${target}`, targetBehind: behindOrigin.behind, ...(behindOrigin.ahead ? { targetAhead: behindOrigin.ahead } : {}) } : {};
+  const commits = (count: number) => `${count} commit${count === 1 ? "" : "s"}`;
+  const behindNote = behindOrigin ? ` ${target} is ${commits(behindOrigin.behind)} behind origin/${target}.` : "";
   const mergeBlocked = main.branch !== target
     ? `Check out ${target} in the project's main folder before merging. It currently has ${main.branch ?? "a detached HEAD"}.${behindNote}`
-    : behindOrigin && (await runGit(root, ["status", "--porcelain"]).catch(() => "x")).trim()
-      ? `${target} is ${behindOrigin.behind} commit${behindOrigin.behind === 1 ? "" : "s"} behind origin/${target} and the project's main folder has changes not committed; commit or move them so ${target} can be brought up to date.` : undefined;
+    : behindOrigin?.ahead
+      ? `${target} has ${commits(behindOrigin.ahead)} origin/${target} lacks and is ${commits(behindOrigin.behind)} behind it; bring ${target} up to date with origin/${target} before merging here.`
+      : behindOrigin && (await runGit(root, ["status", "--porcelain"]).catch(() => "x")).trim()
+        ? `${target} is ${commits(behindOrigin.behind)} behind origin/${target} and the project's main folder has changes not committed; commit or move them so ${target} can be brought up to date.` : undefined;
   const destination = { ...into, ...origin, ...(mergeBlocked ? { mergeBlocked } : {}) };
   const counts = (await runGit(root, ["rev-list", "--left-right", "--count", `${head}...${tip}`])).trim().split(/\s+/u).map(Number);
   const [behind = 0, ahead = 0] = counts;
