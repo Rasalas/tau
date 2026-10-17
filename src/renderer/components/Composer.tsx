@@ -633,8 +633,8 @@ export function Composer({
     }
     return left;
   }, [inlines, onNotify]);
-  const pasteText = (pasted: string): boolean => inlines.some((inline) => {
-    try { return inline.pasteText?.(pasted, inlineContextRef.current) === true; } catch (error) { onNotify?.(errorMessage(error), "error"); return false; }
+  const takeInline = (take: (inline: (typeof inlines)[number]) => boolean | undefined): boolean => inlines.some((inline) => {
+    try { return take(inline) === true; } catch (error) { onNotify?.(errorMessage(error), "error"); return false; }
   });
   const draftStates = useMemo(() => new Map(inlines.map((inline) => [inline.extensionId, {
     read: () => draftStorageKey === undefined ? undefined : readComposerDraftState(clientStorage, draftStorageKey, inline.extensionId),
@@ -899,9 +899,7 @@ export function Composer({
       setCommandMenuDismissed(true);
       requestAnimationFrame(() => textareaRef.current?.setSelectionRange(next.length, next.length));
     };
-    return inlines.some((inline) => {
-      try { return inline.keyDown?.(keyEvent, { ...inlineContextRef.current, setText }) === true; } catch (error) { onNotify?.(errorMessage(error), "error"); return false; }
-    });
+    return takeInline((inline) => inline.keyDown?.(keyEvent, { ...inlineContextRef.current, setText }));
   };
 
   const historySearch = useComposerHistorySearch({
@@ -1058,33 +1056,27 @@ export function Composer({
         ref={frameRef}
         className={`composer-frame ${prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
         onDragOver={(event) => {
-          const types = Array.from(event.dataTransfer.types);
-          if (inlines.some((inline) => inline.drop && types.includes(inline.drop.mimeType))) {
+          const { types } = event.dataTransfer;
+          if (types.includes("Files") || inlines.some(({ drop }) => drop && types.includes(drop.mimeType))) {
             event.preventDefault();
             event.dataTransfer.dropEffect = "copy";
-          } else if (types.includes("Files")) event.preventDefault();
+          }
         }}
         onDrop={(event) => {
-          for (const inline of inlines) {
-            if (!inline.drop || !Array.from(event.dataTransfer.types).includes(inline.drop.mimeType)) continue;
-            try {
-              if (!inline.drop.take(event.dataTransfer.getData(inline.drop.mimeType), inlineContextRef.current)) continue;
-              event.preventDefault();
-              event.stopPropagation();
-              textareaRef.current?.focus();
-              return;
-            } catch (error) { onNotify?.(errorMessage(error), "error"); }
-          }
-          if (event.dataTransfer.files.length === 0) return;
+          const transfer = event.dataTransfer;
+          if (takeInline(({ drop }) => drop && transfer.types.includes(drop.mimeType) && drop.take(transfer.getData(drop.mimeType), inlineContextRef.current))) {
+            event.stopPropagation();
+            textareaRef.current?.focus();
+          } else if (transfer.files.length) void addFiles(transfer.files);
+          else return;
           event.preventDefault();
-          void addFiles(event.dataTransfer.files);
         }}
         onPaste={(event) => {
           // Paste as Text: the clipboard's text as it is, no fold and no file.
           if (takePasteAsText()) return;
           if (event.clipboardData.files.length === 0) {
             const pasted = event.clipboardData.getData("text/plain");
-            if (pasted && pasteText(pasted)) event.preventDefault();
+            if (pasted && takeInline((inline) => inline.pasteText?.(pasted, inlineContextRef.current))) event.preventDefault();
             return;
           }
           event.preventDefault();
