@@ -139,6 +139,42 @@ describe("ExtensionRegistry contribution selectors", () => {
     expect(registry.isActive("broken")).toBe(false);
   });
 
+  it("rolls back published data and notifies its readers when activation fails", () => {
+    const registry = new ExtensionRegistry();
+    const image = "data:image/png;base64,aA==";
+    const threadChanged = vi.fn();
+    const problemsChanged = vi.fn();
+    registry.subscribeData("thread:broken-thread", threadChanged);
+    registry.subscribeData("problems", problemsChanged);
+    registry.activate({ id: "healthy", name: "Healthy", activate(context) {
+      context.setLiveStatus("healthy-thread", "Working");
+    } });
+    expect(() => registry.activate({ id: "broken", name: "Broken", activate(context) {
+      context.setLiveStatus("broken-thread", "Waiting");
+      context.setThreadRowStatuses({ thread: { label: "Waiting" } });
+      context.setThreadLineage({ parents: { thread: "parent" }, workingChildren: {} });
+      context.setProjectIcons({ project: image });
+      context.setProviderIcons({ openai: image });
+      context.setProblems([{ source: "broken", message: "Unavailable" }]);
+      // Prime cached selectors before rollback, as subscribed views do.
+      expect(registry.getThreadRowMarks().thread?.label).toBe("Waiting");
+      expect(registry.getThreadLineage().parents.thread).toBe("parent");
+      expect(registry.getProblems()).toHaveLength(1);
+      throw new Error("activation failed");
+    } })).toThrow("activation failed");
+    expect(registry.getLiveStatus("broken-thread")).toBeUndefined();
+    expect(registry.getLiveStatus("healthy-thread")).toBe("Working");
+    expect(registry.getThreadRowMarks()).toEqual({});
+    expect(registry.getThreadLineage()).toEqual({ parents: {}, workingChildren: {} });
+    expect(registry.projectIcon({ path: "project" })).toBeUndefined();
+    expect(registry.providerIcon("openai")).toBeUndefined();
+    expect(registry.getProblems()).toEqual([]);
+    expect(threadChanged).toHaveBeenCalledTimes(2);
+    expect(problemsChanged).toHaveBeenCalledTimes(2);
+    registry.deactivate("broken");
+    expect(registry.getLiveStatus("broken-thread")).toBeUndefined();
+  });
+
   it("preserves a cleanup failure even when an extension throws undefined", () => {
     const registry = new ExtensionRegistry();
     registry.activate({ id: "cleanup", name: "Cleanup", activate() { return () => { throw undefined; }; } });

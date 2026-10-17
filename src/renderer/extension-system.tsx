@@ -2393,6 +2393,8 @@ export class ExtensionRegistry {
       this.#contributionKinds.delete(extension.id);
       this.#profiledContributions.delete(extension.id);
       this.#activeExtensions.delete(extension.id);
+      this.clearPublishedData(extension.id);
+      this.changed();
       throwFailures(errors);
     }
   }
@@ -2410,6 +2412,13 @@ export class ExtensionRegistry {
     this.#activeExtensions.delete(id);
     this.#contributionKinds.delete(id);
     this.#profiledContributions.delete(id);
+    this.clearPublishedData(id);
+    this.changed();
+    throwFailures(errors);
+  }
+
+  /** Published data has the same lifetime on rollback as on deactivation. */
+  private clearPublishedData(id: string): void {
     const statusThreads = [...(this.#liveStatuses.get(id)?.keys() ?? [])];
     this.#liveStatuses.delete(id);
     for (const sessionId of statusThreads) this.dataChanged(`thread:${sessionId}`);
@@ -2419,8 +2428,6 @@ export class ExtensionRegistry {
     this.#providerIcons.delete(id);
     this.#problems.delete(id);
     for (const key of ["marks", "lineage", "project-icons", "provider-icons", "problems"]) this.dataChanged(key);
-    this.changed();
-    throwFailures(errors);
   }
 
   /** Records the user's answer on a known extension so the settings page stops asking. */
