@@ -1,4 +1,6 @@
-import { firstExistingRef, primaryRemote, resolveDefaultBaseRef, runGitCommand, type GitRunner } from "./workspace-git.js";
+import { firstExistingRef, resolveDefaultBaseRef } from "./git-refs.js";
+import { primaryRemote } from "./workspace-git.js";
+import { runGitCommand, type GitRunner } from "./git-command.js";
 import { branchReviewTargetConfigKey } from "./agent-worktrees.js";
 import type { ReviewRequestContext } from "./protocol.js";
 

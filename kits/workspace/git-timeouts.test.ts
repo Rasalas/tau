@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runGitCommand } from "./workspace-git.js";
+import { runGitCommand } from "./git-command.js";
 
 const execute = vi.hoisted(() => vi.fn(async () => ({ stdout: "output", stderr: "" })));
 

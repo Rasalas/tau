@@ -2,12 +2,11 @@ import type { UiWorktreeStatus } from "tau/host-extension";
 import {
   emptyProjectGitState,
   readProjectGitState,
-  readWorktreeStatuses,
-  runGitCommand,
-  type GitRunner,
   type ProjectGitState,
   type UntrackedStatsOptions,
 } from "./workspace-git.js";
+import { readWorktreeStatuses } from "./workspace-worktrees.js";
+import { runGitCommand, type GitRunner } from "./git-command.js";
 
 export type GitRefreshKind = "status" | "branch" | "workspace";
 export type GitRefreshState = "ready" | "refreshing" | "error";

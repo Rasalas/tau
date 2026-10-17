@@ -13,7 +13,12 @@ import {
   reflogStepKind,
 } from "./turn-attribution.js";
 import { attributeSnapshotPair, pageAttribution, reviseLegacyCheckpoint } from "./workspace-kit-checkpoints.js";
-import { createTurnWorkspaceSnapshot, diffWorkspaceSnapshotPage, diffWorkspaceSnapshots, type WorkspaceSnapshot } from "./workspace-git.js";
+import {
+  createTurnWorkspaceSnapshot,
+  diffWorkspaceSnapshotPage,
+  diffWorkspaceSnapshots,
+  type WorkspaceSnapshot,
+} from "./workspace-snapshots.js";
 import { boundedTurnCheckpointSummary, parseStoredTurnCheckpoint, turnSnapshotRef } from "./turn-checkpoint-codec.js";
 import type { StoredTurnCheckpoint, TurnChangesSummary } from "./turn-checkpoint-types.js";
 

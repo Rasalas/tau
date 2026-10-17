@@ -12,7 +12,11 @@ import {
 } from "./turn-checkpoint-codec.js";
 import type { StoredTurnCheckpoint } from "./turn-checkpoint-types.js";
 import type { WorkspaceKitCheckpointMaintenance } from "./workspace-kit-checkpoints.js";
-import { createTurnWorkspaceSnapshot, getSnapshotFileDiff, validateWorkspaceSnapshotRefs } from "./workspace-git.js";
+import {
+  createTurnWorkspaceSnapshot,
+  getSnapshotFileDiff,
+  validateWorkspaceSnapshotRefs,
+} from "./workspace-snapshots.js";
 
 const directories: string[] = [];
 afterEach(async () => {

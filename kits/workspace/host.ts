@@ -23,7 +23,12 @@ import {
   type WorkspaceChangesQuery,
   type WorkspaceRef,
 } from "tau/host-extension";
+import * as workspacePaths from "./workspace-paths.js";
 import * as workspaceGit from "./workspace-git.js";
+import * as gitRefs from "./git-refs.js";
+import * as workspaceWorktrees from "./workspace-worktrees.js";
+import * as gitCommand from "./git-command.js";
+import * as terminals from "./external-terminals.js";
 import { resolveLinkedFile } from "./linked-file-resolution.js";
 import { readVisualizationFragment } from "./visualization-content.js";
 import { GitCoordinator } from "./git-coordinator.js";
@@ -239,7 +244,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       };
       const stageThen = async (input: unknown, path: string, mutate: (project: string, path: string) => Promise<void>) => {
         const project = await shownRoot(input);
-        await workspaceGit.assertWorkspacePath(project, path);
+        await workspacePaths.assertWorkspacePath(project, path);
         await mutate(project, path);
         return refreshedChanges(project);
       };
@@ -373,7 +378,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("file-tree", async (input, call) => {
         const project = await shownRoot(input);
         const relative = optionalRelativePath(input);
-        if (relative) await workspaceGit.assertWorkspacePath(project, relative);
+        if (relative) await workspacePaths.assertWorkspacePath(project, relative);
         const base = relative ? resolve(project, relative) : project;
         const nodes = await readFileTree(base, relative ?? "", 0, { count: 0 }, !call.owner);
         if (call.owner) return nodes;
@@ -386,7 +391,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       const branchChanges = async (project: string, query: WorkspaceChangesQuery) => {
         const request = query.baseRef ? undefined : await branchRequest(project);
         if (!request) return workspaceGit.getBranchChanges(project, query);
-        const baseRef = await workspaceGit.firstExistingRef(project, [`origin/${request.baseRef}`, request.baseRef]);
+        const baseRef = await gitRefs.firstExistingRef(project, [`origin/${request.baseRef}`, request.baseRef]);
         const changes = await workspaceGit.getBranchChanges(project, baseRef ? { ...query, baseRef } : query);
         return { ...changes, request };
       };
@@ -399,7 +404,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("file-diff", async (input) => {
         const project = await shownRoot(input);
         const path = relativePath(input);
-        await workspaceGit.assertWorkspacePath(project, path);
+        await workspacePaths.assertWorkspacePath(project, path);
         return workspaceGit.getFileDiff(project, path, record(input).options as DiffLoadOptions | undefined);
       }, { access: "read", callers: [REVIEW_KIT_ID] });
       context.registerCommand("stage-file", (input) => stageThen(input, relativePath(input), workspaceGit.stageFile));
@@ -413,7 +418,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("read-file", async (input) => {
         const project = await shownRoot(input);
         const path = relativePath(input);
-        await workspaceGit.assertWorkspacePath(project, path);
+        await workspacePaths.assertWorkspacePath(project, path);
         return readBoundedFileContent(resolve(project, path));
       }, { access: "read", callers: [FILES_KIT_ID] });
       context.registerCommand("read-visualization", async (input) => {
@@ -453,7 +458,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("file-stat", async (input) => {
         const project = await shownRoot(input);
         const path = relativePath(input);
-        await workspaceGit.assertWorkspacePath(project, path);
+        await workspacePaths.assertWorkspacePath(project, path);
         return statFile(resolve(project, path));
       }, { access: "read", callers: [FILES_KIT_ID] });
       // An editor's save: refused as a conflict when the file changed since `expectedMtimeMs`.
@@ -464,7 +469,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (typeof fields.text !== "string") throw new HostCommandError('Workspace command needs "text".');
         const expected = fields.expectedMtimeMs;
         if (expected !== undefined && expected !== null && typeof expected !== "number") throw new HostCommandError('"expectedMtimeMs" is a number.');
-        await workspaceGit.assertWorkspacePath(project, path);
+        await workspacePaths.assertWorkspacePath(project, path);
         const result = await writeTextFile(resolve(project, path), fields.text, expected as number | null | undefined);
         if (result.status === "written") {
           git.invalidate(project, ["status", "workspace"]);
@@ -653,11 +658,11 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read" });
       context.registerCommand("worktree-base", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
-        const base = await workspaceGit.resolveWorktreeBase(project, {
+        const base = await workspaceWorktrees.resolveWorktreeBase(project, {
           ...(optionalString(input, "baseRef") ? { requested: optionalString(input, "baseRef") } : {}),
           ...(record(input).startFromOrigin === undefined ? {} : { startFromOrigin: record(input).startFromOrigin !== false }),
         });
-        return { ...base, shortCommit: base.commit.slice(0, 7), ...await workspaceGit.readBaseChoices(project, base.ref) };
+        return { ...base, shortCommit: base.commit.slice(0, 7), ...await workspaceWorktrees.readBaseChoices(project, base.ref) };
       }, { long: true });
       /** A worktree on a new branch, set up as the project asks; `fill` runs on its files before the setup does. */
       const addWorktree = async (project: string, branch: string, options: {
@@ -669,14 +674,14 @@ export function createWorkspaceHostExtension(): HostExtension {
           if (setupId) void setupCall("worktree-setup-step", { setupId, stage, ...extra }).catch(() => undefined);
         };
         try {
-          const destination = await workspaceGit.createWorktree(project, branch, {
+          const destination = await workspaceWorktrees.createWorktree(project, branch, {
             ...(baseRef ? { baseRef } : {}),
             ...(startFromOrigin === undefined ? {} : { startFromOrigin: startFromOrigin !== false }),
             ...(options.uniqueBranch ? { uniqueBranch: true } : {}),
             onStep: (stage) => step(stage),
           }, (path) => git.getWorkspaceInfo(path));
-          const baseCommit = (await workspaceGit.runGitCommand(destination, ["rev-parse", "--verify", "HEAD"])).trim();
-          const createdBranch = options.uniqueBranch ? (await workspaceGit.runGitCommand(destination, ["branch", "--show-current"])).trim() : branch;
+          const baseCommit = (await gitCommand.runGitCommand(destination, ["rev-parse", "--verify", "HEAD"])).trim();
+          const createdBranch = options.uniqueBranch ? (await gitCommand.runGitCommand(destination, ["branch", "--show-current"])).trim() : branch;
           services.admitWorkspace(destination);
           await context.invokeHostExtension("tau.remote-work", "worktree-files", { workspace: project, destination }).catch((error: unknown) => {
             const code = (error as { code?: string }).code;
@@ -740,7 +745,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         if (!preview.branch && preview.unpushedCommits > 0 && !forceBranch) throw new Error("Confirm discarding the detached worktree's unpushed commits before removing it.");
         const requestedBranch = optionalString(input, "branch");
         if (requestedBranch && requestedBranch !== preview.branch) throw new Error("The worktree's branch changed; read its removal preview again.");
-        await workspaceGit.removeWorktree(project, path, { ...(preview.branch ? { branch: preview.branch } : {}), force, forceBranch });
+        await workspaceWorktrees.removeWorktree(project, path, { ...(preview.branch ? { branch: preview.branch } : {}), force, forceBranch });
         await worktrees.storage.forget(path).catch(noteFailure("git.worktree.record-failed"));
         git.invalidate(project, ["branch", "status", "workspace"]);
         services.log("git.worktree.removed", path);
@@ -750,7 +755,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = requiredString(input, "path");
         const info = await git.getWorkspaceInfo(project);
         const branch = optionalString(input, "branch") ?? info.worktrees.find((tree) => tree.path === path)?.branch;
-        const recreated = await workspaceGit.ensureWorktree(project, path, branch);
+        const recreated = await workspaceWorktrees.ensureWorktree(project, path, branch);
         if (recreated) {
           await worktrees.storage.restored(path).catch(noteFailure("git.worktree.record-failed"));
           git.invalidate(project, ["branch", "status", "workspace"]);
@@ -763,7 +768,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("default-branch", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         let branch = defaultBranches.get(project);
-        if (!branch) defaultBranches.set(project, branch = workspaceGit.readDefaultBranch(project));
+        if (!branch) defaultBranches.set(project, branch = gitRefs.readDefaultBranch(project));
         return branch;
       }, { access: "read" });
       // Keeps the default branch current, fast-forward only; the client says when, the host's config whether.
@@ -814,7 +819,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const project = await shownRoot(input);
         const ref = requiredString(input, "ref");
         try {
-          const target = await workspaceGit.resolveRefTarget(project, ref, (path) => git.getWorkspaceInfo(path));
+          const target = await workspaceWorktrees.resolveRefTarget(project, ref, (path) => git.getWorkspaceInfo(path));
           if (optionalString(input, "workspace") && !(await samePath(target, project))) throw new HostCommandError("That branch is checked out in another workspace. Open its worktree instead.");
           services.log("git.ref.switch", `${ref} → ${target}`);
           git.invalidate(project, ["branch", "status", "workspace"]);
@@ -855,15 +860,15 @@ export function createWorkspaceHostExtension(): HostExtension {
       const disposers = [
         services.describeProjects({
           projectless: async (project) => isScratchWorkspace(services.stateDir, project),
-          name: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve("No project") : workspaceGit.repositoryDisplayName(project),
+          name: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve("No project") : workspaceWorktrees.repositoryDisplayName(project),
           label: async (project) => {
             if (isScratchWorkspace(services.stateDir, project)) return undefined;
             const branch = await git.getHeadBranch(project);
             labels.set(project, branch);
             return branch;
           },
-          nested: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(true) : workspaceGit.isNestedProject(project),
-          root: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(undefined) : workspaceGit.mainCheckoutOf(project),
+          nested: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(true) : workspaceWorktrees.isNestedProject(project),
+          root: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(undefined) : workspaceWorktrees.mainCheckoutOf(project),
         }),
         // Edits and Git commands run by the agent stale the cache.
         services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),
@@ -904,7 +909,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("fork-worktree", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const branch = requiredString(input, "branch").trim();
-        const run = (args: string[]) => workspaceGit.runGitCommand(project, args).then((out) => out.trim(), () => "");
+        const run = (args: string[]) => gitCommand.runGitCommand(project, args).then((out) => out.trim(), () => "");
         if (await run(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) throw new Error(`A branch named ${branch} already exists.`);
         const sessionId = optionalString(input, "sessionId");
         const checkpointId = optionalString(input, "checkpointId");
@@ -920,14 +925,14 @@ export function createWorkspaceHostExtension(): HostExtension {
           startFromOrigin: false,
           fill: async (destination) => {
             try {
-              if (target) await workspaceGit.runGitCommand(project, ["config", branchBaseConfigKey(branch), target]);
+              if (target) await gitCommand.runGitCommand(project, ["config", branchBaseConfigKey(branch), target]);
               if (!from) return;
               // The copied files stay uncommitted, as they were in the source.
-              await workspaceGit.runGitCommand(destination, ["read-tree", "--reset", "-u", from.tree]);
-              await workspaceGit.runGitCommand(destination, ["reset", "-q"]);
+              await gitCommand.runGitCommand(destination, ["read-tree", "--reset", "-u", from.tree]);
+              await gitCommand.runGitCommand(destination, ["reset", "-q"]);
             } catch (error) {
               // Made just now for this fork; nothing in it is the user's yet.
-              await workspaceGit.removeWorktree(project, destination, { branch, force: true, forceBranch: true }).catch(() => undefined);
+              await workspaceWorktrees.removeWorktree(project, destination, { branch, force: true, forceBranch: true }).catch(() => undefined);
               throw error;
             }
           },
@@ -948,7 +953,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const ownWorktree = info.worktrees.some((tree) => tree.isCurrent && !tree.isMain);
         return countThreadChanges(status, ownWorktree, {
           branchPaths: async () => {
-            const head = (await workspaceGit.runGitCommand(project, ["rev-parse", "--verify", "HEAD"])).trim();
+            const head = (await gitCommand.runGitCommand(project, ["rev-parse", "--verify", "HEAD"])).trim();
             const key = `${project}\0${head}`;
             let paths = branchPaths.get(key);
             if (!paths) {
@@ -982,7 +987,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const editorId = requiredString(input, "editorId");
         const path = optionalRelativePath(input);
-        if (path) await workspaceGit.assertWorkspacePath(project, path);
+        if (path) await workspacePaths.assertWorkspacePath(project, path);
         const target = path ? resolve(project, path) : project;
         const isFile = path ? (await stat(target)).isFile() : false;
         const line = record(input).line;
@@ -992,11 +997,11 @@ export function createWorkspaceHostExtension(): HostExtension {
           ...(typeof column === "number" ? { column } : {}),
         });
       });
-      context.registerCommand("list-terminals", () => workspaceGit.listTerminals(), { access: "read" });
+      context.registerCommand("list-terminals", () => terminals.listTerminals(), { access: "read" });
       context.registerCommand("open-terminal", async (input) => {
         const project = await services.knownWorkspacePath(workspaceOf(input));
         const terminalId = optionalString(input, "terminalId");
-        await workspaceGit.openTerminal(project, terminalId);
+        await terminals.openTerminal(project, terminalId);
       });
       context.registerCommand("edit-prompt-external", async (input) => {
         const text = optionalString(input, "text") ?? "";

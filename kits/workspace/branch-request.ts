@@ -1,5 +1,6 @@
 import type { UiReviewRequest } from "tau/host-extension";
-import { primaryRemote, runGitCommand, type GitRunner } from "./workspace-git.js";
+import { primaryRemote } from "./workspace-git.js";
+import { runGitCommand, type GitRunner } from "./git-command.js";
 
 /** Review Kit's `branch-request`: the request of a branch, asked of the provider its remote belongs to. */
 export type AskBranchRequest = (input: { root: string; branch: string; remote: string; fresh?: boolean }) => Promise<unknown>;

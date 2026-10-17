@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { readReviewRequestContext } from "./review-request-context.js";
-import { createWorktree } from "./workspace-git.js";
+import { createWorktree } from "./workspace-worktrees.js";
 
 process.env.GIT_CONFIG_GLOBAL = "/dev/null";
 process.env.GIT_CONFIG_SYSTEM = "/dev/null";
