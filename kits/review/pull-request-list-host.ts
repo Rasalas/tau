@@ -11,8 +11,13 @@ const STATES: readonly PullRequestListState[] = ["open", "closed", "merged", "al
 /** Projects one page across projects reads; repositories listed at once. */
 const MAX_PROJECTS = 50;
 const PARALLEL_LISTS = 4;
+/** Projects whose Git is read at once; each read starts a few Git processes. */
+const PARALLEL_PROJECTS = 8;
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
+
+/** A folder with no remote (or no repository): it has no requests to list, which is no failure. */
+export class NoRemoteError extends HostCommandError {}
 
 /** Which repository a project's requests live in, from its remote; refuses with what is missing. */
 export async function projectRepository(
@@ -21,7 +26,7 @@ export async function projectRepository(
   project: string | undefined,
 ): Promise<RepositoryTarget & { git: ReviewRequestContext; service: RequestService; provider: SourceControlProvider }> {
   const git = await workspace("review-request-context", project ? { workspace: project } : undefined) as ReviewRequestContext;
-  if (!git.remote) throw new HostCommandError("This project has no remote, so it has no pull requests to list.");
+  if (!git.remote) throw new NoRemoteError("This project has no remote, so it has no pull requests to list.");
   const service = await sources.detect(git.remote.url);
   const provider = sources.get(service);
   const remote = provider.repository(git.remote.url);
@@ -68,8 +73,9 @@ export function registerPullRequestListCommands(
 
   /**
    * The page across projects: every named project's repository once, however
-   * many checkouts share it, each listed as `pr-list` would. A project that
-   * cannot be read is named with the reason instead of failing the page.
+   * many checkouts share it, each listed as `pr-list` would. A folder with no
+   * remote is left out; any other project that cannot be read is named with
+   * its reason instead of failing the page.
    */
   context.registerCommand("pr-list-many", async (input): Promise<PullRequestLists> => {
     const fields = record(input);
@@ -77,16 +83,21 @@ export function registerPullRequestListCommands(
     const asked = question(fields);
     const failures: PullRequestLists["failures"] = [];
     const repositories = new Map<string, { repository: Awaited<ReturnType<typeof projectRepository>>; workspaces: string[] }>();
-    await Promise.all([...new Set(named)].map(async (project) => {
-      try {
-        const repository = await projectRepository(workspace, sources, project);
-        const key = `${repository.service}\0${repository.host}\0${repository.repo.toLowerCase()}`;
-        const known = repositories.get(key);
-        if (known) known.workspaces.push(project); else repositories.set(key, { repository, workspaces: [project] });
-      } catch (error) {
-        failures.push({ workspace: project, message: error instanceof Error ? error.message : String(error) });
+    const projects = [...new Set(named)];
+    const resolveProjects = async () => {
+      for (let project = projects.shift(); project !== undefined; project = projects.shift()) {
+        try {
+          // oxlint-disable-next-line no-await-in-loop -- a few projects at a time: each starts Git
+          const repository = await projectRepository(workspace, sources, project);
+          const key = `${repository.service}\0${repository.host}\0${repository.repo.toLowerCase()}`;
+          const known = repositories.get(key);
+          if (known) known.workspaces.push(project); else repositories.set(key, { repository, workspaces: [project] });
+        } catch (error) {
+          if (!(error instanceof NoRemoteError)) failures.push({ workspace: project, message: error instanceof Error ? error.message : String(error) });
+        }
       }
-    }));
+    };
+    await Promise.all(Array.from({ length: PARALLEL_PROJECTS }, resolveProjects));
     const queue = [...repositories.values()];
     const lists: PullRequestLists["lists"] = [];
     const worker = async () => {

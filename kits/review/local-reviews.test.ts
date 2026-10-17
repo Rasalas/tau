@@ -124,6 +124,13 @@ describe("which threads are local merge requests", () => {
     expect(mergeBlocker(open!)).toBe(message);
   });
 
+  it("carries the origin ref a stale local target was read against", () => {
+    const [stale] = deriveReviews({ answer: answer({ branches: [branch("stale", { comparedRef: "origin/main", targetBehind: 361 })] }), threads: [thread("s", "ws-stale")], busy: new Set() });
+    expect(stale).toMatchObject({ comparedRef: "origin/main", targetBehind: 361 });
+    const [current] = deriveReviews({ answer: answer({ branches: [branch("current", {})] }), threads: [thread("c", "ws-current")], busy: new Set() });
+    expect(current).not.toHaveProperty("comparedRef");
+  });
+
   it("holds a branch in Changes requested while an ask about its tip is open, and lets go once it moves", () => {
     const key = reviewKey("/repo/shop-api", "tau/asked");
     const ask = { kind: "note" as const, text: "retry budget", at: 5, tip: "asked-tip" };

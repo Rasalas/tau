@@ -17,7 +17,7 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
-import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type WorkbenchActions } from "tau";
+import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type UiSession, type WorkbenchActions } from "tau";
 import { REVIEWS_PAGE } from "./local-reviews.js";
 import { providerInfo, requestNumber, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
 import { RequestCacheNotice, useRequestConnection } from "./pull-request-offline.js";
@@ -97,13 +97,70 @@ export function mergedListing(answer: PullRequestLists): Listing | undefined {
   };
 }
 
-/** The projects the window knows, once per workspace; outside a workbench there are none. */
-function useProjects(): readonly UiProject[] {
+/** The project ids to list on each machine; `""` is the host this window talks to. */
+export type ProjectsByMachine = ReadonlyMap<string, { name: string; workspaces: string[] }>;
+
+/** Projects whose threads run on another machine live there; that machine's host lists them. */
+export function projectsByMachine(projects: readonly UiProject[], threads: readonly Pick<UiSession, "workspaceId" | "machine">[]): ProjectsByMachine {
+  const homes = new Map(threads.flatMap((thread) => thread.machine && thread.workspaceId ? [[thread.workspaceId, thread.machine] as const] : []));
+  // This host is always asked, as it was before machines: a page with no projects still has its answer.
+  const groups = new Map<string, { name: string; workspaces: string[] }>([["", { name: "", workspaces: [] }]]);
+  for (const project of projects) {
+    const id = projectId(project);
+    const home = homes.get(id);
+    const key = home?.id ?? "";
+    const group = groups.get(key) ?? { name: home?.name ?? "", workspaces: [] };
+    group.workspaces.push(id);
+    groups.set(key, group);
+  }
+  return groups;
+}
+
+/**
+ * Every machine's answer as one: this host's lists first, a repository listed
+ * twice only once. Another machine's rows open without a project here.
+ */
+export async function listAcrossMachines(client: PullRequestClient, machines: ProjectsByMachine, asking: { state: PullRequestListState; limit: number; search?: string }): Promise<PullRequestLists> {
+  const answers = await Promise.all([...machines].map(async ([machine, { name, workspaces }]): Promise<PullRequestLists> => {
+    if (!machine) return client.listMany({ ...asking, workspaces });
+    const failed = (message: string) => ({ lists: [], failures: workspaces.map((workspace) => ({ workspace, message })) });
+    if (!client.listManyOn) return failed(`Its threads run on ${name}, which this window does not reach.`);
+    return client.listManyOn(machine, { ...asking, workspaces }).then(
+      (answer) => ({ lists: answer.lists.map((list) => ({ ...list, workspaces: [] })), failures: answer.failures }),
+      (error: unknown) => failed(`${name} did not answer: ${errorMessage(error)}`),
+    );
+  }));
+  const seen = new Set<string>();
+  return {
+    lists: answers.flatMap((answer) => answer.lists).filter((list) => {
+      const key = `${list.host}/${list.repo}`.toLowerCase();
+      return !seen.has(key) && Boolean(seen.add(key));
+    }),
+    failures: answers.flatMap((answer) => answer.failures),
+  };
+}
+
+/** The projects the window knows, once per workspace, by the machine that lists them; outside a workbench there are none. */
+function useProjects(): { projects: readonly UiProject[]; machines: ProjectsByMachine } {
   let store: ThreadStore | undefined;
   try { store = useThreadStore(); } catch { store = undefined; }
-  const [projects, setProjects] = useState<readonly UiProject[]>(() => store?.getProjects() ?? []);
-  useEffect(() => store?.subscribeToProjects(() => setProjects(store!.getProjects())), [store]);
-  return projects;
+  const read = (): { projects: readonly UiProject[]; machines: ProjectsByMachine } => {
+    const projects = store?.getProjects() ?? [];
+    return { projects, machines: projectsByMachine(projects, store?.getSnapshot().threads ?? []) };
+  };
+  const [state, setState] = useState(read);
+  useEffect(() => {
+    if (!store) return undefined;
+    // Threads change often; a new answer only when a project or its machine did.
+    const update = () => setState((current) => {
+      const next = read();
+      return JSON.stringify([...next.machines]) === JSON.stringify([...current.machines]) && next.projects === current.projects ? current : next;
+    });
+    const offProjects = store.subscribeToProjects(update);
+    const offThreads = store.subscribe(update);
+    return () => { offProjects(); offThreads(); };
+  }, [store]);
+  return state;
 }
 
 const projectId = (project: UiProject) => project.workspaceId ?? project.path;
@@ -268,7 +325,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   const phone = useCompactProfile();
   const table = onPage && !phone;
   const Row = table ? PullRequestTableRow : PullRequestRow;
-  const projects = useProjects();
+  const { projects, machines } = useProjects();
   // The page picks up where it was left; a thread's tab always starts from its own project.
   const [saved] = useState(() => onPage ? decodeSavedNarrowing(getClientStorage()?.get(NARROWING_KEY) ?? undefined) : undefined);
   const [scope, setScope] = useState<Scope>(() => {
@@ -278,7 +335,9 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   });
   const [host, setHost] = useState(saved?.host);
   const workspace = scope.kind === "project" ? scope.workspace : undefined;
-  const everyProject = useMemo(() => projects.map(projectId), [projects]);
+  // The cache holds this host's answer; another machine's projects are asked fresh.
+  const everyProject = useMemo(() => machines.get("")?.workspaces ?? [], [machines]);
+  const machineOf = (id: string | undefined) => [...machines].find(([machine, group]) => machine && id && group.workspaces.includes(id))?.[0];
   const [preferences, setPreferences] = useState<PullRequestListPreferences>(() => decodeListPreferences(getClientStorage()?.get(PREFERENCES_KEY) ?? undefined));
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -337,9 +396,13 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
       const cached = client.cache?.peek<PullRequestList | PullRequestLists>(command, input);
       if (client.cache) setList(cached ? (scope.kind === "all" ? mergedListing(cached.value as PullRequestLists) : singleListing(cached.value as PullRequestList, workspace)) : undefined);
       setSavedAt(cached?.at);
-      const next = scope.kind === "all"
-        ? mergedListing(await client.listMany({ ...asking, workspaces: everyProject }))
-        : singleListing(await client.list({ ...(workspace ? { workspace } : {}), ...asking }), workspace);
+      const elsewhere = scope.kind === "project" ? machineOf(workspace) : undefined;
+      const across = scope.kind === "all" || elsewhere
+        ? await listAcrossMachines(client, elsewhere ? new Map([[elsewhere, { ...machines.get(elsewhere)!, workspaces: [workspace!] }]]) : machines, asking)
+        : undefined;
+      // With nothing listed, the first reason says more than "nothing to list".
+      if (across && across.lists.length === 0 && across.failures[0]) throw new Error(across.failures[0].message);
+      const next = across ? mergedListing(across) : singleListing(await client.list({ ...(workspace ? { workspace } : {}), ...asking }), workspace);
       if (request !== asked.current) return;
       if (!next) throw new Error("None of your projects has a repository with requests Tau can list.");
       setList(next);
@@ -350,7 +413,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     } finally {
       if (request === asked.current) setLoading(false);
     }
-  }, [client, everyProject, limit, preferences.state, scope.kind, search, workspace]);
+  }, [client, everyProject, machines, limit, preferences.state, scope.kind, search, workspace]);
 
   useEffect(() => { void load(); }, [connected, load]);
 
@@ -629,8 +692,11 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
               </div>
             ) : null}
             {list && list.failures.length > 0 ? (
-              <div className="pr-list-stale quiet" role="note" title={list.failures.map((failure) => `${projectName(failure.workspace) ?? failure.workspace}: ${failure.message}`).join("\n")}>
-                <span>Not listed: {list.failures.map((failure) => projectName(failure.workspace) ?? failure.workspace).join(", ")}.</span>
+              <div className="pr-list-stale quiet pr-list-failures" role="note">
+                <span>Not listed:</span>
+                <ul>
+                  {list.failures.map((failure) => <li key={failure.workspace}><strong>{projectName(failure.workspace) ?? failure.workspace}</strong> {failure.message}</li>)}
+                </ul>
               </div>
             ) : null}
             {list?.truncated ? (

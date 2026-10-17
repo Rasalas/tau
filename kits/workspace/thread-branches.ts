@@ -49,6 +49,12 @@ export interface ThreadBranch {
   defaultBranch?: string;
   /** Files `merge-tree` reports conflicted. */
   conflicts: string[];
+  /** Set when the local target is strictly behind `origin/<target>`: everything here was read against that ref, e.g. "origin/main". */
+  comparedRef?: string;
+  /** Commits `origin/<target>` has that the local target lacks; set with `comparedRef`. */
+  targetBehind?: number;
+  /** Commits the local target has that `origin/<target>` lacks, such as merges made here; set with `comparedRef`. */
+  targetAhead?: number;
   /** Why no merge can be checked (a detached main checkout, the same branch). */
   unavailable?: string;
   /** Why integration cannot write to the main checkout yet; review reads still work. */
@@ -219,6 +225,28 @@ export async function isLinkedWorktree(path: string, runGit: AgentGitRunner = ru
   return Boolean(gitDir && commonDir && resolve(gitDir) !== resolve(commonDir));
 }
 
+/**
+ * The origin ref when the branch left from it rather than from the local
+ * target: the local target only behind origin, or diverged by local merges
+ * while the branch forked from a newer origin. `ahead` counts local-only commits.
+ */
+async function readOriginBase(root: string, target: string, local: string, tip: string, runGit: AgentGitRunner): Promise<{ head: string; behind: number; ahead: number } | undefined> {
+  const head = (await runGit(root, ["rev-parse", "--verify", `refs/remotes/origin/${target}^{commit}`]).catch(() => "")).trim();
+  if (!head || head === local) return undefined;
+  const [behind = 0, ahead = 0] = (await runGit(root, ["rev-list", "--left-right", "--count", `${head}...${local}`]).catch(() => "")).trim().split(/\s+/u).map(Number);
+  if (behind === 0) return undefined;
+  if (ahead > 0) {
+    const fromLocal = (await runGit(root, ["merge-base", local, tip]).catch(() => "")).trim();
+    const fromOrigin = (await runGit(root, ["merge-base", head, tip]).catch(() => "")).trim();
+    const newer = fromLocal && fromOrigin && fromLocal !== fromOrigin && await runGit(root, ["merge-base", "--is-ancestor", fromLocal, fromOrigin]).then(() => true, () => false);
+    if (!newer) return undefined;
+  }
+  return { head, behind, ahead };
+}
+
+/** The ref a branch's counts, diff and merge preview were read against. */
+const comparedTarget = (branch: ThreadBranch) => branch.comparedRef ?? branch.target ?? "the review target";
+
 /** One worktree's branch against its target; remoteTarget checks origin instead of the local integration branch. */
 export async function readThreadBranch(path: string, runGit: AgentGitRunner = runAgentGit, requestedTarget?: string, remoteTarget = false): Promise<ThreadBranch | undefined> {
   const entries = parseWorktreeList(await runGit(path, ["worktree", "list", "--porcelain"]));
@@ -244,11 +272,21 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
   if (target === branch) return { ...base, target, ...empty, unavailable: "The review target is its own branch." };
   const into = { target, ...(defaultBranch ? { defaultBranch } : {}) };
   const targetRef = remoteTarget ? `refs/remotes/origin/${target}` : `refs/heads/${target}`;
-  const head = (await runGit(root, ["rev-parse", "--verify", `${targetRef}^{commit}`]).catch(() => "")).trim();
+  let head = (await runGit(root, ["rev-parse", "--verify", `${targetRef}^{commit}`]).catch(() => "")).trim();
   if (!head) return { ...base, ...into, ...empty, unavailable: `The review target ${remoteTarget ? `origin/${target}` : target} is not available locally.` };
+  // A local target nobody pulls goes stale; read the branch against the origin it left from.
+  const behindOrigin = remoteTarget ? undefined : await readOriginBase(root, target, head, tip, runGit);
+  if (behindOrigin) head = behindOrigin.head;
+  const origin = behindOrigin ? { comparedRef: `origin/${target}`, targetBehind: behindOrigin.behind, ...(behindOrigin.ahead ? { targetAhead: behindOrigin.ahead } : {}) } : {};
+  const commits = (count: number) => `${count} commit${count === 1 ? "" : "s"}`;
+  const behindNote = behindOrigin ? ` ${target} is ${commits(behindOrigin.behind)} behind origin/${target}.` : "";
   const mergeBlocked = main.branch !== target
-    ? `Check out ${target} in the project's main folder before merging. It currently has ${main.branch ?? "a detached HEAD"}.` : undefined;
-  const destination = { ...into, ...(mergeBlocked ? { mergeBlocked } : {}) };
+    ? `Check out ${target} in the project's main folder before merging. It currently has ${main.branch ?? "a detached HEAD"}.${behindNote}`
+    : behindOrigin?.ahead
+      ? `${target} has ${commits(behindOrigin.ahead)} origin/${target} lacks and is ${commits(behindOrigin.behind)} behind it; bring ${target} up to date with origin/${target} before merging here.`
+      : behindOrigin && (await runGit(root, ["status", "--porcelain"]).catch(() => "x")).trim()
+        ? `${target} is ${commits(behindOrigin.behind)} behind origin/${target} and the project's main folder has changes not committed; commit or move them so ${target} can be brought up to date.` : undefined;
+  const destination = { ...into, ...origin, ...(mergeBlocked ? { mergeBlocked } : {}) };
   const counts = (await runGit(root, ["rev-list", "--left-right", "--count", `${head}...${tip}`])).trim().split(/\s+/u).map(Number);
   const [behind = 0, ahead = 0] = counts;
   if (ahead === 0) {
@@ -341,9 +379,10 @@ export async function readThreadBranches(paths: readonly string[], runGit: Agent
       return undefined;
     }
     const branch = await readThreadBranch(path, runGit, targets?.get(path)).catch(() => undefined);
-    if (!branch || branch.merged || !branch.target) return branch;
+    if (!branch || branch.merged || !branch.target || branch.comparedRef) return branch;
     // Published completion counts even when the local target has not caught up.
     // Keep the local diff and pending files; merge commands still read the local target.
+    // A local target behind origin was read against origin already.
     const published = await readThreadBranch(path, runGit, branch.target, true).catch(() => undefined);
     if (!published?.merged || published.tip !== branch.tip) return branch;
     return { ...branch, merged: true, mergedBy: published.mergedBy, conflicts: [] };
@@ -385,8 +424,14 @@ export async function mergeThreadBranch(path: string, options: { expectedTip?: s
   if (!branch.target || branch.unavailable) throw new Error(branch.unavailable ?? "The main checkout is not on a branch.");
   if (options.expectedTip && options.expectedTip !== branch.tip) throw new Error(`${branch.branch} moved since it was read; look at it again before merging.`);
   if (branch.uncommitted > 0) throw new Error(`${branch.branch} has ${branch.uncommitted} file${branch.uncommitted === 1 ? "" : "s"} not committed; ask the thread to commit first.`);
-  if (branch.merged) return { state: "already-merged", branch: branch.branch, into: branch.target, root: branch.root, files: [], detail: `${branch.branch} is already integrated into ${branch.target}.` };
+  if (branch.merged) return { state: "already-merged", branch: branch.branch, into: branch.target, root: branch.root, files: [], detail: `${branch.branch} is already integrated into ${comparedTarget(branch)}.` };
   if (branch.mergeBlocked) throw new Error(branch.mergeBlocked);
+  // The merge lands in the checkout's HEAD; bring a stale target up to origin first.
+  if (branch.comparedRef) {
+    await runGit(branch.root, ["merge", "--ff-only", `refs/remotes/${branch.comparedRef}`]).catch((error: unknown) => {
+      throw new Error(`${branch.target} could not be brought up to date with ${branch.comparedRef}: ${String((error as Error)?.message ?? error).split("\n")[0]}`, { cause: error });
+    });
+  }
   // A spawned thread's base is a state commit carrying the checkout's work of then; a ref like origin/main is not.
   const recorded = await readBranchBase(branch.root, branch.branch, runGit);
   const base = recorded && /^[0-9a-f]{40,64}$/u.test(recorded) ? recorded : undefined;
@@ -400,7 +445,7 @@ export async function mergeThreadBranch(path: string, options: { expectedTip?: s
 export async function readThreadConflicts(path: string, runGit: AgentGitRunner = runAgentGit, target?: string): Promise<{ tip: string; files: ConflictFile[] }> {
   const branch = await readThreadBranch(path, runGit, target);
   if (!branch?.target || branch.unavailable) throw new Error(branch?.unavailable ?? "This folder is no worktree on a branch of its own.");
-  const preview = await previewBranchMerge(branch.root, branch.tip, runGit, `refs/heads/${branch.target}`);
+  const preview = await previewBranchMerge(branch.root, branch.tip, runGit, branch.comparedRef ? `refs/remotes/${branch.comparedRef}` : `refs/heads/${branch.target}`);
   return { tip: branch.tip, files: await readConflictFiles(branch.root, preview.tree, preview.conflicts, runGit) };
 }
 
@@ -414,7 +459,7 @@ export async function removeThreadBranch(path: string, options: { integratedTip?
   const branch = await readThreadBranch(path, runGit, options.target);
   if (!branch) throw new Error("This folder is no worktree on a branch of its own.");
   if (options.expectedTip && options.expectedTip !== branch.tip) throw new Error(`${branch.branch} moved since it was read; nothing was removed.`);
-  if (!branch.merged && options.integratedTip !== branch.tip) throw new Error(`${branch.target ?? "The review target"} does not hold ${branch.branch} yet; nothing was removed.`);
+  if (!branch.merged && options.integratedTip !== branch.tip) throw new Error(`${comparedTarget(branch)} does not hold ${branch.branch} yet; nothing was removed.`);
   if (branch.uncommitted > 0) throw new Error(`${branch.branch} has ${branch.uncommitted} file${branch.uncommitted === 1 ? "" : "s"} not committed; nothing was removed.`);
   const top = (await runGit(path, ["rev-parse", "--show-toplevel"])).trim();
   await runGit(branch.root, ["worktree", "remove", top]);

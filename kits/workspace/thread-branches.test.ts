@@ -53,8 +53,8 @@ describe("a thread's worktree branch", () => {
     repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "tau/published");
 
     expect((await readThreadBranches([dir]))[0]).toMatchObject({ target: "main", merged: true, uncommitted: 0, conflicts: [] });
-    // Local merge operations still compare against the checkout they would change.
-    expect(await readThreadBranch(dir)).toMatchObject({ merged: false });
+    // A local target only behind origin is read against origin too, and says so.
+    expect(await readThreadBranch(dir)).toMatchObject({ merged: true, comparedRef: "origin/main", targetBehind: 1 });
     expect(repo.run(repo.cwd, "rev-parse", "main")).toBe(localHead);
 
     await writeFile(join(dir, "follow-up.txt"), "new work\n");
@@ -256,6 +256,107 @@ describe("a thread's worktree branch", () => {
     const dir = repo.worktree("tau/x");
     repo.run(repo.cwd, "checkout", "-q", "--detach");
     expect(await readThreadBranch(dir)).toMatchObject({ target: "main", mergeBlocked: expect.stringContaining("a detached HEAD") });
+  });
+});
+
+describe("a local target that fell behind origin", () => {
+  /** Local main stays at `first`; origin/main moves `count` commits on, each touching its own file. */
+  async function stale(count = 3) {
+    const repo = await repository();
+    const published = repo.worktree("published");
+    for (let index = 1; index <= count; index++) await repo.commit(published, `origin-${index}.txt`, `${index}\n`);
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "published");
+    const fresh = (branch: string) => {
+      const dir = join(repo.root, branch.replaceAll("/", "-"));
+      repo.run(repo.cwd, "worktree", "add", "-q", "-b", branch, dir, "origin/main");
+      repo.run(repo.cwd, "config", `branch.${branch}.tau-base`, "main");
+      return dir;
+    };
+    return { ...repo, fresh };
+  }
+
+  it("counts a branch on top of origin by its own work, not by what main lacks", async () => {
+    const repo = await stale();
+    const dir = repo.fresh("tau/fresh");
+    await repo.commit(dir, "b.txt", "mine\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ target: "main", comparedRef: "origin/main", targetBehind: 3, ahead: 1, behind: 0, files: 1, added: 1, removed: 0, merged: false, conflicts: [] });
+  });
+
+  it("reports an old branch as behind origin, not as ready", async () => {
+    const repo = await stale();
+    const dir = repo.worktree("tau/old");
+    await repo.commit(dir, "b.txt", "mine\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ ahead: 1, behind: 3, comparedRef: "origin/main", targetBehind: 3, conflicts: [] });
+  });
+
+  it("previews conflicts and hunks against origin", async () => {
+    const repo = await stale(1);
+    const dir = repo.worktree("tau/clash");
+    await repo.commit(dir, "a.txt", "one\nTWO\nthree\n");
+    await repo.commit(join(repo.root, "published"), "a.txt", "one\nzwei\nthree\n");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "published");
+    expect(await readThreadBranch(dir)).toMatchObject({ conflicts: ["a.txt"], comparedRef: "origin/main" });
+    const read = await readThreadConflicts(dir);
+    expect(read.files[0]?.hunks[0]).toMatchObject({ main: ["zwei"], thread: ["TWO"] });
+  });
+
+  it("stays on the local target when it holds commits origin lacks", async () => {
+    const repo = await stale();
+    await repo.commit(repo.cwd, "local-only.txt", "x\n");
+    const dir = repo.worktree("tau/diverged");
+    await repo.commit(dir, "b.txt", "mine\n");
+    const branch = await readThreadBranch(dir);
+    expect(branch).toMatchObject({ ahead: 1, behind: 0 });
+    expect(branch?.comparedRef).toBeUndefined();
+    expect(branch?.targetBehind).toBeUndefined();
+  });
+
+  it("reads a branch that left from origin against origin when main also holds local merges", async () => {
+    const repo = await stale();
+    await repo.commit(repo.cwd, "local-only.txt", "x\n");
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+    const dir = repo.fresh("tau/from-origin");
+    await repo.commit(dir, "b.txt", "mine\n");
+    expect(await readThreadBranch(dir)).toMatchObject({ comparedRef: "origin/main", targetBehind: 3, targetAhead: 1, ahead: 1, behind: 0, files: 1, conflicts: [] });
+    // Merging here would carry origin's commits into a main that has its own; it says so instead.
+    await expect(mergeThreadBranch(dir)).rejects.toThrow(/main has 1 commit origin\/main lacks and is 3 commits behind it/u);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  it("fast-forwards the main checkout before it merges", async () => {
+    const repo = await stale();
+    const dir = repo.fresh("tau/lands");
+    await repo.commit(dir, "b.txt", "mine\n");
+    const origin = repo.run(repo.cwd, "rev-parse", "origin/main");
+    expect(await mergeThreadBranch(dir)).toMatchObject({ state: "merged", into: "main" });
+    expect(repo.run(repo.cwd, "merge-base", "--is-ancestor", origin, "HEAD")).toBe("");
+    expect(existsSync(join(repo.cwd, "origin-3.txt"))).toBe(true);
+    expect(existsSync(join(repo.cwd, "b.txt"))).toBe(true);
+    const after = await readThreadBranch(dir);
+    expect(after).toMatchObject({ merged: true });
+    expect(after?.comparedRef).toBeUndefined();
+  });
+
+  it("does not merge into a stale checkout it cannot update, and says why", async () => {
+    const repo = await stale();
+    const dir = repo.fresh("tau/blocked");
+    await repo.commit(dir, "b.txt", "mine\n");
+    const head = repo.run(repo.cwd, "rev-parse", "HEAD");
+    await writeFile(join(repo.cwd, "a.txt"), "dirty\n");
+    await expect(mergeThreadBranch(dir)).rejects.toThrow(/3 commits behind origin\/main/u);
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(head);
+    await writeFile(join(repo.cwd, "a.txt"), "one\ntwo\nthree\n");
+    repo.run(repo.cwd, "switch", "-q", "-c", "other");
+    await expect(mergeThreadBranch(dir)).rejects.toThrow(/Check out main.*3 commits behind origin\/main/su);
+    expect(repo.run(repo.cwd, "rev-parse", "main")).toBe(head);
+  });
+
+  it("removes a branch origin already holds", async () => {
+    const repo = await stale(1);
+    const dir = repo.worktree("tau/shipped");
+    await repo.commit(dir, "b.txt", "mine\n");
+    repo.run(repo.cwd, "update-ref", "refs/remotes/origin/main", "tau/shipped");
+    expect(await removeThreadBranch(dir)).toMatchObject({ branch: "tau/shipped" });
   });
 });
 
