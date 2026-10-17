@@ -39,7 +39,7 @@ import type { PlatformEnvironments } from "../workbench/environments";
 import { PreferencesStore } from "./preferences";
 import { ExtensionServiceRegistry } from "./extension-service-registry";
 import { ExtensionActivation } from "./extension-activation";
-import { throwFailures } from "./extension-lifecycle-errors";
+import { runAll, throwFailures } from "./extension-lifecycle-errors";
 import { errorMessage } from "../workbench/error-message";
 import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
@@ -1853,6 +1853,7 @@ export class HostUnavailableError extends Error {
 
 const noHostBridge: HostExtensionBridge = {
   invoke: () => Promise.reject(new HostUnavailableError()),
+  inspect: () => Promise.reject(new HostUnavailableError()),
 };
 
 /** What a contribution this client does not draw hands back: nothing to dispose. */
@@ -1865,13 +1866,12 @@ const noTranscriptRows: TranscriptRowsHandle = {
 
 /** Generalizes the desktop API's `invokeHostExtension` to whatever `HostClient` is active. */
 export function hostExtensionBridge(client: HostClient | undefined): HostExtensionBridge {
+  if (!client) return noHostBridge;
   return {
-    invoke: (extensionId, command, input) => client
-      ? client.invokeHostExtension(extensionId, command, input)
-      : Promise.reject(new HostUnavailableError()),
-    inspect: (cwd) => client ? client.inspectExtensions(cwd) : Promise.reject(new HostUnavailableError()),
-    ...(client?.resourceUrl ? { resourceUrl: (path: string) => client.resourceUrl!(path) } : {}),
-    ...(client ? { watch: (extensionId: string, topic: string) => client.watchHostTopic(extensionId, topic) } : {}),
+    invoke: (extensionId, command, input) => client.invokeHostExtension(extensionId, command, input),
+    inspect: (cwd) => client.inspectExtensions(cwd),
+    ...(client.resourceUrl ? { resourceUrl: (path: string) => client.resourceUrl!(path) } : {}),
+    watch: (extensionId: string, topic: string) => client.watchHostTopic(extensionId, topic),
   };
 }
 
@@ -2049,10 +2049,7 @@ export class ExtensionRegistry {
     const pending = this.#activationTransitions.get(id);
     if (pending) {
       pending.next = next;
-      try { this.deactivateNow(id); } catch (error) {
-        pending.next = undefined;
-        throw error;
-      }
+      this.deactivateNow(id);
       return;
     }
     const transition: { next: DesktopExtension | false | undefined } = { next };
@@ -2062,15 +2059,11 @@ export class ExtensionRegistry {
       while (transition.next !== undefined) {
         const requested = transition.next;
         transition.next = undefined;
-        try { this.deactivateNow(id); } catch (error) {
-          errors.push(error);
-          transition.next = undefined;
-          break;
-        }
-        // A callback made a newer request while the old activation ended.
-        if (requested && transition.next === undefined) {
-          try { this.activateNow(requested); } catch (error) { errors.push(error); }
-        }
+        try {
+          this.deactivateNow(id);
+          // A callback made a newer request while the old activation ended.
+          if (requested && transition.next === undefined) this.activateNow(requested);
+        } catch (error) { errors.push(error); }
       }
     } finally {
       this.#activationTransitions.delete(id);
@@ -2092,6 +2085,11 @@ export class ExtensionRegistry {
     // A theme contributes only its rules; without this the Inspector shows it
     // as an extension that contributes nothing.
     if (unmountStyles) note("styles");
+    const contribute = <T extends ProfileScoped>(map: Map<string, Owned<T>>, id: string, value: T, kind: string, label: string | undefined, summary: string): (() => void) => {
+      if (!profiled(owner, kind, id, label, value)) return noContribution;
+      note(summary);
+      return this.register(map, id, { ...value, ...owner }, activation);
+    };
     const hostClient = (extensionId: string): HostExtensionClient => ({
       invoke: (command, input) => activation.active
         ? this.hostBridge.invoke(extensionId, command, input)
@@ -2123,32 +2121,16 @@ export class ExtensionRegistry {
       get environments() { return platform?.()?.environments; },
       host: hostClient(extension.id),
       hostExtension: (extensionId) => hostClient(extensionId),
-      registerPanel: (panel) => {
-        if (!profiled(owner, "panel", panel.id, panel.label, panel)) return noContribution;
-        note(panel.label.toLowerCase());
-        return this.register(this.#panels, panel.id, { ...panel, ...owner }, activation);
-      },
+      registerPanel: (panel) => contribute(this.#panels, panel.id, panel, "panel", panel.label, panel.label.toLowerCase()),
       registerStageTab: (tab) => {
         const contribution = tab as unknown as StageTabContribution;
         if (!profiled(owner, "stage tab", contribution.kind, contribution.kind, contribution)) return noContribution;
         note("stage tabs");
         return this.register(this.#stageTabKinds, contribution.kind, { ...contribution, ...owner }, activation);
       },
-      registerSettingsPage: (page) => {
-        if (!profiled(owner, "settings page", page.id, page.label, page)) return noContribution;
-        note("settings page");
-        return this.register(this.#settingsPages, page.id, { ...page, ...owner }, activation);
-      },
-      registerPage: (page) => {
-        if (!profiled(owner, "page", page.id, page.label, page)) return noContribution;
-        note("page");
-        return this.register(this.#pages, page.id, { ...page, ...owner }, activation);
-      },
-      registerSettingsSection: (section) => {
-        if (!profiled(owner, "settings section", section.id, section.id, section)) return noContribution;
-        note("settings section");
-        return this.register(this.#settingsSections, section.id, { ...section, ...owner }, activation);
-      },
+      registerSettingsPage: (page) => contribute(this.#settingsPages, page.id, page, "settings page", page.label, "settings page"),
+      registerPage: (page) => contribute(this.#pages, page.id, page, "page", page.label, "page"),
+      registerSettingsSection: (section) => contribute(this.#settingsSections, section.id, section, "settings section", section.id, "settings section"),
       inspectPackages: (cwd) => this.hostBridge.inspect
         ? this.hostBridge.inspect(cwd)
         : Promise.reject(new HostUnavailableError()),
@@ -2169,21 +2151,9 @@ export class ExtensionRegistry {
         note(`${region.placement} region`);
         return this.register(this.#regions, region.id, { ...region, ...owner }, activation);
       },
-      registerStatusItem: (item) => {
-        if (!profiled(owner, "status item", item.id, undefined, item)) return noContribution;
-        note("status line");
-        return this.register(this.#statusItems, item.id, { ...item, ...owner }, activation);
-      },
-      registerOverlay: (overlay) => {
-        if (!profiled(owner, "overlay", overlay.id, undefined, overlay)) return noContribution;
-        note("overlay");
-        return this.register(this.#overlays, overlay.id, { ...overlay, ...owner }, activation);
-      },
-      registerConversationView: (view) => {
-        if (!profiled(owner, "conversation view", view.id, undefined, view)) return noContribution;
-        note("conversation view");
-        return this.register(this.#conversationViews, view.id, { ...view, ...owner }, activation);
-      },
+      registerStatusItem: (item) => contribute(this.#statusItems, item.id, item, "status item", undefined, "status line"),
+      registerOverlay: (overlay) => contribute(this.#overlays, overlay.id, overlay, "overlay", undefined, "overlay"),
+      registerConversationView: (view) => contribute(this.#conversationViews, view.id, view, "conversation view", undefined, "conversation view"),
       setLiveStatus: (sessionId, label) => {
         if (!activation.active) return;
         const own = this.#liveStatuses.get(extension.id) ?? new Map<string, string>();
@@ -2258,11 +2228,7 @@ export class ExtensionRegistry {
           dispose,
         };
       },
-      registerComposerControl: (control) => {
-        if (!profiled(owner, "composer control", control.id, undefined, control)) return noContribution;
-        note("composer controls");
-        return this.register(this.#composerControls, control.id, { ...control, ...owner }, activation);
-      },
+      registerComposerControl: (control) => contribute(this.#composerControls, control.id, control, "composer control", undefined, "composer controls"),
       registerComposerInline: (inline) => {
         if (!activation.active) return noContribution;
         for (const trigger of inline.triggers ?? []) {
@@ -2274,31 +2240,11 @@ export class ExtensionRegistry {
         note("composer context");
         return this.register(this.#composerInlines, inline.id, { ...inline, ...owner }, activation);
       },
-      registerComposerGate: (gate) => {
-        if (!profiled(owner, "composer gate", gate.id, undefined, gate)) return noContribution;
-        note("composer gates");
-        return this.register(this.#composerGates, gate.id, { ...gate, ...owner }, activation);
-      },
-      registerModelBadge: (badge) => {
-        if (!profiled(owner, "model badge", badge.id, badge.label, badge)) return noContribution;
-        note("model badges");
-        return this.register(this.#modelBadges, badge.id, { ...badge, ...owner }, activation);
-      },
-      registerComposerSpeed: (speed) => {
-        if (!profiled(owner, "composer speed", speed.id, undefined, speed)) return noContribution;
-        note("composer speed");
-        return this.register(this.#composerSpeeds, speed.id, { ...speed, ...owner }, activation);
-      },
-      registerComposerSendMode: (mode) => {
-        if (!profiled(owner, "composer send mode", mode.id, undefined, mode)) return noContribution;
-        note("composer send mode");
-        return this.register(this.#composerSendModes, mode.id, { ...mode, ...owner }, activation);
-      },
-      registerComposerPlanner: (planner) => {
-        if (!profiled(owner, "composer planner", planner.id, planner.label, planner)) return noContribution;
-        note("composer planners");
-        return this.register(this.#composerPlanners, planner.id, { ...planner, ...owner }, activation);
-      },
+      registerComposerGate: (gate) => contribute(this.#composerGates, gate.id, gate, "composer gate", undefined, "composer gates"),
+      registerModelBadge: (badge) => contribute(this.#modelBadges, badge.id, badge, "model badge", badge.label, "model badges"),
+      registerComposerSpeed: (speed) => contribute(this.#composerSpeeds, speed.id, speed, "composer speed", undefined, "composer speed"),
+      registerComposerSendMode: (mode) => contribute(this.#composerSendModes, mode.id, mode, "composer send mode", undefined, "composer send mode"),
+      registerComposerPlanner: (planner) => contribute(this.#composerPlanners, planner.id, planner, "composer planner", planner.label, "composer planners"),
       provideService: (id, value) => {
         if (!activation.active) return noContribution;
         const withdraw = this.#extensionServices.provide(extension.id, id, value);
@@ -2327,16 +2273,8 @@ export class ExtensionRegistry {
         const dispose = this.subscribeRegistrations(activation.guard(listener));
         return activation.own(dispose);
       },
-      registerSidebar: (contribution) => {
-        if (!profiled(owner, "sidebar", contribution.id, undefined, contribution)) return noContribution;
-        note("sidebar");
-        return this.register(this.#sidebarContributions, contribution.id, { ...contribution, ...owner }, activation);
-      },
-      registerProjectSource: (source) => {
-        if (!profiled(owner, "project source", source.id, source.label, source)) return noContribution;
-        note("project sources");
-        return this.register(this.#projectSources, source.id, { ...source, ...owner }, activation);
-      },
+      registerSidebar: (contribution) => contribute(this.#sidebarContributions, contribution.id, contribution, "sidebar", undefined, "sidebar"),
+      registerProjectSource: (source) => contribute(this.#projectSources, source.id, source, "project source", source.label, "project sources"),
       registerThreadListSource: (source) => {
         note("thread list sources");
         return this.register(this.#threadListSources, source.id, { ...source, ...owner }, activation);
@@ -2368,11 +2306,7 @@ export class ExtensionRegistry {
         note("slash commands");
         return this.register(this.#slashCommands, command.name, { ...command, ...owner }, activation);
       },
-      registerPromptRenderer: (renderer) => {
-        if (!profiled(owner, "prompt renderer", renderer.id, undefined, renderer)) return noContribution;
-        note("prompt renderers");
-        return this.register(this.#promptRenderers, renderer.id, { ...renderer, ...owner }, activation);
-      },
+      registerPromptRenderer: (renderer) => contribute(this.#promptRenderers, renderer.id, renderer, "prompt renderer", undefined, "prompt renderers"),
       registerPromptHook: (hook) => {
         note("prompt hooks");
         return this.register(this.#promptHooks, hook.id, { ...hook, ...owner }, activation);
@@ -2386,40 +2320,20 @@ export class ExtensionRegistry {
         return this.register(this.#threadMenus, menu.id, { ...menu, ...owner }, activation);
       },
       registerForkPrompt: (prompt) => this.register(this.#forkPrompts, prompt.id, { ...prompt, ...owner }, activation),
-      registerMessageAction: (action) => {
-        if (!profiled(owner, "message action", action.id, action.label, action)) return noContribution;
-        note("message actions");
-        return this.register(this.#messageActions, action.id, { ...action, ...owner }, activation);
-      },
-      registerMessageBlock: (block) => {
-        if (!profiled(owner, "message block", block.id, undefined, block)) return noContribution;
-        note("message blocks");
-        return this.register(this.#messageBlocks, block.id, { ...block, ...owner }, activation);
-      },
-      registerTranscriptFinder: (finder) => {
-        if (!profiled(owner, "transcript finder", finder.id, undefined, finder)) return noContribution;
-        note("transcript finder");
-        return this.register(this.#transcriptFinders, finder.id, { ...finder, ...owner }, activation);
-      },
+      registerMessageAction: (action) => contribute(this.#messageActions, action.id, action, "message action", action.label, "message actions"),
+      registerMessageBlock: (block) => contribute(this.#messageBlocks, block.id, block, "message block", undefined, "message blocks"),
+      registerTranscriptFinder: (finder) => contribute(this.#transcriptFinders, finder.id, finder, "transcript finder", undefined, "transcript finder"),
       registerUserKeymap: (keymap) => {
         note("user keymap");
         return this.register(this.#userKeymaps, keymap.id, { ...keymap, ...owner }, activation);
       },
-      registerDocumentSource: (source) => {
-        if (!profiled(owner, "document source", source.id, undefined, source)) return noContribution;
-        note("documents");
-        return this.register(this.#documentSources, source.id, { ...source, ...owner }, activation);
-      },
+      registerDocumentSource: (source) => contribute(this.#documentSources, source.id, source, "document source", undefined, "documents"),
       registerToolRenderer: (id, match, render, options) => {
         if (!profiled(owner, "tool renderer", id, undefined, options)) return noContribution;
         note("tool renderers");
         return this.register(this.#renderers, id, { id, match, render, ...owner }, activation);
       },
-      registerToolCard: (card) => {
-        if (!profiled(owner, "tool card", card.id, undefined, card)) return noContribution;
-        note("tool cards");
-        return this.register(this.#toolCards, card.id, { ...card, ...owner }, activation);
-      },
+      registerToolCard: (card) => contribute(this.#toolCards, card.id, card, "tool card", undefined, "tool cards"),
       registerOptions: (options) => {
         if (!activation.active) return noContribution;
         if (this.#options.has(extension.id)) throw new Error(`Extension ${extension.id} registered options more than once`);
@@ -2469,6 +2383,8 @@ export class ExtensionRegistry {
     this.#profiledContributions.delete(id);
     try { this.clearPublishedData(id); } catch (error) { errors.push(error); }
     try { this.changed(); } catch (error) { errors.push(error); }
+    const transition = this.#activationTransitions.get(id);
+    if (errors.length && transition) transition.next = undefined;
     throwFailures(errors);
   }
 
@@ -2485,11 +2401,8 @@ export class ExtensionRegistry {
     this.#mergedRowMarks = undefined;
     this.#lineageCache = undefined;
     this.#problemCache = undefined;
-    const errors: unknown[] = [];
-    for (const key of [...statusThreads.map((sessionId) => `thread:${sessionId}`), "marks", "lineage", "project-icons", "provider-icons", "problems"]) {
-      try { this.dataChanged(key); } catch (error) { errors.push(error); }
-    }
-    throwFailures(errors);
+    const keys = [...statusThreads.map((sessionId) => `thread:${sessionId}`), "marks", "lineage", "project-icons", "provider-icons", "problems"];
+    runAll(keys.map((key) => () => this.dataChanged(key)));
   }
 
   /** Records the user's answer on a known extension so the settings page stops asking. */
@@ -3008,7 +2921,7 @@ export class ExtensionRegistry {
     if (key === "problems") this.#problemCache = undefined;
     if (transcript && key.startsWith("thread:")) this.#transcriptCache.delete(key.slice(7));
     this.#legacyVersion += 1;
-    this.notifyListeners([...(this.#dataListeners.get(key) ?? []), ...this.#listeners]);
+    runAll([...(this.#dataListeners.get(key) ?? []), ...this.#listeners]);
   }
 
   private register<T>(map: Map<string, T>, id: string, value: T, activation: ExtensionActivation): () => void {
@@ -3068,14 +2981,6 @@ export class ExtensionRegistry {
   private changed(): void {
     this.#version += 1;
     this.#legacyVersion += 1;
-    this.notifyListeners([...this.#registrationListeners, ...this.#listeners]);
-  }
-
-  private notifyListeners(listeners: Array<() => void>): void {
-    const errors: unknown[] = [];
-    for (const listener of listeners) {
-      try { listener(); } catch (error) { errors.push(error); }
-    }
-    throwFailures(errors);
+    runAll([...this.#registrationListeners, ...this.#listeners]);
   }
 }
