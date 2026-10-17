@@ -41,10 +41,10 @@ import {
   type WorkbenchActions,
 } from "tau";
 import { useCompactProfile } from "./compact-profile.js";
-import { buildInbox, fixRequest, mergedStatus, openPulls, type InboxItem } from "./inbox.js";
-import { useInboxPulls, type InboxPullsStore } from "./inbox-pulls.js";
+import { fixRequest, mergedStatus, type InboxItem } from "./inbox.js";
+import { useInboxRows, type InboxPullsStore } from "./inbox-pulls.js";
 import { mergeBlocker, mergedThisMonth, reviewRuntime, type HunkPick, type LocalReview } from "./local-reviews.js";
-import { useLocalReviews, type LocalReviewsStore, type ReviewRun } from "./local-reviews-store.js";
+import type { LocalReviewsStore, ReviewRun } from "./local-reviews-store.js";
 import { runsPipeline } from "./pipeline.js";
 import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
 import { REVIEW_HOST_EXTENSION_ID, requestNumber, type PendingReviewComment, type PullRequestListEntry } from "./protocol.js";
@@ -296,11 +296,7 @@ type InboxProject = ProjectMark & { open: number };
  * the projects with how many of its rows each has, for the sidebar's filter.
  */
 function useInbox(parts: ReviewsPageParts) {
-  const local = useLocalReviews(parts.store);
-  const pulls = useInboxPulls(parts.pulls);
-  const open = useMemo(() => openPulls(pulls.answer), [pulls.answer]);
-  const store = parts.store;
-  const sections = useMemo(() => buildInbox(local.reviews, open, (review) => store.latestRuns(review.path ?? "")), [local.reviews, open, store]);
+  const { pulls, sections, total, ...local } = useInboxRows(parts.store, parts.pulls);
   const marks = useMemo(() => new Map(pulls.projects.map((project) => [projectId(project), markOf(project)])), [pulls.projects]);
   const projects = useMemo((): InboxProject[] => {
     const listed = new Map<string, InboxProject>(local.counts.projects.map((entry) => [entry.key, { ...entry, open: 0 }]));
@@ -314,7 +310,6 @@ function useInbox(parts: ReviewsPageParts) {
     }
     return [...listed.values()].sort((left, right) => right.open - left.open || left.name.localeCompare(right.name));
   }, [local.counts.projects, sections, marks]);
-  const total = sections.reduce((sum, section) => sum + section.items.length, 0);
   return { ...local, pulls, sections, projects, marks, total };
 }
 

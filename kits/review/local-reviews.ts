@@ -401,9 +401,6 @@ export function countReviews(reviews: readonly LocalReview[]): ReviewCounts {
   return counts;
 }
 
-/** What waits for the user: ready to merge, or in conflict. Changes requested wait for the thread. */
-export const needsYou = (counts: Pick<ReviewCounts, "ready" | "conflicts">): number => counts.ready + counts.conflicts;
-
 /** Merges made from the page since the first of this month, and what their threads cost. */
 export function mergedThisMonth(reviews: readonly LocalReview[], now = Date.now()): { count: number; costUsd: number } {
   const date = new Date(now);

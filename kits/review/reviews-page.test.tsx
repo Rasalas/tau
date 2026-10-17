@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PageProps, UiSession, WorkbenchActions } from "tau";
 import { TestPageActionSlot, TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
-import { createKitHarness, HostClientProvider } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, createMemoryStorage, HostClientProvider, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
+import { PullRequestCache } from "./pull-request-cache.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { reviewExtension } from "./desktop.js";
 import { reviewKey, type LocalReviewsAnswer, type ThreadBranch } from "./local-reviews.js";
@@ -425,20 +426,53 @@ describe("the Reviews sidebar", () => {
 });
 
 describe("the Reviews entry", () => {
-  it("is the page a phone's bottom navigation takes first, in place of Pull requests, counting what waits for the user", async () => {
-    const invoke = vi.fn(async (_extension: string, command: string) => (command === "local-reviews" ? ANSWER : undefined));
+  afterEach(() => setClientStorage(undefined));
+
+  /** The kit in a phone's workbench; `cached` seeds the request cache the inbox reads, `answer` is what a host read returns. */
+  async function entry(options: { cached?: PullRequestLists; answer?: PullRequestLists; branches?: Promise<unknown> } = {}) {
+    const storage = createMemoryStorage();
+    if (options.cached) await new PullRequestCache(storage).invoke({ invoke: async () => options.cached } as unknown as HostExtensionClient, "pr-list-many", { state: "open", limit: 100, workspaces: [] });
+    setClientStorage(storage);
+    const invoke = vi.fn(async (_extension: string, command: string) => command === "local-reviews" ? (await options.branches, ANSWER) : command === "pr-list-many" ? options.answer ?? { lists: [], failures: [] } : undefined);
     const { registry } = createKitHarness(invoke, "compact");
     registry.activate(reviewExtension);
-    const pages = registry.getPages();
-    expect(pages.map((page) => [page.id, page.label, page.order, page.prominent, Boolean(page.Sidebar)])).toEqual([["review.reviews", "Reviews", 10, true, true]]);
+    const page = registry.getPages()[0]!;
     function Badge() {
-      const count = pages[0]!.useBadge?.();
+      const count = page.useBadge?.();
       return <output>{count ?? "none"}</output>;
     }
+    return { invoke, registry, page, Badge };
+  }
+  const own = (number: number) => pr(number, { checks: "passing" });
+
+  it("is the page a phone's bottom navigation takes first, and counts the inbox's rows without asking a host", async () => {
+    const { invoke, registry, page, Badge } = await entry();
+    expect([page.id, page.label, page.order, page.prominent, Boolean(page.Sidebar)]).toEqual(["review.reviews", "Reviews", 10, true, true]);
     render(<TestProviders><TestThreadStore threads={THREADS}><Badge /></TestThreadStore></TestProviders>);
-    // Ready and in conflict wait for the user; changes requested wait for the thread.
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("2"));
+    // Ready, in conflict and waiting on the thread: the inbox's three rows.
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("3"));
     expect(invoke).toHaveBeenCalledWith("tau.review", "local-reviews", { workspaces: ["ws-pagination", "ws-pairing-flake", "ws-webhook-retries"] });
+    expect(invoke).not.toHaveBeenCalledWith("tau.review", "pr-list-many", expect.anything());
+    registry.deactivate?.(reviewExtension.id);
+  });
+
+  it("counts the cached requests as the inbox does, and follows the page's read when it lands", async () => {
+    let read: (value?: unknown) => void = () => undefined;
+    const branches = new Promise((resolve) => { read = resolve; });
+    const { invoke, registry, page, Badge } = await entry({ cached: lists([own(21), own(22)]), answer: lists([own(21), own(22), own(23)]), branches });
+    render(<TestProviders><TestThreadStore threads={THREADS}><Badge /></TestThreadStore></TestProviders>);
+    // Until the branches are read, a request could still be one of them: no count yet.
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("tau.review", "local-reviews", expect.anything()));
+    expect(screen.getByRole("status").textContent).toBe("none");
+    read();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("5"));
+    expect(invoke).not.toHaveBeenCalledWith("tau.review", "pr-list-many", expect.anything());
+    const Page = page.Component;
+    const props = { params: {}, navigate: vi.fn(), close: vi.fn(), actions: { toast: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions };
+    render(<TestProviders><TestThreadStore threads={THREADS}><Page {...props} /></TestThreadStore></TestProviders>);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("6"));
+    const tabs = await screen.findByRole("navigation", { name: "Reviews" });
+    await waitFor(() => expect(within(tabs).getByRole("button", { name: /Inbox/u }).textContent).toBe("Inbox6"));
     registry.deactivate?.(reviewExtension.id);
   });
 });

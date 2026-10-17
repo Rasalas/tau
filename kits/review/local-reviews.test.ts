@@ -5,7 +5,6 @@ import {
   deriveReviews,
   mergeBlocker,
   mergedThisMonth,
-  needsYou,
   noteRequest,
   rebaseRequest,
   reviewKey,
@@ -178,7 +177,6 @@ describe("the page's counts and footer", () => {
     const counts = countReviews(reviews);
     expect(counts).toMatchObject({ ready: 1, requested: 1, conflicts: 1, merged: 1 });
     expect(counts.projects).toEqual([{ key: "ws-shop", name: "shop-api", root: "/repo/shop-api", open: 2 }, { key: "ws-tau", name: "tau", root: "/repo/tau", open: 1 }]);
-    expect(needsYou(counts)).toBe(2);
   });
 
   it("lists a project once when a merge record lacks the project's workspace", () => {
