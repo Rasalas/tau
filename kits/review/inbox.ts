@@ -17,12 +17,12 @@ export interface InboxPull {
   entry: PullRequestListEntry;
   /** The signed-in account wrote it. */
   mine: boolean;
-  /** The project here that lists the repository; absent for another machine's. */
-  workspace?: string;
+  /** The projects here that list the repository; empty for another machine's. */
+  workspaces: readonly string[];
 }
 
 export type InboxTone = "ok" | "bad" | "warn" | "muted";
-export type InboxStatusKind = "passed" | "none" | "running" | "failed" | "conflicts" | "note" | "rebase" | "changes" | "draft" | "merged" | "request-merged" | "already";
+export type InboxStatusKind = "passed" | "none" | "running" | "failed" | "stopped" | "conflicts" | "note" | "rebase" | "changes" | "draft" | "merged" | "request-merged" | "already";
 export interface InboxStatus { kind: InboxStatusKind; text: string; tone: InboxTone }
 
 /** The row's one button, or `wait` for the quiet "Waiting". */
@@ -50,8 +50,7 @@ const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "
 export function openPulls(answer: PullRequestLists | undefined): InboxPull[] {
   return (answer?.lists ?? []).flatMap((list) => list.entries.filter((entry) => entry.state === "open").map((entry) => {
     const viewer = (entry.viewer ?? list.viewer)?.toLowerCase();
-    const workspace = list.workspaces[0];
-    return { entry, mine: Boolean(viewer && entry.author?.login.toLowerCase() === viewer), ...(workspace ? { workspace } : {}) };
+    return { entry, mine: Boolean(viewer && entry.author?.login.toLowerCase() === viewer), workspaces: list.workspaces };
   }));
 }
 
@@ -61,7 +60,7 @@ export function pairedPull(review: LocalReview, pulls: readonly InboxPull[]): In
     const recorded = pulls.find((pull) => pull.entry.ref.url === review.request!.url);
     if (recorded) return recorded;
   }
-  return pulls.find((pull) => pull.workspace === review.project.key && pull.entry.headRef === review.branch);
+  return pulls.find((pull) => pull.workspaces.includes(review.project.key) && pull.entry.headRef === review.branch);
 }
 
 /** The note "Ask to fix" sends the thread: what the request needs before it can merge. */
@@ -93,6 +92,8 @@ export function runChecks(runs: readonly RunState[]): InboxStatus {
   const failed = runs.filter((run) => run.status === "failed").length;
   if (failed) return { kind: "failed", text: `${plural(failed, "check")} failed`, tone: "bad" };
   if (runs.some((run) => run.status === "running")) return { kind: "running", text: "Checks running", tone: "muted" };
+  const stopped = runs.filter((run) => run.status === "stopped").length;
+  if (stopped) return { kind: "stopped", text: `${plural(stopped, "check")} stopped`, tone: "warn" };
   return { kind: "passed", text: "Checks passed", tone: "ok" };
 }
 
@@ -157,7 +158,7 @@ export function buildInbox(
   }
   for (const pull of pulls) {
     if (taken.has(pull.entry.ref.url)) continue;
-    const item = pullItem(pull, projectOf(pull.workspace));
+    const item = pullItem(pull, projectOf(pull.workspaces[0]));
     if (item) items.push(item);
   }
   return INBOX_SECTIONS

@@ -44,6 +44,10 @@ describe("Pi Providers desktop half", () => {
     expect(within(openai).getByRole("heading", { name: "OpenAI" })).toBeTruthy();
     expect(within(openai).getByText("OPENAI_API_KEY")).toBeTruthy();
     expect(within(openai).getByRole("button", { name: "Manage OpenAI" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Set up Anthropic" })).toBeNull();
+    const others = screen.getByRole("button", { name: "Sign in or add a key" });
+    expect(others.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(others);
     const anthropic = document.getElementById(providerRowId(PROVIDERS[0]!))!;
     expect(within(anthropic).getByText("Subscription · API key")).toBeTruthy();
     expect(within(anthropic).getByRole("button", { name: "Set up Anthropic" }).getAttribute("aria-expanded")).toBe("false");
@@ -64,6 +68,7 @@ describe("Pi Providers desktop half", () => {
   it("opens a provider's sign-in and reads the list again once a sign-in finished", async () => {
     const { host, invoke, push } = fakeHost(PROVIDERS);
     render(<PiProvidersCard host={host} onNotify={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in or add a key" }));
     fireEvent.click(await screen.findByRole("button", { name: "Set up Anthropic" }));
     expect(await screen.findByRole("button", { name: "Sign in", description: /^Sign in to Anthropic \(/u })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set up Anthropic" }).getAttribute("aria-expanded")).toBe("true");
@@ -72,6 +77,21 @@ describe("Pi Providers desktop half", () => {
     push({ target: "anthropic", report: { methods: [], account: { signedIn: true, label: "Anthropic (Claude Pro/Max)" } } }, [{ ...PROVIDERS[0]!, configured: true, stored: "oauth" }, PROVIDERS[1]!]);
     await waitFor(() => expect(screen.getByRole("button", { name: "Manage Anthropic" })).toBeTruthy());
     expect(screen.getByText("Every provider is set up")).toBeTruthy();
+  });
+
+  it("finds unconfigured providers while their group is folded and restores the fold when the filter clears", async () => {
+    const { host } = fakeHost(PROVIDERS);
+    render(<PiProvidersCard host={host} onNotify={vi.fn()} />);
+    await screen.findByRole("button", { name: "Manage OpenAI" });
+    expect(screen.queryByRole("button", { name: "Set up Anthropic" })).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter Pi's providers" }), { target: { value: "anthropic" } });
+    expect(screen.getByRole("button", { name: "Set up Anthropic" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear the filter" }));
+    expect(screen.queryByRole("button", { name: "Set up Anthropic" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in or add a key" }));
+    expect(screen.getByRole("button", { name: "Set up Anthropic" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in or add a key" }));
+    expect(screen.queryByRole("button", { name: "Set up Anthropic" })).toBeNull();
   });
 
   it("says when Pi could not be asked, and asks again", async () => {
