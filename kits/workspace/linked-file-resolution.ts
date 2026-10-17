@@ -3,7 +3,7 @@ import { relative, resolve } from "node:path";
 import { HostCommandError, isWorkspaceRelativePath, type HostExtensionServices } from "tau/host-extension";
 import { deviceReadPaths } from "../_filesystem/device-read-paths.js";
 import { readRepositoryIdentity } from "./repository-identity.js";
-import { mainCheckoutOf } from "./workspace-git.js";
+import { mainCheckoutOf } from "./workspace-worktrees.js";
 
 /** Only missing workspace-relative links may try the same file in the main checkout. */
 export async function resolveLinkedFile(project: string, path: string, owner: boolean, services: Pick<HostExtensionServices, "knownWorkspacePath">): Promise<{ path: string; mainCheckoutPath?: string }> {

@@ -19,7 +19,8 @@ import {
   type UiWorkspaceChanges,
   type UiWorkspaceChangesPage,
 } from "tau/host-extension";
-import * as workspaceGit from "./workspace-git.js";
+import * as snapshots from "./workspace-snapshots.js";
+import * as workspacePaths from "./workspace-paths.js";
 import { assistantAnchorForMessage } from "./pi-turn-checkpoint-extension.js";
 import {
   checkpointsForBranch,
@@ -314,8 +315,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       const recoveryTurnId = `recovery-backup-${randomUUID()}`;
       let durable = false;
       try {
-        const before = await workspaceGit.createTurnWorkspaceSnapshot(transaction.cwd, recoveryBackup.sessionId, recoveryTurnId, "before");
-        const after = await workspaceGit.createTurnWorkspaceSnapshot(transaction.cwd, recoveryBackup.sessionId, recoveryTurnId, "after");
+        const before = await snapshots.createTurnWorkspaceSnapshot(transaction.cwd, recoveryBackup.sessionId, recoveryTurnId, "before");
+        const after = await snapshots.createTurnWorkspaceSnapshot(transaction.cwd, recoveryBackup.sessionId, recoveryTurnId, "after");
         if (before.complete === false || after.complete === false) {
           throw new Error("The current workspace is only partially captured, so restore recovery cannot proceed safely.");
         }
@@ -337,7 +338,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         await utimes(recoveryBackup.path, new Date(0), new Date(0));
       } finally {
         if (!durable) {
-          await workspaceGit.cleanupTurnCheckpointSessionRefs(transaction.cwd, recoveryBackup.sessionId);
+          await snapshots.cleanupTurnCheckpointSessionRefs(transaction.cwd, recoveryBackup.sessionId);
           await rm(recoveryBackup.path, { force: true });
         }
       }
@@ -345,7 +346,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       if (transaction.kind === "backup-open") {
         // Put the pre-open workspace back after an interrupted activation.
         // The safety copy preserves any work done since that interruption.
-        await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, transaction.backupAfterSnapshotId, {
+        await snapshots.restoreWorkspaceSnapshot(transaction.cwd, transaction.backupAfterSnapshotId, {
           target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
           rollback,
         });
@@ -360,7 +361,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         // Recovery is durable before deleting the temporary rollback pair. If
         // cleanup is interrupted, the committed recovery marker makes the
         // harmless orphan eligible for ordinary checkpoint GC.
-        await workspaceGit.cleanupTurnCheckpointRefs(transaction.cwd, [{
+        await snapshots.cleanupTurnCheckpointRefs(transaction.cwd, [{
           sessionId: transaction.backupSessionId,
           turnId: transaction.backupTurnId,
         }]);
@@ -369,7 +370,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       const backupAfter = turnSnapshotRef(transaction.backupSessionId, transaction.backupTurnId, "after");
       // Replay repairs a crash in clean/read-tree; a failed replay rolls back
       // to the current tree, whose own backup remains available afterwards.
-      await workspaceGit.restoreWorkspaceSnapshot(transaction.cwd, backupAfter, {
+      await snapshots.restoreWorkspaceSnapshot(transaction.cwd, backupAfter, {
         target: { sessionId: transaction.backupSessionId, turnId: transaction.backupTurnId },
         rollback,
       });
@@ -377,7 +378,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       // Remove the uncommitted target before recording recovery. If the
       // process dies between these operations the next startup simply repeats
       // the idempotent workspace replay and cleanup.
-      await workspaceGit.cleanupTurnCheckpointSessionRefs(transaction.cwd, transaction.targetSessionId);
+      await snapshots.cleanupTurnCheckpointSessionRefs(transaction.cwd, transaction.targetSessionId);
       const target = sessions.get(transaction.targetSessionId);
       if (target?.path && target.path !== backup.path) await rm(target.path, { force: true });
       backup.appendEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, { ...transaction, state: "recovered" });
@@ -415,7 +416,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     if (active && active.sessionId !== thread.sessionId && active.isStreaming()) {
       throw new Error("Wait for the active turn to finish before opening the restore backup.");
     }
-    await workspaceGit.validateRestorableWorkspaceSnapshotRefs(
+    await snapshots.validateRestorableWorkspaceSnapshotRefs(
       thread.cwd,
       backup.beforeSnapshotId,
       backup.afterSnapshotId,
@@ -425,13 +426,13 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     const lease = await leaseManager.acquire(thread.cwd, {
       sessionId: thread.sessionId, turnId: rollbackTurnId, timeoutMs: DEFAULT_LEASE_TIMEOUT_MS,
     });
-    let rollbackBefore: workspaceGit.WorkspaceSnapshot | undefined;
-    let rollbackAfter: workspaceGit.WorkspaceSnapshot | undefined;
+    let rollbackBefore: snapshots.WorkspaceSnapshot | undefined;
+    let rollbackAfter: snapshots.WorkspaceSnapshot | undefined;
     let handedOff = false;
     let transaction: TurnRestoreTransaction | undefined;
     const cleanupRollback = async (): Promise<void> => {
       if (!rollbackBefore && !rollbackAfter) return;
-      await workspaceGit.cleanupTurnCheckpointRefs(thread.cwd, [{ sessionId: thread.sessionId, turnId: rollbackTurnId }]);
+      await snapshots.cleanupTurnCheckpointRefs(thread.cwd, [{ sessionId: thread.sessionId, turnId: rollbackTurnId }]);
     };
     const appendTransaction = (state: TurnRestoreTransaction["state"]): void => {
       if (!transaction) return;
@@ -446,8 +447,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
           ? "workspace-applied"
           : "rolling-back";
     try {
-      rollbackBefore = await workspaceGit.createTurnWorkspaceSnapshot(thread.cwd, thread.sessionId, rollbackTurnId, "before");
-      rollbackAfter = await workspaceGit.createTurnWorkspaceSnapshot(thread.cwd, thread.sessionId, rollbackTurnId, "after");
+      rollbackBefore = await snapshots.createTurnWorkspaceSnapshot(thread.cwd, thread.sessionId, rollbackTurnId, "before");
+      rollbackAfter = await snapshots.createTurnWorkspaceSnapshot(thread.cwd, thread.sessionId, rollbackTurnId, "after");
       transaction = {
         version: 1,
         kind: "backup-open",
@@ -467,7 +468,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         createdAt: Date.now(),
       };
       appendTransaction("prepared");
-      await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, backup.afterSnapshotId, {
+      await snapshots.restoreWorkspaceSnapshot(thread.cwd, backup.afterSnapshotId, {
         target: { sessionId: backup.sessionId, turnId: backup.turnId },
         rollback: { sessionId: thread.sessionId, turnId: rollbackTurnId },
         onPhase: (phase) => appendTransaction(phaseState(phase)),
@@ -486,7 +487,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       const rollback = async (): Promise<void> => {
         if (finished) return;
         try {
-          await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter!.id, {
+          await snapshots.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter!.id, {
             target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
             rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
           });
@@ -504,7 +505,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       const recoveryErrors: unknown[] = [];
       if (transaction && rollbackAfter) {
         try {
-          await workspaceGit.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter.id, {
+          await snapshots.restoreWorkspaceSnapshot(thread.cwd, rollbackAfter.id, {
             target: { sessionId: thread.sessionId, turnId: rollbackTurnId },
             rollback: { sessionId: backup.sessionId, turnId: backup.turnId },
           });
@@ -561,7 +562,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     if (checkpoint.completeness === "partial") {
       throw new Error("This checkpoint is incomplete and cannot be restored safely. Use Fork instead.");
     }
-    await workspaceGit.validateRestorableWorkspaceSnapshotRefs(
+    await snapshots.validateRestorableWorkspaceSnapshotRefs(
       source.cwd,
       checkpoint.beforeSnapshotId,
       checkpoint.afterSnapshotId,
@@ -635,12 +636,12 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
           await prepared.discard().catch(() => undefined);
           prepared = undefined;
         }
-        await workspaceGit.cleanupTurnCheckpointSessionRefs(cwd, targetThreadId).catch(() => undefined);
+        await snapshots.cleanupTurnCheckpointSessionRefs(cwd, targetThreadId).catch(() => undefined);
         await rm(targetPath, { force: true }).catch(() => undefined);
       };
       const cleanupUncommittedBackup = async (): Promise<void> => {
         if (!backupSessionId || backupDurable) return;
-        await workspaceGit.cleanupTurnCheckpointSessionRefs(cwd, backupSessionId).catch(() => undefined);
+        await snapshots.cleanupTurnCheckpointSessionRefs(cwd, backupSessionId).catch(() => undefined);
         if (backupPath) await rm(backupPath, { force: true }).catch(() => undefined);
       };
       const journal = (state: TurnRestoreTransaction["state"]): void => {
@@ -674,8 +675,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
           appendEntry: (customType, data) => { durableBackup.appendEntry(customType, data); },
           committedCheckpoints: () => checkpointsOf(durableBackup.entries(), backupSessionId!),
         });
-        const backupBefore = await workspaceGit.createTurnWorkspaceSnapshot(cwd, backupSessionId, backupTurnId, "before");
-        const backupAfter = await workspaceGit.createTurnWorkspaceSnapshot(cwd, backupSessionId, backupTurnId, "after");
+        const backupBefore = await snapshots.createTurnWorkspaceSnapshot(cwd, backupSessionId, backupTurnId, "before");
+        const backupAfter = await snapshots.createTurnWorkspaceSnapshot(cwd, backupSessionId, backupTurnId, "after");
         if (backupBefore.complete === false || backupAfter.complete === false) {
           throw new Error("The current workspace is only partially captured, so Tau cannot create a recoverable restore backup.");
         }
@@ -727,7 +728,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         backup.appendEntry(TURN_RESTORE_TRANSACTION_CUSTOM_TYPE, restoreTransaction);
 
         restoreAttempted = true;
-        await workspaceGit.restoreWorkspaceSnapshot(cwd, checkpoint.afterSnapshotId, {
+        await snapshots.restoreWorkspaceSnapshot(cwd, checkpoint.afterSnapshotId, {
           target: { sessionId: source.sessionId, turnId: checkpoint.turnId },
           rollback: { sessionId: backupSessionId, turnId: backupTurnId },
           onPhase: (phase) => journal(phase === "apply-started"
@@ -762,7 +763,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         let recovered = false;
         if (!restoreCommitted && restoreAttempted && backupSessionId && backupTurnId) {
           try {
-            await workspaceGit.restoreWorkspaceSnapshot(cwd, turnSnapshotRef(backupSessionId, backupTurnId, "after"), {
+            await snapshots.restoreWorkspaceSnapshot(cwd, turnSnapshotRef(backupSessionId, backupTurnId, "after"), {
               target: { sessionId: backupSessionId, turnId: backupTurnId },
               rollback: { sessionId: source.sessionId, turnId: checkpoint.turnId },
             });
@@ -837,7 +838,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
   // cannot be inherited; the fork goes on without it instead of failing.
   const hasSnapshotRefs = options.hasSnapshotRefs ?? (async (cwd: string, checkpoint: StoredTurnCheckpoint) => {
     try {
-      await workspaceGit.validateWorkspaceSnapshotRefs(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId });
+      await snapshots.validateWorkspaceSnapshotRefs(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId });
       return true;
     } catch {
       return false;
@@ -881,7 +882,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
         prepared = undefined;
       } catch (error) {
         await prepared?.discard().catch(() => undefined);
-        await workspaceGit.cleanupTurnCheckpointSessionRefs(source.cwd, target.sessionId).catch(() => undefined);
+        await snapshots.cleanupTurnCheckpointSessionRefs(source.cwd, target.sessionId).catch(() => undefined);
         await rm(target.path, { force: true }).catch(() => undefined);
         throw new Error(`Rewind failed; the thread was kept unchanged. ${errorMessage(error)}`, { cause: error });
       }
@@ -1057,7 +1058,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     },
     forkPoint: (sessionId, checkpointId) => services.sessions.exclusive(async () => {
       const { source, checkpoint } = await verifiedRestoreCheckpoint(sessionId, checkpointId);
-      const { afterTreeId } = await workspaceGit.validateWorkspaceSnapshotRefs(
+      const { afterTreeId } = await snapshots.validateWorkspaceSnapshotRefs(
         source.cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, { sessionId: source.sessionId, turnId: checkpoint.turnId },
       );
       return { cwd: source.cwd, tree: afterTreeId, ...(checkpoint.head?.after ? { head: checkpoint.head.after } : {}) };
@@ -1066,7 +1067,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
       if (services.attachedRuntime()) throw new Error("Restore is unavailable while Pi owns this thread.");
       return services.sessions.exclusive(async () => {
         const { source, checkpoint } = await verifiedRestoreCheckpoint(sessionId, checkpointId);
-        return workspaceGit.previewWorkspaceRestore(
+        return snapshots.previewWorkspaceRestore(
           source.cwd,
           checkpoint.beforeSnapshotId,
           checkpoint.afterSnapshotId,
@@ -1079,13 +1080,13 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     rewind,
     turnFileDiff: async (sessionId, checkpointId, path, diffOptions) => {
       if (services.attachedRuntime(sessionId)) {
-        await workspaceGit.assertWorkspacePath(services.cwd(), path);
+        await workspacePaths.assertWorkspacePath(services.cwd(), path);
         const result = await attachedInvoke(sessionId, "turn-file-diff", { sessionId, checkpointId, path, options: diffOptions });
         if (result && typeof result === "object" && Array.isArray((result as { hunks?: unknown }).hunks)) return result as UiFileDiff;
         return { path, added: 0, removed: 0, hunks: [], note: "Pi did not return this historical diff." };
       }
       const { thread, checkpoint, feature } = await historical(sessionId, checkpointId);
-      await workspaceGit.assertWorkspacePath(thread.cwd, path);
+      await workspacePaths.assertWorkspacePath(thread.cwd, path);
       if (!checkpoint) return { path, added: 0, removed: 0, hunks: [], note: "This turn checkpoint is no longer available." };
       if (!feature) return { path, added: 0, removed: 0, hunks: [], note: "Turn checkpoint history is unavailable." };
       // Never fall back to the live workspace: an old card must not change when
@@ -1110,7 +1111,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
     turnPaths: async (sessionId, checkpointId) => {
       const { thread, checkpoint } = await historical(sessionId, checkpointId);
       if (!checkpoint) throw new Error("This turn checkpoint is no longer available.");
-      const full = await workspaceGit.diffWorkspaceSnapshots(thread.cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, {
+      const full = await snapshots.diffWorkspaceSnapshots(thread.cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, {
         expected: { sessionId, turnId: checkpoint.turnId },
       });
       const { attribute } = pageAttribution(thread.cwd, checkpoint);

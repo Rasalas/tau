@@ -2,7 +2,9 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertWorkspacePath, getFileDiff, runGitCommand } from "./workspace-git.js";
+import { assertWorkspacePath } from "./workspace-paths.js";
+import { getFileDiff } from "./workspace-git.js";
+import { runGitCommand } from "./git-command.js";
 import { runAgentGit } from "./agent-worktrees.js";
 import { storageGit } from "./worktree-storage.js";
 

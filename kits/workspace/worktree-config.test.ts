@@ -10,7 +10,8 @@ import {
   resolveWorktreeParent,
   worktreeParentOf,
 } from "./agent-worktrees.js";
-import { createWorktree, readProjectGitState } from "./workspace-git.js";
+import { createWorktree } from "./workspace-worktrees.js";
+import { readProjectGitState } from "./workspace-git.js";
 
 const created: string[] = [];
 

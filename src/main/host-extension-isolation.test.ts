@@ -5,12 +5,12 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
 import { bundleHostExtension, writeHostExtensionBundle } from "./extension-packages.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
 import { setProcessMemoryLimit } from "./worker-memory-cap.js";
-import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostThreadLifecycle, type HostThread, type HostThreadStartOptions } from "./host-extensions.js";
+import { HostExtensionRegistry, type HostExtension, type HostExtensionServices, type HostThreadLifecycle, type HostThread, type HostThreadStartOptions, type HostThreadImportOptions } from "./host-extensions.js";
 
 /**
  * The isolated half of ADR 0009: a package's host entry, bundled by the real
@@ -117,6 +117,28 @@ export default {
       return services.network.state();
     });
     context.registerCommand("network-release", () => { for (const release of releases.splice(0)) release(); });
+    // A package may pass malformed values at runtime even though its facade is typed.
+    context.registerCommand("service-call", async ({ path, args }) => {
+      const parts = path.split(".");
+      const name = parts.pop();
+      let target = services;
+      for (const part of parts) target = target[part];
+      try { return { ok: true, value: await target[name](...args) }; }
+      catch (error) { return { ok: false, error: error.message }; }
+    });
+    let stopHooks = [];
+    context.registerCommand("observe", async () => {
+      stopHooks.push(await services.clients.observe({ attached: (id, client) => services.log("fixture.attached", id + " " + client.transport) }));
+      stopHooks.push(await services.observeConfigChanges((change) => services.log("fixture.changed", change.kind + " " + change.paths.join(","))));
+      stopHooks.push(await services.registerTurnObserver({ ended: (sessionId, turnId, outcome) => services.log("fixture.ended", sessionId + " " + turnId + " " + outcome) }));
+      stopHooks.push(await services.pinTranscriptEntries({ "session-1": ["held-entry"] }));
+    });
+    context.registerCommand("unobserve", () => { for (const stop of stopHooks.splice(0)) { stop(); stop(); } });
+    context.registerCommand("exclusive-failure", async () => {
+      try { await services.sessions.exclusive(() => { throw new Error("work failed"); }); }
+      catch (error) { return error.message; }
+    });
+
   },
 };
 
@@ -385,7 +407,7 @@ function harness(options: { permissions?: string[]; commandTimeoutMs?: number } 
     hookTimeoutMs: Math.max(5_000, commandTimeoutMs),
     ...worker,
   });
-  return { registry, extension, events, recorder };
+  return { registry, extension, events, recorder, facade };
 }
 
 async function until(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
@@ -590,6 +612,152 @@ describe("isolated host extensions", () => {
     }
     expect(recorder.proxyHolds).toBe(0);
     expect(recorder.published).toEqual([]);
+  });
+
+  it("round trips nested session inputs and data results through declared commands", async () => {
+    const { registry, extension, recorder, facade } = harness();
+    const imported = vi.fn(async (options: HostThreadImportOptions) => ({ sessionId: "imported", path: "/imported.jsonl", cwd: options.cwd }));
+    facade.sessions.import = imported;
+    facade.sessions.open = (path) => ({ path, sessionId: "stored", cwd: "/project", entries: () => [{ id: "entry" }], leafId: () => "entry", appendEntry: () => undefined, appendInfo: () => undefined, branch: () => undefined });
+    const restored = vi.fn(async () => undefined);
+    const purged = vi.fn(async () => undefined);
+    facade.sessions.restore = restored;
+    facade.sessions.purge = purged;
+    await registry.activate(extension);
+    const invoke = (path: string, ...args: unknown[]) => registry.invoke("acme.worker", "service-call", { path, args });
+    try {
+      const options = {
+        cwd: "/project", prompt: "go", attachments: [{ kind: "image", name: "shot", mimeType: "image/png", data: "AA==", size: 1 }],
+        model: { provider: "acme", id: "model" }, backend: "custom", thinkingLevel: "high", mode: "default", title: "Child",
+        tools: ["read"], parent: { threadId: "parent", details: { nested: ["data"] } },
+        skillDraft: { source: "skill", name: "skill", visibleText: "Run skill", command: "/skill", additionalSkills: [{ name: "other", command: "/other" }] },
+      };
+      await expect(invoke("sessions.start", options)).resolves.toEqual({ ok: true, value: { sessionId: "session-2", cwd: "/project", title: "Child" } });
+      expect(recorder.started).toStrictEqual([options]);
+      const importOptions = { cwd: "/project", jsonl: "{}", title: "Imported", origin: { hostId: "remote", threadId: "source", details: { original: true } } };
+      await expect(invoke("sessions.import", importOptions)).resolves.toEqual({ ok: true, value: { sessionId: "imported", path: "/imported.jsonl", cwd: "/project" } });
+      expect(imported).toHaveBeenCalledWith(importOptions);
+      await expect(invoke("sessions.read", "/stored.jsonl")).resolves.toEqual({ ok: true, value: { path: "/stored.jsonl", sessionId: "stored", cwd: "/project", entries: [{ id: "entry" }], leafId: "entry" } });
+      await expect(invoke("workspaceRef", "/project")).resolves.toEqual({ ok: true, value: { workspaceId: "ws1_/project", displayPath: "/project" } });
+      await expect(invoke("settings")).resolves.toEqual({ ok: true, value: { options: {}, values: {} } });
+      await expect(invoke("priceUsage", [])).resolves.toEqual({ ok: true, value: [] });
+      await invoke("sessions.restore", "s1");
+      await invoke("sessions.purge", "s2");
+      expect(restored).toHaveBeenCalledWith("s1");
+      expect(purged).toHaveBeenCalledWith("s2");
+      await expect(registry.invoke("acme.worker", "exclusive-failure")).resolves.toBe("work failed");
+      expect(recorder.exclusiveDepth).toBe(0);
+      await expect(registry.invoke("acme.worker", "facade")).resolves.toMatchObject({ inside: "session-1" });
+    } finally { await registry.dispose(); }
+  });
+
+  it("rejects malformed RPC arguments before host effects or handle allocation", async () => {
+    const { registry, extension, recorder, facade } = harness({ permissions: ["sessions", "network"] });
+    const keepProxy = vi.fn(async () => undefined);
+    facade.network!.keepProxy = keepProxy;
+    await registry.activate(extension);
+    try {
+      for (const [path, args] of [
+        ["sessions.start", [{ cwd: "/project", prompt: false }]],
+        ["sessions.import", [{ cwd: "/project", jsonl: "{}", origin: null }]],
+        ["setThreadTitle", ["s1", "title", "other"]],
+        ["setPendingWork", ["s1", "2"]],
+        ["pinTranscriptEntries", [{ s1: [7] }]],
+        ["network.keepProxy", ["true"]],
+        ["network.publishEndpoints", [[{ url: "https://tau", label: "Tau", reachability: "other" }]]],
+      ]) {
+        await expect(registry.invoke("acme.worker", "service-call", { path, args })).resolves.toMatchObject({ ok: false, error: expect.any(String) });
+      }
+      expect(recorder.started).toEqual([]);
+      expect(recorder.pending).toEqual([]);
+      expect(recorder.pins).toEqual([]);
+      expect(recorder.published).toEqual([]);
+      expect(keepProxy).not.toHaveBeenCalled();
+      expect(registry.isActive("acme.worker")).toBe(true);
+    } finally { await registry.dispose(); }
+  });
+
+  it("rejects forged RPC envelopes, unknown paths and malformed lock requests", async () => {
+    const entry = join(scratch, "raw-rpc-worker.cjs");
+    await writeFile(entry, `
+      const { parentPort } = require("node:worker_threads");
+      let nextId = 1;
+      const pending = new Map();
+      const rpc = (request) => new Promise((resolve) => {
+        const id = nextId++;
+        pending.set(id, resolve);
+        parentPort.postMessage({ t: "rpc", id, ...request });
+      });
+      parentPort.on("message", async (message) => {
+        if (message.t === "res") {
+          pending.get(message.id)?.(message.ok ? { ok: true, value: message.value } : { ok: false, error: message.error.message });
+          pending.delete(message.id);
+        }
+        if (message.t === "call") {
+          const value = [];
+          for (const request of message.input) value.push(await rpc(request));
+          parentPort.postMessage({ t: "res", id: message.id, ok: true, value });
+        }
+      });
+      parentPort.postMessage({ t: "command", name: "probe", callers: [], long: false });
+      parentPort.postMessage({ t: "ready" });
+    `);
+    const { registry, extension, recorder, facade } = harness({ workerEntry: entry });
+    const lockEntered = vi.fn();
+    const exclusive = facade.sessions.exclusive;
+    facade.sessions.exclusive = async (work) => { lockEntered(); return exclusive(work); };
+    await registry.activate(extension);
+    try {
+      const responses = await registry.invoke("acme.worker", "probe", [
+        { path: "constructor", args: [] }, { path: "__proto__", args: [] }, { path: "missing", args: [] },
+        { path: "cwd", args: null }, { path: "cwd", args: {} },
+        { path: "sessions.exclusive", args: ["extra"] }, { path: "sessions.exclusive", args: null },
+        { path: "hostExtension", args: ["acme.target", 7] }, { path: "offering", args: [false] },
+      ]);
+      expect(responses).toEqual(Array.from({ length: 9 }, () => ({ ok: false, error: expect.any(String) })));
+      expect(lockEntered).not.toHaveBeenCalled();
+      expect(recorder.exclusiveDepth).toBe(0);
+      expect(recorder.pending).toEqual([]);
+      expect(recorder.pins).toEqual([]);
+      await expect(registry.invoke("acme.worker", "probe", [{ path: "cwd", args: [] }])).resolves.toEqual([{ ok: true, value: "/project" }]);
+    } finally { await registry.dispose(); }
+  });
+
+  it("delivers registered hooks and releases their handles exactly once", async () => {
+    const { registry, extension, recorder, facade } = harness();
+    const releaseClients = vi.fn();
+    const releaseConfig = vi.fn();
+    const releaseTurns = vi.fn();
+    const observeClients = vi.fn<HostExtensionServices["clients"]["observe"]>(() => releaseClients);
+    const observeConfig = vi.fn<HostExtensionServices["observeConfigChanges"]>(() => releaseConfig);
+    const observeTurns = vi.fn<HostExtensionServices["registerTurnObserver"]>(() => releaseTurns);
+    facade.clients.observe = observeClients;
+    facade.observeConfigChanges = observeConfig;
+    facade.registerTurnObserver = observeTurns;
+    await registry.activate(extension);
+    try {
+      await registry.invoke("acme.worker", "observe");
+      const clients = observeClients.mock.calls[0]![0];
+      const changed = observeConfig.mock.calls[0]![0];
+      const turns = observeTurns.mock.calls[0]![0];
+      clients.attached?.("client", { id: "client", transport: "socket" });
+      changed({ kind: "settings", paths: ["/config"] });
+      await turns.ended?.("session-1", "turn-1", "completed");
+      await until(() => recorder.logs.includes("fixture.attached client socket") && recorder.logs.includes("fixture.changed settings /config") && recorder.logs.includes("fixture.ended session-1 turn-1 completed"));
+      expect([...recorder.pins[0]!({ sessionId: "session-1" } as HostThread)]).toEqual(["held-entry"]);
+      await registry.invoke("acme.worker", "unobserve");
+      await until(() => releaseClients.mock.calls.length === 1 && releaseConfig.mock.calls.length === 1 && releaseTurns.mock.calls.length === 1);
+      expect([...recorder.pins[0]!({ sessionId: "session-1" } as HostThread)]).toEqual([]);
+      clients.attached?.("released", { id: "released", transport: "socket" });
+      // A subsequent RPC orders the dropped callback before this assertion.
+      await registry.invoke("acme.worker", "hello");
+      expect(recorder.logs.some((log) => log.includes("released"))).toBe(false);
+      await registry.invoke("acme.worker", "observe");
+    } finally { await registry.dispose(); }
+    expect(releaseClients).toHaveBeenCalledTimes(2);
+    expect(releaseConfig).toHaveBeenCalledTimes(2);
+    expect(releaseTurns).toHaveBeenCalledTimes(2);
+    expect([...recorder.pins[0]!({ sessionId: "session-1" } as HostThread)]).toEqual([]);
   });
 
   it("refuses network access to a worker without the grant", async () => {

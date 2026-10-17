@@ -39,6 +39,7 @@ function decodeAnswer(value: unknown): LocalReviewsAnswer {
     branches: Array.isArray(fields.branches) ? fields.branches : [],
     asks: fields.asks && typeof fields.asks === "object" && !Array.isArray(fields.asks) ? fields.asks : {},
     merged: Array.isArray(fields.merged) ? fields.merged : [],
+    remote: Array.isArray(fields.remote) ? fields.remote : [],
   };
 }
 

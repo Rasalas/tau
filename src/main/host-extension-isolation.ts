@@ -1,5 +1,5 @@
 // esbuild reads ESBUILD_BINARY_PATH while it loads, so this import comes first.
-import { readUsageTally } from "./usage-pricing.js";
+import { WORKER_SERVICE_COMMANDS as C, dispatchWorkerService, type WorkerServiceDispatch } from "./host-extension-service-commands.js";
 import { unpackedPath } from "./packaged-app.js";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -10,10 +10,8 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { build } from "esbuild";
 import type { UiToolRun } from "../shared/contracts.js";
-import type { UiHostEndpoint } from "../shared/connections.js";
 import type {
   HostCommandCall,
-  DirectoryPickerOptions,
   HostClientObserver,
   HostExtension,
   HostExtensionContext,
@@ -21,8 +19,6 @@ import type {
   HostProjectFacts,
   HostThread,
   HostThreadLifecycle,
-  HostThreadStartOptions,
-  HostThreadImportOptions,
   HostTurnObserver,
 } from "./host-extensions.js";
 import {
@@ -314,110 +310,110 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     return facts;
   };
 
-  const dispatch = async (path: string, args: readonly unknown[]): Promise<unknown> => {
-    switch (path) {
-      case "cwd": return services.cwd();
-      case "openWorkspace": return services.openWorkspace(String(args[0]));
-      case "knownWorkspacePath": return services.knownWorkspacePath(String(args[0]));
-      case "workspaceRef": return services.workspaceRef(String(args[0]));
-      case "admitWorkspace": return services.admitWorkspace(String(args[0]));
-      case "projectName": return services.projectName(String(args[0]));
-      case "settings": return services.settings ? services.settings(typeof args[0] === "string" ? args[0] : undefined) : { options: {}, values: {} };
-      case "priceUsage": return services.priceUsage ? services.priceUsage(Array.isArray(args[0]) ? args[0].flatMap((item) => readUsageTally(item) ?? []) : []) : [];
-      case "rememberProjectName": return services.rememberProjectName(String(args[0]), String(args[1]));
-      case "pickDirectory": return services.pickDirectory(args[0] as DirectoryPickerOptions | undefined);
-      case "runtimeOwner": return services.runtimeOwner();
-      case "thread": return threadSnapshot(services.thread(args[0] as string | undefined));
-      case "transcript": return toPlain(await (services.thread(args[0] as string | undefined)?.transcript() ?? []));
-      case "setThreadTitle": return services.setThreadTitle(String(args[0]), String(args[1]), args[2] as "generated" | "renamed");
-      case "noteSubprocess": return services.noteSubprocess();
-      case "findCommand": return services.findCommand(String(args[0]));
-      case "skills": return services.skills(String(args[0]));
-      case "refreshExtensionPackages": return services.refreshExtensionPackages();
-      case "sessions.list": return services.sessions.list();
-      case "sessions.read": return readSession(String(args[0]));
-      case "sessions.start": return services.sessions.start(args[0] as HostThreadStartOptions);
-      case "sessions.import": {
-        if (!services.sessions.import) throw new Error("This host cannot import sessions.");
-        return services.sessions.import(args[0] as HostThreadImportOptions);
-      }
-      case "sessions.remove": return services.sessions.remove(String(args[0]));
-      case "sessions.restore": return services.sessions.restore(String(args[0]));
-      case "sessions.trash": return services.sessions.trash();
-      case "sessions.purge": return services.sessions.purge(String(args[0]));
-      case "clients.count": return services.clients.count();
-      case "clients.devices": return (services.clients.devices?.() ?? []).map((device) => ({ ...device }));
-      case "clients.observe": {
-        const handle = nextHandle++;
-        const dispose = services.clients.observe(clientObserverFor(handle, args[0] as string[]));
-        registrations.set(handle, dispose);
-        return handle;
-      }
-      case "describeProjects": {
-        const handle = nextHandle++;
-        const dispose = services.describeProjects(factsFor(handle, args[0] as string[]));
-        registrations.set(handle, dispose);
-        return handle;
-      }
-      case "network.state": return services.network?.state();
-      case "network.holdProxy": {
-        if (!services.network) throw new Error("This host opens no listeners of its own.");
-        const release = await services.network.holdProxy();
-        const handle = nextHandle++;
-        registrations.set(handle, release);
-        return handle;
-      }
-      case "network.keepProxy": {
-        if (!services.network) throw new Error("This host opens no listeners of its own.");
-        return services.network.keepProxy(args[0] === true);
-      }
-      case "network.publishEndpoints": {
-        if (!services.network) throw new Error("This host opens no listeners of its own.");
-        const handle = nextHandle++;
-        registrations.set(handle, services.network.publishEndpoints(Array.isArray(args[0]) ? args[0] as UiHostEndpoint[] : []));
-        return handle;
-      }
-      case "observeConfigChanges": {
-        const handle = nextHandle++;
-        const dispose = services.observeConfigChanges((change) => { void hookCall(handle, "changed", [change]); });
-        registrations.set(handle, dispose);
-        return handle;
-      }
-      case "registerThreadLifecycle": {
-        const handle = nextHandle++;
-        const dispose = services.registerThreadLifecycle(lifecycleFor(handle, args[0] as string[]));
-        registrations.set(handle, dispose);
-        return handle;
-      }
-      case "registerTurnObserver": {
-        const handle = nextHandle++;
-        const dispose = services.registerTurnObserver(observerFor(handle, args[0] as string[]));
-        registrations.set(handle, dispose);
-        return handle;
-      }
-      case "setPendingWork": {
-        const sessionId = String(args[0]);
-        const count = Number(args[1]);
-        if (count > 0) pendingWork.set(sessionId, count);
-        else pendingWork.delete(sessionId);
-        pendingObserverDispose ??= services.registerTurnObserver({ pending: (id) => pendingWork.get(id) ?? 0 });
-        return undefined;
-      }
-      case "pinTranscriptEntries": {
-        const handle = nextHandle++;
-        pins.set(handle, args[0] as Record<string, string[]>);
-        pinsDispose ??= services.pinTranscriptEntries((thread) => {
-          const entries: string[] = [];
-          for (const map of pins.values()) entries.push(...(map[thread.sessionId] ?? []));
-          return entries;
-        });
-        registrations.set(handle, () => { pins.delete(handle); });
-        return handle;
-      }
-      default:
-        throw new Error(`Host extension ${options.name} asked for an unknown host service "${path}".`);
-    }
-  };
+  const dispatch = {
+    cwd: C.cwd.implement(() => services.cwd()),
+    openWorkspace: C.openWorkspace.implement(([path]) => services.openWorkspace(path)),
+    knownWorkspacePath: C.knownWorkspacePath.implement(([path]) => services.knownWorkspacePath(path)),
+    workspaceRef: C.workspaceRef.implement(([path]) => services.workspaceRef(path)),
+    admitWorkspace: C.admitWorkspace.implement(([path]) => services.admitWorkspace(path)),
+    projectName: C.projectName.implement(([cwd]) => services.projectName(cwd)),
+    settings: C.settings.implement(([cwd]) => services.settings ? services.settings(cwd) : { options: {}, values: {} }),
+    priceUsage: C.priceUsage.implement(([tallies]) => services.priceUsage ? services.priceUsage(tallies) : []),
+    rememberProjectName: C.rememberProjectName.implement(([cwd, name]) => services.rememberProjectName(cwd, name)),
+    pickDirectory: C.pickDirectory.implement(([pickerOptions]) => services.pickDirectory(pickerOptions)),
+    runtimeOwner: C.runtimeOwner.implement(() => services.runtimeOwner()),
+    thread: C.thread.implement(([sessionId]) => threadSnapshot(services.thread(sessionId))),
+    transcript: C.transcript.implement(async ([sessionId]) => toPlain(await (services.thread(sessionId)?.transcript() ?? []))),
+    setThreadTitle: C.setThreadTitle.implement(([sessionId, title, source]) => services.setThreadTitle(sessionId, title, source)),
+    noteSubprocess: C.noteSubprocess.implement(() => services.noteSubprocess()),
+    findCommand: C.findCommand.implement(([name]) => services.findCommand(name)),
+    skills: C.skills.implement(([cwd]) => [...services.skills(cwd)]),
+    refreshExtensionPackages: C.refreshExtensionPackages.implement(() => services.refreshExtensionPackages()),
+    "sessions.list": C["sessions.list"].implement(() => services.sessions.list()),
+    "sessions.read": C["sessions.read"].implement(([path]) => readSession(path)),
+    "sessions.start": C["sessions.start"].implement(([startOptions]) => services.sessions.start(startOptions)),
+    "sessions.import": C["sessions.import"].implement(([importOptions]) => {
+      if (!services.sessions.import) throw new Error("This host cannot import sessions.");
+      return services.sessions.import(importOptions);
+    }),
+    "sessions.remove": C["sessions.remove"].implement(([sessionId]) => services.sessions.remove(sessionId)),
+    "sessions.restore": C["sessions.restore"].implement(([sessionId]) => services.sessions.restore(sessionId)),
+    "sessions.trash": C["sessions.trash"].implement(() => services.sessions.trash()),
+    "sessions.purge": C["sessions.purge"].implement(([sessionId]) => services.sessions.purge(sessionId)),
+    "sessions.exclusive": C["sessions.exclusive"].implement((_, requestId) => services.sessions.exclusive(() => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        exits.delete(requestId);
+        const reason = `the worker held the session lock for more than ${hookTimeoutMs}ms`;
+        fail(reason);
+        reject(new Error(reason));
+      }, hookTimeoutMs);
+      exits.set(requestId, { resolve, reject, timer });
+      post({ t: "enter", id: requestId });
+    }))),
+    "clients.count": C["clients.count"].implement(() => services.clients.count()),
+    "clients.devices": C["clients.devices"].implement(() => (services.clients.devices?.() ?? []).map((device) => ({ ...device }))),
+    "clients.observe": C["clients.observe"].implement(([hooks]) => {
+      const handle = nextHandle++;
+      registrations.set(handle, services.clients.observe(clientObserverFor(handle, hooks)));
+      return handle;
+    }),
+    describeProjects: C.describeProjects.implement(([hooks]) => {
+      const handle = nextHandle++;
+      registrations.set(handle, services.describeProjects(factsFor(handle, hooks)));
+      return handle;
+    }),
+    "network.state": C["network.state"].implement(() => services.network?.state()),
+    "network.holdProxy": C["network.holdProxy"].implement(async () => {
+      if (!services.network) throw new Error("This host opens no listeners of its own.");
+      const release = await services.network.holdProxy();
+      const handle = nextHandle++;
+      registrations.set(handle, release);
+      return handle;
+    }),
+    "network.keepProxy": C["network.keepProxy"].implement(([keep]) => {
+      if (!services.network) throw new Error("This host opens no listeners of its own.");
+      return services.network.keepProxy(keep);
+    }),
+    "network.publishEndpoints": C["network.publishEndpoints"].implement(([endpoints]) => {
+      if (!services.network) throw new Error("This host opens no listeners of its own.");
+      const handle = nextHandle++;
+      registrations.set(handle, services.network.publishEndpoints(endpoints));
+      return handle;
+    }),
+    observeConfigChanges: C.observeConfigChanges.implement(() => {
+      const handle = nextHandle++;
+      registrations.set(handle, services.observeConfigChanges((change) => { void hookCall(handle, "changed", [change]); }));
+      return handle;
+    }),
+    registerThreadLifecycle: C.registerThreadLifecycle.implement(([hooks]) => {
+      const handle = nextHandle++;
+      registrations.set(handle, services.registerThreadLifecycle(lifecycleFor(handle, hooks)));
+      return handle;
+    }),
+    registerTurnObserver: C.registerTurnObserver.implement(([hooks]) => {
+      const handle = nextHandle++;
+      registrations.set(handle, services.registerTurnObserver(observerFor(handle, hooks)));
+      return handle;
+    }),
+    setPendingWork: C.setPendingWork.implement(([sessionId, count]) => {
+      if (count > 0) pendingWork.set(sessionId, count);
+      else pendingWork.delete(sessionId);
+      pendingObserverDispose ??= services.registerTurnObserver({ pending: (id) => pendingWork.get(id) ?? 0 });
+    }),
+    pinTranscriptEntries: C.pinTranscriptEntries.implement(([map]) => {
+      const handle = nextHandle++;
+      pins.set(handle, map);
+      pinsDispose ??= services.pinTranscriptEntries((thread) => {
+        const entries: string[] = [];
+        for (const pinned of pins.values()) entries.push(...(pinned[thread.sessionId] ?? []));
+        return entries;
+      });
+      registrations.set(handle, () => { pins.delete(handle); });
+      return handle;
+    }),
+    offering: C.offering.implement(([contract]) => context.offering(contract)),
+    hostExtension: C.hostExtension.implement(([extensionId, command, input]) => context.invokeHostExtension(extensionId, command, input)),
+  } satisfies WorkerServiceDispatch;
 
   const respond = (id: number, run: () => Promise<unknown> | unknown): void => {
     void (async () => {
@@ -493,32 +489,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
         return;
       }
       case "rpc": {
-        if (message.path === "offering") {
-          respond(message.id, () => context.offering(String(message.args[0])));
-          return;
-        }
-        if (message.path === "hostExtension") {
-          respond(message.id, () => context.invokeHostExtension(
-            String(message.args[0]),
-            String(message.args[1]),
-            message.args[2],
-          ));
-          return;
-        }
-        if (message.path === "sessions.exclusive") {
-          respond(message.id, () => services.sessions.exclusive(() => new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-              exits.delete(message.id);
-              const reason = `the worker held the session lock for more than ${hookTimeoutMs}ms`;
-              fail(reason);
-              reject(new Error(reason));
-            }, hookTimeoutMs);
-            exits.set(message.id, { resolve, reject, timer });
-            post({ t: "enter", id: message.id });
-          })));
-          return;
-        }
-        respond(message.id, () => dispatch(message.path, message.args));
+        respond(message.id, () => dispatchWorkerService(dispatch, message.path, message.args, message.id, options.name));
         return;
       }
       case "exit": {

@@ -11,7 +11,8 @@ import {
   type BranchMergeOutcome,
   type BranchMergePreview,
 } from "./agent-worktrees.js";
-import { countUntrackedLines, readDefaultBranch } from "./workspace-git.js";
+import { countUntrackedLines } from "./workspace-git.js";
+import { readDefaultBranch } from "./git-refs.js";
 import { readConflictFiles, resolveTree, type ConflictFile, type HunkPick } from "./merge-picks.js";
 
 /**

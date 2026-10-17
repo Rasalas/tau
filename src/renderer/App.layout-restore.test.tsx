@@ -217,6 +217,18 @@ describe("App stage per thread", () => {
     expect(center()).not.toContain("conversation-folded");
   });
 
+  it("reveals the selected conversation from a spine without closing its stage tabs", async () => {
+    const { actions, show, storage } = await start();
+    act(() => { actions().openStageTab("test.note", { name: "alpha" }); });
+    await screen.findByText("note alpha in ws-a");
+    act(() => actions().toggleSpine?.());
+    await screen.findByRole("complementary", { name: "Thread" });
+    await show("a1");
+    await waitFor(() => expect(document.querySelector(".workbench-center")?.className).not.toContain("conversation-folded"));
+    expect(screen.getByText("note alpha in ws-a")).toBeTruthy();
+    expect(storage.get("tau:spine")).toBe("false");
+  });
+
   it("shows each thread's own tabs again after A → B → A, and a new draft starts empty", async () => {
     const { actions, show } = await start();
     act(() => { actions().openStageTab("test.note", { name: "alpha" }); });

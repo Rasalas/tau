@@ -1,6 +1,4 @@
-import type { WorkspaceRef } from "../shared/workspace-identity.js";
-import type { PricedUsage } from "./usage-pricing.js";
-import type { HostExtensionSettings } from "./host-extensions.js";
+import { WORKER_SERVICE_COMMANDS as C, createWorkerServiceCaller } from "./host-extension-service-commands.js";
 import Module, { createRequire } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";
 import {
@@ -224,22 +222,21 @@ const exclusiveWork = new Map<number, () => Promise<unknown>>();
 const commands = new Map<string, WorkerCommandHandler>();
 let machineRoutingRegistration: object | undefined;
 
-function rpc(path: string, ...args: unknown[]): Promise<unknown> {
+const rpc = createWorkerServiceCaller((path, args) => {
   const id = nextId++;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
     send({ t: "rpc", id, path, args });
   });
-}
+});
 
 function unavailable(member: string): never {
   throw new Error(`${member} is not available to an isolated host extension. Declare "isolation": "in-process" in the manifest if the package needs it.`);
 }
 
-/** Registers `hooks` with the host and answers its calls until the disposer runs. */
 /** A registration the host keeps under a handle; the returned function releases it once. */
-async function heldHandle(registered: Promise<unknown>): Promise<() => void> {
-  const handle = await registered as number;
+async function heldHandle(registered: Promise<number>): Promise<() => void> {
+  const handle = await registered;
   handles.set(handle, {});
   return () => {
     if (!handles.delete(handle)) return;
@@ -247,13 +244,14 @@ async function heldHandle(registered: Promise<unknown>): Promise<() => void> {
   };
 }
 
-async function registerHooks(path: string, hooks: Record<string, unknown>, names: readonly string[]): Promise<() => void> {
+/** Registers hooks until the disposer releases the host-issued handle. */
+async function registerHooks(definition: typeof C["describeProjects" | "clients.observe" | "observeConfigChanges" | "registerThreadLifecycle" | "registerTurnObserver"], hooks: Record<string, unknown>, names: readonly string[]): Promise<() => void> {
   const implemented: Record<string, (...args: unknown[]) => unknown> = {};
   for (const name of names) {
     const hook = hooks[name];
     if (typeof hook === "function") implemented[name] = hook as (...args: unknown[]) => unknown;
   }
-  const handle = await rpc(path, Object.keys(implemented)) as number;
+  const handle = await rpc(definition, Object.keys(implemented));
   handles.set(handle, implemented);
   return () => {
     if (!handles.delete(handle)) return;
@@ -267,60 +265,61 @@ const services: WorkerHostServices = {
   stateDir: boot.stateDir,
   themesDir: boot.themesDir,
   safeMode: boot.safeMode,
-  cwd: () => rpc("cwd") as Promise<string>,
+  cwd: () => rpc(C["cwd"]),
   log: (label, detail) => { send({ t: "log", label, ...(detail === undefined ? {} : { detail }) }); },
-  openWorkspace: (path) => rpc("openWorkspace", path) as ReturnType<WorkerHostServices["openWorkspace"]>,
-  knownWorkspacePath: (path) => rpc("knownWorkspacePath", path) as Promise<string>,
-  workspaceRef: (path) => rpc("workspaceRef", path) as Promise<WorkspaceRef>,
-  admitWorkspace: (path) => rpc("admitWorkspace", path) as Promise<WorkspaceRef>,
-  projectName: (cwd) => rpc("projectName", cwd) as Promise<string>,
-  priceUsage: (tallies) => rpc("priceUsage", tallies) as Promise<PricedUsage[]>,
-  settings: (cwd) => rpc("settings", cwd) as Promise<HostExtensionSettings>,
-  rememberProjectName: async (cwd, name) => { await rpc("rememberProjectName", cwd, name); },
-  pickDirectory: (options) => rpc("pickDirectory", options) as Promise<string | undefined>,
-  runtimeOwner: () => rpc("runtimeOwner") as Promise<"tau" | "pi">,
-  thread: (sessionId) => rpc("thread", sessionId) as ReturnType<WorkerHostServices["thread"]>,
-  transcript: (sessionId) => rpc("transcript", sessionId) as ReturnType<WorkerHostServices["transcript"]>,
-  setThreadTitle: async (sessionId, title, source) => { await rpc("setThreadTitle", sessionId, title, source); },
-  noteSubprocess: async () => { await rpc("noteSubprocess"); },
-  findCommand: (name) => rpc("findCommand", name) as Promise<string | undefined>,
-  skills: (cwd) => rpc("skills", cwd) as ReturnType<WorkerHostServices["skills"]>,
-  refreshExtensionPackages: async () => { await rpc("refreshExtensionPackages"); },
-  describeProjects: (facts) => registerHooks("describeProjects", facts as Record<string, unknown>, FACT_HOOKS),
+  openWorkspace: (path) => rpc(C["openWorkspace"], path),
+  knownWorkspacePath: (path) => rpc(C["knownWorkspacePath"], path),
+  workspaceRef: (path) => rpc(C["workspaceRef"], path),
+  admitWorkspace: (path) => rpc(C["admitWorkspace"], path),
+  projectName: (cwd) => rpc(C["projectName"], cwd),
+  priceUsage: (tallies) => rpc(C["priceUsage"], tallies),
+  settings: (cwd) => rpc(C["settings"], cwd),
+  rememberProjectName: (cwd, name) => rpc(C["rememberProjectName"], cwd, name),
+  pickDirectory: (options) => rpc(C["pickDirectory"], options),
+  runtimeOwner: () => rpc(C["runtimeOwner"]),
+  thread: (sessionId) => rpc(C["thread"], sessionId),
+  transcript: (sessionId) => rpc(C["transcript"], sessionId),
+  setThreadTitle: (sessionId, title, source) => rpc(C["setThreadTitle"], sessionId, title, source),
+  noteSubprocess: () => rpc(C["noteSubprocess"]),
+  findCommand: (name) => rpc(C["findCommand"], name),
+  skills: (cwd) => rpc(C["skills"], cwd),
+  refreshExtensionPackages: () => rpc(C["refreshExtensionPackages"]),
+  describeProjects: (facts) => registerHooks(C["describeProjects"], facts as Record<string, unknown>, FACT_HOOKS),
   sessions: {
-    list: () => rpc("sessions.list") as ReturnType<WorkerHostServices["sessions"]["list"]>,
-    read: (path) => rpc("sessions.read", path) as ReturnType<WorkerHostServices["sessions"]["read"]>,
-    start: (options) => rpc("sessions.start", options) as ReturnType<WorkerHostServices["sessions"]["start"]>,
-    import: (options) => rpc("sessions.import", options) as ReturnType<WorkerHostServices["sessions"]["import"]>,
-    remove: async (sessionId) => { await rpc("sessions.remove", sessionId); },
-    restore: async (sessionId) => { await rpc("sessions.restore", sessionId); },
-    trash: () => rpc("sessions.trash") as ReturnType<WorkerHostServices["sessions"]["trash"]>,
-    purge: async (sessionId) => { await rpc("sessions.purge", sessionId); },
+    list: () => rpc(C["sessions.list"]),
+    read: (path) => rpc(C["sessions.read"], path),
+    start: (options) => rpc(C["sessions.start"], options),
+    import: (options) => rpc(C["sessions.import"], options),
+    remove: (sessionId) => rpc(C["sessions.remove"], sessionId),
+    restore: (sessionId) => rpc(C["sessions.restore"], sessionId),
+    trash: () => rpc(C["sessions.trash"]),
+    purge: (sessionId) => rpc(C["sessions.purge"], sessionId),
     exclusive: <T>(work: () => Promise<T> | T): Promise<T> => {
       const id = nextId++;
       exclusiveWork.set(id, async () => work());
       return new Promise<T>((resolve, reject) => {
+        // This is our callback's T, returned by the host through exit/res.
         pending.set(id, { resolve: (value) => resolve(value as T), reject });
-        send({ t: "rpc", id, path: "sessions.exclusive", args: [] });
+        send({ t: "rpc", id, path: C["sessions.exclusive"].name, args: C["sessions.exclusive"].decode([]) });
       });
     },
   },
   clients: {
-    observe: (observer) => registerHooks("clients.observe", observer as Record<string, unknown>, CLIENT_HOOKS),
-    count: () => rpc("clients.count") as Promise<number>,
-    devices: () => rpc("clients.devices") as ReturnType<WorkerHostServices["clients"]["devices"]>,
+    observe: (observer) => registerHooks(C["clients.observe"], observer as Record<string, unknown>, CLIENT_HOOKS),
+    count: () => rpc(C["clients.count"]),
+    devices: () => rpc(C["clients.devices"]),
   },
   network: {
-    state: () => rpc("network.state") as ReturnType<WorkerHostServices["network"]["state"]>,
-    holdProxy: () => heldHandle(rpc("network.holdProxy")),
-    keepProxy: async (keep) => { await rpc("network.keepProxy", keep); },
-    publishEndpoints: (endpoints) => heldHandle(rpc("network.publishEndpoints", endpoints)),
+    state: () => rpc(C["network.state"]),
+    holdProxy: () => heldHandle(rpc(C["network.holdProxy"])),
+    keepProxy: (keep) => rpc(C["network.keepProxy"], keep),
+    publishEndpoints: (endpoints) => heldHandle(rpc(C["network.publishEndpoints"], endpoints)),
   },
-  observeConfigChanges: (listener) => registerHooks("observeConfigChanges", { changed: listener }, CONFIG_HOOKS),
-  registerThreadLifecycle: (lifecycle) => registerHooks("registerThreadLifecycle", lifecycle as Record<string, unknown>, LIFECYCLE_HOOKS),
-  registerTurnObserver: (observer) => registerHooks("registerTurnObserver", observer as Record<string, unknown>, TURN_HOOKS),
-  setPendingWork: async (sessionId, count) => { await rpc("setPendingWork", sessionId, count); },
-  pinTranscriptEntries: (pins) => heldHandle(rpc("pinTranscriptEntries", pins)),
+  observeConfigChanges: (listener) => registerHooks(C["observeConfigChanges"], { changed: listener }, CONFIG_HOOKS),
+  registerThreadLifecycle: (lifecycle) => registerHooks(C["registerThreadLifecycle"], lifecycle as Record<string, unknown>, LIFECYCLE_HOOKS),
+  registerTurnObserver: (observer) => registerHooks(C["registerTurnObserver"], observer as Record<string, unknown>, TURN_HOOKS),
+  setPendingWork: (sessionId, count) => rpc(C["setPendingWork"], sessionId, count),
+  pinTranscriptEntries: (pins) => heldHandle(rpc(C["pinTranscriptEntries"], pins)),
 };
 
 const context: WorkerHostExtensionContext = {
@@ -337,7 +336,7 @@ const context: WorkerHostExtensionContext = {
       return Reflect.get(target, prop, receiver) as unknown;
     },
   }),
-  invokeHostExtension: (extensionId, command, input) => rpc("hostExtension", extensionId, command, input),
+  invokeHostExtension: (extensionId, command, input) => rpc(C["hostExtension"], extensionId, command, input),
   registerMachineRouting: (policy = {}) => {
     if ("create" in policy) throw new Error("Worker machine routing supports declarative policies only");
     if (machineRoutingRegistration) throw new Error(`Host extension ${boot.id}: machine routing registered twice`);
@@ -369,7 +368,7 @@ const context: WorkerHostExtensionContext = {
     send({ t: "offer", contract, on: true });
     return () => { send({ t: "offer", contract, on: false }); };
   },
-  offering: (contract) => rpc("offering", contract) as Promise<Array<{ id: string; name: string }>>,
+  offering: (contract) => rpc(C["offering"], contract),
 };
 
 function answer(id: number, run: () => unknown): void {

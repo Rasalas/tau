@@ -27,17 +27,18 @@ import type {
   TurnOutcomeEvent,
 } from "./turn-checkpoint-types.js";
 import { createPiTurnCheckpointExtension } from "./pi-turn-checkpoint-extension.js";
-import * as workspaceGit from "./workspace-git.js";
+import * as snapshots from "./workspace-snapshots.js";
+import * as workspacePaths from "./workspace-paths.js";
 import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js";
 
 export interface WorkspaceKitCheckpointMaintenance {
   cleanupSessionRefs(cwd: string, sessionId: string): Promise<void>;
   cleanupOrphanRefs(cwd: string, sessionId: string, checkpoints: readonly StoredTurnCheckpoint[], backups?: readonly TurnRestoreBackup[]): Promise<void>;
-  cleanupLiveRefs(cwd: string, sessions: readonly workspaceGit.LiveCheckpointSession[]): Promise<void>;
+  cleanupLiveRefs(cwd: string, sessions: readonly snapshots.LiveCheckpointSession[]): Promise<void>;
   rehomeFork(options: WorkspaceKitForkOptions): Promise<void>;
 }
 
-export type WorkspaceKitLiveCheckpointSession = workspaceGit.LiveCheckpointSession;
+export type WorkspaceKitLiveCheckpointSession = snapshots.LiveCheckpointSession;
 
 export interface WorkspaceKitForkOptions {
   cwd: string;
@@ -103,15 +104,15 @@ export function createWorkspaceKitCheckpointMaintenance(
     await withLease(cwd, sessionId, operation, timeout);
   };
   return {
-    cleanupSessionRefs: (cwd, sessionId) => sweep(cwd, sessionId, () => workspaceGit.cleanupTurnCheckpointSessionRefs(cwd, sessionId)),
-    cleanupOrphanRefs: (cwd, sessionId, checkpoints, backups) => sweep(cwd, sessionId, () => workspaceGit.cleanupOrphanTurnCheckpointRefs(cwd, sessionId, checkpoints, undefined, backups)),
-    cleanupLiveRefs: (cwd, sessions) => sweep(cwd, "tau-checkpoint-gc", () => workspaceGit.cleanupCheckpointRefsForLiveSessions(cwd, sessions)),
+    cleanupSessionRefs: (cwd, sessionId) => sweep(cwd, sessionId, () => snapshots.cleanupTurnCheckpointSessionRefs(cwd, sessionId)),
+    cleanupOrphanRefs: (cwd, sessionId, checkpoints, backups) => sweep(cwd, sessionId, () => snapshots.cleanupOrphanTurnCheckpointRefs(cwd, sessionId, checkpoints, undefined, backups)),
+    cleanupLiveRefs: (cwd, sessions) => sweep(cwd, "tau-checkpoint-gc", () => snapshots.cleanupCheckpointRefsForLiveSessions(cwd, sessions)),
     rehomeFork: async ({ cwd, sourceSessionId, targetSessionId, checkpoints, appendEntry, committedCheckpoints, lease }) => {
       const operation = async () => {
         if (checkpoints.length === 0) return;
         const transactionId = randomUUID();
         try {
-          await workspaceGit.cloneTurnCheckpointRefs(cwd, sourceSessionId, targetSessionId, checkpoints);
+          await snapshots.cloneTurnCheckpointRefs(cwd, sourceSessionId, targetSessionId, checkpoints);
           const existing = new Set(committedCheckpoints().map((checkpoint) => checkpoint.id));
           const appendedIds: string[] = [];
           for (const checkpoint of checkpoints) {
@@ -141,7 +142,7 @@ export function createWorkspaceKitCheckpointMaintenance(
           } catch {
             throw error;
           }
-          await workspaceGit.cleanupClonedTurnCheckpointRefs(
+          await snapshots.cleanupClonedTurnCheckpointRefs(
             cwd,
             sourceSessionId,
             targetSessionId,
@@ -171,12 +172,12 @@ export interface WorkspaceKitTurnContext {
  */
 export interface WorkspaceKitCheckpointRuntime {
   readonly pendingCount: number;
-  get(id: string): TurnCaptureState<workspaceGit.WorkspaceSnapshot> | undefined;
-  acceptUserTurn(id: string, options?: AcceptTurnOptions): TurnCaptureState<workspaceGit.WorkspaceSnapshot>;
+  get(id: string): TurnCaptureState<snapshots.WorkspaceSnapshot> | undefined;
+  acceptUserTurn(id: string, options?: AcceptTurnOptions): TurnCaptureState<snapshots.WorkspaceSnapshot>;
   prepare(id: string): Promise<void>;
-  acceptInput(id?: string, options?: { deferBefore?: boolean }): Promise<TurnCaptureState<workspaceGit.WorkspaceSnapshot>>;
-  beginTurn(): Promise<TurnCaptureState<workspaceGit.WorkspaceSnapshot> | undefined>;
-  userMessage(): Promise<TurnCaptureState<workspaceGit.WorkspaceSnapshot> | undefined>;
+  acceptInput(id?: string, options?: { deferBefore?: boolean }): Promise<TurnCaptureState<snapshots.WorkspaceSnapshot>>;
+  beginTurn(): Promise<TurnCaptureState<snapshots.WorkspaceSnapshot> | undefined>;
+  userMessage(): Promise<TurnCaptureState<snapshots.WorkspaceSnapshot> | undefined>;
   endTurn(message: unknown, anchorMessageId?: string, resolveAnchor?: () => string | undefined): Promise<void>;
   endAgent(event: TurnOutcomeEvent): Promise<void>;
   reject(id?: string): Promise<void>;
@@ -198,16 +199,16 @@ export interface WorkspaceKitCheckpointFeatureOptions {
   /** The owning runtime supplies the durable custom-entry transport. */
   appendCheckpoint(
     checkpoint: StoredTurnCheckpoint,
-    result: TurnCheckpointCaptureResult<workspaceGit.WorkspaceSnapshot>,
-    capture: TurnCaptureState<workspaceGit.WorkspaceSnapshot>,
+    result: TurnCheckpointCaptureResult<snapshots.WorkspaceSnapshot>,
+    capture: TurnCaptureState<snapshots.WorkspaceSnapshot>,
   ): Promise<void>;
   leaseManager?: WorkspaceCheckpointLeaseManager;
   maintenance?: WorkspaceKitCheckpointMaintenance;
   /** Defaults to `DEFAULT_LEASE_TIMEOUT_MS`; a busy workspace skips the checkpoint instead of delaying Pi. */
   leaseTimeoutMs?: number;
-  onError?(error: unknown, capture: TurnCaptureState<workspaceGit.WorkspaceSnapshot>): void;
-  onStatus?(status: TurnCheckpointStatus, capture: TurnCaptureState<workspaceGit.WorkspaceSnapshot>): void;
-  onReleased?(capture: TurnCaptureState<workspaceGit.WorkspaceSnapshot>): void | Promise<void>;
+  onError?(error: unknown, capture: TurnCaptureState<snapshots.WorkspaceSnapshot>): void;
+  onStatus?(status: TurnCheckpointStatus, capture: TurnCaptureState<snapshots.WorkspaceSnapshot>): void;
+  onReleased?(capture: TurnCaptureState<snapshots.WorkspaceSnapshot>): void | Promise<void>;
 }
 
 /**
@@ -244,8 +245,8 @@ export interface WorkspaceKitCheckpointFeature {
 export async function attributeSnapshotPair(
   cwd: string,
   changes: UiWorkspaceChanges,
-  before: workspaceGit.WorkspaceSnapshot,
-  after: workspaceGit.WorkspaceSnapshot,
+  before: snapshots.WorkspaceSnapshot,
+  after: snapshots.WorkspaceSnapshot,
 ): Promise<TurnChangesSummary> {
   if (before.head === undefined || after.head === undefined) return changes;
   const head: TurnHead = {
@@ -275,7 +276,7 @@ export async function reviseLegacyCheckpoint(
   const legacy = legacyHeadMove(reflog, checkpoint.startedAt, checkpoint.endedAt);
   if (!legacy) return checkpoint;
   try {
-    const changes = await workspaceGit.diffWorkspaceSnapshots(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, {
+    const changes = await snapshots.diffWorkspaceSnapshots(cwd, checkpoint.beforeSnapshotId, checkpoint.afterSnapshotId, {
       branch: checkpoint.branch,
       expected: { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId },
     });
@@ -300,7 +301,7 @@ export async function reviseLegacyCheckpoint(
 }
 
 /** A checkpoint whose HEAD moved pages only the files it kept. */
-export function pageAttribution(cwd: string, checkpoint: StoredTurnCheckpoint): Pick<workspaceGit.SnapshotPageOptions, "attribute"> {
+export function pageAttribution(cwd: string, checkpoint: StoredTurnCheckpoint): Pick<snapshots.SnapshotPageOptions, "attribute"> {
   const { head, headMove } = checkpoint;
   if (!head || !headMove) return {};
   return { attribute: (changes) => attributeTurnChanges(cwd, changes, recordedAttribution({ ...checkpoint, head, headMove })) };
@@ -318,18 +319,18 @@ export function createWorkspaceKitCheckpointFeature(
 ): WorkspaceKitCheckpointFeature {
   const leaseManager = options.leaseManager ?? new WorkspaceCheckpointLeaseManager();
   const maintenance = options.maintenance ?? createWorkspaceKitCheckpointMaintenance(leaseManager);
-  const adapterOptions: TurnCheckpointAdapterOptions<workspaceGit.WorkspaceSnapshot> = {
+  const adapterOptions: TurnCheckpointAdapterOptions<snapshots.WorkspaceSnapshot> = {
     sessionIdForTurn: (turnId) => options.contextForTurn(turnId)?.sessionId,
     createBefore: async (turnId) => {
       const context = options.contextForTurn(turnId);
       return context
-        ? workspaceGit.createTurnWorkspaceSnapshot(context.cwd, context.sessionId, turnId, "before")
+        ? snapshots.createTurnWorkspaceSnapshot(context.cwd, context.sessionId, turnId, "before")
         : undefined;
     },
     createAfter: async (turnId) => {
       const context = options.contextForTurn(turnId);
       return context
-        ? workspaceGit.createTurnWorkspaceSnapshot(context.cwd, context.sessionId, turnId, "after")
+        ? snapshots.createTurnWorkspaceSnapshot(context.cwd, context.sessionId, turnId, "after")
         : undefined;
     },
     acquireLease: async (turnId, signal): Promise<TurnCheckpointLease | undefined> => {
@@ -343,7 +344,7 @@ export function createWorkspaceKitCheckpointFeature(
         || before.turnId !== turnId || after.turnId !== turnId) {
         throw new Error("Workspace checkpoint snapshot ownership changed.");
       }
-      const changes = await workspaceGit.diffWorkspaceSnapshots(beforeContext.cwd, before.id, after.id, {
+      const changes = await snapshots.diffWorkspaceSnapshots(beforeContext.cwd, before.id, after.id, {
         branch: options.branchForWorkspace?.(beforeContext.cwd),
         expected: { sessionId: beforeContext.sessionId, turnId },
       });
@@ -352,7 +353,7 @@ export function createWorkspaceKitCheckpointFeature(
     discardSnapshot: (snapshot) => {
       const cwd = snapshot.cwd ?? options.contextForTurn(snapshot.turnId ?? "")?.cwd;
       if (!cwd) return;
-      return workspaceGit.deleteWorkspaceSnapshot(
+      return snapshots.deleteWorkspaceSnapshot(
         cwd,
         snapshot.id,
         snapshot.sessionId && snapshot.turnId && snapshot.phase
@@ -363,7 +364,7 @@ export function createWorkspaceKitCheckpointFeature(
     discardTurnSnapshot: (turnId, phase) => {
       const context = options.contextForTurn(turnId);
       if (!context) return;
-      return workspaceGit.deleteWorkspaceSnapshot(
+      return snapshots.deleteWorkspaceSnapshot(
         context.cwd,
         turnSnapshotRef(context.sessionId, turnId, phase),
         { sessionId: context.sessionId, turnId, phase },
@@ -385,7 +386,7 @@ export function createWorkspaceKitCheckpointFeature(
     ...(options.onStatus ? { onStatus: options.onStatus } : {}),
     ...(options.onReleased ? { onReleased: options.onReleased } : {}),
   };
-  const lifecycle = new TurnCheckpointLifecycle<workspaceGit.WorkspaceSnapshot>(
+  const lifecycle = new TurnCheckpointLifecycle<snapshots.WorkspaceSnapshot>(
     createTurnCheckpointAdapter(adapterOptions),
     { leaseTimeoutMs: options.leaseTimeoutMs ?? DEFAULT_LEASE_TIMEOUT_MS },
   );
@@ -410,8 +411,8 @@ export function createWorkspaceKitCheckpointFeature(
     maintenance,
     createPiExtension: (extensionOptions) => createPiTurnCheckpointExtension({ lifecycle, ...extensionOptions }),
     historicalDiff: async (cwd, checkpoint, path, diffOptions) => {
-      await workspaceGit.assertWorkspacePath(cwd, path);
-      return workspaceGit.getSnapshotFileDiff(
+      await workspacePaths.assertWorkspacePath(cwd, path);
+      return snapshots.getSnapshotFileDiff(
         cwd,
         checkpoint.beforeSnapshotId,
         checkpoint.afterSnapshotId,
@@ -420,7 +421,7 @@ export function createWorkspaceKitCheckpointFeature(
         { sessionId: checkpoint.sessionId, turnId: checkpoint.turnId },
       );
     },
-    historicalFiles: async (cwd, checkpoint, cursor, limit) => workspaceGit.diffWorkspaceSnapshotPage(
+    historicalFiles: async (cwd, checkpoint, cursor, limit) => snapshots.diffWorkspaceSnapshotPage(
       cwd,
       checkpoint.beforeSnapshotId,
       checkpoint.afterSnapshotId,

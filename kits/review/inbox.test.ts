@@ -15,7 +15,7 @@ const entry = (number: number, patch: Partial<PullRequestListEntry> = {}): PullR
   additions: 1, deletions: 1, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-02T00:00:00Z", labels: [], reviewRequested: false, ...patch,
 });
 
-const pull = (number: number, patch: Partial<PullRequestListEntry> = {}, mine = true): InboxPull => ({ entry: entry(number, patch), mine, workspace: "ws-tau" });
+const pull = (number: number, patch: Partial<PullRequestListEntry> = {}, mine = true): InboxPull => ({ entry: entry(number, patch), mine, workspaces: ["ws-tau"] });
 const ids = (sections: ReturnType<typeof buildInbox>) => sections.map((section) => [section.id, section.items.map((item) => item.key)]);
 
 describe("the Reviews inbox", () => {
@@ -50,14 +50,14 @@ describe("the Reviews inbox", () => {
   it("shows a branch with a request once, as the branch, with the request's state", () => {
     const branch = review("feat/x");
     const own = pull(9, { headRef: "feat/x", checks: "failing" });
-    const sections = buildInbox([branch], [own, pull(10, { headRef: "feat/x" }, true)].map((item, index) => index ? { ...item, workspace: "ws-other" } : item));
+    const sections = buildInbox([branch], [own, pull(10, { headRef: "feat/x" }, true)].map((item, index) => index ? { ...item, workspaces: ["ws-other"] } : item));
     expect(ids(sections)).toEqual([["ready", [entry(10).ref.url]], ["thread", [branch.key]]]);
     const item = sections[1]!.items[0]!;
     expect(item).toMatchObject({ review: branch, pull: own, action: "fix", status: { text: "Checks failed" } });
     // A recorded request wins over a head match.
     expect(pairedPull(review("y", { request: { url: entry(11).ref.url, number: 11 } }), [pull(11, { headRef: "other" })])?.entry.ref.number).toBe(11);
     // A request in another project's repository is no match.
-    expect(pairedPull(branch, [{ ...own, workspace: "ws-elsewhere" }])).toBeUndefined();
+    expect(pairedPull(branch, [{ ...own, workspaces: ["ws-elsewhere"] }])).toBeUndefined();
   });
 
   it("waits on running checks, and keeps a draft's branch ready with Draft for its status", () => {
@@ -79,6 +79,23 @@ describe("the Reviews inbox", () => {
     expect(ready!.items[0]!.status).toMatchObject({ text: "2 checks failed", tone: "bad" });
   });
 
+  it("keeps stopped checks distinct from successful checks, including mixed runs", () => {
+    expect(runChecks([{ status: "stopped" }])).toMatchObject({ kind: "stopped", text: "1 check stopped", tone: "warn" });
+    expect(runChecks([{ status: "succeeded" }, { status: "stopped" }, { status: "stopped" }])).toMatchObject({ kind: "stopped", text: "2 checks stopped", tone: "warn" });
+    expect(runChecks([{ status: "running" }, { status: "stopped" }]).kind).toBe("running");
+    expect(runChecks([{ status: "failed" }, { status: "stopped" }]).kind).toBe("failed");
+  });
+
+  it("pairs a branch in the second checkout of a repository without duplicating its request", () => {
+    const branch = review("feat/x", { project: { key: "ws-second", name: "tau copy", root: "/second" } });
+    const request = entry(12, { headRef: branch.branch, checks: "failing" });
+    const pulls = openPulls({ lists: [{ service: "github", host: "github.com", repo: "acme/tau", viewer: "me", entries: [request], truncated: false, limit: 100, workspaces: ["ws-first", "ws-second"] }], failures: [] });
+    expect(pairedPull(branch, pulls)?.entry.ref.url).toBe(request.ref.url);
+    expect(ids(buildInbox([branch], pulls))).toEqual([["thread", [branch.key]]]);
+    expect(buildInbox([branch], pulls)[0]!.items[0]).toMatchObject({ action: "fix", project: "ws-second", status: { kind: "failed" } });
+    expect(pairedPull(review("feat/x"), pulls)).toBeUndefined();
+  });
+
   it("marks the viewer's own requests per host, and keeps only open ones", () => {
     const pulls = openPulls({
       lists: [
@@ -87,7 +104,7 @@ describe("the Reviews inbox", () => {
       ],
       failures: [],
     });
-    expect(pulls.map((item) => [item.entry.ref.number, item.mine, item.workspace])).toEqual([[1, true, "ws-tau"], [2, false, "ws-tau"], [4, true, undefined]]);
+    expect(pulls.map((item) => [item.entry.ref.number, item.mine, item.workspaces])).toEqual([[1, true, ["ws-tau"]], [2, false, ["ws-tau"]], [4, true, []]]);
   });
 
   it("says how a merged branch got in", () => {

@@ -1889,7 +1889,7 @@ Ticket K38: switching threads felt like 600 to 800 ms in 0.7.5 and 0.7.6, slower
 
 **What changed.**
 
-- The ref listing (`for-each-ref`) now reports each ref's object and type. A pair of trees is kept without a Git call of its own; anything else is checked as before. Without filesystem snapshot manifests (a Git checkout keeps none) the manifest pass is skipped. `kits/workspace/workspace-git.test.ts` holds both sweeps to one listing for 30 and 40 checkpoints.
+- The ref listing (`for-each-ref`) now reports each ref's object and type. A pair of trees is kept without a Git call of its own; anything else is checked as before. Without filesystem snapshot manifests (a Git checkout keeps none) the manifest pass is skipped. `kits/workspace/workspace-snapshots.test.ts` holds both sweeps to one listing for 30 and 40 checkpoints.
 - The window asks for the thread's newest persisted page (`transcript-page`) beside `switch-session` and paints it when it comes; the host's answer replaces it, and a page that comes later is dropped (`kits/workspace/app.test.tsx`).
 - The renderer keeps the detail of 24 threads (`DETAIL_CACHE_THREADS`).
 
@@ -2311,3 +2311,8 @@ the panel still opened, so this cannot be reproduced on demand.
 once the same window connection asks for another. The window logs
 `window.pick-directory.opened` and `.closed`, so the next case shows whether the
 dialog ever returned.
+
+
+### October 17 renderer ownership and extension lifecycle
+
+The renderer layout module centralizes stage, spine and conversation transitions, while each desktop extension activation now owns cancellation and resource cleanup. The standalone layout build contains 800,269 bytes of initial JavaScript and 557,528 bytes of total gzipped JavaScript. The combined ownership refactors measured 800,375 initial bytes and 557,848 total gzip bytes before the final navigation correction. These exceed the former desktop caps of 800,000 and 557,000 bytes. The caps increase by 1,000 bytes each, to 801,000 initial bytes and 558,000 total gzip bytes. This is an explicit allowance for the additional behavior, not a bundle-size improvement. The combined browser-client build measured 569,820 total gzip bytes against its previous 569,000-byte cap, so that cap also increases by 1,000 bytes to 570,000. Initial gzip, CSS and timing budgets stay unchanged.

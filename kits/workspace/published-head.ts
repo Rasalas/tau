@@ -1,5 +1,5 @@
 import { branchReviewTargetConfigKey, runAgentGit, type AgentGitRunner } from "./agent-worktrees.js";
-import { readDefaultBranch } from "./workspace-git.js";
+import { readDefaultBranch } from "./git-refs.js";
 
 /** Proof of publication, not a reason to settle: remote-tracking refs alone can be stale. */
 export async function publishedHead(path: string, run: AgentGitRunner = runAgentGit): Promise<{ commit: string; target: string; remote: string } | undefined> {

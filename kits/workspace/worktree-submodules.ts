@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { WorktreeSubmodules } from "./protocol.js";
-import { runGitCommand, type GitRunner } from "./workspace-git.js";
+import { runGitCommand, type GitRunner } from "./git-command.js";
 
 /** A first checkout of a submodule may clone over the network. */
 const SUBMODULE_TIMEOUT_MS = 10 * 60 * 1000;

@@ -59,7 +59,8 @@ import { ResizeHandle } from "./components/ResizeHandle";
 import type { PanelLayout } from "./use-panel-layout";
 import type { NewThreadPick, OpenConversationView } from "./use-app-overlays";
 import { panelTabId } from "../workbench/stage";
-import { useCenterLayout } from "./use-center-layout";
+import { workbenchDisplay, type LayoutSpace } from "./workbench-layout";
+import type { RendererLayout } from "./use-renderer-layout";
 import { CHAT_MIN_WIDTH } from "../workbench/center-layout";
 import {
   CHAT_MAXIMIZE_OVERDRAG, DRAWER_DEFAULT_HEIGHT, DRAWER_MIN_HEIGHT, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH,
@@ -179,17 +180,7 @@ export interface WorkbenchLayout {
   panelLayout?: PanelLayout;
   /** The drawer panel showing below the conversation. */
   drawer?: string;
-  /** The user hid the thread's stage. */
-  stageFolded: boolean;
-  setStageFolded(folded: boolean): void;
-  /** The stage fills the centre, the conversation out of sight. */
-  maximized: boolean;
-  /** Where only one of the two is shown: the conversation rather than the stage. */
-  chatFocused: boolean;
-  setChatFocused(focused: boolean): void;
-  /** The stage over the whole centre; cleared when the stage closes. */
-  stageMaximized: boolean;
-  setStageMaximized(maximized: boolean): void;
+  rendererLayout: RendererLayout;
   stage: StageState;
   /** Who holds the handles of the tabs extensions drew, and closes any tab. */
   stageTabs: StageTabController;
@@ -322,8 +313,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const { actions, layout, thread, composer, view, toasts } = model;
   const {
     registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions: allSidebarContributions, panels: allPanels,
-    openPanel, panelLayout, drawer, stageFolded, setStageFolded,
-    chatFocused, setChatFocused, maximized, setStageMaximized, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
+    openPanel, panelLayout, drawer, rendererLayout, stage, stageTabs, activateStageTab, pinStageTab, unpinStageTab, setStageFileView,
     loadThread, takeOverThread,
     documentState, documentSource, paletteOpen, paletteMenu, closePalette, commands,
     projectSourcesOpen, projectSource, closeProjectSources, newThreadPick, openNewThreadPicker, closeNewThreadPicker,
@@ -401,7 +391,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const clientProfile = useClientEnvironment().profile;
   const compactForm = useCompactForm(clientProfile);
   const split = compact && compactForm === "split";
-  const compactRef = useRef({ compact, split, stacked: false, maximized: false, sheets: [] as readonly string[] });
+  const compactRef = useRef({ compact, split, stacked: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
   useEffect(() => { if (compact && !compactOrder) void loadCompactOrder(); }, [compact]);
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
@@ -422,9 +412,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(() => clientStorage.get(STORAGE_KEYS.sidebarOpen) !== "false");
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
-  // The conversation collapsed to its spine beside the stage (design 1b): a layout state, kept across threads.
-  const [spineWanted, setSpine] = useState(() => clientStorage.get(STORAGE_KEYS.spine) === "true");
-  useEffect(() => clientStorage.set(STORAGE_KEYS.spine, String(spineWanted)), [spineWanted]);
+  const { preferences: layoutPreferences, send: sendLayout } = rendererLayout;
+  const { stageFolded } = layoutPreferences;
   const [jumpToLatest] = useState(() => new JumpToLatestStore());
   const openPage = useSyncExternalStore(pages.subscribe, pages.getSnapshot);
   // A phone shows a page as a screen of its own; elsewhere it takes the thread's place beside the sidebar.
@@ -445,7 +434,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         return !open;
       });
     },
-    toggleSpine: () => setSpine((on) => !on),
+    toggleSpine: () => sendLayout({ type: "toggle-spine" }),
     openSheet: (id) => {
       if (!compactRef.current.sheets.includes(id)) return false;
       setPanelSheet(id);
@@ -459,9 +448,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     showThread: (options) => {
       setPanelSheet(undefined);
       phoneNav.showChat();
-      // Beside the stage the chat is already in view. A maximized stage makes room for it again, beside it.
-      if (compactRef.current.maximized) setStageMaximized(false);
-      if (compactRef.current.stacked) setChatFocused(true);
+      sendLayout({ type: "reveal-conversation", stacked: compactRef.current.stacked });
       if (options?.focusComposer) setComposerFocusRequest((count) => count + 1);
     },
     showThreadList: () => {
@@ -479,7 +466,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       const listOrder = compactOrder?.compactListOrder(threads, threadStore.getActivity(), { pinned: preferences.getSnapshot().pinnedThreadIds, marks: registry.getThreadRowMarks(), ...(project ? { project } : {}), working });
       return { covered, ...(listOrder ? { listOrder } : {}) };
     },
-  }), [clientStorage, phoneNav.showChat, phoneNav.showList, phoneNav.toggleChat, preferences, setChatFocused, threadStore]);
+  }), [clientStorage, phoneNav.showChat, phoneNav.showList, phoneNav.toggleChat, preferences, sendLayout, threadStore]);
   // After the commit that shows the chat: a hidden tab's composer cannot take focus.
   useEffect(() => {
     if (composerFocusRequest > 0) composer.textareaRef.current?.focus();
@@ -501,41 +488,18 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   // A page with its own navigation replaces the visible desktop or tablet thread list.
   const pageSidebar = Boolean(openPage && (split ? touchSidebarShown : sidebarShown && !compact) && registry.getPage(openPage.id)?.Sidebar);
   const drawnSidebar = split ? (touchSidebarShown ? compactSidebarWidth(windowWidth, sidebarWidthChosen ? sidebarWidth : undefined) : 0) : shownSidebar;
-  const clearStageMaximized = useCallback(() => setStageMaximized(false), [setStageMaximized]);
-  // A phone draws no stage (profile-compact.css): its panels are sheets.
-  const folded = maximized || (spineWanted && !compact && !showStartScreen);
-  const { stageShown, tabs, canSplit } = useCenterLayout({
-    windowWidth, sidebarWidth: drawnSidebar, stageOpen: stage.tabs.length > 0 && !phone, folded: stageFolded, maximized: folded,
-    tabCount: stage.tabs.length, clearMaximized: clearStageMaximized,
-  });
-  // Maximized, the stage takes the centre and the chat is out of sight; where only one fits, the one in front shows.
-  const stacked = tabs;
-  compactRef.current.stacked = stacked;
-  compactRef.current.maximized = maximized;
-  const conversationFolded = stacked && (folded || !chatFocused);
-  const stageExpanded = stageShown && !(stacked && !folded && chatFocused);
-  const spine = spineWanted && stageExpanded && canSplit && !compact && !showStartScreen;
-  // Closing the stage ends the spine; the first paint of a restart has none yet and keeps the stored choice.
-  const stageSeen = useRef(false);
-  useEffect(() => {
-    if (stageShown) stageSeen.current = true;
-    else if (stageSeen.current) setSpine(false);
-  }, [stageShown]);
-  // Where the conversation is out of sight, its composer floats over the stage (design 1b).
-  const floating = conversationFolded && stageExpanded && !compact && !showStartScreen;
   const workspaceContextAvailable = Boolean(showStartScreen ? startProjectPath : workspaceCwd);
   const workspaceSummaryAvailable = workspaceContextAvailable && registry.getRegions("workspace-summary").length > 0;
-  const [workspaceSummaryHidden, setWorkspaceSummaryHidden] = useState(stageFolded);
-  const workspaceAreaShown = workspaceSummaryAvailable && !phone && !workspaceSummaryHidden && (canSplit || stageExpanded);
-  const workspaceSummaryControl = workspaceSummaryAvailable && canSplit && !stageExpanded && !compact
-    ? { shown: workspaceAreaShown, toggle: () => setWorkspaceSummaryHidden((hidden) => !hidden) } : undefined;
-  const rightAreaShown = workspaceAreaShown || stageExpanded;
-  const stageToggleLabel = rightAreaShown ? "Collapse stage" : "Expand stage";
-  const toggleStage = () => {
-    setWorkspaceSummaryHidden(rightAreaShown);
-    setStageFolded(rightAreaShown);
-    if (!rightAreaShown) setChatFocused(false);
+  const layoutSpace: LayoutSpace = {
+    windowWidth, sidebarWidth: drawnSidebar, profile: layoutProfile, compactForm,
+    tabCount: stage.tabs.length, showStartScreen, workspaceSummaryAvailable,
   };
+  const { stacked, conversationFolded, stageExpanded, spine, floating, maximizeControl,
+    workspaceAreaShown, rightAreaShown, sideOpen, workspaceSummaryControl: summaryControlAvailable } = workbenchDisplay(layoutPreferences, layoutSpace);
+  compactRef.current.stacked = stacked;
+  const workspaceSummaryControl = summaryControlAvailable
+    ? { shown: workspaceAreaShown, toggle: () => sendLayout({ type: "toggle-workspace-summary" }) } : undefined;
+  const stageToggleLabel = rightAreaShown ? "Collapse stage" : "Expand stage";
   const stageVisibilityControl = (
     <button
       type="button"
@@ -544,12 +508,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       aria-expanded={rightAreaShown}
       disabled={!workspaceSummaryAvailable && stage.tabs.length === 0}
       {...tooltipProps(stageToggleLabel, { side: "bottom" })}
-      onClick={toggleStage}
+      onClick={() => sendLayout({ type: "toggle-stage", space: layoutSpace })}
     >
       {rightAreaShown ? <PanelRightClose size={16} aria-hidden /> : <PanelRightOpen size={16} aria-hidden />}
     </button>
   );
-  const sideOpen = stageShown && !stacked;
   const centerWidth = windowWidth - drawnSidebar;
   const chatWidth = shownChatWidth(chatWidthPreference, centerWidth);
   // Opening another thread (from a panel, say) puts the thread in front again.
@@ -577,7 +540,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   ]), [drawerPanel, stage.tabs]);
   const openTool = (id: string) => {
     if (drawerPanel?.id === id) { actions.closePanel?.(id); return; }
-    if (split && stageExpanded && frontTab?.kind === "panel" && frontTab.panelId === id) { setStageFolded(true); return; }
+    if (split && stageExpanded && frontTab?.kind === "panel" && frontTab.panelId === id) { sendLayout({ type: "hide-stage" }); return; }
     openPanel(id);
   };
   const stageTools = <>
@@ -897,7 +860,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             : "Idle"}{threadCostLabel(conversationSnapshot?.usage) ? ` · ${threadCostLabel(conversationSnapshot?.usage)}` : null}</p>
           <Region registry={registry} placement="spine" snapshot={conversationSnapshot} actions={actions} />
           {composer.queue.length > 0 ? <p>{composer.queue.length} queued</p> : null}
-          <button type="button" onClick={() => setSpine(false)}><MessageSquare size={13} />Open conversation</button>
+          <button type="button" onClick={() => sendLayout({ type: "reveal-conversation", stacked })}><MessageSquare size={13} />Open conversation</button>
         </aside> : null}
         {/* A render error in the head, transcript or composer takes the column, not the sidebar; another thread clears it. */}
         <RenderErrorBoundary scope="conversation" resetKey={`${conversationSnapshot?.sessionId ?? ""}|${activeDraftKey ?? ""}|${showStartScreen}`}>
@@ -1025,11 +988,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               workspace={stageWorkspace}
               changes={documentState.changes}
               editor={documentState.editor}
-              maximize={spine ? { maximized: true, label: "Show conversation", onToggle: () => setSpine(false) } : panelLayout && (canSplit || maximized) ? { maximized, onToggle: () => {
-                setChatFocused(maximized && !canSplit);
-                if (maximized) panelLayout.restore();
-                else panelLayout.maximizeStage();
-              } } : stacked ? { maximized: true, label: "Show chat", onToggle: () => setChatFocused(true) } : undefined}
+              maximize={maximizeControl ? { ...maximizeControl, onToggle: () => sendLayout({ type: "toggle-stage-maximized", space: layoutSpace }) } : undefined}
               tools={stageTools}
               trailingActions={!compact ? stageVisibilityControl : undefined}
               registry={registry}
@@ -1080,7 +1039,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     {overlays}
     {floats}
     {phone && !stageFolded && frontTab?.kind === "file" ? <Suspense fallback={null}>
-      <LazyWorkspaceFileSheet key={JSON.stringify([pendingNewThread, snapshot?.sessionId, stageWorkspace, frontTab.id])} tab={frontTab} source={documentSource} onClose={() => { stageTabs.close(frontTab.id); setStageFolded(true); }} />
+      <LazyWorkspaceFileSheet key={JSON.stringify([pendingNewThread, snapshot?.sessionId, stageWorkspace, frontTab.id])} tab={frontTab} source={documentSource} onClose={() => { stageTabs.close(frontTab.id); sendLayout({ type: "hide-stage" }); }} />
     </Suspense> : null}
     {sheetPanel ? createPortal(<MountedPanel
       Component={sheetPanel.Component}

@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { relative, resolve, isAbsolute, sep } from "node:path";
 import { isWorkspaceRelativePath } from "tau/host-extension";
-import { assertWorkspacePath } from "./workspace-git.js";
+import { assertWorkspacePath } from "./workspace-paths.js";
 
 export const MAX_VISUALIZATION_BYTES = 1024 * 1024;
 

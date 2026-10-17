@@ -1,5 +1,5 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
-import type { GitRunner } from "./workspace-git.js";
+import type { GitRunner } from "./git-command.js";
 import { STORAGE_CHANGED_EVENT } from "./storage-protocol.js";
 import { WorktreeStorage, storageGit, type WorktreeStorageOptions } from "./worktree-storage.js";
 

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { isNestedProject, mainCheckoutOf, repositoryDisplayName } from "./workspace-git.js";
+import { isNestedProject, mainCheckoutOf, repositoryDisplayName } from "./workspace-worktrees.js";
 
 // Reproduce a Git executable that cannot answer under host load. Project
 // identity must still come from the small metadata files already on disk.
