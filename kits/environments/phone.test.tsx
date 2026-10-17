@@ -141,6 +141,23 @@ describe("Machines Kit on a phone", () => {
     expect(environments.pair).toHaveBeenCalled();
   });
 
+  it("lists in Settings the machines the host on screen reaches, counted online, without opening them", async () => {
+    const invoke = async (_extensionId: string, command: string) => command === "agents"
+      ? { available: true, machines: [{ id: "rex", name: "rex", status: "connected", projects: [{ name: "satchel", lastOpenedAt: 3, workspaceId: "ws-satchel" }] }] }
+      : undefined;
+    const { registry, environments } = phone({ shown: "mac", environments: [mac], secureStorage: true }, invoke);
+    const page = registry.getSettingsPages().find((entry) => entry.id === "environments.machines" && entry.profiles?.includes("compact"))!;
+    function Summary() { return <output>{page.useSummary!()}</output>; }
+    render(<><Summary /><page.Component onNotify={vi.fn()} onOpenSettings={vi.fn()} /></>);
+    const rows = screen.getByRole("group", { name: "Machines" });
+    const row = await within(rows).findByRole("note", { name: "rex" });
+    expect(row.textContent).toContain("online · idle · through mac · satchel");
+    expect(screen.getByRole("status").textContent).toBe("2 online");
+    fireEvent.click(row);
+    expect(environments.open).not.toHaveBeenCalled();
+    expect(screen.getByText(/take new threads from Run on/u)).toBeTruthy();
+  });
+
   it("goes on placing a new thread's draft after the list that took it gave way to the draft, with the draft's own actions", async () => {
     setClientStorage(createMemoryStorage());
     const { environments } = fakeEnvironments({ shown: "rex", environments: [mac, rex], secureStorage: true });

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ChevronRight, Folder, FolderGit2, GitBranch } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Folder, FolderGit2, GitBranch } from "lucide-react";
 import { Sheet, type RegionProps } from "tau";
 import { rankRefs, useWorkspaceState } from "./branch-menu.js";
 import { BranchField, useBaseRefs, useMachineSource, useWorktreeBase } from "./run-on.js";
@@ -15,8 +15,8 @@ function Machine({ source, snapshot, actions }: RegionProps & { source: ReturnTy
   const [open, setOpen] = useState(false);
   if (!machine) return null;
   return <>
-    <button className="mobile-draft-machine" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open}>
-      {machine.icon}<span>on {machine.name}</span>
+    <button type="button" className="mobile-draft-machine" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} disabled={machine.moving}>
+      {machine.icon}<span>on {machine.name}</span><ChevronDown size={16} className="chev" aria-hidden />
     </button>
     {open ? <Sheet title="Run on" onClose={() => setOpen(false)}><source.Section {...(snapshot ? { snapshot } : {})} actions={actions} touch /></Sheet> : null}
   </>;

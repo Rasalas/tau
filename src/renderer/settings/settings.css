@@ -637,7 +637,8 @@
 .settings-screen.stacked .settings-nav-group:not([data-folds]),
 .settings-screen.stacked .settings-nav-group[data-folds] > button,
 .settings-screen.stacked .settings-about-link { border-radius: 12px; background: var(--raised); }
-.settings-screen.stacked .settings-nav-group { gap: 0; overflow: hidden; }
+/* Clipped for the rounded card, so it must not shrink when the list scrolls. */
+.settings-screen.stacked .settings-nav-group { flex: none; gap: 0; overflow: hidden; }
 .settings-screen.stacked .settings-nav-group > button { border-radius: 0; padding-inline: var(--space-6) var(--space-5); }
 .settings-screen.stacked .settings-nav-group > button + button { box-shadow: 0 -1px 0 var(--line-soft); }
 .settings-screen.stacked .settings-nav-group[data-folds] > button:first-of-type { border-radius: 12px 12px 0 0; }

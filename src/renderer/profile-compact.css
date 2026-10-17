@@ -206,8 +206,15 @@ body[data-profile="compact"] .conversation-start .conversation-empty > :is(i, p)
 body[data-profile="compact"] .conversation-start .conversation-empty > h1 { font-size: clamp(24px, 6vw, 30px); font-weight: 500; line-height: 1.5; }
 .mobile-project-title { padding: 0; border: 0; border-bottom: 1px solid var(--muted); border-radius: 0; background: none; color: inherit; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
 body[data-profile="compact"] .conversation-start .region-draft-actions { margin-top: 22px; }
-.mobile-draft-machine { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; }
-.mobile-draft-machine svg { width: 18px; height: 18px; }
+/* A pill with a chevron, so the machine reads as a choice and not as a caption. */
+.mobile-draft-machine {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; margin: 0 auto; padding: 0 14px 0 16px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--raised); color: var(--ink); font: inherit; cursor: pointer;
+}
+.mobile-draft-machine:active:not(:disabled), .mobile-draft-machine[aria-expanded="true"] { background: var(--hover-strong); }
+.mobile-draft-machine:disabled { opacity: .6; }
+.mobile-draft-machine svg { flex: none; width: 18px; height: 18px; color: var(--muted); }
+.mobile-draft-machine .chev { width: 16px; height: 16px; }
 .mobile-draft-checkout { display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; width: 100%; padding: 0 12px; color: var(--muted); }
 .mobile-draft-checkout > button { display: flex; align-items: center; gap: 7px; min-height: 48px; min-width: 0; max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
 .mobile-draft-checkout > button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
