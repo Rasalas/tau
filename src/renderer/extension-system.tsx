@@ -2393,6 +2393,8 @@ export class ExtensionRegistry {
       this.#contributionKinds.delete(extension.id);
       this.#profiledContributions.delete(extension.id);
       this.#activeExtensions.delete(extension.id);
+      try { this.clearPublishedData(extension.id); } catch (failure) { errors.push(failure); }
+      try { this.changed(); } catch (failure) { errors.push(failure); }
       throwFailures(errors);
     }
   }
@@ -2410,16 +2412,28 @@ export class ExtensionRegistry {
     this.#activeExtensions.delete(id);
     this.#contributionKinds.delete(id);
     this.#profiledContributions.delete(id);
+    try { this.clearPublishedData(id); } catch (error) { errors.push(error); }
+    try { this.changed(); } catch (error) { errors.push(error); }
+    throwFailures(errors);
+  }
+
+  /** Published data has the same lifetime on rollback as on deactivation. */
+  private clearPublishedData(id: string): void {
     const statusThreads = [...(this.#liveStatuses.get(id)?.keys() ?? [])];
     this.#liveStatuses.delete(id);
-    for (const sessionId of statusThreads) this.dataChanged(`thread:${sessionId}`);
     this.#rowMarks.delete(id);
     this.#lineages.delete(id);
     this.#projectIcons.delete(id);
     this.#providerIcons.delete(id);
     this.#problems.delete(id);
-    for (const key of ["marks", "lineage", "project-icons", "provider-icons", "problems"]) this.dataChanged(key);
-    this.changed();
+    // Invalidate every selector before a subscriber can read the withdrawn state.
+    this.#mergedRowMarks = undefined;
+    this.#lineageCache = undefined;
+    this.#problemCache = undefined;
+    const errors: unknown[] = [];
+    for (const key of [...statusThreads.map((sessionId) => `thread:${sessionId}`), "marks", "lineage", "project-icons", "provider-icons", "problems"]) {
+      try { this.dataChanged(key); } catch (error) { errors.push(error); }
+    }
     throwFailures(errors);
   }
 
@@ -2938,9 +2952,8 @@ export class ExtensionRegistry {
     this.#dataVersions.set(key, this.getDataVersion(key) + 1);
     if (key === "problems") this.#problemCache = undefined;
     if (transcript && key.startsWith("thread:")) this.#transcriptCache.delete(key.slice(7));
-    this.#dataListeners.get(key)?.forEach((listener) => listener());
     this.#legacyVersion += 1;
-    this.#listeners.forEach((listener) => listener());
+    this.notifyListeners([...(this.#dataListeners.get(key) ?? []), ...this.#listeners]);
   }
 
   private disposeAll(disposers: Array<() => void>): void {
@@ -3007,7 +3020,14 @@ export class ExtensionRegistry {
   private changed(): void {
     this.#version += 1;
     this.#legacyVersion += 1;
-    this.#registrationListeners.forEach((listener) => listener());
-    this.#listeners.forEach((listener) => listener());
+    this.notifyListeners([...this.#registrationListeners, ...this.#listeners]);
+  }
+
+  private notifyListeners(listeners: Array<() => void>): void {
+    const errors: unknown[] = [];
+    for (const listener of listeners) {
+      try { listener(); } catch (error) { errors.push(error); }
+    }
+    throwFailures(errors);
   }
 }
