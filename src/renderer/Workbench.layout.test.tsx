@@ -445,6 +445,33 @@ describe("workbench layout", () => {
       await waitFor(() => expect(storage.get("tau:spine")).toBe("false"));
     });
 
+    it("reveals the conversation in one click when both maximize and spine were requested", async () => {
+      setWindowWidth(1440);
+      const view = renderApp(undefined, { extensions: [rail, files] });
+      const stage = await openFile();
+      fireEvent.click(within(stage).getByRole("button", { name: "Maximize stage" }));
+      await runPaletteCommand("Collapse to spine");
+      await screen.findByRole("complementary", { name: "Thread" });
+      fireEvent.click(within(stage).getByRole("button", { name: "Show conversation" }));
+      await waitFor(() => expect(view.container.querySelector(".workbench-center")?.className).not.toContain("conversation-folded"));
+      expect(within(stage).getByRole("button", { name: "Maximize stage" })).toBeTruthy();
+      expect(view.storage.get("tau:spine")).toBe("false");
+    });
+
+    it("keeps the spine choice when the window becomes a phone layout and widens again", async () => {
+      setWindowWidth(1440);
+      const view = renderApp(undefined, { extensions: [rail, files] });
+      await openFile();
+      await runPaletteCommand("Collapse to spine");
+      await screen.findByRole("complementary", { name: "Thread" });
+      act(() => setWindowWidth(390));
+      await waitFor(() => expect(screen.queryByRole("region", { name: "Stage" })).toBeNull());
+      expect(view.storage.get("tau:spine")).toBe("true");
+      act(() => setWindowWidth(1440));
+      await screen.findByRole("complementary", { name: "Thread" });
+      expect(view.container.querySelector(".workbench-center")?.className).toContain("spine");
+    });
+
     it("maximizes the stage over the whole centre, with no strip for the chat, and its toggle brings the chat back", async () => {
       setWindowWidth(1728);
       const view = renderApp(undefined, { extensions: [rail, files] });

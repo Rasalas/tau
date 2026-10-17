@@ -43,6 +43,7 @@ import { machineThreadPath } from "./machine-thread-navigation";
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
+import { useRendererLayout } from "./use-renderer-layout";
 import { stageOwner } from "../workbench/thread-stages";
 import { usePanelLayout } from "./use-panel-layout";
 import { loadSubmissionController } from "./deferred-surfaces";
@@ -196,7 +197,7 @@ export default function App() {
   // The stage and the dock belong to the thread or draft on screen, and outlive the window.
   const shownOwner = stageOwner(snapshot?.sessionId, pendingNewThread);
   const {
-    stage, setStage, stageWorkspace, stageMaximized, setStageMaximized, stageFolded, setStageFolded, setStageShown, activePanel, setActivePanel,
+    stage, setStage, stageWorkspace, restoredOwner, stageMaximized, setStageMaximized, stageFolded, setStageFolded, activePanel, setActivePanel,
     drawer, setDrawer,
   } = useWorkbenchLayoutState({
     storage: clientStorage,
@@ -213,13 +214,10 @@ export default function App() {
   // A document opened beside the chat takes the tool that filled that space into the tabs.
   const revealDocuments = useRef(() => {});
   const stageTabs = useStageTabs({ registry, registryVersion, stage, setStage, onOpen: () => revealDocuments.current(), actions: () => actionsRef.current });
-  // Where the centre is too narrow for chat and stage side by side, the one in front.
-  const [chatFocused, setChatFocused] = useState(false);
-  // Another thread's chat is what was asked for, beside its stage even if that was maximized; a restart keeps it.
-  const ownerShown = useRef(false);
-  useEffect(() => { setChatFocused(true); if (ownerShown.current) setStageMaximized(false); ownerShown.current = Boolean(shownOwner); }, [setStageMaximized, shownOwner]);
-  // The stage over the whole centre, the conversation out of sight.
-  const maximized = stageMaximized;
+  const rendererLayout = useRendererLayout({ storage: clientStorage, owner: shownOwner, restoredOwner,
+    tabCount: stage.tabs.length, stageFolded, stageMaximized, setStageFolded, setStageMaximized });
+  const sendLayout = rendererLayout.send;
+  const setStageShown = useCallback((shown: boolean | ((shown: boolean) => boolean)) => sendLayout({ type: "set-stage-shown", shown }), [sendLayout]);
   const [composerHolds, setComposerHolds] = useState(0);
   const [composerSeed, setComposerSeed] = useState<string>();
   const newThreadDeliveryPending = Boolean(pendingNewThread);
@@ -432,8 +430,8 @@ export default function App() {
   // Stage tab or drawer: where each panel shows, and the moves between them.
   const panelLayout = usePanelLayout({
     panels, stage, setStage, stageTabs, activePanel, setActivePanel, drawer, setDrawer,
-    maximized, setStageMaximized,
-    showStage: () => { setChatFocused(false); setStageFolded(false); },
+    maximized: stageMaximized, setStageMaximized: (maximized) => sendLayout({ type: maximized ? "maximize-stage" : "restore-stage" }),
+    showStage: () => sendLayout({ type: "show-stage" }),
     focusedPanel: () => (document.activeElement as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]")?.dataset.panelId,
     sheets: { open: (id) => workbenchControlRef.current?.openSheet(id) ?? false, close: (id) => workbenchControlRef.current?.closeSheet(id) ?? false },
     actions: () => actionsRef.current,
@@ -601,16 +599,15 @@ export default function App() {
   const layout = useMemo<WorkbenchLayout>(() => ({
     controlRef: workbenchControlRef,
     registry, threadStore, settings, layoutProfile, workspaceCwd, stageWorkspace, sidebarContributions, panels,
-    openPanel, panelLayout, drawer, stageFolded, setStageFolded,
-    chatFocused, setChatFocused, maximized, stageMaximized, setStageMaximized, stage, stageTabs, activateStageTab: activateStage,
+    openPanel, panelLayout, drawer, rendererLayout, stage, stageTabs, activateStageTab: activateStage,
     pinStageTab: pinStage, unpinStageTab: unpinStage, setStageFileView: setStageView, loadThread: threadCommands.loadThread, takeOverThread, documentState, documentSource, paletteOpen, paletteMenu, closePalette,
     commands, projectSourcesOpen, projectSource, closeProjectSources, newThreadPick, openNewThreadPicker,
     closeNewThreadPicker, projects, removeProject: threadCommands.removeProject, createThreadInProject, settingsPage, setSettingsPage,
     setNotice, activeOverlayId, closeOverlay, conversationView, closeConversationView, pages,
   }), [
-    activeOverlayId, conversationView, closeConversationView, activateStage, chatFocused, stageMaximized, maximized, closeNewThreadPicker, layoutProfile,
+    activeOverlayId, conversationView, closeConversationView, activateStage, rendererLayout, closeNewThreadPicker, layoutProfile,
     closeOverlay, closePalette, closeProjectSources, commands, createThreadInProject,
-    documentSource, documentState, drawer, panelLayout, setStageFolded, stageFolded, newThreadPick,
+    documentSource, documentState, drawer, panelLayout, newThreadPick,
     openNewThreadPicker, openPanel,
     threadCommands, paletteOpen, paletteMenu, panels, pinStage, projectSourcesOpen, projectSource, projects, registry,
     setNotice, setStageView, settings, settingsPage, stageTabs, unpinStage, pages,
