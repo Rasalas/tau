@@ -129,10 +129,10 @@ describe("the Reviews inbox", () => {
     // No model, no cost and no column heads in the list; those are the review's.
     expect(ready.textContent).not.toContain("$0.84");
     expect(document.querySelector(".rv-columns")).toBeNull();
-    const thread = screen.getByRole("region", { name: "Needs the thread" });
-    expect(within(thread).getByRole("button", { name: /Ask to rebase/u })).toBeTruthy();
-    expect(thread.textContent).toContain("Note sent");
-    expect(thread.textContent).toContain("Waiting");
+    const needs = screen.getByRole("region", { name: "Needs the thread" });
+    expect(within(needs).getByRole("button", { name: /Ask to rebase/u })).toBeTruthy();
+    expect(needs.textContent).toContain("Note sent");
+    expect(needs.textContent).toContain("Waiting");
     expect(screen.queryByText(/^A thread that reports done lands here/u)).toBeNull();
     expect(document.querySelector(".rv-footer")!.textContent).toBe("1 merged this month · $9.30");
   });
@@ -170,8 +170,8 @@ describe("the Reviews inbox", () => {
     expect(headings()).toEqual(["Your review1", "Needs the thread3"]);
     expect(review.textContent).toContain("#13 · dependabot");
     expect(within(review).getByRole("button", { name: "Review" })).toBeTruthy();
-    const thread = screen.getByRole("region", { name: "Needs the thread" });
-    const row = within(thread).getByRole("button", { name: "Fix flaky pairing test, feat/pairing-flake" }).closest("li")!;
+    const needs = screen.getByRole("region", { name: "Needs the thread" });
+    const row = within(needs).getByRole("button", { name: "Fix flaky pairing test, feat/pairing-flake" }).closest("li")!;
     expect(row.textContent).toContain("#12 · feat/pairing-flake → main");
     expect(row.textContent).toContain("2 checks failed");
     expect(screen.queryByText("Request 12")).toBeNull();
