@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { CodexAppServer } from "../../kits/codex/app-server.ts";
@@ -168,6 +168,16 @@ describe("isolation", () => {
     expect(() => assertEnvUnder({ HOME: join(root, "home"), LEAK: forbiddenPaths()[0] }, ["HOME"], root)).toThrow(/points into/u);
   });
 
+  it.each([join(".config", "t3code-v2"), join("Library", "Application Support", "t3code-v2"), join("Library", "Application Support", "T3 Code (Beta)")])("rejects environment values and open files in %s, while allowing sibling names", (directory) => {
+    const env = { HOME: join(root, "home"), LEAK: join(homedir(), directory, "Cookies") };
+    expect(() => assertEnvUnder(env, ["HOME"], root)).toThrow(/points into/u);
+    expect(() => assertEnvUnder({ ...env, LEAK: join(homedir(), `${directory}-backup`, "Cookies") }, ["HOME"], root)).not.toThrow();
+    const home = "/synthetic-comparison-user";
+    const privateFile = join(home, directory, "Cookies");
+    const siblingFile = join(home, `${directory}-backup`, "Cookies");
+    expect(openForbiddenFiles([1], { home, run: () => `p1\nn${privateFile}\nn${siblingFile}` })).toEqual([privateFile]);
+  });
+
   it("builds both apps' environments without inheriting the caller's", () => {
     const tauEnv = APPS.tau.env(join(root, "tau"));
     const referenceEnv = APPS.reference.env(join(root, "reference"), { backendPort: 1234 });
@@ -250,9 +260,9 @@ describe("isolation", () => {
     expect(() => openForbiddenFiles([1], { platform: "darwin", alive: () => true, run: () => { throw Object.assign(new Error("missing live pid"), { status: 1, stdout: "", stderr: "" }); } })).toThrow("Cannot verify comparison isolation");
   });
 
-  it.skipIf(process.platform !== "linux" || spawnSync("lsof", ["-v"], { stdio: "ignore" }).status !== 0)("detects a real open synthetic private file with the Linux audit flags", () => {
+  it.skipIf(process.platform !== "linux" || spawnSync("lsof", ["-v"], { stdio: "ignore" }).status !== 0).each([join(".config", "tau"), join(".config", "t3code-v2"), join("Library", "Application Support", "t3code-v2")])("detects a real open synthetic private file under %s with the Linux audit flags", (relativeDirectory) => {
     const home = mkdtempSync(join(tmpdir(), "compare-live-isolation-"));
-    const directory = join(home, ".config", "tau");
+    const directory = join(home, relativeDirectory);
     mkdirSync(directory, { recursive: true });
     const path = join(directory, "synthetic.txt");
     writeFileSync(path, "synthetic isolation fixture");

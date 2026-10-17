@@ -5,21 +5,15 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 
 /** Directories no compared process may open, whatever its environment says. */
 export function forbiddenPaths(home = homedir()) {
-  const electronApps = ["tau", "tau-pi-desktop-prototype", "t3code", "t3code-dev", "T3 Code (Alpha)", "T3 Code (Beta)", "T3 Code (Dev)"];
+  const electronApps = ["tau", "tau-pi-desktop-prototype", "t3code", "t3code-v2", "t3code-dev", "T3 Code (Alpha)", "T3 Code (Beta)", "T3 Code (Dev)"];
   return [
     // The reference app's data folders.
     join(home, ".t3"),
-    join(home, "Library", "Application Support", "t3code"),
-    join(home, "Library", "Application Support", "t3code-dev"),
-    join(home, "Library", "Application Support", "T3 Code (Alpha)"),
-    join(home, "Library", "Application Support", "T3 Code (Dev)"),
-    join(home, "Library", "Application Support", "tau"),
-    join(home, "Library", "Application Support", "tau-pi-desktop-prototype"),
     join(home, ".tau"),
     join(home, ".codex"),
     join(home, ".claude"),
     join(home, ".pi"),
-    ...electronApps.map((name) => join(home, ".config", name)),
+    ...electronApps.flatMap((name) => [join(home, "Library", "Application Support", name), join(home, ".config", name)]),
   ];
 }
 
