@@ -66,5 +66,7 @@ It uses the full comparison's viewport, replay, frame probe and transfer counter
 with five pairs and one excluded warm-up pair. Pair order alternates. It omits
 idle, large-history scrolling and thread switches, so its latency observations
 describe that replay alone. The JSON records both source revisions, the harness
-revision, launch conditions, every pair's load and a completion state. A running
+revision, launch conditions, session plan, every pair's load and a completion state.
+It rejects another seeded history plan and writes the exact replay fixture before
+launching either version. A running
 report is partial. The final after run also writes a PNG beside the report.

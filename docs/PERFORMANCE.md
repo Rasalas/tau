@@ -15,6 +15,11 @@ Development-machine timings are useful for finding dominant phases. They are not
 
 ## Baselines
 
+The [2026-10-17 Linux comparison](performance/compare-linux-2026-10-17.md)
+records current Tau and T3 production builds, a measured streaming CSS cost and
+an alternating before/after replay. Its machine and launch conditions differ
+from the historical measurements below.
+
 ### Safe-mode lifecycle work
 
 The first local safe-mode smoke run measured 514 ms for bootstrap and 109 ms for a cross-project switch across three indexed threads.

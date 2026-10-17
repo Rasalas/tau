@@ -8,12 +8,13 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { loadavg } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { machineClass } from "../machine-class.mjs";
 import { evaluate, waitFor } from "./cdp.mjs";
 import { stopTree } from "./processes.mjs";
-import { checkIsolation, replayTurn, setViewport, start, wireCounter } from "./run.mjs";
+import { assertSeededPlan, checkIsolation, replayTurn, setViewport, start, wireCounter } from "./run.mjs";
+import { sessionPlan } from "./sessions-fixture.mjs";
 import { aggregateRuns, round } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
 
@@ -29,11 +30,13 @@ for (const [label, source] of [["before", beforeSource], ["after", afterSource]]
 }
 assert.equal(cases.before.root, cases.after.root, "the same seeded path must back both versions");
 const turn = buildTurn();
+assertSeededPlan(cases.before.app, cases.before.root);
+writeFileSync(join(cases.before.root, "turn.json"), JSON.stringify(turn));
 const report = {
   schema: "tau-stream-pairs/1", status: "running", startedAt: new Date().toISOString(),
   harnessCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: fileURLToPath(new URL("../..", import.meta.url)), encoding: "utf8" }).trim(),
   machine: machineClass(), apps: Object.fromEntries(Object.entries(cases).map(([label, { app }]) => [label, app.describe()])),
-  viewport: { width: 1440, height: 900, deviceScaleFactor: 2 }, fixture: summarizeTurn(turn),
+  viewport: { width: 1440, height: 900, deviceScaleFactor: 2 }, fixture: summarizeTurn(turn), sessionPlan: sessionPlan(),
   method: { pairs: 5, warmupPairs: 1, order: "before/after on odd pairs, after/before on even pairs", scenario: "Small thread 1; the full comparison's replayTurn", readyThreads: 7 },
   warmups: [], pairs: [],
 };

@@ -1,0 +1,3893 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-17T20:39:10.054Z",
+  "machine": {
+    "platform": "linux",
+    "architecture": "x64",
+    "chip": "Intel(R) Core(TM) i5-9600K CPU @ 3.70GHz",
+    "memoryGiB": 60,
+    "logicalCores": 6
+  },
+  "apps": {
+    "tau": {
+      "app": "Tau",
+      "commit": "08ed2a4b64b8b9aa675cbd4ffde6ad90a90d47e5",
+      "version": "0.7.42",
+      "electron": "44.4.4",
+      "build": "npm run build (production bundles, unpackaged Electron)",
+      "launch": {
+        "background": true,
+        "sandbox": false,
+        "display": "X11"
+      }
+    }
+  },
+  "window": {
+    "width": 1440,
+    "height": 900
+  },
+  "turn": {
+    "events": 899,
+    "textBytes": 151490,
+    "fences": 20,
+    "tools": 6,
+    "outputBytes": 1005000,
+    "durationMs": 14384,
+    "parameters": {
+      "answerBytes": 150000,
+      "codeBlocks": 20,
+      "bigOutputBytes": 1000000,
+      "smallCommands": 5,
+      "textDeltaChars": 200,
+      "outputChunkBytes": 8192,
+      "intervalMs": 16,
+      "thinkingChars": 0
+    }
+  },
+  "fixture": [
+    {
+      "title": "Large thread: transcript scroll fixture",
+      "turns": 100,
+      "heavy": true
+    },
+    {
+      "title": "Small thread 1: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 2: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 3: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 4: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Medium thread: switch fixture",
+      "turns": 30,
+      "heavy": true
+    },
+    {
+      "title": "Long thread: switch fixture",
+      "turns": 100,
+      "heavy": true
+    }
+  ],
+  "options": {
+    "apps": [
+      "tau"
+    ],
+    "runs": 5,
+    "warmup": 1,
+    "seed": false,
+    "check": false,
+    "out": "reports/compare-linux-full-after.json",
+    "idleMs": 5000,
+    "scrollSteps": 60,
+    "largeThread": false,
+    "threadSwitch": false
+  },
+  "aggregate": {
+    "tau": {
+      "loadAtStart": {
+        "median": 8.1,
+        "p95": 15.5,
+        "n": 5
+      },
+      "startup.firstPaintMs": {
+        "median": 847.6,
+        "p95": 1363,
+        "n": 5
+      },
+      "startup.firstContentfulPaintMs": {
+        "median": 847.6,
+        "p95": 1759.8,
+        "n": 5
+      },
+      "startup.interactiveMs": {
+        "median": 3165,
+        "p95": 11581.4,
+        "n": 5
+      },
+      "startup.paintToReadyMs": {
+        "median": 2317.4,
+        "p95": 10218.4,
+        "n": 5
+      },
+      "startup.pageTargetMs": {
+        "median": 352,
+        "p95": 1214,
+        "n": 5
+      },
+      "startup.currentContentMs": {
+        "median": 3137.3,
+        "p95": 11442.4,
+        "n": 5
+      },
+      "startup.stableLayoutMs": {
+        "median": 3137.3,
+        "p95": 11442.4,
+        "n": 5
+      },
+      "startup.stabilityConfirmedMs": {
+        "median": 3637.3,
+        "p95": 11942.4,
+        "n": 5
+      },
+      "idleCpu.windowMs": {
+        "median": 5049.5,
+        "p95": 5059.3,
+        "n": 5
+      },
+      "idleCpu.processes": {
+        "median": 13,
+        "p95": 13,
+        "n": 5
+      },
+      "idleCpu.totalMs": {
+        "median": 0,
+        "p95": 800,
+        "n": 5
+      },
+      "idleCpu.totalPercent": {
+        "median": 0,
+        "p95": 15.8,
+        "n": 5
+      },
+      "idleCpu.byRoleMs.main": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRoleMs.utility": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRoleMs.backend": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRoleMs.gpu": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRoleMs.renderer": {
+        "median": 0,
+        "p95": 800,
+        "n": 5
+      },
+      "idleCpu.byRoleMs.other": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRolePercent.main": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRolePercent.utility": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRolePercent.backend": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRolePercent.gpu": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleCpu.byRolePercent.renderer": {
+        "median": 0,
+        "p95": 15.8,
+        "n": 5
+      },
+      "idleCpu.byRolePercent.other": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "idleMemory.totalMiB": {
+        "median": 1199.4,
+        "p95": 1208,
+        "n": 5
+      },
+      "idleMemory.processes": {
+        "median": 13,
+        "p95": 13,
+        "n": 5
+      },
+      "idleMemory.byRoleMiB.main": {
+        "median": 271.8,
+        "p95": 272.5,
+        "n": 5
+      },
+      "idleMemory.byRoleMiB.utility": {
+        "median": 193.3,
+        "p95": 194.4,
+        "n": 5
+      },
+      "idleMemory.byRoleMiB.backend": {
+        "median": 283.7,
+        "p95": 284,
+        "n": 5
+      },
+      "idleMemory.byRoleMiB.gpu": {
+        "median": 142.7,
+        "p95": 143.1,
+        "n": 5
+      },
+      "idleMemory.byRoleMiB.renderer": {
+        "median": 193.2,
+        "p95": 195.9,
+        "n": 5
+      },
+      "idleMemory.byRoleMiB.other": {
+        "median": 122.2,
+        "p95": 122.7,
+        "n": 5
+      },
+      "idleMemory.rendererHeapMiB": {
+        "median": 23.1,
+        "p95": 23.9,
+        "n": 5
+      },
+      "openLarge.ms": {
+        "median": 205,
+        "p95": 806,
+        "n": 5
+      },
+      "openLarge.history.pages": {
+        "median": 5,
+        "p95": 5,
+        "n": 5
+      },
+      "openLarge.history.ms": {
+        "median": 393,
+        "p95": 1050.4,
+        "n": 5
+      },
+      "openLarge.wire.received": {
+        "median": 34,
+        "p95": 35.8,
+        "n": 5
+      },
+      "openLarge.wire.receivedKiB": {
+        "median": 185.8,
+        "p95": 186.1,
+        "n": 5
+      },
+      "openLarge.wire.sent": {
+        "median": 29,
+        "p95": 30.8,
+        "n": 5
+      },
+      "openLarge.wire.sentKiB": {
+        "median": 4.8,
+        "p95": 5,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.ping": {
+        "median": 1,
+        "p95": 1,
+        "n": 1
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.notifications/presence": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request subscribe": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request transcript-page": {
+        "median": 6,
+        "p95": 6,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request switch-session": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.codex/thread-settings": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.evidence/list": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.workspace/checkpoints": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.workspace/changes": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.workspace/workspace-info": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.codex/chatgpt-plan-account": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.project-scripts/list": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.keybindings/shortcuts": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.pi-ui/state": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.terminal/list": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.workspace/thread-changes": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.review/pr-status": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.agents/definitions": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.search/invalidate": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request start-job": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.workspace/default-branch": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "openLarge.wire.sentKinds.request host-extension tau.servers/status": {
+        "median": 1,
+        "p95": 1,
+        "n": 2
+      },
+      "openLarge.wire.httpRequests": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "openLarge.wire.httpKiB": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "scroll.scrollHeightPx": {
+        "median": 54732,
+        "p95": 58561.6,
+        "n": 5
+      },
+      "scroll.frames.frames": {
+        "median": 320,
+        "p95": 321,
+        "n": 5
+      },
+      "scroll.frames.p50": {
+        "median": 16.7,
+        "p95": 16.7,
+        "n": 5
+      },
+      "scroll.frames.p95": {
+        "median": 16.8,
+        "p95": 52,
+        "n": 5
+      },
+      "scroll.frames.p99": {
+        "median": 33.3,
+        "p95": 73.4,
+        "n": 5
+      },
+      "scroll.frames.max": {
+        "median": 33.4,
+        "p95": 120,
+        "n": 5
+      },
+      "scroll.frames.dropped": {
+        "median": 1,
+        "p95": 40.8,
+        "n": 5
+      },
+      "scroll.longTasks.count": {
+        "median": 0,
+        "p95": 9,
+        "n": 5
+      },
+      "scroll.longTasks.totalMs": {
+        "median": 0,
+        "p95": 641.6,
+        "n": 5
+      },
+      "scroll.longTasks.maxMs": {
+        "median": 0,
+        "p95": 93.6,
+        "n": 5
+      },
+      "scroll.blankSamples": {
+        "median": 321,
+        "p95": 322,
+        "n": 5
+      },
+      "scroll.blankRatio": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "replay.firstTextMs": {
+        "median": 219.6,
+        "p95": 664.2,
+        "n": 5
+      },
+      "replay.endVisibleMs": {
+        "median": 14602.4,
+        "p95": 15039.6,
+        "n": 5
+      },
+      "replay.replayMs": {
+        "median": 14384,
+        "p95": 14384,
+        "n": 5
+      },
+      "replay.streamFrames.frames": {
+        "median": 834,
+        "p95": 844.4,
+        "n": 5
+      },
+      "replay.streamFrames.p50": {
+        "median": 16.7,
+        "p95": 16.7,
+        "n": 5
+      },
+      "replay.streamFrames.p95": {
+        "median": 16.8,
+        "p95": 118.6,
+        "n": 5
+      },
+      "replay.streamFrames.p99": {
+        "median": 33.4,
+        "p95": 213.4,
+        "n": 5
+      },
+      "replay.streamFrames.max": {
+        "median": 50,
+        "p95": 313.3,
+        "n": 5
+      },
+      "replay.streamFrames.dropped": {
+        "median": 11,
+        "p95": 102.6,
+        "n": 5
+      },
+      "replay.streamLongTasks.count": {
+        "median": 1,
+        "p95": 67.2,
+        "n": 5
+      },
+      "replay.streamLongTasks.totalMs": {
+        "median": 53,
+        "p95": 6133.8,
+        "n": 5
+      },
+      "replay.streamLongTasks.maxMs": {
+        "median": 53,
+        "p95": 297.4,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.count": {
+        "median": 0,
+        "p95": 4.2,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.totalMs": {
+        "median": 0,
+        "p95": 385.2,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.maxMs": {
+        "median": 0,
+        "p95": 106.8,
+        "n": 5
+      },
+      "replay.wire.received": {
+        "median": 306,
+        "p95": 306,
+        "n": 5
+      },
+      "replay.wire.receivedKiB": {
+        "median": 396.2,
+        "p95": 398.4,
+        "n": 5
+      },
+      "replay.wire.sent": {
+        "median": 15,
+        "p95": 15,
+        "n": 5
+      },
+      "replay.wire.sentKiB": {
+        "median": 3.1,
+        "p95": 3.1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request start-job": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request prepare-prompt": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.thread-rail/patch": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.pi-providers/providers": {
+        "median": 1,
+        "p95": 1,
+        "n": 4
+      },
+      "replay.wire.sentKinds.ping": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/checkpoints": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/workspace-info": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/changes": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/thread-changes": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.search/invalidate": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.httpRequests": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "replay.wire.httpKiB": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "afterTurnMemory.totalMiB": {
+        "median": 1454.5,
+        "p95": 1487.4,
+        "n": 5
+      },
+      "afterTurnMemory.processes": {
+        "median": 14,
+        "p95": 14,
+        "n": 5
+      },
+      "afterTurnMemory.byRoleMiB.main": {
+        "median": 324.1,
+        "p95": 327.4,
+        "n": 5
+      },
+      "afterTurnMemory.byRoleMiB.utility": {
+        "median": 193.5,
+        "p95": 194.6,
+        "n": 5
+      },
+      "afterTurnMemory.byRoleMiB.backend": {
+        "median": 266.4,
+        "p95": 268.8,
+        "n": 5
+      },
+      "afterTurnMemory.byRoleMiB.gpu": {
+        "median": 157.8,
+        "p95": 158.3,
+        "n": 5
+      },
+      "afterTurnMemory.byRoleMiB.renderer": {
+        "median": 396.8,
+        "p95": 420.7,
+        "n": 5
+      },
+      "afterTurnMemory.byRoleMiB.other": {
+        "median": 122.2,
+        "p95": 122.7,
+        "n": 5
+      },
+      "afterTurnMemory.rendererHeapMiB": {
+        "median": 45.2,
+        "p95": 48.1,
+        "n": 5
+      },
+      "processes": {
+        "median": 13,
+        "p95": 13,
+        "n": 5
+      },
+      "threadSwitch.codex.short.cold.visibleMs": {
+        "median": 110.7,
+        "p95": 301.7,
+        "n": 5
+      },
+      "threadSwitch.codex.short.cold.settledMs": {
+        "median": 110.7,
+        "p95": 301.7,
+        "n": 5
+      },
+      "threadSwitch.codex.short.cold.changes": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "threadSwitch.codex.short.cold.longTaskMs": {
+        "median": 0,
+        "p95": 190.4,
+        "n": 5
+      },
+      "threadSwitch.codex.short.warm.visibleMs": {
+        "median": 62.8,
+        "p95": 148.2,
+        "n": 5
+      },
+      "threadSwitch.codex.short.warm.settledMs": {
+        "median": 62.8,
+        "p95": 148.2,
+        "n": 5
+      },
+      "threadSwitch.codex.short.warm.changes": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "threadSwitch.codex.short.warm.longTaskMs": {
+        "median": 0,
+        "p95": 130,
+        "n": 5
+      },
+      "threadSwitch.codex.medium.cold.visibleMs": {
+        "median": 205.3,
+        "p95": 664.9,
+        "n": 5
+      },
+      "threadSwitch.codex.medium.cold.settledMs": {
+        "median": 205.3,
+        "p95": 664.9,
+        "n": 5
+      },
+      "threadSwitch.codex.medium.cold.changes": {
+        "median": 0,
+        "p95": 1,
+        "n": 5
+      },
+      "threadSwitch.codex.medium.cold.longTaskMs": {
+        "median": 50,
+        "p95": 414,
+        "n": 5
+      },
+      "threadSwitch.codex.medium.warm.visibleMs": {
+        "median": 63.9,
+        "p95": 407.1,
+        "n": 5
+      },
+      "threadSwitch.codex.medium.warm.settledMs": {
+        "median": 115.9,
+        "p95": 407.1,
+        "n": 5
+      },
+      "threadSwitch.codex.medium.warm.changes": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "threadSwitch.codex.medium.warm.longTaskMs": {
+        "median": 0,
+        "p95": 272,
+        "n": 5
+      },
+      "threadSwitch.codex.long.cold.visibleMs": {
+        "median": 137.3,
+        "p95": 508.7,
+        "n": 5
+      },
+      "threadSwitch.codex.long.cold.settledMs": {
+        "median": 137.3,
+        "p95": 508.7,
+        "n": 5
+      },
+      "threadSwitch.codex.long.cold.changes": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "threadSwitch.codex.long.cold.longTaskMs": {
+        "median": 0,
+        "p95": 262.8,
+        "n": 5
+      },
+      "threadSwitch.codex.long.warm.visibleMs": {
+        "median": 56,
+        "p95": 168.5,
+        "n": 5
+      },
+      "threadSwitch.codex.long.warm.settledMs": {
+        "median": 112.7,
+        "p95": 295.9,
+        "n": 5
+      },
+      "threadSwitch.codex.long.warm.changes": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "threadSwitch.codex.long.warm.longTaskMs": {
+        "median": 0,
+        "p95": 172.8,
+        "n": 5
+      },
+      "threadSwitch.pi.short.cold.visibleMs": {
+        "median": 85.9,
+        "p95": 407,
+        "n": 5
+      },
+      "threadSwitch.pi.short.cold.settledMs": {
+        "median": 85.9,
+        "p95": 407,
+        "n": 5
+      },
+      "threadSwitch.pi.short.cold.changes": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "threadSwitch.pi.short.cold.longTaskMs": {
+        "median": 0,
+        "p95": 255.2,
+        "n": 5
+      },
+      "threadSwitch.pi.short.warm.visibleMs": {
+        "median": 58.5,
+        "p95": 238.6,
+        "n": 5
+      },
+      "threadSwitch.pi.short.warm.settledMs": {
+        "median": 58.5,
+        "p95": 238.6,
+        "n": 5
+      },
+      "threadSwitch.pi.short.warm.changes": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "threadSwitch.pi.short.warm.longTaskMs": {
+        "median": 0,
+        "p95": 200.8,
+        "n": 5
+      },
+      "threadSwitch.pi.medium.cold.visibleMs": {
+        "median": 150.1,
+        "p95": 409.8,
+        "n": 5
+      },
+      "threadSwitch.pi.medium.cold.settledMs": {
+        "median": 562.7,
+        "p95": 641.4,
+        "n": 5
+      },
+      "threadSwitch.pi.medium.cold.changes": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "threadSwitch.pi.medium.cold.longTaskMs": {
+        "median": 54,
+        "p95": 280.6,
+        "n": 5
+      },
+      "threadSwitch.pi.medium.warm.visibleMs": {
+        "median": 92.8,
+        "p95": 255.7,
+        "n": 5
+      },
+      "threadSwitch.pi.medium.warm.settledMs": {
+        "median": 161.2,
+        "p95": 502,
+        "n": 5
+      },
+      "threadSwitch.pi.medium.warm.changes": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "threadSwitch.pi.medium.warm.longTaskMs": {
+        "median": 53,
+        "p95": 290.8,
+        "n": 5
+      },
+      "threadSwitch.pi.long.cold.visibleMs": {
+        "median": 173.8,
+        "p95": 494.5,
+        "n": 5
+      },
+      "threadSwitch.pi.long.cold.settledMs": {
+        "median": 547.1,
+        "p95": 566.8,
+        "n": 5
+      },
+      "threadSwitch.pi.long.cold.changes": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "threadSwitch.pi.long.cold.longTaskMs": {
+        "median": 0,
+        "p95": 197.6,
+        "n": 5
+      },
+      "threadSwitch.pi.long.warm.visibleMs": {
+        "median": 52.8,
+        "p95": 140.2,
+        "n": 5
+      },
+      "threadSwitch.pi.long.warm.settledMs": {
+        "median": 130.3,
+        "p95": 405.4,
+        "n": 5
+      },
+      "threadSwitch.pi.long.warm.changes": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "threadSwitch.pi.long.warm.longTaskMs": {
+        "median": 0,
+        "p95": 205.4,
+        "n": 5
+      },
+      "switchLoadAtStart": {
+        "median": 4.8,
+        "p95": 13.5,
+        "n": 5
+      }
+    }
+  },
+  "results": {
+    "tau": [
+      {
+        "loadAtStart": 8.1,
+        "startup": {
+          "firstPaintMs": 1094.4,
+          "firstContentfulPaintMs": 1094.4,
+          "interactiveMs": 6203,
+          "paintToReadyMs": 5108.6,
+          "pageTargetMs": 386,
+          "currentContentMs": 6124.2,
+          "stableLayoutMs": 6124.2,
+          "stabilityConfirmedMs": 6624.2
+        },
+        "idleCpu": {
+          "complete": true,
+          "windowMs": 5049.45,
+          "processes": 13,
+          "totalMs": 0,
+          "totalPercent": 0,
+          "byRoleMs": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 0,
+            "other": 0
+          },
+          "byRolePercent": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 0,
+            "other": 0
+          }
+        },
+        "idleMemory": {
+          "totalMiB": 1196.8,
+          "processes": 13,
+          "byRoleMiB": {
+            "main": 270.9,
+            "utility": 194.6,
+            "backend": 281.2,
+            "gpu": 142.3,
+            "renderer": 192.4,
+            "other": 115.3
+          },
+          "rendererHeapMiB": 23.9
+        },
+        "openLarge": {
+          "ms": 826,
+          "history": {
+            "pages": 5,
+            "ms": 1062
+          },
+          "wire": {
+            "received": 36,
+            "receivedKiB": 186.1,
+            "sent": 31,
+            "sentKiB": 5,
+            "sentKinds": {
+              "ping": 1,
+              "request host-extension tau.notifications/presence": 2,
+              "request subscribe": 1,
+              "request transcript-page": 6,
+              "request switch-session": 1,
+              "request host-extension tau.codex/thread-settings": 2,
+              "request host-extension tau.evidence/list": 1,
+              "request host-extension tau.workspace/checkpoints": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.codex/chatgpt-plan-account": 1,
+              "request host-extension tau.project-scripts/list": 1,
+              "request host-extension tau.keybindings/shortcuts": 1,
+              "request host-extension tau.pi-ui/state": 1,
+              "request host-extension tau.terminal/list": 1,
+              "request host-extension tau.workspace/thread-changes": 3,
+              "request host-extension tau.review/pr-status": 1,
+              "request host-extension tau.agents/definitions": 1,
+              "request host-extension tau.search/invalidate": 1,
+              "request start-job": 1,
+              "request host-extension tau.workspace/default-branch": 1,
+              "request host-extension tau.servers/status": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "scroll": {
+          "scrollHeightPx": 53463,
+          "frames": {
+            "frames": 321,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.4,
+            "max": 66.6,
+            "dropped": 8
+          },
+          "longTasks": {
+            "count": 1,
+            "totalMs": 64,
+            "maxMs": 64
+          },
+          "blankSamples": 322,
+          "blankRatio": 0
+        },
+        "replay": {
+          "firstTextMs": 227.2,
+          "endVisibleMs": 14876.2,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 510,
+            "p50": 16.7,
+            "p95": 125.8,
+            "p99": 233.4,
+            "max": 350,
+            "dropped": 49
+          },
+          "streamLongTasks": {
+            "count": 40,
+            "totalMs": 6234,
+            "maxMs": 336
+          },
+          "afterEndLongTasks": {
+            "count": 5,
+            "totalMs": 469,
+            "maxMs": 121
+          },
+          "wire": {
+            "received": 302,
+            "receivedKiB": 398.8,
+            "sent": 14,
+            "sentKiB": 2.9,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 2,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "afterTurnMemory": {
+          "totalMiB": 1454.5,
+          "processes": 14,
+          "byRoleMiB": {
+            "main": 321.3,
+            "utility": 194.8,
+            "backend": 269,
+            "gpu": 157.4,
+            "renderer": 396.8,
+            "other": 115.3
+          },
+          "rendererHeapMiB": 36.3
+        },
+        "processes": 13,
+        "threadSwitch": {
+          "codex": {
+            "short": {
+              "cold": {
+                "visibleMs": 329.1,
+                "settledMs": 329.1,
+                "changes": 1,
+                "longTaskMs": 219
+              },
+              "warm": {
+                "visibleMs": 168.8,
+                "settledMs": 168.8,
+                "changes": 1,
+                "longTaskMs": 150
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 758.9,
+                "settledMs": 758.9,
+                "changes": 0,
+                "longTaskMs": 502
+              },
+              "warm": {
+                "visibleMs": 459.1,
+                "settledMs": 459.1,
+                "changes": 2,
+                "longTaskMs": 314
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 584.4,
+                "settledMs": 584.4,
+                "changes": 0,
+                "longTaskMs": 315
+              },
+              "warm": {
+                "visibleMs": 194.1,
+                "settledMs": 341.6,
+                "changes": 2,
+                "longTaskMs": 216
+              }
+            }
+          },
+          "pi": {
+            "short": {
+              "cold": {
+                "visibleMs": 479.2,
+                "settledMs": 479.2,
+                "changes": 0,
+                "longTaskMs": 319
+              },
+              "warm": {
+                "visibleMs": 281.4,
+                "settledMs": 281.4,
+                "changes": 1,
+                "longTaskMs": 251
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 458.5,
+                "settledMs": 458.5,
+                "changes": 1,
+                "longTaskMs": 319
+              },
+              "warm": {
+                "visibleMs": 294.7,
+                "settledMs": 578.8,
+                "changes": 2,
+                "longTaskMs": 348
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 568,
+                "settledMs": 568,
+                "changes": 1,
+                "longTaskMs": 247
+              },
+              "warm": {
+                "visibleMs": 162.1,
+                "settledMs": 462,
+                "changes": 2,
+                "longTaskMs": 242
+              }
+            }
+          }
+        },
+        "switches": [
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 329.1000003814697,
+              "settledMs": 329.1000003814697,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 2,
+              "longTaskMs": 219
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 758.8999996185303,
+              "settledMs": 758.8999996185303,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 5,
+              "longTaskMs": 502
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 584.3999996185303,
+              "settledMs": 584.3999996185303,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 4,
+              "longTaskMs": 315
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 479.2000002861023,
+              "settledMs": 479.2000002861023,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 3,
+              "longTaskMs": 319
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 458.5,
+              "settledMs": 458.5,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 3,
+              "longTaskMs": 319
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 568,
+              "settledMs": 568,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 3,
+              "longTaskMs": 247
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 168.80000019073486,
+              "settledMs": 168.80000019073486,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 153
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 459.09999990463257,
+              "settledMs": 459.09999990463257,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 3,
+              "longTaskMs": 314
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 142.09999990463257,
+              "settledMs": 341.60000009536816,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 2,
+              "longTaskMs": 141
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 346.19999980926514,
+              "settledMs": 346.19999980926514,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 2,
+              "longTaskMs": 332
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 415.3999996185303,
+              "settledMs": 694.1999999046311,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 4,
+              "longTaskMs": 497
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 441.40000009536743,
+              "settledMs": 744.7000000000007,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 5,
+              "longTaskMs": 592
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 176.90000009536743,
+              "settledMs": 176.90000009536743,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 2,
+              "longTaskMs": 150
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 679.5999999046326,
+              "settledMs": 679.5999999046326,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 4,
+              "longTaskMs": 409
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 228.2999997138977,
+              "settledMs": 372.7999999046333,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 2,
+              "longTaskMs": 253
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 154.5,
+              "settledMs": 154.5,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 2,
+              "longTaskMs": 121
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 164.90000009536743,
+              "settledMs": 412.1000001907378,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 3,
+              "longTaskMs": 221
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 71.69999980926514,
+              "settledMs": 461.999999904634,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 50
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 111.59999990463257,
+              "settledMs": 111.59999990463257,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 61
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 294.69999980926514,
+              "settledMs": 294.69999980926514,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 2,
+              "longTaskMs": 178
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 194.10000038146973,
+              "settledMs": 328.5000002861052,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 3,
+              "longTaskMs": 216
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 281.40000009536743,
+              "settledMs": 281.40000009536743,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 251
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 294.69999980926514,
+              "settledMs": 578.8000000000029,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 3,
+              "longTaskMs": 348
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 162.09999990463257,
+              "settledMs": 460.1999999046311,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 2,
+              "longTaskMs": 242
+            }
+          }
+        ],
+        "switchLoadAtStart": 12.5
+      },
+      {
+        "loadAtStart": 17.3,
+        "startup": {
+          "firstPaintMs": 1430.1,
+          "firstContentfulPaintMs": 1926.1,
+          "interactiveMs": 12926,
+          "paintToReadyMs": 11495.9,
+          "pageTargetMs": 1421,
+          "currentContentMs": 12771.9,
+          "stableLayoutMs": 12771.9,
+          "stabilityConfirmedMs": 13271.9
+        },
+        "idleCpu": {
+          "complete": true,
+          "windowMs": 5056.45,
+          "processes": 13,
+          "totalMs": 1000,
+          "totalPercent": 19.78,
+          "byRoleMs": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 1000,
+            "other": 0
+          },
+          "byRolePercent": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 19.78,
+            "other": 0
+          }
+        },
+        "idleMemory": {
+          "totalMiB": 1197.9,
+          "processes": 13,
+          "byRoleMiB": {
+            "main": 271.6,
+            "utility": 193.4,
+            "backend": 271.1,
+            "gpu": 143.1,
+            "renderer": 196.5,
+            "other": 122.3
+          },
+          "rendererHeapMiB": 23.8
+        },
+        "openLarge": {
+          "ms": 726,
+          "history": {
+            "pages": 5,
+            "ms": 1004
+          },
+          "wire": {
+            "received": 35,
+            "receivedKiB": 186,
+            "sent": 30,
+            "sentKiB": 5,
+            "sentKinds": {
+              "request host-extension tau.notifications/presence": 2,
+              "request subscribe": 1,
+              "request transcript-page": 6,
+              "request switch-session": 1,
+              "request host-extension tau.codex/thread-settings": 2,
+              "request host-extension tau.evidence/list": 1,
+              "request host-extension tau.workspace/checkpoints": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.codex/chatgpt-plan-account": 1,
+              "request host-extension tau.project-scripts/list": 1,
+              "request host-extension tau.keybindings/shortcuts": 1,
+              "request host-extension tau.pi-ui/state": 1,
+              "request host-extension tau.terminal/list": 1,
+              "request host-extension tau.workspace/thread-changes": 3,
+              "request host-extension tau.review/pr-status": 1,
+              "request host-extension tau.agents/definitions": 1,
+              "request host-extension tau.search/invalidate": 1,
+              "request start-job": 1,
+              "request host-extension tau.workspace/default-branch": 1,
+              "request host-extension tau.servers/status": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "scroll": {
+          "scrollHeightPx": 55772,
+          "frames": {
+            "frames": 308,
+            "p50": 16.7,
+            "p95": 60.8,
+            "p99": 83.4,
+            "max": 133.3,
+            "dropped": 49
+          },
+          "longTasks": {
+            "count": 11,
+            "totalMs": 786,
+            "maxMs": 101
+          },
+          "blankSamples": 308,
+          "blankRatio": 0
+        },
+        "replay": {
+          "firstTextMs": 773.5,
+          "endVisibleMs": 15080.4,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 493,
+            "p50": 16.7,
+            "p95": 90,
+            "p99": 133.3,
+            "max": 166.7,
+            "dropped": 116
+          },
+          "streamLongTasks": {
+            "count": 74,
+            "totalMs": 5733,
+            "maxMs": 143
+          },
+          "afterEndLongTasks": {
+            "count": 1,
+            "totalMs": 50,
+            "maxMs": 50
+          },
+          "wire": {
+            "received": 299,
+            "receivedKiB": 386.4,
+            "sent": 13,
+            "sentKiB": 2.8,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 2,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "afterTurnMemory": {
+          "totalMiB": 1491.8,
+          "processes": 14,
+          "byRoleMiB": {
+            "main": 324.1,
+            "utility": 193.6,
+            "backend": 268.1,
+            "gpu": 157.8,
+            "renderer": 425.8,
+            "other": 122.3
+          },
+          "rendererHeapMiB": 45.2
+        },
+        "processes": 13,
+        "threadSwitch": {
+          "codex": {
+            "short": {
+              "cold": {
+                "visibleMs": 192.3,
+                "settledMs": 192.3,
+                "changes": 1,
+                "longTaskMs": 76
+              },
+              "warm": {
+                "visibleMs": 62.8,
+                "settledMs": 62.8,
+                "changes": 1,
+                "longTaskMs": 50
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 288.9,
+                "settledMs": 288.9,
+                "changes": 0,
+                "longTaskMs": 62
+              },
+              "warm": {
+                "visibleMs": 198.9,
+                "settledMs": 198.9,
+                "changes": 2,
+                "longTaskMs": 104
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 206,
+                "settledMs": 206,
+                "changes": 0,
+                "longTaskMs": 54
+              },
+              "warm": {
+                "visibleMs": 41,
+                "settledMs": 97.1,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            }
+          },
+          "pi": {
+            "short": {
+              "cold": {
+                "visibleMs": 118.1,
+                "settledMs": 118.1,
+                "changes": 0,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 48.5,
+                "settledMs": 48.5,
+                "changes": 1,
+                "longTaskMs": 0
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 215,
+                "settledMs": 644.1,
+                "changes": 3,
+                "longTaskMs": 127
+              },
+              "warm": {
+                "visibleMs": 99.8,
+                "settledMs": 194.6,
+                "changes": 2,
+                "longTaskMs": 53
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 200.4,
+                "settledMs": 561.9,
+                "changes": 3,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 52.8,
+                "settledMs": 179,
+                "changes": 2,
+                "longTaskMs": 59
+              }
+            }
+          }
+        },
+        "switches": [
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 192.30000019073486,
+              "settledMs": 192.30000019073486,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 76
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 288.8999996185303,
+              "settledMs": 288.8999996185303,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 62
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 206,
+              "settledMs": 206,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 54
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 118.09999990463257,
+              "settledMs": 118.09999990463257,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 215,
+              "settledMs": 644.1000002861019,
+              "changes": 3,
+              "missingFrames": 1,
+              "longTasks": 2,
+              "longTaskMs": 127
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 200.40000009536743,
+              "settledMs": 561.900000286103,
+              "changes": 3,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 46,
+              "settledMs": 46,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 209,
+              "settledMs": 210.30000019073486,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 111
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 148.59999990463257,
+              "settledMs": 207.20000019073632,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 82
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 63.59999990463257,
+              "settledMs": 63.59999990463257,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 148.59999990463257,
+              "settledMs": 243.89999990463184,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 105
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 114.7000002861023,
+              "settledMs": 228.90000028610302,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 78
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 124,
+              "settledMs": 124,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 79
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 198.89999961853027,
+              "settledMs": 198.89999961853027,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 104
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 41,
+              "settledMs": 97.09999999999854,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 44.80000019073486,
+              "settledMs": 44.80000019073486,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 99.80000019073486,
+              "settledMs": 194.60000028610375,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 53
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 52.799999713897705,
+              "settledMs": 178.99999990463402,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 59
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 62.80000019073486,
+              "settledMs": 62.80000019073486,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 50
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 62.69999980926514,
+              "settledMs": 146.40000009536743,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 36.69999980926514,
+              "settledMs": 80.99999990463402,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 48.5,
+              "settledMs": 48.5,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 58.69999980926514,
+              "settledMs": 131.09999990463257,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 39.59999990463257,
+              "settledMs": 113.89999990463184,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          }
+        ],
+        "switchLoadAtStart": 13.7
+      },
+      {
+        "loadAtStart": 8.3,
+        "startup": {
+          "firstPaintMs": 774.9,
+          "firstContentfulPaintMs": 774.9,
+          "interactiveMs": 3014,
+          "paintToReadyMs": 2239.1,
+          "pageTargetMs": 327,
+          "currentContentMs": 2990,
+          "stableLayoutMs": 2990,
+          "stabilityConfirmedMs": 3490
+        },
+        "idleCpu": {
+          "complete": true,
+          "windowMs": 5027.33,
+          "processes": 13,
+          "totalMs": 0,
+          "totalPercent": 0,
+          "byRoleMs": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 0,
+            "other": 0
+          },
+          "byRolePercent": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 0,
+            "other": 0
+          }
+        },
+        "idleMemory": {
+          "totalMiB": 1207.4,
+          "processes": 13,
+          "byRoleMiB": {
+            "main": 272.1,
+            "utility": 192.9,
+            "backend": 284,
+            "gpu": 142.6,
+            "renderer": 193.6,
+            "other": 122.2
+          },
+          "rendererHeapMiB": 23.1
+        },
+        "openLarge": {
+          "ms": 196,
+          "history": {
+            "pages": 5,
+            "ms": 340
+          },
+          "wire": {
+            "received": 34,
+            "receivedKiB": 185.8,
+            "sent": 29,
+            "sentKiB": 4.8,
+            "sentKinds": {
+              "request host-extension tau.notifications/presence": 2,
+              "request subscribe": 1,
+              "request transcript-page": 6,
+              "request switch-session": 1,
+              "request host-extension tau.codex/thread-settings": 2,
+              "request host-extension tau.evidence/list": 1,
+              "request host-extension tau.workspace/checkpoints": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.codex/chatgpt-plan-account": 1,
+              "request host-extension tau.project-scripts/list": 1,
+              "request host-extension tau.keybindings/shortcuts": 1,
+              "request host-extension tau.pi-ui/state": 1,
+              "request host-extension tau.terminal/list": 1,
+              "request host-extension tau.workspace/thread-changes": 3,
+              "request host-extension tau.review/pr-status": 1,
+              "request host-extension tau.agents/definitions": 1,
+              "request host-extension tau.search/invalidate": 1,
+              "request start-job": 1,
+              "request host-extension tau.workspace/default-branch": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "scroll": {
+          "scrollHeightPx": 59259,
+          "frames": {
+            "frames": 321,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 16.8,
+            "max": 33.4,
+            "dropped": 1
+          },
+          "longTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "blankSamples": 322,
+          "blankRatio": 0
+        },
+        "replay": {
+          "firstTextMs": 204.5,
+          "endVisibleMs": 14575.9,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 845,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.4,
+            "max": 50,
+            "dropped": 9
+          },
+          "streamLongTasks": {
+            "count": 1,
+            "totalMs": 51,
+            "maxMs": 51
+          },
+          "afterEndLongTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "wire": {
+            "received": 306,
+            "receivedKiB": 396.6,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "afterTurnMemory": {
+          "totalMiB": 1437.6,
+          "processes": 14,
+          "byRoleMiB": {
+            "main": 323.4,
+            "utility": 193,
+            "backend": 265.9,
+            "gpu": 158.1,
+            "renderer": 375.1,
+            "other": 122.2
+          },
+          "rendererHeapMiB": 48.8
+        },
+        "processes": 13,
+        "threadSwitch": {
+          "codex": {
+            "short": {
+              "cold": {
+                "visibleMs": 89.7,
+                "settledMs": 89.7,
+                "changes": 1,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 47.5,
+                "settledMs": 47.5,
+                "changes": 1,
+                "longTaskMs": 0
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 153.2,
+                "settledMs": 153.2,
+                "changes": 1,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 63.8,
+                "settledMs": 115.9,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 132.2,
+                "settledMs": 132.2,
+                "changes": 1,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 56,
+                "settledMs": 112.7,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            }
+          },
+          "pi": {
+            "short": {
+              "cold": {
+                "visibleMs": 66.2,
+                "settledMs": 66.2,
+                "changes": 0,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 50,
+                "settledMs": 50,
+                "changes": 1,
+                "longTaskMs": 0
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 94.7,
+                "settledMs": 480.9,
+                "changes": 3,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 61.2,
+                "settledMs": 131.1,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 151.7,
+                "settledMs": 481.5,
+                "changes": 3,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 52.8,
+                "settledMs": 129.6,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            }
+          }
+        },
+        "switches": [
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 89.69999980926514,
+              "settledMs": 89.69999980926514,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 153.19999980926514,
+              "settledMs": 153.19999980926514,
+              "changes": 1,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 132.2000002861023,
+              "settledMs": 132.2000002861023,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 66.19999980926514,
+              "settledMs": 66.19999980926514,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 94.7000002861023,
+              "settledMs": 480.90000009536743,
+              "changes": 3,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 151.69999980926514,
+              "settledMs": 481.4999999046322,
+              "changes": 3,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 47.5,
+              "settledMs": 47.5,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 59.5,
+              "settledMs": 111.4999999046322,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 73.2999997138977,
+              "settledMs": 125.99999980926441,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 51.40000009536743,
+              "settledMs": 51.40000009536743,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 77.5,
+              "settledMs": 147.10000009536816,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 52.80000019073486,
+              "settledMs": 129.60000019073414,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 49.90000009536743,
+              "settledMs": 49.90000009536743,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 63.799999713897705,
+              "settledMs": 129.09999990463257,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 56,
+              "settledMs": 112.7000000953667,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 50,
+              "settledMs": 50,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 59.30000019073486,
+              "settledMs": 131.09999999999854,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 37.200000286102295,
+              "settledMs": 114.7000000953667,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 39.299999713897705,
+              "settledMs": 39.299999713897705,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 115.90000009536743,
+              "settledMs": 115.90000009536743,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 35.80000019073486,
+              "settledMs": 81.29999999999927,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 49.19999980926514,
+              "settledMs": 49.19999980926514,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 61.19999980926514,
+              "settledMs": 130.19999980926514,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 73.09999990463257,
+              "settledMs": 142.29999980926368,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 51
+            }
+          }
+        ],
+        "switchLoadAtStart": 4.8
+      },
+      {
+        "loadAtStart": 3.5,
+        "startup": {
+          "firstPaintMs": 829.8,
+          "firstContentfulPaintMs": 829.8,
+          "interactiveMs": 3139,
+          "paintToReadyMs": 2309.2,
+          "pageTargetMs": 329,
+          "currentContentMs": 3100.7,
+          "stableLayoutMs": 3100.7,
+          "stabilityConfirmedMs": 3600.7
+        },
+        "idleCpu": {
+          "complete": true,
+          "windowMs": 5027.27,
+          "processes": 13,
+          "totalMs": 0,
+          "totalPercent": 0,
+          "byRoleMs": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 0,
+            "other": 0
+          },
+          "byRolePercent": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 0,
+            "other": 0
+          }
+        },
+        "idleMemory": {
+          "totalMiB": 1208.2,
+          "processes": 13,
+          "byRoleMiB": {
+            "main": 272.6,
+            "utility": 193.3,
+            "backend": 283.7,
+            "gpu": 143,
+            "renderer": 192.9,
+            "other": 122.8
+          },
+          "rendererHeapMiB": 23
+        },
+        "openLarge": {
+          "ms": 205,
+          "history": {
+            "pages": 5,
+            "ms": 393
+          },
+          "wire": {
+            "received": 34,
+            "receivedKiB": 185.8,
+            "sent": 29,
+            "sentKiB": 4.8,
+            "sentKinds": {
+              "request host-extension tau.notifications/presence": 2,
+              "request subscribe": 1,
+              "request transcript-page": 6,
+              "request switch-session": 1,
+              "request host-extension tau.codex/thread-settings": 2,
+              "request host-extension tau.evidence/list": 1,
+              "request host-extension tau.workspace/checkpoints": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.codex/chatgpt-plan-account": 1,
+              "request host-extension tau.project-scripts/list": 1,
+              "request host-extension tau.keybindings/shortcuts": 1,
+              "request host-extension tau.pi-ui/state": 1,
+              "request host-extension tau.terminal/list": 1,
+              "request host-extension tau.workspace/thread-changes": 3,
+              "request host-extension tau.review/pr-status": 1,
+              "request host-extension tau.agents/definitions": 1,
+              "request host-extension tau.search/invalidate": 1,
+              "request start-job": 1,
+              "request host-extension tau.workspace/default-branch": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "scroll": {
+          "scrollHeightPx": 52560,
+          "frames": {
+            "frames": 320,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 16.8,
+            "max": 16.8,
+            "dropped": 0
+          },
+          "longTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "blankSamples": 321,
+          "blankRatio": 0
+        },
+        "replay": {
+          "firstTextMs": 219.6,
+          "endVisibleMs": 14602.4,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 842,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.4,
+            "max": 49.9,
+            "dropped": 11
+          },
+          "streamLongTasks": {
+            "count": 1,
+            "totalMs": 53,
+            "maxMs": 53
+          },
+          "afterEndLongTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "wire": {
+            "received": 306,
+            "receivedKiB": 396.2,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "afterTurnMemory": {
+          "totalMiB": 1469.7,
+          "processes": 14,
+          "byRoleMiB": {
+            "main": 328.1,
+            "utility": 193.5,
+            "backend": 266.4,
+            "gpu": 158.4,
+            "renderer": 400.5,
+            "other": 122.8
+          },
+          "rendererHeapMiB": 42.3
+        },
+        "processes": 13,
+        "threadSwitch": {
+          "codex": {
+            "short": {
+              "cold": {
+                "visibleMs": 61.5,
+                "settledMs": 63.9,
+                "changes": 1,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 65.7,
+                "settledMs": 65.7,
+                "changes": 1,
+                "longTaskMs": 0
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 167.9,
+                "settledMs": 167.9,
+                "changes": 1,
+                "longTaskMs": 50
+              },
+              "warm": {
+                "visibleMs": 56.9,
+                "settledMs": 114.5,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 114,
+                "settledMs": 114,
+                "changes": 1,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 66.1,
+                "settledMs": 109.4,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            }
+          },
+          "pi": {
+            "short": {
+              "cold": {
+                "visibleMs": 85.9,
+                "settledMs": 85.9,
+                "changes": 0,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 58.5,
+                "settledMs": 58.5,
+                "changes": 1,
+                "longTaskMs": 0
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 150.1,
+                "settledMs": 630.6,
+                "changes": 3,
+                "longTaskMs": 54
+              },
+              "warm": {
+                "visibleMs": 60.4,
+                "settledMs": 130.6,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 159.7,
+                "settledMs": 547.1,
+                "changes": 3,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 42,
+                "settledMs": 130,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            }
+          }
+        },
+        "switches": [
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 61.5,
+              "settledMs": 63.89999990463184,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 167.89999961853027,
+              "settledMs": 167.89999961853027,
+              "changes": 1,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 50
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 114,
+              "settledMs": 114,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 85.90000009536743,
+              "settledMs": 85.90000009536743,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 150.09999990463257,
+              "settledMs": 630.6000000953682,
+              "changes": 3,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 54
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 159.7000002861023,
+              "settledMs": 547.1000001907341,
+              "changes": 3,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 46.90000009536743,
+              "settledMs": 46.90000009536743,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 56.90000009536743,
+              "settledMs": 114.50000019073559,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 118.69999980926514,
+              "settledMs": 193.29999999999927,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 65
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 62.700000286102295,
+              "settledMs": 62.700000286102295,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 80.2000002861023,
+              "settledMs": 144.60000009536816,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 42,
+              "settledMs": 130.0000001907356,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 70.19999980926514,
+              "settledMs": 70.19999980926514,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 81,
+              "settledMs": 126.90000019073341,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 55
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 42.09999990463257,
+              "settledMs": 96.10000009536816,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 58.5,
+              "settledMs": 58.5,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 60.40000009536743,
+              "settledMs": 114.20000019073632,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 66.80000019073486,
+              "settledMs": 145.40000009536743,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 65.7000002861023,
+              "settledMs": 65.7000002861023,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 48.39999961853027,
+              "settledMs": 95.79999980926368,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 66.09999990463257,
+              "settledMs": 109.40000000000146,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 46.90000009536743,
+              "settledMs": 46.90000009536743,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 58.5,
+              "settledMs": 130.59999999999854,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 40.5,
+              "settledMs": 113.80000009536889,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          }
+        ],
+        "switchLoadAtStart": 2.4
+      },
+      {
+        "loadAtStart": 3,
+        "startup": {
+          "firstPaintMs": 847.6,
+          "firstContentfulPaintMs": 847.6,
+          "interactiveMs": 3165,
+          "paintToReadyMs": 2317.4,
+          "pageTargetMs": 352,
+          "currentContentMs": 3137.3,
+          "stableLayoutMs": 3137.3,
+          "stabilityConfirmedMs": 3637.3
+        },
+        "idleCpu": {
+          "complete": true,
+          "windowMs": 5060.06,
+          "processes": 13,
+          "totalMs": 0,
+          "totalPercent": 0,
+          "byRoleMs": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 0,
+            "other": 0
+          },
+          "byRolePercent": {
+            "main": 0,
+            "utility": 0,
+            "backend": 0,
+            "gpu": 0,
+            "renderer": 0,
+            "other": 0
+          }
+        },
+        "idleMemory": {
+          "totalMiB": 1199.4,
+          "processes": 13,
+          "byRoleMiB": {
+            "main": 271.8,
+            "utility": 189.5,
+            "backend": 284,
+            "gpu": 142.7,
+            "renderer": 193.2,
+            "other": 118.2
+          },
+          "rendererHeapMiB": 22.8
+        },
+        "openLarge": {
+          "ms": 175,
+          "history": {
+            "pages": 5,
+            "ms": 351
+          },
+          "wire": {
+            "received": 34,
+            "receivedKiB": 185.8,
+            "sent": 29,
+            "sentKiB": 4.8,
+            "sentKinds": {
+              "request host-extension tau.notifications/presence": 2,
+              "request subscribe": 1,
+              "request transcript-page": 6,
+              "request switch-session": 1,
+              "request host-extension tau.codex/thread-settings": 2,
+              "request host-extension tau.evidence/list": 1,
+              "request host-extension tau.workspace/checkpoints": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.codex/chatgpt-plan-account": 1,
+              "request host-extension tau.project-scripts/list": 1,
+              "request host-extension tau.keybindings/shortcuts": 1,
+              "request host-extension tau.pi-ui/state": 1,
+              "request host-extension tau.terminal/list": 1,
+              "request host-extension tau.workspace/thread-changes": 3,
+              "request host-extension tau.review/pr-status": 1,
+              "request host-extension tau.agents/definitions": 1,
+              "request host-extension tau.search/invalidate": 1,
+              "request start-job": 1,
+              "request host-extension tau.workspace/default-branch": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "scroll": {
+          "scrollHeightPx": 54732,
+          "frames": {
+            "frames": 318,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.3,
+            "max": 33.4,
+            "dropped": 1
+          },
+          "longTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "blankSamples": 319,
+          "blankRatio": 0
+        },
+        "replay": {
+          "firstTextMs": 194.1,
+          "endVisibleMs": 14588.6,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 834,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.4,
+            "max": 50,
+            "dropped": 9
+          },
+          "streamLongTasks": {
+            "count": 1,
+            "totalMs": 50,
+            "maxMs": 50
+          },
+          "afterEndLongTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "wire": {
+            "received": 306,
+            "receivedKiB": 396,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        },
+        "afterTurnMemory": {
+          "totalMiB": 1441.8,
+          "processes": 14,
+          "byRoleMiB": {
+            "main": 324.6,
+            "utility": 189.7,
+            "backend": 266.1,
+            "gpu": 157.1,
+            "renderer": 386.1,
+            "other": 118.2
+          },
+          "rendererHeapMiB": 45.3
+        },
+        "processes": 13,
+        "threadSwitch": {
+          "codex": {
+            "short": {
+              "cold": {
+                "visibleMs": 110.7,
+                "settledMs": 110.7,
+                "changes": 1,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 49.8,
+                "settledMs": 49.8,
+                "changes": 1,
+                "longTaskMs": 0
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 205.3,
+                "settledMs": 205.3,
+                "changes": 0,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 63.9,
+                "settledMs": 111.4,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 137.3,
+                "settledMs": 137.3,
+                "changes": 1,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 52.8,
+                "settledMs": 113.1,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            }
+          },
+          "pi": {
+            "short": {
+              "cold": {
+                "visibleMs": 70.8,
+                "settledMs": 70.8,
+                "changes": 0,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 67.5,
+                "settledMs": 67.5,
+                "changes": 1,
+                "longTaskMs": 0
+              }
+            },
+            "medium": {
+              "cold": {
+                "visibleMs": 112.2,
+                "settledMs": 562.7,
+                "changes": 3,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 92.8,
+                "settledMs": 161.2,
+                "changes": 2,
+                "longTaskMs": 62
+              }
+            },
+            "long": {
+              "cold": {
+                "visibleMs": 173.8,
+                "settledMs": 493,
+                "changes": 3,
+                "longTaskMs": 0
+              },
+              "warm": {
+                "visibleMs": 50.4,
+                "settledMs": 130.3,
+                "changes": 2,
+                "longTaskMs": 0
+              }
+            }
+          }
+        },
+        "switches": [
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 110.69999980926514,
+              "settledMs": 110.69999980926514,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 205.30000019073486,
+              "settledMs": 205.30000019073486,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 137.2999997138977,
+              "settledMs": 137.2999997138977,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 70.7999997138977,
+              "settledMs": 70.7999997138977,
+              "changes": 0,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 112.2000002861023,
+              "settledMs": 562.7000000000007,
+              "changes": 3,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 0,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 173.7999997138977,
+              "settledMs": 492.9999998092644,
+              "changes": 3,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 52.09999990463257,
+              "settledMs": 52.09999990463257,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 64.40000009536743,
+              "settledMs": 111.9999999046322,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 73.09999990463257,
+              "settledMs": 127.19999971389734,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 67.5,
+              "settledMs": 67.5,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 98.40000009536743,
+              "settledMs": 161.1999999046311,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 62
+            }
+          },
+          {
+            "round": 1,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 50.40000009536743,
+              "settledMs": 146.70000000000073,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 45.80000019073486,
+              "settledMs": 45.80000019073486,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 53.200000286102295,
+              "settledMs": 97.5,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 37.60000038146973,
+              "settledMs": 81.30000009536889,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 51.19999980926514,
+              "settledMs": 51.19999980926514,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 92.7999997138977,
+              "settledMs": 162.2999997138977,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 1,
+              "longTaskMs": 62
+            }
+          },
+          {
+            "round": 2,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 53.89999961853027,
+              "settledMs": 124.7999997138977,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 49.80000019073486,
+              "settledMs": 49.80000019073486,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 63.89999961853027,
+              "settledMs": 111.39999971389625,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "codex",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 52.799999713897705,
+              "settledMs": 113.09999980926659,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "short",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 80.89999961853027,
+              "settledMs": 80.89999961853027,
+              "changes": 1,
+              "missingFrames": 0,
+              "longTasks": 1,
+              "longTaskMs": 50
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "medium",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 77.10000038146973,
+              "settledMs": 147.60000009536816,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          },
+          {
+            "round": 3,
+            "kind": "pi",
+            "size": "long",
+            "result": {
+              "timedOut": false,
+              "visibleMs": 41.799999713897705,
+              "settledMs": 130.29999980926368,
+              "changes": 2,
+              "missingFrames": 1,
+              "longTasks": 0,
+              "longTaskMs": 0
+            }
+          }
+        ],
+        "switchLoadAtStart": 2.9
+      }
+    ]
+  }
+}

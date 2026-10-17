@@ -1,0 +1,53 @@
+{
+  "validatedAt": "2026-10-17T20:44:43.523Z",
+  "measurementHarnessCommit": "63c89cb4d09b21b45d6035570f4c5a86e2cf64a6",
+  "root": "/tmp/tau-adoption-t3-9c6c293f-tau-profile",
+  "turnMatchesBuildTurn": true,
+  "seededPlanMatches": true,
+  "turnFileSha256": "26c0b722c91cbe03b7e072086b31a9aee2cf0b757ebc456e42c5e950b4df3dc9",
+  "turn": {
+    "events": 899,
+    "textBytes": 151490,
+    "fences": 20,
+    "tools": 6,
+    "outputBytes": 1005000,
+    "durationMs": 14384
+  },
+  "sessionPlan": [
+    {
+      "title": "Large thread: transcript scroll fixture",
+      "turns": 100,
+      "heavy": true
+    },
+    {
+      "title": "Small thread 1: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 2: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 3: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Small thread 4: follow-up on the rail",
+      "turns": 6,
+      "heavy": false
+    },
+    {
+      "title": "Medium thread: switch fixture",
+      "turns": 30,
+      "heavy": true
+    },
+    {
+      "title": "Long thread: switch fixture",
+      "turns": 100,
+      "heavy": true
+    }
+  ]
+}
