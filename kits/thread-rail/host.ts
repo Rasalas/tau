@@ -301,7 +301,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       // Workspace asks only about its local sessions, never a peer machine's cache.
       context.registerCommand("thread-settlements", async (input) => {
         await readOwnership();
-        const update = await services.sessions.refreshIndex();
+        const update = await services.sessions.refreshIndex({ requireComplete: true });
         if (update.type !== "thread-index") throw new HostCommandError("The thread index is unavailable.");
         const { index } = update;
         const local = new Set([...sessions.keys(), ...index.sessions.filter((thread) => thread.backendKind !== "machine").map((thread) => thread.id)]);

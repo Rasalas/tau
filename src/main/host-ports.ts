@@ -155,7 +155,7 @@ export interface ExtensionServicesPort {
   /** Writes a session another machine made as a thread of this one and indexes it. */
   importThread(options: HostThreadImportOptions): Promise<HostImportedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
-  refreshThreadIndex(options?: { publish?: boolean }): Promise<ThreadIndexSnapshot>;
+  refreshThreadIndex(options?: { publish?: boolean; requireComplete?: boolean }): Promise<ThreadIndexSnapshot>;
   /** Moves a persisted thread to the trash; the `threadDeleted` hooks run when it is purged. */
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;

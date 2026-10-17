@@ -207,3 +207,7 @@ index. The lightweight session-header list contains Pi only, so it cannot
 prove that a checkout has no active thread of another runtime. Peer-machine
 threads are excluded. Index activity supplies the clock for synthetic backend
 session paths, and an index failure keeps the checkout.
+
+Both readers require a complete refresh through API 1.74.0. Scan errors,
+unavailable backend listings and unreadable Pi folders or session files stop
+cleanup instead of silently using the index's normal cached fallback.

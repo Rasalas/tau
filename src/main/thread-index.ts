@@ -219,7 +219,7 @@ export class ThreadIndex {
     const scanStartedAt = Date.now();
     this.usageCacheLoaded ??= this.usage.load().catch(() => undefined);
     this.lineageCacheLoaded ??= this.lineage.load().catch(() => undefined);
-    const [{ infos: sessionInfos, stamps, models }] = await Promise.all([
+    const [{ infos: sessionInfos, stamps, models, complete }] = await Promise.all([
       this.sessionInfos.list(readFiles), this.usageCacheLoaded, this.lineageCacheLoaded,
     ]);
     this.usage.retain(sessionInfos.map((info) => info.path));
@@ -262,6 +262,7 @@ export class ThreadIndex {
       for (const session of shells) partial.set(session.id, session);
       publishPartial();
     });
+    if (!complete) this.unavailableBackends = [...this.unavailableBackends, "pi"].sort();
     const projectsChanged = previousProjects.size !== this.externalProjects.size || [...this.externalProjects].some(([id, project]) => {
       const before = previousProjects.get(id);
       return before?.name !== project.name || before?.icon !== project.icon || before?.listed !== project.listed;

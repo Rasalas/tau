@@ -64,6 +64,7 @@ it("includes other local runtimes in settle retention and fails closed on missin
   vi.spyOn(Date, "now").mockReturnValue(started + 2 * 86_400_000);
   const due = async () => (await storage.report({ sizes: false })).worktrees[0]!.verdict.remove;
   expect(await due()).toBe(false); // Active Codex shares the Pi thread's worktree.
+  expect(refreshIndex).toHaveBeenLastCalledWith({ requireComplete: true });
   expect(readSettlements).toHaveBeenLastCalledWith({ threadIds: ["pi", "codex"] }, expect.anything());
   settlements = { pi: started, codex: started };
   expect(await due()).toBe(true); // The active peer machine is not a local owner.

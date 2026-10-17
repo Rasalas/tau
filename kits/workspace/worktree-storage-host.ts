@@ -43,7 +43,7 @@ export function registerWorktreeStorage(
       if (readSettled) {
         // Header reads cover Pi only. The index also knows every backend's
         // persisted threads, including an active one sharing this checkout.
-        const update = await services.sessions.refreshIndex();
+        const update = await services.sessions.refreshIndex({ requireComplete: true });
         if (update.type !== "thread-index") throw new HostCommandError("The thread index is unavailable; worktrees are kept.");
         const { index } = update;
         for (const thread of index.sessions) {
