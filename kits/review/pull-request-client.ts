@@ -1,9 +1,10 @@
-import type { HostExtensionClient } from "tau";
+import type { HostExtensionClient, PlatformEnvironments } from "tau";
 import type { PullRequestCache } from "./pull-request-cache.js";
 import { guideClient, type GuideClient } from "./guide-client.js";
 import type { PipelineFacts } from "./pipeline.js";
 import type { RequestMediaResult } from "./request-media.js";
 import {
+  REVIEW_HOST_EXTENSION_ID,
   THREAD_LINKS_EVENT,
   type PendingReviewComment,
   type PullRequestCheck,
@@ -62,6 +63,8 @@ export interface PullRequestClient {
   list(input: { workspace?: string; state: PullRequestListState; limit: number; search?: string }): Promise<PullRequestList>;
   /** Every named project's repository once, for the page across projects. */
   listMany(input: { workspaces: readonly string[]; state: PullRequestListState; limit: number; search?: string }): Promise<PullRequestLists>;
+  /** `listMany` on another machine the window reaches, for projects whose threads run there; absent without a machine list. */
+  listManyOn?(machine: string, input: { workspaces: readonly string[]; state: PullRequestListState; limit: number; search?: string }): Promise<PullRequestLists>;
   /** Merge, auto-merge or revert; `threadId` is the thread a revert is linked to. */
   action(url: string, input: { action: PullRequestAction; method?: MergeMethod; deleteBranch?: boolean; threadId?: string }): Promise<PullRequestActionResult>;
   stack(url: string, fresh?: boolean): Promise<PullRequestStack | null>;
@@ -76,7 +79,7 @@ export interface PullRequestClient {
   guides?: GuideClient;
 }
 
-export function pullRequestClient(transport: HostExtensionClient, cache?: PullRequestCache): PullRequestClient {
+export function pullRequestClient(transport: HostExtensionClient, cache?: PullRequestCache, environments?: Pick<PlatformEnvironments, "readExtension">): PullRequestClient {
   const host = cache ? { ...transport, invoke: (command: string, input?: unknown) => cache.invoke(transport, command, input) } : transport;
   const read = (fresh?: boolean) => fresh ? { fresh: true } : {};
   return {
@@ -105,6 +108,7 @@ export function pullRequestClient(transport: HostExtensionClient, cache?: PullRe
     candidates: (url) => host.invoke("pr-candidates", { url }) as Promise<{ labels: PullRequestLabel[]; reviewers: string[] }>,
     list: (input) => host.invoke("pr-list", input) as Promise<PullRequestList>,
     listMany: (input) => host.invoke("pr-list-many", input) as Promise<PullRequestLists>,
+    ...(environments?.readExtension ? { listManyOn: (machine: string, input: Parameters<PullRequestClient["listMany"]>[0]) => environments.readExtension!(machine, REVIEW_HOST_EXTENSION_ID, "pr-list-many", input) as Promise<PullRequestLists> } : {}),
     action: (url, input) => host.invoke("pr-action", { url, ...input }) as Promise<PullRequestActionResult>,
     stack: async (url, fresh) => (await host.invoke("pr-stack", { url, ...read(fresh) }) as PullRequestStack | null) ?? null,
     stackAction: (url, input) => host.invoke("pr-stack-action", { url, ...input }) as Promise<PullRequestDetail>,

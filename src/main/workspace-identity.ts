@@ -43,27 +43,13 @@ export class WorkspaceIdentity {
 
   /** Identity of one workspace; minting also makes it resolvable. */
   ref(path: string): WorkspaceRef {
-    return this.mint(this.canonical.get(path) ?? resolve(path));
-  }
-
-  private mint(displayPath: string): WorkspaceRef {
+    const displayPath = this.canonical.get(path) ?? resolve(path);
     const workspaceId = WORKSPACE_ID_PREFIX + createHash("sha256")
       .update(`${this.hostId}\0${displayPath}`)
       .digest("base64url")
       .slice(0, 32);
     this.paths.set(workspaceId, displayPath);
     return { workspaceId, displayPath };
-  }
-
-  /**
-   * Makes every id a client may hold for a path the host admits resolvable
-   * again: a window keeps the ids of an earlier run, minted from the plain or
-   * the canonical form, until the host has published them anew.
-   */
-  recall(path: string, canonical: string): void {
-    this.ref(path);
-    this.mint(resolve(path));
-    this.mint(canonical);
   }
 
   workspaceId(path: string): string {

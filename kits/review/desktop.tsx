@@ -88,7 +88,7 @@ export const reviewExtension: DesktopExtension = {
     const comments = new ReviewCommentStore(getClientStorage);
     const cache = new PullRequestCache(getClientStorage(), (hostConnectionState() ?? "connected") === "connected");
     const offConnection = plugin.events.on("host-connection", ({ state }) => cache.setConnected(state === "connected"));
-    const client = pullRequestClient(plugin.host, cache);
+    const client = pullRequestClient(plugin.host, cache, plugin.environments);
     const links = new ThreadLinkRows(client);
     // A thread's requests, for any package: a public contract, unlike the kit's protocol.
     plugin.provideService(THREAD_PULL_REQUESTS_SERVICE, threadPullRequestsService(links));

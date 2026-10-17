@@ -9,7 +9,7 @@ import type { PullRequestList, ThreadPullRequestLink } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { hideWhitespace } from "./pull-request-diff.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
-import { PullRequestListView } from "./pull-request-list-view.js";
+import { listAcrossMachines, projectsByMachine, PullRequestListView } from "./pull-request-list-view.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { LinkWatcher, worthShowing } from "./proactive-panels.js";
@@ -78,7 +78,7 @@ describe("the Pull Requests page", () => {
           { service: "github" as const, host: "github.com", repo: "cli/cli", viewer: "BagToad", entries: rows.slice(0, 2), truncated: false, limit: 100, workspaces: ["/cli"] },
           { service: "gitlab" as const, host: "gitlab.com", repo: "acme/tools", viewer: "mona", entries: [gitlab], truncated: false, limit: 100, workspaces: ["/tools"] },
         ],
-        failures: [{ workspace: "/scratch", message: "This project has no remote, so it has no pull requests to list." }],
+        failures: [{ workspace: "/scratch", message: "gh is not signed in." }],
       })),
     } as unknown as PullRequestClient;
     const open = vi.fn();
@@ -95,7 +95,7 @@ describe("the Pull Requests page", () => {
     expect(screen.getByRole("button", { name: "Projects: All projects" }).textContent).toContain("All projects · 2 repositories");
     expect(screen.getByText("acme/tools")).toBeTruthy();
     expect(screen.getByLabelText("Stack layer 2 of 3")).toBeTruthy();
-    expect(screen.getByText("Not listed: scratch.")).toBeTruthy();
+    expect(screen.getByRole("note").textContent).toBe("Not listed:scratch gh is not signed in.");
     fireEvent.click(screen.getByRole("button", { name: /^!3 /u }));
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ ref: expect.objectContaining({ number: 3 }) }), "/tools");
 
@@ -242,5 +242,38 @@ describe("proactive panels", () => {
     expect(watcher.observe("t1", ["a", "b"])).toEqual(["b"]);
     expect(watcher.observe("t1", ["b"])).toEqual([]);
     expect(watcher.observe("t2", ["c"])).toEqual([]);
+  });
+});
+
+describe("projects on other machines", () => {
+  const project = (id: string) => ({ path: id, workspaceId: id, name: id.slice(1), lastOpenedAt: 1 });
+  const rex = { id: "host-rex", name: "rex" };
+  const list = (repo: string) => ({ service: "github" as const, host: "github.com", repo, entries: [], truncated: false, limit: 100, workspaces: [`/${repo}`] });
+
+  it("are listed by the machine their threads run on", () => {
+    const machines = projectsByMachine([project("/tau"), project("/satchel")], [{ workspaceId: "/satchel", machine: rex }, { workspaceId: "/tau" }]);
+    expect([...machines]).toEqual([["", { name: "", workspaces: ["/tau"] }], ["host-rex", { name: "rex", workspaces: ["/satchel"] }]]);
+  });
+
+  it("joins every machine's answer, a repository once, and names a machine that does not answer", async () => {
+    const machines = new Map([["", { name: "", workspaces: ["/tau"] }], ["host-rex", { name: "rex", workspaces: ["/satchel", "/tau-copy"] }], ["host-off", { name: "off", workspaces: ["/far"] }]]);
+    const client = {
+      listMany: vi.fn(async () => ({ lists: [list("tau")], failures: [] })),
+      listManyOn: vi.fn(async (machine: string) => {
+        if (machine === "host-off") throw new Error("not connected");
+        return { lists: [list("satchel"), list("tau")], failures: [] };
+      }),
+    } as unknown as PullRequestClient;
+    const answer = await listAcrossMachines(client, machines, { state: "open", limit: 100 });
+    expect(client.listManyOn).toHaveBeenCalledWith("host-rex", { state: "open", limit: 100, workspaces: ["/satchel", "/tau-copy"] });
+    // Another machine's rows open without a project of this host.
+    expect(answer.lists.map((entry) => [entry.repo, entry.workspaces])).toEqual([["tau", ["/tau"]], ["satchel", []]]);
+    expect(answer.failures).toEqual([{ workspace: "/far", message: "off did not answer: not connected" }]);
+  });
+
+  it("are failures where the window reaches no other machine", async () => {
+    const client = { listMany: vi.fn(async () => ({ lists: [], failures: [] })) } as unknown as PullRequestClient;
+    const answer = await listAcrossMachines(client, new Map([["host-rex", { name: "rex", workspaces: ["/satchel"] }]]), { state: "open", limit: 100 });
+    expect(answer.failures).toEqual([{ workspace: "/satchel", message: "Its threads run on rex, which this window does not reach." }]);
   });
 });
