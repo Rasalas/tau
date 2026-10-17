@@ -6,6 +6,7 @@ import { PreferencesStore } from "../preferences";
 import { runtimeControls } from "./runtime-controls";
 import type { Platform } from "../../workbench/platform";
 import type { PlatformEnvironments } from "../../workbench/environments";
+import { showGoal } from "../goal-state";
 
 describe("runtime controls extension", () => {
   it("contributes one command that applies every kind of change", async () => {
@@ -69,6 +70,30 @@ describe("runtime controls theme commands", () => {
 });
 
 describe("runtime controls slash commands", () => {
+  it("keeps goal refusal, pause, resume, end and errors through the deferred command body", async () => {
+    const registry = new ExtensionRegistry();
+    registry.activate(runtimeControls);
+    const command = registry.getSlashCommands().find((entry) => entry.name === "goal")!;
+    const threadGoal = vi.fn();
+    const actions = { threadGoal, notify: vi.fn() } as unknown as WorkbenchActions;
+    const goal = { objective: "Synthetic goal", status: "active" as const, actions: { pause: true, resume: true }, updatedAt: 1 };
+    try {
+      showGoal("test", undefined, false);
+      expect(await command.run("pause", actions)).toContain("runtime keeps no goals");
+      expect(threadGoal).not.toHaveBeenCalled();
+      showGoal("test", goal, true);
+      await command.run("pause", actions);
+      expect(threadGoal).toHaveBeenLastCalledWith("pause");
+      showGoal("test", { ...goal, status: "paused" }, true);
+      await command.run("resume", actions);
+      expect(threadGoal).toHaveBeenLastCalledWith("resume");
+      await command.run("end", actions);
+      expect(threadGoal).toHaveBeenLastCalledWith("clear");
+      threadGoal.mockRejectedValueOnce(new Error("Runtime unavailable"));
+      expect(await command.run("end", actions)).toBe("Runtime unavailable");
+    } finally { showGoal(undefined, undefined, false); }
+  });
+
   it("offers slash commands and handles compact, model, thinking, new, and help", async () => {
     const registry = new ExtensionRegistry();
     registry.activate(runtimeControls);
@@ -199,6 +224,20 @@ describe("choosing the thinking level of the thread on screen", () => {
 });
 
 describe("runtime controls keybindings", () => {
+  it("offers bounded reasoning commands under the compatible composer ids without default shortcuts", async () => {
+    const registry = new ExtensionRegistry();
+    registry.activate(runtimeControls);
+    const cycleThinking = vi.fn();
+    const actions = { cycleThinking } as unknown as WorkbenchActions;
+    for (const [id, direction] of [["composer.increaseEffort", 1], ["composer.decreaseEffort", -1]] as const) {
+      const command = registry.getCommands().find((entry) => entry.id === id)!;
+      expect(command.access).toBe("write");
+      await command.run(actions);
+      expect(cycleThinking).toHaveBeenLastCalledWith(direction, true);
+      expect(registry.getKeybindings().some((binding) => binding.commandId === id)).toBe(false);
+    }
+  });
+
   it("binds Tau's own chords without asking any host", () => {
     const registry = new ExtensionRegistry();
     registry.activate(runtimeControls);

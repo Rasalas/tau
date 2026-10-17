@@ -238,7 +238,12 @@ latest", beside Copy and Paste.
   chord (`runtime.cycle-thinking` is in the palette); ⌘⇧E opens its menu. A
   `keybindings.json` that binds Pi's `app.thinking.cycle` to `shift+tab` gives
   ⇧Tab back to the thinking level, everywhere: the file wins over the default.
-- `composer.*` commands click the composer control that carries their id in
+- `composer.increaseEffort` and `composer.decreaseEffort` step through the
+  current composer's offered reasoning levels, including a new thread's draft.
+  They stop at either end and do nothing when no supported level is selected or
+  the runtime chooses its own model. They have no default chord; bind them in
+  Keybindings or use the command palette. `runtime.cycle-thinking` still wraps.
+- Composer menu commands click the composer control that carries their id in
   `data-composer-shortcut`; a control another kit draws can answer the same way.
   The attribute is a space-separated list, matched with `~=`: when a narrow
   composer moves controls into its overflow menu, the menu's trigger carries

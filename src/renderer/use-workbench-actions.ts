@@ -20,7 +20,7 @@ import { newThreadProject, workspaceOnScreen } from "../workbench/new-thread-pro
 import { namesWorkspace } from "../shared/workspace-identity";
 import { isFilesystemRoot } from "../shared/filesystem-root";
 import type { NewThreadPick } from "./use-app-overlays";
-import { offeringKey } from "./components/model-offerings";
+import { modelKey, offeringKey } from "./components/model-offerings";
 import type { NewThreadController } from "../workbench/new-thread-controller";
 import type { AppPageStore } from "../workbench/app-page-store";
 import { withAppPages } from "./app-page-actions";
@@ -37,6 +37,8 @@ export interface UseWorkbenchActionsOptions {
   toasts?: ToastStore;
   composerScopeStore: ComposerScopeStore;
   threadCommands: ThreadCommands;
+  /** The selection the composer shows, and the same writer its thinking menu uses. */
+  thinking: { snapshot: HostSnapshot | undefined; set(level: string): Promise<void> };
   snapshot: HostSnapshot | undefined;
   pendingNewThread: NewThreadDraft | undefined;
   workspaceCwd: string | undefined;
@@ -114,6 +116,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
   // A draft's model changes without a new draft key, so it is read when asked.
   const pendingNewThreadRef = useRef(options.pendingNewThread);
   pendingNewThreadRef.current = options.pendingNewThread;
+  const thinkingRef = useRef(options.thinking);
+  thinkingRef.current = options.thinking;
 
   const {
     applyHostResult, client, openPanel, openThread, activeDraftKey, openWorkspace,
@@ -255,11 +259,8 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         }
         const needle = providerOrQuery.toLowerCase();
         const match = options.viewStore.getSnapshot()?.models.find((m) =>
-          `${m.provider}/${m.id}`.toLowerCase() === needle ||
-          m.id.toLowerCase() === needle ||
           m.name.toLowerCase() === needle ||
-          `${m.provider}/${m.id}`.toLowerCase().includes(needle) ||
-          m.id.toLowerCase().includes(needle)
+          modelKey(m).toLowerCase().includes(needle)
         );
         if (match) {
           await setComposerModelRef.current(match.provider, match.id);
@@ -267,7 +268,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         }
         return false;
       },
-      setThinkingLevel: (level: string) => options.threadCommands.setThinking(level as any),
+      setThinkingLevel: (level: string) => thinkingRef.current.set(level),
       ...(options.setComposerMode ? { setMode: options.setComposerMode } : {}),
       ...(options.steerQueuedMessage ? { steerQueuedMessage: options.steerQueuedMessage } : {}),
       ...(options.submitPrompt ? { submitPrompt: async (text: string) => (await options.submitPrompt!(text)).accepted } : {}),
@@ -360,10 +361,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         // Favourites of this thread's runtime, in the order they were starred.
         const favKeys = options.preferences?.getSnapshot().favouriteModels ?? [];
         const byKey = new Map(allModels.map((model) => [offeringKey(snap?.backendKind, model), model] as const));
-        const scopedModels = favKeys.length > 0
-          ? favKeys.flatMap((key) => { const model = byKey.get(key); return model ? [model] : []; })
-          : allModels;
-
+        const scopedModels = favKeys.flatMap((key) => byKey.get(key) ?? []);
         const models = scopedModels.length > 0 ? scopedModels : allModels;
         const current = snap?.model;
         const currentIndex = current ? models.findIndex((m) => m.provider === current.provider && m.id === current.id) : -1;
@@ -391,16 +389,13 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         const workspace = snapshot?.workspaceId ?? options.workspaceCwd;
         newSession(workspace ? { workspace } : undefined, true);
       },
-      cycleThinking: async () => {
-        const snap = options.viewStore.getSnapshot();
-        const levels = snap?.thinkingLevels ?? ["off", "minimal", "low", "medium", "high", "max"];
-        const current = snap?.thinkingLevel ?? "off";
-        const currentIndex = levels.indexOf(current);
-        const nextIndex = (currentIndex + 1) % levels.length;
-        const next = levels[nextIndex];
-        if (next) {
-          await options.threadCommands.setThinking(next as any);
-        }
+      cycleThinking: async (direction = 1, bounded = false) => {
+        const { snapshot: snap, set } = thinkingRef.current;
+        const levels = snap?.thinkingLevels ?? [];
+        const index = levels.indexOf(snap?.thinkingLevel ?? "");
+        if (!levels.length || snap?.runtimeCapabilities?.ownsModelSelection || (bounded && index < 0)) return;
+        const next = levels[bounded ? index + direction : (index + direction + levels.length) % levels.length];
+        if (next && next !== snap?.thinkingLevel) await set(next);
       },
     };
     return options.pages ? withAppPages(actions, options.pages, () => options.setSettingsPage(undefined)) : actions;

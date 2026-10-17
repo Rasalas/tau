@@ -482,44 +482,6 @@ export default function App() {
   }, [newThreadController, threadCommands]);
   const submitText = useCallback((text: string) => submitPrompt(text), [submitPrompt]);
   const { conversationView, openConversationView, closeConversationView, navigateHistory } = useConversationView(pendingNewThread ? undefined : snapshot?.sessionId, { threads: threadStore, switchSession });
-  const actions = useWorkbenchActions({
-    hasPrivateThreadWorkspace: () => registry.getProjectSources().some((source) => source.createThreadWorkspace), client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
-    snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
-    composerRef, transcriptRef, openPanel, closePanel: panelLayout.closePanel, togglePanelMaximized: panelLayout.toggleMaximized, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
-    switchSession, openDraft, discardDraft, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
-    duplicateThread, setComposerSeed, setDockOpen: setStageShown, setNotice, openProjectSources,
-    applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay, openConversationView, closeConversationView, navigateHistory,
-    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
-    steerQueuedMessage, beforeAbort: returnQueued,
-    openModelPicker, openInstructions, focusStage, showThread, showThreadList, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
-    executeCommand: (id) => {
-      if (!actionsRef.current) throw new Error("Actions are not ready yet.");
-      return registry.executeCommand(id, actionsRef.current);
-    },
-  });
-
-  // Extension commands outlive the render that produced them, so they reach
-  // this render's actions through a ref written after the commit.
-  useEffect(() => {
-    actionsRef.current = actions;
-    clientRef.current = client;
-  }, [actions, client]);
-
-  useAppKeybindings(registry, actions, setNotice);
-
-  useTurnActivityCache(viewStore, clientStorage, threadStore);
-
-  const liveSnapshot = useMemo(
-    () => snapshot ? { ...snapshot, isStreaming: visibleStreaming } : undefined,
-    [snapshot, visibleStreaming],
-  );
-  // The workbench adds the tool runs to both contexts itself.
-  const contextValue = useMemo(
-    () => ({ snapshot: liveSnapshot, events, registry, activeDocumentPath: stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent }),
-    [liveSnapshot, events, registry, stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent],
-  );
-  const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry, actions }), [actions, liveSnapshot, registry]);
-  const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, registry }), [events, liveSnapshot, registry]);
   // The stage shows documents; whoever registered the document source loads them.
   const documentSource = registry.getDocumentSource();
   const documentState = useSyncExternalStore(documentSource?.subscribe ?? noopSubscribe, documentSource?.getState ?? emptyDocumentState, documentSource?.getState ?? emptyDocumentState);
@@ -576,6 +538,46 @@ export default function App() {
     };
   }, [boundRuntime, draftRuntimes, draftSnapshot, pendingNewThread, snapshot, visibleStreaming, preparedThreadCapability, settings.newThreadRuntime]);
   const conversationSnapshot = useDraftCommands(draftConversation, pendingNewThread, boundRuntime);
+
+  const actions = useWorkbenchActions({
+    hasPrivateThreadWorkspace: () => registry.getProjectSources().some((source) => source.createThreadWorkspace), client, platform, threadStore, viewStore, toasts: workbenchSession.toasts, composerScopeStore, threadCommands,
+    snapshot, pendingNewThread, workspaceCwd, newThreadDeliveryPending, activeDraftKey,
+    thinking: { snapshot: boundRuntime && boundRuntime !== (conversationSnapshot?.backendKind ?? "pi") ? undefined : conversationSnapshot, set: setComposerThinking },
+    composerRef, transcriptRef, openPanel, closePanel: panelLayout.closePanel, togglePanelMaximized: panelLayout.toggleMaximized, openPalette, setSettingsPage, openNewThreadPicker, createThreadInProject,
+    switchSession, openDraft, discardDraft, settleActiveThread, isVisibleThreadRunning, reloadWorkbench, openThreadTree,
+    duplicateThread, setComposerSeed, setDockOpen: setStageShown, setNotice, openProjectSources,
+    applyHostResult, stageTabs, cycleStageTab, openOverlay, closeOverlay, openConversationView, closeConversationView, navigateHistory,
+    openWorkspace, openFile, openThread, setComposerHolds, setComposerModel, setComposerMode, submitPrompt: submitText, preferences,
+    steerQueuedMessage, beforeAbort: returnQueued,
+    openModelPicker, openInstructions, focusStage, showThread, showThreadList, toggleSidebar, toggleSpine, attachFiles, selectDraftRuntime, newThreadController, pages, threadView,
+    executeCommand: (id) => {
+      if (!actionsRef.current) throw new Error("Actions are not ready yet.");
+      return registry.executeCommand(id, actionsRef.current);
+    },
+  });
+
+  // Extension commands outlive the render that produced them, so they reach
+  // this render's actions through a ref written after the commit.
+  useEffect(() => {
+    actionsRef.current = actions;
+    clientRef.current = client;
+  }, [actions, client]);
+
+  useAppKeybindings(registry, actions, setNotice);
+
+  useTurnActivityCache(viewStore, clientStorage, threadStore);
+
+  const liveSnapshot = useMemo(
+    () => snapshot ? { ...snapshot, isStreaming: visibleStreaming } : undefined,
+    [snapshot, visibleStreaming],
+  );
+  // The workbench adds the tool runs to both contexts itself.
+  const contextValue = useMemo(
+    () => ({ snapshot: liveSnapshot, events, registry, activeDocumentPath: stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent }),
+    [liveSnapshot, events, registry, stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent],
+  );
+  const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry, actions }), [actions, liveSnapshot, registry]);
+  const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, registry }), [events, liveSnapshot, registry]);
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => { void composerAttachmentRef.current?.addFiles(files); }, []);
   const composerScopeSubscribe = useCallback((onChange: () => void) => activeDraftKey
     ? composerScopeStore.subscribe(createDraftKey(activeDraftKey), onChange)

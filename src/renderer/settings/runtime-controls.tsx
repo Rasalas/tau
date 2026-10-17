@@ -6,11 +6,9 @@ import { THEME_PREFERENCES, nextTheme, getUserTheme, type ThemePreference } from
 import type { PaletteItem, PaletteMenu } from "../extension-system";
 import { loadRuntimeControlRuns } from "../deferred-surfaces";
 import { openTitleRename, titleRenameRefusal } from "../thread-rename";
-import { goalCommandRefusal, shownGoal } from "../goal-state";
+import { goalCommandRefusal } from "../goal-state";
 
-/** The levels' rows load with their own chunk the first time one opens. */
-const menus = () => import("./palette-menus");
-/** The slash commands' and the wordier commands' bodies are a chunk of their own too. */
+/** Palette rows and command bodies share one deferred entry. */
 const runs = loadRuntimeControlRuns;
 const later = (id: string) => async (app: WorkbenchActions) => { await (await runs()).commandRuns[id]!(app); };
 
@@ -35,42 +33,8 @@ const SLASH_COMMANDS: ReadonlyArray<readonly [string, string, string?]> = [
   ["name", "Rename the current thread / session", "<title>"],
   ["hotkeys", "View keyboard shortcuts and keybindings"],
   ["scoped-models", "Manage scoped models for quick cycling (Ctrl+P / Alt+P)"],
+  ["goal", "Set a goal the runtime pursues across turns, or pause, resume or end it", "<objective> | pause | resume | end"],
 ];
-
-/**
- * `/goal <objective>` sets the thread's native goal; `pause`, `resume` and
- * `end` act on it, and `/goal` alone says where it stands. Answers a line
- * when it could not act.
- */
-async function runGoalCommand(args: string, app: WorkbenchActions): Promise<string | void> {
-  if (!app.threadGoal) return "This Tau has no goals.";
-  const current = shownGoal();
-  if (!current?.supported) return "This thread's runtime keeps no goals. Codex and Claude Code threads do.";
-  const word = args.trim();
-  const command = word.toLowerCase();
-  try {
-    if (!word) {
-      const goal = current.goal;
-      app.notify(goal ? `Goal (${goal.status}): ${goal.objective}` : "No goal is set. Use /goal <objective>.");
-    } else if (command === "pause" || command === "resume") {
-      const refusal = goalCommandRefusal(command);
-      if (refusal) return refusal;
-      await app.threadGoal(command);
-    } else if (command === "end" || command === "clear") {
-      const refusal = goalCommandRefusal("end");
-      if (refusal) return refusal;
-      await app.threadGoal("clear");
-    } else await app.threadGoal("set", word);
-  } catch (error) {
-    return errorMessage(error);
-  }
-}
-
-const DETAIL_LABELS: Record<TranscriptDetail, string> = {
-  focused: "focused",
-  detailed: "detailed",
-  everything: "everything",
-};
 
 /**
  * A level the user picks from the palette belongs to the thread in front of
@@ -80,7 +44,7 @@ function applyTranscriptDetail(preferences: PreferencesStore, app: WorkbenchActi
   const sessionId = app.activeThread()?.sessionId;
   if (sessionId) preferences.overrideTranscriptDetail(sessionId, level);
   else preferences.setTranscriptDetail(level);
-  app.notify(`Transcript: ${DETAIL_LABELS[level]}`);
+  app.notify(`Transcript: ${level}`);
 }
 
 const THEME_LABELS: Record<string, string> = {
@@ -96,8 +60,8 @@ function applyTheme(preferences: PreferencesStore, app: WorkbenchActions, theme:
 }
 
 /** A level whose rows come from the lazily loaded module. */
-function lazyLevel(title: string, rows: (loaded: Awaited<ReturnType<typeof menus>>, actions: WorkbenchActions) => PaletteItem[] | Promise<PaletteItem[]>): PaletteMenu {
-  return { title, items: async (_query, { actions }) => rows(await menus(), actions) };
+function lazyLevel(title: string, rows: (loaded: Awaited<ReturnType<typeof runs>>, actions: WorkbenchActions) => PaletteItem[] | Promise<PaletteItem[]>): PaletteMenu {
+  return { title, items: async (_query, { actions }) => rows(await runs(), actions) };
 }
 
 /**
@@ -136,7 +100,7 @@ export const runtimeControls: DesktopExtension = {
     for (const level of TRANSCRIPT_DETAIL_LEVELS) {
       plugin.registerCommand({
         id: `runtime.transcript-${level}`,
-        label: `Transcript: ${DETAIL_LABELS[level]}`,
+        label: `Transcript: ${level}`,
         group: "Thread",
         access: "read",
         run: (app) => applyTranscriptDetail(plugin.preferences, app, level),
@@ -228,7 +192,11 @@ export const runtimeControls: DesktopExtension = {
     });
     plugin.registerCommand({ id: "runtime.cycle-model", label: "Cycle model forward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(1); } });
     plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });
-    plugin.registerCommand({ id: "runtime.cycle-thinking", label: "Cycle thinking level", group: "Thread", access: "write", run: async (app) => { await app.cycleThinking?.(); } });
+    for (const [id, label, direction, bounded] of [
+      ["runtime.cycle-thinking", "Cycle thinking level", 1, false],
+      ["composer.increaseEffort", "Increase reasoning effort", 1, true],
+      ["composer.decreaseEffort", "Decrease reasoning effort", -1, true],
+    ] as const) plugin.registerCommand({ id, label, group: "Thread", access: "write", run: async (app) => { await app.cycleThinking?.(direction, bounded); } });
     plugin.registerCommand({ id: "runtime.open-prompt-editor", label: "Edit prompt in $EDITOR", group: "Composer", access: "write", run: async (app) => { await app.openPromptEditor?.(); } });
     const goalCommand = (id: string, label: string, action: "pause" | "resume" | "clear", refusal: "pause" | "resume" | "end") => plugin.registerCommand({
       id, label, group: "Thread", access: "write",
@@ -243,7 +211,6 @@ export const runtimeControls: DesktopExtension = {
     for (const [name, description, argumentHint] of SLASH_COMMANDS) {
       plugin.registerSlashCommand({ name, description, ...(argumentHint ? { argumentHint } : {}), run: async (args, app) => (await runs()).slashRuns[name]!(args, app) });
     }
-    plugin.registerSlashCommand({ name: "goal", description: "Set a goal the runtime pursues across turns, or pause, resume or end it", argumentHint: "<objective> | pause | resume | end", run: runGoalCommand });
     plugin.registerKeybinding({ keys: "mod+i", commandId: "runtime.instructions" });
     // T3 Code's `chat.find` chord. A terminal, the preview, the Files editor and an open overlay (Settings, a dialog) have a find of their own.
     plugin.registerKeybinding({ keys: "mod+f", commandId: "thread.find", when: "!terminalFocus && !previewFocus && !editorFocus && !overlayOpen" });
