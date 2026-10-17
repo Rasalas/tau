@@ -64,6 +64,35 @@ function PopoverHarness() {
 }
 
 describe("Popover", () => {
+  it("positions against a frame and keeps only the trigger exempt from outside presses", () => {
+    const anchor = document.createElement("button");
+    const frame = document.createElement("div");
+    document.body.append(anchor, frame);
+    let left = 100;
+    const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const x = this === frame ? left : this === anchor ? 410 : 0;
+      const y = this === frame ? 100 : this === anchor ? 130 : 0;
+      return { x, y, left: x, top: y, right: x + 80, bottom: y + 40, width: 80, height: 40, toJSON() {} };
+    });
+    const onClose = vi.fn();
+    try {
+      render(<Popover anchor={{ current: anchor }} placeAgainst={{ current: frame }} side="top" label="Model" onClose={onClose}>Model choice</Popover>);
+      const popup = screen.getByRole("dialog", { name: "Model" });
+      expect(popup.style.left).toBe("100px");
+      expect(popup.style.top).toBe("54px");
+      left = 120;
+      fireEvent(window, new Event("resize"));
+      expect(popup.style.left).toBe("120px");
+      fireEvent.pointerDown(anchor);
+      expect(onClose).not.toHaveBeenCalled();
+      fireEvent.pointerDown(frame);
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      bounds.mockRestore();
+      anchor.remove(); frame.remove();
+    }
+  });
+
   it("repositions growing content inside the viewport and disconnects its size observer", () => {
     const observers: FakeResizeObserver[] = [];
     class FakeResizeObserver implements ResizeObserver {

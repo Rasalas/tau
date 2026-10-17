@@ -1,4 +1,5 @@
 import type { UiModel, UiModelPrice } from "./contracts.js";
+import { isRecord } from "./records.js";
 
 /** More than any price list a person keeps by hand. */
 const MAX_PRICES = 1_000;
@@ -11,8 +12,8 @@ function rate(value: unknown): number | undefined {
 
 /** One entry of `modelPrices`, or undefined when it is not a price. */
 export function readModelPrice(value: unknown): UiModelPrice | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const raw = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const raw = value;
   const input = rate(raw.input);
   const output = rate(raw.output);
   if (input === undefined || output === undefined) return undefined;
@@ -28,9 +29,9 @@ export function validPriceKey(key: string): boolean {
 
 /** Every valid entry of a `modelPrices` record; the rest is dropped. */
 export function readModelPrices(value: unknown): Record<string, UiModelPrice> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const result: Record<string, UiModelPrice> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>).slice(0, MAX_PRICES)) {
+  for (const [key, entry] of Object.entries(value).slice(0, MAX_PRICES)) {
     const price = validPriceKey(key) ? readModelPrice(entry) : undefined;
     if (price) result[key] = price;
   }

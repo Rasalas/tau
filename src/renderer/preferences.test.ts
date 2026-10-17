@@ -391,3 +391,19 @@ describe("favourite and hidden models follow the host", () => {
     expect(preferences.getSnapshot().modelPreferences.pi).toEqual({ order: ["y", "x"], hidden: ["a"] });
   });
 });
+
+
+describe("model labels follow config", () => {
+  it("persists labels, keeps them while hiding and replaces or clears a project's labels", () => {
+    preferences.applyConfig({ modelPreferences: { pi: { names: { "a/b": "Global" } } } });
+    expect(new PreferencesStore().getSnapshot().modelPreferences.pi?.names).toEqual({ "a/b": "Global" });
+    preferences.toggleHiddenModel("pi", "a/b");
+    expect(preferences.getSnapshot().modelPreferences.pi).toEqual({ hidden: ["a/b"], names: { "a/b": "Global" } });
+    preferences.applyConfig({ modelPreferences: { pi: { names: { "a/b": "Project" } } } });
+    expect(preferences.getSnapshot().modelPreferences.pi?.names).toEqual({ "a/b": "Project" });
+    preferences.applyConfig({ modelPreferences: { pi: {} } });
+    expect(preferences.getSnapshot().modelPreferences.pi?.names).toBeUndefined();
+    preferences.applyConfig({});
+    expect(new PreferencesStore().getSnapshot().modelPreferences.pi).toBeUndefined();
+  });
+});

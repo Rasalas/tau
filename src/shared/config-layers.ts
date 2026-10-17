@@ -1,4 +1,5 @@
 import type { TauConfig } from "./contracts.js";
+import { isRecord } from "./records.js";
 
 /**
  * A setting is read from three levels: the built-in default, the host (this
@@ -69,10 +70,6 @@ export function withoutPiOwned(config: TauConfig): TauConfig {
   const result = { ...config } as Record<string, unknown>;
   for (const key of PI_OWNED) delete result[key];
   return result as TauConfig;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** The value one level holds for a key, or undefined when it holds none. */

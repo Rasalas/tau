@@ -1,5 +1,6 @@
 import { useMemo, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type { HostSnapshot, UiProject } from "../shared/contracts";
+import type { HostSnapshot, UiModel, UiProject } from "../shared/contracts";
+import { modelDisplayName } from "../shared/model-preferences";
 import type { HostActionResult } from "../shared/host-protocol";
 import type { HostClient } from "../workbench/host-client";
 import type { Platform } from "../workbench/platform";
@@ -163,6 +164,11 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
     };
     const commandTab = (tab: StageTab | undefined) => actionableStageTab(tab,
       pendingNewThreadRef.current ? pendingNewThreadRef.current.workspaceId : snapshot?.workspaceId, stageTabs.documentSourceId?.());
+    const selectModel = async (model: Pick<UiModel, "provider" | "id"> | undefined): Promise<boolean> => {
+      if (!model) return false;
+      await setComposerModelRef.current(model.provider, model.id);
+      return true;
+    };
     const actions: WorkbenchActions = {
       openPanel,
       ...(options.closePanel ? { closePanel: options.closePanel } : {}),
@@ -253,20 +259,16 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       compactAndSend: options.threadCommands.compactAndSend,
       openModelPicker,
       setModel: async (providerOrQuery: string, id?: string) => {
-        if (id) {
-          await setComposerModelRef.current(providerOrQuery, id);
-          return true;
-        }
+        if (id) return selectModel({ provider: providerOrQuery, id });
         const needle = providerOrQuery.toLowerCase();
-        const match = options.viewStore.getSnapshot()?.models.find((m) =>
+        const current = pendingNewThreadRef.current ? thinkingRef.current.snapshot : options.viewStore.getSnapshot();
+        const models = current?.models;
+        const preferences = options.preferences?.getSnapshot().modelPreferences[current?.backendKind ?? "pi"];
+        const match = models?.find((m) =>
           m.name.toLowerCase() === needle ||
           modelKey(m).toLowerCase().includes(needle)
-        );
-        if (match) {
-          await setComposerModelRef.current(match.provider, match.id);
-          return true;
-        }
-        return false;
+        ) ?? models?.find((m) => modelDisplayName(m, preferences).toLowerCase() === needle);
+        return selectModel(match);
       },
       setThinkingLevel: (level: string) => thinkingRef.current.set(level),
       ...(options.setComposerMode ? { setMode: options.setComposerMode } : {}),
@@ -366,12 +368,7 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
         const current = snap?.model;
         const currentIndex = current ? models.findIndex((m) => m.provider === current.provider && m.id === current.id) : -1;
         const nextIndex = (currentIndex + direction + models.length) % models.length;
-        const next = models[nextIndex];
-        if (next) {
-          await setComposerModelRef.current(next.provider, next.id);
-          return true;
-        }
-        return false;
+        return selectModel(models[nextIndex]);
       },
       runtimeModels: async () => (await import("./runtime-models")).listRuntimeModels(
         client, snapshot?.runtimeBackends, pendingNewThreadRef.current ? undefined : options.viewStore.getSnapshot(),

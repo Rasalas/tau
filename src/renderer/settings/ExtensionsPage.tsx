@@ -1,5 +1,6 @@
+import { SettingsFilter } from "./SettingsFilter";
 import { useState, useSyncExternalStore } from "react";
-import { ChevronRight, Search, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { HostExtensionSummary } from "../../shared/contracts";
 import type { ExtensionRegistry } from "../extension-system";
 import { Button, SettingsState, Switch } from "./controls";
@@ -88,12 +89,7 @@ export function ExtensionsPage({ entries, registry, loading, error, onOpen, onRe
   return (
     <div className="settings-page extensions-page">
       <div className="extensions-toolbar">
-        <label className="settings-filter extensions-search">
-          <Search size={14} aria-hidden />
-          <input type="search" value={query} placeholder="Filter by name or what it adds" aria-label="Filter extensions" onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Escape" && query) { event.preventDefault(); event.stopPropagation(); setQuery(""); } }} />
-          {query ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setQuery("")}><X size={13} /></button> : null}
-        </label>
+        <SettingsFilter className="extensions-search" label="Filter extensions" placeholder="Filter by name or what it adds" value={query} onChange={setQuery} />
       </div>
       <fieldset className="extensions-filters" aria-label="Show">
         {EXTENSION_FILTERS.map((option) => (

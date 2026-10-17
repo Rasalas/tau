@@ -96,3 +96,12 @@ describe("shared turn command contracts", () => {
     expect(HOST_COMMANDS["prepared-thread-capability"].access).toBe("read");
   });
 });
+
+
+describe("model display names on config commands", () => {
+  it("validates and normalizes labels at the host boundary", () => {
+    expect(HOST_COMMANDS["update-config"].decode([{ modelPreferences: { pi: { names: { "a/b": "  Writer  " } } } }, "project", "workspace"]))
+      .toEqual([{ modelPreferences: { pi: { names: { "a/b": "Writer" } } } }, "project", "workspace"]);
+    expect(() => HOST_COMMANDS["update-config"].decode([{ modelPreferences: { pi: { names: { "a/b": "x".repeat(121) } } } }])).toThrow("modelPreferences");
+  });
+});

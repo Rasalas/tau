@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Search, Star } from "lucide-react";
 import { Sheet } from "../deferred-surfaces";
 import { MakerMark, RuntimeMark, RuntimeMarks } from "./ModelPickerRow";
-import { modelFamily, type Offering } from "./model-offerings";
+import { modelFamily, searchScore, type Offering } from "./model-offerings";
 import { modelEntries, modelMaker } from "./model-entries";
 import type { ReactNode } from "react";
 
@@ -24,7 +24,7 @@ export function MobileModelPicker({ offerings, activeKey, onChoose, onFavourite,
   for (const way of offerings) {
     if (!query.trim() && way.legacy && !way.favourite && way.key !== activeKey) continue;
     if (favourites && !way.favourite) continue;
-    if (!`${way.model.name} ${way.runtimeLabel}`.toLowerCase().includes(query.toLowerCase())) continue;
+    if (searchScore(way, query) === undefined) continue;
     const group = groups.get(way.runtime) ?? [];
     group.push(way);
     groups.set(way.runtime, group);
@@ -37,14 +37,16 @@ export function MobileModelPicker({ offerings, activeKey, onChoose, onFavourite,
       <button className="mobile-model-group" aria-expanded={open} onClick={() => setExpanded((previous) => new Map(previous).set(runtime, !open))}>
         <span className="mobile-model-mark"><RuntimeMark kind={runtime} /></span><span>{ways[0]!.runtimeLabel}</span>{!open ? <small>{ways.length}</small> : null}{!open ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
       </button>
-      {!open ? null : <div className="mobile-choice-card" role="radiogroup" aria-label={`${ways[0]!.runtimeLabel} models`}>{ways.map((way) => <div key={way.key} className="mobile-model-row" data-current={way.key === activeKey || undefined}>
-        <button className="mobile-model-choice" role="radio" aria-label={way.model.name} aria-checked={way.key === activeKey} onClick={() => onChoose(way)}>
+      {!open ? null : <div className="mobile-choice-card" role="radiogroup" aria-label={`${ways[0]!.runtimeLabel} models`}>{ways.map((way) => {
+        const name = way.name ?? way.model.name;
+        return <div key={way.key} className="mobile-model-row" data-current={way.key === activeKey || undefined}>
+        <button className="mobile-model-choice" role="radio" aria-label={name} aria-checked={way.key === activeKey} onClick={() => onChoose(way)}>
           <i aria-hidden />
           <span className="mobile-model-mark"><MakerMark maker={modelMaker(way.model)} /></span>
-          <span className="mobile-model-text"><strong>{way.model.name}</strong><small className="model-facts"><RuntimeMarks ways={runningOn.get(modelFamily(way.model)) ?? [way]} /></small></span>
+          <span className="mobile-model-text"><strong>{name}</strong><small className="model-facts"><RuntimeMarks ways={runningOn.get(modelFamily(way.model)) ?? [way]} /></small></span>
         </button>
-        <button className="mobile-model-star" aria-label={`Favourite ${way.model.name}`} aria-pressed={way.favourite} onClick={() => onFavourite(way.key)}><Star size={22} fill={way.favourite ? "currentColor" : "none"} /></button>
-      </div>)}</div>}
+        <button className="mobile-model-star" aria-label={`Favourite ${name}`} aria-pressed={way.favourite} onClick={() => onFavourite(way.key)}><Star size={22} fill={way.favourite ? "currentColor" : "none"} /></button>
+      </div>; })}</div>}
     </section>; })}
     {groups.size ? null : <p>No matching models</p>}
     {unavailable}

@@ -10,6 +10,18 @@ At startup the main process reads your login shell's environment (PATH, SSH agen
 
 On Linux with a systemd user manager, each CLI the host starts (and every terminal and Pi bash call) runs in its own scope with a memory ceiling, so an out-of-memory kill takes that agent and the thread says "Killed: out of memory." instead of the host going down with it. Pi itself runs inside the host process and gets no scope of its own. [What is covered](CORE.md#memory-pressure-on-linux), [how to check it](hosts.md#agents-under-memory-pressure-on-linux).
 
+## Model display names
+
+Under Settings → Runtimes → a runtime → Models, edit a model's display name and
+press Enter or leave the field to save it. Escape discards an edit. Leave the
+field blank to restore the runtime's name. Applies to chooses the machine or
+project as it does for the model list's order and hidden models.
+
+The composer, model picker and model palette use that name for this runtime.
+Search also finds the original name and model ID. `/model <query>` accepts a
+custom name too; catalog names and IDs take precedence when names collide. Display names leave model
+selection, capabilities, billing and the model sent to the runtime unchanged.
+
 ## Claude Code
 
 Claude Code threads drive the installed `claude` CLI through the Claude Agent SDK, with its own login (a Claude subscription's Agent SDK credit, or an API key) and `~/.claude` settings; a different executable is set on its card under Settings → Runtimes (or with `TAU_CLAUDE_CODE_COMMAND`, which wins).

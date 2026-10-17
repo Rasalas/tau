@@ -1,5 +1,6 @@
+import { SettingsFilter } from "./SettingsFilter";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronRight, Copy, Download, ExternalLink, FileText, RefreshCw, Search, X } from "lucide-react";
+import { ChevronRight, Copy, Download, ExternalLink, FileText, RefreshCw } from "lucide-react";
 import { LICENSES_FILE, unpackLicenses, type ThirdPartyLicense } from "../../shared/third-party-licenses";
 import { defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
 import { describeHostUpdate, hostUpdatePending, type HostUpdateStatus } from "../../shared/host-updates";
@@ -210,12 +211,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
       {showLicenses ? (
         <SettingsSection title={licenses.status === "ready" ? `Open-source licenses (${licenses.packages.length})` : "Open-source licenses"}>
           {licenses.status === "ready" && licenses.packages.length > 0 ? (
-            <label className="settings-filter about-licenses-filter">
-              <Search size={14} aria-hidden />
-              <input type="search" placeholder="Filter by package or licence…" aria-label="Filter licenses" value={filter} onChange={(event) => setFilter(event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); setFilter(""); } }} />
-              {filter ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setFilter("")}><X size={13} /></button> : null}
-            </label>
+            <SettingsFilter className="about-licenses-filter" label="Filter licenses" placeholder="Filter by package or licence…" value={filter} onChange={setFilter} />
           ) : null}
           {licenses.status === "loading" ? (
             <SettingsState kind="loading" title="Reading the licenses" rows={3} />

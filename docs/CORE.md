@@ -377,11 +377,16 @@ linked worktree follows the project it was made from. The pickers
 runtime chip, the palette and Handoff leave an off runtime out; version and
 update checks skip a runtime no project uses.
 
-A row hides its model with every way to run it (with a pointer; a phone shows only the star). What a
-runtime hides and the order it lists its models in is `modelPreferences.<runtime>`
-in Tau's config, a record of the config levels that Settings → Runtimes → the
-runtime → Models edits per runtime and project; favourites stay one list across runtimes
-(`offeringKey`: `provider/id` for Pi, `<runtime>:provider/id` otherwise). The host
+A row hides its model with every way to run it (with a pointer; a phone shows only the star). The
+`modelPreferences.<runtime>` record in Tau's config stores the models a runtime
+hides, their display names and their order. Settings → Runtimes → the
+runtime → Models edits it per runtime and project; favourites stay one list across runtimes
+(`offeringKey`: `provider/id` for Pi, `<runtime>:provider/id` otherwise). The optional
+`names` record maps `provider/id` to a display name of at most 120 characters.
+The composer, model picker and model palette show it for that runtime's offering;
+search still finds the catalog name and ID. `/model <query>` also accepts names,
+with canonical name/ID matches taking precedence. Clearing a name restores the catalog
+name. Names never change the model passed to a runtime. The host
 keeps every runtime's catalog, Pi's too, whether or not a thread of it ran
 (`src/main/runtime-catalogs.ts`, stale-while-revalidate, on disk across
 restarts, with price, context, inputs and billing filled from Pi's model

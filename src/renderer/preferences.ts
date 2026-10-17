@@ -416,7 +416,7 @@ export class PreferencesStore {
     });
   }
 
-  /** One runtime's hidden models and order; only that runtime's entry travels to the host. */
+  /** One runtime's display names, hidden models and order; only that runtime's entry travels to the host. */
   setModelPreferences(runtime: string, preferences: TauModelPreferences): void {
     this.update({ modelPreferences: { ...this.state.modelPreferences, [runtime]: preferences } }, true, { modelPreferences: { [runtime]: preferences } });
   }

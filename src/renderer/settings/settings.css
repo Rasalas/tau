@@ -539,7 +539,8 @@
 .runtime-model-moves > button:disabled { opacity: .3; cursor: default; }
 .runtime-model-star.on { color: var(--acid-text); }
 .runtime-model-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: calc(var(--text-sm) + .5px); color: var(--ink-2); }
-.runtime-model-name > span, .runtime-model-name > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-model-name > .tau-field-shell { min-width: 100px; flex: 1; }
+.runtime-model-name > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .runtime-model-name > code { font: var(--text-xs) var(--mono); color: var(--faint); }
 .runtime-model-facts { display: flex; gap: 8px; font: var(--text-xs) var(--mono); color: var(--muted); white-space: nowrap; }
 .runtime-model-moves { display: flex; justify-content: flex-end; }

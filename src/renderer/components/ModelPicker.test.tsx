@@ -82,6 +82,30 @@ const pills = () => [...screen.getByRole("radiogroup", { name: /^Runs with/u }).
 const pill = (name: string) => within(screen.getByRole("radiogroup", { name: /^Runs with/u })).getByRole("radio", { name });
 const highlightedFacts = () => document.querySelector(".model-row.selected .model-facts")?.textContent ?? "";
 
+describe("model display names", () => {
+  it("keeps a renamed offering searchable by its model ID", () => {
+    const preferences = new PreferencesStore();
+    preferences.setModelPreferences("codex", { names: { "openai/gpt-5.6-sol": "Quick" } });
+    renderPicker({ preferences, runtime: "codex", catalogRuntime: "codex", runtimeBackends: backends, list: [solCodex] });
+    fireEvent.change(search(), { target: { value: "gpt-5.6-sol" } });
+    expect(screen.getByRole("option", { name: /^Quick, Codex/u })).toBeTruthy();
+  });
+
+  it("searches labels and canonical names, selects the original model and keeps other runtimes separate", () => {
+    const preferences = new PreferencesStore();
+    preferences.setModelPreferences("codex", { names: { "openai/gpt-5.6-sol": "Quick" } });
+    const onSelect = vi.fn();
+    renderPicker({ preferences, onSelect, runtimeBackends: backends, catalogs: cached([codexReady()]) });
+    const input = screen.getByRole("combobox", { name: "Search models" });
+    fireEvent.change(input, { target: { value: "Quick" } });
+    const row = screen.getByRole("option", { name: /^Quick, Codex/u });
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6-Sol" }), "codex");
+    fireEvent.change(input, { target: { value: "GPT-5.6 Sol Pi" } });
+    expect(screen.getByRole("option", { name: /^GPT-5.6 Sol, Pi/u })).toBeTruthy();
+  });
+});
+
 describe("ModelPicker (K142 B: model first)", () => {
   it("lists who made the models on the rail, each model once, and the set-up runtimes that list none after them", () => {
     renderPicker({ runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady(), notInstalled]) });
@@ -293,6 +317,30 @@ describe("ModelPicker (K142 B: model first)", () => {
       expect(lunaRow!.getAttribute("aria-selected")).toBe("true");
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("touch model display names", () => {
+  it("finds a custom label and hands on the canonical model", () => {
+    const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+    const profile = document.body.dataset.profile;
+    document.body.dataset.profile = "compact";
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    try {
+      const preferences = new PreferencesStore();
+      preferences.setModelPreferences("pi", { names: { "anthropic/claude-fable-5-1": "Writer" } });
+      const onSelect = vi.fn();
+      renderPicker({ preferences, onSelect });
+      const page = screen.getByRole("dialog", { name: "Thread settings" });
+      fireEvent.change(within(page).getByRole("textbox", { name: "Find a model" }), { target: { value: "Writer" } });
+      fireEvent.click(within(page).getByRole("radio", { name: "Writer" }));
+      expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ provider: "anthropic", id: "claude-fable-5-1", name: "Claude Fable 5.1" }));
+    } finally {
+      cleanup();
+      if (width) Object.defineProperty(window, "innerWidth", width);
+      if (profile === undefined) delete document.body.dataset.profile;
+      else document.body.dataset.profile = profile;
     }
   });
 });
