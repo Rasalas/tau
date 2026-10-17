@@ -7,14 +7,15 @@ export const HTML_PAGES_EXTENSION_ID = "tau.html-pages";
 
 /** The tool as Pi names it; other runtimes see it as `mcp__tau__show_html_page`. */
 export const SHOW_HTML_PAGE_TOOL = "show_html_page";
+export const PREVIEW_HTML_PAGE_TOOL = "preview_html_page";
 
 export const HTML_PAGE_STAGE_TAB = "tau.html-pages.page";
 
 export const HTML_PAGE_COMMANDS = { open: "open", release: "release" } as const;
 
 /**
- * Preview Kit's link service, copied rather than imported (a kit never imports
- * another kit): the part a page's links use.
+ * Preview Kit's public link-service contract. This protocol file stays
+ * import-free so the desktop and host halves can both take it.
  */
 export const PREVIEW_LINKS_SERVICE = "tau.preview/links";
 

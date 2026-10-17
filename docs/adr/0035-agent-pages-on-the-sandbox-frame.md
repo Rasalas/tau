@@ -24,6 +24,24 @@ A tool card matches the tool by name (with or without the `mcp__tau__` prefix) a
 
 ## Not decided here
 
-- Preview of a page for the agent (a screenshot and console output before it publishes, T3's `html_preview`). Tau's Preview and Computer Use already let an agent look at a page it serves.
+- Agent preview is now covered by the addition below.
 - A page's own stored state, or calls from a page back to its thread (the MCP Apps requests Codex's bridge answers). A page here is output.
 - Listing a thread's pages outside the transcript.
+
+## Checking before publishing
+
+`preview_html_page` takes the same document inputs as `show_html_page`, with an
+optional width and light or dark colour scheme. It returns a PNG and at most
+20 observed errors of 2000 characters each. It uses the default page theme;
+the eventual card can use the reader's custom theme and a different width.
+It writes no page or transcript marker. Publishing remains an explicit call.
+
+HTML Pages reuses Preview's headless browser implementation from ADR 0044 in a
+fresh profile per check, serialized across threads. Core exports its existing
+frame preparation and response-policy functions through API 1.70.0 so the
+preview runs the same opaque-origin sandbox, scripts and resource policy as
+the card. The document is fulfilled over the private CDP pipe with an HTTP CSP
+header, because a meta tag cannot impose the sandbox. Further document loads
+and file reads are refused. Stop and deactivation close the owned browser;
+closing it precedes removal of the temporary profile. Chrome or Chromium must
+already be installed; no desktop window or browser download is needed.

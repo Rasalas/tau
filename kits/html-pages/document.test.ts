@@ -1,8 +1,13 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PageError, inlineLocalImages, preparePageDocument, readOrigins, readPageFile, readTheme } from "./document.js";
+
+vi.mock("node:fs/promises", async (original) => {
+  const files = await original<typeof import("node:fs/promises")>();
+  return { ...files, open: vi.fn(files.open) };
+});
 
 describe("readOrigins", () => {
   it("keeps https origins, reduced to scheme, host and port", () => {
@@ -77,6 +82,19 @@ describe("local images", () => {
 });
 
 describe("readPageFile", () => {
+  it("refuses nonregular files before trying to read them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-page-pipe-"));
+    const path = join(root, "page.html");
+    await writeFile(path, "fixture");
+    const read = vi.fn(), close = vi.fn();
+    vi.mocked(open).mockResolvedValueOnce({ stat: async () => ({ isFile: () => false }), read, close } as never);
+    try {
+      await expect(readPageFile(path, { cwd: root, roots: [root] })).rejects.toThrow("regular file");
+      expect(read).not.toHaveBeenCalled();
+      expect(close).toHaveBeenCalledOnce();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("reads a file under a root and refuses the rest", async () => {
     const root = await mkdtemp(join(tmpdir(), "tau-pages-file-"));
     try {

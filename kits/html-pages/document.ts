@@ -1,4 +1,5 @@
-import { readFile, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { HTML_PAGE_LIMITS, PAGE_MESSAGES, PAGE_THEME_TOKENS } from "./protocol.js";
 
@@ -52,9 +53,32 @@ export interface InlineImagesOptions {
   baseDir: string;
   /** Folders an image may come from. */
   roots: readonly string[];
+  signal?: AbortSignal;
 }
 
 export interface InlinedImages { html: string; embedded: number; skipped: string[] }
+
+/** Never block opening a pipe, or buffer an unbounded file before checking its size. */
+async function readDocumentFile(path: string, limit: number, signal?: AbortSignal): Promise<Buffer | undefined> {
+  signal?.throwIfAborted();
+  const file = await open(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile()) throw new PageError(`${path} is not a regular file.`);
+    if (stat.size > limit) return undefined;
+    const bytes = Buffer.alloc(Math.min(stat.size + 1, limit + 1));
+    let offset = 0;
+    while (offset < bytes.length) {
+      signal?.throwIfAborted();
+      const { bytesRead } = await file.read(bytes, offset, bytes.length - offset, offset);
+      if (!bytesRead) break;
+      offset += bytesRead;
+    }
+    signal?.throwIfAborted();
+    // A file that grew during the read is refused rather than silently truncated.
+    return offset > stat.size ? undefined : bytes.subarray(0, offset);
+  } finally { await file.close(); }
+}
 
 const SRC = /(<(?:img|source)\b[^>]*?\bsrc\s*=\s*)(["'])([^"']*?)\2/giu;
 const URL_FN = /url\(\s*(["']?)([^)"']+?)\1\s*\)/giu;
@@ -95,16 +119,18 @@ export async function inlineLocalImages(html: string, options: InlineImagesOptio
   const skipped: string[] = [];
   let total = 0;
   for (const candidate of wanted) {
+    options.signal?.throwIfAborted();
     const absolute = isAbsolute(candidate) ? candidate : resolve(options.baseDir, candidate);
     try {
       const real = await realpath(absolute);
       if (!(await inside(options.roots, real))) { skipped.push(`${candidate} (outside the project)`); continue; }
-      const bytes = await readFile(real);
-      if (bytes.length > HTML_PAGE_LIMITS.imageBytes || total + bytes.length > HTML_PAGE_LIMITS.imagesBytes) { skipped.push(`${candidate} (too large to embed)`); continue; }
+      const bytes = await readDocumentFile(real, Math.min(HTML_PAGE_LIMITS.imageBytes, HTML_PAGE_LIMITS.imagesBytes - total), options.signal);
+      if (!bytes) { skipped.push(`${candidate} (too large to embed)`); continue; }
       total += bytes.length;
       const extension = /\.([a-z0-9]+)$/iu.exec(real)?.[1]?.toLowerCase() ?? "";
       loaded.set(candidate, `data:${IMAGE_TYPES[extension]};base64,${bytes.toString("base64")}`);
     } catch {
+      options.signal?.throwIfAborted();
       skipped.push(`${candidate} (not found)`);
     }
   }
@@ -116,13 +142,13 @@ export async function inlineLocalImages(html: string, options: InlineImagesOptio
 }
 
 /** Where a page file may be read from: under the project or the temp folder. */
-export async function readPageFile(path: string, options: { cwd: string; roots: readonly string[] }): Promise<{ html: string; baseDir: string }> {
+export async function readPageFile(path: string, options: { cwd: string; roots: readonly string[]; signal?: AbortSignal }): Promise<{ html: string; baseDir: string }> {
   const absolute = isAbsolute(path) ? path : join(options.cwd, path);
   let real: string;
   try { real = await realpath(absolute); } catch { throw new PageError(`No file at ${path}.`); }
   if (!(await inside(options.roots, real))) throw new PageError(`${path} is outside the project and the temp folder.`);
-  const bytes = await readFile(real);
-  if (bytes.length > HTML_PAGE_LIMITS.htmlBytes) throw new PageError(`${path} is larger than ${HTML_PAGE_LIMITS.htmlBytes / 1024} KiB.`);
+  const bytes = await readDocumentFile(real, HTML_PAGE_LIMITS.htmlBytes, options.signal);
+  if (!bytes) throw new PageError(`${path} is larger than ${HTML_PAGE_LIMITS.htmlBytes / 1024} KiB or changed while being read.`);
   return { html: bytes.toString("utf8"), baseDir: dirname(real) };
 }
 

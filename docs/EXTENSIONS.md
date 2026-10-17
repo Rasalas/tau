@@ -4247,6 +4247,12 @@ in API 1.59.0): `SandboxFrameDocument`, `SandboxFrameCsp`,
 `SandboxFramePermissions`, `FrameColorScheme`, `readFrameCsp`,
 `readFramePermissions` and `FRAME_MAX_HTML_BYTES`.
 
+Since API 1.70.0, `prepareFrameDocument(html, { csp?, colorScheme? })` and
+`frameResponsePolicy(csp)` are also exported for extensions that check a
+document in an owned browser before publishing. Use both the prepared document
+and the HTTP response policy: a meta tag cannot enforce the opaque-origin
+sandbox. HTML Pages uses them with Preview's private Chromium connection.
+
 Review Kit uses this interface for private forge uploads. Its module owns
 upload parsing, CLI credential discovery, HTTPS API validation, redirect policy
 and media MIME checks; core does not know what a PR or a GitLab upload is.

@@ -11,6 +11,7 @@ export class PreviewBrowserProcess {
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
   private sequence = 0;
   private stopped = false;
+  private closing: Promise<void> | undefined;
   readonly exited: Promise<void>;
 
   constructor(executable: string, profile: string) {
@@ -90,7 +91,9 @@ export class PreviewBrowserProcess {
     this.pending.clear();
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> { return this.closing ??= this.closeProcess(); }
+
+  private async closeProcess(): Promise<void> {
     if (this.child.exitCode !== null || this.child.signalCode !== null) return this.exited;
     // Browser.close flushes the owned profile before terminating Chromium.
     await this.send("Browser.close", {}, undefined, 2_000).catch(() => undefined);
