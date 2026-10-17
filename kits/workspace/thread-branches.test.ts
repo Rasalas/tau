@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, mergedWorkIntegrated, threadWorkIntegrated } from "./thread-branches.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, mergedWorkIntegrated, threadWorkIntegrated, updateTargetBranch } from "./thread-branches.js";
 import { applyPicks, parseConflictText } from "./merge-picks.js";
 import { runAgentGit, type AgentGitRunner } from "./agent-worktrees.js";
 
@@ -349,6 +349,45 @@ describe("a local target that fell behind origin", () => {
     repo.run(repo.cwd, "switch", "-q", "-c", "other");
     await expect(mergeThreadBranch(dir)).rejects.toThrow(/Check out main.*3 commits behind origin\/main/su);
     expect(repo.run(repo.cwd, "rev-parse", "main")).toBe(head);
+  });
+
+  it("fast-forwards a checked-out target in a clean main checkout, and leaves a current one alone", async () => {
+    const repo = await stale();
+    const dir = repo.fresh("tau/update");
+    const origin = repo.run(repo.cwd, "rev-parse", "origin/main");
+    expect(await updateTargetBranch(dir, "main")).toMatchObject({ branch: "main", to: origin, commits: 3 });
+    expect(repo.run(repo.cwd, "rev-parse", "HEAD")).toBe(origin);
+    expect(existsSync(join(repo.cwd, "origin-3.txt"))).toBe(true);
+    expect((await readThreadBranch(dir))?.comparedRef).toBeUndefined();
+    expect(await updateTargetBranch(repo.cwd, "main")).toMatchObject({ commits: 0 });
+  });
+
+  it("moves a target no checkout has out as a ref, without touching the main checkout", async () => {
+    const repo = await stale(2);
+    repo.run(repo.cwd, "switch", "-q", "-c", "elsewhere");
+    await writeFile(join(repo.cwd, "a.txt"), "dirty\n");
+    const origin = repo.run(repo.cwd, "rev-parse", "origin/main");
+    expect(await updateTargetBranch(repo.cwd, "main")).toMatchObject({ commits: 2, to: origin });
+    expect(repo.run(repo.cwd, "rev-parse", "main")).toBe(origin);
+    expect(repo.run(repo.cwd, "branch", "--show-current")).toBe("elsewhere");
+    expect(await readFile(join(repo.cwd, "a.txt"), "utf8")).toBe("dirty\n");
+  });
+
+  it("refuses a dirty checkout, a target out in another worktree, and a target with commits of its own", async () => {
+    const repo = await stale();
+    const head = repo.run(repo.cwd, "rev-parse", "main");
+    await writeFile(join(repo.cwd, "a.txt"), "dirty\n");
+    await expect(updateTargetBranch(repo.cwd, "main")).rejects.toThrow(/changes not committed/u);
+    await writeFile(join(repo.cwd, "a.txt"), "one\ntwo\nthree\n");
+    repo.run(repo.cwd, "switch", "-q", "-c", "elsewhere");
+    const other = join(repo.root, "holder");
+    repo.run(repo.cwd, "worktree", "add", "-q", other, "main");
+    await expect(updateTargetBranch(repo.cwd, "main")).rejects.toThrow(/checked out in .*holder/u);
+    repo.run(repo.cwd, "worktree", "remove", other);
+    repo.run(repo.cwd, "switch", "-q", "main");
+    await repo.commit(repo.cwd, "local-only.txt", "x\n");
+    await expect(updateTargetBranch(repo.cwd, "main")).rejects.toThrow(/main has commits origin\/main lacks/u);
+    expect(repo.run(repo.cwd, "rev-parse", "main^")).toBe(head);
   });
 
   it("removes a branch origin already holds", async () => {

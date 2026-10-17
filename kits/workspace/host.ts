@@ -42,7 +42,7 @@ import { DefaultBranchPuller } from "./default-branch-pull.js";
 import { CloneJobs } from "./clone-jobs.js";
 import { decodeRepoFromTree, repoFromTree } from "./repo-writes.js";
 import { commitFilesToBranch, decodeBranchFiles, mergeBranch } from "./branch-commit.js";
-import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, mergedWorkIntegrated } from "./thread-branches.js";
+import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, mergedWorkIntegrated, updateTargetBranch } from "./thread-branches.js";
 import { decodePicks } from "./merge-picks.js";
 import { createCheckoutTurns } from "./checkout-turns.js";
 import { countThreadChanges } from "./thread-changes.js";
@@ -583,6 +583,12 @@ export function createWorkspaceHostExtension(): HostExtension {
           return outcome;
         }, (result) => `${result.branch} into ${result.into}: ${result.state}`, "git.merge-thread-branch");
       }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "merged a thread's branch" } });
+      // Reviews' "Update main": a stale local target fast-forwarded to origin, never more.
+      context.registerCommand("update-target-branch", async (input) => {
+        const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
+        const target = requiredString(input, "target");
+        return gitWrite(path, () => git.write(path, () => updateTargetBranch(path, target)), (result) => `${result.branch} ${result.from}..${result.to}`, "git.update-target-branch");
+      }, { access: "write", long: true, callers: [REVIEW_KIT_ID], audit: { label: "fast-forwarded a project's target branch to origin" } });
       context.registerCommand("thread-branch-conflicts", async (input) => readThreadConflicts(await services.knownWorkspacePath(requiredString(input, "workspace")), undefined, optionalString(input, "target")), { access: "read", long: true, callers: [REVIEW_KIT_ID] });
       // Reviews' cleanup of a merged branch; the threads stay.
       context.registerCommand("remove-thread-branch", async (input) => {
