@@ -56,6 +56,15 @@ export function startsInBackground(env = process.env) {
   return env.TAU_FOREGROUND !== "1";
 }
 
+/** Explicit opt-in for an isolated test machine whose sandbox helper is unavailable. */
+export function electronArguments(env = process.env) {
+  return env.COMPARE_DISABLE_SANDBOX === "1" ? ["--no-sandbox"] : [];
+}
+
+function launchConditions() {
+  return { background: startsInBackground(), sandbox: electronArguments().length === 0, display: process.platform === "linux" ? (process.env.DISPLAY ? "X11" : "none") : "native" };
+}
+
 /** Environment shared by both apps: nothing inherited but locale, user and temp dir. */
 function baseEnv({ root, run }) {
   const home = join(run, "home");
@@ -67,12 +76,13 @@ function baseEnv({ root, run }) {
     HOME: home,
     // Foundation (and so Chromium's own paths) reads this instead of HOME.
     CFFIXED_USER_HOME: home,
-    SHELL: "/bin/zsh",
+    SHELL: process.platform === "darwin" ? "/bin/zsh" : "/bin/bash",
     // An empty ZDOTDIR keeps the login shell both apps run from reading real dotfiles.
     ZDOTDIR: join(run, "zdotdir"),
     PATH: `${join(root, "bin")}:${SYSTEM_PATH}`,
     COMPARE_TURN_FILE: join(root, "turn.json"),
     COMPARE_FAKE_CODEX_LOG: join(run, "logs", "fake-codex.jsonl"),
+    ...(process.platform === "linux" && process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}),
   };
 }
 
@@ -113,6 +123,7 @@ export const tau = {
       version: JSON.parse(readFileSync(join(TAU_ROOT, "package.json"), "utf8")).version,
       electron: electronVersion(join(TAU_ROOT, "node_modules", "electron")),
       build: "npm run build (production bundles, unpackaged Electron)",
+      launch: launchConditions(),
     };
   },
   paths(root) {
@@ -154,7 +165,7 @@ export const tau = {
     const { run } = this.paths(root);
     const { default: electronBinary } = await import(join(TAU_ROOT, "node_modules", "electron", "index.js"));
     const log = openSync(join(run, "logs", logName), "a");
-    const child = spawn(electronBinary, [".", `--remote-debugging-port=${port}`, "--use-mock-keychain"], { cwd: TAU_ROOT, env: this.env(root), stdio: ["ignore", log, log] });
+    const child = spawn(electronBinary, [".", `--remote-debugging-port=${port}`, "--use-mock-keychain", ...electronArguments()], { cwd: TAU_ROOT, env: this.env(root), stdio: ["ignore", log, log] });
     return child;
   },
   isAppPage: (target) => /\/dist\/index\.html/u.test(target.url),
@@ -231,6 +242,7 @@ export const reference = {
       version: manifest.version,
       electron: electronVersion(join(desktop, "node_modules", "electron")),
       build: "vp run build:desktop (production bundles, unpackaged Electron, no launcher bundle)",
+      launch: launchConditions(),
     };
   },
   paths(root) {
@@ -274,12 +286,13 @@ export const reference = {
   async launch(root, { port, logName = "app.log" }) {
     const { run } = this.paths(root);
     const desktop = join(this.sourceDir, "apps", "desktop");
-    const electronBinary = join(desktop, "node_modules", "electron", "dist", "Electron.app", "Contents", "MacOS", "Electron");
-    if (!existsSync(join(desktop, "dist-electron", "main.cjs"))) throw new Error(`The reference app is not built: run \`vp run build:desktop\` in ${this.sourceDir}`);
+    const entry = JSON.parse(readFileSync(join(desktop, "package.json"), "utf8")).main;
+    const { default: electronBinary } = await import(join(desktop, "node_modules", "electron", "index.js"));
+    if (!entry || !existsSync(join(desktop, entry))) throw new Error(`The reference app is not built: run \`vp run build:desktop\` in ${this.sourceDir}`);
     const log = openSync(join(run, "logs", logName), "a");
     // The plain Electron binary, never apps/desktop/scripts/start-electron.mjs: that
     // builds a bundle with the installed app's identifier and registers it with LaunchServices.
-    const child = spawn(electronBinary, ["dist-electron/main.cjs", `--remote-debugging-port=${port}`, "--use-mock-keychain"], {
+    const child = spawn(electronBinary, [".", `--remote-debugging-port=${port}`, "--use-mock-keychain", ...electronArguments()], {
       cwd: desktop,
       env: this.env(root, { backendPort: await freePort() }),
       stdio: ["ignore", log, log],

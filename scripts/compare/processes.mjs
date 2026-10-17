@@ -98,7 +98,7 @@ export function processRole(command) {
   if (/--type=/u.test(command)) return "utility";
   // Tau's host and the reference app's server both run as Electron-as-Node children of the main process.
   if (/dist-electron\/main\/headless\.js|apps\/server\/dist\/bin\.mjs/u.test(command)) return "backend";
-  if (/Electron\.app\/Contents\/MacOS\/Electron/u.test(command)) return "main";
+  if (/Electron\.app\/Contents\/MacOS\/Electron|[\\/]electron(?:\.exe)?(?:\s|$)/iu.test(command)) return "main";
   return "other";
 }
 

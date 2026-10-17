@@ -105,6 +105,10 @@ export function renderSummary(summary) {
     `Machine class: ${Object.entries(summary.machine).map(([key, value]) => `${key}=${escapeCell(value)}`).join(", ")}.`, "",
     "| App | Commit | Version | Electron | Build |", "| --- | --- | --- | --- | --- |",
     ...ids.map((id) => { const app = summary.apps[id]; return `| ${[app.app, app.commit, app.version ?? "unknown", app.electron ?? "unknown", app.build ?? "unknown"].map(escapeCell).join(" | ")} |`; }), "",
+    ...ids.filter((id) => summary.apps[id].launch).map((id) => {
+      const app = summary.apps[id];
+      return `${escapeCell(app.app)} launch: ${app.launch.background ? "background" : "foreground"}, sandbox ${app.launch.sandbox ? "enabled" : "disabled for this isolated test"}, display ${escapeCell(app.launch.display)}.\n`;
+    }),
     "Values are median [minimum, maximum] across measured samples; n is the sample count. Warm-ups are excluded by the harness. Warm switches use each recorded switch when available. Frame percentiles remain per-turn measurements.", "",
     "Startup runs the production app entry with its host/server and seeded profile. Ready means the imported rail and composer are mounted. OS disk caches are not flushed. Turn duration ends when the final sentinel is visible; it does not time runtime completion.", "",
     "Idle CPU uses cumulative user + system time after a settling wait, excludes the replay CLI, and counts 100% as one fully occupied core. Process churn invalidates a window. BSD ps resolves CPU time to hundredths of a second; procps may resolve only whole seconds.", "",

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { CodexAppServer } from "../../kits/codex/app-server.ts";
 import { parseCodexSession } from "../../kits/codex/history-import.ts";
-import { APPS, assertOwnedRoot, resetRunFromTemplate } from "./apps.mjs";
+import { APPS, assertOwnedRoot, electronArguments, resetRunFromTemplate } from "./apps.mjs";
 import { codexNotifications } from "./fake-codex.mjs";
 import { assertEnvUnder, forbiddenPaths, openForbiddenFiles, parseLsofNames } from "./isolation.mjs";
 import { descendants, parseFootprint, parsePs, processRole } from "./processes.mjs";
@@ -181,6 +181,26 @@ describe("isolation", () => {
     expect(tauEnv.TAU_USER_DATA.startsWith(join(root, "tau"))).toBe(true);
   });
 
+  it("keeps the sandbox unless explicitly disabled for both isolated comparison apps", () => {
+    expect(electronArguments({})).toEqual([]);
+    expect(electronArguments({ COMPARE_DISABLE_SANDBOX: "0" })).toEqual([]);
+    expect(electronArguments({ COMPARE_DISABLE_SANDBOX: "1" })).toEqual(["--no-sandbox"]);
+  });
+
+  it.skipIf(process.platform !== "linux")("forwards the X11 display without inheriting user configuration", () => {
+    vi.stubEnv("DISPLAY", ":199");
+    vi.stubEnv("XAUTHORITY", "/private/user-authority");
+    vi.stubEnv("DBUS_SESSION_BUS_ADDRESS", "private-user-bus");
+    try {
+      for (const env of [APPS.tau.env(join(root, "tau")), APPS.reference.env(join(root, "reference"), { backendPort: 1234 })]) {
+        expect(env.DISPLAY).toBe(":199");
+        expect(env.SHELL).toBe("/bin/bash");
+        expect(env.XAUTHORITY).toBeUndefined();
+        expect(env.DBUS_SESSION_BUS_ADDRESS).toBeUndefined();
+      }
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it("starts both apps without taking focus, the reference app through a preload in its main process only", () => {
     const tauEnv = APPS.tau.env(join(root, "tau"));
     const referenceEnv = APPS.reference.env(join(root, "reference"), { backendPort: 1234 });
@@ -217,6 +237,14 @@ describe("isolation", () => {
     expect(parseLsofNames(output)).toHaveLength(4);
     expect(openForbiddenFiles([1], { home, run: () => output })).toEqual([`${home}/.tau/config.json`, `${home}/Library/Application Support/tau/Cookies`]);
   });
+
+  it("checks Linux Electron data and fails when lsof cannot run", () => {
+    const home = "/home/comparison-user";
+    const path = join(home, ".config", "T3 Code (Beta)", "Cookies");
+    expect(openForbiddenFiles([1], { home, run: () => `n${path}` })).toEqual([path]);
+    expect(() => openForbiddenFiles([1], { run: () => { throw Object.assign(new Error("missing lsof"), { code: "ENOENT" }); } })).toThrow("Cannot verify comparison isolation");
+    expect(openForbiddenFiles([1], { run: () => { throw Object.assign(new Error("pid gone"), { status: 1, stdout: "" }); } })).toEqual([]);
+  });
 });
 
 describe("processes", () => {
@@ -234,6 +262,13 @@ describe("processes", () => {
 
   it("tells the backend from the window and leaves the fake CLI out", () => {
     expect(rows.map((row) => processRole(row.command))).toEqual(["main", "renderer", "backend", "excluded", "other"]);
+  });
+
+  it("recognizes Linux Electron while keeping its backend and renderer separate", () => {
+    expect(processRole("/app/node_modules/electron/dist/electron . --no-sandbox")).toBe("main");
+    expect(processRole("/app/node_modules/electron/dist/electron /app/dist-electron/main/headless.js")).toBe("backend");
+    expect(processRole("/app/node_modules/electron/dist/electron --type=renderer")).toBe("renderer");
+    expect(processRole("/app/node_modules/electron/dist/chrome_crashpad_handler")).toBe("other");
   });
 
   it("reads each process's footprint from macOS's footprint tool", () => {

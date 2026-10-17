@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 
 /** Directories no compared process may open, whatever its environment says. */
 export function forbiddenPaths(home = homedir()) {
+  const electronApps = ["tau", "tau-pi-desktop-prototype", "t3code", "t3code-dev", "T3 Code (Alpha)", "T3 Code (Beta)", "T3 Code (Dev)"];
   return [
     // The reference app's data folders.
     join(home, ".t3"),
@@ -18,6 +19,7 @@ export function forbiddenPaths(home = homedir()) {
     join(home, ".codex"),
     join(home, ".claude"),
     join(home, ".pi"),
+    ...electronApps.map((name) => join(home, ".config", name)),
   ];
 }
 
@@ -58,7 +60,8 @@ export function openForbiddenFiles(pids, { home = homedir(), run = (args) => exe
     output = run(["-n", "-P", "-Fn", "-p", pids.join(",")]);
   } catch (error) {
     // lsof exits 1 when some pid has already gone; its stdout is still valid.
-    output = error.stdout ?? "";
+    if (error.status !== 1 || typeof error.stdout !== "string") throw new Error("Cannot verify comparison isolation: lsof failed.", { cause: error });
+    output = error.stdout;
   }
   const forbidden = forbiddenPaths(home);
   return [...new Set(parseLsofNames(output).filter((path) => forbidden.some((root) => inside(path, root))))];

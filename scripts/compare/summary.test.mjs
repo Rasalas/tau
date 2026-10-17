@@ -42,6 +42,15 @@ describe("comparison summaries", () => {
     expect(summarizeReports([source({ tau: [lowCpu] })]).metrics.tau["idleCpu.totalPercent"].median).toBe(0.02);
   });
 
+  it("reports launch conditions and refuses to pool different sandbox conditions", () => {
+    const sample = source({ tau: [run(100)] });
+    sample.report.apps.tau.launch = { background: true, sandbox: false, display: "X11" };
+    expect(renderSummary(summarizeReports([sample]))).toContain("Tau launch: background, sandbox disabled for this isolated test, display X11.");
+    const other = structuredClone(sample);
+    other.report.apps.tau.launch.sandbox = true;
+    expect(() => summarizeReports([sample, other])).toThrow(/incompatible tau build/u);
+  });
+
   it("rejects incompatible machines, commits, fixtures and unsupported report shapes", () => {
     const base = source({ tau: [run(100)], reference: [run(200)] });
     for (const overrides of [{ machine: { chip: "Other" } }, { fixture: [] }, { turn: { durationMs: 1 } }, { options: { idleMs: 1000 } }, { apps: { tau: { app: "Tau", commit: "changed" } } }]) {
