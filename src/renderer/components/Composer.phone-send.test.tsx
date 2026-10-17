@@ -77,15 +77,24 @@ async function hold(button: HTMLElement) {
 }
 
 describe("the phone's send button", () => {
-  it("shows send only for a draft, and Stop alone while a turn runs", async () => {
+  it("keeps send in place with an empty field, disabled until there is a draft", async () => {
+    const { textarea } = renderPhone();
+    const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    fireEvent.change(textarea, { target: { value: "go" } });
+    await waitFor(() => expect(send.disabled).toBe(false));
+    fireEvent.change(textarea, { target: { value: "" } });
+    await waitFor(() => expect(send.disabled).toBe(true));
+  });
+
+  it("shows Stop beside a resting steer while a turn runs", async () => {
     const { textarea } = renderPhone({ streaming: true });
     expect(screen.getByRole("button", { name: "Stop the run" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Steer this turn" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Queue or plan" })).toBeNull();
+    const steer = screen.getByRole("button", { name: "Steer this turn" }) as HTMLButtonElement;
+    expect(steer.disabled).toBe(true);
     fireEvent.change(textarea, { target: { value: "turn left" } });
-    expect(await screen.findByRole("button", { name: "Steer this turn" })).toBeTruthy();
-    fireEvent.change(textarea, { target: { value: "" } });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Steer this turn" })).toBeNull());
+    await waitFor(() => expect(steer.disabled).toBe(false));
   });
 
   it("keeps the keyboard's field focused while held, then opens the send options and skips the release", async () => {
