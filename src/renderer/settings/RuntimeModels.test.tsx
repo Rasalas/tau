@@ -80,7 +80,7 @@ describe("Settings → Runtimes → Models", () => {
     expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" });
     fireEvent.change(field, { target: { value: "x".repeat(121) } });
     fireEvent.blur(field);
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Use at most 120 characters on one line.");
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Use up to 120 characters on one line.");
     expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" });
     fireEvent.keyDown(field, { key: "Escape" });
     expect((field as HTMLInputElement).value).toBe("Quick");
@@ -104,7 +104,7 @@ describe("Settings → Runtimes → Models", () => {
       <RuntimeModels backends={[{ kind: "codex", label: "Codex" }, { kind: "cursor", label: "Cursor" }]} />
     </HostClientProvider></TestProviders>);
     expect(await screen.findByText("No Cursor models yet")).toBeTruthy();
-    expect(screen.getByText("Sign in to Cursor on its card above; its models follow.")).toBeTruthy();
+    expect(screen.getByText("Sign in to Cursor above to list its models.")).toBeTruthy();
     const filter = await screen.findByRole("searchbox", { name: "Filter Codex models" });
     fireEvent.change(filter, { target: { value: "nothing like it" } });
     expect(screen.getByText("No Codex model matches “nothing like it”")).toBeTruthy();

@@ -5,6 +5,7 @@ import {
   type Offering,
 } from "./model-offerings";
 import { carriedLevel } from "../thinking-levels";
+import { wayText } from "./ModelPickerRow";
 import { entryFacts, modelEntries, modelMaker } from "./model-entries";
 
 let position = 0;
@@ -47,6 +48,8 @@ describe("offerings", () => {
 
   it("finds a model by any word of its name, id, provider or runtime, and nothing that lacks one", () => {
     expect(searchScore(lunaPi, "luna")).toBeDefined();
+    expect(searchScore(lunaPi, " _ ")).toBe(0);
+    expect(searchScore(lunaPi, " luna__Pi ")).toBeDefined();
     expect(searchScore(lunaPi, "5.6-luna")).toBeDefined();
     expect(searchScore(lunaCodex, "luna codex")).toBeDefined();
     expect(searchScore(lunaPi, "luna codex")).toBeUndefined();
@@ -60,11 +63,18 @@ describe("offerings", () => {
   });
 
   it("groups search results by model, one row per offering, best group first", () => {
-    const groups = searchOfferings(all, "luna", "relevance");
+    const groups = modelEntries(searchOfferings(all, "luna", "relevance"));
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.map((entry) => entry.runtime).sort()).toEqual(["codex", "pi"]);
-    const byPrice = searchOfferings(all, "gpt", "price");
-    expect(byPrice.map((group) => group[0]!.model.id)).toEqual(["gpt-5.6-luna", "gpt-5.6-sol"]);
+    expect(groups[0]!.ways.map((entry) => entry.runtime).sort()).toEqual(["codex", "pi"]);
+    const byPrice = modelEntries(searchOfferings(all, "gpt", "price"));
+    expect(byPrice.map((group) => group.ways[0]!.model.id)).toEqual(["gpt-5.6-luna", "gpt-5.6-sol"]);
+  });
+
+  it("keeps a family's later ways when another model ranks between them", () => {
+    const expensive = { ...lunaCodex, model: { ...lunaCodex.model, price: { input: 100, output: 100 } } };
+    const entries = modelEntries(searchOfferings([sol, expensive, lunaPi], "gpt", "price"));
+    expect(entries.map((entry) => entry.key)).toEqual(["gpt-5.6-luna", "gpt-5.6-sol"]);
+    expect(entries[0]!.ways.map((way) => way.key)).toEqual([lunaPi.key, expensive.key]);
   });
 
   it("filters by billing and by what a model can do", () => {
@@ -73,6 +83,13 @@ describe("offerings", () => {
     expect(all.filter((entry) => passesFilters(entry, { billing: new Set(["free"] as const), capabilities: new Set() })).map((entry) => entry.key)).toEqual(["ollama/qwen3:8b"]);
     expect(all.filter((entry) => passesFilters(entry, { billing: new Set(), capabilities: new Set(["images"] as const) })).map((entry) => entry.key)).toEqual(["openai/o4-mini"]);
     expect(passesFilters(flash, { billing: new Set(), capabilities: new Set(["reasoning"] as const) })).toBe(true);
+  });
+
+  it("keeps explicit API billing ahead of a legacy subscription login in way labels", () => {
+    const way = offering("pi", { ...lunaPi.model, billing: "api-key", login: "subscription" });
+    expect(wayText(way)).toBe("API key");
+    expect(wayText({ ...way, model: { ...way.model, billing: undefined } })).toBe("Plan");
+    expect(wayText({ ...way, model: { ...way.model, billing: undefined, login: undefined } })).toBe("API key");
   });
 
   it("lists a runtime's models in the user's order first, then its own", () => {

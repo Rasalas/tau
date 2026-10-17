@@ -39,8 +39,8 @@ const GROUP_LABELS: Record<Group, string> = { favourite: "Favourites", shown: "A
 function NoModels({ backend, entry }: { backend: UiRuntimeBackend; entry: RuntimeCatalogEntry | undefined }) {
   if (!entry || entry.status === "loading") return <SettingsState kind="loading" rows={2} title={`Loading ${backend.label}'s models`} />;
   const reason = entry.status === "unavailable" ? entry.reason : undefined;
-  const description = reason === "not-installed" ? `Install ${backend.label} or set its executable on its card above; its models follow.`
-    : reason === "sign-in-required" ? `Sign in to ${backend.label} on its card above; its models follow.`
+  const description = reason === "not-installed" ? `Install ${backend.label} or set its executable above.`
+    : reason === "sign-in-required" ? `Sign in to ${backend.label} above to list its models.`
       : entry.status === "unavailable" && entry.message ? entry.message
         : `${backend.label} lists them once it answers. Check it on its card above.`;
   return <SettingsState kind="empty" title={`No ${backend.label} models yet`} description={description} />;
@@ -97,7 +97,7 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
     <SettingRow
       id={`runtime-models-${backend.kind}`}
       title={`${backend.label} models`}
-      description={`${models.length} ${models.length === 1 ? "model" : "models"}${favourites ? ` · ${favourites} ${favourites === 1 ? "favourite" : "favourites"}` : ""}${hidden.size ? ` · ${hidden.size} hidden` : ""}. Leave names blank to keep the runtime's labels.`}
+      description={`${models.length} ${models.length === 1 ? "model" : "models"}${favourites ? ` · ${favourites} ${favourites === 1 ? "favourite" : "favourites"}` : ""}${hidden.size ? ` · ${hidden.size} hidden` : ""}. Blank names keep catalog labels.`}
       setting={setting}
       control={models.length ? (
         <Button variant="ghost" disabled={!setting.writable} onClick={() => write({ ...value, hidden: allHidden ? [] : models.map(modelKey) })}>
@@ -112,11 +112,12 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
         {models.length === 0 ? <NoModels backend={backend} entry={catalog} /> : null}
         {visible.map(({ model, group }, index) => {
           const at = arranged.findIndex((entry) => entry.model === model);
+          const key = modelKey(model);
           const startsGroup = !needle && (index === 0 || visible[index - 1]!.group !== group) && (group !== "shown" || favourites > 0);
-          const isHidden = hidden.has(modelKey(model));
+          const isHidden = hidden.has(key);
           const access = billingBadge(model);
           return (
-            <div key={modelKey(model)} role="listitem" className="runtime-model-entry">
+            <div key={key} role="listitem" className="runtime-model-entry">
               {startsGroup ? <div className="runtime-models-group">{GROUP_LABELS[group]}</div> : null}
               <div className={`runtime-model${isHidden ? " hidden" : ""}`}>
                 <button
@@ -127,8 +128,8 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
                   onClick={() => preferences.toggleFavouriteModel(offeringKey(backend.kind, model))}
                 ><Star size={12} fill={group === "favourite" ? "currentColor" : "none"} /></button>
                 <span className="runtime-model-name">
-                  <TextField label={`Display name for ${model.name}`} value={value.names?.[modelKey(model)] ?? ""} placeholder={model.name} width="full" disabled={!setting.writable}
-                    validate={(text) => text.trim() && !readModelName(text) ? "Use at most 120 characters on one line." : undefined}
+                  <TextField label={`Display name for ${model.name}`} value={value.names?.[key] ?? ""} placeholder={model.name} width="full" disabled={!setting.writable}
+                    validate={(text) => text.trim() && !readModelName(text) ? "Use up to 120 characters on one line." : undefined}
                     onCommit={(text) => rename(model, text)} />
                   <code>{model.id}</code>
                 </span>

@@ -360,8 +360,8 @@ export function Composer({
         .filter((m) => !query || m.id.toLowerCase().includes(query) || m.name.toLowerCase().includes(query) || m.provider.toLowerCase().includes(query))
         .slice(0, 10)
         .map((m) => ({
-          id: `${m.provider}/${m.id}`,
-          label: `${m.provider}/${m.id}`,
+          id: modelKey(m),
+          label: modelKey(m),
           description: m.name !== m.id ? m.name : undefined,
         }));
     }

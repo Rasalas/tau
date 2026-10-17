@@ -1,4 +1,5 @@
 import type { TauConfig, ThreadBackendKind } from "./contracts.js";
+import { isRecord } from "./records.js";
 
 /** Whether `kind` may start work in the project `config` was read for; a kind without an entry is on. */
 export function runtimeEnabled(config: Pick<TauConfig, "runtimeEnabled"> | undefined, kind: ThreadBackendKind): boolean {
@@ -17,9 +18,9 @@ export function readRuntimeEnabledEntry(value: unknown): boolean | undefined {
 
 /** Every valid entry of a `runtimeEnabled` record; the rest is dropped. */
 export function readRuntimeEnabled(value: unknown): Record<string, boolean> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const result: Record<string, boolean> = {};
-  for (const [kind, entry] of Object.entries(value as Record<string, unknown>)) {
+  for (const [kind, entry] of Object.entries(value)) {
     if (kind.length > 0 && kind.length <= 80 && typeof entry === "boolean") result[kind] = entry;
   }
   return result;

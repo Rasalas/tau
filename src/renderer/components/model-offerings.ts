@@ -58,8 +58,8 @@ function normalize(value: string): string {
 /** Lower is better; undefined when `token` is not in `field`. */
 function scoreField(field: string, token: string, base: number): number | undefined {
   if (field === token) return base;
-  if (field.startsWith(token)) return base + 2;
   const at = field.indexOf(token);
+  if (at === 0) return base + 2;
   if (at > 0 && /[\s\-./:()]/u.test(field[at - 1]!)) return base + 4;
   if (at > 0) return base + 6;
   return token.length >= 3 && looselyContains(field, token) ? base + 100 : undefined;
@@ -69,13 +69,11 @@ function scoreField(field: string, token: string, base: number): number | undefi
 function looselyContains(field: string, token: string): boolean {
   for (let start = field.indexOf(token[0]!); start >= 0; start = field.indexOf(token[0]!, start + 1)) {
     let at = start;
-    let found = true;
     for (const char of token.slice(1)) {
       at = field.indexOf(char, at + 1);
-      if (at < 0) { found = false; break; }
+      if (at < 0) return false;
     }
-    if (found && at - start < token.length + 3) return true;
-    if (!found) return false;
+    if (at - start < token.length + 3) return true;
   }
   return false;
 }
@@ -86,8 +84,8 @@ function looselyContains(field: string, token: string): boolean {
  * counts before the id, the id before provider and runtime.
  */
 export function searchScore(offering: Offering, query: string, providerName: (provider: string) => string = (provider) => provider): number | undefined {
-  const tokens = normalize(query).split(" ").filter(Boolean);
-  if (tokens.length === 0) return 0;
+  const tokens = normalize(query).split(" ");
+  if (!tokens[0]) return 0;
   const fields = [
     offering.model.name,
     offering.model.id,
@@ -119,11 +117,11 @@ export function priceValue(price: UiModelPrice | undefined): number | undefined 
  * API price decides, free and local count as nothing, an unknown price goes last.
  */
 function priceRank(offering: Offering): [number, number] {
-  const billing = modelBilling(offering.model);
+  const billing = billingOf(offering.model);
   const group = billing === "subscription" ? 0 : 1;
   const price = priceValue(offering.model.price);
   if (price !== undefined) return [group, price];
-  return [group, billing === "free" || billing === "local" ? 0 : Number.POSITIVE_INFINITY];
+  return [group, billing === "free" ? 0 : Infinity];
 }
 
 function compareNames(a: Offering, b: Offering): number {
@@ -183,9 +181,8 @@ export function filterCount(filters: OfferingFilters): number {
 
 /**
  * Search results across runtimes: the offerings that match, best first by
- * `sort` (by score when `relevance`), grouped by model so each model's
- * offerings stand together, in the order of each group's best one. On a tie
- * the runtime on hand (`preferred`) goes first.
+ * `sort` (by score when `relevance`). On a tie the runtime on hand
+ * (`preferred`) goes first. `modelEntries` groups these into model rows.
  */
 export function searchOfferings(
   offerings: readonly Offering[],
@@ -193,7 +190,7 @@ export function searchOfferings(
   sort: OfferingSort,
   providerName?: (provider: string) => string,
   preferred?: ThreadBackendKind,
-): Offering[][] {
+): Offering[] {
   const scored = offerings.flatMap((offering) => {
     const score = searchScore(offering, query, providerName);
     return score === undefined ? [] : [{ offering, score }];
@@ -202,14 +199,7 @@ export function searchOfferings(
   const home = (offering: Offering) => (offering.runtime === preferred ? 0 : 1);
   scored.sort((a, b) => (sort === "relevance" ? a.score - b.score : 0) || compare(a.offering, b.offering) || a.score - b.score
     || home(a.offering) - home(b.offering) || compareNames(a.offering, b.offering));
-  const groups = new Map<string, Offering[]>();
-  for (const { offering } of scored) {
-    const family = modelFamily(offering.model);
-    const group = groups.get(family);
-    if (group) group.push(offering);
-    else groups.set(family, [offering]);
-  }
-  return [...groups.values()];
+  return scored.map(({ offering }) => offering);
 }
 
 /** Browsing one runtime: its own order (the user's first), or `sort`'s. */
@@ -221,14 +211,16 @@ export function sortOfferings(offerings: readonly Offering[], sort: OfferingSort
 /** A runtime's models in the order the user gave, the rest after in their own order. */
 export function orderedPositions(models: readonly { provider: string; id: string }[], order: readonly string[] | undefined): Map<string, number> {
   const rank = new Map((order ?? []).map((key, index) => [key, index] as const));
+  const unranked = order?.length ?? 0;
   const keys = models.map(modelKey);
   // Stable sorting keeps catalog order when neither key has a custom rank.
-  keys.sort((a, b) => (rank.get(a) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b) ?? Number.MAX_SAFE_INTEGER));
+  keys.sort((a, b) => (rank.get(a) ?? unranked) - (rank.get(b) ?? unranked));
   return new Map(keys.map((key, position) => [key, position]));
 }
 
 function trim(value: number): string {
-  return value >= 10 ? String(Math.round(value * 10) / 10) : String(Math.round(value * 100) / 100);
+  const scale = value >= 10 ? 10 : 100;
+  return String(Math.round(value * scale) / scale);
 }
 
 /** `$0.2/$1.2`: input and output per million tokens. */

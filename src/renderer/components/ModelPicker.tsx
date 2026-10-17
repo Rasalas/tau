@@ -263,19 +263,20 @@ export function ModelPicker({
       for (const listed of list) {
         const { model, custom } = withPriceOverride(listed, settings.modelPrices);
         const key = offeringKey(kind, model);
+        const bare = modelKey(model);
         const presentation = modelPresentation(model);
         result.push({
           key,
           runtime: kind,
           runtimeLabel: entry.backend.label,
           model,
-          name: arranged?.names?.[modelKey(model)],
+          name: arranged?.names?.[bare],
           levels: catalogLevels(catalog, model),
           favourite: favourites.has(key),
-          hidden: hidden.has(modelKey(model)),
+          hidden: hidden.has(bare),
           legacy: presentation.legacy,
           isNew: presentation.badge === "new",
-          position: positions.get(modelKey(model)) ?? 0,
+          position: positions.get(bare) ?? 0,
           ...(custom ? { customPrice: true } : {}),
         });
       }
@@ -322,7 +323,7 @@ export function ModelPicker({
       : recentRank.has(way.key) ? 3 + recentRank.get(way.key)! / 100
       : draft && way.runtime.split("@")[0] === nativeRuntime ? 4 + (billingOf(way) === "subscription" ? 0 : 0.1)
       : 5 + (billingOf(way) === "subscription" ? 0 : 1) + (way.runtime === threadRuntime ? 0 : 0.5);
-    return [...entry.ways].sort((a, b) => score(a) - score(b))[0]!;
+    return entry.ways.reduce((best, way) => score(way) < score(best) ? way : best);
   };
   const wayOf = (row: Extract<Row, { kind: "entry" }>): Offering => row.way ?? bestWay(row.entry);
 
@@ -353,7 +354,7 @@ export function ModelPicker({
     const compare = offeringComparator(sort);
     const sorted = (list: readonly ModelEntry[]) => sort === "relevance" ? [...list] : [...list].sort((a, b) => compare(a.ways[0]!, b.ways[0]!));
     if (needle) {
-      return searchOfferings(visible, needle, sort, providerLabel, threadRuntime).flatMap((group) => modelEntries(group, activeOffering).map((entry) => entryRow(entry)));
+      return modelEntries(searchOfferings(visible, needle, sort, providerLabel, threadRuntime), activeOffering).map((entry) => entryRow(entry));
     }
     if (current.kind === "favourites" || current.kind === "recent") {
       const keys = current.kind === "favourites" ? settings.favouriteModels : settings.recentModels;

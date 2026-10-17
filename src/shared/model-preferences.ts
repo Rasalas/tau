@@ -1,4 +1,5 @@
 import type { TauModelPreferences, UiModel } from "./contracts.js";
+import { isRecord } from "./records.js";
 
 const MAX_KEYS = 2_000;
 
@@ -15,7 +16,7 @@ export function readModelName(value: unknown): string | undefined {
 }
 
 function nameRecord(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const entries = Object.entries(value);
   if (entries.length > MAX_KEYS) return undefined;
   const names: Record<string, string> = {};
@@ -29,8 +30,8 @@ function nameRecord(value: unknown): Record<string, string> | undefined {
 
 /** One runtime's entry of `modelPreferences`, or undefined when it is not one. */
 export function readModelPreferences(value: unknown): TauModelPreferences | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const raw = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const raw = value;
   const hidden = raw.hidden === undefined ? [] : keyList(raw.hidden);
   const order = raw.order === undefined ? [] : keyList(raw.order);
   if (!hidden || !order) return undefined;
@@ -51,9 +52,9 @@ export function modelDisplayName(model: Pick<UiModel, "provider" | "id" | "name"
 
 /** Every valid runtime entry of a `modelPreferences` record; the rest is dropped. */
 export function readModelPreferenceRecord(value: unknown): Record<string, TauModelPreferences> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const result: Record<string, TauModelPreferences> = {};
-  for (const [runtime, entry] of Object.entries(value as Record<string, unknown>)) {
+  for (const [runtime, entry] of Object.entries(value)) {
     const read = readModelPreferences(entry);
     if (read) result[runtime] = read;
   }
