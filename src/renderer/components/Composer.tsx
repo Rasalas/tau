@@ -1414,8 +1414,6 @@ export function Composer({
           })()}
           {(() => {
             if (!answerable && (sendMode || sendModeBusyHere)) return null;
-            // A phone shows send once there is something to send, so an empty composer keeps the room.
-            if (mobileComposer && !answerable && !hasDraft && !activeScopeSnapshot.submissionPending) return null;
             // One send button, always there: it answers, steers or queues, or sends; with nothing to send it rests.
             const typedAnswer = answerable && (Boolean(plainChipText(text, true).trim()) || (answerHasFiles && !(promptSubmit && !promptSubmit.disabled)));
             const { label, hint } = answerable

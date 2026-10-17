@@ -92,11 +92,8 @@ body[data-profile="compact"] .send-button { width: var(--touch-target); height: 
 body[data-profile="compact"] .send-button.send-mode { width: auto; padding: 0 14px; border-radius: 999px; }
 body[data-profile="compact"] .send-split.with-options > .send-mode { padding-right: 10px; border-radius: 999px 0 0 999px; }
 body[data-profile="compact"] .send-button.send-mode-options { width: 36px; border-radius: 0 999px 999px 0; }
-/* Held for the send menu, so no selection or callout under the finger; it appears with the first character. */
+/* Held for the send menu, so no selection or callout under the finger. */
 body[data-profile="compact"] .send-button { -webkit-touch-callout: none; user-select: none; }
-body[data-profile="compact"] .send-button:not(.stop) { animation: send-in 140ms var(--ease); }
-@keyframes send-in { from { transform: scale(.6); opacity: 0; } }
-body[data-profile="compact"] .send-button.stop:last-child { margin-right: 0; }
 /* A finger gets the ring and the square, not the desktop's word. */
 body[data-profile="compact"] .send-button.stop { margin-right: 8px; padding: 0; border-radius: 50%; }
 body[data-profile="compact"] .send-button.stop > span { display: none; }
@@ -227,7 +224,6 @@ body[data-profile="compact"] .composer-zone.collapsed .composer-toolbar {
 body[data-profile="compact"] .composer-zone.collapsed .composer-frame textarea { max-height: none; }
 @media (prefers-reduced-motion: reduce) {
   body[data-profile="compact"] .composer-toolbar { transition: none; }
-  body[data-profile="compact"] .send-button { animation: none; }
 }
 body[data-profile="compact"] .composer-toolbar .composer-model-chip { margin-left: auto; padding-inline: 8px; }
 body[data-profile="compact"] .composer-model-chip::before { display: none; }

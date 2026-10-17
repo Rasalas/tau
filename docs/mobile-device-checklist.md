@@ -62,8 +62,8 @@ real account changes or reset-credit consumption.
 2. [ ] Swipe a thread row to the left: **Settle** and **Snooze** appear. Long-press a row: the
        action sheet opens.
 3. [ ] Tap the composer: the keyboard opens and the composer stays above it. Return adds a
-       line; the send button sends. With the field empty there is no send button (Stop alone
-       while a turn runs); it appears with the first character.
+       line; the send button sends. With the field empty the send button stays, paler and
+       disabled (beside Stop while a turn runs).
    - [ ] Type a message and hold the send button. The keyboard stays up while the finger
          rests; after half a second **Send options** opens as a sheet and the keyboard folds
          then, not earlier. Lifting the finger sends nothing. **Queue after this turn** (or
