@@ -1139,6 +1139,21 @@ describe("ExtensionRegistry scoped data", () => {
     expect(registry.isActive("lifetime")).toBe(false);
   });
 
+  it("does not start a reentrant replacement when cleanup fails during activation", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "provider", name: "Provider", activate(context) { context.provideService("service", {}); } });
+    const activate = vi.fn();
+    registry.subscribeData("thread:thread", () => {
+      if (registry.getLiveStatus("thread") === "Old") registry.activate({ id: "lifetime", name: "New", activate });
+    });
+    expect(() => registry.activate({ id: "lifetime", name: "Old", activate(context) {
+      context.useService("service", () => () => { throw new Error("cleanup failed"); });
+      context.setLiveStatus("thread", "Old");
+    } })).toThrow("cleanup failed");
+    expect(activate).not.toHaveBeenCalled();
+    expect(registry.isActive("lifetime")).toBe(false);
+  });
+
   it("ignores transcript writes from abort and cleanup callbacks", () => {
     const registry = new ExtensionRegistry();
     const changed = vi.fn();

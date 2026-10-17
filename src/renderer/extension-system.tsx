@@ -2049,7 +2049,10 @@ export class ExtensionRegistry {
     const pending = this.#activationTransitions.get(id);
     if (pending) {
       pending.next = next;
-      this.deactivateNow(id);
+      try { this.deactivateNow(id); } catch (error) {
+        pending.next = undefined;
+        throw error;
+      }
       return;
     }
     const transition: { next: DesktopExtension | false | undefined } = { next };
