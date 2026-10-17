@@ -2,6 +2,7 @@ import { app, BrowserWindow } from "electron";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { verifyTranscriptStyleWork } from "./transcript-style-probe";
 
 app.setPath("userData", join(process.env.TAU_SCROLL_TEST_HOME!, "userData"));
 
@@ -61,6 +62,7 @@ void app.whenReady().then(async () => {
       assert.ok(await evaluate("document.querySelector('.transcript').scrollTop > 0"), "vertical scrolling must still work");
       console.log(`PASS transcript fixed horizontally, code/table scroll, vertical scroll at ${width}px`);
     }
+    await verifyTranscriptStyleWork(window);
     app.exit(0);
   } catch (error) {
     console.error(error);

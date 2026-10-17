@@ -101,3 +101,5 @@ jobs:
       # ubuntu-24.04 ships Xvfb.
       - name: Smoke — invisible display
         run: npm run smoke:display
+      - name: Smoke — transcript scrolling and style work
+        run: xvfb-run -a npm run smoke:transcript-scroll

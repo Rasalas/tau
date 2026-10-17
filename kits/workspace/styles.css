@@ -873,8 +873,8 @@ button.thread-card-row:hover, button.thread-card-row:focus-visible { color: var(
 .thread-card-section:empty { display: none; }
 
 /* A fresh install (2a): the draft's heading, pills and composer step aside for what to do first. */
-.conversation-start:has(.fresh-start) :is(.conversation-empty > :not(.region-draft-actions), .region-draft-actions > :not(.fresh-start, :has(.fresh-start)), .region-composer-above, .conversation-composer-host, .region-composer-below) { display: none; }
-.conversation-start:has(.fresh-start) .thread-header > * { visibility: hidden; }
+.conversation-start:has(.fresh-start) :is(.conversation-start-intro, .region-draft-actions > .draft-pill, .region-draft-actions > tau-part:not(:has(.fresh-start)), .region-composer-above, .conversation-composer-host, .region-composer-below) { display: none; }
+.conversation-start:has(.fresh-start) .thread-header-content { visibility: hidden; }
 .fresh-start { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 40px; text-align: center; color: var(--muted); font-size: var(--text-sm); }
 .fresh-start-mark { width: 56px; height: 56px; }
 .fresh-start-mark rect { fill: var(--brand); }
