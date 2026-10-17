@@ -251,7 +251,7 @@ describe("ComposerFooterControls", () => {
     const Toolbar = ({ revision }: { revision: string }) => (
       <div className="composer-toolbar">
         <ComposerFooterControls revision={revision} leading={<button type="button" className="runtime-chip">Model</button>} blocks={[]} />
-        <div className="send-split"><button type="button" className="send-button send-mode" data-composer-trailing=""><svg /><span>Compact and send</span></button></div>
+        <div className="send-split"><button type="button" className="send-button send-mode" data-composer-trailing=""><svg /><span className="send-mode-label">Compact and send</span></button></div>
       </div>
     );
     const trailing = () => document.querySelector(".composer-chips")!.hasAttribute("data-trailing-icons");

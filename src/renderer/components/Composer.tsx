@@ -1394,7 +1394,7 @@ export function Composer({
                   onClick={() => submitCurrent()}
                 >
                   {Icon ? <Icon size={14} aria-hidden="true" /> : null}
-                  <span>{label}</span>
+                  <span className="send-mode-label">{label}</span>
                 </button>
                 {options.length > 0 ? (
                   <button

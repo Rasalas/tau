@@ -92,7 +92,7 @@ export async function start(app, root, { onStage } = {}) {
  * Both apps render the same viewport. Electron's DevTools has no Browser
  * window domain, so the page's metrics are overridden instead of the window.
  */
-async function setViewport(session) {
+export async function setViewport(session) {
   await session.send("Emulation.setDeviceMetricsOverride", { ...WINDOW, deviceScaleFactor: 2, mobile: false });
 }
 
@@ -110,7 +110,7 @@ function sentKind(response) {
 }
 
 /** WebSocket frames (decoded payload) plus HTTP bodies (encoded), since the reference app also loads snapshots over HTTP. */
-function wireCounter(session) {
+export function wireCounter(session) {
   const counter = { reset() { Object.assign(this, { received: 0, receivedBytes: 0, sent: 0, sentBytes: 0, sentKinds: {}, http: 0, httpBytes: 0 }); } };
   counter.reset();
   const size = (response) => (response.opcode === 2 ? Buffer.from(response.payloadData, "base64").length : Buffer.byteLength(response.payloadData));
@@ -186,7 +186,7 @@ async function scrollThread(session, steps) {
   };
 }
 
-async function replayTurn(app, session, wire, turn) {
+export async function replayTurn(app, session, wire, turn) {
   await openThread(app, session, TURN_THREAD);
   await wait(1_000);
   const composer = await waitFor(session, locate(app.selectors.composer, /.*/u));

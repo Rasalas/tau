@@ -1386,7 +1386,7 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .review-thread-outcome { width: 100%; margin: 0 auto; }
 .review-thread-outcome > .review-pr-strip, .review-thread-outcome > .review-pr-strips { width: 100%; }
 .review-thread-outcome:has(.review-settlement-strip) > .review-pr-strip:first-child:not(:last-child),
-.review-thread-outcome:has(.review-settlement-strip) > .review-pr-strips:first-child:not(:last-child) > :last-child { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.review-thread-outcome:has(.review-settlement-strip) > .review-pr-strips:first-child:not(:last-child) > :is(.review-pr-strip, .review-pr-strips-scroll, .review-pr-strips-fold):last-child { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .review-thread-outcome > .review-settlement-strip:not(:first-child) { border-top-left-radius: 0; border-top-right-radius: 0; }
 .review-settlement-strip { --strip-tone: var(--muted); padding: 8px 12px; gap: 8px; }
 .review-settlement-strip > span { flex: 1; min-width: 0; }

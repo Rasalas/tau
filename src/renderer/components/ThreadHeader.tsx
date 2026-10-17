@@ -44,12 +44,12 @@ export function ThreadHeader({ lead, title, details, actions, tools }: {
   tools?: ReactNode;
 }) {
   return <header className="thread-header">
-    {lead}
-    <div className="thread-heading">
+    {lead ? <div className="thread-header-lead thread-header-content">{lead}</div> : null}
+    <div className="thread-heading thread-header-content">
       <div className="thread-heading-title">{title}</div>
       {details}
     </div>
-    <div className="thread-header-actions">{actions}</div>
-    {tools ? <div className="thread-header-tools" role="toolbar" aria-label="Tools">{tools}</div> : null}
+    <div className="thread-header-actions thread-header-content">{actions}</div>
+    {tools ? <div className="thread-header-tools thread-header-content" role="toolbar" aria-label="Tools">{tools}</div> : null}
   </header>;
 }

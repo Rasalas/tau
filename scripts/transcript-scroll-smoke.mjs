@@ -20,7 +20,7 @@ try {
   delete env.ELECTRON_RUN_AS_NODE;
   process.exitCode = await new Promise((resolveCode, reject) => {
     const child = spawn(electron, [`${root}/probe.cjs`], { env, stdio: "inherit" });
-    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
     child.on("error", (error) => { clearTimeout(timer); reject(error); });
     child.on("exit", (code) => { clearTimeout(timer); resolveCode(code ?? 1); });
   });

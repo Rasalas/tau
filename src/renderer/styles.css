@@ -172,6 +172,7 @@ button > svg { pointer-events: none; }
   -webkit-app-region: drag;
 }
 .thread-header :is(button, input, form, .menu-anchor, .workbench-region) { -webkit-app-region: no-drag; }
+.thread-header-lead { display: contents; }
 /*
  * Title and details come first (design 1a): the heading takes what it needs up to the room the folded actions
  * still ask for; the kits' region gets the rest, which Workspace Kit's row measures to fold its actions.
@@ -805,7 +806,7 @@ tau-part { display: contents; }
 }
 .virtual-transcript:focus-visible .virtual-transcript-row.focused .message.assistant { border-radius: 6px; }
 /* A row with neither (a tool run, a notice) rings what it draws. */
-.virtual-transcript:focus-visible .virtual-transcript-row.focused:not(:has(.message.user .message-text, .message.assistant)) > :first-child {
+.virtual-transcript:focus-visible .virtual-transcript-row.focused > :is(:not(.message-shell), .message-without-text):first-child {
   outline: 1px solid var(--focus);
   outline-offset: 2px;
   border-radius: 8px;
@@ -1499,7 +1500,7 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .send-button.send-mode-options { width: 26px; padding-right: 2px; border-radius: 0 999px 999px 0; box-shadow: inset 1px 0 0 color-mix(in srgb, var(--acid-ink) 18%, transparent); }
 /* A footer row short of room even folded takes the words' room too; the icon stays, the aria-label and tooltip name it. */
 .composer-toolbar:has(> .composer-chips[data-trailing-icons]) .send-button.send-mode:has(> svg) { padding-inline: 10px; }
-.composer-toolbar:has(> .composer-chips[data-trailing-icons]) .send-button.send-mode:has(> svg) > span { display: none; }
+.composer-toolbar:has(> .composer-chips[data-trailing-icons]) .send-button.send-mode:has(> svg) > .send-mode-label { display: none; }
 
 .worktree-list .menu-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

@@ -1,0 +1,1025 @@
+{
+  "schema": "tau-stream-pairs/1",
+  "status": "complete",
+  "startedAt": "2026-10-17T20:40:57.071Z",
+  "harnessCommit": "63c89cb4d09b21b45d6035570f4c5a86e2cf64a6",
+  "machine": {
+    "platform": "linux",
+    "architecture": "x64",
+    "chip": "Intel(R) Core(TM) i5-9600K CPU @ 3.70GHz",
+    "memoryGiB": 60,
+    "logicalCores": 6
+  },
+  "apps": {
+    "before": {
+      "app": "Tau",
+      "commit": "324e2ba2b3b6b0156df56efa0514e905a0708637",
+      "version": "0.7.42",
+      "electron": "44.4.4",
+      "build": "npm run build (production bundles, unpackaged Electron)",
+      "launch": {
+        "background": true,
+        "sandbox": false,
+        "display": "X11"
+      }
+    },
+    "after": {
+      "app": "Tau",
+      "commit": "08ed2a4b64b8b9aa675cbd4ffde6ad90a90d47e5",
+      "version": "0.7.42",
+      "electron": "44.4.4",
+      "build": "npm run build (production bundles, unpackaged Electron)",
+      "launch": {
+        "background": true,
+        "sandbox": false,
+        "display": "X11"
+      }
+    }
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900,
+    "deviceScaleFactor": 2
+  },
+  "fixture": {
+    "events": 899,
+    "textBytes": 151490,
+    "fences": 20,
+    "tools": 6,
+    "outputBytes": 1005000,
+    "durationMs": 14384
+  },
+  "method": {
+    "pairs": 5,
+    "warmupPairs": 1,
+    "order": "before/after on odd pairs, after/before on even pairs",
+    "scenario": "Small thread 1; the full comparison's replayTurn",
+    "readyThreads": 7
+  },
+  "warmups": [
+    {
+      "label": "before",
+      "startedAt": "2026-10-17T20:40:57.105Z",
+      "finishedAt": "2026-10-17T20:41:21.020Z",
+      "loadAtStart": 5.7,
+      "loadAtEnd": 5.1,
+      "replay": {
+        "firstTextMs": 306.2,
+        "endVisibleMs": 14848.8,
+        "replayMs": 14384,
+        "streamFrames": {
+          "frames": 470,
+          "p50": 16.7,
+          "p95": 83.4,
+          "p99": 100.1,
+          "max": 166.7,
+          "dropped": 115
+        },
+        "streamLongTasks": {
+          "count": 94,
+          "totalMs": 6892,
+          "maxMs": 155
+        },
+        "afterEndLongTasks": {
+          "count": 1,
+          "totalMs": 90,
+          "maxMs": 90
+        },
+        "wire": {
+          "received": 298,
+          "receivedKiB": 355.3,
+          "sent": 15,
+          "sentKiB": 3.1,
+          "sentKinds": {
+            "request start-job": 3,
+            "request prepare-prompt": 1,
+            "request host-extension tau.thread-rail/patch": 1,
+            "request host-extension tau.pi-providers/providers": 1,
+            "ping": 1,
+            "request host-extension tau.workspace/checkpoints": 3,
+            "request host-extension tau.workspace/workspace-info": 1,
+            "request host-extension tau.workspace/changes": 1,
+            "request host-extension tau.workspace/thread-changes": 2,
+            "request host-extension tau.search/invalidate": 1
+          },
+          "httpRequests": 0,
+          "httpKiB": 0
+        }
+      }
+    },
+    {
+      "label": "after",
+      "startedAt": "2026-10-17T20:41:24.286Z",
+      "finishedAt": "2026-10-17T20:41:47.520Z",
+      "loadAtStart": 4.7,
+      "loadAtEnd": 3.5,
+      "replay": {
+        "firstTextMs": 350.6,
+        "endVisibleMs": 14734.3,
+        "replayMs": 14384,
+        "streamFrames": {
+          "frames": 799,
+          "p50": 16.7,
+          "p95": 33.3,
+          "p99": 49.9,
+          "max": 100.1,
+          "dropped": 12
+        },
+        "streamLongTasks": {
+          "count": 5,
+          "totalMs": 400,
+          "maxMs": 99
+        },
+        "afterEndLongTasks": {
+          "count": 1,
+          "totalMs": 56,
+          "maxMs": 56
+        },
+        "wire": {
+          "received": 299,
+          "receivedKiB": 363.5,
+          "sent": 15,
+          "sentKiB": 3.1,
+          "sentKinds": {
+            "request start-job": 3,
+            "request prepare-prompt": 1,
+            "request host-extension tau.thread-rail/patch": 1,
+            "request host-extension tau.pi-providers/providers": 1,
+            "ping": 1,
+            "request host-extension tau.workspace/checkpoints": 3,
+            "request host-extension tau.workspace/workspace-info": 1,
+            "request host-extension tau.workspace/changes": 1,
+            "request host-extension tau.workspace/thread-changes": 2,
+            "request host-extension tau.search/invalidate": 1
+          },
+          "httpRequests": 0,
+          "httpKiB": 0
+        }
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "index": 1,
+      "order": [
+        "before",
+        "after"
+      ],
+      "before": {
+        "startedAt": "2026-10-17T20:41:50.779Z",
+        "finishedAt": "2026-10-17T20:42:14.471Z",
+        "loadAtStart": 3.2,
+        "loadAtEnd": 2.5,
+        "replay": {
+          "firstTextMs": 335.2,
+          "endVisibleMs": 14891.4,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 475,
+            "p50": 16.7,
+            "p95": 83.4,
+            "p99": 116.6,
+            "max": 166.7,
+            "dropped": 115
+          },
+          "streamLongTasks": {
+            "count": 96,
+            "totalMs": 7147,
+            "maxMs": 154
+          },
+          "afterEndLongTasks": {
+            "count": 1,
+            "totalMs": 93,
+            "maxMs": 93
+          },
+          "wire": {
+            "received": 299,
+            "receivedKiB": 355.5,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      },
+      "after": {
+        "startedAt": "2026-10-17T20:42:17.723Z",
+        "finishedAt": "2026-10-17T20:42:40.850Z",
+        "loadAtStart": 2.5,
+        "loadAtEnd": 2.7,
+        "replay": {
+          "firstTextMs": 256.1,
+          "endVisibleMs": 14628.1,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 834,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.4,
+            "max": 66.7,
+            "dropped": 11
+          },
+          "streamLongTasks": {
+            "count": 3,
+            "totalMs": 164,
+            "maxMs": 63
+          },
+          "afterEndLongTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "wire": {
+            "received": 300,
+            "receivedKiB": 360.1,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      }
+    },
+    {
+      "index": 2,
+      "order": [
+        "after",
+        "before"
+      ],
+      "after": {
+        "startedAt": "2026-10-17T20:42:44.118Z",
+        "finishedAt": "2026-10-17T20:43:07.259Z",
+        "loadAtStart": 2.5,
+        "loadAtEnd": 2.3,
+        "replay": {
+          "firstTextMs": 206.5,
+          "endVisibleMs": 14578.4,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 852,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.3,
+            "max": 50.1,
+            "dropped": 6
+          },
+          "streamLongTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "afterEndLongTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "wire": {
+            "received": 300,
+            "receivedKiB": 360.2,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      },
+      "before": {
+        "startedAt": "2026-10-17T20:43:10.507Z",
+        "finishedAt": "2026-10-17T20:43:33.492Z",
+        "loadAtStart": 2.2,
+        "loadAtEnd": 2.9,
+        "replay": {
+          "firstTextMs": 231.6,
+          "endVisibleMs": 14868.6,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 528,
+            "p50": 16.7,
+            "p95": 83.3,
+            "p99": 100.1,
+            "max": 150,
+            "dropped": 107
+          },
+          "streamLongTasks": {
+            "count": 89,
+            "totalMs": 6244,
+            "maxMs": 133
+          },
+          "afterEndLongTasks": {
+            "count": 1,
+            "totalMs": 83,
+            "maxMs": 83
+          },
+          "wire": {
+            "received": 300,
+            "receivedKiB": 363.6,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      }
+    },
+    {
+      "index": 3,
+      "order": [
+        "before",
+        "after"
+      ],
+      "before": {
+        "startedAt": "2026-10-17T20:43:36.771Z",
+        "finishedAt": "2026-10-17T20:43:59.589Z",
+        "loadAtStart": 2.7,
+        "loadAtEnd": 2.5,
+        "replay": {
+          "firstTextMs": 221,
+          "endVisibleMs": 14753.1,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 536,
+            "p50": 16.7,
+            "p95": 83.3,
+            "p99": 94.2,
+            "max": 133.4,
+            "dropped": 102
+          },
+          "streamLongTasks": {
+            "count": 88,
+            "totalMs": 6106,
+            "maxMs": 131
+          },
+          "afterEndLongTasks": {
+            "count": 1,
+            "totalMs": 80,
+            "maxMs": 80
+          },
+          "wire": {
+            "received": 300,
+            "receivedKiB": 363.6,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      },
+      "after": {
+        "startedAt": "2026-10-17T20:44:02.850Z",
+        "finishedAt": "2026-10-17T20:44:25.249Z",
+        "loadAtStart": 2.5,
+        "loadAtEnd": 2.3,
+        "replay": {
+          "firstTextMs": 256,
+          "endVisibleMs": 14631.7,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 844,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.4,
+            "max": 50,
+            "dropped": 13
+          },
+          "streamLongTasks": {
+            "count": 1,
+            "totalMs": 56,
+            "maxMs": 56
+          },
+          "afterEndLongTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "wire": {
+            "received": 299,
+            "receivedKiB": 359.5,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      }
+    },
+    {
+      "index": 4,
+      "order": [
+        "after",
+        "before"
+      ],
+      "after": {
+        "startedAt": "2026-10-17T20:44:28.498Z",
+        "finishedAt": "2026-10-17T20:44:51.120Z",
+        "loadAtStart": 2.3,
+        "loadAtEnd": 2.9,
+        "replay": {
+          "firstTextMs": 191.9,
+          "endVisibleMs": 14569,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 846,
+            "p50": 16.7,
+            "p95": 16.8,
+            "p99": 33.4,
+            "max": 49.9,
+            "dropped": 8
+          },
+          "streamLongTasks": {
+            "count": 1,
+            "totalMs": 50,
+            "maxMs": 50
+          },
+          "afterEndLongTasks": {
+            "count": 1,
+            "totalMs": 54,
+            "maxMs": 54
+          },
+          "wire": {
+            "received": 298,
+            "receivedKiB": 355.3,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      },
+      "before": {
+        "startedAt": "2026-10-17T20:44:54.369Z",
+        "finishedAt": "2026-10-17T20:45:17.489Z",
+        "loadAtStart": 2.7,
+        "loadAtEnd": 2.8,
+        "replay": {
+          "firstTextMs": 209.2,
+          "endVisibleMs": 14783.2,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 510,
+            "p50": 16.7,
+            "p95": 83.3,
+            "p99": 100.1,
+            "max": 183.3,
+            "dropped": 99
+          },
+          "streamLongTasks": {
+            "count": 87,
+            "totalMs": 6614,
+            "maxMs": 196
+          },
+          "afterEndLongTasks": {
+            "count": 1,
+            "totalMs": 83,
+            "maxMs": 83
+          },
+          "wire": {
+            "received": 300,
+            "receivedKiB": 360.1,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      }
+    },
+    {
+      "index": 5,
+      "order": [
+        "before",
+        "after"
+      ],
+      "before": {
+        "startedAt": "2026-10-17T20:45:20.740Z",
+        "finishedAt": "2026-10-17T20:45:44.408Z",
+        "loadAtStart": 3,
+        "loadAtEnd": 4.3,
+        "replay": {
+          "firstTextMs": 363,
+          "endVisibleMs": 14888.5,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 483,
+            "p50": 16.7,
+            "p95": 83.3,
+            "p99": 103,
+            "max": 166.7,
+            "dropped": 108
+          },
+          "streamLongTasks": {
+            "count": 94,
+            "totalMs": 6901,
+            "maxMs": 165
+          },
+          "afterEndLongTasks": {
+            "count": 1,
+            "totalMs": 86,
+            "maxMs": 86
+          },
+          "wire": {
+            "received": 299,
+            "receivedKiB": 355.4,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      },
+      "after": {
+        "startedAt": "2026-10-17T20:45:47.665Z",
+        "finishedAt": "2026-10-17T20:46:12.649Z",
+        "loadAtStart": 4.3,
+        "loadAtEnd": 5.5,
+        "replay": {
+          "firstTextMs": 301.7,
+          "endVisibleMs": 14671.5,
+          "replayMs": 14384,
+          "streamFrames": {
+            "frames": 830,
+            "p50": 16.7,
+            "p95": 33.3,
+            "p99": 33.4,
+            "max": 83.3,
+            "dropped": 9
+          },
+          "streamLongTasks": {
+            "count": 2,
+            "totalMs": 137,
+            "maxMs": 87
+          },
+          "afterEndLongTasks": {
+            "count": 0,
+            "totalMs": 0,
+            "maxMs": 0
+          },
+          "wire": {
+            "received": 299,
+            "receivedKiB": 356,
+            "sent": 15,
+            "sentKiB": 3.1,
+            "sentKinds": {
+              "request start-job": 3,
+              "request prepare-prompt": 1,
+              "request host-extension tau.thread-rail/patch": 1,
+              "request host-extension tau.pi-providers/providers": 1,
+              "ping": 1,
+              "request host-extension tau.workspace/checkpoints": 3,
+              "request host-extension tau.workspace/workspace-info": 1,
+              "request host-extension tau.workspace/changes": 1,
+              "request host-extension tau.workspace/thread-changes": 2,
+              "request host-extension tau.search/invalidate": 1
+            },
+            "httpRequests": 0,
+            "httpKiB": 0
+          }
+        }
+      }
+    }
+  ],
+  "aggregate": {
+    "before": {
+      "loadAtStart": {
+        "median": 2.7,
+        "p95": 3.2,
+        "n": 5
+      },
+      "loadAtEnd": {
+        "median": 2.8,
+        "p95": 4,
+        "n": 5
+      },
+      "replay.firstTextMs": {
+        "median": 231.6,
+        "p95": 357.4,
+        "n": 5
+      },
+      "replay.endVisibleMs": {
+        "median": 14868.6,
+        "p95": 14890.8,
+        "n": 5
+      },
+      "replay.replayMs": {
+        "median": 14384,
+        "p95": 14384,
+        "n": 5
+      },
+      "replay.streamFrames.frames": {
+        "median": 510,
+        "p95": 534.4,
+        "n": 5
+      },
+      "replay.streamFrames.p50": {
+        "median": 16.7,
+        "p95": 16.7,
+        "n": 5
+      },
+      "replay.streamFrames.p95": {
+        "median": 83.3,
+        "p95": 83.4,
+        "n": 5
+      },
+      "replay.streamFrames.p99": {
+        "median": 100.1,
+        "p95": 113.9,
+        "n": 5
+      },
+      "replay.streamFrames.max": {
+        "median": 166.7,
+        "p95": 180,
+        "n": 5
+      },
+      "replay.streamFrames.dropped": {
+        "median": 107,
+        "p95": 113.6,
+        "n": 5
+      },
+      "replay.streamLongTasks.count": {
+        "median": 89,
+        "p95": 95.6,
+        "n": 5
+      },
+      "replay.streamLongTasks.totalMs": {
+        "median": 6614,
+        "p95": 7097.8,
+        "n": 5
+      },
+      "replay.streamLongTasks.maxMs": {
+        "median": 154,
+        "p95": 189.8,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.count": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.totalMs": {
+        "median": 83,
+        "p95": 91.6,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.maxMs": {
+        "median": 83,
+        "p95": 91.6,
+        "n": 5
+      },
+      "replay.wire.received": {
+        "median": 300,
+        "p95": 300,
+        "n": 5
+      },
+      "replay.wire.receivedKiB": {
+        "median": 360.1,
+        "p95": 363.6,
+        "n": 5
+      },
+      "replay.wire.sent": {
+        "median": 15,
+        "p95": 15,
+        "n": 5
+      },
+      "replay.wire.sentKiB": {
+        "median": 3.1,
+        "p95": 3.1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request start-job": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request prepare-prompt": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.thread-rail/patch": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.pi-providers/providers": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.ping": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/checkpoints": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/workspace-info": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/changes": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/thread-changes": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.search/invalidate": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.httpRequests": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "replay.wire.httpKiB": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      }
+    },
+    "after": {
+      "loadAtStart": {
+        "median": 2.5,
+        "p95": 3.9,
+        "n": 5
+      },
+      "loadAtEnd": {
+        "median": 2.7,
+        "p95": 5,
+        "n": 5
+      },
+      "replay.firstTextMs": {
+        "median": 256,
+        "p95": 292.6,
+        "n": 5
+      },
+      "replay.endVisibleMs": {
+        "median": 14628.1,
+        "p95": 14663.5,
+        "n": 5
+      },
+      "replay.replayMs": {
+        "median": 14384,
+        "p95": 14384,
+        "n": 5
+      },
+      "replay.streamFrames.frames": {
+        "median": 844,
+        "p95": 850.8,
+        "n": 5
+      },
+      "replay.streamFrames.p50": {
+        "median": 16.7,
+        "p95": 16.7,
+        "n": 5
+      },
+      "replay.streamFrames.p95": {
+        "median": 16.8,
+        "p95": 30,
+        "n": 5
+      },
+      "replay.streamFrames.p99": {
+        "median": 33.4,
+        "p95": 33.4,
+        "n": 5
+      },
+      "replay.streamFrames.max": {
+        "median": 50.1,
+        "p95": 80,
+        "n": 5
+      },
+      "replay.streamFrames.dropped": {
+        "median": 9,
+        "p95": 12.6,
+        "n": 5
+      },
+      "replay.streamLongTasks.count": {
+        "median": 1,
+        "p95": 2.8,
+        "n": 5
+      },
+      "replay.streamLongTasks.totalMs": {
+        "median": 56,
+        "p95": 158.6,
+        "n": 5
+      },
+      "replay.streamLongTasks.maxMs": {
+        "median": 56,
+        "p95": 82.2,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.count": {
+        "median": 0,
+        "p95": 0.8,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.totalMs": {
+        "median": 0,
+        "p95": 43.2,
+        "n": 5
+      },
+      "replay.afterEndLongTasks.maxMs": {
+        "median": 0,
+        "p95": 43.2,
+        "n": 5
+      },
+      "replay.wire.received": {
+        "median": 299,
+        "p95": 300,
+        "n": 5
+      },
+      "replay.wire.receivedKiB": {
+        "median": 359.5,
+        "p95": 360.2,
+        "n": 5
+      },
+      "replay.wire.sent": {
+        "median": 15,
+        "p95": 15,
+        "n": 5
+      },
+      "replay.wire.sentKiB": {
+        "median": 3.1,
+        "p95": 3.1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request start-job": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request prepare-prompt": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.thread-rail/patch": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.pi-providers/providers": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.ping": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/checkpoints": {
+        "median": 3,
+        "p95": 3,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/workspace-info": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/changes": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.workspace/thread-changes": {
+        "median": 2,
+        "p95": 2,
+        "n": 5
+      },
+      "replay.wire.sentKinds.request host-extension tau.search/invalidate": {
+        "median": 1,
+        "p95": 1,
+        "n": 5
+      },
+      "replay.wire.httpRequests": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      },
+      "replay.wire.httpKiB": {
+        "median": 0,
+        "p95": 0,
+        "n": 5
+      }
+    }
+  },
+  "finishedAt": "2026-10-17T20:46:15.909Z"
+}
