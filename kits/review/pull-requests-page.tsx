@@ -33,7 +33,6 @@ export interface PullRequestsPageParts {
  */
 export function PullRequestsPage({ params, navigate, actions, parts }: PageProps & { parts: PullRequestsPageParts }) {
   const detail = useMemo(() => pullRequestTabParams(params), [params]);
-  const phone = useCompactProfile();
   // What the page itself opened on: one project (`workspace`), or all of them.
   const [start] = useState(() => (!detail && typeof params.workspace === "string" ? { workspace: params.workspace } : { scope: "all" as const }));
   const [threadParams] = useState(() => threadPullRequestsParams(params));
@@ -67,15 +66,23 @@ export function PullRequestsPage({ params, navigate, actions, parts }: PageProps
       </div>
       {detail ? (
         <div className="pr-page-pane">
-          {phone ? (
-            <PullRequestView key={detail.url} params={detail} handle={NO_TAB} actions={actions} client={parts.client} chips={parts.chips} rows={parts.rows} shared={parts.shared} />
-          ) : (
-            <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading the pull request" /></div>}>
-              <RemoteReviewDetail key={detail.url} params={detail} actions={actions} client={parts.client} chips={parts.chips} rows={parts.rows} shared={parts.shared} sidebar={parts.sidebar} back={() => navigate({}, { root: true, replace: true })} />
-            </Suspense>
-          )}
+          <PullRequestDetailPane params={params} actions={actions} parts={parts} back={() => navigate({}, { root: true, replace: true })} />
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** A request's view alone: the page's own, and the one a row of the Reviews inbox opens. */
+export function PullRequestDetailPane({ params, actions, parts, back }: Pick<PageProps, "params" | "actions"> & { parts: PullRequestsPageParts; back(): void }) {
+  const detail = useMemo(() => pullRequestTabParams(params), [params]);
+  const phone = useCompactProfile();
+  if (!detail) return null;
+  return phone ? (
+    <PullRequestView key={detail.url} params={detail} handle={NO_TAB} actions={actions} client={parts.client} chips={parts.chips} rows={parts.rows} shared={parts.shared} />
+  ) : (
+    <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading the pull request" /></div>}>
+      <RemoteReviewDetail key={detail.url} params={detail} actions={actions} client={parts.client} chips={parts.chips} rows={parts.rows} shared={parts.shared} sidebar={parts.sidebar} back={back} />
+    </Suspense>
   );
 }

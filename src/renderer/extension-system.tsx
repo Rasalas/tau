@@ -1046,9 +1046,9 @@ export interface PageContribution extends ProfileScoped {
   Component: ComponentType<PageProps>;
   /**
    * What the sidebar shows while the page is open on a desktop, in place of the
-   * thread list (API 1.28.0): Settings' column, with Back to thread above and
-   * below it. It gets the page's own props, so a click in it can `navigate`
-   * the page. Without one the thread list stays.
+   * thread list (API 1.28.0): Settings' column, with Back to thread above it.
+   * It gets the page's own props, so a click in it can `navigate` the page.
+   * Without one the thread list stays.
    */
   Sidebar?: ComponentType<PageProps>;
 }

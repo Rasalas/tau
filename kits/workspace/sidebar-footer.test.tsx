@@ -240,9 +240,10 @@ describe("app pages", () => {
     expect(await within(page).findByText("Item 2")).toBeTruthy();
     expect(within(sidebar).getByRole("button", { name: "Item 2" }).getAttribute("aria-current")).toBe("page");
 
+    // One way back, at the top of the column.
     const backs = within(sidebar).getAllByRole("button", { name: "Back to thread" });
-    expect(backs).toHaveLength(2);
-    fireEvent.click(backs[1]!);
+    expect(backs).toHaveLength(1);
+    fireEvent.click(backs[0]!);
     await waitFor(() => expect(screen.queryByRole("region", { name: "Catalog" })).toBeNull());
     expect(screen.queryByRole("navigation", { name: "Catalog" })).toBeNull();
     expect(view.container.querySelector(".sidebar-slot.covered")).toBeNull();

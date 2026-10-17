@@ -400,6 +400,14 @@ export function registerLocalReviewCommands(
     changed();
   });
 
+  // "Update main": the project's stale local target fast-forwarded to origin; Workspace refuses anything else.
+  context.registerCommand("local-review-update-target", async (input) => {
+    const updated = await workspace("update-target-branch", { workspace: required(input, "workspace"), target: required(input, "target") }) as { branch: string; commits: number };
+    services.log("reviews.target-updated", `${updated.branch} +${updated.commits}`);
+    changed();
+    return updated;
+  }, { long: true, audit: { label: "brought a project's target branch up to date from Reviews" } });
+
   /** A thread's messages with their times: the open thread's transcript, else its session file. */
   const threadMessages = async (threadId: string): Promise<Said[]> => {
     const open = services.thread(threadId);

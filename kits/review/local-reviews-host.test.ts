@@ -187,6 +187,28 @@ describe("Reviews on the host", () => {
     expect(JSON.parse(await readFile(join(repo.stateDir, "tau.review", "local-reviews.json"), "utf8")).merged).toHaveLength(1);
   });
 
+  it("brings a stale main up to origin through Workspace, after which the branch reads against main again", async () => {
+    const repo = await fixture();
+    const published = join(repo.root, "published");
+    repo.git(repo.project, "worktree", "add", "-q", "-b", "published", published, "main");
+    await writeFile(join(published, "b.txt"), "upstream\n");
+    repo.git(published, "add", "-A");
+    repo.git(published, "commit", "-qm", "upstream work");
+    repo.git(repo.project, "update-ref", "refs/remotes/origin/main", "published");
+    const { invoke, events } = await hosts(repo.stateDir);
+    const [before] = (await invoke("local-reviews", { workspaces: [`ws1_${repo.worktree}`] }) as LocalReviewsAnswer).branches;
+    expect(before).toMatchObject({ comparedRef: "origin/main", targetBehind: 1 });
+    expect(await invoke("local-review-update-target", { workspace: `ws1_${repo.project}`, target: "main" })).toMatchObject({ branch: "main", commits: 1 });
+    expect(repo.git(repo.project, "rev-parse", "main")).toBe(repo.git(repo.project, "rev-parse", "published"));
+    expect(events.map((event) => event.name)).toContain(LOCAL_REVIEWS_EVENT);
+    const [after] = (await invoke("local-reviews", { workspaces: [`ws1_${repo.worktree}`] }) as LocalReviewsAnswer).branches;
+    expect(after?.comparedRef).toBeUndefined();
+    await writeFile(join(repo.project, "a.txt"), "dirty\n");
+    repo.git(published, "commit", "-qm", "more", "--allow-empty");
+    repo.git(repo.project, "update-ref", "refs/remotes/origin/main", "published");
+    await expect(invoke("local-review-update-target", { workspace: `ws1_${repo.project}`, target: "main" })).rejects.toThrow(/changes not committed/u);
+  });
+
   it("touches nothing when the branch conflicts, and never pushes", async () => {
     const repo = await fixture();
     const bare = join(repo.root, "origin.git");

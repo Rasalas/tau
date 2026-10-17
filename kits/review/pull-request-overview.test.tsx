@@ -44,8 +44,10 @@ describe("the Pull Requests page", () => {
     const client = listClient(() => ({ service: "github", host: "github.com", repo: "cli/cli", entries: rows.slice(0, 2), truncated: false, limit: 100 }));
     render(<TestThreadStore threads={[]} projects={[]}><PullRequestListView surface="page" params={{ scope: "all" }} actions={actions()} client={{ ...client, listMany: vi.fn(async () => ({ lists: [{ service: "github" as const, host: "github.com", repo: "cli/cli", entries: rows.slice(0, 2), truncated: false, limit: 100, workspaces: ["/cli"] }], failures: [] })) } as unknown as PullRequestClient} open={vi.fn()} /></TestThreadStore>);
     const first = await screen.findByRole("button", { name: `#${rows[0]!.ref.number} ${rows[0]!.title}` });
-    expect(screen.getByRole("heading", { name: "Remote pull requests" })).toBeTruthy();
-    expect([...document.querySelectorAll(".pr-tcolumns > span")].map((cell) => cell.textContent)).toEqual(["", "Pull request", "Changes", "Checks", "Author", "Updated"]);
+    expect(screen.getByRole("heading", { name: "All pull requests" })).toBeTruthy();
+    expect(screen.queryByText(/^The pull and merge requests of your projects/u)).toBeNull();
+    expect(document.querySelector(".pr-tcolumns")).toBeNull();
+    expect(first.textContent).toContain(`#${rows[0]!.ref.number} · ${rows[0]!.author!.login}`);
     expect(first.textContent).toContain(`${rows[0]!.headRef} → ${rows[0]!.baseRef}`);
     expect(within(first).getByRole("img", { name: /^(Open|Draft)$/u })).toBeTruthy();
     expect(within(first).getByText(rows[0]!.author!.login)).toBeTruthy();
@@ -55,18 +57,17 @@ describe("the Pull Requests page", () => {
     expect(document.querySelector(".pr-tcolumns")).toBeNull();
   });
 
-  it("draws a row's checks as a mini pipeline, asked by workflow name, that opens the request at its checks", async () => {
+  it("says in a row's status cell what blocks it or what its checks say, as the inbox does", async () => {
     const entry = rows.find((row) => row.checkRuns?.length)!;
+    const failing = { ...entry, ref: { ...entry.ref, number: 1, url: `${entry.ref.url}-1` }, checks: "failing" as const, checkRuns: [{ name: "unit", status: "failed" as const }] };
+    const conflicting = { ...entry, ref: { ...entry.ref, number: 2, url: `${entry.ref.url}-2` }, mergeable: "conflicting" as const };
     const pipeline = vi.fn(async () => ({}));
-    const open = vi.fn();
-    const listMany = vi.fn(async () => ({ lists: [{ service: "github" as const, host: "github.com", repo: "cli/cli", entries: [entry], truncated: false, limit: 100, workspaces: ["/cli"] }], failures: [] }));
-    render(<TestThreadStore threads={[]} projects={[]}><PullRequestListView surface="page" params={{ scope: "all" }} actions={actions()} client={{ listMany, pipeline } as unknown as PullRequestClient} open={open} /></TestThreadStore>);
-    const row = await screen.findByRole("button", { name: `#${entry.ref.number} ${entry.title}` });
-    const mini = within(row).getByRole("img", { name: /^Checks: /u });
-    await waitFor(() => expect(pipeline).toHaveBeenCalledWith(entry.ref.url, expect.any(Array), expect.any(Object)));
-    fireEvent.click(mini.querySelector(".plm-stage")!);
-    expect(open).toHaveBeenCalledWith(entry, "/cli", "checks");
-    expect(open).toHaveBeenCalledTimes(1);
+    const listMany = vi.fn(async () => ({ lists: [{ service: "github" as const, host: "github.com", repo: "cli/cli", entries: [failing, conflicting], truncated: false, limit: 100, workspaces: ["/cli"] }], failures: [] }));
+    render(<TestThreadStore threads={[]} projects={[]}><PullRequestListView surface="page" params={{ scope: "all" }} actions={actions()} client={{ listMany, pipeline } as unknown as PullRequestClient} open={vi.fn()} /></TestThreadStore>);
+    const first = await screen.findByRole("button", { name: `#1 ${entry.title}` });
+    expect(first.querySelector(".rv-status")?.textContent).toBe("1 check failed");
+    expect(screen.getByRole("button", { name: `#2 ${entry.title}` }).querySelector(".rv-status")?.textContent).toBe("Conflicts");
+    expect(pipeline).not.toHaveBeenCalled();
   });
 
   it("lists every project across hosts, each row with its repository and its host's own viewer", async () => {
@@ -95,7 +96,12 @@ describe("the Pull Requests page", () => {
     expect(screen.getByRole("button", { name: "Projects: All projects" }).textContent).toContain("All projects · 2 repositories");
     expect(screen.getByText("acme/tools")).toBeTruthy();
     expect(screen.getByLabelText("Stack layer 2 of 3")).toBeTruthy();
-    expect(screen.getByRole("note").textContent).toBe("Not listed:scratch gh is not signed in.");
+    expect(screen.queryByText("Not listed:")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Details" }));
+    expect((await screen.findByRole("dialog", { name: "Projects not read" })).textContent).toBe("scratchgh is not signed in.");
+    expect(document.querySelector(".rv-footer")?.textContent).toBe("1 project not readDetails");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Projects not read" })).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: /^!3 /u }));
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ ref: expect.objectContaining({ number: 3 }) }), "/tools");
 

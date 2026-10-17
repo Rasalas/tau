@@ -197,6 +197,11 @@ export class LocalReviewsStore {
     });
   }
 
+  /** "Update main": the project's local target fast-forwarded to origin; the host refuses anything else. */
+  async updateTarget(rootWorkspace: string, target: string): Promise<{ branch: string; commits: number }> {
+    return await this.host.invoke("local-review-update-target", { workspace: rootWorkspace, target }) as { branch: string; commits: number };
+  }
+
   async withdraw(review: LocalReview): Promise<void> {
     await this.host.invoke("local-review-withdraw", { root: review.root, branch: review.branch, ...(review.remote ? { link: review.remote.link } : {}) });
   }

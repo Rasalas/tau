@@ -22,7 +22,7 @@ function usePageProps(store: AppPageStore, actions: WorkbenchActions, sidebar: b
 
 /**
  * The open page's `Sidebar` in the sidebar's place, in Settings' column: Back
- * to thread above and at the foot, the page's own navigation between.
+ * to thread above, the page's own navigation below it.
  */
 export function PageSidebar({ registry, store, actions }: { registry: ExtensionRegistry; store: AppPageStore; actions: WorkbenchActions }) {
   useSyncExternalStore(registry.subscribeRegistrations, registry.getRegistrationVersion);
@@ -42,9 +42,6 @@ export function PageSidebar({ registry, store, actions }: { registry: ExtensionR
             </Suspense>
           </LazyFeatureBoundary>
         </Part>
-      </div>
-      <div className="settings-nav-footer">
-        <button type="button" className="settings-back" onClick={store.close}><ChevronLeft size={15} /><span>Back to thread</span></button>
       </div>
     </nav>
   );

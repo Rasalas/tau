@@ -1,4 +1,4 @@
-import { lazy, Suspense, useSyncExternalStore } from "react";
+import { lazy, Suspense } from "react";
 import { GitPullRequest, GitPullRequestArrow } from "lucide-react";
 import { Spinner, type DesktopExtensionContext, type HostExtensionClient } from "tau";
 import { createLinkDialogLayer, type LinkDialogs } from "./link-dialog.js";
@@ -6,9 +6,10 @@ import { linkPullRequestMenu } from "./link-menu.js";
 import { PULL_REQUEST_TAB, PULL_REQUESTS_TAB, THREAD_PULL_REQUESTS_TAB, WORKSPACE_HOST_EXTENSION_ID, type ComposerContextChips } from "./protocol.js";
 import { threadPullRequestsParams, type ThreadPullRequestsParams } from "./thread-request-tree.js";
 import { ReviewDetailStore } from "./review-detail-store.js";
-import { needsYou, REVIEWS_PAGE } from "./local-reviews.js";
-import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
+import { REVIEWS_PAGE } from "./local-reviews.js";
+import type { LocalReviewsStore } from "./local-reviews-store.js";
 import { ReviewsFilter } from "./reviews-filter.js";
+import { InboxPullsStore, useInboxRows } from "./inbox-pulls.js";
 import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
@@ -40,7 +41,7 @@ export function registerPullRequestTab(
 ): () => void {
   const sidebar = new ReviewDetailStore();
   const pageParts = {
-    store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared, sidebar }, filter: new ReviewsFilter(),
+    store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared, sidebar }, pulls: new InboxPullsStore(client), filter: new ReviewsFilter(),
     detail: { store: sidebar, notes: shared.pending, workspace: plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID) },
   };
   const disposers = [
@@ -105,18 +106,14 @@ export function registerPullRequestTab(
       prominent: true,
       layout: "fill",
       keywords: ["merge requests", "pull requests", "local merge", "worktree branches", "rebase"],
-      // What waits for the user: branches ready to merge or in conflict, and open remote requests of the rail's threads.
-      useBadge: () => {
-        const { counts } = useLocalReviews(reviews.store);
-        const remote = useSyncExternalStore(rows.subscribe, rows.openCount);
-        return needsYou(counts) + remote || undefined;
-      },
+      // The inbox's count: the same rows the page lists, its requests from the cache until the page reads them.
+      useBadge: () => useInboxRows(reviews.store, pageParts.pulls, false).total || undefined,
       Component: (props) => (
         <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading reviews" /></div>}>
           <ReviewsPage {...props} parts={pageParts} />
         </Suspense>
       ),
-      // The states, projects and Remote in the thread list's place; the page keeps the table.
+      // Inbox, Merged, All pull requests and the projects in the thread list's place; the page keeps the rows.
       Sidebar: (props) => <Suspense fallback={null}><ReviewsSidebar {...props} parts={pageParts} /></Suspense>,
     }),
     plugin.registerCommand({

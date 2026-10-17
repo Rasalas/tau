@@ -21,9 +21,9 @@ function FileRow({ file, active, jump }: { file: DetailFile; active: boolean; ju
 }
 
 /**
- * The page's sidebar while a review is open (design 1e): the way back above
- * and below, the review's files, its turns or commits, and the notes
- * collected on its lines, kept until they are sent.
+ * The page's sidebar while a review is open (design 1e): the way back above,
+ * the review's files, its turns or commits, and the notes collected on its
+ * lines, kept until they are sent.
  */
 export function ReviewDetailSidebar({ store, detailKey, back, backLabel }: { store: ReviewDetailStore; detailKey: string; back(): void; backLabel: string }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -31,12 +31,9 @@ export function ReviewDetailSidebar({ store, detailKey, back, backLabel }: { sto
   const own = state?.key === detailKey ? state : undefined;
   const conflicting = own?.files.filter((file) => file.conflict) ?? [];
   const clean = own?.files.filter((file) => !file.conflict) ?? [];
-  const backButton = (
-    <button type="button" className="rvd-back" onClick={back}><ChevronLeft size={14} aria-hidden="true" /><span>{backLabel}</span></button>
-  );
   return (
     <div className="rvd-side">
-      {backButton}
+      <button type="button" className="rvd-back" onClick={back}><ChevronLeft size={14} aria-hidden="true" /><span>{backLabel}</span></button>
       <div className="rvd-side-scroll">
         {own && actions ? (
           <>
@@ -87,7 +84,6 @@ export function ReviewDetailSidebar({ store, detailKey, back, backLabel }: { sto
           </>
         ) : null}
       </div>
-      {backButton}
     </div>
   );
 }

@@ -466,3 +466,39 @@ export async function removeThreadBranch(path: string, options: { integratedTip?
   await runGit(branch.root, ["branch", "-D", branch.branch]);
   return { branch: branch.branch, root: branch.root };
 }
+
+/** What `updateTargetBranch` did: the branch moved `commits` commits from `from` to `to`. */
+export interface TargetUpdate { branch: string; root: string; from: string; to: string; commits: number }
+
+/**
+ * Fast-forwards a stale local target to `origin/<target>`: in the main
+ * checkout when it has the branch out and nothing uncommitted, as a ref
+ * update when no checkout has it out. Anything else is refused with the reason.
+ */
+export async function updateTargetBranch(path: string, target: string, runGit: AgentGitRunner = runAgentGit): Promise<TargetUpdate> {
+  const entries = parseWorktreeList(await runGit(path, ["worktree", "list", "--porcelain"]));
+  const main = entries[0];
+  if (!main) throw new Error("This folder is no Git checkout.");
+  const root = main.path;
+  const local = (await runGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${target}^{commit}`]).catch(() => "")).trim();
+  if (!local) throw new Error(`${target} is no local branch here.`);
+  const origin = (await runGit(root, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${target}^{commit}`]).catch(() => "")).trim();
+  if (!origin) throw new Error(`origin/${target} is not known here; fetch it first.`);
+  const done = { branch: target, root, from: local };
+  if (local === origin) return { ...done, to: origin, commits: 0 };
+  const behind = await runGit(root, ["merge-base", "--is-ancestor", local, origin]).then(() => true, () => false);
+  if (!behind) throw new Error(`${target} has commits origin/${target} lacks; it cannot be fast-forwarded.`);
+  const commits = Number((await runGit(root, ["rev-list", "--count", `${local}..${origin}`])).trim()) || 0;
+  const holder = entries.find((entry) => entry.branch === target);
+  if (holder && holder !== main) throw new Error(`${target} is checked out in ${holder.path}; update it there.`);
+  if (holder) {
+    if ((await runGit(root, ["status", "--porcelain", "--untracked-files=no"])).trim()) {
+      throw new Error(`The project's main folder has changes not committed; commit or move them so ${target} can be brought up to date.`);
+    }
+    await runGit(root, ["merge", "--ff-only", `refs/remotes/origin/${target}`]);
+  } else {
+    // Without a leading "+" Git refuses anything but a fast-forward.
+    await runGit(root, ["fetch", ".", `refs/remotes/origin/${target}:refs/heads/${target}`]);
+  }
+  return { ...done, to: origin, commits };
+}
