@@ -2059,7 +2059,11 @@ export class ExtensionRegistry {
       while (transition.next !== undefined) {
         const requested = transition.next;
         transition.next = undefined;
-        try { this.deactivateNow(id); } catch (error) { errors.push(error); }
+        try { this.deactivateNow(id); } catch (error) {
+          errors.push(error);
+          transition.next = undefined;
+          break;
+        }
         // A callback made a newer request while the old activation ended.
         if (requested && transition.next === undefined) {
           try { this.activateNow(requested); } catch (error) { errors.push(error); }
@@ -2236,13 +2240,13 @@ export class ExtensionRegistry {
         this.changed();
         return {
           setRows: (sessionId, rows) => {
-            if (this.#transcriptRows.get(id) !== source) return;
+            if (!activation.active || this.#transcriptRows.get(id) !== source) return;
             if (rows.length === 0) source.bySession.delete(sessionId);
             else source.bySession.set(sessionId, rows);
             this.dataChanged(`thread:${sessionId}`, true);
           },
           clear: (sessionId) => {
-            if (this.#transcriptRows.get(id) !== source) return;
+            if (!activation.active || this.#transcriptRows.get(id) !== source) return;
             const sessions = sessionId === undefined ? [...source.bySession.keys()] : [sessionId];
             if (sessionId === undefined) source.bySession.clear();
             else source.bySession.delete(sessionId);

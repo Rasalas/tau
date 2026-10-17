@@ -1128,6 +1128,36 @@ describe("ExtensionRegistry prompt tools seams", () => {
 });
 
 describe("ExtensionRegistry scoped data", () => {
+  it("does not start a replacement when ending the previous activation fails", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "lifetime", name: "Old", activate() {
+      return () => { throw new Error("cleanup failed"); };
+    } });
+    const activate = vi.fn();
+    expect(() => registry.activate({ id: "lifetime", name: "New", activate })).toThrow("cleanup failed");
+    expect(activate).not.toHaveBeenCalled();
+    expect(registry.isActive("lifetime")).toBe(false);
+  });
+
+  it("ignores transcript writes from abort and cleanup callbacks", () => {
+    const registry = new ExtensionRegistry();
+    const changed = vi.fn();
+    registry.subscribeData("thread:thread", changed);
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(context) {
+      const rows = context.registerTranscriptRows("rows");
+      rows.setRows("thread", [{ id: "original", content: null }]);
+      const staleWrites = () => {
+        rows.setRows("thread", [{ id: "ghost", content: null }]);
+        rows.clear();
+      };
+      context.signal?.addEventListener("abort", staleWrites);
+      return staleWrites;
+    } });
+    registry.deactivate("lifetime");
+    expect(changed).toHaveBeenCalledTimes(2);
+    expect(registry.getTranscriptRows("thread")).toEqual([]);
+  });
+
   it("allows a registration subscriber to end an activation before activate returns", () => {
     const registry = new ExtensionRegistry();
     let context!: DesktopExtensionContext;
