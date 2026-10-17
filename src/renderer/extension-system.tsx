@@ -685,6 +685,8 @@ export interface ComposerInlineContribution extends ProfileScoped {
   triggers?: readonly ComposerTriggerContribution[];
   /** Answer `true` to keep pasted text out of the field. */
   pasteText?(text: string, context: ComposerInlineContext): boolean;
+  /** API 1.71.0: a typed drag payload. Core offers matching drops; `take` validates it and returns true to claim it. */
+  drop?: { mimeType: string; take(value: string, context: ComposerInlineContext): boolean };
   /** Chips drawn inside the text; `Component` then draws only what is not a chip (an error, say). */
   chips?: ComposerInlineChips;
   /** Takes files from a drop, a paste or the attach button, and answers with the ones left for core's images. */

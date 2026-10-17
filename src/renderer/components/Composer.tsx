@@ -1057,8 +1057,24 @@ export function Composer({
       <div
         ref={frameRef}
         className={`composer-frame ${prompt ? "stacked" : ""} ${answerable ? "answering" : ""}`}
-        onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
+        onDragOver={(event) => {
+          const types = Array.from(event.dataTransfer.types);
+          if (inlines.some((inline) => inline.drop && types.includes(inline.drop.mimeType))) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+          } else if (types.includes("Files")) event.preventDefault();
+        }}
         onDrop={(event) => {
+          for (const inline of inlines) {
+            if (!inline.drop || !Array.from(event.dataTransfer.types).includes(inline.drop.mimeType)) continue;
+            try {
+              if (!inline.drop.take(event.dataTransfer.getData(inline.drop.mimeType), inlineContextRef.current)) continue;
+              event.preventDefault();
+              event.stopPropagation();
+              textareaRef.current?.focus();
+              return;
+            } catch (error) { onNotify?.(errorMessage(error), "error"); }
+          }
           if (event.dataTransfer.files.length === 0) return;
           event.preventDefault();
           void addFiles(event.dataTransfer.files);

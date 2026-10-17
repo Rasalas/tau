@@ -99,6 +99,59 @@ function renderWith(contribution: ComposerInlineContribution, onSubmit = vi.fn<S
 afterEach(cleanup);
 
 describe("composer inline contributions", () => {
+  it("offers a typed drop only on drop, claims it without native insertion, and focuses the draft", () => {
+    const holder = chipHolder();
+    const mimeType = "application/x-test-context";
+    const take = vi.fn((value: string, context: { scope: string }) => { holder.add(context.scope, value); return true; });
+    holder.contribution.drop = { mimeType, take };
+    const { textarea } = renderWith(holder.contribution);
+    const frame = textarea.closest(".composer-frame")!;
+    const dataTransfer = { types: [mimeType, "text/plain"], files: [], getData: vi.fn(() => "dropped context"), dropEffect: "none" };
+    expect(fireEvent.dragOver(frame, { dataTransfer })).toBe(false);
+    expect(dataTransfer.dropEffect).toBe("copy");
+    expect(dataTransfer.getData).not.toHaveBeenCalled();
+    const bubbled = vi.fn();
+    document.addEventListener("drop", bubbled);
+    try {
+      expect(fireEvent.drop(frame, { dataTransfer })).toBe(false);
+      expect(bubbled).not.toHaveBeenCalled();
+    } finally { document.removeEventListener("drop", bubbled); }
+    expect(dataTransfer.getData).toHaveBeenCalledWith(mimeType);
+    expect(take).toHaveBeenCalledWith("dropped context", expect.objectContaining({ scope: "session:session" }));
+    expect(holder.chips.get("session:session")).toEqual(["dropped context"]);
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("leaves unknown or refused text drops to the browser", () => {
+    const holder = chipHolder();
+    const take = vi.fn(() => false);
+    holder.contribution.drop = { mimeType: "application/x-test-context", take };
+    const { textarea } = renderWith(holder.contribution);
+    const frame = textarea.closest(".composer-frame")!;
+    const dataTransfer = { types: ["text/plain"], files: [], getData: vi.fn(() => "unknown") };
+    expect(fireEvent.dragOver(frame, { dataTransfer })).toBe(true);
+    expect(fireEvent.drop(frame, { dataTransfer })).toBe(true);
+    expect(take).not.toHaveBeenCalled();
+    expect(dataTransfer.getData).not.toHaveBeenCalled();
+    dataTransfer.types = ["application/x-test-context"];
+    expect(fireEvent.drop(frame, { dataTransfer })).toBe(true);
+    expect(take).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["refused", "throws"])("keeps the file-drop path when a typed contribution %s", async (outcome) => {
+    const holder = chipHolder();
+    holder.contribution.drop = { mimeType: "application/x-test-context", take: () => {
+      if (outcome === "throws") throw new Error("Cannot take this context");
+      return false;
+    } };
+    const { textarea } = renderWith(holder.contribution);
+    fireEvent.drop(textarea.closest(".composer-frame")!, { dataTransfer: {
+      types: ["application/x-test-context", "Files"], getData: () => "bad context",
+      files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
+    } });
+    await waitFor(() => expect(holder.chips.get("session:session")).toEqual(["notes.txt"]));
+  });
+
   it("draws the strip inside the input frame and sends with nothing but its context", async () => {
     const holder = chipHolder();
     const { onSubmit } = renderWith(holder.contribution);

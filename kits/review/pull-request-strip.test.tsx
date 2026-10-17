@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClientStorage, DesktopExtension, HostSnapshot, PreferencesStore, TranscriptRow, TranscriptRowsHandle, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { reviewExtension } from "./desktop.js";
-import { PULL_REQUEST_TAB, THREAD_PULL_REQUESTS_TAB, type PullRequestCheck, type ReviewRequest, type ThreadPullRequestLink } from "./protocol.js";
+import { PULL_REQUEST_DRAG_TYPE, PULL_REQUEST_TAB, THREAD_PULL_REQUESTS_TAB, type PullRequestCheck, type ReviewRequest, type ThreadPullRequestLink } from "./protocol.js";
 import { RequestLinks } from "./request-links.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import PullRequestStrip from "./pull-request-strip.js";
@@ -144,6 +144,21 @@ describe("the pull-request strip", () => {
     expect(open.querySelector(".review-pr-strip-service")!.getAttribute("data-tooltip")).toBe("GitHub · github.com/acme/lakebed");
     fireEvent.click(open);
     expect(actions.openStageTab).toHaveBeenCalledWith("review.pull-request", { url: BRANCH.url, number: 224, service: "github", workspace: "/work" }, { key: BRANCH.url });
+  });
+
+  it("drags a linked request as typed composer context with ordinary URL fallbacks", async () => {
+    const request = link(31, { headRef: "feature/context", draft: true });
+    const { actions } = setup({ links: [request] });
+    const button = await screen.findByRole("button", { name: /^Open pull request #31 / });
+    expect(button.draggable).toBe(true);
+    const dataTransfer = { setData: vi.fn(), effectAllowed: "none" };
+    fireEvent.dragStart(button, { dataTransfer });
+    expect(dataTransfer.effectAllowed).toBe("copy");
+    expect(JSON.parse(dataTransfer.setData.mock.calls.find(([type]) => type === PULL_REQUEST_DRAG_TYPE)![1]))
+      .toEqual({ number: 31, title: "Change 31", url: request.url, branch: "feature/context" });
+    expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", request.url);
+    expect(dataTransfer.setData).toHaveBeenCalledWith("text/uri-list", request.url);
+    expect(actions.openStageTab).not.toHaveBeenCalled();
   });
 
   it.each([
