@@ -57,6 +57,7 @@ import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.
 import { pageInput, previewFocusKind, readPreviewInput, type PreviewPageInput } from "./remote-input.js";
 import { pinnedWindowCalls } from "../_host-window/pinned-calls.js";
 import { DeviceLayout, readPreviewViewer, type PreviewDeviceMetrics } from "./device-layout.js";
+import { clearHeadlessPreviewProfile, createHeadlessPreviewSurface, previewBrowserCommand } from "./headless-surface.js";
 
 /** Where the view is drawn inside the window, in device-independent pixels. */
 export interface PreviewRect {
@@ -97,7 +98,7 @@ export interface PreviewSurface {
   input?(event: PreviewPageInput): Promise<void>;
   /** Saves to a new file in the window's workspace, without a native dialog or overwrite. */
   download?(url: string, destination: string): Promise<{ path: string }>;
-  destroy(): void;
+  destroy(): void | Promise<void>;
 }
 
 export interface PreviewRecordingChunks {
@@ -106,6 +107,9 @@ export interface PreviewRecordingChunks {
 }
 
 export interface PreviewSurfaceOptions {
+  /** Persistent state and executable discovery for the host's own browser. */
+  stateDir?: string;
+  findCommand?(name: string): string | undefined;
   /** The session partition of the profile in use. */
   partition: string;
   onChange(): void;
@@ -123,7 +127,7 @@ export interface PreviewSurfaceOptions {
 export type PreviewSurfaceFactory = (options: PreviewSurfaceOptions) => Promise<PreviewSurface | undefined>;
 
 /** Forgets a deleted profile's cookies and storage, wherever the window lives. */
-export type PreviewPartitionCleaner = (partition: string, callClient: (command: string, input?: unknown) => Promise<unknown>) => Promise<void>;
+export type PreviewPartitionCleaner = (partition: string, callClient: (command: string, input?: unknown) => Promise<unknown>, stateDir?: string) => Promise<void>;
 
 const LOAD_TIMEOUT_MS = 15_000;
 const SCREENSHOT_MAX_WIDTH = 1_280;
@@ -289,6 +293,7 @@ export function agentAction(
  */
 class PreviewController implements PreviewToolController {
   private view: PreviewSurface | undefined;
+  private opening: Promise<PreviewSurface> | undefined;
 
   private bounds: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 
@@ -395,6 +400,7 @@ class PreviewController implements PreviewToolController {
   }
 
   private noWindow(): PreviewNoWindow | undefined {
+    if (this.view?.state().surface === "headless" || previewBrowserCommand((name) => this.context.services.findCommand?.(name))) return undefined;
     let attached: boolean | undefined;
     try {
       attached = this.context.services.clientWindow ? this.context.services.clientWindow() !== undefined : undefined;
@@ -422,9 +428,19 @@ class PreviewController implements PreviewToolController {
   /** The view, created on first use; a host without a window has none. */
   async surface(): Promise<PreviewSurface> {
     if (this.view) return this.view;
+    if (this.opening) return this.opening;
+    const opening = this.openSurface();
+    this.opening = opening;
+    try { return await opening; }
+    finally { if (this.opening === opening) this.opening = undefined; }
+  }
+
+  private async openSurface(): Promise<PreviewSurface> {
     const { active } = await this.profiles.read();
     if (this.view) return this.view;
     const created = await this.createSurface({
+      stateDir: this.context.services.stateDir,
+      findCommand: (name) => this.context.services.findCommand(name),
       partition: profilePartition(active),
       onChange: () => this.publish(),
       onChord: (chord) => { void this.chord(chord).catch(() => undefined); },
@@ -528,10 +544,11 @@ class PreviewController implements PreviewToolController {
   }
 
   async close(): Promise<PreviewState> {
+    await this.opening?.catch(() => undefined);
     this.pickToken += 1;
     this.mode = undefined;
     await this.recordStop().catch(() => null);
-    this.view?.destroy();
+    await this.view?.destroy();
     this.view = undefined;
     this.window.release();
     this.layout.dispose();
@@ -967,7 +984,7 @@ class PreviewController implements PreviewToolController {
     const id = String(fields.id);
     // The partition goes with its view: a session in use cannot be cleared under it.
     if (before === id) await this.reopenInActiveProfile();
-    await this.clearPartition(profilePartition(id), (command, value) => this.window.call(command, value))
+    await this.clearPartition(profilePartition(id), (command, value) => this.window.call(command, value), this.context.services.stateDir)
       .catch((error: unknown) => this.context.services.log("preview.profile.clear-failed", error instanceof Error ? error.message : String(error)));
     return profiles;
   }
@@ -1023,25 +1040,34 @@ class PreviewController implements PreviewToolController {
  * window half instead, and a host with neither has no preview at all.
  */
 const electronSurface: PreviewSurfaceFactory = async (options) => {
+  const executable = previewBrowserCommand(options.findCommand ?? (() => undefined));
+  const headless = () => {
+    if (!executable || !options.stateDir) throw new Error("Preview needs Chrome or Chromium on this machine. Install it or set TAU_PREVIEW_BROWSER to its executable, then retry.");
+    return createHeadlessPreviewSurface(options, executable, options.stateDir);
+  };
+  // An explicit browser path also selects the host browser on a desktop machine.
+  if (process.env.TAU_PREVIEW_BROWSER) return headless();
   if (process.type === "browser") {
     const { createElectronPreviewSurface } = await import("./view.js");
     return createElectronPreviewSurface(options);
   }
-  if (!options.callClient) return undefined;
+  if (!options.callClient) return headless();
   const { createRemotePreviewSurface } = await import("./remote-surface.js");
   const call = options.callClient;
   const surface = createRemotePreviewSurface(options, (command, input) => call(command, input));
   // The view exists once the window half made it; a refused call means no window.
-  await surface.open();
-  return surface;
+  try { await surface.open(); return surface; }
+  catch (error) { if (!previewWindowUnavailable(error)) throw error; return headless(); }
 };
 
-const electronPartitionCleaner: PreviewPartitionCleaner = async (partition, callClient) => {
+const electronPartitionCleaner: PreviewPartitionCleaner = async (partition, callClient, stateDir) => {
+  if (stateDir) await clearHeadlessPreviewProfile(stateDir, partition);
   if (process.type === "browser") {
     const { clearPreviewPartition } = await import("./view.js");
     return clearPreviewPartition(partition);
   }
-  await callClient("clear-partition", { target: partition });
+  try { await callClient("clear-partition", { target: partition }); }
+  catch (error) { if (!previewWindowUnavailable(error)) throw error; }
 };
 
 /** Computer Use's tools, whichever runtime reports them. */
@@ -1144,7 +1170,10 @@ export function createPreviewHostExtension(
       }));
       // Only the panel's own dialog reaches these; no agent tool imports cookies.
       // Cookies go into the view's sessions, so into the window that holds the view.
-      const cookies = new CookieImportHost(cookieWindow((command, input) => controller.windowCall(command, input)), {
+      const cookies = new CookieImportHost(cookieWindow((command, input) => {
+        if (controller.state().surface === "headless" || process.env.TAU_PREVIEW_BROWSER) throw new Error("Cookie import requires the desktop Preview. Sign in directly in this browser to retain its login.");
+        return controller.windowCall(command, input);
+      }), {
         profiles: () => controller.profileList(),
         partition: profilePartition,
         reload: (profile) => controller.reloadIn(profile),

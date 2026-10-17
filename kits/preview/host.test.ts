@@ -159,6 +159,34 @@ describe("preview URLs", () => {
 });
 
 describe("preview tools", () => {
+  it("shares a browser that is still starting between simultaneous tools", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const starting = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const made = fakeSurface();
+    const create = vi.fn(async () => { entered(); await gate; return made.surface; });
+    const bench = await activate(create);
+    try {
+      const first = bench.text("preview_open", { url: "http://localhost:3000" });
+      await starting;
+      const second = bench.text("preview_open", { url: "http://localhost:3000" });
+      release();
+      expect((await Promise.all([first, second])).every((result) => !result.isError)).toBe(true);
+      expect(create).toHaveBeenCalledTimes(1);
+    } finally { release(); await bench.registry.dispose(); }
+  });
+
+  it("lets the next tool retry a failed browser start", async () => {
+    const made = fakeSurface();
+    const create = vi.fn().mockRejectedValueOnce(new Error("Browser could not start")).mockResolvedValue(made.surface);
+    const bench = await activate(create);
+    try {
+      expect((await bench.text("preview_open", { url: "http://localhost:3000" })).isError).toBe(true);
+      expect((await bench.text("preview_open", { url: "http://localhost:3000" })).isError).toBe(false);
+      expect(create).toHaveBeenCalledTimes(2);
+    } finally { await bench.registry.dispose(); }
+  });
   it("leaves the tools to tool_search in Pi and lists all of them over MCP", async () => {
     const kit = await activate(async () => fakeSurface().surface);
     expect(kit.tools.length).toBeGreaterThan(10);

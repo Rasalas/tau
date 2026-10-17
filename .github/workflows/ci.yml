@@ -86,6 +86,8 @@ jobs:
         run: npm run smoke:extension-install
       - name: Smoke — remote work
         run: npm run smoke:remote-work
+      - name: Smoke — Preview without a display
+        run: npm run smoke:preview-headless
       # Requiring electron downloads its binary first, where npm ci left it out.
       - name: Electron's sandbox helper as setuid root
         run: |

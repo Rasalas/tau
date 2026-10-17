@@ -37,8 +37,9 @@ const RemoteDesktopPanel = createRemotePreviewPanel(false);
  * frames and drives the page like any other device.
  */
 export function DesktopPreviewPanel(props: PanelProps) {
+  const state = usePreviewState();
   const { localFiles } = useHostCapabilities();
-  return localFiles ? <PreviewPanel {...props} /> : <RemoteDesktopPanel {...props} />;
+  return localFiles && state.surface !== "headless" ? <PreviewPanel {...props} /> : <RemoteDesktopPanel {...props} />;
 }
 
 const tinySource: LiveFrameSource = async (maxWidth, since) =>
