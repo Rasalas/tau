@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
+import { PreferencesStore } from "./preferences";
 import { answerFind } from "./components/transcript-reveal";
 import { useWorkbenchActions, type UseWorkbenchActionsOptions } from "./use-workbench-actions";
 import type { HostSnapshot, UiModel } from "../shared/contracts";
@@ -356,6 +357,42 @@ describe("useWorkbenchActions", () => {
     const { result } = renderHook(() => useWorkbenchActions(options));
     expect(await result.current.setModel?.(query)).toBe(true);
     expect(options.setComposerModel).toHaveBeenCalledExactlyOnceWith(provider, id);
+  });
+
+  it("resolves current labels after edits, keeping canonical queries and runtime identity", async () => {
+    const preferences = new PreferencesStore();
+    preferences.setModelPreferences("pi", { names: { "google/gemini-2.5-flash": "Quick", "anthropic/claude-3-7-sonnet": "Gemini 2.5 Flash" } });
+    preferences.setModelPreferences("codex", { names: { "google/gemini-2.5-flash": "Other" } });
+    const options = createMockOptions({ preferences });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+    const setModel = result.current.setModel!;
+    expect(await setModel("QUICK")).toBe(true);
+    expect(options.setComposerModel).toHaveBeenLastCalledWith("google", "gemini-2.5-flash");
+    // Canonical names take precedence over another model's custom label.
+    expect(await setModel("Gemini 2.5 Flash")).toBe(true);
+    expect(options.setComposerModel).toHaveBeenLastCalledWith("google", "gemini-2.5-flash");
+    expect(await setModel("Other")).toBe(false);
+    preferences.setModelPreferences("pi", { names: { "google/gemini-2.5-flash": "Fast" } });
+    expect(await setModel("Quick")).toBe(false);
+    expect(await setModel("Fast")).toBe(true);
+    expect(options.setComposerModel).toHaveBeenLastCalledWith("google", "gemini-2.5-flash");
+  });
+
+  it("queries the draft's catalog and labels, and does not borrow a live model while it loads", async () => {
+    const preferences = new PreferencesStore();
+    preferences.setModelPreferences("codex", { names: { "openai/draft-model": "Quick" } });
+    const options = createMockOptions({
+      preferences, pendingNewThread: { runtime: "codex" } as any,
+      thinking: { snapshot: { backendKind: "codex", models: [{ provider: "openai", id: "draft-model", name: "Draft model" }] } as HostSnapshot, set: vi.fn() },
+    });
+    const { result, rerender } = renderHook(useWorkbenchActions, { initialProps: options });
+    const setModel = result.current.setModel!;
+    expect(await setModel("Quick")).toBe(true);
+    expect(options.setComposerModel).toHaveBeenCalledExactlyOnceWith("openai", "draft-model");
+    expect(await setModel("gemini")).toBe(false);
+    rerender({ ...options, thinking: { snapshot: undefined, set: vi.fn() } });
+    expect(await setModel("Quick")).toBe(false);
+    expect(await setModel("gemini")).toBe(false);
   });
 
   it("uses the runtime's models when no stored favourite belongs to it", async () => {

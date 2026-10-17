@@ -18,7 +18,8 @@ field blank to restore the runtime's name. Applies to chooses the machine or
 project as it does for the model list's order and hidden models.
 
 The composer, model picker and model palette use that name for this runtime.
-Search also finds the original name and model ID. Display names leave model
+Search also finds the original name and model ID. `/model <query>` accepts a
+custom name too; catalog names and IDs take precedence when names collide. Display names leave model
 selection, capabilities, billing and the model sent to the runtime unchanged.
 
 ## Claude Code

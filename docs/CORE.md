@@ -384,7 +384,8 @@ runtime → Models edits it per runtime and project; favourites stay one list ac
 (`offeringKey`: `provider/id` for Pi, `<runtime>:provider/id` otherwise). The optional
 `names` record maps `provider/id` to a display name of at most 120 characters.
 The composer, model picker and model palette show it for that runtime's offering;
-search still finds the catalog name and ID. Clearing a name restores the catalog
+search still finds the catalog name and ID. `/model <query>` also accepts names,
+with canonical name/ID matches taking precedence. Clearing a name restores the catalog
 name. Names never change the model passed to a runtime. The host
 keeps every runtime's catalog, Pi's too, whether or not a thread of it ran
 (`src/main/runtime-catalogs.ts`, stale-while-revalidate, on disk across
