@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { HostThreadLifecycle, RuntimeExtensionContribution } from "tau/host-extension";
 import { activateHostKit, kitMcpEndpoint } from "../../src/main/test-support/host-kit-harness.js";
 import { createHtmlPagesHostExtension } from "./host.js";
-import { HTML_PAGES_EXTENSION_ID, SHOW_HTML_PAGE_TOOL, pageIdOf, type HtmlPageOpen } from "./protocol.js";
+import { HTML_PAGES_EXTENSION_ID, PREVIEW_HTML_PAGE_TOOL, SHOW_HTML_PAGE_TOOL, pageIdOf, type HtmlPageOpen } from "./protocol.js";
 
 let stateDir: string;
 let project: string;
@@ -48,6 +48,13 @@ describe("HTML Pages host extension", () => {
       await client.connect(new StreamableHTTPClientTransport(new URL(connection.url), { requestInit: { headers: { ...connection.headers } } }));
       expect(client.getInstructions()).toContain(SHOW_HTML_PAGE_TOOL);
       expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(SHOW_HTML_PAGE_TOOL);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(PREVIEW_HTML_PAGE_TOOL);
+
+      const invalidPreview = await client.callTool({ name: PREVIEW_HTML_PAGE_TOOL, arguments: { title: "Invalid", html: "<p>x</p>", origins: ["https://localhost"] } });
+      expect(invalidPreview.isError).toBe(true);
+      expect(textOf(invalidPreview)).toContain("local and private addresses");
+      expect(pageIdOf(textOf(invalidPreview))).toBeUndefined();
+      expect(w.published).toHaveLength(0);
 
       const call = (args: Record<string, unknown>) => client.callTool({ name: SHOW_HTML_PAGE_TOOL, arguments: args });
       const shown = await call({ title: "Totals", html: "<h1>Totals</h1>", origins: ["https://cdn.jsdelivr.net"], height: 400 });
@@ -115,8 +122,9 @@ describe("HTML Pages host extension", () => {
       expect(w.runtime.map((entry) => entry.name)).toEqual(["tau-html-pages"]);
       const tools: Array<Record<string, unknown>> = [];
       w.runtime[0]!.factory({ registerTool: (tool: Record<string, unknown>) => { tools.push(tool); } } as never, { sessionId: "pi-thread", cwd: project } as never);
-      expect(tools).toHaveLength(1);
+      expect(tools).toHaveLength(2);
       expect(tools[0]).toMatchObject({ name: SHOW_HTML_PAGE_TOOL, exposure: "deferred", namespace: { name: "pages" } });
+      expect(tools[1]).toMatchObject({ name: PREVIEW_HTML_PAGE_TOOL, exposure: "deferred", namespace: { name: "pages" } });
 
       const result = await (tools[0]!.execute as (id: string, params: unknown) => Promise<{ content: Array<{ text: string }> }>)("call", { title: "Pi page", html: "<p>pi</p>" });
       const id = pageIdOf(result.content[0]!.text)!;

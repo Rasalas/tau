@@ -556,6 +556,12 @@ Profiles belong to the isolated host, never the user's browser. If the test
 environment cannot run Chromium's sandbox, use a wrapper under `.tau-dev/` for
 that environment and record the limitation. Production launch keeps the sandbox.
 
+`npm run smoke:html-preview` uses the same isolated setup for a real Pi call to
+`preview_html_page`. It checks that the model receives a PNG at the requested
+dimensions and bounded diagnostics, that storage is opaque and loopback fetch
+and images are blocked, and that no page is published or temporary profile
+retained. The fake model needs no account. CI runs both browser checks.
+
 Run `npm run cdp -- stop` (SIGTERM, then SIGKILL after ~2s if the process is still alive — observed necessary in practice, since Electron's main process has no SIGTERM handler of its own and a bare `kill <pid>` can leave it running indefinitely). Never `pkill -f Electron` (or any pattern match on the binary name) — that also kills the user's own running Tau. Never `git stash` in the scratch workspace or the worktree.
 
 ## Advanced: the Electron client against a headless host

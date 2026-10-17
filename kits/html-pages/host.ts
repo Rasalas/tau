@@ -4,7 +4,8 @@ import { preparePageDocument } from "./document.js";
 import { HTML_PAGES_EXTENSION_ID, HTML_PAGE_COMMANDS, type HtmlPageOpen } from "./protocol.js";
 import { showPage } from "./show.js";
 import { PageStore } from "./store.js";
-import { SHOW_PAGE_INSTRUCTIONS, showHtmlPageTool } from "./tools.js";
+import { SHOW_PAGE_INSTRUCTIONS, previewHtmlPageTool, showHtmlPageTool } from "./tools.js";
+import { PagePreviewer } from "./preview.js";
 
 const MAX_ID = 200;
 
@@ -27,10 +28,15 @@ export function createHtmlPagesHostExtension(): HostExtension {
   return {
     id: HTML_PAGES_EXTENSION_ID,
     name: "HTML Pages",
-    permissions: ["sessions", "runtime:extend", "network"],
+    permissions: ["sessions", "runtime:extend", "network", "process"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       const store = new PageStore({ directory: join(services.stateDir, "pages") });
+      const preview = new PagePreviewer({
+        stateDir: services.stateDir,
+        findCommand: (name) => services.findCommand(name),
+        noteSubprocess: () => services.noteSubprocess(),
+      });
       const disposers: Array<() => void> = [];
 
       // Minting a frame and releasing it change nothing a device paired Read only could not see.
@@ -60,15 +66,17 @@ export function createHtmlPagesHostExtension(): HostExtension {
 
       const factory: RuntimeExtensionFactory = (pi, session) => {
         pi.registerTool(showHtmlPageTool((input) => showPage(store, { sessionId: session.sessionId, cwd: session.cwd }, input)));
+        pi.registerTool(previewHtmlPageTool((input, signal) => preview.render({ cwd: session.cwd }, input, signal)));
       };
       disposers.push(services.registerRuntimeExtension("tau-html-pages", factory));
       disposers.push(services.mcp.registerTools((thread) => [
         showHtmlPageTool((input) => showPage(store, { sessionId: thread.sessionId, cwd: thread.cwd }, input)),
+        previewHtmlPageTool((input, signal) => preview.render({ cwd: thread.cwd }, input, signal)),
       ]));
       const instructions = services.mcp.registerInstructions?.(() => SHOW_PAGE_INSTRUCTIONS);
       if (instructions) disposers.push(instructions);
 
-      return () => { for (const dispose of disposers.reverse()) dispose(); };
+      return async () => { for (const dispose of disposers.reverse()) dispose(); await preview.dispose(); };
     },
   };
 }
