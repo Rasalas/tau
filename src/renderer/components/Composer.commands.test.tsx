@@ -3,12 +3,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot } from "../../shared/contracts";
-import { Composer, type ComposerControlHandle } from "./Composer";
+import { Composer, type ComposerControlHandle, type ComposerRuntimeChoice } from "./Composer";
 import { ComposerScopeStore } from "../../workbench/composer-scope-store";
 import type { UiQueuedMessage } from "../../shared/contracts";
 import { ExtensionRegistry } from "../extension-system";
 import { WorkbenchShellContext } from "../workbench-context";
 import { TestProviders } from "../test-support/test-providers";
+import { PreferencesStore } from "../preferences";
 
 const queued = (id: string, text: string): UiQueuedMessage => ({ id, text, attachments: 0 });
 
@@ -40,11 +41,12 @@ function renderComposer(
   streaming = false,
   snapshotOverride: HostSnapshot = snapshot,
   queueHandlers: { queue?: UiQueuedMessage[]; onSteerQueued?: (id: string) => void; onCancelQueued?: (id: string) => void } = {},
-  handlers: { onRunShellAction?: (command: string) => Promise<unknown>; onOpenPromptEditor?: () => void; onNotify?: (msg: string) => void; newThread?: boolean } = {},
+  handlers: { onRunShellAction?: (command: string) => Promise<unknown>; onOpenPromptEditor?: () => void; onNotify?: (msg: string) => void; newThread?: boolean; runtimeChoice?: ComposerRuntimeChoice } = {},
   controlRef?: React.RefObject<ComposerControlHandle | null>,
+  preferences?: PreferencesStore,
 ) {
   const scopeStore = new ComposerScopeStore();
-  render(<TestProviders>
+  render(<TestProviders preferences={preferences}>
     <Composer
       scopeStore={scopeStore}
       snapshot={{ ...snapshotOverride, isStreaming: streaming }}
@@ -63,6 +65,7 @@ function renderComposer(
       onOpenPromptEditor={handlers.onOpenPromptEditor}
       onNotify={handlers.onNotify}
       newThread={handlers.newThread ?? false}
+      runtimeChoice={handlers.runtimeChoice}
     />
   </TestProviders>);
   return onSubmit;
@@ -491,6 +494,43 @@ describe("Composer command menu", () => {
     expect(screen.getByRole("option", { name: /anthropic\/claude-3-7-sonnet/u })).toBeTruthy();
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("/model anthropic/claude-3-7-sonnet ");
+  });
+
+  it.each(["pi", "codex"])("finds current %s display names in /model suggestions and inserts the canonical identity", async (runtime) => {
+    const preferences = new PreferencesStore();
+    const key = "anthropic/claude-3-7-sonnet";
+    preferences.setModelPreferences(runtime, { names: { [key]: "Quick" } });
+    preferences.setModelPreferences(runtime === "pi" ? "codex" : "pi", { names: { [key]: "Other" } });
+    renderComposer(undefined, false, { ...snapshot, backendKind: runtime, models: [{ provider: "anthropic", id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet" }] }, {}, {}, undefined, preferences);
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+    const type = (text: string) => fireEvent.change(textarea, { target: { value: text, selectionStart: text.length } });
+    type("/model Qui");
+    expect(await screen.findByRole("option", { name: /anthropic\/claude-3-7-sonnet Quick/u })).toBeTruthy();
+    for (const query of ["Sonnet", "claude-3-7", "anthropic"]) {
+      type(`/model ${query}`);
+      expect(screen.getByRole("option", { name: /Quick/u })).toBeTruthy();
+    }
+    type("/model Other");
+    expect(screen.queryByRole("option")).toBeNull();
+    type("/model Qui");
+    act(() => preferences.setModelPreferences(runtime, { names: { [key]: "Fast" } }));
+    expect(screen.queryByRole("option")).toBeNull();
+    type("/model Fas");
+    expect(screen.getByRole("option", { name: /Fast/u })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe(`/model ${key} `);
+  });
+
+  it.each(["pi", undefined])("does not autocomplete a previous %s catalog for a draft on another runtime", (runtime) => {
+    const preferences = new PreferencesStore();
+    preferences.setModelPreferences("codex", { names: { "anthropic/claude-3-7-sonnet": "Quick" } });
+    renderComposer(undefined, false, { ...snapshot, backendKind: runtime, models: [{ provider: "anthropic", id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet" }] }, {}, { runtimeChoice: { kind: "codex", backends: [], onSelect: vi.fn() } }, undefined, preferences);
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+    for (const query of ["Qui", "claude"]) {
+      const value = `/model ${query}`;
+      fireEvent.change(textarea, { target: { value, selectionStart: value.length } });
+      expect(screen.queryByRole("option")).toBeNull();
+    }
   });
 
   it("autocompletes /thinking arguments with valid levels", async () => {

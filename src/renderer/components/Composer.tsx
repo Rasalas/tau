@@ -227,6 +227,11 @@ export function Composer({
   notice?: ReactNode;
 }) {
   const { readOnly } = useHostCapabilities();
+  const preferences = usePreferences();
+  const prefSnapshot = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
+  const modelPreferences = prefSnapshot.modelPreferences[runtimeChoice?.kind ?? snapshot?.backendKind ?? DEFAULT_RUNTIME];
+  // A draft's catalog must come from its chosen runtime, including legacy Pi snapshots.
+  const draftOnOtherRuntime = runtimeChoice !== undefined && runtimeChoice.kind !== (snapshot?.backendKind ?? DEFAULT_RUNTIME);
   const dictation = useClientEnvironment().dictation;
   const DictationControl = dictation?.Control;
   const mobileComposer = useCompactForm("compact") === "single";
@@ -354,16 +359,16 @@ export function Composer({
   const argMatches = useMemo<ComposerArgMatch[]>(() => {
     if (trigger?.kind !== "arg") return [];
     const query = trigger.query.toLowerCase();
-    if (trigger.command === "model") {
+    if (trigger.command === "model" && !draftOnOtherRuntime) {
       const models = snapshot?.models ?? [];
       return models
-        .filter((m) => !query || m.id.toLowerCase().includes(query) || m.name.toLowerCase().includes(query) || m.provider.toLowerCase().includes(query))
+        .filter((m) => !query || `${modelKey(m)} ${m.name} ${modelDisplayName(m, modelPreferences)}`.toLowerCase().includes(query))
         .slice(0, 10)
-        .map((m) => ({
-          id: modelKey(m),
-          label: modelKey(m),
-          description: m.name !== m.id ? m.name : undefined,
-        }));
+        .map((m) => {
+          const id = modelKey(m);
+          const name = modelDisplayName(m, modelPreferences);
+          return { id, label: id, description: name !== m.id ? name : undefined };
+        });
     }
     if (trigger.command === "thinking") {
       const levels = ["none", "low", "medium", "high", "max"];
@@ -376,7 +381,7 @@ export function Composer({
         }));
     }
     return [];
-  }, [snapshot?.models, trigger]);
+  }, [draftOnOtherRuntime, modelPreferences, snapshot?.models, trigger]);
 
   useEffect(() => setCommandCursor(0), [trigger?.kind, trigger?.query]);
   const appliedSeed = useRef<string | undefined>(undefined);
@@ -493,7 +498,6 @@ export function Composer({
   const fastWatch = useRef<{ key: string; until: number; undo(): void }>(undefined);
   const frameRef = useRef<HTMLDivElement>(null);
   const modelChosenRef = useRef(false);
-  const preferences = usePreferences();
   const gates = registry?.getComposerGates?.() ?? NO_GATES;
   const gatesRef = useRef(gates);
   gatesRef.current = gates;
@@ -600,9 +604,6 @@ export function Composer({
   const streaming = Boolean(snapshot?.isStreaming);
   // An external runtime may pick model and reasoning itself; the pickers then only show what it reports.
   const runtimeOwnsModel = snapshot?.runtimeCapabilities?.ownsModelSelection === true;
-  // A draft bound for another runtime than the visible thread: that catalog is
-  // not this thread's, and the thread it will become does not exist yet.
-  const draftOnOtherRuntime = runtimeChoice !== undefined && snapshot?.backendKind !== undefined && runtimeChoice.kind !== snapshot.backendKind;
   const modelSelectionAvailable = !runtimeOwnsModel && !draftOnOtherRuntime && (snapshot?.models.length ?? 0) > 0;
   const modelPickerAvailable = modelSelectionAvailable || runtimeChoice !== undefined;
   const fileAttachments = !draftOnOtherRuntime && snapshot?.runtimeCapabilities?.fileAttachments === true;
@@ -877,8 +878,7 @@ export function Composer({
     }, 0);
   }, [queue, onCancelQueued, updateDraft, text, textareaRef]);
 
-  const prefSnapshot = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
-  const displayName = snapshot?.model && modelDisplayName(snapshot.model, prefSnapshot.modelPreferences[runtimeChoice?.kind ?? snapshot.backendKind ?? DEFAULT_RUNTIME]);
+  const displayName = snapshot?.model && modelDisplayName(snapshot.model, modelPreferences);
   const isVimEnabled = Boolean(prefSnapshot.vimMode);
   // A touch screen's send button names no chord; which keyboard types decides what Enter does, when it is pressed.
   const [touchKeyboard] = useState(primaryPointerIsTouch);
