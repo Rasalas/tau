@@ -1,42 +1,33 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { createHeadlessPreviewSurface } from "./headless-surface.js";
 
-it.skipIf(process.platform === "win32")("closes an owned browser on abort while its first startup command is pending", async () => {
+const backend = vi.hoisted(() => ({ construct: vi.fn() }));
+vi.mock("./browser-process.js", () => ({
+  PreviewBrowserProcess: class { constructor() { return backend.construct(); } },
+}));
+
+it("closes the browser on abort before its first startup command has returned", async () => {
   const directory = await mkdtemp(join(tmpdir(), "tau-browser-start-"));
-  const executable = join(directory, "browser.mjs");
-  const started = join(directory, "started");
-  await writeFile(executable, `#!${process.execPath}
-import { writeFileSync } from 'node:fs';
-import { Socket } from 'node:net';
-let buffer = '';
-new Socket({fd:3, readable:true, writable:false}).on('data', chunk => {
-  buffer += chunk;
-  let end;
-  while ((end = buffer.indexOf('\\0')) !== -1) {
-    const call = JSON.parse(buffer.slice(0, end)); buffer = buffer.slice(end + 1);
-    if (call.method === 'Browser.getVersion') writeFileSync(${JSON.stringify(started)}, String(process.pid));
-    if (call.method === 'Browser.close') process.exit(0);
-  }
-});
-`);
-  await chmod(executable, 0o700);
   const controller = new AbortController();
-  let startupError: unknown;
-  const opening = createHeadlessPreviewSurface({ partition: "persist:tau-preview", workspaceRoot: () => "", onChange: () => undefined, log: () => undefined, signal: controller.signal }, executable, directory).then(() => "opened", (error: unknown) => { startupError = error; return "stopped"; });
-  let timer: NodeJS.Timeout | undefined;
-  let pid: number | undefined;
+  let started!: () => void, failVersion!: (error: Error) => void, finishExit!: () => void;
+  const starting = new Promise<void>((resolve) => { started = resolve; });
+  const version = new Promise<never>((_resolve, reject) => { failVersion = reject; });
+  const exited = new Promise<void>((resolve) => { finishExit = resolve; });
+  const close = vi.fn(async () => { failVersion(new Error("browser stopped")); finishExit(); });
+  backend.construct.mockReturnValue({ send: () => { started(); return version; }, onEvent: vi.fn(), exited, close });
+  const opening = createHeadlessPreviewSurface({ partition: "persist:tau-preview", workspaceRoot: () => "", onChange: () => undefined, log: () => undefined, signal: controller.signal }, "/test/browser", directory);
+  const stopped = expect(opening).rejects.toThrow("browser stopped");
   try {
-    await vi.waitFor(async () => { if (startupError) throw startupError; pid = Number(await readFile(started, "utf8")); });
+    await starting;
     controller.abort();
-    const verdict = await Promise.race([opening, new Promise<string>((resolve) => { timer = setTimeout(() => resolve("still starting"), 750); })]);
-    expect(verdict).toBe("stopped");
+    // The abort event must own cleanup already; no surface has been returned.
+    expect(close).toHaveBeenCalled();
   } finally {
-    clearTimeout(timer);
-    if (pid) { try { process.kill(pid, "SIGKILL"); } catch { /* The test browser already exited. */ } }
-    await opening;
+    await close();
+    await stopped;
     await rm(directory, { recursive: true, force: true });
   }
 });
