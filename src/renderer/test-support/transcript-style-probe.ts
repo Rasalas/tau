@@ -83,7 +83,7 @@ async function verifyStyleStates(window: BrowserWindow): Promise<void> {
         <div class="thread-header-actions thread-header-content">Actions</div>
         <div class="thread-header-tools thread-header-content">Tools</div>
       </header>
-      <div class="conversation-thread"><div class="transcript" style="height:200px">
+      <div class="conversation-thread"><div class="transcript" style="height:420px">
         <button id="before-transcript">Before transcript</button>
         <div class="virtual-transcript" tabindex="0">
           <div id="notice" class="virtual-transcript-row focused"><div class="notice-message">Notice</div></div>
@@ -123,8 +123,8 @@ async function verifyStyleStates(window: BrowserWindow): Promise<void> {
     if (id === "assistant" || id === "user") assert.equal(await style(`#${id} > .message-shell`, "outlineStyle"), "none");
   }
   for (const selector of ["#before-transcript", ".virtual-transcript"]) {
-    const { x, y } = await evaluate(`(() => {const r=document.querySelector('${selector}').getBoundingClientRect();return {x:r.x+10,y:r.y+10};})()`);
-    assert.equal(await evaluate(`!!document.elementFromPoint(${x},${y})?.closest('${selector}')`), true, "pointer input must hit its target");
+    const { x, y } = await evaluate(`(() => {const element=document.querySelector('${selector}');element.scrollIntoView({block:'start'});const r=element.getBoundingClientRect();return {x:r.x+10,y:r.y+10};})()`);
+    assert.equal(await evaluate(`!!document.elementFromPoint(${x},${y})?.closest('${selector}')`), true, `pointer input must hit ${selector}`);
     for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
       await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
     }
