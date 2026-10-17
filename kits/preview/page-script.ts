@@ -65,13 +65,33 @@ export function previewSnapshot(maxChars: number): string {
   const interactive = new Set(["link", "button", "textbox", "checkbox", "radio", "combobox"]);
   for (const marked of Array.from(document.querySelectorAll("[data-tau-ref]"))) marked.removeAttribute("data-tau-ref");
 
+  // A page can repeat a password in a label, its title or ordinary text.
+  // Collect before clipping; otherwise a long password leaves its prefix behind.
+  const passwords = new Set<string>();
+  for (const input of Array.from(document.querySelectorAll<HTMLInputElement>("input"))) {
+    if (input.type !== "password" || !input.value) continue;
+    passwords.add(input.value.replace(/\s+/gu, " ").trim());
+    const parameter = new URLSearchParams({ value: input.value });
+    const encoded = parameter.toString().slice("value=".length);
+    passwords.add(encodeURIComponent(parameter.get("value")!));
+    passwords.add(encoded);
+    passwords.add(encoded.replace(/\+/gu, "%20"));
+  }
+  const alternatives = [...passwords].filter(Boolean).sort((a, b) => b.length - a.length)
+    .map((value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
+  const passwordPattern = alternatives.length ? new RegExp(alternatives.join("|"), "gu") : undefined;
+  const redact = (value: string): string => {
+    const text = value.replace(/\s+/gu, " ").trim();
+    return passwordPattern ? text.replace(passwordPattern, "[redacted]") : text;
+  };
+
   const hidden = (element: Element): boolean => {
     if (element.getAttribute("aria-hidden") === "true" || element.hasAttribute("hidden")) return true;
     const style = element.ownerDocument.defaultView?.getComputedStyle(element);
     return style?.display === "none" || style?.visibility === "hidden";
   };
   const clip = (value: string, limit: number): string => {
-    const text = value.replace(/\s+/gu, " ").trim();
+    const text = redact(value);
     return text.length > limit ? `${text.slice(0, limit)}…` : text;
   };
   const roleOf = (element: Element): string => {
@@ -122,7 +142,8 @@ export function previewSnapshot(maxChars: number): string {
         parts.push(`[ref=${ref}]`);
       }
       const value = (element as HTMLInputElement).value;
-      if (role === "textbox" && typeof value === "string" && value) parts.push(`value="${clip(value, 40)}"`);
+      const password = element.tagName === "INPUT" && (element as HTMLInputElement).type === "password";
+      if (role === "textbox" && !password && typeof value === "string" && value) parts.push(`value="${clip(value, 40)}"`);
       if (role === "checkbox" || role === "radio") parts.push((element as HTMLInputElement).checked ? "checked" : "unchecked");
       if ((element as HTMLInputElement).disabled) parts.push("disabled");
       lines.push(parts.join(" "));
@@ -135,7 +156,7 @@ export function previewSnapshot(maxChars: number): string {
   };
   walk(document.body, 0);
 
-  const header = `${document.title || "(untitled)"} — ${document.location.href}`;
+  const header = redact(`${document.title || "(untitled)"} — ${document.location.href}`);
   let body = lines.join("\n");
   if (body.length > maxChars) body = `${body.slice(0, maxChars)}\n… snapshot truncated`;
   return `${header}\n${body}`;
