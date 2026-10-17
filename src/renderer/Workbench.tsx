@@ -391,7 +391,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const clientProfile = useClientEnvironment().profile;
   const compactForm = useCompactForm(clientProfile);
   const split = compact && compactForm === "split";
-  const compactRef = useRef({ compact, split, sheets: [] as readonly string[] });
+  const compactRef = useRef({ compact, split, stacked: false, sheets: [] as readonly string[] });
   compactRef.current = { ...compactRef.current, compact, split };
   useEffect(() => { if (compact && !compactOrder) void loadCompactOrder(); }, [compact]);
   const [touchSidebarOpen, setTouchSidebarOpen] = useState(true);
@@ -448,7 +448,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     showThread: (options) => {
       setPanelSheet(undefined);
       phoneNav.showChat();
-      sendLayout({ type: "reveal-conversation" });
+      sendLayout({ type: "reveal-conversation", stacked: compactRef.current.stacked });
       if (options?.focusComposer) setComposerFocusRequest((count) => count + 1);
     },
     showThreadList: () => {
@@ -496,6 +496,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   };
   const { stacked, conversationFolded, stageExpanded, spine, floating, maximizeControl,
     workspaceAreaShown, rightAreaShown, sideOpen, workspaceSummaryControl: summaryControlAvailable } = workbenchDisplay(layoutPreferences, layoutSpace);
+  compactRef.current.stacked = stacked;
   const workspaceSummaryControl = summaryControlAvailable
     ? { shown: workspaceAreaShown, toggle: () => sendLayout({ type: "toggle-workspace-summary" }) } : undefined;
   const stageToggleLabel = rightAreaShown ? "Collapse stage" : "Expand stage";

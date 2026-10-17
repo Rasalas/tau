@@ -52,7 +52,7 @@ export type LayoutAction =
   | { type: "toggle-stage"; space: LayoutSpace }
   | { type: "toggle-workspace-summary" }
   | { type: "toggle-spine" }
-  | { type: "reveal-conversation" }
+  | { type: "reveal-conversation"; stacked?: boolean }
   | { type: "maximize-stage" }
   | { type: "toggle-stage-maximized"; space: LayoutSpace }
   | { type: "restore-stage"; space?: LayoutSpace }
@@ -75,11 +75,12 @@ export function layoutTransition(preferences: LayoutPreferences, action: LayoutA
     }
     case "toggle-workspace-summary": return { workspaceSummaryHidden: !preferences.workspaceSummaryHidden };
     case "toggle-spine": return { spineWanted: !preferences.spineWanted };
-    case "reveal-conversation": return { spineWanted: false, stageMaximized: false, chatFocused: true };
+    case "reveal-conversation": return { spineWanted: false, stageMaximized: false,
+      ...(action.stacked === false ? {} : { chatFocused: true }) };
     case "maximize-stage": return { stageMaximized: true, stageFolded: false, chatFocused: false };
     case "toggle-stage-maximized": {
       const display = workbenchDisplay(preferences, action.space);
-      if (display.spine || (!display.canSplit && !preferences.stageMaximized)) return layoutTransition(preferences, { type: "reveal-conversation" });
+      if (display.spine || (!display.canSplit && !preferences.stageMaximized)) return layoutTransition(preferences, { type: "reveal-conversation", stacked: display.stacked });
       return layoutTransition(preferences, preferences.stageMaximized
         ? { type: "restore-stage", space: action.space } : { type: "maximize-stage" });
     }
