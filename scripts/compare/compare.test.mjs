@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -248,6 +248,17 @@ describe("isolation", () => {
       expect(() => openForbiddenFiles([1], { platform, alive: () => true, run: () => { throw Object.assign(new Error("inspection failed"), { status: 1, stdout: "", stderr: "permission denied" }); } })).toThrow("Cannot verify comparison isolation");
     }
     expect(() => openForbiddenFiles([1], { platform: "darwin", alive: () => true, run: () => { throw Object.assign(new Error("missing live pid"), { status: 1, stdout: "", stderr: "" }); } })).toThrow("Cannot verify comparison isolation");
+  });
+
+  it.skipIf(process.platform !== "linux" || spawnSync("lsof", ["-v"], { stdio: "ignore" }).status !== 0)("detects a real open synthetic private file with the Linux audit flags", () => {
+    const home = mkdtempSync(join(tmpdir(), "compare-live-isolation-"));
+    const directory = join(home, ".config", "tau");
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, "synthetic.txt");
+    writeFileSync(path, "synthetic isolation fixture");
+    const fd = openSync(path, "r");
+    try { expect(openForbiddenFiles([process.pid], { home })).toContain(path); }
+    finally { closeSync(fd); rmSync(home, { recursive: true, force: true }); }
   });
 });
 
