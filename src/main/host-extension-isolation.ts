@@ -320,7 +320,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     settings: C.settings.implement(([cwd]) => services.settings ? services.settings(cwd) : { options: {}, values: {} }),
     priceUsage: C.priceUsage.implement(([tallies]) => services.priceUsage ? services.priceUsage(tallies) : []),
     rememberProjectName: C.rememberProjectName.implement(([cwd, name]) => services.rememberProjectName(cwd, name)),
-    pickDirectory: C.pickDirectory.implement(([options]) => services.pickDirectory(options)),
+    pickDirectory: C.pickDirectory.implement(([pickerOptions]) => services.pickDirectory(pickerOptions)),
     runtimeOwner: C.runtimeOwner.implement(() => services.runtimeOwner()),
     thread: C.thread.implement(([sessionId]) => threadSnapshot(services.thread(sessionId))),
     transcript: C.transcript.implement(async ([sessionId]) => toPlain(await (services.thread(sessionId)?.transcript() ?? []))),
@@ -331,10 +331,10 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     refreshExtensionPackages: C.refreshExtensionPackages.implement(() => services.refreshExtensionPackages()),
     "sessions.list": C["sessions.list"].implement(() => services.sessions.list()),
     "sessions.read": C["sessions.read"].implement(([path]) => readSession(path)),
-    "sessions.start": C["sessions.start"].implement(([options]) => services.sessions.start(options)),
-    "sessions.import": C["sessions.import"].implement(([options]) => {
+    "sessions.start": C["sessions.start"].implement(([startOptions]) => services.sessions.start(startOptions)),
+    "sessions.import": C["sessions.import"].implement(([importOptions]) => {
       if (!services.sessions.import) throw new Error("This host cannot import sessions.");
-      return services.sessions.import(options);
+      return services.sessions.import(importOptions);
     }),
     "sessions.remove": C["sessions.remove"].implement(([sessionId]) => services.sessions.remove(sessionId)),
     "sessions.restore": C["sessions.restore"].implement(([sessionId]) => services.sessions.restore(sessionId)),
@@ -405,7 +405,7 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
       pins.set(handle, map);
       pinsDispose ??= services.pinTranscriptEntries((thread) => {
         const entries: string[] = [];
-        for (const map of pins.values()) entries.push(...(map[thread.sessionId] ?? []));
+        for (const pinned of pins.values()) entries.push(...(pinned[thread.sessionId] ?? []));
         return entries;
       });
       registrations.set(handle, () => { pins.delete(handle); });

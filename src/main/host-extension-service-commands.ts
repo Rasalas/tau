@@ -123,8 +123,8 @@ function tallies(value: unknown): readonly UsageTally[] {
 function endpoints(value: unknown): readonly UiHostEndpoint[] {
   const method = "network.publishEndpoints";
   if (!Array.isArray(value)) throw new Error(`${method}: expected endpoints`);
-  return value.map((value) => {
-    const item = record(method, value);
+  return value.map((endpoint) => {
+    const item = record(method, endpoint);
     const kind: UiHostEndpointKind | undefined = item.kind === undefined ? undefined : choice(method, item.kind, ["loopback", "lan", "mdns", "tailscale", "magicdns"]);
     return {
       url: text(method, item.url), label: text(method, item.label),

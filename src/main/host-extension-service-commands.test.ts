@@ -120,7 +120,7 @@ describe("worker service declarations", () => {
     expect(transport).toHaveBeenCalledWith("cwd", []);
     expectTypeOf<WorkerServiceResult<typeof C["network.holdProxy"]>>().toEqualTypeOf<number>();
     // These assertions are checked by the focused electron typecheck.
-    if (false) {
+    const assertTypes = () => {
       // @ts-expect-error Incorrect argument type cannot cross the caller.
       call(C.openWorkspace, 1);
       // @ts-expect-error Result type comes from the declaration.
@@ -132,6 +132,7 @@ describe("worker service declarations", () => {
       // @ts-expect-error Dispatch entries must implement the matching declaration.
       const swapped: WorkerServiceDispatch["cwd"] = C["clients.count"].implement(() => 1);
       void wrong; void swapped;
-    }
+    };
+    void assertTypes;
   });
 });
