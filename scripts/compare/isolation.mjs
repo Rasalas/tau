@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 
 /** Directories no compared process may open, whatever its environment says. */
 export function forbiddenPaths(home = homedir()) {
+  const electronApps = ["tau", "tau-pi-desktop-prototype", "t3code", "t3code-dev", "T3 Code (Alpha)", "T3 Code (Beta)", "T3 Code (Dev)"];
   return [
     // The reference app's data folders.
     join(home, ".t3"),
@@ -18,6 +19,7 @@ export function forbiddenPaths(home = homedir()) {
     join(home, ".codex"),
     join(home, ".claude"),
     join(home, ".pi"),
+    ...electronApps.map((name) => join(home, ".config", name)),
   ];
 }
 
@@ -51,14 +53,24 @@ export function parseLsofNames(output) {
 }
 
 /** Open files of `pids` that sit in a forbidden directory. Empty means clean. */
-export function openForbiddenFiles(pids, { home = homedir(), run = (args) => execFileSync("lsof", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }) } = {}) {
+export function openForbiddenFiles(pids, { home = homedir(), platform = process.platform, alive = (pid) => {
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code !== "ESRCH"; }
+}, run = (args) => execFileSync("lsof", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }) } = {}) {
   if (!pids.length) return [];
   let output = "";
   try {
-    output = run(["-n", "-P", "-Fn", "-p", pids.join(",")]);
+    // Linux can ignore vanished search targets explicitly. Avoid global mount
+    // stat calls and their unrelated warnings, such as inaccessible Docker mounts.
+    output = run(["-n", "-P", ...(platform === "linux" ? ["-Q", "-b", "-w"] : []), "-Fn", "-p", pids.join(",")]);
   } catch (error) {
-    // lsof exits 1 when some pid has already gone; its stdout is still valid.
-    output = error.stdout ?? "";
+    // Older macOS lsof lacks -Q. Accept a missing target only after checking
+    // it has exited, with no diagnostics; exit 1 alone also means real errors.
+    const found = new Set(typeof error.stdout === "string" ? error.stdout.split("\n").filter((line) => /^p\d+$/u.test(line)).map((line) => Number(line.slice(1))) : []);
+    const missing = pids.filter((pid) => !found.has(pid));
+    const vanished = platform !== "linux" && error.status === 1 && typeof error.stdout === "string"
+      && typeof error.stderr === "string" && !error.stderr.trim() && missing.length > 0 && missing.every((pid) => !alive(pid));
+    if (!vanished) throw new Error("Cannot verify comparison isolation: lsof failed.", { cause: error });
+    output = error.stdout;
   }
   const forbidden = forbiddenPaths(home);
   return [...new Set(parseLsofNames(output).filter((path) => forbidden.some((root) => inside(path, root))))];
