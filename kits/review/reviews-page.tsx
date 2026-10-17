@@ -637,8 +637,9 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   };
   const openPull = (item: InboxItem) => {
     const entry = item.pull!.entry;
+    const workspace = item.pull!.workspaces[0];
     left.current = { key: item.key, top: scroller.current?.scrollTop ?? 0 };
-    navigate({ ...here, url: entry.ref.url, number: entry.ref.number, service: entry.ref.service, ...(item.pull?.workspace ? { workspace: item.pull.workspace } : {}) }, { label: `${numberOf(entry)} ${entry.title}` });
+    navigate({ ...here, url: entry.ref.url, number: entry.ref.number, service: entry.ref.service, ...(workspace ? { workspace } : {}) }, { label: `${numberOf(entry)} ${entry.title}` });
   };
   const listed = !detailKey && !detailUrl && tab !== "remote" && Boolean(snapshot.answer);
   useLayoutEffect(() => {

@@ -157,6 +157,26 @@ describe("the Reviews inbox", () => {
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "success", title: "Merged feat/pairing-flake into main" })));
   });
 
+  it("shows work brought back from another machine and merges it through Remote Work", async () => {
+    const { invoke } = setup({ answer: { branches: [], asks: {}, merged: [], remote: [{
+      link: "rex-work", machine: "rex", root: "/repo/shop-api", rootWorkspace: "ws-shop", target: "main",
+      title: "Work brought back from rex", branch: "feat/remote", tip: "remote-tip", commits: 1, files: 1,
+      paths: ["src/remote.ts"], conflicts: [], merged: false, at: NOW,
+    }] } });
+    const title = await screen.findByText("Work brought back from rex");
+    const row = title.closest("li")!;
+    expect(row.textContent).toContain("rex: feat/remote");
+    fireEvent.click(within(row).getByRole("button", { name: "Merge" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-merge", expect.objectContaining({ link: "rex-work", branch: "feat/remote", target: "main", tip: "remote-tip" })));
+  });
+
+  it("shows an aborted worktree check as stopped rather than passed", async () => {
+    setup({ runs: [{ id: "r1", scriptId: "test", name: "Unit tests", directory: "/work/pairing-flake", status: "stopped", startedAt: NOW - 1_000, endedAt: NOW - 500 }] });
+    const status = await screen.findByText("1 check stopped");
+    expect(status.closest<HTMLElement>(".rv-status")!.dataset.tone).toBe("warn");
+    expect(screen.queryByText("Checks passed")).toBeNull();
+  });
+
   it("asks a conflicting branch's thread to rebase", async () => {
     const { invoke } = setup();
     fireEvent.click(await screen.findByRole("button", { name: /Ask to rebase/u }));

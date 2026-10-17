@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import { Button, HelpTip, ProviderIconStack, SIGN_IN_EVENT, SettingRow, SettingsState, loadSignInUi, providerHasMark, useWorkbenchShell, type DesktopExtension, type HostExtensionClient, type PreferencesStore, type SettingsPageProps, type SignInEvent, type WorkbenchActions } from "tau";
 import { PI_PROVIDERS_EXTENSION_ID, PI_PROVIDERS_PAGE, PROVIDERS_COMMAND, SITE_ICON_COMMAND, type PiProviderView, type SiteIconAnswer } from "./protocol.js";
@@ -139,10 +139,12 @@ function ProviderRow({ provider, open, onToggle, children }: { provider: PiProvi
 }
 
 /** A group's heading inside the card: its name, how many, and what the user should know about it. */
-function GroupHead({ title, count, help }: { title: string; count: number; help?: string }) {
+function GroupHead({ title, count, help, toggle }: { title: string; count: number; help?: string; toggle?: { expanded: boolean; controls: string; run(): void } }) {
   return (
     <div className="pi-provider-group">
-      <h4>{title}</h4>
+      <h4>{toggle ? <button type="button" className="pi-provider-group-toggle" aria-expanded={toggle.expanded} aria-controls={toggle.controls} onClick={toggle.run}>
+        {toggle.expanded ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}{title}
+      </button> : title}</h4>
       <small>{count}</small>
       {help ? <HelpTip text={help} label={`About ${title}`} /> : null}
     </div>
@@ -159,6 +161,8 @@ export function PiProvidersCard({ host, icons, onNotify }: SettingsPageProps & {
   const [error, setError] = useState<string>();
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<string>();
+  const [showOthers, setShowOthers] = useState<boolean>();
+  const othersId = useId();
   const actions = useShellActions();
 
   const load = useCallback(async () => {
@@ -180,6 +184,7 @@ export function PiProvidersCard({ host, icons, onNotify }: SettingsPageProps & {
   const setUp = shown.filter((provider) => provider.configured);
   const others = shown.filter((provider) => !provider.configured && (provider.oauth || provider.apiKey?.interactive));
   const configured = (providers ?? []).filter((provider) => provider.configured).length;
+  const othersShown = Boolean(query) || (showOthers ?? configured === 0);
 
   const row = (provider: PiProviderView) => (
     <ProviderRow key={provider.id} provider={provider} open={open === provider.id} onToggle={() => setOpen(open === provider.id ? undefined : provider.id)}>
@@ -221,8 +226,8 @@ export function PiProvidersCard({ host, icons, onNotify }: SettingsPageProps & {
       {!query && setUp.length === 0 ? (
         <SettingsState kind="empty" title="No provider set up yet" description="Sign in to one below, or set its key in your environment and check again." action={<Button onClick={() => void load()}>Check again</Button>} />
       ) : null}
-      {!query || others.length ? <GroupHead title="Sign in or add a key" count={others.length} /> : null}
-      {others.map(row)}
+      {!query || others.length ? <GroupHead title="Sign in or add a key" count={others.length} {...(!query && others.length ? { toggle: { expanded: othersShown, controls: othersId, run: () => setShowOthers(!othersShown) } } : {})} /> : null}
+      <div id={othersId} className="pi-provider-others" hidden={!othersShown}>{othersShown ? others.map(row) : null}</div>
       {!query && others.length === 0 ? <SettingsState kind="empty" title="Every provider is set up" /> : null}
     </Suspense>
   );

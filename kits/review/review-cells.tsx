@@ -1,4 +1,4 @@
-import { CircleCheck, CircleX, Clock, GitMerge, GitPullRequestDraft, LoaderCircle, MessageSquareWarning, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleStop, CircleX, Clock, GitMerge, GitPullRequestDraft, LoaderCircle, MessageSquareWarning, TriangleAlert } from "lucide-react";
 import { tooltipProps } from "tau";
 import type { InboxStatus, InboxStatusKind } from "./inbox.js";
 import { plural } from "./review-words.js";
@@ -17,6 +17,7 @@ export function Changes({ files, added, removed }: { files?: number | undefined;
 const STATUS_ICONS: Partial<Record<InboxStatusKind, typeof CircleCheck>> = {
   passed: CircleCheck,
   failed: CircleX,
+  stopped: CircleStop,
   running: LoaderCircle,
   conflicts: TriangleAlert,
   note: Clock,
