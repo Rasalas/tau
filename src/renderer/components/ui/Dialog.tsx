@@ -53,8 +53,10 @@ export function Dialog({ label, className, onClose, children, historyManaged = f
  * takes it on itself, so Tab and a screen reader continue inside it. A hover
  * card that only previews turns that off with `takeFocus={false}`.
  */
-export function Popover({ anchor, side = "bottom", align = "start", label, className, dismissOnFocusOutside = false, takeFocus = true, onClose, children }: {
+export function Popover({ anchor, placeAgainst, side = "bottom", align = "start", label, className, dismissOnFocusOutside = false, takeFocus = true, onClose, children }: {
   anchor: RefObject<HTMLElement | null> | { x: number; y: number };
+  /** Position at another element while the trigger remains the outside-press exemption (API 1.73.0). */
+  placeAgainst?: RefObject<HTMLElement | null>;
   side?: FloatingSide;
   align?: FloatingAlign;
   label?: string;
@@ -66,6 +68,7 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
   onClose(): void;
   children: ReactNode;
 }) {
+  const placement = placeAgainst ?? anchor;
   const { profile } = useClientEnvironment();
   const dismiss = useWorkspaceFileHistory(label ?? "popover", onClose, profile === "compact");
   const surface = useRef<HTMLDivElement>(null);
@@ -78,7 +81,7 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
     const element = surface.current;
     if (!element) return undefined;
     const place = () => {
-      const rect = "current" in anchor ? anchor.current?.getBoundingClientRect() : pointRect(anchor.x, anchor.y);
+      const rect = "current" in placement ? placement.current?.getBoundingClientRect() : pointRect(placement.x, placement.y);
       if (!rect) return;
       const placed = placeFloating(rect, element.getBoundingClientRect(), viewportSize(), { side, align });
       element.style.left = `${placed.left}px`;
@@ -88,13 +91,13 @@ export function Popover({ anchor, side = "bottom", align = "start", label, class
     place();
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(place);
     observer?.observe(element);
-    if ("current" in anchor && anchor.current) observer?.observe(anchor.current);
+    if ("current" in placement && placement.current) observer?.observe(placement.current);
     window.addEventListener("resize", place);
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", place);
     };
-  }, [align, anchor, side]);
+  }, [align, placement, side]);
 
   // After the placement above, so the card is where it belongs when it takes focus.
   useLayoutEffect(() => {

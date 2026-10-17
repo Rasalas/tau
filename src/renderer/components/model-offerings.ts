@@ -1,4 +1,6 @@
 import type { ThreadBackendKind, UiModel, UiModelPrice } from "../../shared/contracts";
+import { modelKey } from "../../shared/model-preferences";
+export { modelKey } from "../../shared/model-preferences";
 import { DEFAULT_RUNTIME } from "../runtime-marks";
 
 /**
@@ -13,6 +15,8 @@ export interface Offering {
   runtime: ThreadBackendKind;
   runtimeLabel: string;
   model: UiModel;
+  /** This runtime's custom display name; never sent to the runtime. */
+  name?: string;
   /** The reasoning levels its runtime names for it, when it named any. */
   levels: readonly string[];
   favourite: boolean;
@@ -38,13 +42,8 @@ export const NO_FILTERS: OfferingFilters = { billing: new Set(), capabilities: n
 
 /** `provider/id` for Pi, whose keys predate other runtimes; `<runtime>:provider/id` otherwise. */
 export function offeringKey(runtime: ThreadBackendKind | undefined, model: { provider: string; id: string }): string {
-  const bare = `${model.provider}/${model.id}`;
+  const bare = modelKey(model);
   return (runtime ?? DEFAULT_RUNTIME) === DEFAULT_RUNTIME ? bare : `${runtime}:${bare}`;
-}
-
-/** The key a runtime's `modelPreferences` entry files a model under. */
-export function modelKey(model: { provider: string; id: string }): string {
-  return `${model.provider}/${model.id}`;
 }
 
 /** Offerings of the same model share this: the id without a provider prefix, variant or date. */
@@ -90,12 +89,13 @@ export function searchScore(offering: Offering, query: string, providerName: (pr
   const tokens = normalize(query).split(" ").filter(Boolean);
   if (tokens.length === 0) return 0;
   const fields = [
-    normalize(offering.model.name),
-    normalize(offering.model.id),
-    normalize(providerName(offering.model.provider)),
-    normalize(offering.model.provider),
-    normalize(offering.runtimeLabel),
-  ];
+    offering.model.name,
+    offering.model.id,
+    providerName(offering.model.provider),
+    offering.model.provider,
+    offering.runtimeLabel,
+    offering.name ?? "",
+  ].map(normalize);
   let score = 0;
   for (const token of tokens) {
     let best: number | undefined;
@@ -119,7 +119,7 @@ export function priceValue(price: UiModelPrice | undefined): number | undefined 
  * API price decides, free and local count as nothing, an unknown price goes last.
  */
 function priceRank(offering: Offering): [number, number] {
-  const billing = offering.model.billing ?? (offering.model.login === "subscription" ? "subscription" : undefined);
+  const billing = modelBilling(offering.model);
   const group = billing === "subscription" ? 0 : 1;
   const price = priceValue(offering.model.price);
   if (price !== undefined) return [group, price];
@@ -154,8 +154,13 @@ export function offeringComparator(sort: OfferingSort): (a: Offering, b: Offerin
   }
 }
 
+/** Billing reported by the runtime, including the older subscription-login field. */
+export function modelBilling(model: UiModel): UiModel["billing"] {
+  return model.billing ?? (model.login === "subscription" ? "subscription" : undefined);
+}
+
 export function billingOf(model: UiModel): BillingFilter | undefined {
-  const billing = model.billing ?? (model.login === "subscription" ? "subscription" : undefined);
+  const billing = modelBilling(model);
   if (billing === "subscription") return "subscription";
   if (billing === "api-key") return "api";
   if (billing === "free" || billing === "local") return "free";
@@ -215,12 +220,11 @@ export function sortOfferings(offerings: readonly Offering[], sort: OfferingSort
 
 /** A runtime's models in the order the user gave, the rest after in their own order. */
 export function orderedPositions(models: readonly { provider: string; id: string }[], order: readonly string[] | undefined): Map<string, number> {
-  const positions = new Map<string, number>();
   const rank = new Map((order ?? []).map((key, index) => [key, index] as const));
-  const keyed = models.map((model, index) => ({ key: modelKey(model), index }));
-  keyed.sort((a, b) => (rank.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.key) ?? Number.MAX_SAFE_INTEGER) || a.index - b.index);
-  keyed.forEach((entry, position) => positions.set(entry.key, position));
-  return positions;
+  const keys = models.map(modelKey);
+  // Stable sorting keeps catalog order when neither key has a custom rank.
+  keys.sort((a, b) => (rank.get(a) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b) ?? Number.MAX_SAFE_INTEGER));
+  return new Map(keys.map((key, position) => [key, position]));
 }
 
 function trim(value: number): string {
@@ -243,7 +247,7 @@ export const BILLING_LABELS: Record<BillingFilter, string> = { subscription: "Pl
 
 /** The access badge of a row: a word and what it means. */
 export function billingBadge(model: UiModel): { label: string; title: string } | undefined {
-  const billing = model.billing ?? (model.login === "subscription" ? "subscription" : undefined);
+  const billing = modelBilling(model);
   switch (billing) {
     case "subscription": return { label: "Plan", title: "Paid by the subscription plan you signed in with" };
     case "api-key": return { label: "API", title: "Paid per token with an API key" };

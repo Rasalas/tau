@@ -22,6 +22,13 @@ describe("Settings → Runtimes → Models", () => {
     expect(arranged.map((entry) => [entry.model.id, entry.group])).toEqual([["gpt-5.6-sol", "favourite"], ["o4-mini", "shown"], ["gpt-5.6-luna", "hidden"]]);
   });
 
+  it("keeps custom-order ties within favourites and the shown/hidden groups", () => {
+    const arranged = arrangeModels(models, { hidden: ["openai/gpt-5.6-luna"], order: ["openai/o4-mini", "openai/gpt-5.6-sol"] }, () => 0);
+    expect(arranged.map(({ model, group }) => [model.id, group])).toEqual([["o4-mini", "favourite"], ["gpt-5.6-sol", "favourite"], ["gpt-5.6-luna", "favourite"]]);
+    expect(arrangeModels(models, { hidden: ["openai/gpt-5.6-luna"], order: ["openai/o4-mini"] }, () => -1).map(({ model }) => model.id))
+      .toEqual(["o4-mini", "gpt-5.6-sol", "gpt-5.6-luna"]);
+  });
+
   it("hides, reorders and stars a runtime's models, written to the level Settings edits", async () => {
     // The host's file, as the fake host writes and reads it back.
     let host: TauConfig = {};
@@ -47,6 +54,41 @@ describe("Settings → Runtimes → Models", () => {
     expect(updateConfig).toHaveBeenLastCalledWith({ modelPreferences: { codex: { hidden: ["openai/o4-mini"], order: ["openai/gpt-5.6-sol", "openai/gpt-5.6-luna", "openai/o4-mini"] } } }, "global", undefined);
     fireEvent.click(screen.getByRole("button", { name: "Favourite GPT-5.6 Luna" }));
     expect(preferences.getSnapshot().favouriteModels).toEqual(["codex:openai/gpt-5.6-luna"]);
+  });
+
+  it("saves, preserves and clears a display name using the existing setting", async () => {
+    let host: TauConfig = {};
+    const updateConfig = vi.fn(async (patch: Partial<TauConfig>) => {
+      host = { ...host, modelPreferences: { ...host.modelPreferences, ...patch.modelPreferences } };
+      return host;
+    });
+    const client = createFakeHostClient({
+      runtimeCatalogs: async () => [{ kind: "codex", models, thinkingLevels: {}, checkedAt: 1 }],
+      updateConfig, getConfigLayers: async () => ({ host }),
+    });
+    render(<TestProviders><HostClientProvider client={client}><RuntimeModels backends={[{ kind: "codex", label: "Codex" }]} /></HostClientProvider></TestProviders>);
+    const field = await screen.findByRole("textbox", { name: "Display name for GPT-5.6 Luna" });
+    fireEvent.change(field, { target: { value: "  Quick  " } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect((field as HTMLInputElement).value).toBe("Quick"));
+    expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" });
+    fireEvent.click(screen.getByRole("switch", { name: "Show o4-mini in the model picker" }));
+    await waitFor(() => expect(host.modelPreferences?.codex?.hidden).toEqual(["openai/o4-mini"]));
+    expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" });
+    fireEvent.click(screen.getByRole("button", { name: "Move GPT-5.6 Sol up" }));
+    await waitFor(() => expect(host.modelPreferences?.codex?.order?.[0]).toBe("openai/gpt-5.6-sol"));
+    expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" });
+    fireEvent.change(field, { target: { value: "x".repeat(121) } });
+    fireEvent.blur(field);
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Use at most 120 characters on one line.");
+    expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect((field as HTMLInputElement).value).toBe("Quick");
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(host.modelPreferences?.codex?.names).toBeUndefined());
+    expect(host.modelPreferences?.codex?.hidden).toEqual(["openai/o4-mini"]);
+    expect(updateConfig).toHaveBeenLastCalledWith({ modelPreferences: { codex: host.modelPreferences!.codex } }, "global", undefined);
   });
 
   it("says why a runtime lists no model and what to do, and offers to clear a filter that matches none", async () => {

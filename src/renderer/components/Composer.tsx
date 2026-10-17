@@ -74,6 +74,7 @@ import { useSendHold } from "./use-send-hold";
 import { takePasteAsText } from "../paste-as-text";
 import { isImeComposing } from "../keybindings";
 import { THINKING_LABELS, carriedLevel } from "../thinking-levels";
+import { modelDisplayName } from "../../shared/model-preferences";
 import type { ComposerGateContext, ComposerGateContribution, ComposerInlineContext, ComposerSendMode, ComposerTriggerItem, ModelSelectionContribution } from "../extension-system";
 
 export {
@@ -877,6 +878,7 @@ export function Composer({
   }, [queue, onCancelQueued, updateDraft, text, textareaRef]);
 
   const prefSnapshot = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
+  const displayName = snapshot?.model && modelDisplayName(snapshot.model, prefSnapshot.modelPreferences[runtimeChoice?.kind ?? snapshot.backendKind ?? DEFAULT_RUNTIME]);
   const isVimEnabled = Boolean(prefSnapshot.vimMode);
   // A touch screen's send button names no chord; which keyboard types decides what Enter does, when it is pressed.
   const [touchKeyboard] = useState(primaryPointerIsTouch);
@@ -1295,7 +1297,7 @@ export function Composer({
                   : draftOnOtherRuntime ? `Change runtime or start with ${runtimeLabel}'s default model.`
                     : runtimeOwnsModel ? "This runtime selects its own model." : "No models are available for this runtime.", { shortcut: registry?.keybindingLabel?.("runtime.model") })}
                 aria-label={modelSelectionAvailable
-                  ? `${runtimeChoice ? "Select runtime and model" : "Select model"}: ${snapshot?.model?.name ?? "current model"}`
+                  ? `${runtimeChoice ? "Select runtime and model" : "Select model"}: ${displayName ?? "current model"}`
                   : runtimeChoice ? `Select runtime and model: ${runtimeLabel}` : "Model selection unavailable"}
                 onClick={() => { if (modelPickerAvailable) setModelPickerOpen((open) => !open); }}
               >
@@ -1306,7 +1308,7 @@ export function Composer({
                     : <Sparkles size={13} className="accent" />}
                 <span className="runtime-chip-label">{draftOnOtherRuntime
                   ? "default model"
-                  : snapshot?.model?.name ?? (runtimeOwnsModel ? "runtime model" : "select model")}</span>
+                  : displayName ?? (runtimeOwnsModel ? "runtime model" : "select model")}</span>
                 {modelPickerAvailable ? <ChevronDown size={12} className="chev" /> : null}
               </button>
             </>}

@@ -1,19 +1,21 @@
+import { SettingsFilter } from "./SettingsFilter";
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { ArrowDown, ArrowUp, Search, Star, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Star } from "lucide-react";
 import type { TauModelPreferences, UiModel, UiRuntimeBackend } from "../../shared/contracts";
-import { readModelPreferences } from "../../shared/model-preferences";
+import { modelDisplayName, readModelName, readModelPreferences } from "../../shared/model-preferences";
 import { billingBadge, formatPrice, formatTokens, modelKey, offeringKey, orderedPositions } from "../components/model-offerings";
 import { usePreferences } from "../renderer-services-context";
 import { useRuntimeCatalogs } from "../use-runtime-catalog";
 import type { RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
-import { Button, SettingsState } from "./controls";
+import { Button, SettingsState, TextField } from "./controls";
 import { SettingRow, Switch, useSetting } from "./settings-layout";
 
 /** Above this many models the list gets a filter field. */
 const FILTER_THRESHOLD = 8;
 const NONE: TauModelPreferences = {};
 
-type Group = "favourite" | "shown" | "hidden";
+const GROUPS = ["favourite", "shown", "hidden"] as const;
+type Group = typeof GROUPS[number];
 
 /**
  * A runtime's models as the picker lists them: favourites first in the order
@@ -23,13 +25,12 @@ type Group = "favourite" | "shown" | "hidden";
 export function arrangeModels(models: readonly UiModel[], preferences: TauModelPreferences, favourite: (model: UiModel) => number): Array<{ model: UiModel; group: Group }> {
   const positions = orderedPositions(models, preferences.order);
   const hidden = new Set(preferences.hidden);
-  const ordered = [...models].sort((a, b) => (positions.get(modelKey(a)) ?? 0) - (positions.get(modelKey(b)) ?? 0));
-  const favourites = ordered.filter((model) => favourite(model) >= 0).sort((a, b) => favourite(a) - favourite(b));
-  return [
-    ...favourites.map((model) => ({ model, group: "favourite" as const })),
-    ...ordered.filter((model) => favourite(model) < 0 && !hidden.has(modelKey(model))).map((model) => ({ model, group: "shown" as const })),
-    ...ordered.filter((model) => favourite(model) < 0 && hidden.has(modelKey(model))).map((model) => ({ model, group: "hidden" as const })),
-  ];
+  return models.map((model) => {
+    const star = favourite(model);
+    const position = positions.get(modelKey(model)) ?? 0;
+    return { model, group: star >= 0 ? 0 : hidden.has(modelKey(model)) ? 2 : 1, rank: star >= 0 ? star : position, position };
+  }).sort((a, b) => a.group - b.group || a.rank - b.rank || a.position - b.position)
+    .map(({ model, group }) => ({ model, group: GROUPS[group]! }));
 }
 
 const GROUP_LABELS: Record<Group, string> = { favourite: "Favourites", shown: "All", hidden: "Hidden from the picker" };
@@ -45,7 +46,7 @@ function NoModels({ backend, entry }: { backend: UiRuntimeBackend; entry: Runtim
   return <SettingsState kind="empty" title={`No ${backend.label} models yet`} description={description} />;
 }
 
-/** One runtime's models: favourite, reorder, hide. Written to the level Settings edits. */
+/** One runtime's models: name, favourite, reorder, hide. Written to the level Settings edits. */
 function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBackend; models: readonly UiModel[]; catalog: RuntimeCatalogEntry | undefined }) {
   const preferences = usePreferences();
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -64,14 +65,18 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
   }, [backend.kind, models, settings.favouriteModels, value]);
   const hidden = new Set(value.hidden);
   const needle = filter.trim().toLowerCase();
-  const visible = needle ? arranged.filter(({ model }) => `${model.name} ${model.id}`.toLowerCase().includes(needle)) : arranged;
+  const visible = needle ? arranged.filter(({ model }) => `${modelDisplayName(model, value)} ${model.name} ${model.id}`.toLowerCase().includes(needle)) : arranged;
   const allHidden = models.length > 0 && models.every((model) => hidden.has(modelKey(model)));
   const favourites = arranged.filter((entry) => entry.group === "favourite").length;
 
-  const write = (next: TauModelPreferences) => setting.set({
-    ...(next.hidden?.length ? { hidden: next.hidden } : {}),
-    ...(next.order?.length ? { order: next.order } : {}),
-  });
+  const write = (next: TauModelPreferences) => setting.set(readModelPreferences(next)!);
+  const rename = (model: UiModel, text: string) => {
+    const names = { ...value.names };
+    const name = readModelName(text);
+    if (name) names[modelKey(model)] = name;
+    else delete names[modelKey(model)];
+    write({ ...value, names });
+  };
   const setHidden = (model: UiModel, hide: boolean) => {
     const key = modelKey(model);
     const held = value.hidden ?? [];
@@ -92,7 +97,7 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
     <SettingRow
       id={`runtime-models-${backend.kind}`}
       title={`${backend.label} models`}
-      description={`${models.length} ${models.length === 1 ? "model" : "models"}${favourites ? ` · ${favourites} ${favourites === 1 ? "favourite" : "favourites"}` : ""}${hidden.size ? ` · ${hidden.size} hidden` : ""}. What the model picker lists for ${backend.label}, and in which order.`}
+      description={`${models.length} ${models.length === 1 ? "model" : "models"}${favourites ? ` · ${favourites} ${favourites === 1 ? "favourite" : "favourites"}` : ""}${hidden.size ? ` · ${hidden.size} hidden` : ""}. Leave names blank to keep the runtime's labels.`}
       setting={setting}
       control={models.length ? (
         <Button variant="ghost" disabled={!setting.writable} onClick={() => write({ ...value, hidden: allHidden ? [] : models.map(modelKey) })}>
@@ -101,12 +106,7 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
       ) : undefined}
     >
       {models.length > FILTER_THRESHOLD ? (
-        <label className="settings-filter runtime-models-filter">
-          <Search size={14} aria-hidden />
-          <input type="search" value={filter} placeholder="Filter models" aria-label={`Filter ${backend.label} models`} spellCheck={false} onChange={(event) => setFilter(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); setFilter(""); } }} />
-          {filter ? <button type="button" className="tau-icon-button" aria-label="Clear the filter" onClick={() => setFilter("")}><X size={13} /></button> : null}
-        </label>
+        <SettingsFilter className="runtime-models-filter" label={`Filter ${backend.label} models`} placeholder="Filter models" value={filter} onChange={setFilter} spellCheck={false} />
       ) : null}
       <div className="runtime-models" role="list" aria-label={`${backend.label} models`}>
         {models.length === 0 ? <NoModels backend={backend} entry={catalog} /> : null}
@@ -127,8 +127,10 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
                   onClick={() => preferences.toggleFavouriteModel(offeringKey(backend.kind, model))}
                 ><Star size={12} fill={group === "favourite" ? "currentColor" : "none"} /></button>
                 <span className="runtime-model-name">
-                  <span>{model.name}</span>
-                  {model.name !== model.id ? <code>{model.id}</code> : null}
+                  <TextField label={`Display name for ${model.name}`} value={value.names?.[modelKey(model)] ?? ""} placeholder={model.name} width="full" disabled={!setting.writable}
+                    validate={(text) => text.trim() && !readModelName(text) ? "Use at most 120 characters on one line." : undefined}
+                    onCommit={(text) => rename(model, text)} />
+                  <code>{model.id}</code>
                 </span>
                 <span className="runtime-model-facts">
                   {access ? <span>{access.label}</span> : null}

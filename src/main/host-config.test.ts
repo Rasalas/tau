@@ -384,6 +384,18 @@ describe("HostConfigManager", () => {
       expect(layers.project?.modelPreferences).toBeUndefined();
     });
 
+    it("persists display names per runtime and lets a project replace or clear them", async () => {
+      await manager.update({ modelPreferences: { pi: { names: { "a/b": "Global" } }, codex: { names: { "a/b": "Codex" } } } }, "global");
+      const fresh = new HostConfigManager({ globalFilePath: globalPath, projectFilePath: (cwd) => join(cwd, ".tau", "config.json"), piAgentDir: join(tempDir, "pi") });
+      expect((await fresh.read()).modelPreferences?.pi?.names).toEqual({ "a/b": "Global" });
+      await manager.update({ modelPreferences: { pi: { names: { "a/b": "Project" } } } }, "project", projectDir);
+      expect((await manager.read(projectDir)).modelPreferences).toEqual({ pi: { names: { "a/b": "Project" } }, codex: { names: { "a/b": "Codex" } } });
+      await manager.update({ modelPreferences: { pi: {} } }, "project", projectDir);
+      expect((await manager.read(projectDir)).modelPreferences?.pi).toEqual({});
+      await manager.clear(["modelPreferences.pi"], "project", projectDir);
+      expect((await manager.read(projectDir)).modelPreferences?.pi?.names).toEqual({ "a/b": "Global" });
+    });
+
     it("keeps which runtimes may start work per level: a project wins over the machine in either direction", async () => {
       await manager.update({ runtimeEnabled: { codex: false, pi: true } }, "global");
       await manager.update({ runtimeEnabled: { cursor: false } }, "global");

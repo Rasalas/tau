@@ -440,7 +440,7 @@ export function decodeConfigPatch(channel: string, field: string, value: unknown
     const entries = record(channel, `${field}.modelPreferences`, item.modelPreferences);
     const preferences = readModelPreferenceRecord(entries);
     if (!preferences || Object.keys(preferences).length !== Object.keys(entries).length) {
-      fail(channel, `${field}.modelPreferences`, "must map runtimes to { hidden?: string[]; order?: string[] }");
+      fail(channel, `${field}.modelPreferences`, "must map runtimes to { hidden?: string[]; order?: string[]; names?: Record<string, string> }");
     }
     result.modelPreferences = preferences;
   }

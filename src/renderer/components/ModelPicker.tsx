@@ -1,6 +1,6 @@
 import { MobileModelPicker } from "./MobileModelPicker";
-import { lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, History, Plus, Search, SlidersHorizontal, Star } from "lucide-react";
+import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { ChevronDown, ChevronUp, History, Plus, Search, SlidersHorizontal, Star } from "lucide-react";
 import type { ThreadBackendKind, UiModel, UiRuntimeBackend } from "../../shared/contracts";
 import type { ModelBadgeContribution, ModelSelectionContribution } from "../extension-system";
 import { catalogLevels, type RuntimeCatalogEntry } from "../../workbench/runtime-catalog-store";
@@ -15,20 +15,18 @@ import {
   BLOCKED, FAVOURITES_VIEW, RUNTIME_STATUS_LABELS, makerView, pickerRuntimes, pickerViews, runtimeView, type RuntimeEntry, type ViewEntry,
 } from "./model-picker-rail";
 import {
-  NO_FILTERS, filterCount, modelFamily, modelKey, offeringKey, orderedPositions, passesFilters, searchOfferings,
+  NO_FILTERS, filterCount, modelBilling, modelFamily, modelKey, offeringKey, orderedPositions, passesFilters, searchOfferings,
   offeringComparator, type BillingFilter, type CapabilityFilter, type Offering, type OfferingFilters, type OfferingSort,
 } from "./model-offerings";
 import { MAKER_ORDER, modelEntries, modelMaker, type ModelEntry } from "./model-entries";
 import { EntryRow, MakerMark, RuntimeMark, wayText, wears, type RowCell, type RowLine } from "./ModelPickerRow";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { Popover } from "./ui/Dialog";
-import { placeFloating, viewportSize } from "./ui/floating";
 import { useFocusTrap } from "./ui/focus";
 import { WorkbenchShellContext } from "../workbench-context";
 import { tooltipProps } from "./ui/Tooltip";
 import { VirtualList } from "./VirtualList";
 import { useCompactForm } from "../use-layout-profile";
-import { useSheetDrag } from "../touch/sheet-drag";
 import "./model-picker.css";
 
 const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").then(({ AddModelProviderModal }) => ({ default: AddModelProviderModal })));
@@ -37,7 +35,6 @@ const LazyAddModelProviderModal = lazy(() => import("./AddModelProviderModal").t
 const JUMP_KEYS = 9;
 /** Below these widths the rail goes above the list. */
 const STACK_WIDTH = 560;
-const SHEET_STACK_WIDTH = 700;
 /** A maker with more models than this and none pinned still folds behind "Show all". */
 const FOLD_UNPINNED = 8;
 /** The pointer has to rest on a row this long to highlight it; passing over on the way down does not. */
@@ -92,17 +89,16 @@ function countLabel(count: number): string {
   return `${count} ${count === 1 ? "model" : "models"}`;
 }
 
-const billingOf = (way: Offering) => way.model.billing ?? (way.model.login === "subscription" ? "subscription" : undefined);
+const billingOf = (way: Offering) => modelBilling(way.model);
 const rowHas = (row: Row, key: string | undefined): boolean => row.kind === "entry" && key !== undefined && (row.way ? row.way.key === key : row.entry.ways.some((way) => way.key === key));
 
-function useStacked(asSheet: boolean): boolean {
-  const limit = asSheet ? SHEET_STACK_WIDTH : STACK_WIDTH;
-  const [stacked, setStacked] = useState(() => typeof window !== "undefined" && window.innerWidth > 0 && window.innerWidth < limit);
+function useStacked(): boolean {
+  const [stacked, setStacked] = useState(() => typeof window !== "undefined" && window.innerWidth > 0 && window.innerWidth < STACK_WIDTH);
   useEffect(() => {
-    const update = () => setStacked(window.innerWidth > 0 && window.innerWidth < limit);
+    const update = () => setStacked(window.innerWidth > 0 && window.innerWidth < STACK_WIDTH);
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, [limit]);
+  }, []);
   return stacked;
 }
 
@@ -231,9 +227,7 @@ export function ModelPicker({
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const stacked = useStacked(asSheet);
-  const sheetRef = useRef<HTMLElement | null>(null);
-  useLayoutEffect(() => { sheetRef.current = asSheet ? surfaceRef.current?.closest<HTMLElement>(".model-picker") ?? null : null; }, [asSheet]);
+  const stacked = useStacked();
   const railRef = useRef<HTMLElement>(null);
   const pointTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(pointTimer.current), []);
@@ -275,6 +269,7 @@ export function ModelPicker({
           runtime: kind,
           runtimeLabel: entry.backend.label,
           model,
+          name: arranged?.names?.[modelKey(model)],
           levels: catalogLevels(catalog, model),
           favourite: favourites.has(key),
           hidden: hidden.has(modelKey(model)),
@@ -633,12 +628,6 @@ export function ModelPicker({
       data-keybinding-context="modelPicker"
       onKeyDown={onKeyDown}
     >
-      {asSheet ? <header className="touch-sheet-header">
-        <span className="touch-sheet-grip" aria-hidden="true" />
-        <strong>Model</strong>
-        <button type="button" className="model-sheet-done" onClick={onClose}>Done</button>
-      </header> : null}
-
       <div className="model-picker-body">
         <nav ref={railRef} className="model-rail" aria-label="Providers" onKeyDown={onRailKeyDown}>
           {views.map((entry, index) => {
@@ -814,12 +803,6 @@ export function ModelPicker({
           {update ? <p className="model-picker-note" role="status">{update.text}{update.command ? <> {update.verb} <code>{update.command}</code>.</> : null}</p> : null}
         </section>
       </div>
-
-      {asSheet && onOpenThinking ? (
-        <button type="button" className="model-thinking-row" onClick={onOpenThinking}>
-          Thinking and speed<span>{thinkingSummary}<ChevronRight size={16} aria-hidden /></span>
-        </button>
-      ) : null}
     </div>
   );
   // Escape or a press outside closes an open menu first.
@@ -828,7 +811,6 @@ export function ModelPicker({
     setMenu(undefined);
     inputRef.current?.focus();
   };
-  useSheetDrag(sheetRef, onClose);
   const addProvider = addProviderOpen ? (
     <Suspense fallback={null}>
       <LazyAddModelProviderModal
@@ -841,22 +823,6 @@ export function ModelPicker({
       />
     </Suspense>
   ) : null;
-
-  // Popover placed itself at the chip, in its own layout effect and resize listener; both run before these.
-  const adding = addProvider !== null;
-  useLayoutEffect(() => {
-    const popover = surfaceRef.current?.closest<HTMLElement>(".popover");
-    const frame = placeAgainst?.current;
-    if (!popover || !frame) return undefined;
-    const place = () => {
-      const placed = placeFloating(frame.getBoundingClientRect(), popover.getBoundingClientRect(), viewportSize(), { side, align: "start" });
-      popover.style.left = `${placed.left}px`;
-      popover.style.top = `${placed.top}px`;
-    };
-    place();
-    window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
-  }, [adding, placeAgainst, side]);
 
   // A press in the form would count as outside the popover, so the form takes the popover's place.
   if (asSheet) return <MobileModelPicker
@@ -880,7 +846,7 @@ export function ModelPicker({
     thinking={<>{onOpenThinking ? <button className="mobile-thinking" onClick={onOpenThinking}>Thinking and speed <span>{thinkingSummary}</span></button> : null}{extraSettings ? <div className="mobile-thread-options">{extraSettings}</div> : null}</>}
   />;
   return addProvider ?? (
-    <Popover anchor={anchor} side={side} align="start" label="Select model" className={`model-picker${asSheet ? " model-picker-sheet" : ""}`} onClose={dismiss}>
+    <Popover anchor={anchor} placeAgainst={placeAgainst} side={side} align="start" label="Select model" className="model-picker" onClose={dismiss}>
       {content}
     </Popover>
   );

@@ -80,6 +80,13 @@ describe("offerings", () => {
     expect([...orderedPositions(models, ["a/3", "gone/9", "a/1"])]).toEqual([["a/3", 0], ["a/1", 1], ["a/2", 2]]);
   });
 
+  it("keeps stable catalog ties, last custom ranks and repeated model keys", () => {
+    const models = [{ provider: "a", id: "1" }, { provider: "a", id: "2" }, { provider: "a", id: "3" }, { provider: "a", id: "1" }];
+    const original = [...models];
+    expect([...orderedPositions(models, ["a/1", "a/3", "a/1"])]).toEqual([["a/3", 0], ["a/1", 2], ["a/2", 3]]);
+    expect(models).toEqual(original);
+  });
+
   it("writes prices and context the way the columns show them", () => {
     expect(formatPrice({ input: 0.2, output: 1.2 })).toBe("$0.2/$1.2");
     expect(formatPrice({ input: 3, output: 15 })).toBe("$3/$15");

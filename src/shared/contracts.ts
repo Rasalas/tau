@@ -1234,6 +1234,8 @@ export interface TauModelPreferences {
   hidden?: string[];
   /** Listed first, in this order; the rest follow in the runtime's own order. */
   order?: string[];
+  /** Display names only, keyed by provider/id; runtime model identities stay unchanged. */
+  names?: Record<string, string>;
 }
 
 export interface CustomModelDefinition {

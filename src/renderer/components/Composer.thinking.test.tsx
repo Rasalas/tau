@@ -64,6 +64,16 @@ const openMenu = async (label: RegExp) => {
 };
 
 describe("the thinking chip (K142)", () => {
+  it("updates only the visible model label when its runtime's display name changes", () => {
+    const preferences = new PreferencesStore();
+    preferences.setModelPreferences("pi", { names: { "anthropic/claude-opus-5-5": "Writer" } });
+    renderComposer(base, undefined, preferences);
+    expect(screen.getByRole("button", { name: "Select model: Writer" }).textContent).toContain("Writer");
+    act(() => preferences.setModelPreferences("pi", {}));
+    expect(screen.getByRole("button", { name: "Select model: Claude Opus 5.5" })).toBeTruthy();
+    expect(base.model).toBe(opus);
+  });
+
   it("reads 'High · 200k ⚡' and offers the level, the context window and Fast in one menu", async () => {
     const speed = speedKit();
     const { onSetModel, onSetThinking } = renderComposer(base, speed);

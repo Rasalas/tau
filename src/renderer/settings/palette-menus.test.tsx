@@ -50,6 +50,19 @@ describe("the model rows", () => {
     expect(container.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("Codex (OpenAI)");
   });
 
+  it("labels each runtime's offering while actions keep the catalog model and identity", async () => {
+    const preferences = new PreferencesStore();
+    preferences.setModelPreferences("codex", { names: { "openai/gpt-5.6-luna": "Quick" } });
+    const { actions } = context({ backendKind: "pi", draftPending: false });
+    const items = await modelItems(preferences, actions);
+    const renamed = items.find((item) => item.id === "codex:openai/gpt-5.6-luna")!;
+    expect(renamed.label).toBe("Quick");
+    expect(renamed.keywords).toContain("GPT-5.6 Luna");
+    expect(items.find((item) => item.id === "openai/gpt-5.6-luna")!.label).toBe("GPT-5.6 Luna");
+    await renamed.run!(actions);
+    expect(actions.startThreadOn).toHaveBeenCalledWith("codex", luna);
+  });
+
   it("sets a model of the thread's runtime and starts a thread for another runtime's", async () => {
     const { actions } = context({ sessionId: "t1", backendKind: "pi", draftPending: false });
     const items = await modelItems(new PreferencesStore(), actions);

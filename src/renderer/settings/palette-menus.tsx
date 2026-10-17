@@ -3,6 +3,7 @@ import { Monitor, Moon, Palette, Sun } from "lucide-react";
 import type { UiModel, UiRuntimeCatalog } from "../../shared/contracts";
 import { ProviderIconStack, providerLabel } from "../components/ProviderIconStack";
 import { billingBadge, formatTokens, modelKey, offeringKey } from "../components/model-offerings";
+import { modelDisplayName } from "../../shared/model-preferences";
 import type { PaletteItem, RuntimeModels, WorkbenchActions } from "../extension-system";
 import type { PreferencesStore } from "../preferences";
 import { DEFAULT_RUNTIME, modelOnPlan } from "../runtime-marks";
@@ -97,17 +98,16 @@ export async function modelItems(preferences: PreferencesStore, actions: Workben
     const models = (catalog?.models ?? []).filter((model) => !hidden.has(modelKey(model)) || current(model));
     const starred = (model: UiModel) => (favourites.has(offeringKey(backend.kind, model)) ? 0 : 1);
     return models
-      .map((model, index) => ({ model, index }))
-      .sort((a, b) => starred(a.model) - starred(b.model) || a.index - b.index)
-      .map(({ model }): PaletteItem => {
+      .sort((a, b) => starred(a) - starred(b))
+      .map((model): PaletteItem => {
         // As the picker's detail line has it: how it is paid, and its context.
         const detail = [billingBadge(model)?.label, model.contextWindow ? formatTokens(model.contextWindow) : undefined].filter(Boolean).join(" · ");
         return {
           id: offeringKey(backend.kind, model),
-          label: model.name,
+          label: modelDisplayName(model, modelPreferences[backend.kind]),
           ...(detail ? { detail } : {}),
           icon: <ProviderIconStack modelProvider={model.provider} runtimeProvider={backend.kind} plan={modelOnPlan(model)} runtimeName={backend.label} />,
-          keywords: [model.id, model.provider, providerLabel(model.provider), backend.label, backend.kind],
+          keywords: [model.name, model.id, model.provider, providerLabel(model.provider), backend.label, backend.kind],
           current: current(model),
           access: "write",
           run: async (app) => {
