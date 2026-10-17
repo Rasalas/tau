@@ -20,8 +20,13 @@ Choose the smallest check that covers the change:
 ```sh
 npm test -- scripts/check.test.mjs
 npm run typecheck:kits
+npm run typecheck:mobile
 node scripts/check.mjs typecheck -p tooling/tsconfig.electron.json --noEmit
 ```
+
+The mobile typecheck needs the native client dependencies installed with
+`npm ci --prefix mobile --ignore-scripts`. The root `typecheck` includes it;
+`npm --prefix mobile run typecheck` uses the same shared check slot.
 
 A waiting command prints the owning worktree and PID before loading the compiler
 or test runner. Leave it waiting; starting another command does not make room.

@@ -189,6 +189,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - run: npm ci --prefix mobile --ignore-scripts
       - run: npm run typecheck
       - run: npx vitest run
 
