@@ -26,6 +26,7 @@ export interface StorageHost {
 
 const REASONS: Record<CleanupReason, string> = {
   inactive: "inactive",
+  settled: "settled",
   merged: "merged",
   "thread-deleted": "thread deleted",
   unchanged: "unchanged",
@@ -77,6 +78,7 @@ export const STORAGE_SETTINGS_ROWS = [
   { id: "setting-workspace-storage-scope", label: "Rules for", keywords: ["repository", "project", "this machine", "override"] },
   { id: "setting-workspace-storage-thread-deleted", label: "Delete worktrees with deleted threads", keywords: ["cleanup", "remove", "thread"] },
   { id: "setting-workspace-storage-inactive", label: "Delete inactive worktrees", keywords: ["cleanup", "days", "retention", "old"] },
+  { id: "setting-workspace-storage-settled", label: "Delete settled worktrees", keywords: ["cleanup", "days", "retention", "settled"] },
   { id: "setting-workspace-storage-merged", label: "Delete merged worktrees", keywords: ["cleanup", "pull request", "merged branch"] },
   { id: "setting-workspace-storage-unchanged", label: "Delete unchanged worktrees", keywords: ["cleanup", "no commits"] },
   { id: "setting-workspace-storage-worktrees", label: "Worktrees", keywords: ["disk space", "size", "measure", "clean up now", "remove worktree"] },
@@ -98,6 +100,14 @@ function RuleRows({ rules, onChange }: { rules: WorktreeCleanupRules; onChange(p
               onCommit={(days) => { if (days !== rules.afterDays) onChange({ afterDays: days }); }} />
           ) : null}
           <Switch label="Delete inactive worktrees" checked={rules.afterDays !== null} onChange={(on) => onChange({ afterDays: on ? DEFAULT_DAYS : null })} />
+        </>} />
+      <SettingRow id="setting-workspace-storage-settled" title="Delete settled worktrees" description="All threads here must be settled. Keep it this long after the last settlement or activity. Other cleanup rules still apply."
+        control={<>
+          {rules.afterSettledDays != null ? (
+            <NumberField label="Delete settled worktrees after" value={rules.afterSettledDays} min={1} max={3650} integer unit="days"
+              onCommit={(afterSettledDays) => { if (afterSettledDays !== rules.afterSettledDays) onChange({ afterSettledDays }); }} />
+          ) : null}
+          <Switch label="Delete settled worktrees" checked={rules.afterSettledDays != null} onChange={(on) => onChange({ afterSettledDays: on ? DEFAULT_DAYS : null })} />
         </>} />
       <SettingRow id="setting-workspace-storage-merged" title="Delete merged worktrees" description="Every commit of the branch is in the default branch, or its pull request was merged."
         control={<Switch label="Delete merged worktrees" checked={rules.onMerge} onChange={(onMerge) => onChange({ onMerge })} />} />

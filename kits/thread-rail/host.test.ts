@@ -396,6 +396,31 @@ describe("Thread Rail host", () => {
     expect((await invoke("state")).threads).toEqual({});
   });
 
+  it("shares only requested local settlement times with Workspace and refuses unrelated kits", async () => {
+    const sessions: HostSessionSummary[] = [
+      { sessionId: "settled", path: "/sessions/settled.jsonl", cwd: "/project" },
+      { sessionId: "active", path: "/sessions/active.jsonl", cwd: "/project" },
+      proxy("rex~remote"),
+    ];
+    const { invoke, registry } = await harness({ sessions, index: [{ id: "codex", path: "tau-thread:codex:codex", title: "Codex", projectPath: "/project", projectName: "project", modifiedAt: NOW, messageCount: 1, backendKind: "codex" }] });
+    await invoke("patch", { patches: { settled: { settledAt: NOW, settledBy: "user" }, codex: { settledAt: NOW, settledBy: "user" }, missing: { settledAt: NOW } } });
+    let read: ((ids: string[]) => Promise<unknown>) | undefined;
+    let unauthorized: (() => Promise<unknown>) | undefined;
+    await registry.activate({
+      id: "tau.workspace", name: "Workspace",
+      activate(context) { read = (threadIds) => context.invokeHostExtension(THREAD_RAIL_EXTENSION_ID, "thread-settlements", { threadIds }); },
+    });
+    await registry.activate({
+      id: "tau.other", name: "Other",
+      activate(context) { unauthorized = () => context.invokeHostExtension(THREAD_RAIL_EXTENSION_ID, "thread-settlements", { threadIds: ["settled"] }); },
+    });
+    expect(await read!(["settled", "codex", "active", "missing", "rex~remote"])).toEqual({ settled: NOW, codex: NOW });
+    expect(await read!(["active"])).toEqual({});
+    await expect(unauthorized!()).rejects.toThrow();
+    await invoke("patch", { patches: { settled: { settledAt: null } } });
+    expect(await read!(["settled"])).toEqual({});
+  });
+
   it("archives an idle thread, refuses a running one, and new work brings an archived thread back", async () => {
     const { invoke, observers } = await harness();
     observers[0]!.accepted?.("busy", "turn", { deferBefore: false });

@@ -184,3 +184,26 @@ the toast, returns the prompt to the composer. The gate says so with `stop` on
 `NewThreadPromptGate` (API 1.61.0), because a gate that throws is still skipped
 and the prompt still goes to the draft's project. Several models at once
 (`force`) never fall back: each failed model is reported and kept for retry.
+
+
+## Amendment, 2026-10-18: settled worktrees can have a retention period
+
+Settings → Storage adds an opt-in rule for worktrees whose threads are all
+settled. The deadline is N days after the latest settlement or existing
+worktree activity, whichever is later. Host and repository overrides keep
+their existing semantics; this rule and the existing rules are alternatives.
+An active shared thread, a trash entry or unavailable settlement metadata
+cannot qualify for settle retention. Existing Git and ownership protections
+remain in force. The branch and threads remain, and reopening recreates the
+recorded checkout.
+
+Thread Rail exposes requested local settlement times through a read command
+granted to Workspace. Workspace reads them only when retention is enabled and
+checks current threads and the host workspace again after the final Git reads.
+The Storage page shows the same decision the sweep uses.
+
+While this rule is enabled, Workspace also reads the normalized local thread
+index. The lightweight session-header list contains Pi only, so it cannot
+prove that a checkout has no active thread of another runtime. Peer-machine
+threads are excluded. Index activity supplies the clock for synthetic backend
+session paths, and an index failure keeps the checkout.

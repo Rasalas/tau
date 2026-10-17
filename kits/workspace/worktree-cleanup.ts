@@ -12,7 +12,7 @@ export const DAY_MS = 24 * 60 * 60 * 1_000;
 export const MAX_RETENTION_DAYS = 3_650;
 
 /** Every rule off: cleanup is something a user turns on. */
-export const NO_CLEANUP: WorktreeCleanupRules = { afterDays: null, onMerge: false, onThreadDelete: false, unchanged: false };
+export const NO_CLEANUP: WorktreeCleanupRules = { afterDays: null, afterSettledDays: null, onMerge: false, onThreadDelete: false, unchanged: false };
 export const EMPTY_POLICY: CleanupPolicy = { host: NO_CLEANUP, projects: {} };
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -28,8 +28,10 @@ function days(value: unknown): number | null | undefined {
 export function decodeRulesPatch(value: unknown): Partial<WorktreeCleanupRules> {
   const raw = record(value);
   const afterDays = days(raw.afterDays);
+  const afterSettledDays = days(raw.afterSettledDays);
   return {
     ...(afterDays === undefined ? {} : { afterDays }),
+    ...(afterSettledDays === undefined ? {} : { afterSettledDays }),
     ...(typeof raw.onMerge === "boolean" ? { onMerge: raw.onMerge } : {}),
     ...(typeof raw.onThreadDelete === "boolean" ? { onThreadDelete: raw.onThreadDelete } : {}),
     ...(typeof raw.unchanged === "boolean" ? { unchanged: raw.unchanged } : {}),
@@ -84,7 +86,7 @@ export function rulesFor(policy: CleanupPolicy, project: string): WorktreeCleanu
 }
 
 export function anyRule(rules: WorktreeCleanupRules): boolean {
-  return rules.afterDays !== null || rules.onMerge || rules.onThreadDelete || rules.unchanged;
+  return rules.afterDays !== null || rules.afterSettledDays != null || rules.onMerge || rules.onThreadDelete || rules.unchanged;
 }
 
 /** Whether a sweep has anything to do for any project the policy names. */
@@ -124,6 +126,8 @@ export interface WorktreeFacts {
   /** The request was merged, but not these commits (other head) or not into the default branch. */
   requestDiffers?: boolean;
   lastActivityAt: number;
+  /** Latest settlement, only when every remaining thread is settled. */
+  settledAt?: number;
   inspectionError?: string;
 }
 
@@ -136,6 +140,7 @@ export function evaluateWorktree(facts: WorktreeFacts, rules: WorktreeCleanupRul
   const reasons: CleanupReason[] = [];
   if (rules.onThreadDelete && facts.threadDeleted && facts.threads === 0) reasons.push("thread-deleted");
   if (rules.afterDays !== null && now - facts.lastActivityAt >= rules.afterDays * DAY_MS) reasons.push("inactive");
+  if (rules.afterSettledDays != null && facts.settledAt !== undefined && now - Math.max(facts.settledAt, facts.lastActivityAt) >= rules.afterSettledDays * DAY_MS) reasons.push("settled");
   if (rules.onMerge && ((facts.commitsBeyondBase > 0 && facts.integrated) || facts.requestMerged)) reasons.push("merged");
   if (rules.unchanged && facts.commitsBeyondBase === 0) reasons.push("unchanged");
 
