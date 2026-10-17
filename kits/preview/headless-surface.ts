@@ -204,6 +204,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
       for (const [method, params] of cdpInputCommands(input, { touch })) await send(method, params);
     },
     async download(url, destination) {
+      const workspace = options.workspaceRoot();
       if (!/^https?:$/u.test(new URL(url).protocol)) throw new Error("A download needs an http(s) URL.");
       const deadline = Date.now() + 20_000;
       const request = <T>(method: string, params: object) => browser.send<T>(method, params, pageSession, Math.max(1, deadline - Date.now()));
@@ -227,7 +228,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
           if (part.eof) break;
         }
       } finally { await browser.send("IO.close", { handle: resource.stream }, pageSession, 2_000).catch(() => undefined); }
-      return savePreviewDownload(options.workspaceRoot(), destination, Buffer.concat(chunks));
+      return savePreviewDownload(workspace, destination, Buffer.concat(chunks));
     },
     destroy() { destroyed = true; return closing ??= browser.close(); },
   };

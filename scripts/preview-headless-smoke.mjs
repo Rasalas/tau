@@ -1,7 +1,7 @@
 // Real Preview on an isolated Tau host, without Electron, a display or accounts.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startTestHost, stopTestHost } from "./tau-test-host.mjs";
@@ -11,9 +11,13 @@ import { HostUplink } from "../dist-electron/main/host-uplink.js";
 const name = "preview-headless";
 const model = await startFakeModelServer();
 let typed = "";
+let slowResponse;
+let startedDownload;
+const downloadStarted = new Promise((resolve) => { startedDownload = resolve; });
 const fixture = createServer((request, response) => {
   const url = new URL(request.url, "http://fixture");
   if (url.pathname === "/typed") { typed = url.searchParams.get("value"); response.end("ok"); return; }
+  if (url.pathname === "/slow-download") { slowResponse = response; startedDownload(); return; }
   if (url.pathname === "/download") { response.end(request.headers.cookie?.includes("probe=retained") ? "authenticated" : "anonymous"); return; }
   if (url.pathname === "/login") response.setHeader("set-cookie", "probe=retained; HttpOnly; Max-Age=3600; SameSite=Lax");
   response.setHeader("content-type", "text/html");
@@ -79,6 +83,15 @@ try {
   assert.equal(await readFile(join(host.workspace, "report.txt"), "utf8"), "authenticated");
   await assert.rejects(preview("download", { url: `${url}/download`, destination: "report.txt" }));
   await assert.rejects(preview("download", { url: `${url}/download`, destination: "../escape.txt" }), /outside the workspace/u);
+  const downloading = preview("download", { url: `${url}/slow-download`, destination: "original-workspace.txt" });
+  await downloadStarted;
+  const otherWorkspace = join(host.workspace, "other");
+  await mkdir(otherWorkspace, { recursive: true });
+  await client.request("start-thread", [{ cwd: otherWorkspace, prompt: "say one word", backend: "pi", model: { provider: "tau-fake", id: "fake-1" } }]);
+  slowResponse.end("bound to original workspace");
+  await downloading;
+  assert.equal(await readFile(join(host.workspace, "original-workspace.txt"), "utf8"), "bound to original workspace");
+  await assert.rejects(access(join(otherWorkspace, "original-workspace.txt")));
   await stop(false);
   host = await start(false);
   await preview("open", { url: `${url}/check` });
