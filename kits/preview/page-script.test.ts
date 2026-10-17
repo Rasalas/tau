@@ -139,6 +139,38 @@ describe("preview snapshot", () => {
     expect(tree).toContain('text "[redacted] [redacted] [redacted]"');
   });
 
+  it("redacts intersecting copies rather than leaving either password's tail", () => {
+    document.body.innerHTML = `
+      <input type="password" value="first-prefix">
+      <input type="password" value="prefix-SECOND_SECRET_TAIL">
+      <p>first-prefix-SECOND_SECRET_TAIL</p>
+    `;
+
+    const tree = previewSnapshot(8_000);
+
+    expect(tree).not.toContain("first-prefix");
+    expect(tree).not.toContain("SECOND_SECRET_TAIL");
+    expect(tree).toContain('text "[redacted]"');
+  });
+
+  it.each([
+    ["p/a", "p%2fa"],
+    ["password", "%70assword"],
+    ["a b", "a+b"],
+  ])("redacts equivalent URL encodings of %s", (secret, encoded) => {
+    document.body.innerHTML = '<input type="password">';
+    document.querySelector<HTMLInputElement>("input")!.value = secret;
+    const previousUrl = window.location.href;
+    window.history.replaceState(null, "", `?echo=${encoded}`);
+    try {
+      const tree = previewSnapshot(8_000);
+      expect(tree).not.toContain(encoded);
+      expect(tree).toContain("[redacted URL]");
+    } finally {
+      window.history.replaceState(null, "", previousUrl);
+    }
+  });
+
   it("truncates a tree that exceeds the cap", () => {
     document.body.innerHTML = Array.from({ length: 200 }, (_value, index) => `<button>Item ${index}</button>`).join("");
     const tree = previewSnapshot(500);
