@@ -107,6 +107,8 @@ export interface PreviewRecordingChunks {
 }
 
 export interface PreviewSurfaceOptions {
+  /** Cancels an owned browser even while it is still being initialized. */
+  signal?: AbortSignal;
   /** Persistent state and executable discovery for the host's own browser. */
   stateDir?: string;
   findCommand?(name: string): string | undefined;

@@ -92,6 +92,7 @@ jobs:
         run: |
           "$TAU_PREVIEW_BROWSER" --version
           npm run smoke:preview-headless
+          npm run smoke:html-preview
       # Requiring electron downloads its binary first, where npm ci left it out.
       - name: Electron's sandbox helper as setuid root
         run: |

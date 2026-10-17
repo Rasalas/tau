@@ -35,15 +35,24 @@ export async function clearHeadlessPreviewProfile(stateDir: string, partition: s
   await rm(profilePath(stateDir, partition), { recursive: true, force: true });
 }
 
+/** A document supplied over the private pipe, under its owner's response policy. */
+export interface HeadlessDocument { html: string; contentSecurityPolicy: string }
+export const HEADLESS_DOCUMENT_URL = "https://tau-preview.invalid/";
+
 /** A headless Chromium page behind the same interface as the desktop view. */
-export async function createHeadlessPreviewSurface(options: PreviewSurfaceOptions, executable: string, stateDir: string): Promise<PreviewSurface> {
+export async function createHeadlessPreviewSurface(options: PreviewSurfaceOptions, executable: string, stateDir: string, document?: HeadlessDocument): Promise<PreviewSurface> {
   const profile = profilePath(stateDir, options.partition);
   await mkdir(profile, { recursive: true, mode: 0o700 });
+  options.signal?.throwIfAborted();
   const browser = new PreviewBrowserProcess(executable, profile);
+  const abort = () => { void browser.close().catch(() => undefined); };
+  options.signal?.addEventListener("abort", abort, { once: true });
+  void browser.exited.then(() => options.signal?.removeEventListener("abort", abort));
   let destroyed = false;
   let closing: Promise<void> | undefined;
   let pageSession = "";
   let pageTarget = "";
+  let documentServed = false;
   let width = 1280, height = 800, zoom = 1;
   let dpr = 1;
   let touch = false;
@@ -97,7 +106,24 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
     if (event.sessionId !== pageSession) return;
     if (event.method === "Fetch.requestPaused") {
       const request = event.params.request as { url: string };
-      run(previewFileAllowed(request.url, options.workspaceRoot()).then((allowed) => send(allowed ? "Fetch.continueRequest" : "Fetch.failRequest", {
+      if (document && event.params.resourceType === "Document" && request.url === HEADLESS_DOCUMENT_URL && !documentServed) {
+        documentServed = true;
+        run(send("Fetch.fulfillRequest", {
+          requestId: event.params.requestId, responseCode: 200,
+          responseHeaders: [
+            { name: "Content-Type", value: "text/html; charset=utf-8" },
+            { name: "Content-Security-Policy", value: document.contentSecurityPolicy },
+            { name: "Referrer-Policy", value: "no-referrer" },
+            { name: "Cache-Control", value: "no-store" },
+            { name: "X-Content-Type-Options", value: "nosniff" },
+          ],
+          body: Buffer.from(document.html).toString("base64"),
+        }));
+        return;
+      }
+      // A supplied document cannot navigate away or read files. Its response
+      // CSP governs subresources, exactly as when core serves a frame.
+      run((document ? Promise.resolve(false) : previewFileAllowed(request.url, options.workspaceRoot())).then((allowed) => send(allowed ? "Fetch.continueRequest" : "Fetch.failRequest", {
         requestId: event.params.requestId, ...(!allowed ? { errorReason: "AccessDenied" } : {}),
       })));
     }
@@ -115,6 +141,10 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
       note(args.map((arg) => arg.description ?? String(arg.value)).join(" "));
     }
     if (event.method === "Network.loadingFailed") note(String(event.params.errorText));
+    if (event.method === "Log.entryAdded") {
+      const entry = event.params.entry as { level: string; text: string };
+      if (entry.level === "error") note(entry.text);
+    }
   });
   try {
     await browser.send("Browser.getVersion");
@@ -129,7 +159,8 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
     await send("Page.setLifecycleEventsEnabled", { enabled: true });
     await send("Runtime.enable");
     await send("Network.enable");
-    await send("Fetch.enable", { patterns: [{ urlPattern: "file://*" }] });
+    await send("Log.enable");
+    await send("Fetch.enable", { patterns: [{ urlPattern: "file://*" }, ...(document ? [{ urlPattern: "*", resourceType: "Document" }] : [])] });
     await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
   } catch (error) { await browser.close(); throw error; }
