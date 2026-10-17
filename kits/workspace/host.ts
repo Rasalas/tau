@@ -588,7 +588,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = await services.knownWorkspacePath(requiredString(input, "workspace"));
         const target = requiredString(input, "target");
         return gitWrite(path, () => git.write(path, () => updateTargetBranch(path, target)), (result) => `${result.branch} ${result.from}..${result.to}`, "git.update-target-branch");
-      }, { access: "write", long: true, callers: [REVIEW_KIT_ID], audit: { label: "fast-forwarded a project's target branch to origin" } });
+      }, { long: true, callers: [REVIEW_KIT_ID], audit: { label: "fast-forwarded a project's target branch to origin" } });
       context.registerCommand("thread-branch-conflicts", async (input) => readThreadConflicts(await services.knownWorkspacePath(requiredString(input, "workspace")), undefined, optionalString(input, "target")), { access: "read", long: true, callers: [REVIEW_KIT_ID] });
       // Reviews' cleanup of a merged branch; the threads stay.
       context.registerCommand("remove-thread-branch", async (input) => {
