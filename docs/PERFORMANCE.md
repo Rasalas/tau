@@ -1889,7 +1889,7 @@ Ticket K38: switching threads felt like 600 to 800 ms in 0.7.5 and 0.7.6, slower
 
 **What changed.**
 
-- The ref listing (`for-each-ref`) now reports each ref's object and type. A pair of trees is kept without a Git call of its own; anything else is checked as before. Without filesystem snapshot manifests (a Git checkout keeps none) the manifest pass is skipped. `kits/workspace/workspace-git.test.ts` holds both sweeps to one listing for 30 and 40 checkpoints.
+- The ref listing (`for-each-ref`) now reports each ref's object and type. A pair of trees is kept without a Git call of its own; anything else is checked as before. Without filesystem snapshot manifests (a Git checkout keeps none) the manifest pass is skipped. `kits/workspace/workspace-snapshots.test.ts` holds both sweeps to one listing for 30 and 40 checkpoints.
 - The window asks for the thread's newest persisted page (`transcript-page`) beside `switch-session` and paints it when it comes; the host's answer replaces it, and a page that comes later is dropped (`kits/workspace/app.test.tsx`).
 - The renderer keeps the detail of 24 threads (`DETAIL_CACHE_THREADS`).
 
