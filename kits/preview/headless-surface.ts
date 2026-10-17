@@ -39,6 +39,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
   await mkdir(profile, { recursive: true, mode: 0o700 });
   const browser = new PreviewBrowserProcess(executable, profile);
   let destroyed = false;
+  let closing: Promise<void> | undefined;
   let pageSession = "";
   let pageTarget = "";
   let width = 1280, height = 800, zoom = 1;
@@ -228,7 +229,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
       } finally { await browser.send("IO.close", { handle: resource.stream }, pageSession, 2_000).catch(() => undefined); }
       return savePreviewDownload(options.workspaceRoot(), destination, Buffer.concat(chunks));
     },
-    async destroy() { if (destroyed) return; destroyed = true; await browser.close(); },
+    destroy() { destroyed = true; return closing ??= browser.close(); },
   };
   options.log("preview.headless.opened");
   return surface;

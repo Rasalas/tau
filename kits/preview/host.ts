@@ -294,8 +294,8 @@ export function agentAction(
  */
 class PreviewController implements PreviewToolController {
   private view: PreviewSurface | undefined;
-  private opening: Promise<PreviewSurface> | undefined;
-  private profileChanges: Promise<unknown> = Promise.resolve();
+  private browserChanges: Promise<unknown> = Promise.resolve();
+  private stopping: Promise<void> | undefined;
 
   private bounds: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 
@@ -436,15 +436,11 @@ class PreviewController implements PreviewToolController {
 
   /** The view, created on first use; a host without a window has none. */
   async surface(): Promise<PreviewSurface> {
-    if (this.view) return this.view;
-    if (this.opening) return this.opening;
-    const opening = this.openSurface();
-    this.opening = opening;
-    try { return await opening; }
-    finally { if (this.opening === opening) this.opening = undefined; }
+    return this.changeBrowser(() => this.openSurface());
   }
 
   private async openSurface(): Promise<PreviewSurface> {
+    if (this.view) return this.view;
     const { active } = await this.profiles.read();
     if (this.view) return this.view;
     const created = await this.createSurface({
@@ -554,7 +550,10 @@ class PreviewController implements PreviewToolController {
   }
 
   async close(): Promise<PreviewState> {
-    await this.opening?.catch(() => undefined);
+    return this.changeBrowser(() => this.closeSurface());
+  }
+
+  private async closeSurface(): Promise<PreviewState> {
     this.pickToken += 1;
     this.mode = undefined;
     await this.recordStop().catch(() => null);
@@ -608,8 +607,12 @@ class PreviewController implements PreviewToolController {
   }
 
   async open(url: unknown): Promise<PreviewState> {
+    return this.changeBrowser(() => this.loadSurface(url));
+  }
+
+  private async loadSurface(url: unknown): Promise<PreviewState> {
     const resolved = normalizePreviewUrl(url, this.workspaceRoot);
-    const surface = await this.surface();
+    const surface = await this.openSurface();
     await surface.load(resolved, LOAD_TIMEOUT_MS);
     this.publish();
     return surface.state();
@@ -969,8 +972,7 @@ class PreviewController implements PreviewToolController {
 
   /** Another profile means another session, so the view is built again and the page reloaded in it. */
   async useProfile(name: unknown): Promise<PreviewProfiles> {
-    return this.changeProfile(async () => {
-      await this.opening?.catch(() => undefined);
+    return this.changeBrowser(async () => {
       const before = (await this.profiles.read()).active;
       const profiles = await this.profiles.use(name);
       if (profiles.active !== before) await this.reopenInActiveProfile();
@@ -978,28 +980,29 @@ class PreviewController implements PreviewToolController {
     });
   }
 
-  private changeProfile<T>(work: () => Promise<T>): Promise<T> {
-    const changed = this.profileChanges.then(work);
-    this.profileChanges = changed.catch(() => undefined);
+  /** Creation, navigation, profile mutation and closing share one lifecycle. */
+  private changeBrowser<T>(work: () => Promise<T>): Promise<T> {
+    if (this.stopping) return Promise.reject(new Error("Preview is shutting down."));
+    const changed = this.browserChanges.then(work);
+    this.browserChanges = changed.catch(() => undefined);
     return changed;
   }
 
   private async reopenInActiveProfile(): Promise<void> {
     const url = this.view?.state().url ?? "";
-    if (this.view) await this.close();
-    if (url && url !== "about:blank") await this.open(url).catch(() => undefined);
+    if (this.view) await this.closeSurface();
+    if (url && url !== "about:blank") await this.loadSurface(url).catch(() => undefined);
     this.publish();
   }
 
   async renameProfile(input: unknown): Promise<PreviewProfiles> {
     const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
-    return this.changeProfile(() => this.profiles.rename(fields.id, fields.name));
+    return this.changeBrowser(() => this.profiles.rename(fields.id, fields.name));
   }
 
   /** Forgets a profile and its cookies; a page open in it moves to the default profile. */
   async deleteProfile(input: unknown): Promise<PreviewProfiles> {
-    return this.changeProfile(async () => {
-      await this.opening?.catch(() => undefined);
+    return this.changeBrowser(async () => {
       const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
       const before = (await this.profiles.read()).active;
       const profiles = await this.profiles.remove(fields.id);
@@ -1051,9 +1054,12 @@ class PreviewController implements PreviewToolController {
   }
 
   async dispose(): Promise<void> {
-    this.pickToken += 1;
-    try { await this.profileChanges; await this.history.flush(); }
-    finally { await this.close(); }
+    this.stopping ??= this.browserChanges.then(async () => {
+      this.pickToken += 1;
+      try { await this.history.flush(); }
+      finally { await this.closeSurface(); }
+    });
+    return this.stopping;
   }
 }
 

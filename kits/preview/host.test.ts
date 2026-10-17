@@ -41,6 +41,12 @@ function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
   return { surface, placed, loaded, evaluated };
 }
 
+function latch() {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  return { wait, release };
+}
+
 /** Activates the kit and returns its Pi tools, as a thread's runtime would see them. */
 async function activate(createSurface: (options: PreviewSurfaceOptions) => Promise<PreviewSurface | undefined>, cwd = "/project", stateDir = "/state") {
   const events: GlobalHostEvent[] = [];
@@ -494,6 +500,58 @@ describe("recording", () => {
 });
 
 describe("profiles", () => {
+  it("finishes a profile change requested before the first browser opens", async () => {
+    const partitions: string[] = [];
+    const kit = await activate(async (options) => { partitions.push(options.partition); return fakeSurface().surface; }, "/project", await stateDirectory());
+    try {
+      const switching = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: "other" });
+      const opening = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000" });
+      await Promise.all([switching, opening]);
+      expect(partitions).toEqual(["persist:tau-preview-other"]);
+    } finally { await kit.registry.dispose(); }
+  });
+
+  it("retains the page when the profile changes during its first slow navigation", async () => {
+    const loading = latch(), finish = latch();
+    const browsers: ReturnType<typeof fakeSurface>[] = [];
+    const kit = await activate(async () => {
+      const browser = fakeSurface();
+      browsers.push(browser);
+      if (browsers.length === 1) {
+        const load = browser.surface.load;
+        browser.surface.load = async (url, timeout) => { loading.release(); await finish.wait; await load(url, timeout); };
+      }
+      return browser.surface;
+    }, "/project", await stateDirectory());
+    try {
+      const opening = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000" });
+      await loading.wait;
+      const switching = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "use-profile", { name: "other" });
+      finish.release();
+      await Promise.all([opening, switching]);
+      expect(browsers).toHaveLength(2);
+      expect(browsers[1]!.loaded).toEqual(["http://localhost:8000/"]);
+    } finally { finish.release(); await kit.registry.dispose(); }
+  });
+
+  it("waits for concurrent closes before opening the next browser", async () => {
+    const stopping = latch(), finish = latch();
+    const create = vi.fn(async () => fakeSurface({ destroy: async () => { stopping.release(); await finish.wait; } }).surface);
+    const kit = await activate(create);
+    try {
+      await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000" });
+      const first = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close");
+      await stopping.wait;
+      let secondDone = false;
+      const second = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close").then(() => { secondDone = true; });
+      const opening = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000" });
+      expect(secondDone).toBe(false);
+      expect(create).toHaveBeenCalledTimes(1);
+      finish.release();
+      await Promise.all([first, second, opening]);
+      expect(create).toHaveBeenCalledTimes(2);
+    } finally { finish.release(); await kit.registry.dispose(); }
+  });
   it("switches the actual browser when the profile changes during startup", async () => {
     let entered!: () => void;
     let release!: () => void;
