@@ -41,7 +41,7 @@ describe("renderer layout persistence and navigation", () => {
     expect(result.current.preferences).toMatchObject({ spineWanted: true, stageMaximized: true });
     expect(workbenchDisplay(result.current.preferences, space)).toMatchObject({ spine: true, conversationFolded: true });
 
-    act(() => result.current.send({ type: "reveal-conversation" }));
+    act(() => result.current.send({ type: "reveal-conversation", stacked: true }));
     act(() => vi.advanceTimersByTime(500));
     expect(storage.get(STORAGE_KEYS.spine)).toBe("false");
     expect(JSON.parse(storage.get(threadStageKey("thread:a"))!).maximized).toBeUndefined();

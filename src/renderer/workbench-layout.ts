@@ -52,7 +52,7 @@ export type LayoutAction =
   | { type: "toggle-stage"; space: LayoutSpace }
   | { type: "toggle-workspace-summary" }
   | { type: "toggle-spine" }
-  | { type: "reveal-conversation"; stacked?: boolean }
+  | { type: "reveal-conversation"; stacked: boolean }
   | { type: "maximize-stage" }
   | { type: "toggle-stage-maximized"; space: LayoutSpace }
   | { type: "restore-stage"; space?: LayoutSpace }

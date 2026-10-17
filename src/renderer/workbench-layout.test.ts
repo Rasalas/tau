@@ -31,14 +31,14 @@ describe("renderer workbench layout", () => {
     expect(workbenchDisplay(chat, narrow).rightAreaShown).toBe(false);
     const shown = apply(chat, { type: "toggle-stage", space: narrow });
     expect(workbenchDisplay(shown, narrow)).toMatchObject({ stageExpanded: true, conversationFolded: true });
-    expect(workbenchDisplay(apply(shown, { type: "reveal-conversation" }), narrow)).toMatchObject({ stageExpanded: false, conversationFolded: false });
+    expect(workbenchDisplay(apply(shown, { type: "reveal-conversation", stacked: true }), narrow)).toMatchObject({ stageExpanded: false, conversationFolded: false });
   });
 
   it("restores the conversation after maximizing, resizing and revealing it, even with a spine preference", () => {
     const spine = apply(preferences, { type: "toggle-spine" });
     const maximized = apply(spine, { type: "maximize-stage" });
     expect(workbenchDisplay(maximized, desktop)).toMatchObject({ spine: true, floating: true, conversationFolded: true });
-    const revealed = apply(maximized, { type: "reveal-conversation" });
+    const revealed = apply(maximized, { type: "reveal-conversation", stacked: true });
     expect(revealed).toMatchObject({ stageMaximized: false, spineWanted: false, chatFocused: true });
     expect(workbenchDisplay(revealed, narrow)).toMatchObject({ stageExpanded: false, conversationFolded: false });
     expect(workbenchDisplay(revealed, desktop)).toMatchObject({ stageExpanded: true, conversationFolded: false });
