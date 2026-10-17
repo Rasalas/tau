@@ -1,5 +1,24 @@
 {
   "extends": "../tsconfig.json",
-  "compilerOptions": { "types": ["vite/client"] },
-  "include": ["src", "vite.config.ts", "vitest.config.ts"]
+  "compilerOptions": {
+    "types": [
+      "vite/client"
+    ],
+    "paths": {
+      "tau": [
+        "../src/renderer/extension-api.ts"
+      ],
+      "tau/host-extension": [
+        "../src/main/host-extension-api.ts"
+      ],
+      "tau/host": [
+        "../src/main/host-extension-worker-protocol.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
 }

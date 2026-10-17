@@ -10,7 +10,7 @@
     "build:dev": "vite build --mode development",
     "sync": "npm run build && cap sync",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "node ../scripts/check.mjs typecheck -p tsconfig.json --noEmit",
     "ios:build": "node scripts/native-build.mjs ios",
     "android:build": "node scripts/native-build.mjs android",
     "sim": "node scripts/sim.mjs",
@@ -26,7 +26,8 @@
     "tau-native": "file:plugins/tau-native"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.2"
+    "@capacitor/cli": "^8.5.2",
+    "@types/node": "^22.20.5"
   },
   "overrides": {
     "xcode": {
