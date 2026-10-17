@@ -50,6 +50,7 @@ export function summarizeReports(sources) {
   const apps = {};
   const results = {};
   const warnings = new Set();
+  let launchIdentity;
   const provenance = [];
   for (const { file, report } of sources) {
     if (report.schemaVersion !== 1 || !report.apps || !report.results || Array.isArray(report.results) || !report.machine || !Number.isFinite(Date.parse(report.generatedAt))) {
@@ -64,6 +65,9 @@ export function summarizeReports(sources) {
       const app = report.apps[id];
       if (!app?.app || !app.commit || app.commit === "unknown" || !Array.isArray(runs)) throw new Error(`${file}: missing app identity, commit or raw runs for ${id}`);
       if (apps[id] && canonical(apps[id]) !== canonical(app)) throw new Error(`${file}: incompatible ${id} build or commit; summarize separately`);
+      const launch = canonical(app.launch ?? null);
+      if (launchIdentity !== undefined && launchIdentity !== launch) throw new Error(`${file}: incompatible launch conditions; summarize separately`);
+      launchIdentity = launch;
       apps[id] = app;
       (results[id] ??= []).push(...runs);
       loads[id] = {

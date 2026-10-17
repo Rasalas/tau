@@ -243,7 +243,11 @@ describe("isolation", () => {
     const path = join(home, ".config", "T3 Code (Beta)", "Cookies");
     expect(openForbiddenFiles([1], { home, run: () => `n${path}` })).toEqual([path]);
     expect(() => openForbiddenFiles([1], { run: () => { throw Object.assign(new Error("missing lsof"), { code: "ENOENT" }); } })).toThrow("Cannot verify comparison isolation");
-    expect(openForbiddenFiles([1], { run: () => { throw Object.assign(new Error("pid gone"), { status: 1, stdout: "" }); } })).toEqual([]);
+    expect(openForbiddenFiles([1], { platform: "darwin", alive: () => false, run: () => { throw Object.assign(new Error("pid gone"), { status: 1, stdout: "", stderr: "" }); } })).toEqual([]);
+    for (const platform of ["linux", "darwin"]) {
+      expect(() => openForbiddenFiles([1], { platform, alive: () => true, run: () => { throw Object.assign(new Error("inspection failed"), { status: 1, stdout: "", stderr: "permission denied" }); } })).toThrow("Cannot verify comparison isolation");
+    }
+    expect(() => openForbiddenFiles([1], { platform: "darwin", alive: () => true, run: () => { throw Object.assign(new Error("missing live pid"), { status: 1, stdout: "", stderr: "" }); } })).toThrow("Cannot verify comparison isolation");
   });
 });
 

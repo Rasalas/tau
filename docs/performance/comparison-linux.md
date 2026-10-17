@@ -5,6 +5,9 @@ each app's installed Electron executable and package entry, including the
 reference app's compile-cache bootstrap. Linux process accounting distinguishes
 the Electron main process from its renderer and backend.
 
+Tau's startup probe is installed in the current and future main document, so
+the first navigation cannot discard it before host confirmation is measured.
+
 Build clean, pinned source checkouts before measuring. For the T3 reference,
 use its declared Node and package-manager versions and run
 `vp run build:desktop` and the desktop package's `ensure:electron` script. A
@@ -17,6 +20,11 @@ harness forwards `DISPLAY` to both apps; it does not inherit the caller's
 Xauthority file, session bus or runtime homes. A display requiring authentication
 needs a separate setup. Install `lsof`: inability to inspect open files fails the
 isolation check rather than reporting a clean run.
+
+Linux uses [`lsof -Q`](https://github.com/lsof-org/lsof/blob/master/docs/manpage.md)
+to ignore search targets that exited; a nonzero result still fails the check.
+On macOS, a missing target is accepted only if it has exited and `lsof` reports
+no diagnostic. This keeps an inspection error distinct from normal process churn.
 
 Set `COMPARE_REFERENCE_SOURCE` to the reference checkout. Set
 `COMPARE_TAU_ROOT` and `COMPARE_REFERENCE_ROOT` to distinct scratch folders under

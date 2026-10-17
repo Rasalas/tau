@@ -49,6 +49,11 @@ describe("comparison summaries", () => {
     const other = structuredClone(sample);
     other.report.apps.tau.launch.sandbox = true;
     expect(() => summarizeReports([sample, other])).toThrow(/incompatible tau build/u);
+    const reference = source({ reference: [run(200)] });
+    reference.report.apps.reference.launch = { background: true, sandbox: true, display: "X11" };
+    expect(() => summarizeReports([sample, reference])).toThrow("incompatible launch conditions");
+    reference.report.apps.reference.launch.sandbox = false;
+    expect(summarizeReports([sample, reference]).apps.reference.launch.sandbox).toBe(false);
   });
 
   it("rejects incompatible machines, commits, fixtures and unsupported report shapes", () => {

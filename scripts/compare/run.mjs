@@ -73,7 +73,9 @@ export async function start(app, root, { onStage } = {}) {
       exited.then((status) => { throw new Error(`${app.label} exited during start: ${JSON.stringify(status)}`); }),
     ]);
     const session = await connect(page.webSocketDebuggerUrl);
-    if (app.id === "tau") await evaluate(session, INSTALL_STARTUP_PROBE);
+    if (app.id === "tau") await session.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: `if (window === window.top) { ${INSTALL_STARTUP_PROBE} }`, runImmediately: true,
+    });
     onStage?.("connected", Date.now() - spawnedAt);
     return { child, port, session, spawnedAt };
   } catch (error) {
