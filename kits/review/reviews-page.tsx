@@ -413,7 +413,8 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
         {summary?.turns ? <span>{plural(summary.turns, "turn")}</span> : null}
         <Checks runs={runs} nested={false} />
         {review.uncommitted ? <span className="warn">{review.uncommitted} not committed</span> : null}
-        {review.behind ? <span>{plural(review.behind, "commit")} behind {review.target}</span> : null}
+        {review.behind ? <span>{plural(review.behind, "commit")} behind {review.comparedRef ?? review.target}</span> : null}
+        {review.comparedRef && review.targetBehind ? <span>{review.target} is {plural(review.targetBehind, "commit")} behind {review.comparedRef}</span> : null}
       </p>
       {runs.length ? <PipelineGraph pipelines={[runsPipeline(runs)]} actions={actions} /> : null}
       {review.ask ? (

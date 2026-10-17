@@ -30,6 +30,10 @@ export interface ThreadBranch {
   /** Merged without the branch's own commits: same patches, same tree, or its pull request merged on the host. */
   mergedBy?: "patches" | "tree" | "squash" | "history" | "request";
   defaultBranch?: string;
+  /** Counts, diff and conflicts were read against this origin ref because the local target is behind it. */
+  comparedRef?: string;
+  /** Commits the local target lacks against `comparedRef`. */
+  targetBehind?: number;
   conflicts: string[];
   unavailable?: string;
   mergeBlocked?: string;
@@ -184,6 +188,8 @@ export interface LocalReview {
   conflicts: string[];
   unavailable?: string;
   mergeBlocked?: string;
+  comparedRef?: string;
+  targetBehind?: number;
   request?: ThreadBranch["request"];
   mergedBy?: ThreadBranch["mergedBy"];
   /** The repository's default branch, when Merge would land elsewhere. */
@@ -281,6 +287,7 @@ export function deriveReviews({ answer, threads, projects, busy, checks }: Revie
       conflicts: branch.conflicts,
       ...(branch.unavailable ? { unavailable: branch.unavailable } : {}),
       ...(branch.mergeBlocked ? { mergeBlocked: branch.mergeBlocked } : {}),
+      ...(branch.comparedRef && branch.targetBehind ? { comparedRef: branch.comparedRef, targetBehind: branch.targetBehind } : {}),
       ...(completed && (branch.mergedBy || record?.mergedBy) ? { mergedBy: branch.mergedBy ?? record?.mergedBy } : {}),
       ...(completed && (branch.request || record?.request) ? { request: branch.request ?? record?.request } : {}),
       ...(branch.defaultBranch && branch.target && branch.defaultBranch !== branch.target ? { offDefault: branch.defaultBranch } : {}),
