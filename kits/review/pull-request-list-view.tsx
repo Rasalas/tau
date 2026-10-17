@@ -12,12 +12,14 @@ import {
   GitPullRequestClosed,
   GitPullRequestDraft,
   ListFilter,
-  LoaderCircle,
   RefreshCw,
   Search,
   TriangleAlert,
 } from "lucide-react";
-import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, useThreadStore, type MenuSection, type StageTabHandle, type ThreadStore, type UiProject, type UiSession, type WorkbenchActions } from "tau";
+import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, type MenuSection, type StageTabHandle, type WorkbenchActions } from "tau";
+import { listAcrossMachines, projectId, useProjects } from "./pull-request-lists.js";
+
+export { listAcrossMachines, projectsByMachine, type ProjectsByMachine } from "./pull-request-lists.js";
 import { REVIEWS_PAGE } from "./local-reviews.js";
 import { providerInfo, requestNumber, type PullRequestList, type PullRequestListEntry, type PullRequestListState, type PullRequestLists } from "./protocol.js";
 import { RequestCacheNotice, useRequestConnection } from "./pull-request-offline.js";
@@ -41,6 +43,9 @@ import { INVOLVEMENTS, listNarrowings, NarrowingChips, PullRequestFilterSheet, R
 import { useCompactProfile } from "./compact-profile.js";
 import { ChecksMini } from "./pipeline-view.js";
 import { RequestStateIcon, type RequestState } from "./request-state-icon.js";
+import { pullStatus } from "./inbox.js";
+import { Changes, StatusCell } from "./review-cells.js";
+import { ReadFailures, ReviewsFooter } from "./reviews-footer.js";
 
 const PREFERENCES_KEY = "tau.review.pull-requests";
 const GROUPING_KEY = "tau.review.pull-requests.group";
@@ -96,74 +101,6 @@ export function mergedListing(answer: PullRequestLists): Listing | undefined {
     workspaces: new Map(answer.lists.flatMap((list) => list.workspaces[0] ? [[`${list.host}/${list.repo}`, list.workspaces[0]] as const] : [])),
   };
 }
-
-/** The project ids to list on each machine; `""` is the host this window talks to. */
-export type ProjectsByMachine = ReadonlyMap<string, { name: string; workspaces: string[] }>;
-
-/** Projects whose threads run on another machine live there; that machine's host lists them. */
-export function projectsByMachine(projects: readonly UiProject[], threads: readonly Pick<UiSession, "workspaceId" | "machine">[]): ProjectsByMachine {
-  const homes = new Map(threads.flatMap((thread) => thread.machine && thread.workspaceId ? [[thread.workspaceId, thread.machine] as const] : []));
-  // This host is always asked, as it was before machines: a page with no projects still has its answer.
-  const groups = new Map<string, { name: string; workspaces: string[] }>([["", { name: "", workspaces: [] }]]);
-  for (const project of projects) {
-    const id = projectId(project);
-    const home = homes.get(id);
-    const key = home?.id ?? "";
-    const group = groups.get(key) ?? { name: home?.name ?? "", workspaces: [] };
-    group.workspaces.push(id);
-    groups.set(key, group);
-  }
-  return groups;
-}
-
-/**
- * Every machine's answer as one: this host's lists first, a repository listed
- * twice only once. Another machine's rows open without a project here.
- */
-export async function listAcrossMachines(client: PullRequestClient, machines: ProjectsByMachine, asking: { state: PullRequestListState; limit: number; search?: string }): Promise<PullRequestLists> {
-  const answers = await Promise.all([...machines].map(async ([machine, { name, workspaces }]): Promise<PullRequestLists> => {
-    if (!machine) return client.listMany({ ...asking, workspaces });
-    const failed = (message: string) => ({ lists: [], failures: workspaces.map((workspace) => ({ workspace, message })) });
-    if (!client.listManyOn) return failed(`Its threads run on ${name}, which this window does not reach.`);
-    return client.listManyOn(machine, { ...asking, workspaces }).then(
-      (answer) => ({ lists: answer.lists.map((list) => ({ ...list, workspaces: [] })), failures: answer.failures }),
-      (error: unknown) => failed(`${name} did not answer: ${errorMessage(error)}`),
-    );
-  }));
-  const seen = new Set<string>();
-  return {
-    lists: answers.flatMap((answer) => answer.lists).filter((list) => {
-      const key = `${list.host}/${list.repo}`.toLowerCase();
-      return !seen.has(key) && Boolean(seen.add(key));
-    }),
-    failures: answers.flatMap((answer) => answer.failures),
-  };
-}
-
-/** The projects the window knows, once per workspace, by the machine that lists them; outside a workbench there are none. */
-function useProjects(): { projects: readonly UiProject[]; machines: ProjectsByMachine } {
-  let store: ThreadStore | undefined;
-  try { store = useThreadStore(); } catch { store = undefined; }
-  const read = (): { projects: readonly UiProject[]; machines: ProjectsByMachine } => {
-    const projects = store?.getProjects() ?? [];
-    return { projects, machines: projectsByMachine(projects, store?.getSnapshot().threads ?? []) };
-  };
-  const [state, setState] = useState(read);
-  useEffect(() => {
-    if (!store) return undefined;
-    // Threads change often; a new answer only when a project or its machine did.
-    const update = () => setState((current) => {
-      const next = read();
-      return JSON.stringify([...next.machines]) === JSON.stringify([...current.machines]) && next.projects === current.projects ? current : next;
-    });
-    const offProjects = store.subscribeToProjects(update);
-    const offThreads = store.subscribe(update);
-    return () => { offProjects(); offThreads(); };
-  }, [store]);
-  return state;
-}
-
-const projectId = (project: UiProject) => project.workspaceId ?? project.path;
 
 function StateGlyph({ entry }: { entry: PullRequestListEntry }) {
   const props = { size: 14, "aria-hidden": true } as const;
@@ -233,49 +170,35 @@ const PullRequestRow = memo(function PullRequestRow({ entry, matchedElsewhere, s
   );
 });
 
-const CHECKS_CELL = {
-  passing: { Icon: CircleCheck, label: "Passing" },
-  failing: { Icon: CircleX, label: "Failing" },
-  pending: { Icon: LoaderCircle, label: "Running" },
-} as const;
-
-/** The page's table form (1i): state, title over `branch → target`, changes, checks, author and age. */
-const PullRequestTableRow = memo(function PullRequestTableRow({ entry, matchedElsewhere, showRepository, client, onOpen }: RowProps) {
+/** The page's table form (1i): state, title over `#n · author · branch → target`, changes, status and age, the inbox's grid. */
+const PullRequestTableRow = memo(function PullRequestTableRow({ entry, matchedElsewhere, showRepository, onOpen }: RowProps) {
   const shown = entry.labels.slice(0, 2);
   const state: RequestState = entry.state === "open" && entry.draft ? "draft" : entry.state;
-  const checks = entry.checks ? CHECKS_CELL[entry.checks] : undefined;
+  const author = entry.author?.login ?? "ghost";
   return (
     <button className="pr-row pr-trow" data-pr-row="" aria-label={`${requestNumber(entry.ref.service, entry.ref.number)} ${entry.title}`} onClick={() => onOpen(entry)}>
-      <span className="pr-trow-state">
-        <RequestStateIcon state={state} size={14} />
-        {entry.mergeable === "conflicting" ? <span className="pr-row-conflict" title="Has conflicts with the base branch" aria-label="Has conflicts"><TriangleAlert size={10} aria-hidden="true" /></span> : null}
-      </span>
-      <span className="pr-row-lines">
-        <span className="pr-row-line">
-          <span className="pr-row-number">{requestNumber(entry.ref.service, entry.ref.number)}</span>
-          <span className="pr-row-title">{entry.title}</span>
+      <span className="pr-trow-state"><RequestStateIcon state={state} size={14} /></span>
+      <span className="rv-thread">
+        <span className="rv-title-line">
+          <span className="rv-title">{entry.title}</span>
           {entry.stack ? (
             <span className="pr-row-stack" title={`Layer ${entry.stack.position} of ${entry.stack.size} in stack #${entry.stack.number}`} aria-label={`Stack layer ${entry.stack.position} of ${entry.stack.size}`}>
               <Layers size={9} aria-hidden="true" />{entry.stack.position}/{entry.stack.size}
             </span>
           ) : null}
-          <ReviewGlyph decision={entry.reviewDecision} />
-        </span>
-        <span className="pr-row-line meta">
-          {showRepository ? <span className="pr-row-repo" title={`${entry.ref.host}/${entry.ref.repo}`}>{entry.ref.repo}</span> : null}
-          {matchedElsewhere ? <span className="pr-row-elsewhere" title="Matched in the description"><Search size={9} aria-hidden="true" /> matched in the description</span> : null}
-          <span className="pr-row-branch" title={`${entry.headRef} → ${entry.baseRef}`}>{entry.headRef} → {entry.baseRef}</span>
           {shown.map((label) => (
             <span key={label.name} className="pr-label small"><i aria-hidden="true" style={label.color ? { background: `#${label.color}` } : undefined} />{label.name}</span>
           ))}
-          {entry.labels.length > shown.length ? <span className="pr-row-more">+{entry.labels.length - shown.length}</span> : null}
+        </span>
+        <span className="rv-sub">
+          {requestNumber(entry.ref.service, entry.ref.number)} · <span title={entry.author?.name ? `${entry.author.name} (@${author})` : author}>{author}</span>
+          {showRepository ? <> · <span title={`${entry.ref.host}/${entry.ref.repo}`}>{entry.ref.repo}</span></> : null}
+          {" · "}<span className="rv-mono" title={`${entry.headRef} → ${entry.baseRef}`}>{entry.headRef}</span> → {entry.baseRef}
+          {matchedElsewhere ? <span className="pr-row-elsewhere" title="Matched in the description"><Search size={9} aria-hidden="true" /> description</span> : null}
         </span>
       </span>
-      <span className="rv-changes pr-trow-changes">{entry.additions || entry.deletions ? <><span className="stat-add">+{entry.additions}</span><span className="stat-del">−{entry.deletions}</span></> : <span className="rv-checks none">—</span>}</span>
-      <span className="pr-trow-checks">
-        {entry.checkRuns ? <RowChecks entry={entry} client={client} onOpen={onOpen} /> : checks ? <span className={`rv-checks ${entry.checks === "passing" ? "passed" : entry.checks === "failing" ? "failed" : "running"}`}><checks.Icon size={12} aria-hidden="true" /> {checks.label}</span> : <span className="rv-checks none">no checks</span>}
-      </span>
-      <span className="pr-trow-author" title={entry.author?.name ? `${entry.author.name} (@${entry.author.login})` : entry.author?.login}>{entry.author?.login ?? "ghost"}</span>
+      <Changes added={entry.additions} removed={entry.deletions} />
+      <StatusCell status={pullStatus(entry)} />
       <span className="rv-age">{relativeTime(entry.updatedAt).replace(/ ago$/u, "")}</span>
     </button>
   );
@@ -597,8 +520,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
           {onPage ? (
             <div className="rv-head">
               <div>
-                <h2>Remote pull requests</h2>
-                <p>The pull and merge requests of your projects, read from their Git hosts. Open one to review it here.</p>
+                <h2>All pull requests</h2>
               </div>
               {searchField}
             </div>
@@ -671,12 +593,6 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
         ) : (
           <>
             {phone && shownText ? <p className="pr-list-summary">{shownText} · {SORT_LABELS[preferences.sort]}</p> : null}
-            {table ? (
-              <div className="pr-tcolumns" aria-hidden="true">
-                <span />
-                <span>Pull request</span><span>Changes</span><span>Checks</span><span>Author</span><span>Updated</span>
-              </div>
-            ) : null}
             {sections.map((group) => (
               <section key={group.key} className="pr-list-group" aria-label={group.label || `${noun}s`}>
                 {group.label ? <h2>{group.label} <small>{group.entries.length}</small></h2> : null}
@@ -691,14 +607,6 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
                 <button className="mini-button" onClick={() => void load()}>Retry</button>
               </div>
             ) : null}
-            {list && list.failures.length > 0 ? (
-              <div className="pr-list-stale quiet pr-list-failures" role="note">
-                <span>Not listed:</span>
-                <ul>
-                  {list.failures.map((failure) => <li key={failure.workspace}><strong>{projectName(failure.workspace) ?? failure.workspace}</strong> {failure.message}</li>)}
-                </ul>
-              </div>
-            ) : null}
             {list?.truncated ? (
               <div className="pr-list-more">
                 {loading ? <span><Spinner size="xs" label="Loading more" /> Loading more</span>
@@ -709,6 +617,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
           </>
         )}
       </div>
+      {list && list.failures.length > 0 ? <ReviewsFooter>{[<ReadFailures key="failures" failures={list.failures} name={projectName} />]}</ReviewsFooter> : null}
     </div>
   );
 }

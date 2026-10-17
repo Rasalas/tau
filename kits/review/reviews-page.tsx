@@ -1,15 +1,19 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import {
   ArrowUp,
+  ArrowUpRight,
   ChevronRight,
+  Eye,
   GitMerge,
   GitPullRequest,
   GitPullRequestArrow,
+  Inbox,
   MessageSquare,
   RefreshCw,
   Search,
   Trash2,
   TriangleAlert,
+  Wrench,
   X,
 } from "lucide-react";
 import {
@@ -33,55 +37,59 @@ import {
   type PageProps,
   type UiDiffLine,
   type UiFileDiff,
+  type UiProject,
   type WorkbenchActions,
 } from "tau";
 import { useCompactProfile } from "./compact-profile.js";
-import { mergeBlocker, mergedThisMonth, reviewRuntime, type HunkPick, type LocalReview, type ReviewCounts, type ReviewState } from "./local-reviews.js";
+import { buildInbox, fixRequest, mergedStatus, openPulls, type InboxItem } from "./inbox.js";
+import { useInboxPulls, type InboxPullsStore } from "./inbox-pulls.js";
+import { mergeBlocker, mergedThisMonth, reviewRuntime, type HunkPick, type LocalReview } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore, type ReviewRun } from "./local-reviews-store.js";
 import { runsPipeline } from "./pipeline.js";
 import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
-import { REVIEW_HOST_EXTENSION_ID, type PendingReviewComment } from "./protocol.js";
+import { REVIEW_HOST_EXTENSION_ID, requestNumber, type PendingReviewComment, type PullRequestListEntry } from "./protocol.js";
 import { requestLabelOf } from "./pull-request-logic.js";
+import { projectId } from "./pull-request-lists.js";
 import { baseName, lineTarget, lineText, noteMessage } from "./review-lines.js";
 import type { PullRequestsPageParts } from "./pull-requests-page.js";
 import type { ReviewsFilter } from "./reviews-filter.js";
+import { ReadFailures, ReviewsFooter } from "./reviews-footer.js";
+import { Changes, StatusCell } from "./review-cells.js";
 import type { RowRequests } from "./requests.js";
 import { ReviewDetailSidebar } from "./review-detail-sidebar.js";
 import { ALREADY, askBlocker, plural, rebaseBlocker } from "./review-words.js";
 import type { DetailParts } from "./review-detail-store.js";
 
 const PullRequestsPage = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestsPage })));
+const PullRequestDetailPane = lazy(() => import("./pull-requests-page.js").then((module) => ({ default: module.PullRequestDetailPane })));
 const LocalReviewDetail = lazy(() => import("./local-review-detail.js").then((module) => ({ default: module.LocalReviewDetail })));
+const PullMergeDialog = lazy(() => import("./inbox-merge.js").then((module) => ({ default: module.PullMergeDialog })));
 
-export type ReviewTab = ReviewState | "remote";
-const TABS: readonly ReviewTab[] = ["ready", "requested", "conflicts", "merged", "remote"];
-const TAB_LABELS: Record<ReviewTab, { nav: string; short: string; section: string }> = {
-  ready: { nav: "Ready to merge", short: "Ready", section: "Ready to merge" },
-  requested: { nav: "Changes requested", short: "Requested", section: "Changes requested" },
-  conflicts: { nav: "Conflicts", short: "Conflicts", section: "Conflicts" },
-  merged: { nav: "Merged", short: "Merged", section: "Merged" },
-  remote: { nav: "Remote", short: "Remote", section: "Remote pull requests" },
+/** What the page lists: the inbox, what was merged, or every project's pull requests. */
+export type ReviewTab = "inbox" | "merged" | "remote";
+const TABS: readonly ReviewTab[] = ["inbox", "merged", "remote"];
+const TAB_LABELS: Record<ReviewTab, { nav: string; short: string; title: string }> = {
+  inbox: { nav: "Inbox", short: "Inbox", title: "Inbox" },
+  merged: { nav: "Merged", short: "Merged", title: "Merged" },
+  remote: { nav: "All pull requests", short: "Pull requests", title: "All pull requests" },
 };
-const TAB_ICONS: Record<ReviewTab, typeof GitPullRequest> = {
-  ready: GitPullRequest,
-  requested: MessageSquare,
-  conflicts: RefreshCw,
-  merged: GitMerge,
-  remote: GitPullRequestArrow,
-};
+const TAB_ICONS: Record<ReviewTab, typeof GitPullRequest> = { inbox: Inbox, merged: GitMerge, remote: GitPullRequestArrow };
 
 export interface ReviewsPageParts {
   store: LocalReviewsStore;
   host: HostExtensionClient;
   rows: RowRequests;
   remote: PullRequestsPageParts;
+  /** The open pull requests the inbox reads beside the local branches. */
+  pulls: InboxPullsStore;
   /** "Filter reviews", drawn in the list's page head. */
   filter: ReviewsFilter;
   /** What the detail view (1e) shares with its sidebar, and what it reads beside the review. */
   detail: DetailParts;
 }
 
-const tabOf = (value: unknown): ReviewTab => TABS.includes(value as ReviewTab) ? value as ReviewTab : "ready";
+// Links from before the inbox named a review state; those all live in the inbox now.
+const tabOf = (value: unknown): ReviewTab => value === "merged" || value === "remote" ? value : "inbox";
 const text = (value: unknown): string | undefined => typeof value === "string" && value ? value : undefined;
 
 /** "4m", "22m", "1d": the age the list shows. */
@@ -95,25 +103,19 @@ export function shortAge(at: number, now = Date.now()): string {
   return days < 60 ? `${days}d` : new Date(at).toISOString().slice(0, 10);
 }
 
+/** A project as the sidebar and the rows draw it. */
+type ProjectMark = LocalReview["project"];
 
-function ProjectTile({ project }: { project: LocalReview["project"] }) {
+function ProjectTile({ project }: { project: ProjectMark }) {
   return <ProjectIcon project={{ path: project.root, name: project.name, workspaceId: project.key, icon: project.icon }} className="rv-tile" />;
 }
 
-function Changes({ review, files = true }: { review: LocalReview; files?: boolean }) {
-  return (
-    <span className="rv-changes">
-      {files ? <span className="rv-files">{plural(review.files, "file")}</span> : null}
-      <span className="stat-add">+{review.added}</span>
-      <span className="stat-del">−{review.removed}</span>
-    </span>
-  );
-}
+const markOf = (project: UiProject): ProjectMark => ({ key: projectId(project), name: project.name, root: project.path, ...(project.icon ? { icon: project.icon } : {}) });
 
-/** The review's script runs as a mini pipeline; in a row (`nested`) a click on it opens the review at its checks. */
-function Checks({ runs, open, nested = true }: { runs: readonly ReviewRun[]; open?: () => void; nested?: boolean }) {
-  if (!runs.length) return <span className="rv-checks none">no checks</span>;
-  return <span className="rv-checks"><PipelineMini pipelines={[runsPipeline(runs)]} size={nested ? 16 : 18} nested={nested} {...(open ? { onOpen: open } : {})} /></span>;
+/** The review's script runs as a mini pipeline, in the review on a phone. */
+function Checks({ runs }: { runs: readonly ReviewRun[] }) {
+  if (!runs.length) return <span className="rv-checks none">No checks</span>;
+  return <span className="rv-checks"><PipelineMini pipelines={[runsPipeline(runs)]} size={18} nested={false} /></span>;
 }
 
 function Model({ review, name = true }: { review: LocalReview; name?: boolean }) {
@@ -134,87 +136,119 @@ function Into({ review }: { review: LocalReview }) {
   return <span className="rv-into" data-off={off ? "" : undefined} {...(off ? tooltipProps(`This review targets ${review.target}; the project's default branch is ${off}.`) : {})}> → {review.target}</span>;
 }
 
-const cost = (review: LocalReview) => review.costUsd === undefined ? "—" : formatCost(review.costUsd) ?? "$0.00";
+const numberOf = (entry: PullRequestListEntry) => requestNumber(entry.ref.service, entry.ref.number);
 
-/** What a row says in its last column when it has no button: the open ask, or where it was merged. */
-function Aside({ review }: { review: LocalReview }) {
-  if (review.state === "merged") return <span className="rv-aside"><span className="rv-act-label">{review.mergedBy === "request" ? "Pull request merged" : review.mergedBy ? `Already in ${review.target}` : `into ${review.target}`}</span></span>;
-  if (review.ask?.kind === "note") return <span className="rv-aside" {...tooltipProps(review.ask.text)}><MessageSquare size={12} aria-hidden="true" /><span className="rv-act-label">Your note: {review.ask.text}</span></span>;
-  if (review.ask) return <span className="rv-aside"><RefreshCw size={12} aria-hidden="true" /><span className="rv-act-label">Rebase asked</span></span>;
-  return null;
+/** The second line: `#12 · branch → target`, or `#12 · author` for someone else's request. */
+function Sub({ item }: { item: InboxItem }) {
+  const { review, pull } = item;
+  const entry = pull?.entry;
+  const lead = entry ? `${numberOf(entry)} · ` : review?.request ? `${requestLabelOf(review.request.url, review.request.number)} · ` : "";
+  if (review) return <span className="rv-sub">{lead}<span className="rv-mono">{review.remote ? `${review.remote.machine}: ` : ""}{review.branch}</span><Into review={review} /></span>;
+  if (entry && !pull?.mine) return <span className="rv-sub">{lead}{entry.author?.login ?? "ghost"}</span>;
+  return <span className="rv-sub">{lead}<span className="rv-mono">{entry?.headRef}</span> → {entry?.baseRef}</span>;
 }
+
+const titleOf = (item: InboxItem) => item.review?.title ?? item.pull?.entry.title ?? "";
+const labelOf = (item: InboxItem) => item.review ? `${item.review.title}, ${item.review.branch}` : `${titleOf(item)}, ${item.pull ? numberOf(item.pull.entry) : ""}`;
 
 interface RowActions {
   merge(review: LocalReview, picks?: Record<string, HunkPick[]>): void;
+  mergePull(item: InboxItem): void;
   rebase(review: LocalReview): void;
+  fix(item: InboxItem): void;
   remove(review: LocalReview): void;
+  open(item: InboxItem, focus?: "checks"): void;
   busy: string | undefined;
   mayMerge: boolean;
+  mayMergePull: boolean;
   mayRemove: boolean;
   mayAsk: boolean;
 }
 
-function RowAction({ review, act }: { review: LocalReview; act: RowActions }) {
-  if (review.state === "ready") {
-    const blocked = !act.mayMerge ? READ_ONLY_REASON : mergeBlocker(review);
-    return (
-      <button type="button" className="rv-merge" disabled={Boolean(blocked) || act.busy === review.key} {...tooltipProps(blocked ?? `Merge ${review.branch} into ${review.target}`)} onClick={() => act.merge(review)}>
-        <GitMerge size={13} aria-hidden="true" /><span className="rv-act-label">{act.busy === review.key ? "Merging…" : "Merge"}</span>
-      </button>
-    );
-  }
-  if (review.state === "conflicts") {
-    return (
-      <button type="button" className="rv-ask" disabled={Boolean(rebaseBlocker(review, act.mayAsk)) || act.busy === review.key} {...tooltipProps(rebaseBlocker(review, act.mayAsk) ?? `Asks the thread to rebase onto ${review.target}`)} onClick={() => act.rebase(review)}>
-        <RefreshCw size={13} aria-hidden="true" /><span className="rv-act-label">Ask thread to rebase</span>
-      </button>
-    );
-  }
-  return <Aside review={review} />;
+/** Why a request's merge is off, from the row's side. */
+function pullMergeBlocker(item: InboxItem, act: RowActions): string | undefined {
+  const entry = item.pull!.entry;
+  if (!act.mayMergePull) return READ_ONLY_REASON;
+  if (entry.draft) return `${numberOf(entry)} is a draft; mark it ready for review first.`;
+  const uncommitted = item.review?.uncommitted ?? 0;
+  if (uncommitted > 0) return `${plural(uncommitted, "file")} not committed in the worktree; ask the thread to commit and push first.`;
+  return undefined;
 }
 
-function ReviewRow({ review, runs, open, act }: { review: LocalReview; runs: readonly ReviewRun[]; open(review: LocalReview, focus?: "checks"): void; act: RowActions }) {
+/** The row's one step: Merge, Review, Ask to rebase, Ask to fix or Open; "Waiting" when the thread has it. */
+function RowAction({ item, act }: { item: InboxItem; act: RowActions }) {
+  const { review, pull } = item;
+  const busy = act.busy === item.key;
+  const button = (className: string, label: string, Icon: typeof GitMerge, run: () => void, blocked?: string, hint?: string) => (
+    <button type="button" className={`rv-act${className}`} disabled={Boolean(blocked) || busy} {...tooltipProps(blocked ?? hint ?? label)} onClick={run}>
+      <Icon size={13} aria-hidden="true" /><span className="rv-act-label">{busy ? `${label}…` : label}</span>
+    </button>
+  );
+  if (item.action === "merge") {
+    if (pull) {
+      const target = review?.target ?? pull.entry.baseRef;
+      return button(" go", "Merge", GitMerge, () => act.mergePull(item), pullMergeBlocker(item, act), `Merge ${numberOf(pull.entry)} into ${target} on its host`);
+    }
+    return button(" go", "Merge", GitMerge, () => act.merge(review!), !act.mayMerge ? READ_ONLY_REASON : mergeBlocker(review!), `Merge ${review!.branch} into ${review!.target}`);
+  }
+  if (item.action === "review") return button("", "Review", Eye, () => act.open(item));
+  if (item.action === "open") return button("", "Open", ArrowUpRight, () => act.open(item), undefined, "No thread here works on it; open it to see why");
+  if (item.action === "rebase" && review) return button("", "Ask to rebase", RefreshCw, () => act.rebase(review), rebaseBlocker(review, act.mayAsk), `Asks the thread to rebase onto ${review.target}`);
+  if (item.action === "fix" && review) return button("", "Ask to fix", Wrench, () => act.fix(item), askBlocker(review, act.mayAsk), "Sends the thread a note with what the pull request needs");
+  return <span className="rv-quiet" {...(review?.ask ? tooltipProps(review.ask.kind === "note" ? `Your note: ${review.ask.text}` : "You asked the thread to rebase.") : {})}>Waiting</span>;
+}
+
+function RowTile({ item, projects }: { item: InboxItem; projects: ReadonlyMap<string, ProjectMark> }) {
+  const project = item.review?.project ?? (item.project ? projects.get(item.project) : undefined);
+  return project ? <ProjectTile project={project} /> : <GitPullRequest size={14} aria-hidden="true" className="rv-tile-glyph" />;
+}
+
+function rowChanges(item: InboxItem) {
+  if (item.review) return <Changes files={item.review.files} added={item.review.added} removed={item.review.removed} />;
+  const entry = item.pull!.entry;
+  return <Changes added={entry.additions} removed={entry.deletions} />;
+}
+
+function InboxRow({ item, projects, act }: { item: InboxItem; projects: ReadonlyMap<string, ProjectMark>; act: RowActions }) {
   return (
-    <li className="rv-row" data-state={review.state} data-key={review.key}>
-      <button type="button" className="rv-row-open" onClick={() => open(review)} aria-label={`${review.title}, ${review.branch}`}>
-        <ProjectTile project={review.project} />
+    <li className="rv-row" data-key={item.key} data-section={item.section}>
+      <button type="button" className="rv-row-open" onClick={() => act.open(item)} aria-label={labelOf(item)}>
+        <RowTile item={item} projects={projects} />
         <span className="rv-thread">
-          <span className="rv-title">{review.title}</span>
-          <span className="rv-branch">{review.remote ? `${review.remote.machine}: ` : ""}{review.branch}<Into review={review} /></span>
+          <span className="rv-title">{titleOf(item)}</span>
+          <Sub item={item} />
         </span>
-        <Changes review={review} />
-        <Checks runs={runs} open={() => open(review, "checks")} />
-        <span className="rv-cost-cell"><Model review={review} /><span className="rv-cost">{cost(review)}</span></span>
-        <span className="rv-age">{shortAge(review.at)}</span>
+        {rowChanges(item)}
+        <StatusCell status={item.status} />
+        <span className="rv-age">{shortAge(item.at)}</span>
       </button>
-      <span className="rv-row-action"><RowAction review={review} act={act} /></span>
+      <span className="rv-row-action"><RowAction item={item} act={act} /></span>
     </li>
   );
 }
 
-/** A phone's row (1p): branch and age, the title, then changes, checks, cost and the model's mark. */
-function ReviewCard({ review, runs, open }: { review: LocalReview; runs: readonly ReviewRun[]; open(review: LocalReview): void }) {
+/** A phone's row (1p): title and age, the meta line, then status and changes; its one step always shows. */
+function InboxCard({ item, projects, act }: { item: InboxItem; projects: ReadonlyMap<string, ProjectMark>; act: RowActions }) {
   return (
-    <li className="rv-card" data-state={review.state} data-key={review.key}>
-      <button type="button" onClick={() => open(review)}>
+    <li className="rv-card" data-key={item.key} data-section={item.section}>
+      <button type="button" className="rv-card-open" onClick={() => act.open(item)} aria-label={labelOf(item)}>
         <span className="rv-card-line">
-          <ProjectTile project={review.project} />
-          <span className="rv-branch">{review.branch}<Into review={review} /></span>
-          <span className="rv-age">{shortAge(review.at)}</span>
+          <RowTile item={item} projects={projects} />
+          <span className="rv-title">{titleOf(item)}</span>
+          <span className="rv-age">{shortAge(item.at)}</span>
         </span>
-        <span className="rv-title">{review.title}</span>
+        <Sub item={item} />
         <span className="rv-card-line">
-          <Changes review={review} files={false} />
-          {review.state === "merged" ? <Aside review={review} /> : review.ask ? <Aside review={review} /> : <Checks runs={runs} />}
-          <span className="rv-cost">{cost(review)}</span>
-          <Model review={review} name={false} />
+          <StatusCell status={item.status} />
+          {rowChanges(item)}
         </span>
       </button>
+      <span className="rv-card-action"><RowAction item={item} act={act} /></span>
     </li>
   );
 }
 
-/** The tabs of a phone and of a narrow page: the states with their counts, then Remote. */
+/** The tabs of a phone and of a page without its sidebar. */
 function Tabs({ tab, count, select }: { tab: ReviewTab; count(tab: ReviewTab): number; select(tab: ReviewTab): void }) {
   return (
     <nav className="rv-tabs" aria-label="Reviews">
@@ -244,7 +278,7 @@ function moveFocus(event: KeyboardEvent<HTMLElement>, list: HTMLElement | null) 
 /** Up and down step through the rows (the focus is the selection), Home and End to the ends; Enter opens the focused one. */
 function moveRow(event: KeyboardEvent<HTMLElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || (event.target as HTMLElement).closest("input, textarea, select")) return;
-  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(".rv-row-open, .rv-card > button")];
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(".rv-row-open, .rv-card-open")];
   if (rows.length === 0) return;
   event.preventDefault();
   const at = rows.findIndex((row) => row.closest("li")?.contains(document.activeElement));
@@ -255,91 +289,141 @@ function moveRow(event: KeyboardEvent<HTMLElement>) {
   rows[next]?.focus();
 }
 
+type InboxProject = ProjectMark & { open: number };
+
 /**
- * The page's sidebar (1i), in Settings' column: the states with their counts,
- * the projects with their open reviews, and Remote.
+ * The inbox from the window's reviews and every project's open requests, and
+ * the projects with how many of its rows each has, for the sidebar's filter.
+ */
+function useInbox(parts: ReviewsPageParts) {
+  const local = useLocalReviews(parts.store);
+  const pulls = useInboxPulls(parts.pulls);
+  const open = useMemo(() => openPulls(pulls.answer), [pulls.answer]);
+  const store = parts.store;
+  const sections = useMemo(() => buildInbox(local.reviews, open, (review) => store.latestRuns(review.path ?? "")), [local.reviews, open, store]);
+  const marks = useMemo(() => new Map(pulls.projects.map((project) => [projectId(project), markOf(project)])), [pulls.projects]);
+  const projects = useMemo((): InboxProject[] => {
+    const listed = new Map<string, InboxProject>(local.counts.projects.map((entry) => [entry.key, { ...entry, open: 0 }]));
+    for (const item of sections.flatMap((section) => section.items)) {
+      if (!item.project) continue;
+      const mark = item.review?.project ?? marks.get(item.project);
+      const entry = listed.get(item.project) ?? (mark ? { ...mark, open: 0 } : undefined);
+      if (!entry) continue;
+      entry.open += 1;
+      listed.set(item.project, entry);
+    }
+    return [...listed.values()].sort((left, right) => right.open - left.open || left.name.localeCompare(right.name));
+  }, [local.counts.projects, sections, marks]);
+  const total = sections.reduce((sum, section) => sum + section.items.length, 0);
+  return { ...local, pulls, sections, projects, marks, total };
+}
+
+/**
+ * The page's sidebar (1i), in Settings' column: Inbox, Merged and All pull
+ * requests, then the projects with their open rows as a filter.
  */
 export function ReviewsSidebar({ params, navigate, parts }: PageProps & { parts: ReviewsPageParts }) {
-  const { counts } = useLocalReviews(parts.store);
-  const remoteCount = useSyncExternalStore(parts.rows.subscribe, parts.rows.openCount);
+  const { total, projects } = useInbox(parts);
   const list = useRef<HTMLDivElement>(null);
   const tab = tabOf(params.tab);
   const project = text(params.project);
   const inDetail = Boolean(params.review) || Boolean(params.url);
-  const count = (entry: ReviewTab) => entry === "remote" ? remoteCount : counts[entry];
   // Out of a detail, into what the page lists.
   const select = (next: ReviewTab, nextProject?: string) => navigate({ tab: next, ...(nextProject ? { project: nextProject } : {}) }, { root: true, replace: true });
   const item = (key: string, active: boolean, label: string, icon: ReactNode, figure: number, onSelect: () => void, hint?: string) => (
     <button key={key} type="button" className={active ? "active" : undefined} aria-current={active ? "page" : undefined} {...(hint ? tooltipProps(hint, { side: "right" }) : {})} onClick={onSelect}>
-      {icon}<span>{label}</span>{figure ? <small className="rv-nav-count">{figure}</small> : null}
+      {icon}<span className="rv-nav-label">{label}</span>{figure ? <small className="rv-nav-count">{figure}</small> : null}
     </button>
   );
   // A review open: the sidebar is the review's own (1e), and the way back is its own too.
   if (inDetail) {
-    const remote = tab === "remote";
-    return <ReviewDetailSidebar store={parts.detail.store} detailKey={text(params.review) ?? text(params.url) ?? ""} backLabel={remote ? "All pull requests" : "All reviews"} back={() => select(remote ? "remote" : tab, remote ? undefined : project)} />;
+    return <ReviewDetailSidebar store={parts.detail.store} detailKey={text(params.review) ?? text(params.url) ?? ""} backLabel={TAB_LABELS[tab].nav} back={() => select(tab, tab === "remote" ? undefined : project)} />;
   }
   return (
-    <>
-      <div className="settings-nav-list rv-sidebar" ref={list} onKeyDown={(event) => moveFocus(event, list.current)}>
-        <div className="settings-nav-group" role="group" aria-label="Reviews">
-          <h2 className="settings-nav-heading">Reviews</h2>
-          {TABS.filter((entry) => entry !== "remote").map((entry) => {
-            const Icon = TAB_ICONS[entry];
-            return item(entry, entry === tab && !project, TAB_LABELS[entry].nav, <Icon size={14} aria-hidden="true" />, count(entry), () => select(entry));
-          })}
-        </div>
-        {counts.projects.length > 0 ? (
-          <div className="settings-nav-group" role="group" aria-label="Projects">
-            <h2 className="settings-nav-heading">Projects</h2>
-            {counts.projects.map((entry) => item(entry.key, project === entry.key, entry.name, <ProjectTile project={entry} />, entry.open, () => select(tab === "remote" ? "ready" : tab, entry.key)))}
-          </div>
-        ) : null}
-        <div className="settings-nav-group" role="group" aria-label="Elsewhere">
-          <h2 className="settings-nav-heading">Elsewhere</h2>
-          {item("remote", tab === "remote", "Remote pull requests", <GitPullRequestArrow size={14} aria-hidden="true" />, count("remote"), () => select("remote"), "Pull and merge requests on the projects' Git hosts")}
-        </div>
+    <div className="settings-nav-list rv-sidebar" ref={list} onKeyDown={(event) => moveFocus(event, list.current)}>
+      <div className="settings-nav-group" role="group" aria-label="Review">
+        <h2 className="settings-nav-heading">Review</h2>
+        {TABS.map((entry) => {
+          const Icon = TAB_ICONS[entry];
+          return item(entry, entry === tab && !project, TAB_LABELS[entry].nav, <Icon size={14} aria-hidden="true" />, entry === "inbox" ? total : 0, () => select(entry));
+        })}
       </div>
-    </>
+      {projects.length > 0 ? (
+        <div className="settings-nav-group" role="group" aria-label="Projects">
+          <h2 className="settings-nav-heading">Projects</h2>
+          {projects.map((entry) => item(entry.key, project === entry.key, entry.name, <ProjectTile project={entry} />, entry.open, () => select(tab === "remote" ? "inbox" : tab, entry.key), entry.name))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-/** A narrow page's project filter beside the tabs, with the open reviews of each. */
-function ProjectFilter({ project, counts, select }: { project?: string; counts: ReviewCounts; select(project?: string): void }) {
-  if (counts.projects.length < 2 && !project) return null;
+/** A narrow page's project filter beside the tabs, with the open rows of each. */
+function ProjectFilter({ project, projects, select }: { project?: string; projects: readonly InboxProject[]; select(project?: string): void }) {
+  if (projects.length < 2 && !project) return null;
   return (
     <select className="rv-project-filter" aria-label="Project" value={project ?? ""} onChange={(event) => select(event.target.value || undefined)}>
       <option value="">All projects</option>
-      {counts.projects.map((entry) => <option key={entry.key} value={entry.key}>{entry.name}{entry.open ? ` · ${entry.open}` : ""}</option>)}
+      {projects.map((entry) => <option key={entry.key} value={entry.key}>{entry.name}{entry.open ? ` · ${entry.open}` : ""}</option>)}
     </select>
   );
 }
 
-function Section({ state, title, count, children }: { state: ReviewState; title?: string; count: number; children: ReactNode }) {
+function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   if (count === 0) return null;
   return (
-    <section className="rv-section" aria-label={title ?? TAB_LABELS[state].section}>
-      {title ? <h3>{title} · {count}</h3> : null}
+    <section className="rv-section" aria-label={title}>
+      <h3><b>{title}</b>{count}</h3>
       <ul>{children}</ul>
     </section>
   );
 }
 
-const INTRO = "A thread that reports done lands here with its diff, its turns and the checks it ran. Merge it, send it back with a note, or commit without merging.";
-const EMPTY_TEXT: Record<ReviewState, { title: string; description: string }> = {
-  ready: { title: "Nothing to review", description: "A thread that works in a worktree of its own lands here when it is done." },
-  requested: { title: "No changes requested", description: "Nothing waits on a thread." },
-  conflicts: { title: "No conflicts", description: "No branch is in the way of its target." },
-  merged: { title: "Nothing merged yet", description: "A branch you merge from here is listed after it." },
-};
+/** Rows that stand in for the list while it is read, in the list's own grid. */
+function GhostRows({ compact }: { compact: boolean }) {
+  return (
+    <ul className="rv-ghosts" aria-busy="true" aria-label="Loading reviews">
+      {[0, 1, 2].map((index) => compact ? <li key={index} className="rv-card rv-ghost"><Skeleton className="rv-ghost-card" /></li> : (
+        <li key={index} className="rv-row rv-ghost">
+          <span className="rv-row-open">
+            <Skeleton className="rv-ghost-tile" />
+            <span className="rv-thread"><Skeleton className="rv-ghost-line" /><Skeleton className="rv-ghost-line short" /></span>
+            <Skeleton className="rv-ghost-line" />
+            <Skeleton className="rv-ghost-line" />
+            <span />
+          </span>
+          <span className="rv-row-action" />
+        </li>
+      ))}
+    </ul>
+  );
+}
 
-/** The sentence under a list's title. */
-const HEAD_TEXT: Record<ReviewState, string> = {
-  ready: INTRO,
-  requested: "A note or a rebase you send back to a thread waits here until the thread commits again.",
-  conflicts: "A branch that would not merge cleanly into its main checkout shows here, to ask its thread to rebase.",
-  merged: "Merging keeps the thread; its branch just stops appearing under Ready.",
-};
+/** One project whose local target trails origin, for the head's line. */
+interface StaleTarget { project: ProjectMark; target: string; compared: string; behind: number; ahead?: number }
+
+function staleTargets(reviews: readonly LocalReview[]): StaleTarget[] {
+  const found = new Map<string, StaleTarget>();
+  for (const review of reviews) {
+    if (review.state === "merged" || !review.comparedRef || !review.targetBehind) continue;
+    const key = `${review.project.key}\n${review.target}`;
+    if (!found.has(key)) found.set(key, { project: review.project, target: review.target, compared: review.comparedRef, behind: review.targetBehind, ...(review.targetAhead ? { ahead: review.targetAhead } : {}) });
+  }
+  return [...found.values()];
+}
+
+function StaleLine({ stale, named, update, busy, allowed }: { stale: StaleTarget; named: boolean; update(stale: StaleTarget): void; busy: boolean; allowed: boolean }) {
+  const lead = named ? `${stale.project.name}: compared` : "Compared";
+  if (stale.ahead) return <p>{lead} with {stale.compared} — local {stale.target} has {plural(stale.ahead, "commit")} {stale.compared} lacks.</p>;
+  return (
+    <p>
+      {lead} with {stale.compared} — local {stale.target} is {plural(stale.behind, "commit")} behind.{" "}
+      <button type="button" className="rv-head-link" disabled={busy || !allowed} {...tooltipProps(allowed ? `Fast-forwards ${stale.target} to ${stale.compared}` : READ_ONLY_REASON)} onClick={() => update(stale)}>
+        {busy ? `Updating ${stale.target}…` : `Update ${stale.target}`}
+      </button>
+    </p>
+  );
+}
 
 /** A note on a diff line being written, or `{}` for a note on the whole review. */
 type NoteDraft = { path?: string; line?: number; side?: "new" | "old"; code?: string };
@@ -401,9 +485,9 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
   return (
     <article className="rv-detail" aria-label={review.title}>
       <p className="rv-detail-sub">
-        <span className="rv-branch">{review.branch}<Into review={review} /></span>
+        <span className="rv-mono">{review.branch}<Into review={review} /></span>
         <span aria-hidden="true">·</span>
-        <Changes review={review} files={false} />
+        <Changes added={review.added} removed={review.removed} />
         <span aria-hidden="true">·</span>
         <Model review={review} />
       </p>
@@ -411,7 +495,7 @@ function ReviewDetail({ review, parts, act, actions }: { review: LocalReview; pa
       <p className="rv-meta">
         <strong>{plural(review.files, "file")}</strong>
         {summary?.turns ? <span>{plural(summary.turns, "turn")}</span> : null}
-        <Checks runs={runs} nested={false} />
+        <Checks runs={runs} />
         {review.uncommitted ? <span className="warn">{review.uncommitted} not committed</span> : null}
         {review.behind ? <span>{plural(review.behind, "commit")} behind {review.comparedRef ?? review.target}</span> : null}
         {review.comparedRef && review.targetBehind ? <span>{review.target} is {plural(review.targetBehind, "commit")} behind {review.comparedRef}</span> : null}
@@ -518,35 +602,50 @@ function FileDiff({ host, review, path, lines }: { host: HostExtensionClient; re
   return <div className="rv-diff"><DiffView diff={diff} mode="unified" path={path} wrap {...(lines ? { lines } : {})} /></div>;
 }
 
+const EMPTY_TEXT: Record<"inbox" | "merged", { title: string; description: string }> = {
+  inbox: { title: "Nothing waiting", description: "A thread's finished branch lands here, with the pull requests that need you: yours to merge or fix, and others' you are asked to review." },
+  merged: { title: "Nothing merged yet", description: "A branch you merge from here is listed after it." },
+};
+
 /**
- * The Reviews page: finished threads' branches as local merge requests across
- * projects (1i, 1p, 1q), and the remote requests under their own entry. Its
- * sidebar picks what it lists; without one, tabs over the list do.
+ * The Reviews page: the inbox of the threads' branches and the pull requests
+ * that need the user (1i, 1p, 1q), what was merged, and every project's pull
+ * requests. Its sidebar picks what it lists; without one, tabs over the list do.
  */
 export function ReviewsPage({ params, navigate, actions, close, parts, sidebar = false }: PageProps & { parts: ReviewsPageParts }) {
   const compact = useCompactProfile();
-  const { reviews, counts, snapshot } = useLocalReviews(parts.store);
-  const remoteCount = useSyncExternalStore(parts.rows.subscribe, parts.rows.openCount);
+  const { reviews, snapshot, sections, projects, marks, total, pulls } = useInbox(parts);
   const filter = useSyncExternalStore(parts.filter.subscribe, parts.filter.getSnapshot);
   const [busy, setBusy] = useState<string>();
+  const [merging, setMerging] = useState<InboxItem>();
+  const [updating, setUpdating] = useState<string>();
   const mayMerge = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-merge");
   const mayAsk = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-ask");
   const mayRemove = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-remove");
+  const mayMergePull = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "pr-action");
+  const mayUpdate = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-update-target");
   const tab = tabOf(params.tab);
   const project = text(params.project);
   const detailKey = text(params.review);
+  const detailUrl = tab === "remote" ? undefined : text(params.url);
   const store = parts.store;
   useEffect(() => { void store.refresh(); }, [store]);
 
   const select = (next: ReviewTab, nextProject?: string) => navigate({ tab: next, ...(nextProject ? { project: nextProject } : {}) }, { replace: true });
   const scroller = useRef<HTMLDivElement>(null);
-  // Where the list was when a review opened: back from it, the same row has the focus and the list its scroll.
+  // Where the list was when a row opened: back from it, the same row has the focus and the list its scroll.
   const left = useRef<{ key: string; top: number }>(undefined);
+  const here = { tab, ...(project ? { project } : {}) };
   const openReview = (review: LocalReview, focus?: "checks") => {
     left.current = { key: review.key, top: scroller.current?.scrollTop ?? 0 };
-    navigate({ tab, ...(project ? { project } : {}), review: review.key, ...(focus ? { focus } : {}) }, { label: review.title });
+    navigate({ ...here, review: review.key, ...(focus ? { focus } : {}) }, { label: review.title });
   };
-  const listed = !detailKey && tab !== "remote" && Boolean(snapshot.answer);
+  const openPull = (item: InboxItem) => {
+    const entry = item.pull!.entry;
+    left.current = { key: item.key, top: scroller.current?.scrollTop ?? 0 };
+    navigate({ ...here, url: entry.ref.url, number: entry.ref.number, service: entry.ref.service, ...(item.pull?.workspace ? { workspace: item.pull.workspace } : {}) }, { label: `${numberOf(entry)} ${entry.title}` });
+  };
+  const listed = !detailKey && !detailUrl && tab !== "remote" && Boolean(snapshot.answer);
   useLayoutEffect(() => {
     const from = left.current;
     if (!listed || !from || !scroller.current) return;
@@ -556,11 +655,14 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
     row?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
   }, [listed]);
 
+  const reloadPulls = () => { void parts.pulls.load(pulls.machines, true); };
   const act: RowActions = {
     busy,
     mayMerge,
+    mayMergePull,
     mayAsk,
     mayRemove,
+    open: (item, focus) => item.review ? openReview(item.review, focus) : openPull(item),
     merge: (review, picks) => {
       setBusy(review.key);
       void store.merge(review, picks).then((outcome) => {
@@ -568,11 +670,20 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
         else actions.toast?.({ type: "warning", title: outcome.state === "conflict" ? "Not merged: conflicts" : "Not merged", description: outcome.detail });
       }, (error) => actions.toast?.({ type: "error", title: `${review.branch} was not merged`, description: errorMessage(error) })).finally(() => { setBusy(undefined); void store.refresh(); });
     },
+    mergePull: (item) => setMerging(item),
     rebase: (review) => {
       setBusy(review.key);
       void store.ask(review, "rebase").then(
         () => actions.toast?.({ type: "success", title: "Asked the thread to rebase", description: review.title }),
         (error) => actions.toast?.({ type: "error", title: "The thread was not asked", description: errorMessage(error) }),
+      ).finally(() => setBusy(undefined));
+    },
+    fix: (item) => {
+      const review = item.review!;
+      setBusy(item.key);
+      void store.ask(review, "note", fixRequest(item.pull!.entry)).then(
+        () => actions.toast?.({ type: "success", title: "Sent to the thread", description: review.title }),
+        (error) => actions.toast?.({ type: "error", title: "The note was not sent", description: errorMessage(error) }),
       ).finally(() => setBusy(undefined));
     },
     remove: (review) => {
@@ -583,20 +694,72 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
       ).finally(() => { setBusy(undefined); void store.refresh(); });
     },
   };
+  const update = (stale: StaleTarget) => {
+    const key = `${stale.project.key}\n${stale.target}`;
+    setUpdating(key);
+    void store.updateTarget(stale.project.key, stale.target).then(
+      (done) => actions.toast?.({ type: "success", title: `${stale.target} is up to date with ${stale.compared}`, description: `${stale.project.name}: ${plural(done.commits, "commit")} fast-forwarded.` }),
+      (error) => actions.toast?.({ type: "error", title: `${stale.target} was not updated`, description: errorMessage(error) }),
+    ).finally(() => { setUpdating(undefined); void store.refresh(); });
+  };
 
-  const shown = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    return reviews.filter((review) => (!project || review.project.key === project)
-      && (!needle || `${review.title}\n${review.branch}\n${review.project.name}`.toLowerCase().includes(needle)));
-  }, [reviews, project, filter]);
+  const needle = filter.trim().toLowerCase();
+  const matches = (words: ReadonlyArray<string | undefined>) => !needle || words.join("\n").toLowerCase().includes(needle);
+  const shownSections = useMemo(() => sections.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => (!project || item.project === project) && matches([
+      titleOf(item), item.review?.branch, item.review?.project.name, item.pull?.entry.headRef, item.pull?.entry.author?.login,
+      item.pull ? numberOf(item.pull.entry) : undefined, item.project ? marks.get(item.project)?.name : undefined,
+    ])),
+  })).filter((section) => section.items.length > 0), [sections, project, needle, marks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const merged = useMemo(() => reviews.filter((review) => review.state === "merged" && (!project || review.project.key === project)
+    && matches([review.title, review.branch, review.project.name])), [reviews, project, needle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const detail = detailKey ? reviews.find((review) => review.key === detailKey) : undefined;
   const month = mergedThisMonth(reviews);
+  const projectName = (workspace: string) => marks.get(workspace)?.name ?? projects.find((entry) => entry.key === workspace)?.name;
+  const failures = pulls.answer?.failures ?? [];
   const footer = (
-    <p className="rv-footer">
-      Merged · {month.count} this month{month.costUsd > 0 ? `, ${formatCost(month.costUsd)}` : ""}. Merging keeps the thread; it just stops appearing here.
-    </p>
+    <ReviewsFooter>
+      {[
+        <span key="month">{month.count} merged this month{month.costUsd > 0 ? ` · ${formatCost(month.costUsd)}` : ""}</span>,
+        failures.length ? <ReadFailures key="failures" failures={failures} name={projectName} /> : null,
+        pulls.error ? (
+          <span key="error" className="rv-failures">
+            <span {...tooltipProps(pulls.error)}>Pull requests not read</span>
+            <button type="button" className="rv-foot-link" onClick={reloadPulls}>Retry</button>
+          </span>
+        ) : pulls.loading && !pulls.answer ? <span key="loading" className="rv-failures"><Spinner size="xs" label="Reading pull requests" /> Reading pull requests</span> : null,
+      ]}
+    </ReviewsFooter>
   );
+  const row = (item: InboxItem) => compact
+    ? <InboxCard key={item.key} item={item} projects={marks} act={act} />
+    : <InboxRow key={item.key} item={item} projects={marks} act={act} />;
+  const mergedItem = (review: LocalReview): InboxItem => ({ key: review.key, section: "ready", review, status: mergedStatus(review), action: "wait", project: review.project.key, at: review.at });
+  const mergedRow = (review: LocalReview) => {
+    const item = mergedItem(review);
+    return compact ? (
+      <li key={review.key} className="rv-card" data-key={review.key} data-state="merged">
+        <button type="button" className="rv-card-open" onClick={() => openReview(review)} aria-label={labelOf(item)}>
+          <span className="rv-card-line"><ProjectTile project={review.project} /><span className="rv-title">{review.title}</span><span className="rv-age">{shortAge(review.at)}</span></span>
+          <Sub item={item} />
+          <span className="rv-card-line"><StatusCell status={item.status} />{rowChanges(item)}</span>
+        </button>
+      </li>
+    ) : (
+      <li key={review.key} className="rv-row" data-key={review.key} data-state="merged">
+        <button type="button" className="rv-row-open" onClick={() => openReview(review)} aria-label={labelOf(item)}>
+          <ProjectTile project={review.project} />
+          <span className="rv-thread"><span className="rv-title">{review.title}</span><Sub item={item} /></span>
+          {rowChanges(item)}
+          <StatusCell status={item.status} />
+          <span className="rv-age">{shortAge(review.at)}</span>
+        </button>
+        <span className="rv-row-action" />
+      </li>
+    );
+  };
 
   let body: ReactNode;
   if (tab === "remote") {
@@ -605,86 +768,93 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
         <PullRequestsPage key={typeof params.threadId === "string" ? params.threadId : "remote"} params={params} navigate={(next, options) => navigate({ ...next, tab: "remote" }, options)} actions={actions} close={close} parts={parts.remote} />
       </Suspense>
     );
+  } else if (detailUrl) {
+    body = (
+      <Suspense fallback={<div className="stage-empty" role="status"><Spinner size="sm" label="Loading the pull request" /></div>}>
+        <PullRequestDetailPane params={params} actions={actions} parts={parts.remote} back={() => navigate(here, { root: true, replace: true })} />
+      </Suspense>
+    );
   } else if (detailKey) {
     body = detail
       ? compact
         ? <ReviewDetail review={detail} parts={parts} act={act} actions={actions} />
         : (
           <Suspense fallback={<Skeleton className="rv-row-skeleton" />}>
-            <LocalReviewDetail review={detail} parts={parts} detail={parts.detail} act={act} actions={actions} focus={params.focus === "checks" ? "checks" : undefined} back={() => navigate({ tab, ...(project ? { project } : {}) }, { root: true, replace: true })} />
+            <LocalReviewDetail review={detail} parts={parts} detail={parts.detail} act={act} actions={actions} focus={params.focus === "checks" ? "checks" : undefined} back={() => navigate(here, { root: true, replace: true })} />
           </Suspense>
         )
       : snapshot.answer ? <Empty title="This review is gone" description="Its branch was removed, or its thread started working again." /> : <Skeleton className="rv-row-skeleton" />;
   } else if (!snapshot.answer) {
     body = snapshot.error
       ? <Empty icon={<TriangleAlert size={18} />} title="Reviews could not be read" description={snapshot.error}><button type="button" onClick={() => { void store.refresh(); }}>Retry</button></Empty>
-      : <div className="rv-loading" aria-busy="true">{[0, 1, 2].map((index) => <Skeleton key={index} className="rv-row-skeleton" />)}</div>;
+      : <GhostRows compact={compact} />;
+  } else if (tab === "merged") {
+    body = merged.length === 0
+      ? <Empty icon={<GitMerge size={18} />} title={needle ? "Nothing matches" : EMPTY_TEXT.merged.title} description={needle ? "Try other words, or clear the filter." : EMPTY_TEXT.merged.description} />
+      : <Section title="Merged" count={merged.length}>{merged.map(mergedRow)}</Section>;
   } else {
-    const of = (state: ReviewState) => shown.filter((review) => review.state === state);
-    const row = (review: LocalReview) => compact
-      ? <ReviewCard key={review.key} review={review} runs={store.latestRuns(review.path ?? "")} open={openReview} />
-      : <ReviewRow key={review.key} review={review} runs={store.latestRuns(review.path ?? "")} open={openReview} act={act} />;
-    // Ready is the queue: what can merge, then what waits on the thread, then what conflicts.
-    const sections: Array<{ state: ReviewState; title?: string }> = tab === "ready"
-      ? [{ state: "ready" }, { state: "requested", title: "Changes requested" }, { state: "conflicts", title: "Conflicts" }]
-      : [{ state: tab }];
-    const total = sections.reduce((sum, section) => sum + of(section.state).length, 0);
-    body = total === 0
-      ? <Empty icon={<GitPullRequest size={18} />} title={filter ? "No review matches" : EMPTY_TEXT[tab].title} description={filter ? "Try other words, or clear the filter." : EMPTY_TEXT[tab].description} />
-      : (
-        <>
-          {compact ? null : (
-            <div className="rv-columns" aria-hidden="true">
-              <span />
-              <span>Thread</span><span>Changes</span><span>Checks</span><span className="rv-col-cost"><span className="rv-col-model">Model · </span>cost</span><span>Age</span>
-            </div>
-          )}
-          {sections.map((section) => (
-            <Section key={section.state} state={section.state} {...(section.title ? { title: section.title } : {})} count={of(section.state).length}>
-              {of(section.state).map(row)}
-            </Section>
-          ))}
-        </>
-      );
+    body = shownSections.length === 0
+      ? <Empty icon={<Inbox size={18} />} title={needle ? "Nothing matches" : EMPTY_TEXT.inbox.title} description={needle ? "Try other words, or clear the filter." : EMPTY_TEXT.inbox.description} />
+      : shownSections.map((section) => <Section key={section.id} title={section.title} count={section.items.length}>{section.items.map(row)}</Section>);
   }
 
-  const inDetail = Boolean(detailKey) || (tab === "remote" && Boolean(params.url));
-  const count = (entry: ReviewTab) => entry === "remote" ? remoteCount : counts[entry];
+  const inDetail = Boolean(detailKey) || Boolean(params.url);
+  const count = (entry: ReviewTab) => entry === "inbox" ? total : 0;
   const inList = !inDetail && !compact;
+  const stale = tab === "inbox" ? staleTargets(project ? reviews.filter((review) => review.project.key === project) : reviews) : [];
+  const named = new Set(reviews.filter((review) => review.state !== "merged").map((review) => review.project.key)).size > 1 && !project;
+  const heading = project ? projects.find((entry) => entry.key === project)?.name ?? TAB_LABELS[tab].title : TAB_LABELS[tab].title;
   return (
     <div className={`rv-page${compact ? " compact" : ""}`} data-tab={tab} data-view={inList ? "list" : undefined}>
-      <div className={`rv-main${tab === "remote" || (detailKey && !compact) ? " remote" : ""}`}>
+      <div className={`rv-main${tab === "remote" || ((detailKey || detailUrl) && !compact) ? " remote" : ""}`}>
         {inDetail || sidebar ? null : (
           <div className="rv-tabs-row">
             <Tabs tab={tab} count={count} select={(next) => select(next, next === "remote" ? undefined : project)} />
-            {compact || tab === "remote" ? null : <ProjectFilter {...(project ? { project } : {})} counts={counts} select={(next) => select(tab, next)} />}
+            {compact || tab === "remote" ? null : <ProjectFilter {...(project ? { project } : {})} projects={projects} select={(next) => select(tab, next)} />}
           </div>
         )}
         {inList && tab !== "remote" ? (
           <header className="rv-head">
             <div>
-              <h2>{TAB_LABELS[tab].section}</h2>
-              <p>{HEAD_TEXT[tab]}</p>
+              <h2>{heading}</h2>
+              {stale.map((entry) => <StaleLine key={`${entry.project.key}\n${entry.target}`} stale={entry} named={named} update={update} busy={updating === `${entry.project.key}\n${entry.target}`} allowed={mayUpdate} />)}
             </div>
             <label className="rv-filter">
               <Search size={13} aria-hidden="true" />
               <input
                 type="search"
                 value={filter}
-                placeholder="Filter reviews"
+                placeholder="Filter"
                 aria-label="Filter reviews"
                 onChange={(event) => parts.filter.set(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Escape" && filter) { event.preventDefault(); event.stopPropagation(); parts.filter.set(""); }
-                  else if (event.key === "ArrowDown") { event.preventDefault(); event.currentTarget.closest(".rv-main")?.querySelector<HTMLElement>(".rv-row-open")?.focus(); }
+                  else if (event.key === "ArrowDown") { event.preventDefault(); event.currentTarget.closest(".rv-main")?.querySelector<HTMLElement>(".rv-row-open, .rv-card-open")?.focus(); }
                 }}
               />
             </label>
           </header>
         ) : null}
-        <div className="rv-scroll" ref={scroller} onKeyDown={tab === "remote" || detailKey ? undefined : moveRow}>{body}</div>
-        {tab === "remote" || detailKey ? null : footer}
+        <div className="rv-scroll" ref={scroller} onKeyDown={tab === "remote" || inDetail ? undefined : moveRow}>{body}</div>
+        {tab === "remote" || inDetail ? null : footer}
       </div>
+      {merging?.pull ? (
+        <Suspense fallback={null}>
+          <PullMergeDialog
+            entry={merging.pull.entry}
+            client={parts.remote.client}
+            preferences={parts.remote.shared?.preferences}
+            allowed={mayMergePull}
+            onClose={() => setMerging(undefined)}
+            onDone={(message) => {
+              setMerging(undefined);
+              actions.toast?.({ type: "success", title: message, description: titleOf(merging) });
+              reloadPulls();
+              void store.refresh();
+            }}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

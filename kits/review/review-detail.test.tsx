@@ -19,6 +19,7 @@ import { guideProgress } from "./guide-tour.js";
 import { RowRequests } from "./requests.js";
 import { ReviewDetailStore } from "./review-detail-store.js";
 import { ReviewsFilter } from "./reviews-filter.js";
+import { InboxPullsStore } from "./inbox-pulls.js";
 import { ReviewsPage, ReviewsSidebar, type ReviewsPageParts } from "./reviews-page.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 
@@ -87,7 +88,7 @@ function setupLocal(options: Options = {}) {
   const parts: ReviewsPageParts = {
     store, host, rows: new RowRequests(async () => undefined),
     remote: { client: {} as PullRequestClient, chips: () => undefined, rows: new RowRequests(async () => undefined), shared: {} as never, sidebar },
-    filter: new ReviewsFilter(),
+    pulls: new InboxPullsStore(undefined), filter: new ReviewsFilter(),
     detail: { store: sidebar, notes: new PendingReviewStore(() => undefined), workspace },
   };
   const navigate = vi.fn();
@@ -95,7 +96,7 @@ function setupLocal(options: Options = {}) {
   const actions = { toast, notify: vi.fn(), switchSession: vi.fn(async () => true), openExternal: vi.fn() } as unknown as WorkbenchActions;
   const slot = document.createElement("div");
   document.body.append(slot);
-  const props: PageProps = { actions, params: options.params ?? { tab: "ready", review: FLAKE }, navigate, close: vi.fn(), sidebar: true };
+  const props: PageProps = { actions, params: options.params ?? { tab: "inbox", review: FLAKE }, navigate, close: vi.fn(), sidebar: true };
   render(
     <TestProviders>
       <TestThreadStore threads={THREADS}>
@@ -158,19 +159,19 @@ describe("a local review's detail (1e)", () => {
     expect(within(article).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Changes", "Turns4", "Checks"]);
   });
 
-  it("swaps the sidebar for the review's own: the way back at both ends, its files, turns and notes", async () => {
+  it("swaps the sidebar for the review's own: one way back, its files, turns and notes", async () => {
     const { sidebar, navigate } = setupLocal();
     const turns = await within(sidebar()).findByRole("list", { name: "Turns" });
     expect(within(turns).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["1Reproduce the flake", "2Move the subscription", "3Regression tests", "420× green"]);
     expect(within(sidebar()).getByText("Files · 3")).toBeTruthy();
     expect(within(sidebar()).getByText("Turns · 4")).toBeTruthy();
     expect(within(sidebar()).getByText("Review notes · 0")).toBeTruthy();
-    const backs = within(sidebar()).getAllByRole("button", { name: "All reviews" });
-    expect(backs).toHaveLength(2);
+    const backs = within(sidebar()).getAllByRole("button", { name: "Inbox" });
+    expect(backs).toHaveLength(1);
     expect(within(sidebar()).queryByRole("button", { name: "Back to thread" })).toBeNull();
     expect(within(sidebar()).queryByRole("searchbox")).toBeNull();
-    fireEvent.click(backs[1]!);
-    expect(navigate).toHaveBeenLastCalledWith({ tab: "ready" }, { root: true, replace: true });
+    fireEvent.click(backs[0]!);
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "inbox" }, { root: true, replace: true });
   });
 
   it("goes back with ⌘[, but not while a field has the focus", async () => {
@@ -183,7 +184,7 @@ describe("a local review's detail (1e)", () => {
     expect(navigate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.keyDown(document.body, { key: "[", metaKey: true });
-    expect(navigate).toHaveBeenCalledWith({ tab: "ready" }, { root: true, replace: true });
+    expect(navigate).toHaveBeenCalledWith({ tab: "inbox" }, { root: true, replace: true });
   });
 
   it("draws every file under the next, each with its path, Open in editor and a fold", async () => {
@@ -418,7 +419,7 @@ function setupRemote(passing = true, extra: Record<string, unknown> = {}, guides
   const remote = { client, chips: () => undefined, rows: new RowRequests(async () => undefined), shared, sidebar };
   const parts: ReviewsPageParts = {
     store: new LocalReviewsStore({ invoke: async () => ({ branches: [], asks: {}, merged: [] }), onEvent: () => () => undefined } as unknown as HostExtensionClient),
-    host: {} as HostExtensionClient, rows: remote.rows, remote, filter: new ReviewsFilter(),
+    host: {} as HostExtensionClient, rows: remote.rows, remote, pulls: new InboxPullsStore(undefined), filter: new ReviewsFilter(),
     detail: { store: sidebar, notes: shared.pending, workspace: {} as HostExtensionClient },
   };
   const navigate = vi.fn();
@@ -458,7 +459,7 @@ describe("a pull request's detail (1e)", () => {
     expect(meta.textContent).toContain("4 files");
     expect(within(article).getByRole("tab", { name: /^Changes/u }).textContent).toContain("4");
     expect(within(sidebar()).getByText("Files · 4")).toBeTruthy();
-    expect(within(sidebar()).getAllByRole("button", { name: "All pull requests" })).toHaveLength(2);
+    expect(within(sidebar()).getAllByRole("button", { name: "All pull requests" })).toHaveLength(1);
     expect(within(sidebar()).getByText(/^Commits · \d+$/u)).toBeTruthy();
   });
 

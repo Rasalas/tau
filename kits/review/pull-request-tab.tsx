@@ -9,6 +9,7 @@ import { ReviewDetailStore } from "./review-detail-store.js";
 import { needsYou, REVIEWS_PAGE } from "./local-reviews.js";
 import { useLocalReviews, type LocalReviewsStore } from "./local-reviews-store.js";
 import { ReviewsFilter } from "./reviews-filter.js";
+import { InboxPullsStore } from "./inbox-pulls.js";
 import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
@@ -40,7 +41,7 @@ export function registerPullRequestTab(
 ): () => void {
   const sidebar = new ReviewDetailStore();
   const pageParts = {
-    store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared, sidebar }, filter: new ReviewsFilter(),
+    store: reviews.store, host: reviews.host, rows, remote: { client, chips, rows, shared, sidebar }, pulls: new InboxPullsStore(client), filter: new ReviewsFilter(),
     detail: { store: sidebar, notes: shared.pending, workspace: plugin.hostExtension(WORKSPACE_HOST_EXTENSION_ID) },
   };
   const disposers = [
@@ -116,7 +117,7 @@ export function registerPullRequestTab(
           <ReviewsPage {...props} parts={pageParts} />
         </Suspense>
       ),
-      // The states, projects and Remote in the thread list's place; the page keeps the table.
+      // Inbox, Merged, All pull requests and the projects in the thread list's place; the page keeps the rows.
       Sidebar: (props) => <Suspense fallback={null}><ReviewsSidebar {...props} parts={pageParts} /></Suspense>,
     }),
     plugin.registerCommand({

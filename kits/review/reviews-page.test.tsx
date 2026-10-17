@@ -10,10 +10,12 @@ import { reviewKey, type LocalReviewsAnswer, type ThreadBranch } from "./local-r
 import { LocalReviewsStore } from "./local-reviews-store.js";
 import { RowRequests } from "./requests.js";
 import { ReviewsFilter } from "./reviews-filter.js";
+import { InboxPullsStore } from "./inbox-pulls.js";
 import { ReviewDetailStore } from "./review-detail-store.js";
 import { PendingReviewStore } from "./pending-review.js";
 import { ReviewsPage, ReviewsSidebar, shortAge, type ReviewsPageParts } from "./reviews-page.js";
 import type { PullRequestClient } from "./pull-request-client.js";
+import type { PullRequestListEntry, PullRequestLists } from "./protocol.js";
 
 afterEach(() => {
   cleanup();
@@ -46,12 +48,13 @@ const ANSWER: LocalReviewsAnswer = {
 };
 const THREADS = [thread("t1", "ws-pairing-flake", "Fix flaky pairing test"), thread("t2", "ws-webhook-retries", "Write ADR for webhook retries"), thread("t3", "ws-pagination", "Add pagination to all list endpoints")];
 
-function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; compact?: boolean; sidebar?: boolean; client?: ReturnType<typeof createFakeHostClient>; runs?: unknown[] } = {}) {
+function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, unknown>; compact?: boolean; sidebar?: boolean; client?: ReturnType<typeof createFakeHostClient>; runs?: unknown[]; pulls?: () => Promise<PullRequestLists> } = {}) {
   if (options.compact) document.body.dataset.profile = "compact";
   const invoke = vi.fn(async (command: string, input?: unknown) => {
     if (command === "local-reviews") return options.answer ?? ANSWER;
     if (command === "local-review-merge") return { branch: "feat/pairing-flake", state: "merged", files: [], detail: "Merged.", into: "main", root: "/repo/shop-api" };
     if (command === "local-review-remove") return { branch: "feat/picked" };
+    if (command === "local-review-update-target") return { branch: "main", commits: 361 };
     if (command === "local-review-summary") return { summary: "The watcher subscribes on construction now.", turns: 4 };
     if (command === "file-diff") return { path: (input as { relPath: string }).relPath, added: 1, removed: 0, hunks: [{ header: "@@ -1,1 +1,2 @@", lines: [{ kind: "context", oldLine: 1, newLine: 1, text: "const a = 1;" }, { kind: "added", newLine: 2, text: "const watcher = useMemo(() => new Watcher(), []);" }] }] };
     return undefined;
@@ -62,11 +65,16 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
   const sidebar = new ReviewDetailStore();
   const notes = new PendingReviewStore(() => undefined);
   const workspace = { invoke: vi.fn(async (command: string) => command === "list-editors" ? [{ id: "zed", name: "Zed" }] : undefined), onEvent: () => () => undefined } as unknown as HostExtensionClient;
+  const client = {
+    listMany: vi.fn(options.pulls ?? (async () => ({ lists: [], failures: [] }))),
+    action: vi.fn(async () => ({ detail: {}, merge: { branchDeleted: "fix/own" } })),
+  } as unknown as PullRequestClient;
   const parts: ReviewsPageParts = {
     store,
     host,
     rows: new RowRequests(async () => undefined),
-    remote: { client: { listMany: vi.fn(async () => ({ lists: [], failures: [] })) } as unknown as PullRequestClient, chips: () => undefined, rows: new RowRequests(async () => undefined), shared: {} as never, sidebar },
+    remote: { client, chips: () => undefined, rows: new RowRequests(async () => undefined), shared: {} as never, sidebar },
+    pulls: new InboxPullsStore(client),
     filter: new ReviewsFilter(),
     detail: { store: sidebar, notes, workspace },
   };
@@ -90,48 +98,55 @@ function setup(options: { answer?: LocalReviewsAnswer; params?: Record<string, u
   const view = render(tree(props.params));
   /** The page after a navigation: same instance, other params. */
   const show = (params: Record<string, unknown>) => view.rerender(tree(params));
-  return { invoke, navigate, toast, switchSession, slot, view, show, props, parts, workspace, notes };
+  return { invoke, navigate, toast, switchSession, slot, view, show, props, parts, workspace, notes, client };
 }
 
-describe("the Reviews page", () => {
-  it("lists the queue: ready ones, then changes requested and conflicts, with their counts", async () => {
+const pr = (number: number, patch: Partial<PullRequestListEntry> = {}): PullRequestListEntry => ({
+  ref: { service: "github", host: "github.com", repo: "acme/shop-api", number, url: `https://github.com/acme/shop-api/pull/${number}` },
+  title: `Request ${number}`, author: { login: "me" }, headRef: `fix/${number}`, baseRef: "main", state: "open", draft: false,
+  additions: 4, deletions: 2, createdAt: new Date(NOW - 86_400_000).toISOString(), updatedAt: new Date(NOW - 2 * 86_400_000).toISOString(), labels: [], reviewRequested: false, ...patch,
+});
+const lists = (entries: PullRequestListEntry[], failures: PullRequestLists["failures"] = []): PullRequestLists => ({
+  lists: [{ service: "github", host: "github.com", repo: "acme/shop-api", viewer: "me", entries, truncated: false, limit: 100, workspaces: ["ws-shop"] }],
+  failures,
+});
+const headings = () => screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+
+describe("the Reviews inbox", () => {
+  it("lists what waits, by next step: ready to merge, then what needs the thread", async () => {
     const { invoke } = setup();
     await screen.findByText("Fix flaky pairing test");
     expect(invoke).toHaveBeenCalledWith("local-reviews", { workspaces: ["ws-pagination", "ws-pairing-flake", "ws-webhook-retries"] });
     const tabs = screen.getAllByRole("navigation", { name: "Reviews" }).at(-1)!;
-    expect(within(tabs).getAllByRole("button").map((button) => button.textContent)).toEqual(["Ready1", "Requested1", "Conflicts1", "Merged1", "Remote"]);
-    expect(screen.getByRole("region", { name: "Changes requested" }).textContent).toContain("Your note: retry budget");
-    const conflicts = screen.getByRole("region", { name: "Conflicts" });
-    expect(within(conflicts).getByRole("button", { name: /Ask thread to rebase/u })).toBeTruthy();
+    expect(within(tabs).getAllByRole("button").map((button) => button.textContent)).toEqual(["Inbox3", "Merged", "Pull requests"]);
+    expect(screen.getByRole("heading", { level: 2, name: "Inbox" })).toBeTruthy();
+    expect(headings()).toEqual(["Ready to merge1", "Needs the thread2"]);
     const ready = screen.getByRole("region", { name: "Ready to merge" });
     expect(ready.textContent).toContain("feat/pairing-flake → main");
-    expect(screen.getByText(/^A thread that reports done lands here/u)).toBeTruthy();
     expect(ready.textContent).toContain("3 files+59−5");
-    expect(ready.textContent).toContain("no checks");
-    expect(ready.textContent).toContain("$0.84");
+    expect(ready.textContent).toContain("No checks");
     expect(ready.textContent).toContain("4m");
-    expect(screen.getByText(/^Merged · 1 this month, \$9\.30\./u)).toBeTruthy();
+    // No model, no cost and no column heads in the list; those are the review's.
+    expect(ready.textContent).not.toContain("$0.84");
+    expect(document.querySelector(".rv-columns")).toBeNull();
+    const thread = screen.getByRole("region", { name: "Needs the thread" });
+    expect(within(thread).getByRole("button", { name: /Ask to rebase/u })).toBeTruthy();
+    expect(thread.textContent).toContain("Note sent");
+    expect(thread.textContent).toContain("Waiting");
+    expect(screen.queryByText(/^A thread that reports done lands here/u)).toBeNull();
+    expect(document.querySelector(".rv-footer")!.textContent).toBe("1 merged this month · $9.30");
   });
 
-  it("draws a review's script runs as a mini pipeline in the Checks column, which opens the review at its checks", async () => {
+  it("says what the worktree's checks say in the status cell, the words also its tooltip", async () => {
     const runs = [
-      { id: "r1", scriptId: "test", name: "Unit tests", directory: "/work/pairing-flake", status: "running", startedAt: NOW - 1_000 },
+      { id: "r1", scriptId: "test", name: "Unit tests", directory: "/work/pairing-flake", status: "failed", startedAt: NOW - 1_000, endedAt: NOW - 500 },
       { id: "r2", scriptId: "lint", name: "Lint", directory: "/work/pairing-flake", status: "succeeded", startedAt: NOW - 9_000, endedAt: NOW - 8_000 },
     ];
-    const { navigate } = setup({ runs });
-    const mini = await screen.findByRole("img", { name: "Checks: Project scripts running" });
-    expect(mini.closest(".rv-row")!.textContent).toContain("Fix flaky pairing test");
-    fireEvent.click(mini);
-    expect(navigate).toHaveBeenCalledWith({ tab: "ready", review: reviewKey("/repo/shop-api", "feat/pairing-flake"), focus: "checks" }, { label: "Fix flaky pairing test" });
-  });
-
-  it("names a thread's model as the Pi catalog does when the thread carries no runtime", async () => {
-    const runtimeCatalog = vi.fn(async (kind: string) => kind === "pi" ? { kind, models: [{ provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }], thinkingLevels: {} } : undefined);
-    setup({ client: createFakeHostClient({ runtimeCatalog }) });
+    setup({ runs });
     const ready = await screen.findByRole("region", { name: "Ready to merge" });
-    await waitFor(() => expect(ready.textContent).toContain("Claude Sonnet 4.5"));
-    expect(ready.textContent).not.toContain("claude-sonnet-4-5");
-    expect(runtimeCatalog).toHaveBeenCalledWith("pi");
+    const status = await within(ready).findByText("1 check failed");
+    expect(status.closest<HTMLElement>(".rv-status")!.dataset.tooltip).toBe("1 check failed");
+    expect(status.closest<HTMLElement>(".rv-status")!.dataset.tone).toBe("bad");
   });
 
   it("merges a ready branch from its row and says so", async () => {
@@ -143,34 +158,112 @@ describe("the Reviews page", () => {
 
   it("asks a conflicting branch's thread to rebase", async () => {
     const { invoke } = setup();
-    fireEvent.click(await screen.findByRole("button", { name: /Ask thread to rebase/u }));
+    fireEvent.click(await screen.findByRole("button", { name: /Ask to rebase/u }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "rebase", threadId: "t3", branch: "feat/pagination", target: "main", conflicts: ["src/routes/orders.ts"] })));
   });
 
+  it("shows a branch with a pull request once, with its number, and sends the thread what the request needs", async () => {
+    const own = pr(12, { headRef: "feat/pairing-flake", checks: "failing", checkRuns: [{ name: "unit", status: "failed" }, { name: "lint", status: "failed" }] });
+    const theirs = pr(13, { author: { login: "dependabot" }, reviewRequested: true, checks: "passing" });
+    const { invoke } = setup({ pulls: async () => lists([own, theirs, pr(14, { author: { login: "someone" } }), pr(15, { draft: true })]) });
+    const review = await screen.findByRole("region", { name: "Your review" });
+    expect(headings()).toEqual(["Your review1", "Needs the thread3"]);
+    expect(review.textContent).toContain("#13 · dependabot");
+    expect(within(review).getByRole("button", { name: "Review" })).toBeTruthy();
+    const thread = screen.getByRole("region", { name: "Needs the thread" });
+    const row = within(thread).getByRole("button", { name: "Fix flaky pairing test, feat/pairing-flake" }).closest("li")!;
+    expect(row.textContent).toContain("#12 · feat/pairing-flake → main");
+    expect(row.textContent).toContain("2 checks failed");
+    expect(screen.queryByText("Request 12")).toBeNull();
+    expect(screen.queryByText("Request 14")).toBeNull();
+    expect(screen.queryByText("Request 15")).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "Ask to fix" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "note", threadId: "t1", text: expect.stringContaining("unit, lint") })));
+  });
+
+  it("merges the user's own mergeable request through its host, after the request view's question", async () => {
+    const { client, toast } = setup({ pulls: async () => lists([pr(21, { checks: "passing", title: "Own fix" })]) });
+    const ready = await screen.findByRole("region", { name: "Ready to merge" });
+    const row = (await within(ready).findByText("Own fix")).closest("li")!;
+    expect(row.textContent).toContain("#21 · fix/21 → main");
+    expect(row.textContent).toContain("Checks passed");
+    fireEvent.click(within(row).getByRole("button", { name: "Merge" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge PR #21?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Squash and merge" }));
+    await waitFor(() => expect(client.action).toHaveBeenCalledWith("https://github.com/acme/shop-api/pull/21", { action: "merge", method: "squash" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "success", title: "PR #21 merged. Deleted fix/own." })));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Merge PR #21?" })).toBeNull());
+  });
+
+  it("keeps the local rows when the pull requests cannot be read, and says so in the foot", async () => {
+    setup({ pulls: async () => { throw new Error("gh is not signed in."); } });
+    expect(await screen.findByText("Fix flaky pairing test")).toBeTruthy();
+    const footer = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(".rv-footer");
+      expect(found?.textContent).toContain("Pull requests not read");
+      return found!;
+    });
+    expect(within(footer).getByText("Pull requests not read").dataset.tooltip).toBe("gh is not signed in.");
+    expect(within(footer).getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("names the projects it could not read behind Details, which Escape closes", async () => {
+    setup({ pulls: async () => lists([], [{ workspace: "ws-shop", message: "gh is not signed in." }, { workspace: "/scratch", message: "No remote." }]) });
+    const details = await screen.findByRole("button", { name: "Details" });
+    expect(document.querySelector(".rv-footer")!.textContent).toBe("1 merged this month · $9.302 projects not readDetails");
+    expect(details.getAttribute("aria-expanded")).toBe("false");
+    details.focus();
+    fireEvent.click(details);
+    const card = await screen.findByRole("dialog", { name: "Projects not read" });
+    expect(within(card).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["shop-apigh is not signed in.", "/scratchNo remote."]);
+    expect(details.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(document.activeElement ?? card, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Projects not read" })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(details));
+  });
+
+  it("says when branches are read against origin, and brings a main that is only behind up to date", async () => {
+    const stale = { comparedRef: "origin/main", targetBehind: 361 };
+    const { invoke } = setup({ answer: { branches: [branch("pairing-flake", stale)], asks: {}, merged: [] } });
+    const line = await screen.findByText(/^Compared with origin\/main — local main is 361 commits behind\./u);
+    fireEvent.click(within(line).getByRole("button", { name: "Update main" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-update-target", { workspace: "ws-shop", target: "main" }));
+    cleanup();
+    setup({ answer: { branches: [branch("pairing-flake", { ...stale, targetAhead: 2 })], asks: {}, merged: [] } });
+    const ahead = await screen.findByText("Compared with origin/main — local main has 2 commits origin/main lacks.");
+    expect(within(ahead).queryByRole("button")).toBeNull();
+  });
+
   it("comes back from a review to the row it opened from, with the list scrolled where it was", async () => {
-    const { navigate, show } = setup({ params: { tab: "ready" } });
+    const { navigate, show } = setup({ params: { tab: "inbox" } });
     const row = await screen.findByRole("button", { name: "Write ADR for webhook retries, feat/webhook-retries" });
     const scroller = row.closest<HTMLElement>(".rv-scroll")!;
     scroller.scrollTop = 120;
     row.focus();
     fireEvent.click(row);
     const key = reviewKey("/repo/shop-api", "feat/webhook-retries");
-    expect(navigate).toHaveBeenLastCalledWith({ tab: "ready", review: key }, { label: "Write ADR for webhook retries" });
-    show({ tab: "ready", review: key });
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "inbox", review: key }, { label: "Write ADR for webhook retries" });
+    show({ tab: "inbox", review: key });
     scroller.scrollTop = 0;
-    show({ tab: "ready" });
+    show({ tab: "inbox" });
     const again = await screen.findByRole("button", { name: "Write ADR for webhook retries, feat/webhook-retries" });
     expect(document.activeElement).toBe(again);
     expect(again.closest(".rv-scroll")!.scrollTop).toBe(120);
   });
 
-  it("opens a review as a view of the page, and moves between states with tabs", async () => {
+  it("opens a review as a view of the page, and moves between views with tabs", async () => {
     const { navigate } = setup();
     fireEvent.click(await screen.findByRole("button", { name: "Fix flaky pairing test, feat/pairing-flake" }));
-    expect(navigate).toHaveBeenCalledWith({ tab: "ready", review: reviewKey("/repo/shop-api", "feat/pairing-flake") }, { label: "Fix flaky pairing test" });
+    expect(navigate).toHaveBeenCalledWith({ tab: "inbox", review: reviewKey("/repo/shop-api", "feat/pairing-flake") }, { label: "Fix flaky pairing test" });
     const tabs = screen.getAllByRole("navigation", { name: "Reviews" }).at(-1)!;
-    fireEvent.click(within(tabs).getByRole("button", { name: /Conflicts/u }));
-    expect(navigate).toHaveBeenLastCalledWith({ tab: "conflicts" }, { replace: true });
+    fireEvent.click(within(tabs).getByRole("button", { name: "Merged" }));
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "merged" }, { replace: true });
+  });
+
+  it("opens a request's row as the request's view, in the inbox", async () => {
+    const { navigate } = setup({ pulls: async () => lists([pr(13, { author: { login: "dependabot" }, reviewRequested: true })]) });
+    fireEvent.click(await screen.findByRole("button", { name: "Request 13, #13" }));
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "inbox", url: "https://github.com/acme/shop-api/pull/13", number: 13, service: "github", workspace: "ws-shop" }, { label: "#13 Request 13" });
   });
 
   it("filters the list from the page head", async () => {
@@ -181,15 +274,6 @@ describe("the Reviews page", () => {
     expect(screen.getByText("Write ADR for webhook retries")).toBeTruthy();
   });
 
-  it("heads the list with the state's title, and the queue reads as one table", async () => {
-    setup();
-    await screen.findByText("Fix flaky pairing test");
-    expect(screen.getByRole("heading", { name: "Ready to merge" })).toBeTruthy();
-    expect([...document.querySelectorAll(".rv-columns > span")].map((cell) => cell.textContent)).toEqual(["", "Thread", "Changes", "Checks", "Model · cost", "Age"]);
-    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Changes requested · 1", "Conflicts · 1"]);
-    expect(within(screen.getByRole("region", { name: "Ready to merge" })).getByText("Merge").closest("button")).toBeTruthy();
-  });
-
   it("steps through the rows with the arrows and opens the one with the focus on Enter", async () => {
     const { navigate } = setup();
     const filter = await screen.findByRole("searchbox", { name: "Filter reviews" });
@@ -197,18 +281,18 @@ describe("the Reviews page", () => {
     fireEvent.keyDown(filter, { key: "ArrowDown" });
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Fix flaky pairing test, feat/pairing-flake");
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
-    expect(document.activeElement?.getAttribute("aria-label")).toBe("Write ADR for webhook retries, feat/webhook-retries");
-    fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Add pagination to all list endpoints, feat/pagination");
-    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Write ADR for webhook retries, feat/webhook-retries");
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Add pagination to all list endpoints, feat/pagination");
     fireEvent.click(document.activeElement!);
-    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ review: reviewKey("/repo/shop-api", "feat/webhook-retries") }), expect.anything());
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ review: reviewKey("/repo/shop-api", "feat/pagination") }), expect.anything());
   });
 
   it("shows one review on a phone (1q): the summary, the first file's diff open, and Request changes at the foot", async () => {
     const key = reviewKey("/repo/shop-api", "feat/pairing-flake");
-    const { invoke, switchSession } = setup({ compact: true, params: { tab: "ready", review: key } });
+    const { invoke, switchSession } = setup({ compact: true, params: { tab: "inbox", review: key } });
     expect(await screen.findByText("The watcher subscribes on construction now.")).toBeTruthy();
     expect(screen.getByText("4 turns")).toBeTruthy();
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("file-diff", { workspace: "ws-pairing-flake", relPath: "src/PairingRequestWatcher.tsx", options: { scope: "branch", baseRef: "main" } }));
@@ -223,7 +307,7 @@ describe("the Reviews page", () => {
 
   it("keeps notes on a phone's diff lines for later and sends them as one turn (2o)", async () => {
     const key = reviewKey("/repo/shop-api", "feat/pairing-flake");
-    const { invoke, notes } = setup({ compact: true, params: { tab: "ready", review: key } });
+    const { invoke, notes } = setup({ compact: true, params: { tab: "inbox", review: key } });
     fireEvent.click(await screen.findByRole("button", { name: "Note on line 2" }));
     expect(screen.getByText("PairingRequestWatcher.tsx:2")).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", { name: "Note to the thread" }), { target: { value: "Use a ref" } });
@@ -250,7 +334,9 @@ describe("the Reviews page", () => {
     const picked = branch("picked", { merged: true, mergedBy: "patches", workspace: "ws-pairing-flake" });
     const answer = { branches: [picked], asks: {}, merged: [] };
     const { invoke, toast } = setup({ answer, params: { tab: "merged" } });
-    expect((await screen.findByRole("region", { name: "Merged" })).textContent).toContain("Already in main");
+    const merged = await screen.findByRole("region", { name: "Merged" });
+    expect(merged.textContent).toContain("Already in main");
+    expect(within(merged).queryAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Fix flaky pairing test, feat/picked"]);
     cleanup();
     const detail = setup({ answer, params: { tab: "merged", review: reviewKey("/repo/shop-api", "feat/picked") } });
     expect(await screen.findByText(/^Already in main: every commit's change is there already/u)).toBeTruthy();
@@ -270,33 +356,37 @@ describe("the Reviews page", () => {
 
   it("says what lands here when nothing does", async () => {
     setup({ answer: { branches: [], asks: {}, merged: [] } });
-    expect(await screen.findByText("Nothing to review")).toBeTruthy();
-    expect(screen.getByText(/lands here when it is done/u)).toBeTruthy();
-    expect(screen.getByText(/^Merged · 0 this month\./u)).toBeTruthy();
+    expect(await screen.findByText("Nothing waiting")).toBeTruthy();
+    expect(screen.getByText(/finished branch lands here/u)).toBeTruthy();
+    expect(document.querySelector(".rv-footer")!.textContent).toBe("0 merged this month");
   });
 
-  it("draws a phone's rows (1p) under tabs, with no column heads", async () => {
+  it("draws a phone's rows (1p) as cards whose one step always shows", async () => {
     setup({ compact: true });
     await screen.findByText("Fix flaky pairing test");
-    expect(document.querySelector(".rv-columns")).toBeNull();
-    expect(document.querySelectorAll(".rv-card")).toHaveLength(3);
+    const cards = [...document.querySelectorAll(".rv-card")];
+    expect(cards).toHaveLength(3);
+    expect(cards.map((card) => card.querySelector(".rv-card-action")?.textContent)).toEqual(["Merge", "Ask to rebase", "Waiting"]);
+    const tabs = screen.getByRole("navigation", { name: "Reviews" });
+    expect(within(tabs).getAllByRole("button").map((button) => button.textContent)).toEqual(["Inbox3", "Merged", "Pull requests"]);
   });
 });
 
 describe("the Reviews sidebar", () => {
-  it("lists the states, the projects and Remote with their counts, and the page drops its tabs", async () => {
+  it("lists Inbox, Merged and All pull requests, then the projects, and the page drops its tabs", async () => {
     setup({ sidebar: true });
     const sidebar = screen.getByRole("navigation", { name: "Page sidebar" });
     await within(sidebar).findByRole("group", { name: "Projects" });
-    expect(within(within(sidebar).getByRole("group", { name: "Reviews" })).getAllByRole("button").map((button) => button.textContent))
-      .toEqual(["Ready to merge1", "Changes requested1", "Conflicts1", "Merged1"]);
-    expect(within(within(sidebar).getByRole("group", { name: "Projects" })).getByRole("button").textContent).toBe("Sshop-api3");
-    expect(within(sidebar).getByRole("button", { name: "Remote pull requests" })).toBeTruthy();
-    expect(within(sidebar).getByRole("button", { name: /Ready to merge/u }).getAttribute("aria-current")).toBe("page");
-    // The page is the table alone.
+    await waitFor(() => expect(within(within(sidebar).getByRole("group", { name: "Review" })).getAllByRole("button").map((button) => button.textContent))
+      .toEqual(["Inbox3", "Merged", "All pull requests"]));
+    const project = within(within(sidebar).getByRole("group", { name: "Projects" })).getByRole("button");
+    expect(project.textContent).toBe("Sshop-api3");
+    expect(project.dataset.tooltip).toBe("shop-api");
+    expect(project.querySelector(".rv-nav-label")?.textContent).toBe("shop-api");
+    expect(within(sidebar).queryByRole("group", { name: "Elsewhere" })).toBeNull();
+    expect(within(sidebar).getByRole("button", { name: /Inbox/u }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByRole("region", { name: "Ready to merge" })).toBeTruthy();
     expect(screen.queryAllByRole("navigation", { name: "Reviews" })).toHaveLength(0);
-    expect(screen.getByRole("heading", { name: "Ready to merge" })).toBeTruthy();
     // The filter is in the page's head, not the sidebar.
     expect(within(sidebar).queryByRole("searchbox")).toBeNull();
     expect(screen.getByRole("searchbox", { name: "Filter reviews" })).toBeTruthy();
@@ -306,16 +396,23 @@ describe("the Reviews sidebar", () => {
     const { navigate } = setup({ sidebar: true });
     const sidebar = screen.getByRole("navigation", { name: "Page sidebar" });
     await within(sidebar).findByRole("group", { name: "Projects" });
-    fireEvent.click(within(sidebar).getByRole("button", { name: /Conflicts/u }));
-    expect(navigate).toHaveBeenLastCalledWith({ tab: "conflicts" }, { root: true, replace: true });
+    fireEvent.click(within(sidebar).getByRole("button", { name: /Merged/u }));
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "merged" }, { root: true, replace: true });
     fireEvent.click(within(sidebar).getByRole("button", { name: /shop-api/u }));
-    expect(navigate).toHaveBeenLastCalledWith({ tab: "ready", project: "ws-shop" }, { root: true, replace: true });
+    expect(navigate).toHaveBeenLastCalledWith({ tab: "inbox", project: "ws-shop" }, { root: true, replace: true });
 
-    within(sidebar).getByRole("button", { name: /Ready to merge/u }).focus();
+    within(sidebar).getByRole("button", { name: /Inbox/u }).focus();
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
-    expect(document.activeElement?.textContent).toBe("Changes requested1");
+    expect(document.activeElement?.textContent).toBe("Merged");
     fireEvent.keyDown(document.activeElement!, { key: "End" });
-    expect(document.activeElement?.textContent).toBe("Remote pull requests");
+    expect(document.activeElement?.textContent).toBe("Sshop-api3");
+  });
+
+  it("counts a project's open requests beside its branches", async () => {
+    setup({ sidebar: true, pulls: async () => lists([pr(13, { author: { login: "dependabot" }, reviewRequested: true })]) });
+    const sidebar = screen.getByRole("navigation", { name: "Page sidebar" });
+    await waitFor(() => expect(within(sidebar).getByRole("button", { name: /Inbox/u }).textContent).toBe("Inbox4"));
+    expect(within(within(sidebar).getByRole("group", { name: "Projects" })).getByRole("button").textContent).toBe("Sshop-api4");
   });
 
   it("filters the page's list from the field in its head", async () => {
