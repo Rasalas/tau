@@ -1128,6 +1128,72 @@ describe("ExtensionRegistry prompt tools seams", () => {
 });
 
 describe("ExtensionRegistry scoped data", () => {
+  it.each(["deactivate", "rollback", "replace"] as const)("ignores writers from an ended activation: %s", async (ending) => {
+    const invoke = vi.fn(async () => undefined);
+    const registry = new ExtensionRegistry({ invoke });
+    let previous!: DesktopExtensionContext;
+    const extension: DesktopExtension = { id: "lifetime", name: "Lifetime", activate(context) {
+      previous = context;
+      if (ending === "rollback") throw new Error("failed");
+    } };
+    if (ending === "rollback") expect(() => registry.activate(extension)).toThrow("failed");
+    else registry.activate(extension);
+    const old = previous;
+    if (ending === "deactivate") registry.deactivate(extension.id);
+    if (ending === "replace") registry.activate({ id: extension.id, name: extension.name, activate(context) {
+      context.setLiveStatus("thread", "Current");
+      context.registerOptions([{ id: "current", label: "Current", kind: "toggle", defaultValue: false }]);
+    } });
+    expect(old.signal?.aborted).toBe(true);
+    // Model an already queued asynchronous completion of the old activation.
+    await Promise.resolve();
+    old.setLiveStatus("thread", "Ghost");
+    old.setThreadRowStatuses({ thread: { label: "Ghost" } });
+    old.setThreadLineage({ parents: { thread: "ghost" }, workingChildren: {} });
+    old.setProjectIcons({ project: "data:image/png;base64,aA==" });
+    old.setProviderIcons({ openai: "data:image/png;base64,aA==" });
+    old.setProblems([{ source: "old", message: "Ghost" }]);
+    old.registerCommand({ id: "ghost", label: "Ghost", group: "Test", run() {} })();
+    old.registerPanel({ id: "ghost", label: "Ghost", Component: () => null })();
+    old.registerOptions([])();
+    old.provideService("ghost", {})();
+    const event = vi.fn();
+    old.events.on("agent-status", event);
+    old.host.onEvent("event", event);
+    await expect(old.host.invoke("ghost")).rejects.toThrow("no longer active");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(registry.getLiveStatus("thread")).toBe(ending === "replace" ? "Current" : undefined);
+    expect(registry.getThreadRowMarks()).toEqual({});
+    expect(registry.getThreadLineage().parents).toEqual({});
+    expect(registry.projectIcon({ path: "project" })).toBeUndefined();
+    expect(registry.providerIcon("openai")).toBeUndefined();
+    expect(registry.getProblems()).toEqual([]);
+    expect(registry.getCommands()).toEqual([]);
+    expect(registry.getPanels()).toEqual([]);
+    expect(registry.getServiceIds()).toEqual([]);
+    registry.dispatchWorkbenchEvent({ type: "agent-status", sessionId: "thread", running: false });
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: extension.id, name: "event", payload: {} });
+    expect(event).not.toHaveBeenCalled();
+    if (ending === "replace") expect(registry.getExtensionSummaries()[0]?.options.map((option) => option.id)).toEqual(["current"]);
+  });
+
+  it("releases handles only once across replacement and aborts before cleanup", () => {
+    const registry = new ExtensionRegistry();
+    let oldRelease!: () => void;
+    let old!: DesktopExtensionContext;
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(context) {
+      old = context;
+      oldRelease = context.registerOptions([{ id: "old", label: "Old", kind: "toggle", defaultValue: false }]);
+      return () => { expect(context.signal?.aborted).toBe(true); };
+    } });
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(context) {
+      context.registerOptions([{ id: "new", label: "New", kind: "toggle", defaultValue: false }]);
+    } });
+    expect(old.signal?.aborted).toBe(true);
+    oldRelease();
+    expect(registry.getExtensionSummaries()[0]?.options.map((option) => option.id)).toEqual(["new"]);
+  });
+
   it("preserves legacy notifications while keeping registrations and unrelated selectors stable", () => {
     const registry = new ExtensionRegistry();
     let context!: DesktopExtensionContext;

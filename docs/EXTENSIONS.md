@@ -111,6 +111,13 @@ A package has up to two halves, sharing one `id`:
   reads Workspace Kit's changes and diffs this way). Those commands belong to
   that extension's contract, not to core: an invoke fails like any other when
   it is not installed.
+  Since API 1.69.0, `context.signal` is aborted before deactivation or failed
+  activation cleanup. Pass it to asynchronous work that supports cancellation.
+  Each activation has its own signal and resource lifetime. Published data and
+  registrations from an ended activation are ignored, including callbacks that
+  complete after the same extension has activated again. Host invocations from
+  an ended activation reject. Registration disposers are idempotent and cannot
+  remove a replacement activation's contributions.
   Who may call a host command is its `access` (below): Full devices by
   default, Read-only devices too with `"read"`, only the host token on this
   machine with `"owner"`.
