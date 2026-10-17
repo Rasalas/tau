@@ -10,7 +10,9 @@ import { cdpInputCommands } from "./remote-input.js";
 /** The program is shared; user data is always Preview's own, never Chrome's. */
 export function previewBrowserCommand(find: (name: string) => string | undefined): string | undefined {
   if (process.env.TAU_PREVIEW_BROWSER) return process.env.TAU_PREVIEW_BROWSER;
-  for (const name of ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]) {
+  // A packaged Chrome has the platform's sandbox integration; a standalone
+  // Chromium snapshot may not, as on Ubuntu's hosted CI images.
+  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
     const installed = find(name);
     if (installed) return installed;
   }

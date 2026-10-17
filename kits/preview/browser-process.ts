@@ -46,13 +46,24 @@ export class PreviewBrowserProcess {
         } catch { this.fail(new Error("The preview browser sent an invalid response.")); }
       }
     });
-    this.input.on("error", () => this.fail(new Error("The preview browser pipe closed.")));
-    output.on("error", () => this.fail(new Error("The preview browser pipe closed.")));
+    const pipeClosed = () => this.fail(new Error("The preview browser pipe closed. Check TAU_PREVIEW_BROWSER and Chromium's sandbox setup."));
+    this.input.on("error", pipeClosed);
+    output.on("error", pipeClosed);
     this.child.on("error", () => this.fail(new Error("The preview browser could not start. Check TAU_PREVIEW_BROWSER and Chromium's sandbox setup.")));
-    this.exited = new Promise((resolve) => this.child.once("close", () => {
-      this.fail(new Error("The preview browser closed."));
-      resolve();
-    }));
+    this.exited = new Promise((resolve) => {
+      const finished = (code: number | null, signal: NodeJS.Signals | null) => {
+        this.fail(new Error(`The preview browser exited (${signal ?? code ?? "unknown status"}). Check TAU_PREVIEW_BROWSER and Chromium's sandbox setup.`));
+        // A descendant can keep inherited pipes open after the browser exits.
+        // Its close event must not delay failure reporting or host shutdown.
+        this.input.destroy();
+        output.destroy();
+        this.child.stderr?.destroy();
+        resolve();
+      };
+      this.child.once("exit", finished);
+      // A failed spawn emits error and close, with no exit event.
+      this.child.once("close", finished);
+    });
   }
 
   onEvent(listener: (event: Event) => void): () => void {
