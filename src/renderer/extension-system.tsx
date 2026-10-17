@@ -1965,6 +1965,7 @@ export class ExtensionRegistry {
   /** Ids core activated itself; they are listed but never switched off. */
   readonly #coreIds = new Set<string>();
   #activeExtensions = new Map<string, { extension: DesktopExtension; activation: ExtensionActivation }>();
+  readonly #activationTransitions = new Map<string, { next: DesktopExtension | false | undefined }>();
   #listeners = new Set<() => void>();
   #version = 0;
   #legacyVersion = 0;
@@ -2040,7 +2041,37 @@ export class ExtensionRegistry {
   }
 
   activate(extension: DesktopExtension): void {
-    this.deactivate(extension.id);
+    this.transitionActivation(extension.id, extension);
+  }
+
+  /** Serialize replacements requested by activation, abort or cleanup callbacks. */
+  private transitionActivation(id: string, next: DesktopExtension | false): void {
+    const pending = this.#activationTransitions.get(id);
+    if (pending) {
+      pending.next = next;
+      this.deactivateNow(id);
+      return;
+    }
+    const transition: { next: DesktopExtension | false | undefined } = { next };
+    this.#activationTransitions.set(id, transition);
+    const errors: unknown[] = [];
+    try {
+      while (transition.next !== undefined) {
+        const requested = transition.next;
+        transition.next = undefined;
+        try { this.deactivateNow(id); } catch (error) { errors.push(error); }
+        // A callback made a newer request while the old activation ended.
+        if (requested && transition.next === undefined) {
+          try { this.activateNow(requested); } catch (error) { errors.push(error); }
+        }
+      }
+    } finally {
+      this.#activationTransitions.delete(id);
+    }
+    throwFailures(errors);
+  }
+
+  private activateNow(extension: DesktopExtension): void {
     this.#known.set(extension.id, extension);
     const owner: ContributionOwner = { extensionId: extension.id, extensionName: extension.name };
     this.#profiledContributions.delete(extension.id);
@@ -2395,23 +2426,19 @@ export class ExtensionRegistry {
         return release;
       },
     };
+    this.#activeExtensions.set(extension.id, { extension, activation });
     try {
       const extensionDispose = extension.activate(context);
       if (extensionDispose) activation.own(extensionDispose);
+      if (!activation.active || this.#activeExtensions.get(extension.id)?.activation !== activation) return;
       this.#contributionKinds.set(extension.id, kinds);
-      this.#activeExtensions.set(extension.id, {
-        extension,
-        activation,
-      });
       this.changed();
     } catch (error) {
       const errors = [error];
-      try { activation.dispose(); } catch (failure) { errors.push(failure); }
-      this.#contributionKinds.delete(extension.id);
-      this.#profiledContributions.delete(extension.id);
-      this.#activeExtensions.delete(extension.id);
-      try { this.clearPublishedData(extension.id); } catch (failure) { errors.push(failure); }
-      try { this.changed(); } catch (failure) { errors.push(failure); }
+      try {
+        if (this.#activeExtensions.get(extension.id)?.activation === activation) this.deactivateNow(extension.id);
+        else activation.dispose();
+      } catch (failure) { errors.push(failure); }
       throwFailures(errors);
     }
   }
@@ -2422,11 +2449,15 @@ export class ExtensionRegistry {
   }
 
   deactivate(id: string): void {
+    this.transitionActivation(id, false);
+  }
+
+  private deactivateNow(id: string): void {
     const active = this.#activeExtensions.get(id);
     if (!active) return;
+    this.#activeExtensions.delete(id);
     const errors: unknown[] = [];
     try { active.activation.dispose(); } catch (error) { errors.push(error); }
-    this.#activeExtensions.delete(id);
     this.#contributionKinds.delete(id);
     this.#profiledContributions.delete(id);
     try { this.clearPublishedData(id); } catch (error) { errors.push(error); }
