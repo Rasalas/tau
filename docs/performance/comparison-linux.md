@@ -51,3 +51,20 @@ Linux/Xvfb results describe that machine and rendering setup. Compare current
 apps within the same run; do not interpret differences from a historical Mac
 report as a product speedup or regression. GPU and CPU conditions, revision,
 sample count and missing measurements belong beside any conclusion.
+
+For a renderer change on a shared machine, `scripts/compare/replay-pairs.mjs`
+keeps before and after close together. Build two pinned Tau checkouts first,
+then use the same seeded `COMPARE_TAU_ROOT` sequentially. Run from a scratch
+checkout outside real app data, with no other harness using that profile:
+
+```sh
+node /path/to/current-harness/scripts/compare/replay-pairs.mjs \
+  /tmp/tau-before /tmp/tau-after reports/stream-pairs.json
+```
+
+It uses the full comparison's viewport, replay, frame probe and transfer counter,
+with five pairs and one excluded warm-up pair. Pair order alternates. It omits
+idle, large-history scrolling and thread switches, so its latency observations
+describe that replay alone. The JSON records both source revisions, the harness
+revision, launch conditions, every pair's load and a completion state. A running
+report is partial. The final after run also writes a PNG beside the report.
