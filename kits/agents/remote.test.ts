@@ -189,6 +189,7 @@ async function bench(options: { setting?: string; cores?: number; rex?: Partial<
     settings: async () => ({ options: {}, values: (options.setting ? { machine: options.setting } : {}) as Record<string, string> }),
     thread: (sessionId?: string) => (sessionId === "parent" || started.some((_, index) => sessionId === `local-${index + 1}`) ? thread(sessionId!) : undefined),
     noteSubprocess: () => undefined,
+    decorateUiPrompt: () => () => undefined,
     sessions: {
       list: async () => [{ sessionId: "parent", path: "/sessions/parent.jsonl", cwd: "/project" }],
       start: async (start: HostThreadStartOptions) => { started.push(start); return { sessionId: `local-${started.length}`, cwd: start.cwd }; },

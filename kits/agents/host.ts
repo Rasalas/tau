@@ -397,6 +397,9 @@ export function createAgentsHostExtension(options: {
         return thread ? { streaming: thread.isStreaming(), idle: thread.isIdle() } : undefined;
       }, (id): ThreadLiveness | undefined => remote.liveness(id));
       const waiters = new Map<string, Set<() => void>>();
+      // A runtime can open a dialog before sessions.start returns its thread id.
+      // Keep it until the child is bound, including dialogs from non-Pi runtimes.
+      const sharedPrompts = new Map<string, Map<string, { title: string }>>();
       /** Turns a tool gave each child that have not ended yet; the parent hears once none are left. */
       const expecting = new Map<string, number>();
       const expect = (id: string) => { expecting.set(id, (expecting.get(id) ?? 0) + 1); save(); };
@@ -481,8 +484,10 @@ export function createAgentsHostExtension(options: {
         for (const waiter of waiters.get(id) ?? []) waiter();
       };
       const changed = (idOrThreadId: string, moved: boolean) => {
-        const id = book.linkFor(idOrThreadId)?.id;
-        if (id) wake(id);
+        const link = book.linkFor(idOrThreadId);
+        const questions = link?.threadId ? sharedPrompts.get(link.threadId) : undefined;
+        if (link && questions) moved = book.notePrompt(link.id, [...questions.values()].at(-1)?.title) || moved;
+        if (link) wake(link.id);
         if (moved) publish();
       };
 
@@ -1461,8 +1466,12 @@ export function createAgentsHostExtension(options: {
         const threadId = session.sessionId;
         // A dialog a spawned thread opens is answered by the user in that
         // thread; the parent only learns that it is waiting on one.
-        pi.on("ui_prompt_start", (event) => { changed(threadId, book.notePrompt(threadId, event.title ?? event.kind)); });
-        pi.on("ui_prompt_end", () => { changed(threadId, book.notePrompt(threadId, undefined)); });
+        pi.on("ui_prompt_start", (event) => {
+          if (!sharedPrompts.has(threadId)) changed(threadId, book.notePrompt(threadId, event.title ?? event.kind));
+        });
+        pi.on("ui_prompt_end", () => {
+          if (!sharedPrompts.has(threadId)) changed(threadId, book.notePrompt(threadId, undefined));
+        });
         // The row names the tool at work now, not only the last one that ended (design 1c).
         pi.on("tool_execution_start", (event) => { changed(threadId, book.noteTool(threadId, toolLine({ name: event.toolName, args: event.args }))); });
 
@@ -1579,6 +1588,20 @@ export function createAgentsHostExtension(options: {
 
       let priority: AgentPriority = DEFAULT_AGENT_PRIORITY;
       const disposers = [
+        services.decorateUiPrompt((prompt) => {
+          const questions = sharedPrompts.get(prompt.sessionId) ?? new Map<string, { title: string }>();
+          const question = { title: prompt.title || prompt.kind };
+          questions.set(prompt.id, question);
+          sharedPrompts.set(prompt.sessionId, questions);
+          changed(prompt.sessionId, book.notePrompt(prompt.sessionId, question.title));
+          return () => {
+            // A reset or replacement may have retired this dialog already.
+            if (sharedPrompts.get(prompt.sessionId) !== questions || questions.get(prompt.id) !== question) return;
+            questions.delete(prompt.id);
+            if (questions.size === 0) sharedPrompts.delete(prompt.sessionId);
+            changed(prompt.sessionId, book.notePrompt(prompt.sessionId, [...questions.values()].at(-1)?.title));
+          };
+        }),
         services.registerRuntimeExtension("tau-agents", runtimeExtension, {
           // A spawned thread's commands yield to the user's own work.
           shellCommandPrefix: (session) => session.parentThreadId ? priorityPrefix(priority) : undefined,
@@ -1600,8 +1623,8 @@ export function createAgentsHostExtension(options: {
             if (unreported.has(sessionId)) void flushWakes(sessionId, true);
             if (book.has(sessionId)) await childEnded(sessionId, outcome);
           },
-          closed: async (sessionId) => { changed(sessionId, book.noteClosed(sessionId)); },
-          reset: async (sessionId) => { changed(sessionId, book.noteClosed(sessionId)); },
+          closed: async (sessionId) => { sharedPrompts.delete(sessionId); changed(sessionId, book.noteClosed(sessionId)); },
+          reset: async (sessionId) => { sharedPrompts.delete(sessionId); changed(sessionId, book.noteClosed(sessionId)); },
           // An agent someone is waiting on is not an idle runtime to release.
           pending: (sessionId) => waiters.get(book.linkFor(sessionId)?.id ?? "")?.size ?? 0,
           stopped: async (sessionId) => {
@@ -1628,6 +1651,7 @@ export function createAgentsHostExtension(options: {
            * else to do with it is a policy question, not this hook's.
            */
           threadDeleted: async (sessionId) => {
+            sharedPrompts.delete(sessionId);
             const link = book.linkFor(sessionId);
             const workspace = link?.workspace;
             if (link && workspace?.mode === "worktree" && workspace.branch && !workspace.settled) {
@@ -1801,6 +1825,7 @@ export function createAgentsHostExtension(options: {
         if (publishing) clearTimeout(publishing);
         if (saving) { clearTimeout(saving); saving = undefined; void persistLinks().catch(() => undefined); }
         closed = true;
+        sharedPrompts.clear();
         for (const dispose of [...disposers].reverse()) dispose();
         await pendingSave;
       };

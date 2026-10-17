@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   PARENT_LINK_ENTRY,
   parentLinkEntry,
+  type ExtensionUiPrompt,
   type GlobalHostEvent,
   type HostExtensionServices,
   type HostMcpToolProvider,
@@ -66,6 +67,7 @@ function harness() {
   const runtimeExtensions: RuntimeExtensionContribution[] = [];
   const mcpProviders: HostMcpToolProvider[] = [];
   const instructions: HostMcpInstructionsProvider[] = [];
+  const promptDecorators = new Set<Parameters<HostExtensionServices["decorateUiPrompt"]>[0]>();
   const choices: HostRuntimeChoice[] = ["pi", "opencode", "codex"].map((kind) => ({
     backend: { kind, label: kind }, enabled: true, readiness: { kind, label: kind, state: "ready" },
     catalog: { kind, models: ["openai/test-model", "openai/reviewer-model", "anthropic/parent-model", "anthropic/small-model", "openai/parent-model"].map(parseModel).map((model) => ({ ...model, name: model.id })), thinkingLevels: {} },
@@ -196,7 +198,7 @@ function harness() {
     registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
     registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
     pinTranscriptEntries: () => () => undefined,
-    decorateUiPrompt: () => () => undefined,
+    decorateUiPrompt: (decorator) => { promptDecorators.add(decorator); return () => { promptDecorators.delete(decorator); }; },
     registerRuntimeExtension: (name, factory, extensionOptions) => { runtimeExtensions.push({ name, factory, ...extensionOptions }); return () => undefined; },
     loadRuntimeExtension: async () => { throw new Error("no runtime packages in this test"); },
     loadDependency: async () => { throw new Error("no dependencies in this test"); },
@@ -249,11 +251,12 @@ function harness() {
   };
 
   /** The kit registers one turn observer; this is the host telling it what happened. */
-  const notify = async (event: "accepted" | "ended" | "closed" | "toolEnded", sessionId: string, extra?: unknown) => {
+  const notify = async (event: "accepted" | "ended" | "closed" | "reset" | "toolEnded", sessionId: string, extra?: unknown) => {
     for (const observer of observers) {
       if (event === "accepted") observer.accepted?.(sessionId, "turn-1", { deferBefore: false });
       if (event === "ended") await observer.ended?.(sessionId, "turn-1", (extra as "completed" | "failed") ?? "completed");
       if (event === "closed") await observer.closed?.(sessionId);
+      if (event === "reset") await observer.reset?.(sessionId);
       if (event === "toolEnded") observer.toolEnded?.(sessionId, extra as UiToolRun, "/project");
     }
   };
@@ -273,7 +276,13 @@ function harness() {
   const holdStarts = (gate: () => Promise<void>) => { startGate = gate; };
   const holdTranscripts = (gate: (threadId: string) => Promise<void>) => { transcriptGate = gate; };
 
-  return { backends, models, thinking, choices, instructions, activate, runtimeExtensions, services, threads, started, sent, aborted, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdTranscripts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
+  /** The dialog coordinator calls the cleanup on an answer, cancellation or expiry. */
+  const prompt = (question: ExtensionUiPrompt) => {
+    const cleanups = [...promptDecorators].map((decorate) => decorate(question));
+    return () => { for (const cleanup of cleanups) cleanup?.(); };
+  };
+
+  return { backends, models, thinking, choices, instructions, activate, runtimeExtensions, services, threads, started, sent, aborted, prompt, refuseSteer: () => { steerRefused = true; }, refusePrompts: (count: number) => { promptRefusals = count; }, events, observers, lifecycles, runtime, mcpThread, mcpProviders, noJournal, open, notify, state, holdStarts, holdTranscripts, holdSends: (gate: () => Promise<void>) => { sendGate = gate; }, invoke: (command: string, input?: unknown) => invoke(command, input), registry: () => registry!, setProject: (dir: string) => { projectCwd = dir; } };
 }
 
 async function activated(paths: { settingsPath?: string; linksPath?: string; stateDir?: string; runGit?: AgentGitRunner } = {}) {
@@ -1107,6 +1116,87 @@ describe("Agents Kit", () => {
 
     await expect(parent.call("tau_get_thread_status", { threadId: handle }))
       .resolves.toMatchObject({ status: "waiting", pendingToolPrompt: "Run rm -rf?" });
+  });
+
+  it("releases an MCP parent's wait when a child on another runtime asks a question", async () => {
+    const bench = await activated();
+    try {
+      bench.backends.set("parent", "codex");
+      const parent = await bench.mcpThread("parent");
+      const handle = handleOf(await parent.call("tau_spawn_thread", { runtime: "opencode", prompt: "Inspect the index", workspace: "shared" }));
+      const waiting = parent.call("tau_wait_for_thread", { threadId: handle, timeoutMs: 100 });
+      const answered = bench.prompt({ id: "question-1", sessionId: handle, kind: "input", title: "Which index?" });
+
+      const result = await waiting;
+      expect(result).toMatchObject({ status: "waiting", pendingToolPrompt: "Which index?" });
+      expect(result).not.toHaveProperty("timedOut");
+      expect(bench.sent).toEqual([]);
+
+      answered();
+      await expect(parent.call("tau_get_thread_status", { threadId: handle })).resolves.toMatchObject({ status: "running" });
+      expect((await bench.state()).links[0]?.pendingToolPrompt).toBeUndefined();
+    } finally { await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID); }
+  });
+
+  it("keeps another child dialog visible when an earlier question is dismissed", async () => {
+    const bench = await activated();
+    try {
+      const handle = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "go" }));
+      const first = bench.prompt({ id: "first", sessionId: handle, kind: "confirm", title: "Allow read?" });
+      const second = bench.prompt({ id: "second", sessionId: handle, kind: "input", title: "Which table?" });
+
+      first();
+      // The Pi event for the old dialog must not erase the remaining shared dialog.
+      bench.runtime(handle).fire("ui_prompt_end", {});
+      expect((await bench.state()).links[0]).toMatchObject({ status: "waiting", pendingToolPrompt: "Which table?" });
+
+      second();
+      expect((await bench.state()).links[0]?.pendingToolPrompt).toBeUndefined();
+    } finally { await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID); }
+  });
+
+  it("retains a question opened before the child start returns", async () => {
+    const bench = await activated();
+    let dismiss: (() => void) | undefined;
+    bench.holdStarts(async () => {
+      dismiss = bench.prompt({ id: "early", sessionId: "child-1", kind: "input", title: "Which folder?" });
+    });
+    try {
+      const parent = await bench.mcpThread("parent");
+      const handle = handleOf(await parent.call("tau_spawn_thread", { runtime: "opencode", prompt: "Inspect files", workspace: "shared" }));
+      await expect(parent.call("tau_wait_for_thread", { threadId: handle, timeoutMs: 100 }))
+        .resolves.toMatchObject({ status: "waiting", pendingToolPrompt: "Which folder?" });
+      dismiss!();
+      expect((await bench.state()).links[0]?.pendingToolPrompt).toBeUndefined();
+    } finally { await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID); }
+  });
+
+  it("returns to the earlier question when the newest dialog closes", async () => {
+    const bench = await activated();
+    try {
+      const handle = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "go" }));
+      const first = bench.prompt({ id: "first", sessionId: handle, kind: "input", title: "Which folder?" });
+      const second = bench.prompt({ id: "second", sessionId: handle, kind: "confirm", title: "Allow write?" });
+      second();
+      expect((await bench.state()).links[0]).toMatchObject({ pendingToolPrompt: "Which folder?" });
+      first();
+      expect((await bench.state()).links[0]?.pendingToolPrompt).toBeUndefined();
+    } finally { await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID); }
+  });
+
+  it.each(["reset", "closed"] as const)("ignores old dialog cleanup after the child is %s", async (event) => {
+    const bench = await activated();
+    try {
+      const handle = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "go" }));
+      const old = bench.prompt({ id: "reused", sessionId: handle, kind: "input", title: "Old question" });
+      await bench.notify(event, handle);
+      expect((await bench.state()).links[0]?.pendingToolPrompt).toBeUndefined();
+      const current = bench.prompt({ id: "reused", sessionId: handle, kind: "input", title: "New question" });
+      old();
+      expect((await bench.state()).links[0]).toMatchObject({ pendingToolPrompt: "New question" });
+      current();
+      expect((await bench.state()).links[0]?.pendingToolPrompt).toBeUndefined();
+    } finally { await bench.registry().deactivate(AGENTS_HOST_EXTENSION_ID); }
   });
 
   it("counts an unanswered question below the parent only while its child runs", async () => {
