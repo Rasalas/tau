@@ -38,7 +38,8 @@ import type { Platform, PlatformAttention } from "../workbench/platform";
 import type { PlatformEnvironments } from "../workbench/environments";
 import { PreferencesStore } from "./preferences";
 import { ExtensionServiceRegistry } from "./extension-service-registry";
-import { throwFailures } from "./extension-lifecycle-errors";
+import { ExtensionActivation } from "./extension-activation";
+import { runAll, throwFailures } from "./extension-lifecycle-errors";
 import { errorMessage } from "../workbench/error-message";
 import { toolArgumentSummary } from "../workbench/transcript-folding";
 import type { SettingScope } from "../shared/config-layers";
@@ -1635,6 +1636,8 @@ export interface HostExtensionBridge {
 export type ExtensionEvent = Extract<GlobalHostEvent, { type: "extension-event" }>;
 
 export interface DesktopExtensionContext {
+  /** Aborted before rollback or deactivation. New in API 1.69.0. */
+  readonly signal?: AbortSignal;
   /** This extension's host entry, if the package has one. */
   host: HostExtensionClient;
   /**
@@ -1850,6 +1853,7 @@ export class HostUnavailableError extends Error {
 
 const noHostBridge: HostExtensionBridge = {
   invoke: () => Promise.reject(new HostUnavailableError()),
+  inspect: () => Promise.reject(new HostUnavailableError()),
 };
 
 /** What a contribution this client does not draw hands back: nothing to dispose. */
@@ -1862,13 +1866,12 @@ const noTranscriptRows: TranscriptRowsHandle = {
 
 /** Generalizes the desktop API's `invokeHostExtension` to whatever `HostClient` is active. */
 export function hostExtensionBridge(client: HostClient | undefined): HostExtensionBridge {
+  if (!client) return noHostBridge;
   return {
-    invoke: (extensionId, command, input) => client
-      ? client.invokeHostExtension(extensionId, command, input)
-      : Promise.reject(new HostUnavailableError()),
-    inspect: (cwd) => client ? client.inspectExtensions(cwd) : Promise.reject(new HostUnavailableError()),
-    ...(client?.resourceUrl ? { resourceUrl: (path: string) => client.resourceUrl!(path) } : {}),
-    ...(client ? { watch: (extensionId: string, topic: string) => client.watchHostTopic(extensionId, topic) } : {}),
+    invoke: (extensionId, command, input) => client.invokeHostExtension(extensionId, command, input),
+    inspect: (cwd) => client.inspectExtensions(cwd),
+    ...(client.resourceUrl ? { resourceUrl: (path: string) => client.resourceUrl!(path) } : {}),
+    watch: (extensionId: string, topic: string) => client.watchHostTopic(extensionId, topic),
   };
 }
 
@@ -1961,7 +1964,8 @@ export class ExtensionRegistry {
   #known = new Map<string, DesktopExtension>();
   /** Ids core activated itself; they are listed but never switched off. */
   readonly #coreIds = new Set<string>();
-  #activeExtensions = new Map<string, { extension: DesktopExtension; dispose: () => void }>();
+  #activeExtensions = new Map<string, { extension: DesktopExtension; activation: ExtensionActivation }>();
+  readonly #activationTransitions = new Map<string, { next: DesktopExtension | false | undefined }>();
   #listeners = new Set<() => void>();
   #version = 0;
   #legacyVersion = 0;
@@ -2037,109 +2041,119 @@ export class ExtensionRegistry {
   }
 
   activate(extension: DesktopExtension): void {
-    this.deactivate(extension.id);
+    this.transitionActivation(extension.id, extension);
+  }
+
+  /** Serialize replacements requested by activation, abort or cleanup callbacks. */
+  private transitionActivation(id: string, next: DesktopExtension | false): void {
+    const pending = this.#activationTransitions.get(id);
+    if (pending) {
+      pending.next = next;
+      this.deactivateNow(id);
+      return;
+    }
+    const transition: { next: DesktopExtension | false | undefined } = { next };
+    this.#activationTransitions.set(id, transition);
+    const errors: unknown[] = [];
+    try {
+      while (transition.next !== undefined) {
+        const requested = transition.next;
+        transition.next = undefined;
+        try {
+          this.deactivateNow(id);
+          // A callback made a newer request while the old activation ended.
+          if (requested && transition.next === undefined) this.activateNow(requested);
+        } catch (error) { errors.push(error); }
+      }
+    } finally {
+      this.#activationTransitions.delete(id);
+    }
+    throwFailures(errors);
+  }
+
+  private activateNow(extension: DesktopExtension): void {
     this.#known.set(extension.id, extension);
     const owner: ContributionOwner = { extensionId: extension.id, extensionName: extension.name };
     this.#profiledContributions.delete(extension.id);
     const kinds: string[] = [];
-    const disposers: Array<() => void> = [];
+    const activation = new ExtensionActivation();
+    const profiled = (...args: Parameters<ExtensionRegistry["scopeToProfile"]>) => activation.active && this.scopeToProfile(...args);
     // Before `activate`, so the rules are in place when the first component mounts.
     const unmountStyles = mountStyles(extension);
-    if (unmountStyles) disposers.push(unmountStyles);
+    if (unmountStyles) activation.own(unmountStyles);
     const note = (kind: string) => { if (!kinds.includes(kind)) kinds.push(kind); };
     // A theme contributes only its rules; without this the Inspector shows it
     // as an extension that contributes nothing.
     if (unmountStyles) note("styles");
+    const contribute = <T extends ProfileScoped>(map: Map<string, Owned<T>>, id: string, value: T, kind: string, label: string | undefined, summary: string): (() => void) => {
+      if (!profiled(owner, kind, id, label, value)) return noContribution;
+      note(summary);
+      return this.register(map, id, { ...value, ...owner }, activation);
+    };
     const hostClient = (extensionId: string): HostExtensionClient => ({
       invoke: (command, input) => this.hostBridge.invoke(extensionId, command, input),
       ...(this.hostBridge.resourceUrl ? { resourceUrl: (path: string) => this.hostBridge.resourceUrl!(path) } : {}),
       onEvent: (name, listener) => {
+        if (!activation.active) return noContribution;
+        const guarded = activation.guard(listener);
         const byName = this.#hostEventListeners.get(extensionId) ?? new Map<string, Set<(payload: unknown) => void>>();
         this.#hostEventListeners.set(extensionId, byName);
         const listeners = byName.get(name) ?? new Set<(payload: unknown) => void>();
         byName.set(name, listeners);
-        listeners.add(listener);
-        const dispose = () => { listeners.delete(listener); };
-        disposers.push(dispose);
-        return dispose;
+        listeners.add(guarded);
+        const dispose = () => { listeners.delete(guarded); };
+        return activation.own(dispose);
       },
       watch: (topic) => {
+        if (!activation.active) return noContribution;
         const release = this.hostBridge.watch?.(extensionId, topic) ?? (() => undefined);
-        let done = false;
-        const dispose = () => { if (!done) { done = true; release(); } };
-        disposers.push(dispose);
-        return dispose;
+        return activation.own(release);
       },
     });
     const platform = this.services.platform;
     const context: DesktopExtensionContext = {
+      signal: activation.signal,
       preferences: this.services.preferences,
       // Read when used: the client builds its platform after the registry.
       get attention() { return platform?.()?.attention; },
       get environments() { return platform?.()?.environments; },
       host: hostClient(extension.id),
       hostExtension: (extensionId) => hostClient(extensionId),
-      registerPanel: (panel) => {
-        if (!this.scopeToProfile(owner, "panel", panel.id, panel.label, panel)) return noContribution;
-        note(panel.label.toLowerCase());
-        return this.register(this.#panels, panel.id, { ...panel, ...owner }, disposers);
-      },
+      registerPanel: (panel) => contribute(this.#panels, panel.id, panel, "panel", panel.label, panel.label.toLowerCase()),
       registerStageTab: (tab) => {
         const contribution = tab as unknown as StageTabContribution;
-        if (!this.scopeToProfile(owner, "stage tab", contribution.kind, contribution.kind, contribution)) return noContribution;
+        if (!profiled(owner, "stage tab", contribution.kind, contribution.kind, contribution)) return noContribution;
         note("stage tabs");
-        return this.register(this.#stageTabKinds, contribution.kind, { ...contribution, ...owner }, disposers);
+        return this.register(this.#stageTabKinds, contribution.kind, { ...contribution, ...owner }, activation);
       },
-      registerSettingsPage: (page) => {
-        if (!this.scopeToProfile(owner, "settings page", page.id, page.label, page)) return noContribution;
-        note("settings page");
-        return this.register(this.#settingsPages, page.id, { ...page, ...owner }, disposers);
-      },
-      registerPage: (page) => {
-        if (!this.scopeToProfile(owner, "page", page.id, page.label, page)) return noContribution;
-        note("page");
-        return this.register(this.#pages, page.id, { ...page, ...owner }, disposers);
-      },
-      registerSettingsSection: (section) => {
-        if (!this.scopeToProfile(owner, "settings section", section.id, section.id, section)) return noContribution;
-        note("settings section");
-        return this.register(this.#settingsSections, section.id, { ...section, ...owner }, disposers);
-      },
+      registerSettingsPage: (page) => contribute(this.#settingsPages, page.id, page, "settings page", page.label, "settings page"),
+      registerPage: (page) => contribute(this.#pages, page.id, page, "page", page.label, "page"),
+      registerSettingsSection: (section) => contribute(this.#settingsSections, section.id, section, "settings section", section.id, "settings section"),
       inspectPackages: (cwd) => this.hostBridge.inspect
         ? this.hostBridge.inspect(cwd)
         : Promise.reject(new HostUnavailableError()),
       events: {
         on: (type, listener) => {
+          if (!activation.active) return noContribution;
           const listeners = this.#workbenchEventListeners.get(type) ?? new Set<(event: WorkbenchEvent) => void>();
           this.#workbenchEventListeners.set(type, listeners);
-          const wrapped = listener as (event: WorkbenchEvent) => void;
+          const wrapped = activation.guard(listener as (event: WorkbenchEvent) => void);
           listeners.add(wrapped);
           const dispose = () => { listeners.delete(wrapped); };
-          disposers.push(dispose);
+          activation.own(dispose);
           return dispose;
         },
       },
       registerRegion: (region) => {
-        if (!this.scopeToProfile(owner, `${region.placement} region`, region.id, undefined, region)) return noContribution;
+        if (!profiled(owner, `${region.placement} region`, region.id, undefined, region)) return noContribution;
         note(`${region.placement} region`);
-        return this.register(this.#regions, region.id, { ...region, ...owner }, disposers);
+        return this.register(this.#regions, region.id, { ...region, ...owner }, activation);
       },
-      registerStatusItem: (item) => {
-        if (!this.scopeToProfile(owner, "status item", item.id, undefined, item)) return noContribution;
-        note("status line");
-        return this.register(this.#statusItems, item.id, { ...item, ...owner }, disposers);
-      },
-      registerOverlay: (overlay) => {
-        if (!this.scopeToProfile(owner, "overlay", overlay.id, undefined, overlay)) return noContribution;
-        note("overlay");
-        return this.register(this.#overlays, overlay.id, { ...overlay, ...owner }, disposers);
-      },
-      registerConversationView: (view) => {
-        if (!this.scopeToProfile(owner, "conversation view", view.id, undefined, view)) return noContribution;
-        note("conversation view");
-        return this.register(this.#conversationViews, view.id, { ...view, ...owner }, disposers);
-      },
+      registerStatusItem: (item) => contribute(this.#statusItems, item.id, item, "status item", undefined, "status line"),
+      registerOverlay: (overlay) => contribute(this.#overlays, overlay.id, overlay, "overlay", undefined, "overlay"),
+      registerConversationView: (view) => contribute(this.#conversationViews, view.id, view, "conversation view", undefined, "conversation view"),
       setLiveStatus: (sessionId, label) => {
+        if (!activation.active) return;
         const own = this.#liveStatuses.get(extension.id) ?? new Map<string, string>();
         if (own.get(sessionId) === label) return;
         if (label === undefined) own.delete(sessionId);
@@ -2149,35 +2163,40 @@ export class ExtensionRegistry {
         this.dataChanged(`thread:${sessionId}`);
       },
       setThreadRowStatuses: (statuses) => {
+        if (!activation.active) return;
         if (Object.keys(statuses).length) this.#rowMarks.set(extension.id, statuses);
         else if (!this.#rowMarks.delete(extension.id)) return;
         this.dataChanged("marks");
       },
       setThreadLineage: (lineage) => {
+        if (!activation.active) return;
         if (lineage) this.#lineages.set(extension.id, lineage);
         else this.#lineages.delete(extension.id);
         this.dataChanged("lineage");
       },
       setProjectIcons: (icons) => {
+        if (!activation.active) return;
         const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")));
         if (Object.keys(pictures).length > 0) this.#projectIcons.set(extension.id, pictures);
         else if (!this.#projectIcons.delete(extension.id)) return;
         this.dataChanged("project-icons");
       },
       setProviderIcons: (icons) => {
+        if (!activation.active) return;
         const pictures = Object.fromEntries(Object.entries(icons ?? {}).filter(([, image]) => image.startsWith("data:image/")).map(([id, image]) => [providerIconKey(id), image]));
         if (Object.keys(pictures).length > 0) this.#providerIcons.set(extension.id, pictures);
         else if (!this.#providerIcons.delete(extension.id)) return;
         this.dataChanged("provider-icons");
       },
       setProblems: (problems) => {
+        if (!activation.active) return;
         if (problems.length === 0 && !this.#problems.has(extension.id)) return;
         if (problems.length === 0) this.#problems.delete(extension.id);
         else this.#problems.set(extension.id, problems.map((problem) => ({ ...problem, ...owner })));
         this.dataChanged("problems");
       },
       registerTranscriptRows: (id, order = 0, options) => {
-        if (!this.scopeToProfile(owner, "transcript rows", id, undefined, options)) return noTranscriptRows;
+        if (!profiled(owner, "transcript rows", id, undefined, options)) return noTranscriptRows;
         note("transcript rows");
         if (this.#transcriptRows.has(id)) throw new Error(`Contribution id ${id} from ${extension.id} collides with another transcript row source`);
         const source = { order, owner, bySession: new Map<string, readonly TranscriptRow[]>() };
@@ -2188,17 +2207,17 @@ export class ExtensionRegistry {
           for (const sessionId of source.bySession.keys()) this.dataChanged(`thread:${sessionId}`, true);
           this.changed();
         };
-        disposers.push(dispose);
+        activation.own(dispose);
         this.changed();
         return {
           setRows: (sessionId, rows) => {
-            if (this.#transcriptRows.get(id) !== source) return;
+            if (!activation.active || this.#transcriptRows.get(id) !== source) return;
             if (rows.length === 0) source.bySession.delete(sessionId);
             else source.bySession.set(sessionId, rows);
             this.dataChanged(`thread:${sessionId}`, true);
           },
           clear: (sessionId) => {
-            if (this.#transcriptRows.get(id) !== source) return;
+            if (!activation.active || this.#transcriptRows.get(id) !== source) return;
             const sessions = sessionId === undefined ? [...source.bySession.keys()] : [sessionId];
             if (sessionId === undefined) source.bySession.clear();
             else source.bySession.delete(sessionId);
@@ -2207,194 +2226,138 @@ export class ExtensionRegistry {
           dispose,
         };
       },
-      registerComposerControl: (control) => {
-        if (!this.scopeToProfile(owner, "composer control", control.id, undefined, control)) return noContribution;
-        note("composer controls");
-        return this.register(this.#composerControls, control.id, { ...control, ...owner }, disposers);
-      },
+      registerComposerControl: (control) => contribute(this.#composerControls, control.id, control, "composer control", undefined, "composer controls"),
       registerComposerInline: (inline) => {
+        if (!activation.active) return noContribution;
         for (const trigger of inline.triggers ?? []) {
           if ([...trigger.char].length !== 1 || /[\s/$]/u.test(trigger.char)) {
             throw new Error(`Composer trigger "${trigger.char}" from ${extension.id} must be one character other than "/", "$" or a space`);
           }
         }
-        if (!this.scopeToProfile(owner, "composer inline", inline.id, undefined, inline)) return noContribution;
+        if (!profiled(owner, "composer inline", inline.id, undefined, inline)) return noContribution;
         note("composer context");
-        return this.register(this.#composerInlines, inline.id, { ...inline, ...owner }, disposers);
+        return this.register(this.#composerInlines, inline.id, { ...inline, ...owner }, activation);
       },
-      registerComposerGate: (gate) => {
-        if (!this.scopeToProfile(owner, "composer gate", gate.id, undefined, gate)) return noContribution;
-        note("composer gates");
-        return this.register(this.#composerGates, gate.id, { ...gate, ...owner }, disposers);
-      },
-      registerModelBadge: (badge) => {
-        if (!this.scopeToProfile(owner, "model badge", badge.id, badge.label, badge)) return noContribution;
-        note("model badges");
-        return this.register(this.#modelBadges, badge.id, { ...badge, ...owner }, disposers);
-      },
-      registerComposerSpeed: (speed) => {
-        if (!this.scopeToProfile(owner, "composer speed", speed.id, undefined, speed)) return noContribution;
-        note("composer speed");
-        return this.register(this.#composerSpeeds, speed.id, { ...speed, ...owner }, disposers);
-      },
-      registerComposerSendMode: (mode) => {
-        if (!this.scopeToProfile(owner, "composer send mode", mode.id, undefined, mode)) return noContribution;
-        note("composer send mode");
-        return this.register(this.#composerSendModes, mode.id, { ...mode, ...owner }, disposers);
-      },
-      registerComposerPlanner: (planner) => {
-        if (!this.scopeToProfile(owner, "composer planner", planner.id, planner.label, planner)) return noContribution;
-        note("composer planners");
-        return this.register(this.#composerPlanners, planner.id, { ...planner, ...owner }, disposers);
-      },
+      registerComposerGate: (gate) => contribute(this.#composerGates, gate.id, gate, "composer gate", undefined, "composer gates"),
+      registerModelBadge: (badge) => contribute(this.#modelBadges, badge.id, badge, "model badge", badge.label, "model badges"),
+      registerComposerSpeed: (speed) => contribute(this.#composerSpeeds, speed.id, speed, "composer speed", undefined, "composer speed"),
+      registerComposerSendMode: (mode) => contribute(this.#composerSendModes, mode.id, mode, "composer send mode", undefined, "composer send mode"),
+      registerComposerPlanner: (planner) => contribute(this.#composerPlanners, planner.id, planner, "composer planner", planner.label, "composer planners"),
       provideService: (id, value) => {
+        if (!activation.active) return noContribution;
         const withdraw = this.#extensionServices.provide(extension.id, id, value);
         note("services");
         const dispose = () => {
           try { withdraw(); } finally { this.changed(); }
         };
-        disposers.push(dispose);
+        const release = activation.own(dispose);
         this.changed();
-        return dispose;
+        return release;
       },
       useService: (id, use) => {
-        const dispose = this.#extensionServices.use(extension.id, id, use);
-        disposers.push(dispose);
-        return dispose;
+        if (!activation.active) return noContribution;
+        const dispose = this.#extensionServices.use(extension.id, id, activation.guard(use));
+        return activation.own(dispose);
       },
       registerCustomizations: (layer) => {
+        if (!activation.active) return noContribution;
         note("customizations");
         const dispose = this.#customization.register(layer);
-        disposers.push(dispose);
-        return dispose;
+        return activation.own(dispose);
       },
       customizableParts: () => this.getCustomizableParts(),
       onPartsChanged: (listener) => {
-        const dispose = this.subscribeRegistrations(listener);
-        disposers.push(dispose);
-        return dispose;
+        if (!activation.active) return noContribution;
+        const dispose = this.subscribeRegistrations(activation.guard(listener));
+        return activation.own(dispose);
       },
-      registerSidebar: (contribution) => {
-        if (!this.scopeToProfile(owner, "sidebar", contribution.id, undefined, contribution)) return noContribution;
-        note("sidebar");
-        return this.register(this.#sidebarContributions, contribution.id, { ...contribution, ...owner }, disposers);
-      },
-      registerProjectSource: (source) => {
-        if (!this.scopeToProfile(owner, "project source", source.id, source.label, source)) return noContribution;
-        note("project sources");
-        return this.register(this.#projectSources, source.id, { ...source, ...owner }, disposers);
-      },
+      registerSidebar: (contribution) => contribute(this.#sidebarContributions, contribution.id, contribution, "sidebar", undefined, "sidebar"),
+      registerProjectSource: (source) => contribute(this.#projectSources, source.id, source, "project source", source.label, "project sources"),
       registerThreadListSource: (source) => {
         note("thread list sources");
-        return this.register(this.#threadListSources, source.id, { ...source, ...owner }, disposers);
+        return this.register(this.#threadListSources, source.id, { ...source, ...owner }, activation);
       },
       registerThreadListAccessory: (accessory) => {
         note("thread list accessories");
-        return this.register(this.#threadListAccessories, accessory.id, { ...accessory, ...owner }, disposers);
+        return this.register(this.#threadListAccessories, accessory.id, { ...accessory, ...owner }, activation);
       },
       registerThreadListLayout: (layout) => {
         note("thread list layouts");
-        return this.register(this.#threadListLayouts, layout.id, { ...layout, ...owner }, disposers);
+        return this.register(this.#threadListLayouts, layout.id, { ...layout, ...owner }, activation);
       },
       registerCommand: (command) =>
-        this.register(this.#commands, command.id, { ...command, ...owner }, disposers),
+        this.register(this.#commands, command.id, { ...command, ...owner }, activation),
       registerPaletteSource: (source) => {
         note("palette sources");
-        return this.register(this.#paletteSources, source.id, { ...source, ...owner }, disposers);
+        return this.register(this.#paletteSources, source.id, { ...source, ...owner }, activation);
       },
       registerKeybinding: (binding) => {
+        if (!activation.active) return noContribution;
         const dispose = this.keybindings.register(binding, owner);
         if (!dispose) return noContribution;
         note("keybindings");
-        disposers.push(dispose);
-        return dispose;
+        return activation.own(dispose);
       },
       registerSlashCommand: (command) => {
+        if (!activation.active) return noContribution;
         if (!/^[a-z][a-z0-9:-]*$/u.test(command.name)) throw new Error(`Slash command name "${command.name}" from ${extension.id} must be lowercase letters, digits, ":" or "-"`);
         note("slash commands");
-        return this.register(this.#slashCommands, command.name, { ...command, ...owner }, disposers);
+        return this.register(this.#slashCommands, command.name, { ...command, ...owner }, activation);
       },
-      registerPromptRenderer: (renderer) => {
-        if (!this.scopeToProfile(owner, "prompt renderer", renderer.id, undefined, renderer)) return noContribution;
-        note("prompt renderers");
-        return this.register(this.#promptRenderers, renderer.id, { ...renderer, ...owner }, disposers);
-      },
+      registerPromptRenderer: (renderer) => contribute(this.#promptRenderers, renderer.id, renderer, "prompt renderer", undefined, "prompt renderers"),
       registerPromptHook: (hook) => {
         note("prompt hooks");
-        return this.register(this.#promptHooks, hook.id, { ...hook, ...owner }, disposers);
+        return this.register(this.#promptHooks, hook.id, { ...hook, ...owner }, activation);
       },
       registerModelSelection: (selection) => {
         note("model selection");
-        return this.register(this.#modelSelections, selection.id, { ...selection, ...owner }, disposers);
+        return this.register(this.#modelSelections, selection.id, { ...selection, ...owner }, activation);
       },
       registerThreadMenu: (menu) => {
         note("thread menu");
-        return this.register(this.#threadMenus, menu.id, { ...menu, ...owner }, disposers);
+        return this.register(this.#threadMenus, menu.id, { ...menu, ...owner }, activation);
       },
-      registerForkPrompt: (prompt) => this.register(this.#forkPrompts, prompt.id, { ...prompt, ...owner }, disposers),
-      registerMessageAction: (action) => {
-        if (!this.scopeToProfile(owner, "message action", action.id, action.label, action)) return noContribution;
-        note("message actions");
-        return this.register(this.#messageActions, action.id, { ...action, ...owner }, disposers);
-      },
-      registerMessageBlock: (block) => {
-        if (!this.scopeToProfile(owner, "message block", block.id, undefined, block)) return noContribution;
-        note("message blocks");
-        return this.register(this.#messageBlocks, block.id, { ...block, ...owner }, disposers);
-      },
-      registerTranscriptFinder: (finder) => {
-        if (!this.scopeToProfile(owner, "transcript finder", finder.id, undefined, finder)) return noContribution;
-        note("transcript finder");
-        return this.register(this.#transcriptFinders, finder.id, { ...finder, ...owner }, disposers);
-      },
+      registerForkPrompt: (prompt) => this.register(this.#forkPrompts, prompt.id, { ...prompt, ...owner }, activation),
+      registerMessageAction: (action) => contribute(this.#messageActions, action.id, action, "message action", action.label, "message actions"),
+      registerMessageBlock: (block) => contribute(this.#messageBlocks, block.id, block, "message block", undefined, "message blocks"),
+      registerTranscriptFinder: (finder) => contribute(this.#transcriptFinders, finder.id, finder, "transcript finder", undefined, "transcript finder"),
       registerUserKeymap: (keymap) => {
         note("user keymap");
-        return this.register(this.#userKeymaps, keymap.id, { ...keymap, ...owner }, disposers);
+        return this.register(this.#userKeymaps, keymap.id, { ...keymap, ...owner }, activation);
       },
-      registerDocumentSource: (source) => {
-        if (!this.scopeToProfile(owner, "document source", source.id, undefined, source)) return noContribution;
-        note("documents");
-        return this.register(this.#documentSources, source.id, { ...source, ...owner }, disposers);
-      },
+      registerDocumentSource: (source) => contribute(this.#documentSources, source.id, source, "document source", undefined, "documents"),
       registerToolRenderer: (id, match, render, options) => {
-        if (!this.scopeToProfile(owner, "tool renderer", id, undefined, options)) return noContribution;
+        if (!profiled(owner, "tool renderer", id, undefined, options)) return noContribution;
         note("tool renderers");
-        return this.register(this.#renderers, id, { id, match, render, ...owner }, disposers);
+        return this.register(this.#renderers, id, { id, match, render, ...owner }, activation);
       },
-      registerToolCard: (card) => {
-        if (!this.scopeToProfile(owner, "tool card", card.id, undefined, card)) return noContribution;
-        note("tool cards");
-        return this.register(this.#toolCards, card.id, { ...card, ...owner }, disposers);
-      },
+      registerToolCard: (card) => contribute(this.#toolCards, card.id, card, "tool card", undefined, "tool cards"),
       registerOptions: (options) => {
+        if (!activation.active) return noContribution;
         if (this.#options.has(extension.id)) throw new Error(`Extension ${extension.id} registered options more than once`);
         this.#options.set(extension.id, options);
         const dispose = () => {
           this.#options.delete(extension.id);
           this.changed();
         };
-        disposers.push(dispose);
+        const release = activation.own(dispose);
         this.changed();
-        return dispose;
+        return release;
       },
     };
+    this.#activeExtensions.set(extension.id, { extension, activation });
     try {
       const extensionDispose = extension.activate(context);
-      if (extensionDispose) disposers.push(extensionDispose);
+      if (extensionDispose) activation.own(extensionDispose);
+      if (!activation.active || this.#activeExtensions.get(extension.id)?.activation !== activation) return;
       this.#contributionKinds.set(extension.id, kinds);
-      this.#activeExtensions.set(extension.id, {
-        extension,
-        dispose: () => this.disposeAll(disposers),
-      });
       this.changed();
     } catch (error) {
       const errors = [error];
-      try { this.disposeAll(disposers); } catch (failure) { errors.push(failure); }
-      this.#contributionKinds.delete(extension.id);
-      this.#profiledContributions.delete(extension.id);
-      this.#activeExtensions.delete(extension.id);
-      try { this.clearPublishedData(extension.id); } catch (failure) { errors.push(failure); }
-      try { this.changed(); } catch (failure) { errors.push(failure); }
+      try {
+        if (this.#activeExtensions.get(extension.id)?.activation === activation) this.deactivateNow(extension.id);
+        else activation.dispose();
+      } catch (failure) { errors.push(failure); }
       throwFailures(errors);
     }
   }
@@ -2405,15 +2368,21 @@ export class ExtensionRegistry {
   }
 
   deactivate(id: string): void {
+    this.transitionActivation(id, false);
+  }
+
+  private deactivateNow(id: string): void {
     const active = this.#activeExtensions.get(id);
     if (!active) return;
-    const errors: unknown[] = [];
-    try { active.dispose(); } catch (error) { errors.push(error); }
     this.#activeExtensions.delete(id);
+    const errors: unknown[] = [];
+    try { active.activation.dispose(); } catch (error) { errors.push(error); }
     this.#contributionKinds.delete(id);
     this.#profiledContributions.delete(id);
     try { this.clearPublishedData(id); } catch (error) { errors.push(error); }
     try { this.changed(); } catch (error) { errors.push(error); }
+    const transition = this.#activationTransitions.get(id);
+    if (errors.length && transition) transition.next = undefined;
     throwFailures(errors);
   }
 
@@ -2430,11 +2399,8 @@ export class ExtensionRegistry {
     this.#mergedRowMarks = undefined;
     this.#lineageCache = undefined;
     this.#problemCache = undefined;
-    const errors: unknown[] = [];
-    for (const key of [...statusThreads.map((sessionId) => `thread:${sessionId}`), "marks", "lineage", "project-icons", "provider-icons", "problems"]) {
-      try { this.dataChanged(key); } catch (error) { errors.push(error); }
-    }
-    throwFailures(errors);
+    const keys = [...statusThreads.map((sessionId) => `thread:${sessionId}`), "marks", "lineage", "project-icons", "provider-icons", "problems"];
+    runAll(keys.map((key) => () => this.dataChanged(key)));
   }
 
   /** Records the user's answer on a known extension so the settings page stops asking. */
@@ -2953,18 +2919,11 @@ export class ExtensionRegistry {
     if (key === "problems") this.#problemCache = undefined;
     if (transcript && key.startsWith("thread:")) this.#transcriptCache.delete(key.slice(7));
     this.#legacyVersion += 1;
-    this.notifyListeners([...(this.#dataListeners.get(key) ?? []), ...this.#listeners]);
+    runAll([...(this.#dataListeners.get(key) ?? []), ...this.#listeners]);
   }
 
-  private disposeAll(disposers: Array<() => void>): void {
-    const errors: unknown[] = [];
-    for (const dispose of [...disposers].reverse()) {
-      try { dispose(); } catch (error) { errors.push(error); }
-    }
-    throwFailures(errors);
-  }
-
-  private register<T>(map: Map<string, T>, id: string, value: T, disposers: Array<() => void>): () => void {
+  private register<T>(map: Map<string, T>, id: string, value: T, activation: ExtensionActivation): () => void {
+    if (!activation.active) return noContribution;
     const existing = map.get(id) as (T & Partial<ContributionOwner>) | undefined;
     const incoming = value as T & Partial<ContributionOwner>;
     if (existing) {
@@ -2975,9 +2934,9 @@ export class ExtensionRegistry {
       if (map.get(id) === value) map.delete(id);
       this.changed();
     };
-    disposers.push(dispose);
+    const release = activation.own(dispose);
     this.changed();
-    return dispose;
+    return release;
   }
 
   private sorted<T>(
@@ -3020,14 +2979,6 @@ export class ExtensionRegistry {
   private changed(): void {
     this.#version += 1;
     this.#legacyVersion += 1;
-    this.notifyListeners([...this.#registrationListeners, ...this.#listeners]);
-  }
-
-  private notifyListeners(listeners: Array<() => void>): void {
-    const errors: unknown[] = [];
-    for (const listener of listeners) {
-      try { listener(); } catch (error) { errors.push(error); }
-    }
-    throwFailures(errors);
+    runAll([...this.#registrationListeners, ...this.#listeners]);
   }
 }

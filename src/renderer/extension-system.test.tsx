@@ -1128,6 +1128,181 @@ describe("ExtensionRegistry prompt tools seams", () => {
 });
 
 describe("ExtensionRegistry scoped data", () => {
+  it("does not start a replacement when ending the previous activation fails", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "lifetime", name: "Old", activate() {
+      return () => { throw new Error("cleanup failed"); };
+    } });
+    const activate = vi.fn();
+    expect(() => registry.activate({ id: "lifetime", name: "New", activate })).toThrow("cleanup failed");
+    expect(activate).not.toHaveBeenCalled();
+    expect(registry.isActive("lifetime")).toBe(false);
+  });
+
+  it("does not start a reentrant replacement when cleanup fails during activation", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate({ id: "provider", name: "Provider", activate(context) { context.provideService("service", {}); } });
+    const activate = vi.fn();
+    registry.subscribeData("thread:thread", () => {
+      if (registry.getLiveStatus("thread") === "Old") registry.activate({ id: "lifetime", name: "New", activate });
+    });
+    expect(() => registry.activate({ id: "lifetime", name: "Old", activate(context) {
+      context.useService("service", () => () => { throw new Error("cleanup failed"); });
+      context.setLiveStatus("thread", "Old");
+    } })).toThrow("cleanup failed");
+    expect(activate).not.toHaveBeenCalled();
+    expect(registry.isActive("lifetime")).toBe(false);
+  });
+
+  it("ignores transcript writes from abort and cleanup callbacks", () => {
+    const registry = new ExtensionRegistry();
+    const changed = vi.fn();
+    registry.subscribeData("thread:thread", changed);
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(context) {
+      const rows = context.registerTranscriptRows("rows");
+      rows.setRows("thread", [{ id: "original", content: null }]);
+      const staleWrites = () => {
+        rows.setRows("thread", [{ id: "ghost", content: null }]);
+        rows.clear();
+      };
+      context.signal?.addEventListener("abort", staleWrites);
+      return staleWrites;
+    } });
+    registry.deactivate("lifetime");
+    expect(changed).toHaveBeenCalledTimes(2);
+    expect(registry.getTranscriptRows("thread")).toEqual([]);
+  });
+
+  it("allows a registration subscriber to end an activation before activate returns", () => {
+    const registry = new ExtensionRegistry();
+    let context!: DesktopExtensionContext;
+    registry.subscribeRegistrations(() => { if (registry.isActive("lifetime")) registry.deactivate("lifetime"); });
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(given) {
+      context = given;
+      given.registerCommand({ id: "old", label: "Old", group: "Test", run() {} });
+      given.setLiveStatus("thread", "Ghost");
+    } });
+    expect(context.signal?.aborted).toBe(true);
+    expect(registry.isActive("lifetime")).toBe(false);
+    expect(registry.getCommands()).toEqual([]);
+    expect(registry.getLiveStatus("thread")).toBeUndefined();
+  });
+
+  it.each(["activation", "abort", "cleanup", "rollback"] as const)("keeps replacements requested during %s", (during) => {
+    const registry = new ExtensionRegistry();
+    const replacement: DesktopExtension = { id: "lifetime", name: "Current", activate(context) {
+      context.registerCommand({ id: "shared", label: "Current", group: "Test", run() {} });
+      context.setLiveStatus("thread", "Current");
+    } };
+    const replace = () => registry.activate(replacement);
+    if (during === "activation") registry.subscribeData("thread:thread", () => {
+      if (registry.getLiveStatus("thread") === "Old") replace();
+    });
+    const old: DesktopExtension = { id: "lifetime", name: "Old", activate(context) {
+      context.registerCommand({ id: "shared", label: "Old", group: "Test", run() {} });
+      if (during === "abort" || during === "rollback") context.signal?.addEventListener("abort", replace);
+      context.setLiveStatus("thread", "Old");
+      if (during === "rollback") throw new Error("activation failed");
+      return during === "cleanup" ? replace : undefined;
+    } };
+    if (during === "rollback") expect(() => registry.activate(old)).toThrow("activation failed");
+    else {
+      registry.activate(old);
+      if (during !== "activation") registry.deactivate(old.id);
+    }
+    expect(registry.isActive("lifetime")).toBe(true);
+    expect(registry.getCommands().map((command) => command.label)).toEqual(["Current"]);
+    expect(registry.getLiveStatus("thread")).toBe("Current");
+    registry.deactivate("lifetime");
+    expect(registry.isActive("lifetime")).toBe(false);
+    expect(registry.getCommands()).toEqual([]);
+    expect(registry.getLiveStatus("thread")).toBeUndefined();
+  });
+
+  it.each(["host", "hostExtension"] as const)("allows a late resource release through %s after deactivation", async (entry) => {
+    let finishOpen!: (resource: string) => void;
+    const pending = new Promise<string>((resolve) => { finishOpen = resolve; });
+    const invoke = vi.fn(async (_id: string, command: string) => command === "open" ? pending : undefined);
+    const registry = new ExtensionRegistry({ invoke });
+    let completion!: Promise<unknown>;
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(context) {
+      const host = entry === "host" ? context.host : context.hostExtension("provider");
+      completion = host.invoke("open").then((resource) => {
+        if (context.signal?.aborted) return host.invoke("close", resource);
+        context.setLiveStatus("thread", "Open");
+        return undefined;
+      });
+    } });
+    registry.deactivate("lifetime");
+    finishOpen("resource");
+    await completion;
+    expect(invoke).toHaveBeenLastCalledWith(entry === "host" ? "lifetime" : "provider", "close", "resource");
+    expect(registry.getLiveStatus("thread")).toBeUndefined();
+  });
+
+  it.each(["deactivate", "rollback", "replace"] as const)("ignores writers from an ended activation: %s", async (ending) => {
+    const registry = new ExtensionRegistry();
+    let previous!: DesktopExtensionContext;
+    const extension: DesktopExtension = { id: "lifetime", name: "Lifetime", activate(context) {
+      previous = context;
+      if (ending === "rollback") throw new Error("failed");
+    } };
+    if (ending === "rollback") expect(() => registry.activate(extension)).toThrow("failed");
+    else registry.activate(extension);
+    const old = previous;
+    if (ending === "deactivate") registry.deactivate(extension.id);
+    if (ending === "replace") registry.activate({ id: extension.id, name: extension.name, activate(context) {
+      context.setLiveStatus("thread", "Current");
+      context.registerOptions([{ id: "current", label: "Current", kind: "toggle", defaultValue: false }]);
+    } });
+    expect(old.signal?.aborted).toBe(true);
+    // Model an already queued asynchronous completion of the old activation.
+    await Promise.resolve();
+    old.setLiveStatus("thread", "Ghost");
+    old.setThreadRowStatuses({ thread: { label: "Ghost" } });
+    old.setThreadLineage({ parents: { thread: "ghost" }, workingChildren: {} });
+    old.setProjectIcons({ project: "data:image/png;base64,aA==" });
+    old.setProviderIcons({ openai: "data:image/png;base64,aA==" });
+    old.setProblems([{ source: "old", message: "Ghost" }]);
+    old.registerCommand({ id: "ghost", label: "Ghost", group: "Test", run() {} })();
+    old.registerPanel({ id: "ghost", label: "Ghost", Component: () => null })();
+    old.registerOptions([])();
+    old.provideService("ghost", {})();
+    const event = vi.fn();
+    old.events.on("agent-status", event);
+    old.host.onEvent("event", event);
+    expect(registry.getLiveStatus("thread")).toBe(ending === "replace" ? "Current" : undefined);
+    expect(registry.getThreadRowMarks()).toEqual({});
+    expect(registry.getThreadLineage().parents).toEqual({});
+    expect(registry.projectIcon({ path: "project" })).toBeUndefined();
+    expect(registry.providerIcon("openai")).toBeUndefined();
+    expect(registry.getProblems()).toEqual([]);
+    expect(registry.getCommands()).toEqual([]);
+    expect(registry.getPanels()).toEqual([]);
+    expect(registry.getServiceIds()).toEqual([]);
+    registry.dispatchWorkbenchEvent({ type: "agent-status", sessionId: "thread", running: false });
+    registry.dispatchExtensionEvent({ type: "extension-event", extensionId: extension.id, name: "event", payload: {} });
+    expect(event).not.toHaveBeenCalled();
+    if (ending === "replace") expect(registry.getExtensionSummaries()[0]?.options.map((option) => option.id)).toEqual(["current"]);
+  });
+
+  it("releases handles only once across replacement and aborts before cleanup", () => {
+    const registry = new ExtensionRegistry();
+    let oldRelease!: () => void;
+    let old!: DesktopExtensionContext;
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(context) {
+      old = context;
+      oldRelease = context.registerOptions([{ id: "old", label: "Old", kind: "toggle", defaultValue: false }]);
+      return () => { expect(context.signal?.aborted).toBe(true); };
+    } });
+    registry.activate({ id: "lifetime", name: "Lifetime", activate(context) {
+      context.registerOptions([{ id: "new", label: "New", kind: "toggle", defaultValue: false }]);
+    } });
+    expect(old.signal?.aborted).toBe(true);
+    oldRelease();
+    expect(registry.getExtensionSummaries()[0]?.options.map((option) => option.id)).toEqual(["new"]);
+  });
+
   it("preserves legacy notifications while keeping registrations and unrelated selectors stable", () => {
     const registry = new ExtensionRegistry();
     let context!: DesktopExtensionContext;
