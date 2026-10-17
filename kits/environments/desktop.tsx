@@ -11,7 +11,7 @@ import { createListHead, hereOf } from "./list-head.js";
 import { createRunOnSource, RunOnDefaultRow } from "./run-on.js";
 import { createMachinesPage } from "./settings.js";
 import { createMachineToolsSection } from "./runtime-tools-section.js";
-import { createPhoneMachinesPage } from "./phone-machines.js";
+import { createPhoneMachinesPage, usePhoneMachines } from "./phone-machines.js";
 import { createUpdatePlanSection } from "./update-plan-section.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -77,7 +77,7 @@ export const environmentsExtension: DesktopExtension = {
   activate(context) {
     context.registerSettingsSection({ id: "environments.agent-tools", page: "runtimes", profiles: ["desktop", "web", "compact"],
       Component: createMachineToolsSection(context.host), rows: [{ id: "setting-machine-agent-tools", label: "Agent tools across machines", keywords: ["update", "provider", "runtime", "retry", "machines"] }] });
-    // A client without a window process (a browser, a phone) has no machines.
+    // A browser has no machines; a phone's are its paired hosts.
     const environments = context.environments;
     if (!environments) return;
     context.registerSettingsSection({ id: "environments.update-everything", page: MACHINES_SETTINGS_PAGE, profiles: ["desktop"],
@@ -108,7 +108,12 @@ export const environmentsExtension: DesktopExtension = {
       keywords: ["environments", "machines", "computers", "remote", "hosts", "add machine", "pair"],
       Component: createMachinesPage(environments, context.host, ImportConversations),
     });
-    // A phone lists the machines it paired with and shows another from there (design 1t).
+    // A phone lists the machines it paired with, and those its host reaches, and shows another from there (design 1t).
+    const agents = createAgentMachines(context.host);
+    const useOnline = (): string => {
+      const machines = usePhoneMachines(environments, agents);
+      return `${machines?.list.environments.filter((machine) => machine.status === "connected").length ?? 0} online`;
+    };
     context.registerSettingsPage({
       id: MACHINES_SETTINGS_PAGE,
       label: "Machines",
@@ -117,8 +122,8 @@ export const environmentsExtension: DesktopExtension = {
       order: -1,
       profiles: ["compact"],
       // "2 online" beside it in the list.
-      useSummary: () => useSyncExternalStore(environments.subscribe, () => `${environments.getSnapshot()?.environments.filter((machine) => machine.status === "connected").length ?? 0} online`),
-      Component: createPhoneMachinesPage(environments),
+      useSummary: useOnline,
+      Component: createPhoneMachinesPage(environments, agents),
     });
     context.registerCommand({
       id: "environments.add",
@@ -130,7 +135,7 @@ export const environmentsExtension: DesktopExtension = {
     context.registerRegion({ id: "environments.shown", placement: "title-bar", order: 0, profiles: ["desktop"], Component: createShownMachine(environments) });
     // A machine without the draft's project gets it from Remote Work Kit when the prompt is sent.
     const remoteWork = context.hostExtension(REMOTE_WORK_EXTENSION_ID);
-    const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice(), agents: createAgentMachines(context.host) };
+    const bringing = { identities: createProjectIdentities(environments, remoteWork), choice: createBringChoice(), agents };
     const runOnHook = createBringProjectHook(bringing.choice, remoteWork, environments, context.host, bringing.identities, bringing.agents);
     context.registerPromptHook(createAutoRunOnHook(environments, context.host, bringing.identities, { choice: bringing.choice, hook: runOnHook }));
     context.registerPromptHook(runOnHook);
