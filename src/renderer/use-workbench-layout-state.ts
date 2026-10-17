@@ -142,6 +142,7 @@ export function useWorkbenchLayoutState(options: WorkbenchLayoutStateOptions) {
 
   return {
     stage, setStage,
+    restoredOwner: restored?.owner,
     /** The project of the stage on screen; it lags `workspaceKey` until the restore runs. */
     stageWorkspace: restored?.workspace,
     /** The documents fill the centre, the chat out of sight; kept with the thread, restored on a restart. */
