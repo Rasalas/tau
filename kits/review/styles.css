@@ -514,6 +514,9 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 .pr-list-repo.static { cursor: default; }
 .pr-list-repo.static:hover { color: var(--faint); text-decoration: none; }
 .pr-list-stale.quiet { background: transparent; color: var(--muted); }
+.pr-list-failures { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; }
+.pr-list-failures ul { margin: 0; padding: 0; list-style: none; }
+.pr-list-failures strong { font-weight: 600; color: var(--ink-2); }
 .pr-row-elsewhere { display: inline-flex; align-items: center; gap: 3px; padding: 0 5px; border: 1px solid var(--line-soft); border-radius: var(--radius-pill); color: var(--faint); font-size: var(--text-2xs); }
 .pr-label.small { padding: 0 6px 0 5px; font-size: var(--text-2xs); max-width: 9rem; }
 .pr-list-ghost { display: flex; flex-direction: column; gap: 8px; padding: 8px; }

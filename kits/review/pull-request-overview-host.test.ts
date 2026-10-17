@@ -136,17 +136,18 @@ describe("the Pull Requests page", () => {
     expect(list.entries[0]!.mergeable).toBeUndefined();
   });
 
-  it("lists every project's repository once across projects and hosts, and names the ones it could not read", async () => {
+  it("lists every project's repository once across projects and hosts, and names the ones it could not read, but not folders without a remote", async () => {
     const { invoke, calls } = await harness({
       viewer: "niik",
-      remotes: { "/tau": "git@github.com:acme/tau.git", "/tau-worktree": "https://github.com/acme/tau.git", "/tools": "https://gitlab.com/acme/tools/tau.git", "/scratch": null },
+      remotes: { "/tau": "git@github.com:acme/tau.git", "/tau-worktree": "https://github.com/acme/tau.git", "/tools": "https://gitlab.com/acme/tools/tau.git", "/scratch": null, "/odd": "work:acme/tau.git" },
     });
-    const answer = await invoke<PullRequestLists>("pr-list-many", { workspaces: ["/tau", "/tau-worktree", "/tools", "/scratch", 7], state: "open", limit: 3 });
+    const answer = await invoke<PullRequestLists>("pr-list-many", { workspaces: ["/tau", "/tau-worktree", "/tools", "/scratch", "/odd", 7], state: "open", limit: 3 });
     expect(answer.lists.map((list) => [list.host, list.repo, list.workspaces, list.viewer, list.entries.length])).toEqual([
       ["github.com", "acme/tau", ["/tau", "/tau-worktree"], "niik", 3],
       ["gitlab.com", "acme/tools/tau", ["/tools"], "niik", 3],
     ]);
-    expect(answer.failures).toEqual([{ workspace: "/scratch", message: "This project has no remote, so it has no pull requests to list." }]);
+    // A folder without a remote is no failure; a remote no server can reach is.
+    expect(answer.failures).toEqual([{ workspace: "/odd", message: expect.stringContaining("names no server") }]);
     expect(calls.filter((call) => call.args[0] === "pr" && call.args[1] === "list")).toHaveLength(1);
   });
 

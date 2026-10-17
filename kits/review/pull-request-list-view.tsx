@@ -629,8 +629,11 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
               </div>
             ) : null}
             {list && list.failures.length > 0 ? (
-              <div className="pr-list-stale quiet" role="note" title={list.failures.map((failure) => `${projectName(failure.workspace) ?? failure.workspace}: ${failure.message}`).join("\n")}>
-                <span>Not listed: {list.failures.map((failure) => projectName(failure.workspace) ?? failure.workspace).join(", ")}.</span>
+              <div className="pr-list-stale quiet pr-list-failures" role="note">
+                <span>Not listed:</span>
+                <ul>
+                  {list.failures.map((failure) => <li key={failure.workspace}><strong>{projectName(failure.workspace) ?? failure.workspace}</strong> {failure.message}</li>)}
+                </ul>
               </div>
             ) : null}
             {list?.truncated ? (

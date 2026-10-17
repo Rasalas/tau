@@ -6,6 +6,7 @@ import { decodeHostCursor } from "./transcript-cursor.js";
 import { detailFromSnapshot, type ThreadDetail } from "../shared/host-protocol.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { PiHost } from "./pi-host.js";
+import { WorkspaceIdentity } from "./workspace-identity.js";
 import { AgentSession, type PromptOptions } from "@earendil-works/pi-coding-agent";
 import { PiThreadRuntimeBackend } from "./thread-runtime-backend.js";
 import type { ThreadBackendPromptInput } from "./runtime-types.js";
@@ -62,6 +63,25 @@ describe("workspace metadata scope", () => {
     }
     expect(host.listHostExtensions().find((extension) => extension.id === "test.paths")).toMatchObject({ active: true });
     await expect(host.invokeHostExtension("test.paths", "canonical", { cwd: "/known" })).resolves.toBe("/known");
+  });
+
+  it("resolves the id a window kept from an earlier run for an admitted project, not for another folder", async () => {
+    const history = { list: () => [{ path: "/known", name: "known", lastOpenedAt: 1 }], isHidden: () => false, iconFor: async () => undefined };
+    const paths = {
+      id: "test.stale",
+      name: "Stale",
+      activate: (context: HostExtensionContext) => {
+        context.registerCommand("canonical", (input) => context.services.knownWorkspacePath((input as { workspace: string }).workspace));
+      },
+    };
+    // The earlier run's host id is the same; this run has minted nothing yet.
+    const earlier = new WorkspaceIdentity("stable-host");
+    const kept = earlier.workspaceId("/known");
+    const foreign = earlier.workspaceId("/not-a-project");
+    const host = new PiHost("/known", () => undefined, history as never, false, false, { hostExtensions: [paths], workspaceIdentity: new WorkspaceIdentity("stable-host") });
+    await activateHostExtensions(host);
+    await expect(host.invokeHostExtension("test.stale", "canonical", { workspace: kept })).resolves.toBe("/known");
+    await expect(host.invokeHostExtension("test.stale", "canonical", { workspace: foreign })).rejects.toThrow("does not know that workspace");
   });
 
   it("accepts a folder an extension admitted, by id, before any thread runs there", async () => {

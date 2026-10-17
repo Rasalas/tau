@@ -116,6 +116,18 @@ describe("workspace identity", () => {
     expect(identity.pathFor(identity.workspaceId(link))).toBe(resolve(canonical));
   });
 
+  it("recalls the ids of both forms of an admitted path, and only those", async () => {
+    const link = join(directory, "link");
+    await symlink(directory, link);
+    const before = new WorkspaceIdentity("stable").workspaceId(link);
+    const identity = new WorkspaceIdentity("stable");
+    const canonical = await identity.learn(link);
+    expect(() => identity.pathFor(before)).toThrow(/does not know that workspace/u);
+    identity.recall(link, canonical);
+    expect(identity.pathFor(before)).toBe(resolve(link));
+    expect(() => identity.pathFor(new WorkspaceIdentity("stable").workspaceId("/elsewhere"))).toThrow(/does not know that workspace/u);
+  });
+
   it("accepts workspace-relative paths and refuses escapes", () => {
     expect(isWorkspaceRelativePath("src/main/index.ts")).toBe(true);
     expect(isWorkspaceRelativePath("a/../b")).toBe(false);

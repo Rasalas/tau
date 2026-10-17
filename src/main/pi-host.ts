@@ -1,12 +1,12 @@
 import { RequestReceipts } from "./request-receipts.js";
 import type { AgentSessionControl } from "./agent-session-control.js";
 import { compactThreadContext } from "./host-compaction.js";
-import { rm } from "node:fs/promises";
+import { realpath, rm } from "node:fs/promises";
 import { promptFiles } from "./prompt-attachments.js";
 import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, dirname } from "node:path";
+import { basename, dirname, resolve as resolvePath } from "node:path";
 import { performance } from "node:perf_hooks";
 import { SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
@@ -111,7 +111,7 @@ import { finishHostShutdown, PhaseTimer, promptRebindForThread, clientIdentityFo
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
-import type { WorkspaceRef } from "../shared/workspace-identity.js";
+import { isWorkspaceId, type WorkspaceRef } from "../shared/workspace-identity.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
 import { skillMessagePresentation } from "./skill-invocation.js";
@@ -1734,13 +1734,21 @@ export class PiHost {
 
   /** Workspace metadata is only exposed for projects already admitted by the host. */
   private async knownWorkspacePath(cwd: string): Promise<string> {
-    return findKnownWorkspacePath(this.resolveWorkspacePath(cwd), new Set([
+    const known = new Set([
       this.cwd,
       ...this.projectHistory.list().map((project) => project.path),
       ...this.index.list().map((session) => session.projectPath),
       ...this.threads.list().map((thread) => thread.cwd),
       ...this.admittedWorkspaces,
-    ]));
+    ]);
+    try {
+      return await findKnownWorkspacePath(this.resolveWorkspacePath(cwd), known);
+    } catch (error) {
+      if (!isWorkspaceId(cwd) || this.workspaces.resolve(cwd)) throw error;
+      // A window may hold ids from before this host minted them; only admitted projects are recalled.
+      await Promise.all([...known].map(async (path) => this.workspaces.recall(path, await realpath(path).catch(() => resolvePath(path)))));
+      return findKnownWorkspacePath(this.resolveWorkspacePath(cwd), known);
+    }
   }
 
   private admitWorkspace(path: string): WorkspaceRef { this.admittedWorkspaces.add(path); return this.workspaces.ref(path); }
