@@ -3645,7 +3645,9 @@ confirmation names the remote head repository, branch and commit, including a
 fork's repository. Review's `pr-action` command takes `action: "delete-branch"`
 and `seen: { repository, branch, sha }`, and returns `branch` with `branchDeleted`
 or `branchKept`. It reads current PR, repository, open-request and ref facts
-before deletion; missing or changed facts keep the branch. Local branches,
+before deletion. The head ref's open PR associations cover other target repositories
+in the fork network; base-branch dependencies are checked in the base and head
+repositories. Missing or changed facts keep the branch. Local branches,
 worktrees and threads stay. This is separate from merge-time branch cleanup.
 GitHub's [delete-reference endpoint](https://docs.github.com/en/rest/git/refs#delete-a-reference)
 does not take an expected commit, so the checks and deletion are separate

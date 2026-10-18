@@ -263,6 +263,7 @@ describe("explicit deletion after closing a GitHub request", () => {
   const ref = parseRequestUrl(OPEN.url)!;
   const seen = { repository: "fork/tau-fork", branch: "feat/output", sha: "a".repeat(40) };
   const head = { state: "CLOSED", headRefName: seen.branch, headRefOid: seen.sha, headRepository: { name: "tau-fork" }, headRepositoryOwner: { login: "fork" } };
+  const associations = (totalCount: unknown = 0) => ({ data: { repository: { ref: { name: seen.branch, associatedPullRequests: { totalCount } } } } });
   function setup(change?: (call: Recorded, reads: number) => unknown) {
     let reads = 0;
     return fakeTools((call) => {
@@ -272,6 +273,7 @@ describe("explicit deletion after closing a GitHub request", () => {
       if (call.args[0] === "pr") return JSON.stringify(head);
       const path = call.args.at(-1)!;
       if (path === "repos/fork/tau-fork") return JSON.stringify({ full_name: seen.repository, default_branch: "main" });
+      if (call.input?.includes("associatedPullRequests")) return JSON.stringify(associations());
       if (path.includes("/pulls?")) return "[]";
       if (path.includes("/git/ref/")) return JSON.stringify({ ref: `refs/heads/${seen.branch}`, object: { type: "commit", sha: seen.sha } });
       return "";
@@ -285,11 +287,11 @@ describe("explicit deletion after closing a GitHub request", () => {
     expect(calls.at(-1)?.args).toEqual(["api", "--hostname", "github.com", "--method", "DELETE", "repos/fork/tau-fork/git/refs/heads/feat/output"]);
     expect(calls.filter((call) => call.args[0] === "pr")).toHaveLength(2);
     expect(calls.some((call) => call.args.at(-1)?.includes("repos/fork/tau-fork/pulls?state=open&base="))).toBe(true);
-    expect(calls.some((call) => call.args.at(-1)?.includes("repos/acme/tau/pulls?state=open&head=fork%3Afeat%2Foutput"))).toBe(true);
+    expect(calls.find((call) => call.input?.includes("associatedPullRequests"))?.input).toContain(JSON.stringify({ owner: "fork", name: "tau-fork", branch: "refs/heads/feat/output" }));
     expect(calls.some((call) => call.args[0] === "push" || call.args[0] === "branch")).toBe(false);
   });
   it.each([
-    "open", "repository", "branch", "commit", "default", "missing-default", "missing-repository", "dependent", "same-head", "bad-list", "moved-ref", "wrong-ref", "reopened", "changed-late",
+    "open", "repository", "branch", "commit", "default", "missing-default", "missing-repository", "dependent", "third-repository-head", "missing-associations", "invalid-count", "wrong-associated-ref", "partial-errors", "bad-list", "moved-ref", "wrong-ref", "reopened", "changed-late",
   ])("keeps the remote branch when safety facts fail: %s", async (kind) => {
     const { tools, calls } = setup((call, reads) => {
       const path = call.args.at(-1)!;
@@ -304,9 +306,15 @@ describe("explicit deletion after closing a GitHub request", () => {
         if (kind === "missing-default") return { full_name: seen.repository };
         if (kind === "missing-repository") return { default_branch: "main" };
       }
+      if (call.input?.includes("associatedPullRequests")) {
+        if (kind === "third-repository-head") return associations(1);
+        if (kind === "missing-associations") return {};
+        if (kind === "invalid-count") return associations("0");
+        if (kind === "wrong-associated-ref") return { data: { repository: { ref: { name: "other", associatedPullRequests: { totalCount: 0 } } } } };
+        if (kind === "partial-errors") return { ...associations(), errors: [{ message: "Partial data" }] };
+      }
       if (path.includes("/pulls?")) {
         if (kind === "dependent" && path.includes("base=")) return [{ number: 9 }];
-        if (kind === "same-head" && path.includes("head=")) return [{ number: 10 }];
         if (kind === "bad-list") return {};
       }
       if (path.includes("/git/ref/")) {
@@ -317,6 +325,23 @@ describe("explicit deletion after closing a GitHub request", () => {
     });
     expect(await createGitHubProvider(tools).deleteBranch!(ref, seen)).toHaveProperty("branchKept");
     expect(calls.some((call) => call.args.includes("DELETE"))).toBe(false);
+  });
+  it.each([
+    { repository: "undefined/tau", owner: undefined, name: "tau" },
+    { repository: "123/tau", owner: 123, name: "tau" },
+    { repository: "fork/123", owner: "fork", name: 123 },
+  ])("does not coerce malformed repository facts to $repository", async ({ repository, owner, name }) => {
+    const { tools, calls } = fakeTools((call) => {
+      if (call.args[0] === "pr") return JSON.stringify({ ...head, headRepositoryOwner: { login: owner }, headRepository: { name } });
+      if (call.input?.includes("associatedPullRequests")) return JSON.stringify(associations());
+      const path = call.args.at(-1)!;
+      if (path === `repos/${repository}`) return JSON.stringify({ full_name: repository, default_branch: "main" });
+      if (path.includes("/pulls?")) return "[]";
+      if (path.includes("/git/ref/")) return JSON.stringify({ ref: `refs/heads/${seen.branch}`, object: { type: "commit", sha: seen.sha } });
+      return "";
+    });
+    expect(await createGitHubProvider(tools).deleteBranch!(ref, { ...seen, repository })).toHaveProperty("branchKept");
+    expect(calls).toHaveLength(1);
   });
   it("keeps the branch on unreadable facts or a refused deletion", async () => {
     for (const failAt of ["pr", "/git/ref/", "DELETE"]) {

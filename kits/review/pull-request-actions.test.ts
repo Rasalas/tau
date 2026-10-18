@@ -144,8 +144,9 @@ describe("explicit branch deletion through the host registry", () => {
   async function closedHarness() {
     let state = "CLOSED";
     const base = JSON.parse(await fixture("gh-pr-view-discussed.json")) as object;
-    const result = await harness({ answer: ({ args }) => {
+    const result = await harness({ answer: ({ args, input }) => {
       if (args[0] === "pr" && args[1] === "view") return JSON.stringify({ ...base, state, headRefName: seen.branch, headRefOid: seen.sha, headRepositoryOwner: { login: "fork" }, headRepository: { name: "tau-fork" } });
+      if (input?.includes("associatedPullRequests")) return JSON.stringify({ data: { repository: { ref: { name: seen.branch, associatedPullRequests: { totalCount: 0 } } } } });
       const path = args.at(-1)!;
       if (path === "repos/fork/tau-fork") return JSON.stringify({ full_name: seen.repository, default_branch: "main" });
       if (path.includes("/pulls?")) return "[]";

@@ -28,7 +28,7 @@ export function BranchDeleteConfirm({ selection, client, disabledReason, onDone,
     finally { setBusy(false); }
   };
   return createPortal(
-    <Dialog label="Delete remote branch?" className="confirm-dialog pr-link-dialog" onClose={() => { if (!busy) onClose(); }}>
+    <Dialog label="Delete remote branch?" className="confirm-dialog pr-link-dialog pr-delete-dialog" onClose={() => { if (!busy) onClose(); }}>
       <header><h2>Delete remote branch?</h2>
         <p>This deletes the branch of PR #{ref.number} on GitHub. Local branches, worktrees and threads stay. Commits not reachable elsewhere may be lost.</p>
       </header>

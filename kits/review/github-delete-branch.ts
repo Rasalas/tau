@@ -3,6 +3,7 @@ import type { ProviderTools } from "./provider.js";
 import { readBranchHead } from "./branch-deletion.js";
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+const ASSOCIATIONS = "query($owner: String!, $name: String!, $branch: String!) { repository(owner: $owner, name: $name) { ref(qualifiedName: $branch) { name associatedPullRequests(states: OPEN, first: 1) { totalCount } } } }";
 
 /** Explicit deletion uses fresh GitHub facts, including the fork's own repository. */
 export async function deleteClosedBranch(tools: ProviderTools, ref: PullRequestRef, seen: PullRequestBranchHead): Promise<MergeOutcome> {
@@ -11,7 +12,10 @@ export async function deleteClosedBranch(tools: ProviderTools, ref: PullRequestR
   const api = (path: string) => call(["api", "--hostname", ref.host, path]);
   const read = async () => record(JSON.parse(await call(["pr", "view", String(ref.number), "--repo", `${ref.host}/${ref.repo}`, "--json", "state,headRefName,headRefOid,headRepository,headRepositoryOwner"])));
   const fits = (raw: Record<string, unknown>) => {
-    const head = readBranchHead({ repository: `${record(raw.headRepositoryOwner).login}/${record(raw.headRepository).name}`, branch: raw.headRefName, sha: raw.headRefOid });
+    const owner = record(raw.headRepositoryOwner).login;
+    const name = record(raw.headRepository).name;
+    if (typeof owner !== "string" || !owner || typeof name !== "string" || !name) return false;
+    const head = readBranchHead({ repository: `${owner}/${name}`, branch: raw.headRefName, sha: raw.headRefOid });
     return head && head.repository.toLowerCase() === seen.repository.toLowerCase() && head.branch === seen.branch && head.sha === seen.sha;
   };
   try {
@@ -23,13 +27,22 @@ export async function deleteClosedBranch(tools: ProviderTools, ref: PullRequestR
     const repo = record(JSON.parse(await api(where)));
     if (typeof repo.default_branch !== "string" || !repo.default_branch || typeof repo.full_name !== "string" || repo.full_name.toLowerCase() !== seen.repository.toLowerCase()) return keep("GitHub did not confirm the head repository and its default branch.");
     if (repo.default_branch === seen.branch) return keep(`${seen.branch} is the default branch of ${seen.repository}.`);
-    const headOwner = seen.repository.split("/")[0]!;
+    const [headOwner, headName] = seen.repository.split("/");
+    // Ref associations include requests targeting other repositories in the
+    // fork network, not just requests listed on this PR's base repository.
+    const response = record(JSON.parse(await tools.cli("github", {
+      args: ["api", "--hostname", ref.host, "graphql", "--input", "-"],
+      input: JSON.stringify({ query: ASSOCIATIONS, variables: { owner: headOwner, name: headName, branch: `refs/heads/${seen.branch}` } }),
+    }, "Checking open pull requests of the head branch", { host: ref.host })));
+    if (response.errors !== undefined && (!Array.isArray(response.errors) || response.errors.length > 0)) return keep("GitHub could not confirm the branch's open pull requests.");
+    const associated = record(record(record(response.data).repository).ref);
+    const count = record(associated.associatedPullRequests).totalCount;
+    if (associated.name !== seen.branch || typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return keep("GitHub could not confirm the branch's open pull requests.");
+    if (count > 0) return keep("Another open pull request uses the branch.");
     for (const repository of new Set([ref.repo, seen.repository])) {
-      for (const filter of [`base=${encodeURIComponent(seen.branch)}`, `head=${encodeURIComponent(`${headOwner}:${seen.branch}`)}`]) {
-        const requests: unknown = JSON.parse(await api(`repos/${repository}/pulls?state=open&${filter}&per_page=1`));
-        if (!Array.isArray(requests)) return keep("GitHub could not confirm whether other open requests use the branch.");
-        if (requests.length > 0) return keep("Another open pull request uses the branch.");
-      }
+      const requests: unknown = JSON.parse(await api(`repos/${repository}/pulls?state=open&base=${encodeURIComponent(seen.branch)}&per_page=1`));
+      if (!Array.isArray(requests)) return keep("GitHub could not confirm whether other open requests use the branch.");
+      if (requests.length > 0) return keep("Another open pull request uses the branch.");
     }
     const branchPath = seen.branch.split("/").map(encodeURIComponent).join("/");
     const tip = record(JSON.parse(await api(`${where}/git/ref/heads/${branchPath}`)));
