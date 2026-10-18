@@ -201,7 +201,7 @@ describe("Bitbucket guide source identity", () => {
   const full = "a".repeat(40);
   const ref = { service: "bitbucket" as const, host: "bitbucket.org", repo: "base/project", number: 42, url: "https://bitbucket.org/base/project/pull-requests/42" };
   const provider = createBitbucketProvider({} as ProviderTools, {});
-  const parse = (hash: unknown, hashes: string[], repository: unknown = "fork/project", next?: unknown) => parseBitbucketDetail(ref, JSON.stringify({ source: { repository: { full_name: repository }, branch: { name: "feat/output" }, commit: { hash } } }), "{}", JSON.stringify({ values: hashes.map((value) => ({ hash: value })), ...(next !== undefined ? { next } : {}) }), [], "{}");
+  const parse = (hash: unknown, hashes: unknown[], repository: unknown = "fork/project", next?: unknown) => parseBitbucketDetail(ref, JSON.stringify({ source: { repository: { full_name: repository }, branch: { name: "feat/output" }, commit: { hash } } }), "{}", JSON.stringify({ values: hashes.map((value) => ({ hash: value })), ...(next !== undefined ? { next } : {}) }), [], "{}");
   it("expands a unique abbreviated head and fetches from the fork instead of the base", () => {
     const detail = parse(full.slice(0, 12), [full]);
     expect(detail).toMatchObject({ headSha: full, headRepository: "fork/project", headRef: "feat/output" });
@@ -213,6 +213,10 @@ describe("Bitbucket guide source identity", () => {
   it.each(["https://api.bitbucket.org/next", 123, ""])("refuses expansion while the commit listing has a continuation %j", (next) => {
     expect(() => provider.requestHeadSource!(ref, parse(full.slice(0, 12), [full], "fork/project", next))).toThrow("full commit");
     expect(parse(full, [full], "fork/project", next).headSha).toBe(full);
+  });
+  it.each([undefined, null, 123, "invalid", "b".repeat(12)])("refuses expansion if a listed commit has a malformed hash %j", (hash) => {
+    expect(() => provider.requestHeadSource!(ref, parse(full.slice(0, 12), [full, hash]))).toThrow("full commit");
+    expect(parse(full, [full, hash]).headSha).toBe(full);
   });
   it.each([false, true])("reads every commit page before resolving an abbreviated head, ambiguous=%j", async (ambiguous) => {
     const prefix = "c6ee5d86f36e";
@@ -234,6 +238,13 @@ describe("Bitbucket guide source identity", () => {
     const detail = await invoke<PullRequestDetail>("pr-view", { url: URL_11, fresh: true });
     expect(detail.headSha).toBe("c6ee5d86f36e");
     expect(sent.filter((call) => call.url.includes("/commits?"))).toHaveLength(20);
+  });
+  it.each([undefined, null, {}, "invalid"])("refuses expansion after a malformed commit page with values=%j", async (values) => {
+    const { invoke } = await harness({ rewrite: (url, body) => !url.includes("/commits?") ? body : JSON.stringify(url.includes("page=2")
+      ? { values }
+      : { values: [{ hash: "c6ee5d86f36e" + "a".repeat(28) }], next: `${API}/pullrequests/11/commits?page=2` }) });
+    const detail = await invoke<PullRequestDetail>("pr-view", { url: URL_11, fresh: true });
+    expect(detail.headSha).toBe("c6ee5d86f36e");
   });
   it.each([
     { hash: "a".repeat(12), hashes: [] },

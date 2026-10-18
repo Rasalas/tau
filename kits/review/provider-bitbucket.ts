@@ -150,8 +150,11 @@ export function parseBitbucketDetail(ref: PullRequestRef, pull: string, comments
   const source = record(raw.source);
   const head = text(record(source.commit).hash);
   const commitList = record(JSON.parse(commits));
-  const matches = head && commitList.next == null && /^[a-f0-9]{12,39}$/iu.test(head) ? [...new Set(list(commitList.values)
-    .map((commit) => text(commit.hash)).filter((hash): hash is string => typeof hash === "string" && /^[a-f0-9]{40}$/iu.test(hash) && hash.toLowerCase().startsWith(head.toLowerCase())))] : [];
+  const hashes = list(commitList.values).map((commit) => text(commit.hash))
+    .filter((hash): hash is string => typeof hash === "string" && /^[a-f0-9]{40}$/iu.test(hash));
+  const complete = Array.isArray(commitList.values) && hashes.length === commitList.values.length && commitList.incomplete !== true && commitList.next == null;
+  const matches = head && complete && /^[a-f0-9]{12,39}$/iu.test(head)
+    ? [...new Set(hashes.filter((hash) => hash.toLowerCase().startsWith(head.toLowerCase())))] : [];
   const headSha = matches.length === 1 ? matches[0] : head;
   return {
     ref,
@@ -274,13 +277,15 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
     const values: unknown[] = [];
     let next: string | undefined = path;
     let remaining: unknown;
+    let incomplete = false;
     for (let page = 0; next && page < MAX_PAGES; page += 1) {
       const answer = record(JSON.parse(await request(next, action)));
-      values.push(...(Array.isArray(answer.values) ? answer.values : []));
+      if (Array.isArray(answer.values)) values.push(...answer.values);
+      else incomplete = true;
       remaining = answer.next;
       next = text(remaining);
     }
-    return JSON.stringify({ values, size: values.length, ...(remaining != null ? { next: remaining } : {}) });
+    return JSON.stringify({ values, size: values.length, ...(remaining != null ? { next: remaining } : {}), ...(incomplete ? { incomplete } : {}) });
   };
 
   const repoPath = (repo: string) => `repositories/${repo.split("/").map(encodeURIComponent).join("/")}`;
