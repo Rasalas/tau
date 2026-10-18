@@ -1,9 +1,9 @@
+import { RECORDING_DRAIN_BYTES } from "./recording-data.js";
 import type { PreviewRecordingChunks } from "./host.js";
 
 type Send = <T>(method: string, params?: object) => Promise<T>;
 interface Part { data: string; base64Encoded: boolean; eof: boolean }
 const READ_BYTES = 64 * 1024;
-const MAX_DRAIN_BYTES = 16 * 1024 * 1024;
 const MIME = "video/mp4";
 
 /** Chromium owns the encoder and temporary stream; no page script or external encoder. */
@@ -11,6 +11,7 @@ export class HeadlessPreviewRecorder {
   private stream: string | undefined;
   private received = false;
   private disposed = false;
+  private failure: Error | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly send: Send) {}
@@ -41,13 +42,22 @@ export class HeadlessPreviewRecorder {
       }
       this.stream = answer.stream;
       this.received = false;
+      this.failure = undefined;
       return { chunks: [], mimeType: MIME };
     }
     const handle = this.stream;
     if (!handle) return { chunks: [], mimeType: MIME };
-    if (action === "take") return { chunks: await this.read(handle, false), mimeType: MIME };
+    if (action === "take") {
+      if (this.failure) throw this.failure;
+      try { return { chunks: await this.read(handle, false), mimeType: MIME }; }
+      catch (error) {
+        this.failure = error instanceof Error ? error : new Error(String(error));
+        throw this.failure;
+      }
+    }
     try {
       await this.send("Page.stopScreenRecording");
+      if (this.failure) throw this.failure;
       const chunks = await this.read(handle, true);
       if (!this.received) throw new Error("The recording contains no video data.");
       return { chunks, mimeType: MIME };
@@ -60,7 +70,7 @@ export class HeadlessPreviewRecorder {
   private async read(handle: string, final: boolean): Promise<string[]> {
     const chunks: string[] = [];
     let bytes = 0;
-    while (bytes < MAX_DRAIN_BYTES) {
+    while (bytes < RECORDING_DRAIN_BYTES) {
       let part: Part;
       try {
         // oxlint-disable-next-line no-await-in-loop -- the stream has one advancing cursor
@@ -71,10 +81,16 @@ export class HeadlessPreviewRecorder {
         if (!final && !this.received && error instanceof Error && error.message === "Read failed") return chunks;
         throw error;
       }
-      if (typeof part.data !== "string" || part.base64Encoded !== true || part.data.length > Math.ceil(READ_BYTES / 3) * 4 || !/^[a-z0-9+/]*={0,2}$/iu.test(part.data)) throw new Error("The preview browser sent invalid recording data.");
-      if (part.data) { chunks.push(part.data); bytes += Buffer.from(part.data, "base64").length; this.received = true; }
+      if (typeof part.data !== "string" || part.base64Encoded !== true || part.data.length > Math.ceil(READ_BYTES / 3) * 4 || typeof part.eof !== "boolean") throw new Error("The preview browser sent invalid recording data.");
+      const decoded = Buffer.from(part.data, "base64");
+      if (decoded.toString("base64") !== part.data) throw new Error("The preview browser sent invalid recording data.");
+      if (part.data) { chunks.push(part.data); bytes += decoded.length; this.received = true; }
       // A live file's EOF only means caught up, not that recording has ended.
-      if (part.eof || !part.data) return chunks;
+      if (part.eof) return chunks;
+      if (!part.data) {
+        if (final) throw new Error("The preview browser returned an incomplete recording stream.");
+        return chunks;
+      }
     }
     if (final) throw new Error("The recording has too much undrained data to finish safely.");
     return chunks;

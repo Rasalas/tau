@@ -50,8 +50,17 @@ describe("the owned headless video recorder", () => {
     await recorder.record("start");
     await recorder.record("take");
     await expect(recorder.record("take")).rejects.toThrow("Read failed");
-    await expect(recorder.record("stop")).rejects.toThrow("encoder unavailable");
+    await expect(recorder.record("stop")).rejects.toThrow("Read failed");
     expect(send.mock.calls.at(-1)).toEqual(["IO.close", { handle: "owned-stream" }]);
+  });
+
+  it("refuses an artifact after consuming a header before a later read fails", async () => {
+    const { recorder, send } = harness([part("header", false), new Error("Read failed"), part("trailer")]);
+    await recorder.record("start");
+    await expect(recorder.record("take")).rejects.toThrow("Read failed");
+    await expect(recorder.record("stop")).rejects.toThrow("Read failed");
+    expect(send.mock.calls.at(-1)?.[0]).toBe("IO.close");
+    expect(send.mock.calls.filter(([method]) => method === "IO.read")).toHaveLength(2);
   });
 
   it("does not report an empty final stream as success", async () => {
@@ -62,6 +71,7 @@ describe("the owned headless video recorder", () => {
   });
 
   it.each([
+    { data: "a", base64Encoded: true, eof: false },
     { data: "!invalid!", base64Encoded: true, eof: true },
     { data: "text", base64Encoded: false, eof: true },
     { data: "a".repeat(100_000), base64Encoded: true, eof: true },

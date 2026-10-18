@@ -1,3 +1,4 @@
+import { RECORDING_DRAIN_BYTES, RECORDING_MAX_BYTES, writeRecordingChunks } from "./recording-data.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, open, rm, type FileHandle } from "node:fs/promises";
@@ -168,7 +169,6 @@ const PICK_TIMEOUT_MS = 5 * 60_000;
 const PICK_IMAGE_MAX_WIDTH = 1_200;
 const RECORDING_DRAIN_MS = 1_000;
 const RECORDING_MAX_MS = 10 * 60_000;
-const RECORDING_MAX_BYTES = 500 * 1024 * 1024;
 const PORTS_FRESH_MS = 2_000;
 const AGENT_ACTIONS_KEPT = 12;
 
@@ -198,6 +198,7 @@ interface ActiveRecording {
   timer: ReturnType<typeof setInterval>;
   /** Writes happen in order; each drain waits for the one before. */
   queue: Promise<void>;
+  failure?: Error;
   /** The page the input overlay was put on; a navigation needs it again. */
   overlayUrl: string;
 }
@@ -910,18 +911,14 @@ class PreviewController implements PreviewToolController {
     this.recordingNotice = undefined;
     const overlayUrl = surface.state().url;
     this.recording = { surface, path, name, file, since: Date.now(), bytes: 0, mimeType: started.mimeType || "video/webm", timer, queue: Promise.resolve(), overlayUrl };
-    try { await this.write(this.recording, started.chunks); }
-    catch (error) { await this.stopRecording().catch(() => undefined); throw error; }
+    try { await writeRecordingChunks(this.recording, started.chunks); }
+    catch (error) {
+      this.recording.failure = error instanceof Error ? error : new Error(String(error));
+      await this.stopRecording().catch(() => undefined);
+      throw error;
+    }
     this.publish();
     return this.state();
-  }
-
-  private async write(recording: ActiveRecording, chunks: readonly string[]): Promise<void> {
-    for (const chunk of chunks) {
-      const bytes = Buffer.from(chunk, "base64");
-      await recording.file.write(bytes);
-      recording.bytes += bytes.length;
-    }
   }
 
   /** Moves what the recorder holds into the file; stops at the caps. */
@@ -932,13 +929,15 @@ class PreviewController implements PreviewToolController {
     recording.queue = recording.queue.then(async () => {
       if (this.recording !== recording) return;
       try {
-        await this.write(recording, (await recording.surface.record("take")).chunks);
+        await writeRecordingChunks(recording, (await recording.surface.record("take")).chunks);
       } catch (error) {
+        recording.failure = error instanceof Error ? error : new Error(String(error));
         reason = error instanceof Error ? error.message : String(error);
         return;
       }
       const tooLong = Date.now() - recording.since >= RECORDING_MAX_MS;
-      if (tooLong || recording.bytes >= RECORDING_MAX_BYTES) reason = tooLong ? "10 minutes" : "500 MB";
+      // Leave room for the in-flight drain and the final encoder fragment.
+      if (tooLong || recording.bytes >= RECORDING_MAX_BYTES - 2 * RECORDING_DRAIN_BYTES) reason = tooLong ? "10 minutes" : "the 500 MB size limit";
     }).then(() => {
       if (!reason || this.recording !== recording) return;
       clearInterval(recording.timer);
@@ -963,7 +962,9 @@ class PreviewController implements PreviewToolController {
     try {
       try {
         await recording.queue;
-        await this.write(recording, (await recording.surface.record("stop")).chunks);
+        const finished = await recording.surface.record("stop");
+        if (recording.failure) throw recording.failure;
+        await writeRecordingChunks(recording, finished.chunks);
       } finally {
         await recording.file.close();
         await recording.surface.evaluate(pageCall(previewInputOverlayEnd), true).catch(() => undefined);

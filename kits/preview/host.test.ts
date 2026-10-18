@@ -568,7 +568,12 @@ describe("recording", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       await stopped.wait;
       await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close");
-      expect((await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state") as PreviewState).recordingSince).toBeUndefined();
+      const state = await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state") as PreviewState;
+      expect(state.recordingSince).toBeUndefined();
+      if (reason === "read error") {
+        expect(await readdir(join(stateDir, PREVIEW_HOST_EXTENSION_ID, "recordings"))).toEqual([]);
+        expect(state.recordingNotice).toContain("Read failed");
+      }
     } finally { vi.useRealTimers(); await kit.registry.dispose(); }
   }, 2_000);
 
