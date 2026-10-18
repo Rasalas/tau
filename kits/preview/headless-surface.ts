@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { HeadlessPreviewRecorder } from "./headless-recorder.js";
 import { PreviewBrowserProcess } from "./browser-process.js";
 import { previewFileAllowed, savePreviewDownload } from "./headless-files.js";
 import type { PreviewSurface, PreviewSurfaceOptions } from "./host.js";
@@ -59,6 +60,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
   let emulation: Promise<unknown> = Promise.resolve();
   let snapshot: PreviewState = { ...EMPTY_PREVIEW_STATE, available: true, surface: "headless", consoleErrors: [] };
   const send = <T = Record<string, unknown>>(method: string, params: object = {}) => browser.send<T>(method, params, pageSession);
+  const recorder = new HeadlessPreviewRecorder(send, () => browser.close());
   const note = (message: string) => {
     snapshot = { ...snapshot, consoleErrors: [...snapshot.consoleErrors, message.slice(0, 4_000)].slice(-50) };
     options.onChange();
@@ -230,7 +232,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
       const { data } = await send<{ data: string }>("Page.captureScreenshot", { format: jpeg ? "jpeg" : "png", ...(jpeg ? { quality: 72 } : {}), clip: { ...clip, scale }, captureBeyondViewport: false });
       return { base64: data, width: Math.round(clip.width * scale * density), height: Math.round(clip.height * scale * density) };
     },
-    async record() { throw new Error("Video recording requires a Tau desktop window. Screenshots and live Preview work without one."); },
+    record: (action, recordOptions) => recorder.record(action, recordOptions),
     async pressKey(key) { await surface.input!({ kind: "key", key }); },
     async input(input) {
       await emulation;
@@ -263,7 +265,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
       } finally { await browser.send("IO.close", { handle: resource.stream }, pageSession, 2_000).catch(() => undefined); }
       return savePreviewDownload(workspace, destination, Buffer.concat(chunks));
     },
-    destroy() { destroyed = true; return closing ??= browser.close(); },
+    destroy() { destroyed = true; return closing ??= recorder.dispose().finally(() => browser.close()); },
   };
   options.log("preview.headless.opened");
   return surface;

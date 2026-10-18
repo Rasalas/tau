@@ -1,3 +1,4 @@
+import { RECORDING_DRAIN_BYTES, RECORDING_MAX_BYTES, writeRecordingChunks } from "./recording-data.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, open, rm, type FileHandle } from "node:fs/promises";
@@ -91,7 +92,7 @@ export interface PreviewSurface {
   evaluate(expression: string, isolated?: boolean): Promise<unknown>;
   /** `rect`, in the page's CSS pixels, cuts the capture to that part of the view; `jpeg` for a small picture. */
   capture(maxWidth: number, rect?: PreviewRect, jpeg?: boolean): Promise<{ base64: string; width: number; height: number }>;
-  /** A webm recording of the view: `take` answers the chunks since the last call, base64. */
+  /** A video recording of the view: `take` answers the chunks since the last call, base64. */
   record(action: "start" | "take" | "stop", options?: { frameRate?: number }): Promise<PreviewRecordingChunks>;
   pressKey(key: string): void | Promise<void>;
   /** Trusted input from a device that shows the page; a surface without it cannot be driven remotely. */
@@ -168,7 +169,6 @@ const PICK_TIMEOUT_MS = 5 * 60_000;
 const PICK_IMAGE_MAX_WIDTH = 1_200;
 const RECORDING_DRAIN_MS = 1_000;
 const RECORDING_MAX_MS = 10 * 60_000;
-const RECORDING_MAX_BYTES = 500 * 1024 * 1024;
 const PORTS_FRESH_MS = 2_000;
 const AGENT_ACTIONS_KEPT = 12;
 
@@ -198,6 +198,7 @@ interface ActiveRecording {
   timer: ReturnType<typeof setInterval>;
   /** Writes happen in order; each drain waits for the one before. */
   queue: Promise<void>;
+  failure?: Error;
   /** The page the input overlay was put on; a navigation needs it again. */
   overlayUrl: string;
 }
@@ -558,7 +559,7 @@ class PreviewController implements PreviewToolController {
   private async closeSurface(): Promise<PreviewState> {
     this.pickToken += 1;
     this.mode = undefined;
-    await this.recordStop().catch(() => null);
+    await this.stopRecording().catch(() => null);
     await this.view?.destroy();
     this.view = undefined;
     this.window.release();
@@ -879,23 +880,30 @@ class PreviewController implements PreviewToolController {
     await surface.evaluate(pageCall(previewInputOverlay, { keys: showKeys, clicks: showClicks }, POINTER_PATH), true).catch(() => undefined);
   }
 
-  async recordStart(): Promise<PreviewState> {
+  recordStart(): Promise<PreviewState> {
+    return this.changeBrowser(() => this.startRecording());
+  }
+
+  private async startRecording(): Promise<PreviewState> {
     if (this.recording) return this.state();
-    const surface = await this.loadedPage("recording it");
+    const surface = await this.openSurface();
+    if (!surface.state().url) throw new Error("Open a page before recording it.");
     const directory = join(this.context.services.stateDir, "recordings");
     await mkdir(directory, { recursive: true });
-    const name = `preview-${new Date().toISOString().replace(/[:.]/gu, "-")}.webm`;
-    const path = join(directory, name);
-    const file = await open(path, "w");
-    let started: PreviewRecordingChunks;
-    // The drawn pointer is there before the first frame, so the video never shows two.
     await this.showInputOverlay(surface);
+    let started: PreviewRecordingChunks;
+    let file: FileHandle | undefined;
+    let path = "";
+    let name = "";
     try {
       started = await surface.record("start", { frameRate: this.defaults.recording.frameRate });
+      const extension = started.mimeType.split(";")[0] === "video/mp4" ? "mp4" : "webm";
+      name = `preview-${new Date().toISOString().replace(/[:.]/gu, "-")}.${extension}`;
+      path = join(directory, name);
+      file = await open(path, "wx");
     } catch (error) {
+      await surface.record("stop").catch(() => undefined);
       await surface.evaluate(pageCall(previewInputOverlayEnd), true).catch(() => undefined);
-      await file.close();
-      await rm(path, { force: true });
       throw error;
     }
     const timer = setInterval(() => this.drain(), RECORDING_DRAIN_MS);
@@ -903,53 +911,70 @@ class PreviewController implements PreviewToolController {
     this.recordingNotice = undefined;
     const overlayUrl = surface.state().url;
     this.recording = { surface, path, name, file, since: Date.now(), bytes: 0, mimeType: started.mimeType || "video/webm", timer, queue: Promise.resolve(), overlayUrl };
-    await this.write(this.recording, started.chunks);
+    try { await writeRecordingChunks(this.recording, started.chunks); }
+    catch (error) {
+      this.recording.failure = error instanceof Error ? error : new Error(String(error));
+      await this.stopRecording().catch(() => undefined);
+      throw error;
+    }
     this.publish();
     return this.state();
-  }
-
-  private async write(recording: ActiveRecording, chunks: readonly string[]): Promise<void> {
-    for (const chunk of chunks) {
-      const bytes = Buffer.from(chunk, "base64");
-      await recording.file.write(bytes);
-      recording.bytes += bytes.length;
-    }
   }
 
   /** Moves what the recorder holds into the file; stops at the caps. */
   private drain(): void {
     const recording = this.recording;
     if (!recording) return;
+    let reason: string | undefined;
     recording.queue = recording.queue.then(async () => {
       if (this.recording !== recording) return;
       try {
-        await this.write(recording, (await recording.surface.record("take")).chunks);
+        await writeRecordingChunks(recording, (await recording.surface.record("take")).chunks);
       } catch (error) {
-        this.recordingNotice = `Recording stopped: ${error instanceof Error ? error.message : String(error)}`;
-        await this.recordStop().catch(() => null);
+        recording.failure = error instanceof Error ? error : new Error(String(error));
+        reason = error instanceof Error ? error.message : String(error);
         return;
       }
       const tooLong = Date.now() - recording.since >= RECORDING_MAX_MS;
-      if (tooLong || recording.bytes >= RECORDING_MAX_BYTES) {
-        const stopped = await this.recordStop().catch(() => null);
-        if (stopped) this.recordingNotice = `Recording stopped at ${tooLong ? "10 minutes" : "500 MB"}; saved to ${stopped.path}`;
+      // Leave room for the in-flight drain and the final encoder fragment.
+      if (tooLong || recording.bytes >= RECORDING_MAX_BYTES - 2 * RECORDING_DRAIN_BYTES) reason = tooLong ? "10 minutes" : "the 500 MB size limit";
+    }).then(() => {
+      if (!reason || this.recording !== recording) return;
+      clearInterval(recording.timer);
+      // Finishing awaits this queue. Schedule it after the drain, never await
+      // it from within the queue it needs to finish.
+      void this.recordStop().then((saved) => {
+        this.recordingNotice = `Recording stopped: ${reason}${saved ? `; saved to ${saved.path}` : ""}`;
         this.publish();
-      }
+      }).catch(() => undefined);
     });
   }
 
-  async recordStop(): Promise<PreviewRecording | null> {
+  recordStop(): Promise<PreviewRecording | null> {
+    return this.changeBrowser(() => this.stopRecording());
+  }
+
+  private async stopRecording(): Promise<PreviewRecording | null> {
     const recording = this.recording;
     if (!recording) return null;
     this.recording = undefined;
     clearInterval(recording.timer);
     try {
-      await recording.queue;
-      await this.write(recording, (await recording.surface.record("stop").catch(() => ({ chunks: [] as string[] }))).chunks);
-    } finally {
-      await recording.file.close();
-      await recording.surface.evaluate(pageCall(previewInputOverlayEnd), true).catch(() => undefined);
+      try {
+        await recording.queue;
+        const finished = await recording.surface.record("stop");
+        if (recording.failure) throw recording.failure;
+        await writeRecordingChunks(recording, finished.chunks);
+      } finally {
+        await recording.file.close();
+        await recording.surface.evaluate(pageCall(previewInputOverlayEnd), true).catch(() => undefined);
+        this.publish();
+      }
+    } catch (error) {
+      await rm(recording.path, { force: true }).catch(() => undefined);
+      this.recordingNotice = `Recording failed: ${error instanceof Error ? error.message : String(error)}`;
       this.publish();
+      throw error;
     }
     return { path: recording.path, name: recording.name, size: recording.bytes, durationMs: Date.now() - recording.since, mimeType: recording.mimeType.split(";")[0] || "video/webm" };
   }
