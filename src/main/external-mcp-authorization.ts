@@ -1,8 +1,10 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
+import { tryLock, type ProcessLock } from "./process-lock.js";
 import {
   McpOAuthError, matchesMcpRedirect, mcpChallenge, mcpIssuer, mcpRedirects, mcpScopes, validMcpVerifier,
   type ExternalMcpExecution, type ExternalMcpScope,
@@ -18,6 +20,7 @@ const MAX_PENDING = 64;
 const MAX_ACCESS_TOKENS = 2048;
 const MAX_REFRESH_TOKENS = 8192;
 const MAX_LEASES = 128;
+const MAX_STORE_BYTES = 4 * 1024 * 1024;
 
 const Id = Type.String({ minLength: 1, maxLength: 128 });
 const Timestamp = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
@@ -111,8 +114,19 @@ function snapshot(grant: StoredGrant): ExternalMcpGrant {
   return Object.freeze({ ...grant, scopes: Object.freeze([...grant.scopes]), projectIds: Object.freeze([...grant.projectIds]) });
 }
 
+function storeBytes(stored: Stored): number { return Buffer.byteLength(JSON.stringify(stored, null, 2), "utf8"); }
+
+async function canonicalStorePath(path: string): Promise<string> {
+  const absolute = resolve(path);
+  try { return await realpath(absolute); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || dirname(absolute) === absolute) throw error;
+    return resolve(await canonicalStorePath(dirname(absolute)), basename(absolute));
+  }
+}
+
 function decodeStore(value: unknown, issuer: string): Stored {
   if (!Check(Store, value) || value.issuer !== issuer) throw new Error("External MCP authorization store is invalid or belongs to another issuer.");
+  if (storeBytes(value) > MAX_STORE_BYTES) throw new Error("External MCP authorization store exceeds its serialized byte limit.");
   const clients = new Set(value.clients.map((client) => client.id));
   const grants = new Map(value.grants.map((grant) => [grant.id, grant]));
   if (clients.size !== value.clients.length || grants.size !== value.grants.length
@@ -152,8 +166,9 @@ export class ExternalMcpAuthorization {
   private readonly leases = new Map<string, Set<{ controller: AbortController; timer: ReturnType<typeof setTimeout> }>>();
   private tail: Promise<unknown> = Promise.resolve();
   private unavailable = false;
+  private closing?: Promise<void>;
 
-  private constructor(private readonly options: ExternalMcpAuthorizationOptions, private stored: Stored) {
+  private constructor(private readonly options: ExternalMcpAuthorizationOptions, private stored: Stored, private readonly lock: ProcessLock) {
     this.issuer = stored.issuer;
     this.resource = `${this.issuer}/mcp`;
     this.now = options.now ?? Date.now;
@@ -161,23 +176,26 @@ export class ExternalMcpAuthorization {
 
   static async open(options: ExternalMcpAuthorizationOptions): Promise<ExternalMcpAuthorization> {
     const issuer = mcpIssuer(options.issuer);
-    const existing = await stat(options.storePath).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return undefined;
-      throw error;
-    });
-    if (existing && (!existing.isFile() || existing.size > 4 * 1024 * 1024)) throw new Error("External MCP authorization store is not a bounded file.");
-    const result = await readPersistedJson(options.storePath, {
-      expectedVersion: 1, logger: options.logger,
-      decode: (value, version) => {
-        if (version !== 1) throw new Error("Unsupported external MCP authorization store version.");
-        return decodeStore(value, issuer);
-      },
-    });
-    // readPersistedJson quarantines invalid JSON. This credential store refuses
-    // to silently start over; the owner must explicitly repair or remove it.
-    if (existing && !result) throw new Error("External MCP authorization store could not be decoded.");
-    const stored: Stored = result?.data ?? { version: 1, issuer, clients: [], grants: [], access: [], refresh: [] };
-    return new ExternalMcpAuthorization(options, stored);
+    const storePath = await canonicalStorePath(options.storePath);
+    const lock = await tryLock(`${storePath}.lock`, { pid: process.pid, startedAt: new Date().toISOString(), app: "Tau MCP authorization" });
+    if (!lock) throw new Error("External MCP authorization store is already open.");
+    try {
+      const existing = await stat(storePath).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (existing && (!existing.isFile() || existing.size > MAX_STORE_BYTES)) throw new Error("External MCP authorization store is not a bounded file.");
+      const result = await readPersistedJson(storePath, {
+        expectedVersion: 1, logger: options.logger, invalidJson: "reject",
+        decode: (value, version) => {
+          if (version !== 1) throw new Error("Unsupported external MCP authorization store version.");
+          return decodeStore(value, issuer);
+        },
+      });
+      if (existing && !result) throw new Error("External MCP authorization store could not be decoded.");
+      const stored: Stored = result?.data ?? { version: 1, issuer, clients: [], grants: [], access: [], refresh: [] };
+      return new ExternalMcpAuthorization({ ...options, storePath }, stored, lock);
+    } catch (error) { lock.release(); throw error; }
   }
 
   private available(): void {
@@ -195,15 +213,17 @@ export class ExternalMcpAuthorization {
   }
 
   private mutate<T>(change: (draft: Stored) => { result: T; committed?: () => void }): Promise<T> {
+    if (this.unavailable) return Promise.reject(new McpOAuthError("temporarily_unavailable"));
     const next = this.tail.catch(() => undefined).then(async () => {
       this.available();
       const draft = structuredClone(this.stored);
       this.prune(draft);
       const { result, committed } = change(draft);
+      if (storeBytes(draft) > MAX_STORE_BYTES) throw new McpOAuthError("temporarily_unavailable");
       try {
         await writePersistedJson(this.options.storePath, 1, draft, { logger: this.options.logger });
       } catch (error) {
-        this.close();
+        void this.close().catch(() => undefined);
         throw error;
       }
       // close() may have run while the durable write was in flight.
@@ -247,9 +267,10 @@ export class ExternalMcpAuthorization {
   requestAuthorization(input: McpAuthorizationRequest): string {
     this.available();
     this.pruneMemory();
+    if (input.clientId.length > 128) throw new McpOAuthError("invalid_client");
     const client = this.stored.clients.find((entry) => entry.id === input.clientId);
     if (!client) throw new McpOAuthError("invalid_client");
-    if (input.clientId.length > 128 || input.resource !== this.resource || input.codeChallengeMethod !== "S256"
+    if (input.resource !== this.resource || input.codeChallengeMethod !== "S256"
       || !/^[A-Za-z0-9_-]{43}$/u.test(input.codeChallenge)
       || (input.state !== undefined && input.state.length > 2048)
       || !client.redirectUris.some((uri) => matchesMcpRedirect(uri, input.redirectUri))) throw new McpOAuthError("invalid_request");
@@ -315,11 +336,14 @@ export class ExternalMcpAuthorization {
     return { access_token: access, token_type: "Bearer", expires_in: Math.floor((expiresAt - issuedAt) / 1000), refresh_token: refresh, scope: scopes.join(" ") };
   }
 
-  exchangeCode(input: { clientId: string; code: string; codeVerifier: string; redirectUri: string; resource: string }): Promise<McpOAuthTokens> {
+  async exchangeCode(input: { clientId: string; code: string; codeVerifier: string; redirectUri: string; resource: string }): Promise<McpOAuthTokens> {
+    if (input.clientId.length > 128 || input.code.length > 128 || !validMcpVerifier(input.codeVerifier)
+      || input.resource !== this.resource || input.redirectUri.length > 2048) throw new McpOAuthError("invalid_grant");
+    const codeHash = hash(input.code);
     return this.mutate((draft) => {
-      const code = this.codes.get(hash(input.code));
-      if (!code || input.code.length > 128 || code.clientId !== input.clientId || input.resource !== this.resource || code.redirectUri !== input.redirectUri
-        || !validMcpVerifier(input.codeVerifier) || !equalChallenge(code.challenge, mcpChallenge(input.codeVerifier))) throw new McpOAuthError("invalid_grant");
+      const code = this.codes.get(codeHash);
+      if (!code || code.clientId !== input.clientId || code.redirectUri !== input.redirectUri
+        || !equalChallenge(code.challenge, mcpChallenge(input.codeVerifier))) throw new McpOAuthError("invalid_grant");
       if (code.used) return this.replay(draft, code.grantId);
       const grant = draft.grants.find((entry) => entry.id === code.grantId && !this.blocked.has(entry.id));
       if (!grant) throw new McpOAuthError("invalid_grant");
@@ -329,11 +353,13 @@ export class ExternalMcpAuthorization {
   }
 
   async refresh(input: { clientId: string; refreshToken: string; resource: string; scope?: string }): Promise<McpOAuthTokens> {
+    if (input.clientId.length > 128 || input.refreshToken.length > 128 || input.resource !== this.resource) throw new McpOAuthError("invalid_grant");
+    const tokenHash = hash(input.refreshToken);
     const requested = input.scope === undefined ? undefined : mcpScopes(input.scope);
     return this.mutate((draft) => {
-      const token = draft.refresh.find((entry) => entry.hash === hash(input.refreshToken));
+      const token = draft.refresh.find((entry) => entry.hash === tokenHash);
       const grant = token && draft.grants.find((entry) => entry.id === token.grantId && entry.clientId === input.clientId && !this.blocked.has(entry.id));
-      if (!token || !grant || input.refreshToken.length > 128 || input.resource !== this.resource) throw new McpOAuthError("invalid_grant");
+      if (!token || !grant) throw new McpOAuthError("invalid_grant");
       if (token.used) return this.replay(draft, grant.id);
       if (requested?.some((scope) => !token.scopes.includes(scope))) throw new McpOAuthError("invalid_scope");
       const result = this.issue(draft, grant, requested ?? token.scopes);
@@ -353,7 +379,8 @@ export class ExternalMcpAuthorization {
   private live(token: string, resource: string): { grant: StoredGrant; expiresAt: number } | undefined {
     this.available();
     if (resource !== this.resource || token.length > 128 || !token.startsWith("tau_mcp_access_")) return undefined;
-    const found = this.stored.access.find((entry) => entry.hash === hash(token));
+    const tokenHash = hash(token);
+    const found = this.stored.access.find((entry) => entry.hash === tokenHash);
     if (!found || found.expiresAt <= this.now()) return undefined;
     const grant = this.stored.grants.find((entry) => entry.id === found.grantId && entry.expiresAt > this.now() && !this.blocked.has(entry.id));
     return grant ? { grant: { ...grant, scopes: [...found.scopes], execution: found.scopes.includes("tau:threads") ? grant.execution : "read-only" }, expiresAt: Math.min(found.expiresAt, grant.expiresAt) } : undefined;
@@ -405,9 +432,11 @@ export class ExternalMcpAuthorization {
   }
 
   /** RFC 7009: unknown tokens are successful no-ops; another client cannot revoke. */
-  revokeToken(clientId: string, token: string): Promise<void> {
+  async revokeToken(clientId: string, token: string): Promise<void> {
+    if (clientId.length > 128 || token.length > 128) return;
+    const tokenHash = hash(token);
     return this.mutate((draft) => {
-      const found = [...draft.access, ...draft.refresh].find((entry) => entry.hash === hash(token));
+      const found = [...draft.access, ...draft.refresh].find((entry) => entry.hash === tokenHash);
       const grant = found && draft.grants.find((entry) => entry.id === found.grantId && entry.clientId === clientId);
       if (grant) { this.blockGrant(grant.id); this.removeGrant(draft, grant.id); }
       return { result: undefined };
@@ -425,11 +454,14 @@ export class ExternalMcpAuthorization {
     });
   }
 
-  close(): void {
+  /** Wait for writes before releasing exclusive store ownership. */
+  close(): Promise<void> {
     this.unavailable = true;
     for (const entries of this.leases.values()) for (const entry of entries) { clearTimeout(entry.timer); entry.controller.abort(); }
     this.leases.clear();
     this.pending.clear();
     this.codes.clear();
+    this.closing ??= this.tail.catch(() => undefined).then(() => { this.lock.release(); });
+    return this.closing;
   }
 }

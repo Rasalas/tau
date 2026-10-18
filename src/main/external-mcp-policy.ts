@@ -51,6 +51,7 @@ export function matchesMcpRedirect(registered: string, requested: string): boole
 }
 
 export function mcpScopes(value = "tau:read"): ExternalMcpScope[] {
+  if (value.length > 64) throw new McpOAuthError("invalid_scope");
   const parts = value.split(" ");
   if (parts.length > 2 || !parts.includes("tau:read") || parts.some((part) => !EXTERNAL_MCP_SCOPES.includes(part as ExternalMcpScope))) {
     throw new McpOAuthError("invalid_scope");

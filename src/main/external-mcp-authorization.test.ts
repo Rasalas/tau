@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -18,7 +18,7 @@ const logger = { warn: vi.fn() };
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.useRealTimers();
-  for (const store of stores.splice(0)) store.close();
+  await Promise.all(stores.splice(0).map((store) => store.close()));
   for (const dir of directories.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
@@ -28,8 +28,11 @@ async function fixture() {
   const path = join(dir, "grants.json");
   let now = 1_000_000;
   const options = { storePath: path, issuer, now: () => now, logger };
+  let active: ExternalMcpAuthorization | undefined;
   const reopen = async () => {
+    await active?.close();
     const store = await ExternalMcpAuthorization.open(options);
+    active = store;
     stores.push(store);
     return store;
   };
@@ -188,8 +191,8 @@ describe("external MCP authorization", () => {
     await expect(reopened.refresh({ clientId: f.client.id, refreshToken: original.refresh_token, resource })).rejects.toThrow("invalid_grant");
     expect(lease.signal.aborted).toBe(true);
     expect(reopened.authenticate(next.access_token, resource)).toBeUndefined();
-    expect((await f.reopen()).authenticate(next.access_token, resource)).toBeUndefined();
     await expect(reopened.refresh({ clientId: f.client.id, refreshToken: next.refresh_token, resource })).rejects.toThrow("invalid_grant");
+    expect((await f.reopen()).authenticate(next.access_token, resource)).toBeUndefined();
   });
 
   it("serializes concurrent refreshes and treats the second use as replay", async () => {
@@ -290,8 +293,8 @@ describe("external MCP authorization", () => {
     expect(lease.signal.aborted).toBe(true);
     expect(f.store.ownerState()).toEqual({ clients: [], grants: [], pending: [] });
     expect(f.store.authenticate(tokens.access_token, resource)).toBeUndefined();
-    expect((await f.reopen()).ownerState()).toEqual({ clients: [], grants: [], pending: [] });
     expect(() => f.request()).toThrow("invalid_client");
+    expect((await f.reopen()).ownerState()).toEqual({ clients: [], grants: [], pending: [] });
   });
 
   it("bounds pending requests and releases expired slots", async () => {
@@ -355,6 +358,31 @@ describe("external MCP authorization", () => {
     await expect(f.reopen()).rejects.toThrow("not a bounded file");
   });
 
+  it("refuses a legal registration that would exceed the serialized byte budget", async () => {
+    const f = await fixture();
+    await f.tokens();
+    const data = JSON.parse(await readFile(f.path, "utf8"));
+    const grantId = "g".repeat(128);
+    data.grants[0].id = grantId;
+    data.access[0].grantId = grantId;
+    const originalRefresh = { ...data.refresh[0], grantId };
+    data.refresh = [originalRefresh, ...Array.from({ length: 8191 }, (_, index) => ({ ...originalRefresh, hash: createHash("sha256").update(`byte-budget-${index}`).digest("hex"), used: true }))];
+    const redirectUris = Array.from({ length: 8 }, (_, index) => `https://client.test/${index}/${"界".repeat(2000)}`);
+    const nextClient = () => ({ id: `client-${data.clients.length}`, name: "Large metadata client", redirectUris });
+    // Seed a valid store just below the real pretty-printed UTF-8 byte bound.
+    const max = 4 * 1024 * 1024;
+    const sizeWithNext = () => Buffer.byteLength(JSON.stringify({ ...data, clients: [...data.clients, nextClient()] }, null, 2));
+    while (sizeWithNext() <= max) data.clients.push(nextClient());
+    expect(data.clients.length).toBeLessThan(64);
+    const before = JSON.stringify(data, null, 2);
+    await writeFile(f.path, before);
+    f.store.close();
+    const reopened = await f.reopen();
+    await expect(reopened.registerClient({ name: "Would exceed bytes", redirectUris })).rejects.toThrow("temporarily_unavailable");
+    expect(await readFile(f.path, "utf8")).toBe(before);
+    expect((await f.reopen()).ownerState().clients).toHaveLength(data.clients.length);
+  });
+
   it("does not expose mutable registrations to callers", async () => {
     const f = await fixture();
     f.client.redirectUris.push("https://evil.test/cb");
@@ -382,8 +410,9 @@ describe("external MCP authorization", () => {
       expect(JSON.parse(await readFile(f.path, "utf8"))).toEqual(value);
     }
     await writeFile(f.path, "{broken");
-    await expect(f.reopen()).rejects.toThrow("could not be decoded");
-    expect((await readdir(f.dir)).some((name) => name.includes(".corrupt-"))).toBe(true);
+    await expect(f.reopen()).rejects.toThrow("refusing to reset");
+    await expect(f.reopen()).rejects.toThrow("refusing to reset");
+    expect(await readFile(f.path, "utf8")).toBe("{broken");
   });
 
   it("fails closed on a real persistence failure and cancels existing calls", async () => {
@@ -420,8 +449,37 @@ describe("external MCP authorization", () => {
     await entered;
     expect(settled).toBe(false);
     expect(JSON.parse(await readFile(f.path, "utf8")).access).toEqual([]);
-    f.store.close();
+    const closed = f.store.close();
+    await expect(ExternalMcpAuthorization.open(f.options)).rejects.toThrow("already open");
     release();
     await expect(promise).rejects.toThrow("temporarily_unavailable");
+    await closed;
+  });
+
+  it("enforces exclusive ownership across concurrent opens and path aliases", async () => {
+    const f = await fixture();
+    const tokens = await f.tokens();
+    await expect(ExternalMcpAuthorization.open(f.options)).rejects.toThrow("already open");
+    const alias = join(f.dir, "alias");
+    await symlink(f.dir, alias, "junction");
+    await expect(ExternalMcpAuthorization.open({ ...f.options, storePath: join(alias, "grants.json") })).rejects.toThrow("already open");
+    const grant = f.store.authenticate(tokens.access_token, resource)!;
+    await f.store.revokeGrant(grant.id);
+    const reopened = await f.reopen();
+    await expect(reopened.refresh({ clientId: f.client.id, refreshToken: tokens.refresh_token, resource })).rejects.toThrow("invalid_grant");
+  });
+
+  it("rejects oversized public fields without a mutation or digest scan", async () => {
+    const f = await fixture();
+    const { exchange } = await f.consent();
+    const oversized = "x".repeat(4096);
+    const write = vi.spyOn(persistence, "writePersistedJson");
+    expect(() => f.request(oversized)).toThrow("invalid_scope");
+    await expect(f.store.exchangeCode({ ...exchange, code: oversized })).rejects.toThrow("invalid_grant");
+    await expect(f.store.exchangeCode({ ...exchange, codeVerifier: oversized })).rejects.toThrow("invalid_grant");
+    await expect(f.store.refresh({ clientId: f.client.id, refreshToken: oversized, resource })).rejects.toThrow("invalid_grant");
+    await expect(f.store.revokeToken(f.client.id, oversized)).resolves.toBeUndefined();
+    expect(write).not.toHaveBeenCalled();
+    await expect(f.store.exchangeCode(exchange)).resolves.toHaveProperty("access_token");
   });
 });

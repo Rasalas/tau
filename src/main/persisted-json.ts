@@ -19,6 +19,8 @@ export interface ReadPersistedJsonOptions<T> {
   /** Decodes the parsed JSON (which may be a legacy shape) into `T`, or `undefined` if unrecognizable. */
   decode(value: unknown, version: number | undefined): T | undefined;
   logger?: PersistedJsonLogger;
+  /** Credential stores must keep refusing corruption across restarts. Default: quarantine. */
+  invalidJson?: "quarantine" | "reject";
 }
 
 export interface PersistedJsonRead<T> {
@@ -49,8 +51,9 @@ async function quarantine(path: string, logger: PersistedJsonLogger): Promise<vo
 
 /**
  * Reads and decodes a persisted JSON file. A missing file is not an error
- * (returns `undefined` quietly); an unparsable one is quarantined so it is
- * never silently discarded, then also returns `undefined`. Other read errors
+ * (returns `undefined` quietly); an unparsable one is quarantined by default,
+ * then also returns `undefined`. With `invalidJson: "reject"` it stays in
+ * place and blocks writes until repaired and successfully read. Other read errors
  * reject and prevent writes until a successful read of that path.
  */
 export async function readPersistedJson<T>(
@@ -74,6 +77,11 @@ export async function readPersistedJson<T>(
   try {
     value = JSON.parse(raw);
   } catch {
+    if (options.invalidJson === "reject") {
+      const error = new Error(`${path} is not valid JSON; refusing to reset it.`);
+      writeGuards.set(path, { error });
+      throw error;
+    }
     await quarantine(path, logger);
     return undefined;
   }

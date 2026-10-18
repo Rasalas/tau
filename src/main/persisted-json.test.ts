@@ -103,4 +103,17 @@ describe("persisted-json", () => {
     const entries = await readdir(join(path, ".."));
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
+
+  it("keeps refusing invalid credential JSON until explicitly repaired", async () => {
+    const path = await tempFile();
+    await writeFile(path, "{broken");
+    const options = { expectedVersion: 1, decode, invalidJson: "reject" as const };
+    await expect(readPersistedJson(path, options)).rejects.toThrow("refusing to reset");
+    await expect(readPersistedJson(path, options)).rejects.toThrow("refusing to reset");
+    await expect(writePersistedJson(path, 1, { items: [] }, { logger: { warn: vi.fn() } })).rejects.toThrow("refusing to reset");
+    expect(await readFile(path, "utf8")).toBe("{broken");
+    await writeFile(path, JSON.stringify({ version: 1, items: ["repaired"] }));
+    expect((await readPersistedJson(path, options))?.data.items).toEqual(["repaired"]);
+    await expect(writePersistedJson(path, 1, { items: ["next"] })).resolves.toBeUndefined();
+  });
 });
