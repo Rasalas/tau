@@ -51,6 +51,10 @@ export interface WorktreeStorageThread {
   sessionId: string;
   path: string;
   cwd: string;
+  /** Missing for active threads, trash or unavailable settlement metadata. */
+  settledAt?: number;
+  /** Activity reported by a backend whose session path may be synthetic. */
+  modifiedAt?: number;
 }
 
 export interface WorktreeStorageOptions {
@@ -305,21 +309,29 @@ export class WorktreeStorage {
       this.options.log("git.worktree.cleanup-fetch-failed", error instanceof Error ? error.message.split("\n")[0] : String(error)));
   }
 
+  /** One checkout's current thread ownership and settlement clock. */
+  private threadFacts(inside: readonly WorktreeStorageThread[]) {
+    return {
+      threads: inside.length,
+      openThreads: inside.filter((thread) => this.options.threadOpen(thread.sessionId)).length,
+      threadIds: inside.map((thread) => thread.sessionId),
+      settledAt: inside.length > 0 && inside.every((thread) => Number.isFinite(thread.settledAt) && thread.settledAt! > 0)
+        ? Math.max(...inside.map((thread) => thread.settledAt!)) : undefined,
+    };
+  }
+
   /** Everything the rules ask about one worktree, read fresh from disk and Git. */
   async inspect(entry: WorktreeRecord, threads: readonly WorktreeStorageThread[]): Promise<WorktreeFacts & { branch?: string; threadIds: string[] }> {
     const git = this.options.runGit;
     const modifiedAt = this.options.modifiedAt ?? fileModifiedAt;
     const inside = await this.threadsIn(entry.path, threads);
-    const threadIds = inside.map((thread) => thread.sessionId);
-    const openThreads = inside.filter((thread) => this.options.threadOpen(thread.sessionId)).length;
     const base: WorktreeFacts & { threadIds: string[] } = {
       recorded: true,
       exists: false,
       insideWorktreesDir: false,
       linked: false,
       hostWorkspace: false,
-      threads: inside.length,
-      openThreads,
+      ...this.threadFacts(inside),
       threadDeleted: entry.threadDeletedAt !== undefined,
       dirtyFiles: 0,
       ignoredFiles: 0,
@@ -327,7 +339,6 @@ export class WorktreeStorage {
       commitsBeyondBase: 0,
       integrated: false,
       lastActivityAt: entry.createdAt,
-      threadIds,
     };
     const exists = await stat(entry.path).then((info) => info.isDirectory()).catch(() => false);
     if (!exists) return base;
@@ -367,7 +378,7 @@ export class WorktreeStorage {
       const requestMerged = requestFits === true;
       const requestDiffers = request?.state === "merged" && !requestFits;
       const headAt = Number((await git(entry.path, ["log", "-1", "--format=%ct"]).catch(() => "")).trim()) * 1000;
-      const sessionTimes = await Promise.all(inside.map((thread) => modifiedAt(thread.path)));
+      const sessionTimes = await Promise.all(inside.map(async (thread) => Math.max(thread.modifiedAt ?? 0, (await modifiedAt(thread.path)) ?? 0)));
       const lastActivityAt = Math.max(entry.createdAt, Number.isFinite(headAt) ? headAt : 0, ...sessionTimes.map((time) => time ?? 0));
       return {
         ...base,
@@ -480,6 +491,16 @@ export class WorktreeStorage {
         result.kept.push({ path: entry.path, blockers: latest.verdict.blockers });
         continue;
       }
+      // Settling can be undone while Git is reading. Read the rail again after
+      // those reads, and check live runtimes and the current workspace once more.
+      const current = await this.threadsIn(entry.path, await this.options.sessions());
+      const hostWorkspace = await realOrSelf(this.options.hostCwd()) === await realOrSelf(entry.path);
+      const lastActivityAt = Math.max(latest.facts.lastActivityAt, ...current.map((thread) => thread.modifiedAt ?? 0));
+      const verdict = evaluateWorktree({ ...latest.facts, ...this.threadFacts(current), hostWorkspace, lastActivityAt }, rulesFor(this.policy, entry.repository), this.now());
+      if (!verdict.remove) {
+        result.kept.push({ path: entry.path, blockers: verdict.blockers });
+        continue;
+      }
       try {
         // No --force: Git refuses a worktree with changes on its own, once more.
         await this.options.runGit(entry.repository, ["worktree", "remove", entry.path]);
@@ -491,7 +512,7 @@ export class WorktreeStorage {
       entry.removedAt = this.now();
       result.removed.push(entry.path);
       this.options.removed(entry.repository);
-      this.options.log("git.worktree.cleanup", `${entry.path} (${latest.verdict.reasons.join(", ")})`);
+      this.options.log("git.worktree.cleanup", `${entry.path} (${verdict.reasons.join(", ")})`);
     }
     if (result.removed.length > 0) {
       this.lastSweep = { at: this.now(), removed: result.removed };

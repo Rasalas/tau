@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorktree } from "./workspace-worktrees.js";
 import { WorktreeStorage, storageGit, type WorktreeStorageOptions, type WorktreeStorageThread } from "./worktree-storage.js";
+import { DAY_MS } from "./worktree-cleanup.js";
 
 const made: string[] = [];
 afterEach(async () => { await Promise.all(made.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -13,7 +14,7 @@ afterEach(async () => { await Promise.all(made.splice(0).map((path) => rm(path, 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe", encoding: "utf8" });
 
 /** A repository whose worktrees go to a folder of this test's own. */
-async function fixture(request?: WorktreeStorageOptions["request"]) {
+async function fixture(request?: WorktreeStorageOptions["request"], overrides: Partial<WorktreeStorageOptions> = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "tau-storage-")));
   made.push(root);
   const repo = join(root, "repo");
@@ -38,6 +39,7 @@ async function fixture(request?: WorktreeStorageOptions["request"]) {
     removed: (repository) => { removed.push(repository); },
     measure: async () => 1024,
     ...(request ? { request } : {}),
+    ...overrides,
   };
   const storage = new WorktreeStorage(storageOptions);
   /** A worktree the way Workspace Kit makes one, recorded like `create-worktree` does. */
@@ -52,6 +54,88 @@ async function fixture(request?: WorktreeStorageOptions["request"]) {
 const listed = (repo: string) => git(repo, "worktree", "list", "--porcelain");
 
 describe("worktree storage", () => {
+  it("removes only old fully settled worktrees and restores their kept branches after restart", async () => {
+    let now = Date.now();
+    const started = now;
+    const { repo, root, storage, threads, open, tauWorktree, reopen } = await fixture(undefined, { now: () => now, modifiedAt: async () => started });
+    const clean = await tauWorktree("settled");
+    const shared = await tauWorktree("shared");
+    const dirty = await tauWorktree("dirty-settled");
+    const ignored = await tauWorktree("ignored-settled");
+    const unpushed = await tauWorktree("unpushed-settled");
+    const live = await tauWorktree("live-settled");
+    for (const [index, cwd] of [clean, shared, dirty, ignored, unpushed, live].entries()) threads.push({ sessionId: String(index), cwd, path: join(root, `session-${index}`), settledAt: started });
+    threads.push({ sessionId: "active-shared", cwd: shared, path: join(root, "shared-active") });
+    open.add("5");
+    await writeFile(join(dirty, "draft.txt"), "keep\n");
+    await writeFile(join(ignored, ".env"), "KEEP=1\n");
+    await writeFile(join(unpushed, "commit.txt"), "keep\n");
+    git(unpushed, "add", "commit.txt"); git(unpushed, "commit", "-qm", "exclusive work");
+    await storage.setPolicy({ rules: { afterSettledDays: 7 } });
+    now += 9 * DAY_MS;
+    const report = await storage.report({ sizes: false });
+    expect(report.worktrees.filter((tree) => tree.verdict.remove).map((tree) => tree.path)).toEqual([clean]);
+    expect((await storage.sweep()).removed).toEqual([clean]);
+    expect(threads).toHaveLength(7);
+    expect(git(repo, "branch", "--list", "settled")).toContain("settled");
+    expect(existsSync(clean)).toBe(false);
+    for (const path of [shared, dirty, ignored, unpushed, live]) expect(existsSync(path)).toBe(true);
+    const restarted = reopen();
+    expect((await restarted.getPolicy()).host.afterSettledDays).toBe(7);
+    expect(await restarted.restoreMissing(clean)).toMatchObject({ branch: "settled" });
+    expect(existsSync(clean)).toBe(true);
+    expect((await restarted.report({ sizes: false })).worktrees.find((tree) => tree.path === clean)?.verdict.remove).toBe(false);
+  });
+
+  it("uses the latest shared settlement, and keeps missing metadata, trash and empty worktrees", async () => {
+    let now = Date.now();
+    const started = now;
+    const { storage, threads, tauWorktree } = await fixture(undefined, { now: () => now, modifiedAt: async () => started });
+    const path = await tauWorktree("shared-retention");
+    const first = { sessionId: "one", cwd: path, path: "/session-one", settledAt: started };
+    const second: WorktreeStorageThread = { sessionId: "two", cwd: path, path: "/session-two", settledAt: started + 3 * DAY_MS };
+    threads.push(first, second);
+    await storage.setPolicy({ rules: { afterSettledDays: 7 } });
+    now += 9 * DAY_MS;
+    const due = async () => (await storage.report({ sizes: false })).worktrees[0]!.verdict.remove;
+    expect(await due()).toBe(false);
+    now += DAY_MS;
+    expect(await due()).toBe(true);
+    for (const at of [undefined, NaN, Infinity, -1]) {
+      second.settledAt = at;
+      expect(await due()).toBe(false);
+    }
+    second.path = ""; second.settledAt = undefined;
+    expect(await due()).toBe(false);
+    threads.splice(0);
+    expect(await due()).toBe(false);
+  });
+
+  it.each(["reactivated", "activity", "shared"])("keeps a worktree after %s changes during the final Git inspection", async (change) => {
+    let now = Date.now();
+    const started = now;
+    let inspections = 0;
+    let shared = false;
+    const thread: WorktreeStorageThread = { sessionId: "reactivated", cwd: "", path: "/session", settledAt: started };
+    const { storage, tauWorktree } = await fixture(undefined, {
+      now: () => now, modifiedAt: async () => started,
+      sessions: async () => [{ ...thread }, ...(shared ? [{ sessionId: "new", cwd: thread.cwd, path: "/new" }] : [])],
+      runGit: async (cwd, args, maxBuffer) => {
+        const result = await storageGit(cwd, args, maxBuffer);
+        if (args[0] === "log" && ++inspections === 2) {
+          if (change === "reactivated") thread.settledAt = undefined;
+          else if (change === "activity") thread.modifiedAt = now;
+          else shared = true;
+        }
+        return result;
+      },
+    });
+    const path = await tauWorktree("reactivated"); thread.cwd = path;
+    await storage.setPolicy({ rules: { afterSettledDays: 7 } }); now += 9 * DAY_MS;
+    expect((await storage.sweep()).removed).toEqual([]);
+    expect(existsSync(path)).toBe(true);
+  });
+
   it("restores a missing worktree from its recorded branch after restart, once for concurrent turns", async () => {
     const { repo, tauWorktree, reopen } = await fixture();
     const path = await tauWorktree("saved-thread");

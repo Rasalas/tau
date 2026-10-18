@@ -62,6 +62,19 @@ describe("worktree cleanup rules", () => {
     expect(evaluateWorktree(facts({ threadDeleted: true, threads: 0 }), rules, NOW).remove).toBe(true);
   });
 
+  it("retains settled worktrees until both the last settlement and activity are old enough", () => {
+    const rules = { ...NO_CLEANUP, afterSettledDays: 7 };
+    const old = { settledAt: NOW - 8 * DAY_MS, lastActivityAt: NOW - 8 * DAY_MS };
+    expect(evaluateWorktree(facts(old), rules, NOW).reasons).toEqual(["settled"]);
+    expect(evaluateWorktree(facts({ ...old, settledAt: NOW - 6 * DAY_MS }), rules, NOW).remove).toBe(false);
+    expect(evaluateWorktree(facts({ ...old, lastActivityAt: NOW - 6 * DAY_MS }), rules, NOW).remove).toBe(false);
+    expect(evaluateWorktree(facts({ ...old, settledAt: undefined }), rules, NOW).remove).toBe(false);
+    expect(evaluateWorktree(facts(old), NO_CLEANUP, NOW).remove).toBe(false);
+    for (const protection of [{ dirtyFiles: 1 }, { ignoredFiles: 1 }, { unpushedCommits: 1 }, { openThreads: 1 }, { hostWorkspace: true }]) {
+      expect(evaluateWorktree(facts({ ...old, ...protection }), rules, NOW).remove).toBe(false);
+    }
+  });
+
   it("never removes uncommitted work, ignored files, unpushed commits or an open thread's checkout", () => {
     const rules = { ...NO_CLEANUP, unchanged: true };
     expect(evaluateWorktree(facts({ dirtyFiles: 1 }), rules, NOW)).toEqual({ remove: false, reasons: ["unchanged"], blockers: ["uncommitted"] });
@@ -101,17 +114,17 @@ describe("cleanup policy", () => {
       host: { afterDays: 0.4, onMerge: "yes", unchanged: true },
       projects: { "/repo": { mode: "custom", rules: { afterDays: 99_999 } }, "/other": { mode: "off" }, "/bad": { mode: "sometimes" } },
     })).toEqual({
-      host: { afterDays: 1, onMerge: false, onThreadDelete: false, unchanged: true },
+      host: { afterDays: 1, afterSettledDays: null, onMerge: false, onThreadDelete: false, unchanged: true },
       projects: { "/repo": { mode: "custom", rules: { afterDays: 3_650 } }, "/other": { mode: "off" } },
     });
   });
 
   it("layers a project's override over the host's rules", () => {
     let policy = patchPolicy(EMPTY_POLICY, { rules: { onThreadDelete: true, afterDays: 30 } });
-    expect(rulesFor(policy, "/repo")).toEqual({ afterDays: 30, onMerge: false, onThreadDelete: true, unchanged: false });
+    expect(rulesFor(policy, "/repo")).toEqual({ afterDays: 30, afterSettledDays: null, onMerge: false, onThreadDelete: true, unchanged: false });
     policy = patchPolicy(policy, { project: "/repo", mode: "custom", rules: { afterDays: null, unchanged: true } });
     policy = patchPolicy(policy, { project: "/repo", mode: "custom", rules: { onMerge: true } });
-    expect(rulesFor(policy, "/repo")).toEqual({ afterDays: null, onMerge: true, onThreadDelete: true, unchanged: true });
+    expect(rulesFor(policy, "/repo")).toEqual({ afterDays: null, afterSettledDays: null, onMerge: true, onThreadDelete: true, unchanged: true });
     expect(rulesFor(patchPolicy(policy, { project: "/repo", mode: "off" }), "/repo")).toEqual(NO_CLEANUP);
     expect(rulesFor(patchPolicy(policy, { project: "/repo", mode: "inherit" }), "/repo")).toEqual(policy.host);
   });
@@ -120,5 +133,18 @@ describe("cleanup policy", () => {
     expect(policyActive(EMPTY_POLICY)).toBe(false);
     expect(policyActive(patchPolicy(EMPTY_POLICY, { project: "/repo", mode: "custom", rules: { unchanged: true } }))).toBe(true);
     expect(policyActive(patchPolicy(EMPTY_POLICY, { project: "/repo", mode: "off" }))).toBe(false);
+  });
+
+  it("bounds settle retention, persists overrides, and leaves old policies opted out", () => {
+    expect(decodePolicy({ host: { onMerge: true } }).host.afterSettledDays).toBeNull();
+    const policy = patchPolicy(EMPTY_POLICY, { rules: { afterSettledDays: 99_999 } });
+    expect(policy.host.afterSettledDays).toBe(3650);
+    expect(policyActive(policy)).toBe(true);
+    const custom = patchPolicy(policy, { project: "/repo", mode: "custom", rules: { afterSettledDays: 0 } });
+    expect(rulesFor(decodePolicy(JSON.parse(JSON.stringify(custom))), "/repo").afterSettledDays).toBe(1);
+    expect(rulesFor(patchPolicy(custom, { project: "/repo", mode: "custom", rules: { afterSettledDays: null } }), "/repo").afterSettledDays).toBeNull();
+    expect(rulesFor(patchPolicy(custom, { project: "/repo", mode: "off" }), "/repo").afterSettledDays).toBeNull();
+    expect(rulesFor(patchPolicy(custom, { project: "/repo", mode: "inherit" }), "/repo").afterSettledDays).toBe(3650);
+    for (const value of ["7", NaN, Infinity]) expect(patchPolicy(EMPTY_POLICY, { rules: { afterSettledDays: value } }).host.afterSettledDays).toBeNull();
   });
 });

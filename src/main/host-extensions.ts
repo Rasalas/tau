@@ -453,8 +453,9 @@ export interface HostSessionServices {
   /**
    * Rescans persisted sessions and returns the index update. Release any lease before the sweep.
    * `publish` also sends a changed index to connected clients. New in API 1.45.0.
+   * `requireComplete` rejects failed scans or unavailable backend listings instead of returning cached rows. New in API 1.74.0.
    */
-  refreshIndex(options?: { publish?: boolean }): Promise<HostUpdate>;
+  refreshIndex(options?: { publish?: boolean; requireComplete?: boolean }): Promise<HostUpdate>;
 }
 
 /** Work an extension wraps around a thread becoming visible; core commits after activation and rolls back when it fails. */

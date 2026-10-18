@@ -60,8 +60,7 @@ function scoreField(field: string, token: string, base: number): number | undefi
   if (field === token) return base;
   const at = field.indexOf(token);
   if (at === 0) return base + 2;
-  if (at > 0 && /[\s\-./:()]/u.test(field[at - 1]!)) return base + 4;
-  if (at > 0) return base + 6;
+  if (at > 0) return base + (/[\s\-./:()]/u.test(field[at - 1]!) ? 4 : 6);
   return token.length >= 3 && looselyContains(field, token) ? base + 100 : undefined;
 }
 
@@ -96,12 +95,8 @@ export function searchScore(offering: Offering, query: string, providerName: (pr
   ].map(normalize);
   let score = 0;
   for (const token of tokens) {
-    let best: number | undefined;
-    fields.forEach((field, index) => {
-      const found = scoreField(field, token, index * 10);
-      if (found !== undefined && (best === undefined || found < best)) best = found;
-    });
-    if (best === undefined) return undefined;
+    const best = fields.reduce((minimum, field, index) => Math.min(minimum, scoreField(field, token, index * 10) ?? Infinity), Infinity);
+    if (best === Infinity) return undefined;
     score += best;
   }
   return offering.favourite ? score - 24 : score;

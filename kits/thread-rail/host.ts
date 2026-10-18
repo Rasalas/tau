@@ -298,6 +298,20 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       }, { callers: [REVIEW_EXTENSION_ID] });
 
       context.registerCommand("state", (input) => record(input).homeOnly === true ? homeState() : publicState(), { access: "read" });
+      // Workspace asks only about its local sessions, never a peer machine's cache.
+      context.registerCommand("thread-settlements", async (input) => {
+        await readOwnership();
+        const update = await services.sessions.refreshIndex({ requireComplete: true });
+        if (update.type !== "thread-index") throw new HostCommandError("The thread index is unavailable.");
+        const { index } = update;
+        const local = new Set([...sessions.keys(), ...index.sessions.filter((thread) => thread.backendKind !== "machine").map((thread) => thread.id)]);
+        const settled: Record<string, number> = {};
+        for (const id of idList(record(input).threadIds)) {
+          const at = state.threads[id]?.settledAt;
+          if (local.has(id) && !localTrashIds.has(id) && !owner(id) && at !== undefined) settled[id] = at;
+        }
+        return settled;
+      }, { access: "read", callers: ["tau.workspace"] });
       context.registerCommand("patch", async (input) => {
         await readOwnership();
         const patches: Record<string, ThreadMetaPatch | null> = {};

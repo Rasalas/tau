@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, UiMessage } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
@@ -9,12 +10,14 @@ import type { HostBackendThreadRecord, HostExtension, HostRuntimeBackendProvider
 import { PiHost } from "./pi-host.js";
 import { externalThreadPath } from "./pi-host-support.js";
 import { ProjectHistory } from "./project-history.js";
+import { SessionInfoIndex } from "./session-info-index.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { ThreadRuntimeBackend } from "./runtime-types.js";
 import { WorkspaceIdentity } from "./workspace-identity.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.unstubAllEnvs();
 });
@@ -85,8 +88,9 @@ async function fixture() {
         return backend("machine", await readRecord());
       },
     };
+    const localListed = vi.fn(async (): Promise<HostBackendThreadRecord[]> => []);
     const initial: HostRuntimeBackendProvider = {
-      kind: "fixture", adapter: adapter("fixture"), listThreads: async () => [], lookup: async () => undefined, composerCommands: () => [],
+      kind: "fixture", adapter: adapter("fixture"), listThreads: localListed, lookup: async () => undefined, composerCommands: () => [],
       open: async (threadId, cwd) => backend("fixture", { threadId, cwd, updatedAt: 0, messages: [] }),
     };
     let refreshIndex: HostSessionServices["refreshIndex"];
@@ -111,12 +115,67 @@ async function fixture() {
     cleanups.push(dispose);
     await host.start();
     await expect.poll(() => host.threadPath(record.threadId)).toBe(externalThreadPath("machine", record.threadId));
-    return { host, events, opened, listed, dispose, refreshIndex: refreshIndex! };
+    return { host, events, opened, listed, localListed, dispose, refreshIndex: refreshIndex! };
   };
-  return { open, record, missingCwd, store };
+  return { open, record, missingCwd, store, sessionsDir };
 }
 
 describe("machine backend host prerequisites", () => {
+  it("rejects incomplete backend listings through the strict extension port and recovers", async () => {
+    const { open } = await fixture();
+    const { refreshIndex, localListed } = await open();
+    await refreshIndex({ requireComplete: true });
+    localListed.mockRejectedValue(new Error("Local backend cannot list its threads"));
+    const cached = await refreshIndex();
+    expect(cached.type === "thread-index" && cached.index.unavailableBackends).toContain("fixture");
+    await expect(refreshIndex({ requireComplete: true })).rejects.toThrow(/incomplete.*fixture/);
+    localListed.mockResolvedValue([]);
+    await expect(refreshIndex({ requireComplete: true })).resolves.toMatchObject({ type: "thread-index", index: { complete: true, unavailableBackends: [] } });
+  });
+
+  it("propagates scan errors for strict callers while legacy callers can keep their cached index", async () => {
+    const { open } = await fixture();
+    const { refreshIndex } = await open();
+    await refreshIndex({ requireComplete: true });
+    const list = vi.spyOn(SessionInfoIndex.prototype, "list");
+    list.mockRejectedValueOnce(new Error("Session scan failed"));
+    await expect(refreshIndex({ requireComplete: true })).rejects.toThrow("Session scan failed");
+    list.mockRejectedValueOnce(new Error("Session scan failed"));
+    await expect(refreshIndex()).resolves.toMatchObject({ type: "thread-index" });
+    await expect(refreshIndex({ requireComplete: true })).resolves.toMatchObject({ index: { complete: true } });
+  });
+
+  it("refuses strict ownership reads when a Pi session cannot be read", async () => {
+    const { open, sessionsDir } = await fixture();
+    const { refreshIndex } = await open();
+    await refreshIndex({ requireComplete: true });
+    const unreadable = join(sessionsDir, "unreadable.jsonl");
+    await mkdir(unreadable);
+    await expect(refreshIndex({ requireComplete: true })).rejects.toThrow(/incomplete.*pi/);
+    await rm(unreadable, { recursive: true });
+    await expect(refreshIndex({ requireComplete: true })).resolves.toMatchObject({ index: { unavailableBackends: [] } });
+  });
+
+  it("refuses an incomplete full-file scan shared with a strict extension caller", async () => {
+    const { open, sessionsDir } = await fixture();
+    const { host, refreshIndex } = await open();
+    await refreshIndex({ requireComplete: true });
+    await writeFile(join(sessionsDir, "broken.jsonl"), "invalid session\n");
+    let started!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    vi.spyOn(SessionManager, "listAll").mockImplementationOnce(async () => { started(); await held; return []; });
+    const transcript = host.loadTranscript("missing").catch(() => undefined);
+    try {
+      await entered;
+      const refused = expect(refreshIndex({ requireComplete: true })).rejects.toThrow(/incomplete.*pi/);
+      release();
+      await refused;
+      await transcript;
+    } finally { release(); }
+  });
+
   it("publishes a refreshed machine index to already connected clients when requested", async () => {
     const { open, record, store } = await fixture();
     const { refreshIndex, events } = await open();

@@ -4,10 +4,12 @@
  * without pulling either one's code.
  */
 
-/** The four cleanup rules. Every one is off by default. */
+/** Cleanup rules. Every one is off by default. */
 export interface WorktreeCleanupRules {
   /** Remove a worktree nobody worked in for this many days; `null` is off. */
   afterDays: number | null;
+  /** All its threads settled for this many days; absent or null is off. */
+  afterSettledDays?: number | null;
   /** Remove a worktree whose commits are all part of the default branch. */
   onMerge: boolean;
   /** Remove a worktree once the last thread that worked there was deleted. */
@@ -30,7 +32,7 @@ export type CleanupPolicyPatch =
   | { rules: Partial<WorktreeCleanupRules> }
   | { project: string; mode: "inherit" | "off" | "custom"; rules?: Partial<WorktreeCleanupRules> };
 
-export type CleanupReason = "inactive" | "merged" | "thread-deleted" | "unchanged";
+export type CleanupReason = "inactive" | "settled" | "merged" | "thread-deleted" | "unchanged";
 
 /** Why a worktree stays although a rule would take it. */
 export type CleanupBlocker =

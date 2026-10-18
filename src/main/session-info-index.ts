@@ -107,17 +107,22 @@ export class SessionInfoIndex {
     infos: SessionInfo[];
     stamps: Map<string, SessionFileStamp>;
     models: Map<string, SessionModel | undefined>;
+    complete: boolean;
   }> {
     await this.restore();
     const root = this.sessionsDir ?? join(getAgentDir(), "sessions");
     const direct = readFiles ? await SessionManager.listAll(this.sessionsDir) : undefined;
     const byPath = new Map(direct?.map((info) => [info.path, { ...info, allMessagesText: "" }]));
-    const files = direct ? [...byPath.keys()] : await this.files(root);
+    // The SDK's full read omits failures. Verify its directory and every file
+    // independently so a concurrent strict caller can trust either scan mode.
+    const listing = await this.files(root);
+    let complete = listing.complete;
+    const files = direct ? [...new Set([...listing.paths, ...byPath.keys()])] : listing.paths;
     const retained = new Set(files);
     for (const path of this.cache.keys()) if (!retained.has(path)) { this.cache.delete(path); this.dirty = true; }
     const entries = await mapBounded(files, async (path): Promise<CachedInfo | undefined> => {
       const stamp = await readStamp(path);
-      if (!stamp) { this.cache.delete(path); return { info: byPath.get(path) }; }
+      if (!stamp) { complete = false; this.cache.delete(path); return { info: byPath.get(path) }; }
       const cached = this.cache.get(path);
       if (!readFiles && sameStamp(cached?.stamp, stamp)) return cached;
       const read = await readInfo(path, stamp);
@@ -128,7 +133,7 @@ export class SessionInfoIndex {
       // as a reusable answer for a newer file revision.
       const after = await readStamp(path);
       if (read && after && sameStamp(stamp, after)) this.cache.set(path, entry);
-      else this.cache.delete(path);
+      else { complete = false; this.cache.delete(path); }
       this.dirty = true;
       return entry;
     });
@@ -143,19 +148,21 @@ export class SessionInfoIndex {
     }
     infos.sort((a, b) => b.modified.getTime() - a.modified.getTime());
     await this.persist();
-    return { infos, stamps, models };
+    return { infos, stamps, models, complete: complete && entries.every((entry) => entry?.info !== undefined) };
   }
 
-  private async files(root: string): Promise<string[]> {
+  private async files(root: string): Promise<{ paths: string[]; complete: boolean }> {
     try {
-      if (this.sessionsDir) return (await readdir(root)).filter((name) => name.endsWith(".jsonl")).map((name) => join(root, name));
+      if (this.sessionsDir) return { paths: (await readdir(root)).filter((name) => name.endsWith(".jsonl")).map((name) => join(root, name)), complete: true };
       const directories = (await readdir(root, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory() || entry.isSymbolicLink()).map((entry) => join(root, entry.name));
-      return (await mapBounded(directories, async (directory) => {
+      let complete = true;
+      const paths = (await mapBounded(directories, async (directory) => {
         try { return (await readdir(directory)).filter((name) => name.endsWith(".jsonl")).map((name) => join(directory, name)); }
-        catch { return []; }
+        catch { complete = false; return []; }
       })).flat();
-    } catch { return []; }
+      return { paths, complete };
+    } catch (error) { return { paths: [], complete: (error as NodeJS.ErrnoException).code === "ENOENT" }; }
   }
 }
 

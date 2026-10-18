@@ -145,6 +145,22 @@ describe("Settings → Storage", () => {
     await waitFor(() => expect(host.report).toHaveBeenCalledTimes(3));
   });
 
+  it("opts into settle retention, edits its days and disables it", async () => {
+    const host = fakeHost(report([]));
+    const Page = createStoragePage(host);
+    render(<Page onNotify={() => undefined} />);
+    const toggle = await screen.findByRole("switch", { name: "Delete settled worktrees" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(host.setPolicy).toHaveBeenLastCalledWith({ rules: { afterSettledDays: 8 } }));
+    const days = await screen.findByRole("spinbutton", { name: "Delete settled worktrees after" });
+    fireEvent.change(days, { target: { value: "14" } }); fireEvent.blur(days);
+    await waitFor(() => expect(host.setPolicy).toHaveBeenLastCalledWith({ rules: { afterSettledDays: 14 } }));
+    fireEvent.click(toggle);
+    await waitFor(() => expect(host.setPolicy).toHaveBeenLastCalledWith({ rules: { afterSettledDays: null } }));
+    await waitFor(() => expect(screen.queryByRole("spinbutton", { name: "Delete settled worktrees after" })).toBeNull());
+  });
+
   it("formats sizes the way a disk tool does", () => {
     expect(formatBytes(undefined)).toBe("—");
     expect(formatBytes(512)).toBe("512 B");

@@ -1,7 +1,8 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import type { GitRunner } from "./git-command.js";
 import { STORAGE_CHANGED_EVENT } from "./storage-protocol.js";
-import { WorktreeStorage, storageGit, type WorktreeStorageOptions } from "./worktree-storage.js";
+import { WorktreeStorage, storageGit, type WorktreeStorageOptions, type WorktreeStorageThread } from "./worktree-storage.js";
+import { rulesFor } from "./worktree-cleanup.js";
 
 const HOUR_MS = 60 * 60_000;
 const FIRST_SWEEP_MS = 60_000;
@@ -30,13 +31,34 @@ export function registerWorktreeStorage(
     services.noteSubprocess();
     return storageGit(cwd, args, maxBuffer);
   });
-  const storage = new WorktreeStorage({
+  const storage: WorktreeStorage = new WorktreeStorage({
     stateDir: services.stateDir,
     runGit,
     sessions: async () => {
       const [live, trashed] = await Promise.all([services.sessions.list(), services.sessions.trash?.() ?? []]);
+      const policy = await storage.getPolicy();
+      const readSettled = [policy.host, ...Object.keys(policy.projects).map((project) => rulesFor(policy, project))]
+        .some((rules) => rules.afterSettledDays != null);
+      const threads = new Map<string, WorktreeStorageThread>(live.map(({ sessionId, path, cwd }) => [sessionId, { sessionId, path, cwd }]));
+      if (readSettled) {
+        // Header reads cover Pi only. The index also knows every backend's
+        // persisted threads, including an active one sharing this checkout.
+        const update = await services.sessions.refreshIndex({ requireComplete: true });
+        if (update.type !== "thread-index") throw new HostCommandError("The thread index is unavailable; worktrees are kept.");
+        const { index } = update;
+        for (const thread of index.sessions) {
+          if (thread.backendKind === "machine" || !thread.projectPath) continue;
+          const held = threads.get(thread.id);
+          threads.set(thread.id, { sessionId: thread.id, path: held?.path ?? thread.path, cwd: held?.cwd ?? thread.projectPath, modifiedAt: thread.modifiedAt });
+        }
+      }
+      const settled = readSettled && threads.size > 0
+        ? fields(await context.invokeHostExtension("tau.thread-rail", "thread-settlements", { threadIds: [...threads.keys()] }).catch(() => undefined)) : {};
       // A thread in the host's trash may come back; its worktree waits for the purge.
-      return [...live.map(({ sessionId, path, cwd }) => ({ sessionId, path, cwd })), ...trashed.map(({ sessionId, cwd }) => ({ sessionId, path: "", cwd }))];
+      return [...[...threads.values()].map((thread) => {
+        const at = settled[thread.sessionId];
+        return { ...thread, ...(typeof at === "number" && Number.isFinite(at) && at > 0 ? { settledAt: at } : {}) };
+      }), ...trashed.map(({ sessionId, cwd }) => ({ sessionId, path: "", cwd }))];
     },
     threadOpen: (sessionId) => services.thread(sessionId)?.sessionId === sessionId,
     hostCwd: () => services.cwd(),

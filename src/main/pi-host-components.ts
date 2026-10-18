@@ -580,7 +580,16 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     ...(options.machines ? { machines: options.machines } : {}),
     ...(options.blobs ? { blobs: options.blobs } : {}),
     exclusive: (work) => lifecycle.run("extension.exclusive", work),
-    refreshThreadIndex: (refreshOptions) => index.refresh(refreshOptions?.publish ? "changed-index" : "none").catch(() => index.snapshot()),
+    refreshThreadIndex: async (refreshOptions) => {
+      const snapshot = await index.refresh(refreshOptions?.publish ? "changed-index" : "none").catch((error: unknown) => {
+        if (refreshOptions?.requireComplete) throw error;
+        return index.snapshot();
+      });
+      if (refreshOptions?.requireComplete && (snapshot.complete !== true || snapshot.unavailableBackends?.length)) {
+        throw new Error(`The thread index is incomplete${snapshot.unavailableBackends?.length ? `: ${snapshot.unavailableBackends.join(", ")}` : ""}.`);
+      }
+      return snapshot;
+    },
     // Before the first scan the start publishes both anyway.
     runtimeBackendsChanged: () => {
       catalogs.sourcesChanged();

@@ -3257,6 +3257,14 @@ pass their thread ID, so the provider can narrow one thread while preserving
 the machine's stricter policy. A provider without an argument keeps its
 existing machine-wide behavior.
 
+`services.sessions.refreshIndex({ publish?, requireComplete? })` rescans the
+persisted thread index. `publish` also sends changes to connected clients.
+API 1.74.0 adds `requireComplete: true` for decisions that cannot use cached
+ownership. It propagates scan errors and rejects incomplete scans or unavailable
+backend listings, including unreadable Pi folders or sessions. Without it, the
+existing cached-index fallback remains. Release any session lease before this
+call because the scan runs lifecycle hooks.
+
 `services.sessions.send(sessionId, text, { delivery, from })` (new in API
 1.11.0, `sessions`, in-process only; absent on an older host) sends a message
 to any thread the way a composer does. `delivery: "prompt"` (the default)
