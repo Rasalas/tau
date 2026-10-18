@@ -162,7 +162,7 @@ function harness() {
         const sessionId = `child-${nextThread}`;
         await startGate?.();
         const thread = open(sessionId);
-        thread.streaming = true;
+        backends.set(sessionId, startOptions.backend ?? "pi");
         // The host records the link in the new session before its first prompt.
         if (startOptions.parent) {
           thread.entries.push({
@@ -171,6 +171,8 @@ function harness() {
             data: parentLinkEntry(startOptions.parent.threadId, startOptions.parent.details),
           });
         }
+        await startOptions.beforePrompt?.(hostThread(sessionId)!);
+        thread.streaming = true;
         return { sessionId, cwd: startOptions.cwd, ...(startOptions.title ? { title: startOptions.title } : {}) };
       },
       send: async (sessionId, text, sendOptions) => {
@@ -1763,6 +1765,70 @@ describe("Agents Kit spawn for another kit", () => {
     } finally {
       await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
+  });
+
+  it("admits a trusted kit's Codex worktree child before prompting while preserving native delegation defaults", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-guide-admission-"));
+    const project = join(root, "project");
+    const runGit: AgentGitRunner = async (_cwd, args) => {
+      if (args.includes("--is-inside-work-tree")) return "true\n";
+      if (args.includes("--verify")) return "abc1234full\n";
+      if (args.includes("--path-format=absolute")) return `${project}/.git\n`;
+      return "";
+    };
+    const bench = await activated({ runGit }); bench.setProject(project);
+    bench.backends.set("parent", "codex"); bench.models.set("parent", { provider: "openai", id: "parent-model" });
+    const beforePrompt = vi.fn(async (thread: HostThread) => {
+      expect(thread.backendKind).toBe("codex");
+      expect(thread.isStreaming()).toBe(false);
+      expect(bench.started).toHaveLength(1);
+    });
+    try {
+      const { access: _access, ...codex } = definition;
+      expect(await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", startAt: "abc1234", beforePrompt, definition: { ...codex, runtime: "codex" } })).toMatchObject({ threadId: "child-1" });
+      expect(beforePrompt).toHaveBeenCalledTimes(1);
+      expect(bench.started[0]).toMatchObject({ backend: "codex", tools: definition.tools, model: { provider: "openai", id: "parent-model" } });
+      const parent = await bench.mcpThread("parent", project);
+      await expect(parent.call("tau_spawn_thread", { prompt: "Same runtime" })).rejects.toThrow("native subagents");
+      await expect(bench.invoke("spawn", { parentThreadId: "parent", prompt: "x", beforePrompt: "bad", definition })).rejects.toThrow("in-process callback");
+    } finally { await bench.registry().dispose(); await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("reports a queued kit job's cancellation before any thread is created", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-guide-queued-"));
+    const settingsPath = join(directory, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
+    const bench = await activated({ settingsPath });
+    const onStartFailed = vi.fn();
+    try {
+      const parent = await bench.mcpThread("parent");
+      await parent.call("tau_spawn_thread", { prompt: "Occupy capacity" });
+      const pending = await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write guide", definition, onStartFailed }) as { threadId: string; status: string };
+      expect(pending.status).toBe("pending");
+      expect(onStartFailed).not.toHaveBeenCalled();
+      await bench.invoke("stop-agent", { threadId: pending.threadId });
+      expect(onStartFailed).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("cancelled"));
+      expect(bench.started).toHaveLength(1);
+    } finally { await bench.registry().dispose(); await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("reports a queued kit job's startup failure before admission", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-guide-failed-start-"));
+    const settingsPath = join(directory, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
+    const bench = await activated({ settingsPath, runGit: async () => { throw new Error("Fixture cannot create worktree"); } });
+    const onStartFailed = vi.fn();
+    try {
+      const parent = await bench.mcpThread("parent");
+      await parent.call("tau_spawn_thread", { prompt: "Occupy capacity" });
+      await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write guide", definition, onStartFailed });
+      // A queued retry uses sessions.start; reject before its admission callback.
+      bench.holdStarts(async () => { throw new Error("Fixture start failed before admission"); });
+      bench.threads.get("child-1")!.streaming = false;
+      await bench.notify("accepted", "child-1");
+      await bench.notify("ended", "child-1");
+      await vi.waitFor(() => expect(onStartFailed).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("start failed")));
+    } finally { await bench.registry().dispose(); await rm(directory, { recursive: true, force: true }); }
   });
 
   it("retains a queued child's effort across restart", async () => {

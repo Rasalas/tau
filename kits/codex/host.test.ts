@@ -173,10 +173,9 @@ describe("Codex host half", () => {
     } finally { await backend.dispose(); }
   });
 
-  it("starts a thread created with a tool list without the Codex tools it leaves out, also after a resume", async () => {
+  it.each([["read", "tau_spawn_thread"], ["read", "grep", "find", "ls", "read_pull_request_diff", "submit_pull_request_guide"]])("filters the MCP credential and native tools to %j, including after resume", async (...tools) => {
     const { provider, launches, connectOptions, root } = await harness();
     expect(provider.restrictsTools).toBe(true);
-    const tools = ["read", "tau_spawn_thread"];
     const created = await provider.open("tau-thread", root, { resume: false, tools }, context);
     await created.prompt({ text: "Reply with one word.", delivery: "prompt" });
     await created.dispose();

@@ -3704,8 +3704,12 @@ The Guide tab supports GitHub, GitLab and Forgejo when review guides are enabled
 The provider's `requestHeadRef` supplies the fallback ref for fork commits. The
 fetch verifies that the exact requested commit is present; a moving fallback ref
 never changes the writer's `startAt`. Fresh head reads before starting and
-submitting refuse a push during the run. Guides still use the Pi read-only
-writer and the existing normalizer, notifications and worktree cleanup.
+submitting refuse a push during the run. Guides use Pi by default, with an explicit Codex choice under Review's extension
+settings. Pi keeps its guide model and effort; Codex uses its runtime model and
+enforces the reading/guide-tool allowlist through its read-only sandbox and
+filtered MCP credential. Admission binds the actual child before its first prompt
+can list guide tools, including a queued child. Other runtimes remain refused.
+The normalizer, notifications and worktree cleanup are shared.
 
 ### An agent started by another kit: Agents Kit's `spawn` (API 1.59.0)
 
@@ -3719,6 +3723,15 @@ Review Kit's guided reviews (ADR 0034) are the first caller; the commands name
 |---|---|
 | `spawn { parentThreadId, prompt, definition, title?, model?, thinkingLevel?, startAt?, source? }` | Starts a child of an open thread in a worktree. `definition` is `{ name, description?, systemPrompt, tools?, access?, runtime?, model? }`, the fields of a `.tau/agents/` file carried by the caller instead of read from the project (`access` only narrows, `tools` is the thread's allowlist, Pi names). `startAt` is a commit the worktree starts from instead of the parent's HEAD and uncommitted work; it must be in the repository already (fetch it first) and a queued spawn keeps it across a restart. `source` becomes the link's `spawnedBy`, so the panel and the thread index know who started it; unlike `tau_spawn_thread` it does not make the parent wait for the child's result. Answers like `tau_spawn_thread`. |
 | `stop-agent { threadId }`, `discard-changes { threadId, force? }` | The panel's two row actions. Local discard rereads the child's changes and refuses files, commits or index changes unless `force: true` is explicit. Before removing the worktree and branch, it retains the working tree, index and HEAD history under `refs/tau/discarded/<id>`; the returned `detail` names that ref. Inspection, retention and removal failures propagate. |
+
+An in-process kit may also pass `spawn.beforePrompt(thread)`. Agents Kit forwards
+it to `sessions.start`'s existing admission callback before the child's first
+prompt. It can bind a kit-owned result to the host-established thread or reject
+admission. The companion `spawn.onStartFailed(detail)` reports cancellation or startup
+failure before admission, so the owning kit can clear a queued run and allow
+retry. These callbacks stay in memory for queued work and cannot cross machines
+or survive restart. A trusted kit's explicit worktree job can use its parent's
+runtime/model; ordinary delegation still uses native subagents by default.
 
 `spawn.thinkingLevel` (API 1.63.0) selects the child's reasoning level before
 its first prompt. The caller checks the chosen model's runtime catalog;

@@ -16,7 +16,7 @@ beforeEach(() => {
 describe("commit message settings", () => {
   it("declares effort settings for both model choices", () => {
     expect(COMMIT_MESSAGE_OPTIONS.find((option) => option.kind === "model")).toMatchObject({ thinkingLevelValue: "commit-effort" });
-    expect(GUIDE_OPTIONS[0]).toMatchObject({ thinkingLevelValue: "review-guide-effort" });
+    expect(GUIDE_OPTIONS.find((option) => option.kind === "model")).toMatchObject({ thinkingLevelValue: "review-guide-effort" });
     preferences.setValue(REVIEW_HOST_EXTENSION_ID, "commit-effort", "high");
     expect(writingEffort(preferences)).toBeUndefined();
     preferences.setValue(REVIEW_HOST_EXTENSION_ID, "commit-model", "test/writer");

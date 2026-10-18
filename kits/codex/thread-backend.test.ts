@@ -462,16 +462,16 @@ describe("plan mode", () => {
 });
 
 describe("a Codex thread restricted to some tools", () => {
-  it("runs read-only without a tool that writes, whatever the workbench allows", async () => {
+  it.each([["read", "grep"], ["read", "grep", "find", "ls", "read_pull_request_diff", "submit_pull_request_guide"]])("runs restricted tools %j read-only, including after resume", async (...tools) => {
     const space = await scratch();
-    const { backend } = await open(space, { tools: ["read", "grep"] });
+    const { backend } = await open(space, { tools });
     await backend.prompt({ text: "Hello.", delivery: "prompt" });
     await backend.dispose();
     const resumed = await open(space, { resume: true });
     await resumed.backend.prompt({ text: "Again.", delivery: "prompt" });
     const turns = (await sent(space)).filter((message) => message.method === "turn/start");
     expect(turns.map((turn) => turn.params?.sandboxPolicy)).toEqual([{ type: "readOnly" }, { type: "readOnly" }]);
-    expect((await space.store.get("tau-1"))?.tools).toEqual(["read", "grep"]);
+    expect((await space.store.get("tau-1"))?.tools).toEqual(tools);
   });
 
   it("keeps the workbench's level when the list names a tool that writes", async () => {
