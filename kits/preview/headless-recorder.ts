@@ -14,7 +14,7 @@ export class HeadlessPreviewRecorder {
   private failure: Error | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly send: Send) {}
+  constructor(private readonly send: Send, private readonly closeBrowser: () => Promise<void>) {}
 
   record(action: "start" | "take" | "stop", options?: { frameRate?: number }): Promise<PreviewRecordingChunks> {
     if (this.disposed) return Promise.reject(new Error("The preview recorder is closed."));
@@ -32,12 +32,13 @@ export class HeadlessPreviewRecorder {
         answer = await this.send("Page.startScreenRecording", { audio: false, maxWidth: 1920, maxHeight: 1920, frameRate: Number.isFinite(rate) ? Math.min(60, Math.max(1, rate)) : 30 });
       } catch (error) {
         if (error instanceof Error && /wasn't found|not found|without AV1/iu.test(error.message)) throw new Error("Video recording without a desktop window needs Chrome/Chromium 153 or newer with AV1 recording support.", { cause: error });
+        // A timeout does not cancel the native command. It may have started
+        // capture even though its stream handle never reached this process.
+        await this.discard();
         throw error;
       }
       if (typeof answer.stream !== "string" || !answer.stream) {
-        await this.send<{ stream?: string }>("Page.stopScreenRecording").then(async (stopped) => {
-          if (stopped.stream) await this.send("IO.close", { handle: stopped.stream });
-        }).catch(() => undefined);
+        await this.discard();
         throw new Error("The preview browser did not return a recording stream.");
       }
       this.stream = answer.stream;
@@ -55,15 +56,18 @@ export class HeadlessPreviewRecorder {
         throw this.failure;
       }
     }
+    let stopped = false;
     try {
       await this.send("Page.stopScreenRecording");
+      stopped = true;
       if (this.failure) throw this.failure;
       const chunks = await this.read(handle, true);
       if (!this.received) throw new Error("The recording contains no video data.");
       return { chunks, mimeType: MIME };
     } finally {
       this.stream = undefined;
-      await this.send("IO.close", { handle }).catch(() => undefined);
+      await this.send("IO.close", { handle }).catch(() => this.closeBrowser());
+      if (!stopped) await this.closeBrowser();
     }
   }
 
@@ -103,7 +107,22 @@ export class HeadlessPreviewRecorder {
     const handle = this.stream;
     this.stream = undefined;
     if (!handle) return;
-    await this.send("Page.stopScreenRecording").catch(() => undefined);
-    await this.send("IO.close", { handle }).catch(() => undefined);
+    await this.discard(handle);
+  }
+
+  private async discard(handle?: string): Promise<void> {
+    try {
+      const answer = await this.send<{ stream?: string }>("Page.stopScreenRecording");
+      const handles = new Set([handle, answer.stream].filter((value): value is string => typeof value === "string" && value.length > 0));
+      if (handles.size === 0) throw new Error("The browser did not confirm its recording stream.");
+      for (const stream of handles) {
+        // oxlint-disable-next-line no-await-in-loop -- close every handle obtained for this recording
+        await this.send("IO.close", { handle: stream });
+      }
+    } catch {
+      // Without confirmation, only terminating this owned browser proves its
+      // encoder and temporary stream can no longer keep running.
+      await this.closeBrowser();
+    }
   }
 }

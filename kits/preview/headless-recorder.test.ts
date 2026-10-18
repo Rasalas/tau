@@ -12,7 +12,7 @@ function harness(reads: Array<ReturnType<typeof part> | Error> = [part("video")]
     }
     return {};
   });
-  return { send, recorder: new HeadlessPreviewRecorder(send as never) };
+  return { send, recorder: new HeadlessPreviewRecorder(send as never, async () => undefined) };
 }
 
 describe("the owned headless video recorder", () => {
@@ -32,15 +32,32 @@ describe("the owned headless video recorder", () => {
 
   it("reports missing browser capability without downloading or trying another recording surface", async () => {
     const send = vi.fn(async () => { throw new Error("'Page.startScreenRecording' wasn't found"); });
-    const recorder = new HeadlessPreviewRecorder(send);
+    const recorder = new HeadlessPreviewRecorder(send, async () => undefined);
     await expect(recorder.record("start")).rejects.toThrow("153 or newer");
     expect(send).toHaveBeenCalledTimes(1);
     await recorder.dispose();
   });
 
+  it.each([false, true])("cleans an ambiguous start timeout and closes the browser if cleanup fails=%j", async (cleanupFails) => {
+    const closeBrowser = vi.fn(async () => undefined);
+    const send = vi.fn(async (method: string) => {
+      if (method === "Page.startScreenRecording") throw new Error("The preview browser timed out: Page.startScreenRecording.");
+      if (method === "Page.stopScreenRecording") {
+        if (cleanupFails) throw new Error("The preview browser timed out: Page.stopScreenRecording.");
+        return { stream: "late-stream" };
+      }
+      return {};
+    });
+    const recorder = new HeadlessPreviewRecorder(send as never, closeBrowser);
+    await expect(recorder.record("start")).rejects.toThrow("timed out");
+    expect(send.mock.calls.map(([method]) => method)).toContain("Page.stopScreenRecording");
+    if (cleanupFails) expect(closeBrowser).toHaveBeenCalledTimes(1);
+    else expect(send.mock.calls.at(-1)).toEqual(["IO.close", { handle: "late-stream" }]);
+  });
+
   it("cleans up a successful start whose stream response is malformed", async () => {
     const send = vi.fn(async (method: string) => method === "Page.stopScreenRecording" ? { stream: "cleanup-stream" } : {});
-    const recorder = new HeadlessPreviewRecorder(send as never);
+    const recorder = new HeadlessPreviewRecorder(send as never, async () => undefined);
     await expect(recorder.record("start")).rejects.toThrow("did not return a recording stream");
     expect(send.mock.calls.at(-1)).toEqual(["IO.close", { handle: "cleanup-stream" }]);
   });

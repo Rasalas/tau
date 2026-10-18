@@ -60,7 +60,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
   let emulation: Promise<unknown> = Promise.resolve();
   let snapshot: PreviewState = { ...EMPTY_PREVIEW_STATE, available: true, surface: "headless", consoleErrors: [] };
   const send = <T = Record<string, unknown>>(method: string, params: object = {}) => browser.send<T>(method, params, pageSession);
-  const recorder = new HeadlessPreviewRecorder(send);
+  const recorder = new HeadlessPreviewRecorder(send, () => browser.close());
   const note = (message: string) => {
     snapshot = { ...snapshot, consoleErrors: [...snapshot.consoleErrors, message.slice(0, 4_000)].slice(-50) };
     options.onChange();
