@@ -87,6 +87,9 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-compaction.js",
   "./external-editor.js",   "./external-session-shells.js",   "./host-completion.js",   "./host-config.js",
   "./host-clients.js",   "./host-access.js",   "./host-connections.js",   "./client-device.js",   "./host-endpoints.js",   "./host-network.js",
+  // Independent external-client credentials belong to host connection authority,
+  // alongside device credentials; they never borrow a runtime or thread identity.
+  "./external-mcp-authorization.js", "./external-mcp-policy.js",
   // Bonjour through the system's responder while Local network is on (API 1.13.0).
   "./host-discovery.js",   "./host-discovery-windows.js",
   "./host-network-contributions.js",
@@ -183,6 +186,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
 
 const CORE_ALLOWED_PACKAGES = new Set([
   "typebox", // Schemas for the runtime-neutral background control tool.
+  "typebox/value", // Validate persisted external-client grants before authorizing calls.
   "@earendil-works/pi-ai",
   // Built-in endpoint data distinguishes provider overrides in the completion catalog.
   "@earendil-works/pi-ai/providers/all",
