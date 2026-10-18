@@ -582,7 +582,7 @@ describe("the pull-request view's Guide tab", () => {
   });
 
   it("is not offered by a provider that cannot write one, or by a client without guides", async () => {
-    const { shared } = renderView(fakeClient({ guides: fakeGuideClient() }), undefined, false, { ...PARAMS, service: "gitlab" });
+    const { shared } = renderView(fakeClient({ guides: fakeGuideClient() }), undefined, false, { ...PARAMS, service: "bitbucket" });
     await screen.findByRole("heading", { name: "Add the output helper" });
     switchOn(shared);
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Summary", "Timeline", "Code"]);
@@ -591,6 +591,14 @@ describe("the pull-request view's Guide tab", () => {
     await screen.findByRole("heading", { name: "Add the output helper" });
     switchOn(second.shared);
     expect(screen.queryByRole("tab", { name: "Guide" })).toBeNull();
+  });
+
+  it.each(["gitlab", "forgejo"] as const)("offers the Guide tab for %s when enabled", async (service) => {
+    const { shared } = renderView(fakeClient({ guides: fakeGuideClient() }), undefined, false, { ...PARAMS, service });
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    switchOn(shared);
+    fireEvent.click(await screen.findByRole("tab", { name: "Guide" }));
+    expect(await screen.findByText("No review guide yet")).toBeTruthy();
   });
 
   it("opens the empty state, reads the files for the excerpts only once there is a guide", async () => {

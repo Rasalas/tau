@@ -109,7 +109,7 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
           control={toggle("Show the pull request above the composer", strip)} />
       </SettingsSection>
       <SettingsSection title="Review guides (beta)">
-        <SettingRow id="setting-review-guides" title="Review guides" description="A Guide tab on GitHub pull requests: a tour of the change in reading order, written by a read-only agent that reads the head in a worktree of its own."
+        <SettingRow id="setting-review-guides" title="Review guides" description="A Guide tab on GitHub, GitLab and Forgejo requests: a tour of the change in reading order, written by a read-only agent that reads the head in a worktree of its own."
           help="Never automatic. Each guide is one agent run that costs tokens; it shows in the Agents panel. Off hides the tab and refuses runs for people and agents alike. The model that writes guides is chosen on the Review extension's own page under Extensions." setting={guides}
           control={toggle("Review guides", guides)} />
         <SettingRow id="setting-review-guide-instructions" title="Guide instructions" description="What you want every guide to favour or leave out. A project can have its own."

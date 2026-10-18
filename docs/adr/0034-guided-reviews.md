@@ -37,7 +37,7 @@ around a change. The run therefore starts a thread from the `pr-guide` definitio
   from (the thread on screen for the tab, the calling thread for a tool).
 - It works in a throwaway worktree **of the pull request's head commit**, made by
   Agents Kit (ADR 0017) from a revision Review Kit names. Review Kit fetches the
-  head (`git fetch origin <sha>`, else `refs/pull/N/head`) into the project's
+  head (`git fetch origin <sha>`, else the provider's request head ref) into the project's
   repository first, so this needs a project that is a checkout of the request's
   repository. The worktree is discarded when the run ends.
 - It is `access: read-only` and keeps `read`, `grep`, `find`, `ls` and two tools
@@ -94,9 +94,15 @@ automatic. When a run ends the host emits `pr-guide-changed`; every window shows
 a toast, and Push Kit tells a phone that is away (Review Kit becomes a caller of
 its `notify` command).
 
-GitHub first. The head fetch, the pull ref fallback and the file list are written
-against the provider seam so GitLab and Forgejo can follow; until then
-`guide-write` says the host is not supported and the tab is not offered for it.
+GitHub, GitLab and Forgejo offer guides through the same provider seam. Each
+provider supplies its fork-aware head ref: `refs/pull/N/head` for GitHub and
+Forgejo, `refs/merge-requests/N/head` for GitLab. The fetch first asks for the exact
+commit, falls back to that ref if necessary, and verifies that the requested
+commit is present before spawning. The worktree always starts at that commit,
+never at the fallback ref's newer tip. Fresh request reads refuse a changed head
+before spawning or accepting a guide. Unsupported providers hide the tab and
+refuse `guide-write` before fetching or spawning. The writer still runs on Pi;
+other runtime writers require enforcement of the same tool and access limits.
 
 ## Consequences
 

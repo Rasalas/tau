@@ -203,11 +203,11 @@ export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
   gitlab: {
     kind: "gitlab", name: "GitLab", noun: "merge request", short: "MR", sign: "!", checkout: (number) => `glab mr checkout ${number}`, repositoryUrl: plainUrl,
     // GitLab's API has no "request changes"; viewed marks are kept by the kit.
-    capabilities: { ...EVERYTHING, reviewEvents: ["comment", "approve"], viewed: "local", revert: false, stacks: false, guides: false },
+    capabilities: { ...EVERYTHING, reviewEvents: ["comment", "approve"], viewed: "local", revert: false, stacks: false },
   },
   forgejo: {
     kind: "forgejo", name: "Forgejo", noun: "pull request", short: "PR", sign: "#", checkout: (number) => `tea pr checkout ${number}`, repositoryUrl: plainUrl,
-    capabilities: { ...EVERYTHING, replies: false, resolve: false, editComments: ["comment"], viewed: "local", publish: false, autoMerge: false, revert: false, stacks: false, guides: false },
+    capabilities: { ...EVERYTHING, replies: false, resolve: false, editComments: ["comment"], viewed: "local", publish: false, autoMerge: false, revert: false, stacks: false },
   },
   bitbucket: {
     kind: "bitbucket", name: "Bitbucket", noun: "pull request", short: "PR", sign: "#", repositoryUrl: plainUrl,

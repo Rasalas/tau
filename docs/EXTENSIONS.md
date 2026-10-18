@@ -3698,6 +3698,15 @@ A review opens as one view (design 1e) for a local review and a remote pull requ
 
 Local reviews retain their target and completed tip in `local-reviews.json`. A linked request supplies its destination; otherwise the worktree's recorded target is inferred once. Switching the main checkout cannot retarget a review. Completed tips stay under Merged across restarts and worktree removal; later commits or uncommitted files reopen the work. Cleanup is a separate confirmed action and keeps the thread.
 
+### Review guides across forges
+
+The Guide tab supports GitHub, GitLab and Forgejo when review guides are enabled.
+The provider's `requestHeadRef` supplies the fallback ref for fork commits. The
+fetch verifies that the exact requested commit is present; a moving fallback ref
+never changes the writer's `startAt`. Fresh head reads before starting and
+submitting refuse a push during the run. Guides still use the Pi read-only
+writer and the existing normalizer, notifications and worktree cleanup.
+
 ### An agent started by another kit: Agents Kit's `spawn` (API 1.59.0)
 
 A kit that wants a visible, stoppable sub-agent for a job of its own asks Agents
