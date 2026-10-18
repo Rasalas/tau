@@ -96,7 +96,7 @@ export function searchScore(offering: Offering, query: string, providerName: (pr
   ].map(normalize);
   let score = 0;
   for (const token of tokens) {
-    const best = fields.reduce((score, field, index) => Math.min(score, scoreField(field, token, index * 10) ?? Infinity), Infinity);
+    const best = fields.reduce((minimum, field, index) => Math.min(minimum, scoreField(field, token, index * 10) ?? Infinity), Infinity);
     if (best === Infinity) return undefined;
     score += best;
   }
