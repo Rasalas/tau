@@ -230,7 +230,7 @@ export function registerGuides(
         const definition = runtime === "pi" ? GUIDE_DEFINITION : { ...codexDefinition, runtime };
         const started = await agentCall("spawn", {
           parentThreadId: via.parentThreadId, prompt, title: `Review guide for #${ref.number}`, startAt: run.headSha,
-          ...(runtime === "pi" && config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition, beforePrompt, onStartFailed: (detail: string) => fail(run, detail),
+          ...(runtime === "pi" && config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition, beforePrompt, onStartFailed: (reason: string) => fail(run, reason),
         }) as { threadId: string; status?: string; error?: string };
         if (started.error) throw new Error(started.error);
         run.jobId = started.threadId;
