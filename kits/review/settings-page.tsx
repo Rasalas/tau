@@ -110,7 +110,7 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
       </SettingsSection>
       <SettingsSection title="Review guides (beta)">
         <SettingRow id="setting-review-guides" title="Review guides" description="A Guide tab on GitHub, GitLab, Forgejo and Bitbucket Cloud requests: a tour of the change in reading order, written by a read-only agent that reads the head in a worktree of its own."
-          help="Never automatic. Each guide is one agent run that costs tokens; it shows in the Agents panel. Off hides the tab and refuses runs for people and agents alike. Choose the writer runtime on the Review extension's page under Extensions. Pi has its own guide model; Codex uses its runtime model." setting={guides}
+          help="Each guide costs one agent run and appears in Agents. Off hides the tab and refuses runs. Choose Pi, Codex or Claude under Extensions → Review. Pi has a guide model; the others use their runtime model." setting={guides}
           control={toggle("Review guides", guides)} />
         <SettingRow id="setting-review-guide-instructions" title="Guide instructions" description="What you want every guide to favour or leave out. A project can have its own."
           help="Where they differ from the defaults, yours win. ⌘Return or leaving the box saves them." setting={guideInstructions}

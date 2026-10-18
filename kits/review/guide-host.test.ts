@@ -377,19 +377,30 @@ describe("storage", () => {
   });
 });
 
-describe("Codex guide writer", () => {
+describe.each(["codex", "claude-code"])("%s guide writer", (writer) => {
   const session = { sessionId: "guide-thread", cwd: "/wt" };
   it("keeps the Pi default and refuses an unsupported writer before fetch or spawn", async () => {
-    const h = await harness({ writer: "claude-code" });
-    expect(await h.write()).toMatchObject({ outcome: "failed", detail: expect.stringContaining("Choose Pi or Codex") });
+    const h = await harness({ writer: "antigravity" });
+    expect(await h.write()).toMatchObject({ outcome: "failed", detail: expect.stringContaining("Choose Pi, Codex or Claude") });
     expect(h.spawn).not.toHaveBeenCalled();
     expect(h.fetchHead).not.toHaveBeenCalled();
   });
-  it("uses Codex's runtime model with reading tools and run-specific MCP submission", async () => {
-    const h = await harness({ writer: "codex", model: "test/pi-model", effort: "high" });
+  it.each(["github", "gitlab", "forgejo", "bitbucket"] as const)("supports the admitted writer for %s through the shared forge diff", async (service) => {
+    const h = await harness({ writer, service });
+    const url = service === "gitlab" ? "https://gitlab.com/example/project/-/merge_requests/42"
+      : service === "forgejo" ? "https://codeberg.org/example/project/pulls/42"
+      : service === "bitbucket" ? "https://bitbucket.org/example/project/pull-requests/42" : URL;
+    expect(await h.write(url)).toMatchObject({ outcome: "started" });
+    const tools = await h.tool(session, GUIDE_DIFF_TOOL);
+    expect(JSON.stringify(await h.run(tools, { runId: "run-1" }))).toContain("a.ts");
+    await h.run(await h.tool(session, GUIDE_SUBMIT_TOOL), submission);
+    expect((await h.call<GuideResult>("guide-get", { url })).guide?.stops.length).toBeGreaterThan(0);
+  });
+  it("uses the runtime model with reading tools and run-specific MCP submission", async () => {
+    const h = await harness({ writer, model: "test/pi-model", effort: "high" });
     await h.write();
     const request = h.spawn.mock.calls[0]![0] as Record<string, unknown>;
-    expect(request.definition).toMatchObject({ runtime: "codex", tools: ["read", "grep", "find", "ls", GUIDE_DIFF_TOOL, GUIDE_SUBMIT_TOOL] });
+    expect(request.definition).toMatchObject({ runtime: writer, tools: ["read", "grep", "find", "ls", GUIDE_DIFF_TOOL, GUIDE_SUBMIT_TOOL] });
     expect(request.definition).not.toHaveProperty("access");
     expect(request).not.toHaveProperty("model");
     expect(request).not.toHaveProperty("thinkingLevel");
@@ -405,34 +416,34 @@ describe("Codex guide writer", () => {
     expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
   });
   it("admits a queued child before its MCP tools are offered, and refuses a replaced admission", async () => {
-    const h = await harness({ writer: "codex", spawnStatus: "pending" });
+    const h = await harness({ writer, spawnStatus: "pending" });
     await h.write();
     expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
     const old = (h.spawn.mock.calls[0]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
     h.heads.set(42, "head-2");
     await h.write();
-    await expect(old({ sessionId: "old", backendKind: "codex", parentThreadId: "parent" } as HostThread)).rejects.toThrow("replaced or cancelled");
+    await expect(old({ sessionId: "old", backendKind: writer, parentThreadId: "parent" } as HostThread)).rejects.toThrow("replaced or cancelled");
     const admit = (h.spawn.mock.calls[1]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
-    await admit({ sessionId: session.sessionId, backendKind: "codex", parentThreadId: "parent" } as HostThread);
+    await admit({ sessionId: session.sessionId, backendKind: writer, parentThreadId: "parent" } as HostThread);
     expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeTruthy();
     await h.run((await h.tool(session, GUIDE_SUBMIT_TOOL)), { ...submission, runId: "run-2" });
     expect((await h.call<GuideResult>("guide-get", { url: URL })).guide?.headSha).toBe("head-2");
   });
   it("fails a queued admission after a push without offering tools or disturbing a newer run", async () => {
-    const h = await harness({ writer: "codex", spawnStatus: "pending" });
+    const h = await harness({ writer, spawnStatus: "pending" });
     await h.write();
     const admit = (h.spawn.mock.calls[0]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
     h.heads.set(42, "head-2");
-    await expect(admit({ sessionId: session.sessionId, backendKind: "codex", parentThreadId: "parent" } as HostThread)).rejects.toThrow("head changed");
+    await expect(admit({ sessionId: session.sessionId, backendKind: writer, parentThreadId: "parent" } as HostThread)).rejects.toThrow("head changed");
     expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
     expect(await h.call<GuideResult>("guide-get", { url: URL })).toMatchObject({ run: { state: "failed" } });
   });
 
   it.each([
     { backendKind: "pi", parentThreadId: "parent" },
-    { backendKind: "codex", parentThreadId: "unrelated" },
+    { backendKind: writer, parentThreadId: "unrelated" },
   ])("rejects admission with mismatched lineage %j", async (lineage) => {
-    const h = await harness({ writer: "codex", spawnStatus: "pending" });
+    const h = await harness({ writer, spawnStatus: "pending" });
     await h.write();
     const admit = (h.spawn.mock.calls[0]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
     await expect(admit({ sessionId: session.sessionId, ...lineage } as HostThread)).rejects.toThrow("another runtime or parent");
@@ -440,20 +451,9 @@ describe("Codex guide writer", () => {
     expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ state: "failed" });
   });
 
-  it.each(["pi", "codex"])("allows retry after a queued %s writer is cancelled or fails before admission", async (writer) => {
-    const h = await harness({ writer, spawnStatus: "pending" });
-    await h.write();
-    const fail = (h.spawn.mock.calls[0]![0] as { onStartFailed: (detail: string) => void }).onStartFailed;
-    fail("Queued writer cancelled");
-    expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ state: "failed", detail: "Queued writer cancelled" });
-    expect(await h.write()).toMatchObject({ outcome: "started" });
-    expect(h.spawn).toHaveBeenCalledTimes(2);
-    fail("Late previous failure");
-    expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ state: "running", headSha: "head-1" });
-  });
 
   it("cleans up early completion without re-registering the ended thread after spawn returns", async () => {
-    const h = await harness({ writer: "codex" });
+    const h = await harness({ writer });
     h.beforeSpawnReturn(async () => {
       await h.run(await h.tool(session, GUIDE_SUBMIT_TOOL), submission);
       h.ended();
@@ -464,7 +464,7 @@ describe("Codex guide writer", () => {
     expect(h.discard).toHaveBeenCalledTimes(1);
   });
   it("revokes tools after failure and rejects submission after a push", async () => {
-    const h = await harness({ writer: "codex" });
+    const h = await harness({ writer });
     await h.write();
     const submit = await h.tool(session, GUIDE_SUBMIT_TOOL);
     h.heads.set(42, "head-2");
@@ -478,7 +478,19 @@ describe("Codex guide writer", () => {
 
 
 describe("guide admission ownership", () => {
-  it.each(["pi", "codex"])("refuses run-id-only ownership before %s admission", async (writer) => {
+  it.each(["pi", "codex", "claude-code"])("allows retry after a queued %s writer is cancelled or fails before admission", async (writer) => {
+    const h = await harness({ writer, spawnStatus: "pending" });
+    await h.write();
+    const fail = (h.spawn.mock.calls[0]![0] as { onStartFailed: (detail: string) => void }).onStartFailed;
+    fail("Queued writer cancelled");
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ state: "failed", detail: "Queued writer cancelled" });
+    expect(await h.write()).toMatchObject({ outcome: "started" });
+    expect(h.spawn).toHaveBeenCalledTimes(2);
+    fail("Late previous failure");
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ state: "running", headSha: "head-1" });
+  });
+
+  it.each(["pi", "codex", "claude-code"])("refuses run-id-only ownership before %s admission", async (writer) => {
     const h = await harness({ writer, spawnStatus: "pending" });
     await h.write();
     const intruder = h.guideTools("unrelated");

@@ -48,7 +48,7 @@ around a change. The run therefore starts a thread from the `pr-guide` definitio
   `submit_pull_request_guide { runId, stops }` is how the guide arrives, as
   structured arguments instead of free text. Both register in the runtime
   extension of a Pi thread whose persona is `pr-guide`; no other thread lists them.
-  Codex writers receive the same two tools over their filtered MCP credential,
+  Codex and Claude writers receive the same two tools over their filtered MCP credential,
   offered only after the host admits the exact child before its first prompt.
   The `runId` in its prompt names the run the call belongs to.
 - The seam Agents Kit gains for this (API 1.59.0) is small and generic: a `spawn`
@@ -107,11 +107,15 @@ Bitbucket head expands only from a unique full hash in the PR's fresh commit
 listing; missing, malformed or ambiguous identity facts refuse the guide. Fresh request reads refuse a changed head
 before spawning or accepting a guide. Unsupported providers hide the tab and
 refuse `guide-write` before fetching or spawning. The writer is chosen explicitly in Review's extension settings: Pi by default,
-or Codex. Pi keeps its dedicated guide model and effort settings. Codex uses its
-normal runtime model, inheriting a Codex parent's model when compatible. Codex
-receives the reading/guide-tool allowlist without `access`: its existing backend
-uses that list to enforce a read-only sandbox, disable other native tools and
-filter the thread's MCP credential. Other runtimes remain refused.
+Codex or Claude. Pi keeps its dedicated guide model and effort settings. The
+other writers use their runtime model and inherit a compatible parent's model.
+They receive the reading/guide-tool allowlist without an access override. Codex
+applies its read-only sandbox; Claude exposes only Read, Grep and Glob, disables
+user/project hooks and statusLine commands, and permits no other MCP servers.
+A restricted Claude thread refuses extra instance launch arguments before
+starting, so an inherited `--tools` or `--mcp-config` cannot widen its tools.
+Both use a filtered thread credential. Unrestricted Claude threads retain their
+normal settings, hooks and launch arguments. Other runtimes remain refused.
 
 Agents Kit forwards an in-process `beforePrompt` callback to the existing
 `sessions.start` admission seam. Review binds the actual thread, parent and

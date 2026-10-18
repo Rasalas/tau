@@ -172,11 +172,19 @@ describe("Claude Code runtime adapter", () => {
     const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
     expect(claudeQueryOptions(plan)).not.toHaveProperty("tools");
     expect(claudeQueryOptions(plan)).not.toHaveProperty("strictMcpConfig");
+    expect(claudeQueryOptions(plan)).not.toHaveProperty("settings");
     const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
     const restricted = claudeQueryOptions({ ...plan, mcpServer, tools: ["read", "grep", "find", "ls", "WebFetch", "tau_spawn_thread", "unknown"] });
-    expect(restricted).toMatchObject({ tools: ["Read", "Grep", "Glob", "WebFetch"], strictMcpConfig: true, allowedTools: ["mcp__tau"] });
+    expect(restricted).toMatchObject({ tools: ["Read", "Grep", "Glob", "WebFetch"], strictMcpConfig: true, settings: { disableAllHooks: true }, allowedTools: ["mcp__tau"] });
     expect(restricted).not.toHaveProperty("mcpServers");
     expect(claudeQueryOptions({ ...plan, tools: ["tau_list_threads"] })).toMatchObject({ tools: [], strictMcpConfig: true });
+  });
+
+  it.each([{ tools: "default" }, { "mcp-config": "/fixture/servers.json" }, { verbose: null }] as Record<string, string | null>[])("refuses extra launch arguments on a restricted thread: %j", (extraArgs) => {
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    expect(() => claudeQueryOptions({ ...plan, tools: ["read", "grep", "find", "ls"], extraArgs })).toThrow("restricted tools cannot use extra launch arguments");
+    expect(claudeQueryOptions({ ...plan, extraArgs })).toMatchObject({ extraArgs });
+    expect(claudeQueryOptions({ ...plan, tools: [], extraArgs: {} })).toMatchObject({ tools: [] });
   });
 
   it("holds Bash to the SDK's sandbox in a project that limits its network, and switches WebFetch off", () => {

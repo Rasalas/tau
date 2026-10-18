@@ -195,6 +195,9 @@ const STDERR_TAIL_BYTES = 8 * 1024;
 export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
   assertClaudePermissionPolicySupported(plan.policy, { canAsk: plan.hooks?.canUseTool !== undefined });
   if (!UUID.test(plan.claudeSessionId)) throw new Error("Claude session ids must be UUIDs.");
+  if (plan.tools && Object.keys(plan.extraArgs ?? {}).length) {
+    throw new Error("Claude threads with restricted tools cannot use extra launch arguments. Remove the arguments from this runtime instance.");
+  }
   return {
     ...(plan.hooks?.canUseTool ? { canUseTool: plan.hooks.canUseTool } : {}),
     // The resume-compaction question is the one dialog the workbench answers; others are declined.
@@ -267,11 +270,12 @@ const CLAUDE_TOOL_NAMES: Readonly<Record<string, string>> = {
 /**
  * A thread restricted to some tools: Claude's own by their Pi names or its
  * own (`WebFetch`), nothing else built in, and no MCP server but Tau's, whose
- * endpoint filters Tau's tools. A name Claude does not have is dropped, as on Pi.
+ * endpoint filters Tau's tools. Hooks and statusLine commands are disabled for
+ * restricted threads. A name Claude does not have is dropped, as on Pi.
  */
-export function claudeToolOptions(tools: readonly string[]): Pick<Options, "tools" | "strictMcpConfig"> {
+export function claudeToolOptions(tools: readonly string[]): Pick<Options, "tools" | "strictMcpConfig" | "settings"> {
   const own = tools.flatMap((tool) => CLAUDE_TOOL_NAMES[tool] ?? (/^[A-Z][A-Za-z]*$/u.test(tool) ? [tool] : []));
-  return { tools: [...new Set(own)], strictMcpConfig: true };
+  return { tools: [...new Set(own)], strictMcpConfig: true, settings: { disableAllHooks: true } };
 }
 
 /**
