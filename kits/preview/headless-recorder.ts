@@ -27,7 +27,7 @@ export class HeadlessPreviewRecorder {
     if (action === "start") {
       if (this.stream) return { chunks: [], mimeType: MIME };
       const rate = Math.round(options?.frameRate ?? 30);
-      let answer: { stream: string };
+      let answer: unknown;
       try {
         answer = await this.send("Page.startScreenRecording", { audio: false, maxWidth: 1920, maxHeight: 1920, frameRate: Number.isFinite(rate) ? Math.min(60, Math.max(1, rate)) : 30 });
       } catch (error) {
@@ -37,11 +37,12 @@ export class HeadlessPreviewRecorder {
         await this.discard();
         throw error;
       }
-      if (typeof answer.stream !== "string" || !answer.stream) {
+      const stream = answer && typeof answer === "object" && "stream" in answer ? answer.stream : undefined;
+      if (typeof stream !== "string" || !stream) {
         await this.discard();
         throw new Error("The preview browser did not return a recording stream.");
       }
-      this.stream = answer.stream;
+      this.stream = stream;
       this.received = false;
       this.failure = undefined;
       return { chunks: [], mimeType: MIME };

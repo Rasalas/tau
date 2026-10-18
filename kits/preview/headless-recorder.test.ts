@@ -55,8 +55,8 @@ describe("the owned headless video recorder", () => {
     else expect(send.mock.calls.at(-1)).toEqual(["IO.close", { handle: "late-stream" }]);
   });
 
-  it("cleans up a successful start whose stream response is malformed", async () => {
-    const send = vi.fn(async (method: string) => method === "Page.stopScreenRecording" ? { stream: "cleanup-stream" } : {});
+  it.each([{}, null, undefined])("cleans up a successful start whose stream response is malformed %j", async (response) => {
+    const send = vi.fn(async (method: string) => method === "Page.stopScreenRecording" ? { stream: "cleanup-stream" } : response);
     const recorder = new HeadlessPreviewRecorder(send as never, async () => undefined);
     await expect(recorder.record("start")).rejects.toThrow("did not return a recording stream");
     expect(send.mock.calls.at(-1)).toEqual(["IO.close", { handle: "cleanup-stream" }]);
