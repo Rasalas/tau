@@ -27,7 +27,7 @@ type Version = [number, number, number];
 export function parseVersion(value: string): Version | undefined {
   const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.exec(value.trim());
   if (!match) return undefined;
-  return match.slice(1).map((part) => Number(part ?? 0)) as Version;
+  return [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)];
 }
 
 function compare(left: Version, right: Version): number {

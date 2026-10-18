@@ -112,6 +112,20 @@ describe("SessionInfoIndex", () => {
       const result = await new SessionInfoIndex(root).list(true);
       expect(result.infos).toEqual([{ ...info, allMessagesText: "" }]);
       expect(result.stamps.has(info.path)).toBe(false);
+      expect(result.complete).toBe(false);
+    } finally { listing.mockRestore(); }
+  });
+
+  it("keeps SDK metadata without certifying an independently unreadable session", async () => {
+    const root = await directory();
+    const path = join(root, "saved.jsonl");
+    await writeFile(path, "invalid session\n");
+    const info = { path, id: "saved", cwd: "/repo", created: new Date(1), modified: new Date(2), messageCount: 0, firstMessage: "earlier", allMessagesText: "" };
+    const listing = vi.spyOn(SessionManager, "listAll").mockResolvedValue([info]);
+    try {
+      const result = await new SessionInfoIndex(root).list(true);
+      expect(result.infos).toEqual([info]);
+      expect(result.complete).toBe(false);
     } finally { listing.mockRestore(); }
   });
 

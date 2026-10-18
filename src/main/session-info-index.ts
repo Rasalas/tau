@@ -116,12 +116,13 @@ export class SessionInfoIndex {
     // The SDK's full read omits failures. Verify its directory and every file
     // independently so a concurrent strict caller can trust either scan mode.
     const listing = await this.files(root);
+    let complete = listing.complete;
     const files = direct ? [...new Set([...listing.paths, ...byPath.keys()])] : listing.paths;
     const retained = new Set(files);
     for (const path of this.cache.keys()) if (!retained.has(path)) { this.cache.delete(path); this.dirty = true; }
     const entries = await mapBounded(files, async (path): Promise<CachedInfo | undefined> => {
       const stamp = await readStamp(path);
-      if (!stamp) { this.cache.delete(path); return { info: byPath.get(path) }; }
+      if (!stamp) { complete = false; this.cache.delete(path); return { info: byPath.get(path) }; }
       const cached = this.cache.get(path);
       if (!readFiles && sameStamp(cached?.stamp, stamp)) return cached;
       const read = await readInfo(path, stamp);
@@ -132,7 +133,7 @@ export class SessionInfoIndex {
       // as a reusable answer for a newer file revision.
       const after = await readStamp(path);
       if (read && after && sameStamp(stamp, after)) this.cache.set(path, entry);
-      else this.cache.delete(path);
+      else { complete = false; this.cache.delete(path); }
       this.dirty = true;
       return entry;
     });
@@ -147,7 +148,7 @@ export class SessionInfoIndex {
     }
     infos.sort((a, b) => b.modified.getTime() - a.modified.getTime());
     await this.persist();
-    return { infos, stamps, models, complete: listing.complete && entries.every((entry) => entry?.info !== undefined) };
+    return { infos, stamps, models, complete: complete && entries.every((entry) => entry?.info !== undefined) };
   }
 
   private async files(root: string): Promise<{ paths: string[]; complete: boolean }> {
