@@ -85,6 +85,8 @@ export interface SourceControlProvider {
   repository(remoteUrl: string): RepositoryTarget | undefined;
   /** The web URL of request `number`. */
   requestUrl(target: RepositoryTarget, number: number): string;
+  /** The forge-owned ref used to fetch a request head, including a fork. */
+  requestHeadRef?(ref: PullRequestRef): string;
   /** Whether the CLI or credential is signed in for the host; asked before a write. */
   signedIn(target: RepositoryTarget & { cwd: string }): Promise<boolean>;
   /** The signed-in login on a host, or undefined when it will not say. */

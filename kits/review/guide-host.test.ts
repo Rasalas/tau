@@ -8,7 +8,7 @@ import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-sup
 import { isGuideSession, registerGuides } from "./guide-host.js";
 import { GUIDE_AGENT, GUIDE_DIFF_TOOL, GUIDE_EVENT, GUIDE_SUBMIT_TOOL, type GuideEvent, type GuideResult, type GuideWriteResult } from "./guide-protocol.js";
 import type { SourceControl } from "./provider-registry.js";
-import type { PullRequestDetail, PullRequestFiles } from "./protocol.js";
+import { PROVIDERS, type RequestService, type PullRequestDetail, type PullRequestFiles } from "./protocol.js";
 import type { PullRequestReads } from "./pull-request-host.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 
@@ -29,7 +29,7 @@ const detail = (number: number, headSha: string): PullRequestDetail => ({
   additions: 4, deletions: 0, changedFiles: 2, reviewers: [], labels: [], commits: [{ oid: "abcdef1234", headline: "First commit", committedAt: "" }],
 } as unknown as PullRequestDetail);
 
-interface Options { enabled?: boolean; model?: string; effort?: string; levels?: string[]; instructions?: string; stateDir?: string; spawnStatus?: string }
+interface Options { enabled?: boolean; model?: string; effort?: string; levels?: string[]; instructions?: string; stateDir?: string; spawnStatus?: string; service?: RequestService; headRef?: boolean }
 
 async function harness(options: Options = {}) {
   const stateDir = options.stateDir ?? await mkdtemp(join(tmpdir(), "tau-guides-"));
@@ -44,16 +44,20 @@ async function harness(options: Options = {}) {
   let observer: HostTurnObserver | undefined;
   let mcp: ((session: RuntimeSessionInfo) => HostMcpTool[] | Promise<readonly HostMcpTool[]>) | undefined;
   let runtime: ((pi: unknown, session: RuntimeSessionInfo) => void) | undefined;
+  const service = options.service ?? "github";
+  const host = service === "gitlab" ? "gitlab.com" : service === "forgejo" ? "codeberg.org" : service === "bitbucket" ? "bitbucket.org" : "github.com";
+  const requestUrl = (number: number) => `https://${host}/example/project/${service === "gitlab" ? "-/merge_requests" : service === "forgejo" ? "pulls" : "pull"}/${number}`;
   const provider = {
-    info: { capabilities: { conversations: false } }, repository: () => ({ host: "github.com", repo: "example/project" }),
+    info: { ...PROVIDERS[service], capabilities: { ...PROVIDERS[service].capabilities, conversations: false } }, repository: () => ({ host, repo: "example/project" }),
+    ...(options.headRef === false ? {} : { requestHeadRef: (ref: { number: number }) => `refs/${service === "gitlab" ? "merge-requests" : "pull"}/${ref.number}/head` }),
     requestUrl: (target: { host: string; repo: string }, number: number) => `https://${target.host}/${target.repo}/pull/${number}`, threads: async () => [],
   };
-  const sources = { forUrl: (url: string) => { const ref = parseRequestUrl(url); return ref ? { ref, provider } : undefined; }, detect: async () => "github", get: () => provider } as unknown as SourceControl;
+  const sources = { forUrl: (url: string) => { const ref = parseRequestUrl(url); return ref ? { ref, provider } : undefined; }, detect: async () => service, get: () => provider } as unknown as SourceControl;
   const reads: PullRequestReads = {
-    detail: async (ref) => detail(ref.number, heads.get(ref.number) ?? "head-1"),
+    detail: async (ref) => ({ ...detail(ref.number, heads.get(ref.number) ?? "head-1"), ref }),
     files: async () => structuredClone(files),
   };
-  const workspace = async () => ({ root: "/repo", base: "main", remote: { name: "origin", url: "git@github.com:example/project.git" } });
+  const workspace = async () => ({ root: "/repo", base: "main", remote: { name: "origin", url: `git@${host}:example/project.git` } });
   let ids = 0;
   const registry: HostExtensionRegistry = await activateHostKit({
     id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"],
@@ -78,7 +82,7 @@ async function harness(options: Options = {}) {
   await registry.activate({ id: "tau.push", name: "Push", permissions: [], activate: (context) => { context.registerCommand("notify", (input) => notify(input), { callers: ["tau.review"] }); } });
   cleanups.push(() => registry.deactivate("tau.review"));
   const call = <T>(command: string, input?: unknown) => registry.invoke("tau.review", command, input) as Promise<T>;
-  const write = (url = URL, extra: Record<string, unknown> = {}) => call<GuideWriteResult>("guide-write", { url, threadId: "parent", ...extra });
+  const write = (url = requestUrl(42), extra: Record<string, unknown> = {}) => call<GuideWriteResult>("guide-write", { url, threadId: "parent", ...extra });
   const tool = async (session: RuntimeSessionInfo, name: string) => (await mcp!(session)).find((entry) => entry.name === name)!;
   const guideTools = (sessionId = "guide-thread") => {
     const registered: HostMcpTool[] = [];
@@ -103,9 +107,12 @@ describe("write", () => {
     expect(h.spawn).not.toHaveBeenCalled();
   });
 
-  it("refuses a host other than GitHub, a thread that is not open and another repository", async () => {
+  it("refuses an unsupported provider, a thread that is not open and another repository", async () => {
+    const unsupported = await harness({ service: "bitbucket" });
+    expect((await unsupported.write()).detail).toContain("does not support");
+    expect(unsupported.fetchHead).not.toHaveBeenCalled();
+    expect(unsupported.spawn).not.toHaveBeenCalled();
     const h = await harness();
-    expect((await h.write("https://gitlab.com/example/project/-/merge_requests/3")).detail).toContain("GitHub");
     expect((await h.write(URL, { threadId: "gone" })).detail).toContain("Open a thread");
     expect((await h.write(FOREIGN)).detail).toContain("someone/else");
     expect(h.spawn).not.toHaveBeenCalled();
@@ -115,7 +122,7 @@ describe("write", () => {
     const h = await harness({ model: "anthropic/claude-haiku-4-5-20251001", instructions: "Short stops." });
     const result = await h.write();
     expect(result).toMatchObject({ outcome: "started", threadId: "guide-thread", run: { state: "running", headSha: "head-1" }, currentHeadSha: "head-1", enabled: true });
-    expect(h.fetchHead).toHaveBeenCalledWith("/repo", "origin", "head-1", 42);
+    expect(h.fetchHead).toHaveBeenCalledWith("/repo", "origin", "head-1", "refs/pull/42/head");
     const input = h.spawn.mock.calls[0]![0] as { parentThreadId: string; startAt: string; model: string; source: string; prompt: string; definition: { name: string; access: string; tools: string[]; runtime: string } };
     expect(input).toMatchObject({ parentThreadId: "parent", startAt: "head-1", model: "anthropic/claude-haiku-4-5-20251001", source: "tau.review", definition: { name: GUIDE_AGENT, access: "read-only", runtime: "pi" } });
     expect(input.definition.tools).toEqual(["read", "grep", "find", "ls", GUIDE_DIFF_TOOL, GUIDE_SUBMIT_TOOL]);
@@ -123,6 +130,36 @@ describe("write", () => {
     expect(input.prompt).toContain("<pr_title>Title 42</pr_title>");
     expect(input.prompt).toContain("Short stops.");
     expect(h.events).toEqual([expect.objectContaining({ kind: "running", number: 42, parentThreadId: "parent" })]);
+  });
+
+  it.each(["gitlab", "forgejo"] as const)("writes and normalizes a %s guide while keeping the writer read-only", async (service) => {
+    const h = await harness({ service });
+    expect((await h.write()).outcome).toBe("started");
+    expect(h.fetchHead).toHaveBeenCalledWith("/repo", "origin", "head-1", `refs/${service === "gitlab" ? "merge-requests" : "pull"}/42/head`);
+    expect(h.spawn).toHaveBeenCalledWith(expect.objectContaining({ startAt: "head-1", definition: expect.objectContaining({ access: "read-only", runtime: "pi" }) }));
+    await h.run(h.guideTools().find(GUIDE_SUBMIT_TOOL), submission);
+    const url = service === "gitlab" ? "https://gitlab.com/example/project/-/merge_requests/42" : "https://codeberg.org/example/project/pulls/42";
+    expect(await h.call<GuideResult>("guide-get", { url })).toMatchObject({ guide: { headSha: "head-1", stops: [expect.objectContaining({ excerpts: [{ path: "a.ts", side: "new", start: 10, end: 11, caption: "shape" }] }), expect.objectContaining({ title: "Other files" })] } });
+    h.ended();
+    await vi.waitFor(() => expect(h.discard).toHaveBeenCalled());
+  });
+
+  it("refuses a provider without a head ref and refuses a head changed during fetching", async () => {
+    const missing = await harness({ headRef: false });
+    expect((await missing.write()).outcome).toBe("failed");
+    expect(missing.fetchHead).not.toHaveBeenCalled();
+    const h = await harness({ service: "gitlab" });
+    h.fetchHead.mockImplementationOnce(async () => { h.heads.set(42, "head-2"); });
+    expect(await h.write()).toMatchObject({ outcome: "failed", detail: expect.stringContaining("head changed") });
+    expect(h.spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a submission after a push without storing it", async () => {
+    const h = await harness({ service: "forgejo" });
+    await h.write();
+    h.heads.set(42, "head-2");
+    await expect(h.run(h.guideTools().find(GUIDE_SUBMIT_TOOL), submission)).rejects.toThrow("head changed");
+    expect((await h.call<GuideResult>("guide-get", { url: "https://codeberg.org/example/project/pulls/42" })).guide).toBeNull();
   });
 
   it("passes the configured effort to the guide run", async () => {
@@ -143,8 +180,8 @@ describe("write", () => {
     expect(h.spawn.mock.calls[0]![0]).not.toHaveProperty("thinkingLevel");
   });
 
-  it("joins a run for the same head and replaces one for an older head", async () => {
-    const h = await harness();
+  it.each(["github", "gitlab", "forgejo"] as const)("joins and replaces guide runs on %s", async (service) => {
+    const h = await harness({ service });
     await h.write();
     expect(await h.write()).toMatchObject({ outcome: "running" });
     expect(h.spawn).toHaveBeenCalledTimes(1);
@@ -152,7 +189,7 @@ describe("write", () => {
     expect(await h.write()).toMatchObject({ outcome: "started", run: { headSha: "head-2" } });
     expect(h.stop).toHaveBeenCalledWith({ threadId: "guide-thread" });
     expect(h.spawn).toHaveBeenCalledTimes(2);
-    expect(h.fetchHead).toHaveBeenLastCalledWith("/repo", "origin", "head-2", 42);
+    expect(h.fetchHead).toHaveBeenLastCalledWith("/repo", "origin", "head-2", `refs/${service === "gitlab" ? "merge-requests" : "pull"}/42/head`);
   });
 
   it("reports a failed fetch as a failed run the reader can retry", async () => {

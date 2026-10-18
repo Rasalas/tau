@@ -349,6 +349,7 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
   return {
     kind,
     info: PROVIDERS.forgejo,
+    requestHeadRef: (ref) => `refs/pull/${ref.number}/head`,
     missing: () => missingCli(kind, tools.findCommand),
     repository: forgejoRepository,
     requestUrl: ({ host, repo }, number) => `https://${host}/${repo}/pulls/${number}`,

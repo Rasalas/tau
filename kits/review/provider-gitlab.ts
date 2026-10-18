@@ -29,6 +29,7 @@ export function createGitLabProvider(tools: ProviderTools): SourceControlProvide
   return {
     kind,
     info: PROVIDERS.gitlab,
+    requestHeadRef: (ref) => `refs/merge-requests/${ref.number}/head`,
     missing: () => missingCli(kind, tools.findCommand),
     repository: (remoteUrl) => parseRemote(remoteUrl),
     requestUrl: ({ host, repo }, number) => `https://${host}/${repo}/-/merge_requests/${number}`,

@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { HostCommandError, PARENT_LINK_ENTRY, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
 import { Type } from "typebox";
@@ -10,6 +9,7 @@ import {
   type GuideEvent, type GuideResult, type GuideRun, type GuideWriteResult,
 } from "./guide-protocol.js";
 import { buildGuidePrompt, GUIDE_DEFINITION } from "./guide-prompt.js";
+import { fetchGuideHead, type GuideFetch } from "./guide-fetch.js";
 import { modelEffort } from "./model-effort.js";
 import { GuideStore } from "./guide-store.js";
 import { projectRepository } from "./pull-request-list-host.js";
@@ -22,19 +22,6 @@ const PUSH_KIT_ID = "tau.push";
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value.trim() : undefined;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 400);
-
-/** Brings a pull request's head commit into a checkout so a worktree can start from it. */
-export type GuideFetch = (root: string, remote: string, sha: string, number: number) => Promise<void>;
-
-const gitFetch: GuideFetch = async (root, remote, sha, number) => {
-  const run = (args: string[]) => new Promise<void>((resolve, reject) => {
-    execFile("git", ["fetch", "--quiet", "--no-tags", remote, ...args], { cwd: root, timeout: 5 * 60_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (error, _out, stderr) => {
-      if (error) reject(new Error(String(stderr).trim() || error.message)); else resolve();
-    });
-  });
-  // A fork's head is not on a branch of the remote, but a pull ref names it on GitHub.
-  await run([sha]).catch(() => run([`refs/pull/${number}/head`]));
-};
 
 export interface GuideOptions {
   fetchHead?: GuideFetch;
@@ -92,7 +79,7 @@ export function registerGuides(
   const { services } = context;
   const store = new GuideStore(services.stateDir);
   const now = options.now ?? Date.now;
-  const fetchHead = options.fetchHead ?? gitFetch;
+  const fetchHead = options.fetchHead ?? fetchGuideHead;
   const newRunId = options.runId ?? randomUUID;
   /** The run in progress, or the last failure, per request. */
   const runs = new Map<string, GuideRun>();
@@ -183,7 +170,8 @@ export function registerGuides(
       const cwd = via.cwd ?? parent.cwd;
       const config = await settings(cwd);
       if (!config.enabled) return asked("failed", "Review guides are off. Turn them on in Settings → Source control.");
-      if (ref.service !== "github") return asked("failed", "Guides are written for GitHub pull requests so far.");
+      const provider = sources.get(ref.service);
+      if (!provider.info.capabilities.guides || !provider.info.capabilities.files || !provider.requestHeadRef) return asked("failed", `${provider.info.name} does not support review guides.`);
       const project = await projectRepository(workspace, sources, cwd);
       if (project.host.toLowerCase() !== ref.host.toLowerCase() || project.repo.toLowerCase() !== ref.repo.toLowerCase()) {
         return asked("failed", `A guide is written from a checkout of ${ref.host}/${ref.repo}, and this thread's project is ${project.host}/${project.repo}. Write it from a thread in a checkout of that repository.`);
@@ -203,12 +191,13 @@ export function registerGuides(
       runs.set(key, { state: "running", headSha: run.headSha, startedAt: run.startedAt });
       emit(run, "running");
       try {
-        await fetchHead(project.git.root, project.git.remote?.name ?? "origin", run.headSha, ref.number);
+        await fetchHead(project.git.root, project.git.remote?.name ?? "origin", run.headSha, provider.requestHeadRef(ref));
         const [changes, review, stack] = await Promise.all([
           reads.files(ref, true),
           settledReview(ref),
           reads.stackOf ? reads.stackOf(ref).catch(() => undefined) : Promise.resolve(undefined),
         ]);
+        if ((await reads.detail(ref, true)).headSha !== run.headSha) throw new Error("The request head changed. Write the guide again for the latest commit.");
         if (changes.files.length === 0) throw new Error("This pull request has no changed files.");
         if (active.get(key)?.runId !== run.runId) return asked("running");
         const prompt = buildGuidePrompt({
@@ -250,7 +239,8 @@ export function registerGuides(
     const run = guideThreadOf(session, text(fields.runId) ?? "");
     const stops = decodeGuideStops(fields);
     if (!stops.some((stop) => stop.title)) throw new Error("Submit at least one stop with a title.");
-    const changes = await reads.files(run.ref, false);
+    const changes = await reads.files(run.ref, true);
+    if ((await reads.detail(run.ref, true)).headSha !== run.headSha) throw new Error("The request head changed. Write the guide again for the latest commit.");
     const normalized = normalizeGuide(stops, guideChangeOf(changes));
     const placed = normalized.filter((stop) => stop.title !== "Other files" || stop.excerpts.length > 0 || normalized.length === 1);
     if (placed.length === 0) throw new Error("None of your stops survived: check that the paths are changed files of this pull request.");
@@ -317,7 +307,7 @@ export function registerGuides(
     {
       name: "write_pull_request_guides",
       label: "Write pull request guides",
-      description: `Start a review guide for each of 1 to ${GUIDE_MAX_REQUESTS} GitHub pull requests of this thread's repository: a tour of the change for the maintainer deciding whether it lands. A read-only agent writes each in the background and shows in the Agents panel; this call does not wait for it. Answers per request: started, running (a run for the same head is already under way) or failed with a detail. Off unless the user turned review guides on in Settings.`,
+      description: `Start a review guide for each of 1 to ${GUIDE_MAX_REQUESTS} supported pull or merge requests of this thread's repository: a tour of the change for the maintainer deciding whether it lands. A read-only agent writes each in the background and shows in the Agents panel; this call does not wait for it. Answers per request: started, running (a run for the same head is already under way) or failed with a detail. Off unless the user turned review guides on in Settings.`,
       promptSnippet: "write_pull_request_guides: start review guides for pull requests",
       annotations: { readOnlyHint: false },
       parameters: Type.Object({ pullRequests: Type.Array(targetSchema, { minItems: 1, maxItems: GUIDE_MAX_REQUESTS }) }),

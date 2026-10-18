@@ -140,6 +140,7 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
   const provider: SourceControlProvider = {
     kind,
     info: PROVIDERS.github,
+    requestHeadRef: (ref) => `refs/pull/${ref.number}/head`,
     missing: () => missingCli(kind, tools.findCommand),
     repository: (remoteUrl) => parseRemote(remoteUrl),
     requestUrl: ({ host, repo }, number) => `https://${host}/${repo}/pull/${number}`,
