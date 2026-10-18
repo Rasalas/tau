@@ -497,6 +497,81 @@ describe("recording", () => {
     await expect(readFile(saved.path, "utf8")).resolves.toBe("two");
     await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-stop", undefined)).resolves.toBeNull();
   });
+  it("names an MP4 recording according to its container", async () => {
+    const stateDir = await stateDirectory();
+    const { surface } = fakeSurface({ record: async (action) => ({ chunks: action === "stop" ? [Buffer.from("mp4 fixture").toString("base64")] : [], mimeType: "video/mp4" }) });
+    const kit = await activate(async () => surface, "/project", stateDir);
+    try {
+      await kit.call("preview_open", { url: "http://localhost:8000" });
+      await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-start");
+      const saved = await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-stop") as PreviewRecording;
+      expect(saved.name).toMatch(/\.mp4$/u);
+      expect(saved).toMatchObject({ mimeType: "video/mp4", size: 11 });
+    } finally { await kit.registry.dispose(); }
+  });
+
+  it("reports finalization failure and removes the unusable recording", async () => {
+    const stateDir = await stateDirectory();
+    const { surface } = fakeSurface({ record: async (action) => {
+      if (action === "stop") throw new Error("Encoder failed");
+      return { chunks: [], mimeType: "video/mp4" };
+    } });
+    const kit = await activate(async () => surface, "/project", stateDir);
+    try {
+      await kit.call("preview_open", { url: "http://localhost:8000" });
+      await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-start");
+      await expect(kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-stop")).rejects.toThrow("Encoder failed");
+      expect(await readdir(join(stateDir, PREVIEW_HOST_EXTENSION_ID, "recordings"))).toEqual([]);
+    } finally { await kit.registry.dispose(); }
+  });
+
+  it("finishes a pending start before closing its surface", async () => {
+    const stateDir = await stateDirectory();
+    const starting = latch(), release = latch();
+    const calls: string[] = [];
+    const { surface } = fakeSurface({
+      record: async (action) => {
+        calls.push(action);
+        if (action === "start") { starting.release(); await release.wait; }
+        return { chunks: [], mimeType: "video/mp4" };
+      },
+      destroy: () => { calls.push("destroy"); },
+    });
+    const kit = await activate(async () => surface, "/project", stateDir);
+    try {
+      await kit.call("preview_open", { url: "http://localhost:8000" });
+      const started = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-start");
+      await starting.wait;
+      const closed = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close");
+      expect(calls).toEqual(["start"]);
+      release.release();
+      await Promise.all([started, closed]);
+      expect(calls).toEqual(["start", "stop", "destroy"]);
+    } finally { release.release(); await kit.registry.dispose(); }
+  });
+
+  it.each(["duration", "read error"])("finishes outside its drain queue on %s", async (reason) => {
+    const stateDir = await stateDirectory();
+    const stopped = latch();
+    const record = vi.fn(async (action: "start" | "take" | "stop") => {
+      if (action === "take" && reason === "read error") throw new Error("Read failed");
+      if (action === "stop") stopped.release();
+      return { chunks: action === "stop" ? [Buffer.from("video").toString("base64")] : [], mimeType: "video/webm" };
+    });
+    const { surface } = fakeSurface({ record });
+    const kit = await activate(async () => surface, "/project", stateDir);
+    try {
+      await kit.call("preview_open", { url: "http://localhost:8000" });
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "record-start");
+      if (reason === "duration") vi.setSystemTime(Date.now() + 10 * 60_000);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await stopped.wait;
+      await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close");
+      expect((await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "state") as PreviewState).recordingSince).toBeUndefined();
+    } finally { vi.useRealTimers(); await kit.registry.dispose(); }
+  }, 2_000);
+
 });
 
 describe("profiles", () => {

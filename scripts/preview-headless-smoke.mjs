@@ -1,7 +1,7 @@
 // Real Preview on an isolated Tau host, without Electron, a display or accounts.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startTestHost, stopTestHost } from "./tau-test-host.mjs";
@@ -11,11 +11,41 @@ import { HostUplink } from "../dist-electron/main/host-uplink.js";
 const name = "preview-headless";
 const model = await startFakeModelServer();
 let typed = "";
+let recordedVideo;
+let videoProof;
 let slowResponse;
 let startedDownload;
 const downloadStarted = new Promise((resolve) => { startedDownload = resolve; });
 const fixture = createServer((request, response) => {
   const url = new URL(request.url, "http://fixture");
+  if (url.pathname === "/video-proof") { videoProof = JSON.parse(url.searchParams.get("data")); response.end("ok"); return; }
+  if (url.pathname === "/recorded.mp4") { response.setHeader("content-type", "video/mp4"); response.end(recordedVideo); return; }
+  if (url.pathname === "/video-check") {
+    response.setHeader("content-type", "text/html");
+    response.end(`<!doctype html><title>Recording decoder fixture</title><script>
+      (async () => {
+        const video = document.createElement('video'); video.muted = true;
+        const loaded = new Promise((resolve, reject) => { video.onloadeddata = resolve; video.onerror = () => reject(Error('Video decode failed')); });
+        video.src = URL.createObjectURL(new Blob([await (await fetch('/recorded.mp4')).arrayBuffer()], {type:'video/mp4'}));
+        await loaded;
+        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+        const context = canvas.getContext('2d');
+        const sample = () => { context.drawImage(video, video.videoWidth/2, video.videoHeight/2, 1, 1, 0, 0, 1, 1); return [...context.getImageData(0,0,1,1).data]; };
+        const first = sample();
+        const duration = video.duration;
+        if (!Number.isFinite(duration) || duration <= 0) throw Error('Missing video duration');
+        await new Promise((resolve, reject) => { video.onseeked = resolve; video.onerror = reject; video.currentTime = Math.max(0.01, duration-0.1); });
+        await fetch('/video-proof?data='+encodeURIComponent(JSON.stringify({first,last:sample(),duration,width:video.videoWidth,height:video.videoHeight})));
+      })().catch(error => fetch('/video-proof?data='+encodeURIComponent(JSON.stringify({error:String(error)}))));
+    </script>`);
+    return;
+  }
+  if (url.pathname === "/record-red" || url.pathname === "/record-blue") {
+    const color = url.pathname === "/record-red" ? "red" : "blue";
+    response.setHeader("content-type", "text/html");
+    response.end(`<!doctype html><style>html,body{margin:0;height:100%;background:${color}}</style><title>Recording ${color} fixture</title><span></span><script>setInterval(()=>document.querySelector('span').textContent=Date.now(),50)</script>`);
+    return;
+  }
   if (url.pathname === "/typed") { typed = url.searchParams.get("value"); response.end("ok"); return; }
   if (url.pathname === "/slow-download") { slowResponse = response; startedDownload(); return; }
   if (url.pathname === "/download") { response.end(request.headers.cookie?.includes("probe=retained") ? "authenticated" : "anonymous"); return; }
@@ -35,6 +65,15 @@ const options = {
   prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, model.baseUrl),
 };
 const preview = (command, input) => client.request("host-extension", ["tau.preview", command, input]);
+async function until(read, test) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const value = await read();
+    if (test(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("Recording fixture did not reach its expected state.");
+}
 async function start(fresh) {
   const host = await startTestHost({ name, fresh, kits: true, login: false }, options);
   owned = true;
@@ -79,6 +118,36 @@ try {
   const frame = await preview("live-frame", { maxWidth: 640, viewer: { id: "smoke", width: 390, height: 844, dpr: 1, touch: true } });
   assert(frame?.data && frame.width > 0 && frame.height > 0);
   assert.equal(Buffer.from(frame.data, "base64").readUInt16BE(0), 0xffd8);
+  // Native MP4 encoding, incremental fragments and a navigation in the middle.
+  const recordings = join(host.userData, "kit-state", "tau.preview", "recordings");
+  await preview("open", { url: `${url}/record-red` });
+  assert((await preview("record-start")).recordingSince);
+  const [recordingName] = await readdir(recordings);
+  assert(recordingName.endsWith(".mp4"));
+  const recordingPath = join(recordings, recordingName);
+  const redBytes = await until(async () => (await stat(recordingPath)).size, size => size > 100);
+  await preview("open", { url: `${url}/record-blue` });
+  await until(async () => (await stat(recordingPath)).size, size => size > redBytes + 100);
+  const recording = await preview("record-stop");
+  assert.equal(recording.mimeType, "video/mp4");
+  assert.equal(recording.path, recordingPath);
+  recordedVideo = await readFile(recording.path);
+  assert.equal(recordedVideo.subarray(4,8).toString(), "ftyp");
+  assert.equal(recordedVideo.length, recording.size);
+  await preview("open", { url: `${url}/video-check` });
+  const proof = await until(async () => videoProof, value => Boolean(value));
+  assert(!proof.error, proof.error);
+  assert(proof.width > 0 && proof.height > 0 && proof.duration > 0);
+  assert(proof.first[0] > 200 && proof.first[2] < 50, JSON.stringify(proof));
+  assert(proof.last[2] > 200 && proof.last[0] < 50, JSON.stringify(proof));
+  // A static page can be recorded again; closing finalizes and clears the run.
+  await preview("open", { url: `${url}/login` });
+  await preview("record-start");
+  await preview("live-frame", { maxWidth: 640 });
+  await preview("close");
+  assert.equal((await preview("state")).recordingSince, undefined);
+  assert.equal((await readdir(recordings)).filter(fileName => fileName.endsWith(".mp4")).length, 2);
+  await preview("open", { url: `${url}/login` });
   await preview("download", { url: `${url}/download`, destination: "report.txt" });
   assert.equal(await readFile(join(host.workspace, "report.txt"), "utf8"), "authenticated");
   await assert.rejects(preview("download", { url: `${url}/download`, destination: "report.txt" }));
@@ -108,5 +177,5 @@ try {
   const outside = join(host.workspace, "..", "outside.html");
   await writeFile(outside, "<title>Private content</title>");
   await assert.rejects(preview("open", { url: pathToFileURL(outside).href }), /workspace/u);
-  console.log("Headless Preview passed: real Tau host, no display, trusted input, live JPEG, console errors, authenticated downloads, no overwrite, retained and deleted profiles, restart, offline files and workspace confinement.");
+  console.log("Headless Preview passed: real Tau host, no display, trusted input, live JPEG, console errors, authenticated downloads, no overwrite, retained and deleted profiles, restart, offline files, workspace confinement and decoded MP4 video across navigation with incremental fragments, restart and close.");
 } finally { clearTimeout(guard); await cleanup(); }
