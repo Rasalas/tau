@@ -488,6 +488,17 @@ describe("guide admission ownership", () => {
     expect((await h.call<GuideResult>("guide-get", { url: URL })).guide?.headSha).toBe("head-1");
   });
 
+  it("stops an admitted queued child by its known job handle during startup", async () => {
+    const h = await harness({ writer: "codex", spawnStatus: "pending" });
+    h.spawn.mockImplementationOnce(async () => ({ threadId: "job-A", status: "pending" }));
+    await h.write();
+    const admit = (h.spawn.mock.calls[0]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
+    await admit({ sessionId: "actual-A", backendKind: "codex", parentThreadId: "parent" } as HostThread);
+    h.heads.set(42, "head-2");
+    await h.write();
+    expect(h.stop).toHaveBeenCalledWith({ threadId: "job-A" });
+  });
+
   it("cannot overwrite a queued replacement's displayed thread when an older spawn returns late", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
@@ -496,9 +507,12 @@ describe("guide admission ownership", () => {
     const first = h.write();
     await vi.waitFor(async () => expect(await h.tool({ sessionId: "guide-thread", cwd: "/wt" }, GUIDE_SUBMIT_TOOL)).toBeTruthy());
     h.spawn.mockImplementationOnce(async () => ({ threadId: "queued", status: "pending" }));
+    h.stop.mockRejectedValueOnce(new Error("The actual thread is not in AgentBook yet"));
     h.heads.set(42, "head-2");
     await h.write();
     release(); await first;
+    expect(h.stop).toHaveBeenCalledTimes(2);
+    expect(h.stop).toHaveBeenLastCalledWith({ threadId: "guide-thread" });
     const queued = await h.call<GuideResult>("guide-get", { url: URL });
     expect(queued.run).toMatchObject({ state: "running", headSha: "head-2" });
     expect(queued.run).not.toHaveProperty("threadId");

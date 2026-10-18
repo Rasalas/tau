@@ -42,6 +42,7 @@ interface Active {
   runtime: "pi" | "codex";
   threadId?: string;
   jobId?: string;
+  superseded?: boolean;
 }
 
 export interface Guides {
@@ -190,8 +191,9 @@ export function registerGuides(
       const run: Active = { runId: newRunId(), key, ref, headSha: detail.headSha, startedAt: new Date(now()).toISOString(), parentThreadId: via.parentThreadId, title: detail.title, runtime };
       // A newer head replaces a run still reading the old one; its result would be for a commit already moved past.
       if (running) {
+        running.superseded = true;
         active.delete(key);
-        if (running.threadId || running.jobId) void agentCall("stop-agent", { threadId: running.threadId ?? running.jobId }).catch(() => undefined);
+        if (running.threadId || running.jobId) void agentCall("stop-agent", { threadId: running.jobId ?? running.threadId }).catch(() => undefined);
       }
       active.set(key, run);
       runs.set(key, { state: "running", headSha: run.headSha, startedAt: run.startedAt });
@@ -234,7 +236,7 @@ export function registerGuides(
         }) as { threadId: string; status?: string; error?: string };
         if (started.error) throw new Error(started.error);
         run.jobId = started.threadId;
-        if (started.status === "pending" && active.get(key)?.runId !== run.runId) void agentCall("stop-agent", { threadId: started.threadId }).catch(() => undefined);
+        if (run.superseded || started.status === "pending" && active.get(key)?.runId !== run.runId) void agentCall("stop-agent", { threadId: started.threadId }).catch(() => undefined);
         services.log("review.guide-started", `${ref.repo}#${ref.number} · ${run.headSha.slice(0, 9)}`);
         return { outcome: "started", ...(await resultFor(ref, cwd)), ...(run.threadId ? { threadId: run.threadId } : {}) };
       } catch (error) {
