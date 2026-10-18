@@ -345,7 +345,7 @@ export class ExternalMcpAuthorization {
       if (!code || code.clientId !== input.clientId || code.redirectUri !== input.redirectUri
         || !equalChallenge(code.challenge, mcpChallenge(input.codeVerifier))) throw new McpOAuthError("invalid_grant");
       if (code.used) return this.replay(draft, code.grantId);
-      const grant = draft.grants.find((entry) => entry.id === code.grantId && !this.blocked.has(entry.id));
+      const grant = draft.grants.find((entry) => entry.id === code.grantId && entry.createdAt <= this.now() && !this.blocked.has(entry.id));
       if (!grant) throw new McpOAuthError("invalid_grant");
       const tokens = this.issue(draft, grant);
       return { result: tokens, committed: () => { code.used = true; } };
@@ -359,7 +359,7 @@ export class ExternalMcpAuthorization {
     return this.mutate((draft) => {
       const token = draft.refresh.find((entry) => entry.hash === tokenHash);
       const grant = token && draft.grants.find((entry) => entry.id === token.grantId && entry.clientId === input.clientId && !this.blocked.has(entry.id));
-      if (!token || !grant) throw new McpOAuthError("invalid_grant");
+      if (!token || !grant || token.issuedAt > this.now()) throw new McpOAuthError("invalid_grant");
       if (token.used) return this.replay(draft, grant.id);
       if (requested?.some((scope) => !token.scopes.includes(scope))) throw new McpOAuthError("invalid_scope");
       const result = this.issue(draft, grant, requested ?? token.scopes);
@@ -381,7 +381,7 @@ export class ExternalMcpAuthorization {
     if (resource !== this.resource || token.length > 128 || !token.startsWith("tau_mcp_access_")) return undefined;
     const tokenHash = hash(token);
     const found = this.stored.access.find((entry) => entry.hash === tokenHash);
-    if (!found || found.expiresAt <= this.now()) return undefined;
+    if (!found || found.issuedAt > this.now() || found.expiresAt <= this.now()) return undefined;
     const grant = this.stored.grants.find((entry) => entry.id === found.grantId && entry.expiresAt > this.now() && !this.blocked.has(entry.id));
     return grant ? { grant: { ...grant, scopes: [...found.scopes], execution: found.scopes.includes("tau:threads") ? grant.execution : "read-only" }, expiresAt: Math.min(found.expiresAt, grant.expiresAt) } : undefined;
   }

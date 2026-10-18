@@ -87,7 +87,7 @@ async function acquireFlock(path: string, owner: LockOwner): Promise<ProcessLock
       ftruncateSync(fd, 0);
       writeSync(fd, text, 0);
     };
-    write(owner);
+    try { write(owner); } catch (error) { closeSync(fd); throw error; }
     let held = true;
     return {
       path,
@@ -113,8 +113,13 @@ async function acquireSocket(path: string, owner: LockOwner, address: string): P
   if (!listening) return undefined;
   // The lock must not keep a process alive that has nothing else to do.
   server.unref();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, ownerText(owner), { mode: 0o600 });
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, ownerText(owner), { mode: 0o600 });
+  } catch (error) {
+    await new Promise<void>((done) => server.close(() => done()));
+    throw error;
+  }
   let held = true;
   return {
     path,

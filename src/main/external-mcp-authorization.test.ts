@@ -247,6 +247,18 @@ describe("external MCP authorization", () => {
     expect(f.store.ownerState().grants).toEqual([]);
   });
 
+  it("refuses future-issued credentials after the clock moves backwards", async () => {
+    const f = await fixture();
+    const tokens = await f.tokens();
+    const { exchange } = await f.consent();
+    f.advance(-60_000);
+    expect(f.store.authenticate(tokens.access_token, resource)).toBeUndefined();
+    await expect(f.refresh(tokens)).rejects.toThrow("invalid_grant");
+    await expect(f.store.exchangeCode(exchange)).rejects.toThrow("invalid_grant");
+    f.advance(60_000);
+    await expect(f.refresh(tokens)).resolves.toHaveProperty("access_token");
+  });
+
   it("aborts leased calls at access expiry and frees their slots", async () => {
     const f = await fixture();
     const tokens = await f.tokens();
@@ -467,6 +479,16 @@ describe("external MCP authorization", () => {
     await f.store.revokeGrant(grant.id);
     const reopened = await f.reopen();
     await expect(reopened.refresh({ clientId: f.client.id, refreshToken: tokens.refresh_token, resource })).rejects.toThrow("invalid_grant");
+  });
+
+  it("releases a failed lock acquisition so owner repair permits reopening", async () => {
+    const f = await fixture();
+    await f.store.close();
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(`${f.path}.lock`);
+    await expect(f.reopen()).rejects.toThrow();
+    await rm(`${f.path}.lock`, { recursive: true });
+    await expect(f.reopen()).resolves.toBeInstanceOf(ExternalMcpAuthorization);
   });
 
   it("rejects oversized public fields without a mutation or digest scan", async () => {
