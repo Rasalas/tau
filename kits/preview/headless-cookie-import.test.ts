@@ -5,30 +5,31 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createPreviewHostExtension, type PreviewSurface, type PreviewSurfaceOptions } from "./host.js";
 import { EMPTY_PREVIEW_STATE, PREVIEW_HOST_EXTENSION_ID } from "./protocol.js";
-import { writeChromiumStore } from "./cookie-fixtures.js";
+import { writeFirefoxStore } from "./cookie-fixtures.js";
 import type { CookieToWrite } from "./cookie-read.js";
 
 const folders: string[] = [];
-afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(folders.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+afterEach(async () => { vi.useRealTimers(); vi.unstubAllEnvs(); await Promise.all(folders.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 function latch() { let release!: () => void; const wait = new Promise<void>((resolve) => { release = resolve; }); return { wait, release }; }
-async function setup(options: { helper?: "missing" | "desktop" | "startup" | "write" | "flush" | "close"; gate?: ReturnType<typeof latch> } = {}) {
+async function setup(options: { helper?: "missing" | "desktop" | "startup" | "write" | "flush" | "close" | "write-flush"; activeClose?: boolean; gate?: ReturnType<typeof latch> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-headless-cookie-test-")); folders.push(root);
   vi.stubEnv("TAU_IMPORT_ROOTS", root);
   const home = join(root, "browsers");
-  const chrome = process.platform === "darwin" ? join(home, "Library", "Application Support", "Google", "Chrome") : join(home, ".config", "google-chrome");
-  await mkdir(chrome, { recursive: true });
-  await writeFile(join(chrome, "Local State"), JSON.stringify({ profile: { info_cache: { Default: { name: "Fixture" } } } }));
-  writeChromiumStore(join(chrome, "Default", "Cookies"), [
-    { host: "selected.test", name: "fixture", value: "synthetic", plain: true },
-    { host: "other.test", name: "other", value: "excluded", plain: true },
-  ], { secret: "unused" });
+  const firefox = process.platform === "darwin" ? join(home, "Library", "Application Support", "Firefox")
+    : process.platform === "win32" ? join(home, "AppData", "Roaming", "Mozilla", "Firefox") : join(home, ".mozilla", "firefox");
+  await mkdir(firefox, { recursive: true });
+  await writeFile(join(firefox, "profiles.ini"), "[Profile0]\nName=Fixture\nIsRelative=1\nPath=Profiles/fixture.default\n");
+  writeFirefoxStore(join(firefox, "Profiles", "fixture.default", "cookies.sqlite"), [
+    { host: "selected.test", name: "fixture", value: "synthetic" },
+    { host: "other.test", name: "other", value: "excluded" },
+  ]);
   const events: string[] = [];
   const written: Array<{ partition: string; cookie: CookieToWrite }> = [];
   const created: Array<{ options: PreviewSurfaceOptions; surface: PreviewSurface }> = [];
   const client = vi.fn(async () => { throw new Error("Must not write through the client"); });
   let forcedSurfaces = 0;
   const registry = await activateHostKit(createPreviewHostExtension(async (surfaceOptions) => {
-    const helper = surfaceOptions.headless === true && forcedSurfaces++ === 0;
+    const helper = surfaceOptions.headless === true && forcedSurfaces++ === 0 && !options.activeClose;
     events.push(`open:${surfaceOptions.partition}:${helper ? "helper" : "page"}`);
     if (helper && options.helper === "startup") throw new Error("helper startup failed");
     if (helper && options.helper === "missing") return undefined;
@@ -43,10 +44,10 @@ async function setup(options: { helper?: "missing" | "desktop" | "startup" | "wr
       cookies: {
         set: async (cookie) => {
           events.push(`write:${surfaceOptions.partition}`); await options.gate?.wait;
-          if (options.helper === "write") throw new Error("write failed");
+          if ((options.helper === "write" || options.helper === "write-flush")) throw new Error("write failed");
           written.push({ partition: surfaceOptions.partition, cookie });
         },
-        flushStore: async () => { events.push("flush"); if (options.helper === "flush") throw new Error("flush failed"); },
+        flushStore: async () => { events.push(`flush:${helper ? "helper" : "page"}`); if ((helper && (options.helper === "flush" || options.helper === "write-flush")) || (!helper && options.activeClose)) throw new Error("flush failed"); },
       },
       destroy: async () => { events.push(`close:${surfaceOptions.partition}:${helper ? "helper" : "page"}`); if (helper && options.helper === "close") throw new Error("close failed"); },
     };
@@ -56,7 +57,7 @@ async function setup(options: { helper?: "missing" | "desktop" | "startup" | "wr
     registerTurnObserver: () => () => undefined, registerRuntimeExtension: () => () => undefined,
   });
   const call = (command: string, input?: unknown) => registry.invoke(PREVIEW_HOST_EXTENSION_ID, command, input);
-  const request = { source: "chrome", profile: "Default", sites: ["selected.test"], into: "default", partition: "persist:workbench" };
+  const request = { source: "firefox", profile: "Profiles/fixture.default", sites: ["selected.test"], into: "default", partition: "persist:workbench" };
   return { registry, call, request, events, written, created, client };
 }
 
@@ -64,14 +65,14 @@ describe("headless cookie import through the user dialog commands", () => {
   it("lists only fixture sources/sites and imports only selected sites into the active owned profile", async () => {
     const test = await setup();
     try {
-      await expect(test.call("import-sources")).resolves.toMatchObject([{ id: "chrome" }]);
+      await expect(test.call("import-sources")).resolves.toMatchObject([{ id: "firefox" }]);
       await expect(test.call("import-sites", test.request)).resolves.toEqual([{ site: "other.test", cookies: 1 }, { site: "selected.test", cookies: 1 }]);
       await test.call("open", { url: "https://fixture.invalid/" });
       const result = await test.call("import-cookies", test.request);
       expect(result).toEqual({ imported: 1, skipped: 0, skippedSites: [], profile: "default", reloaded: true });
       expect(JSON.stringify(result)).not.toContain("synthetic");
       expect(test.written.map(({ partition, cookie }) => [partition, cookie.name])).toEqual([["persist:tau-preview", "fixture"]]);
-      expect(test.events).toEqual(["open:persist:tau-preview:page", "load:persist:tau-preview", "close:persist:tau-preview:page", "open:persist:tau-preview:helper", "write:persist:tau-preview", "flush", "close:persist:tau-preview:helper", "open:persist:tau-preview:page", "load:persist:tau-preview"]);
+      expect(test.events).toEqual(["open:persist:tau-preview:page", "load:persist:tau-preview", "flush:page", "close:persist:tau-preview:page", "open:persist:tau-preview:helper", "write:persist:tau-preview", "flush:helper", "close:persist:tau-preview:helper", "open:persist:tau-preview:page", "load:persist:tau-preview"]);
       expect(test.created.slice(1).every(({ options }) => options.headless)).toBe(true);
       expect(test.client).not.toHaveBeenCalled();
     } finally { await test.registry.dispose(); }
@@ -82,7 +83,7 @@ describe("headless cookie import through the user dialog commands", () => {
       await test.call("use-profile", { name: "work" }); await test.call("use-profile", { name: "default" });
       await test.call("open", { url: "https://fixture.invalid/" }); test.events.length = 0;
       expect(await test.call("import-cookies", { ...test.request, into: "work" })).toMatchObject({ profile: "work", reloaded: false });
-      expect(test.events).toEqual(["open:persist:tau-preview-work:helper", "write:persist:tau-preview-work", "flush", "close:persist:tau-preview-work:helper"]);
+      expect(test.events).toEqual(["open:persist:tau-preview-work:helper", "write:persist:tau-preview-work", "flush:helper", "close:persist:tau-preview-work:helper"]);
       expect((await test.call("profiles") as { active: string }).active).toBe("default");
     } finally { await test.registry.dispose(); }
   });
@@ -95,7 +96,7 @@ describe("headless cookie import through the user dialog commands", () => {
       expect(test.written).toEqual([]);
     } finally { await test.registry.dispose(); }
   });
-  it.each(["missing", "desktop", "startup", "flush", "close"] as const)("cleans up and restores the pinned page after %s failure", async (helper) => {
+  it.each(["missing", "desktop", "startup", "flush", "close", "write-flush"] as const)("cleans up and restores the pinned page after %s failure", async (helper) => {
     const test = await setup({ helper });
     try {
       await test.call("open", { url: "https://fixture.invalid/" });
@@ -105,10 +106,33 @@ describe("headless cookie import through the user dialog commands", () => {
       expect(test.client).not.toHaveBeenCalled();
     } finally { await test.registry.dispose(); }
   });
+  it("refuses the import if the active profile did not finish saving before handoff", async () => {
+    const test = await setup({ activeClose: true });
+    try {
+      await test.call("open", { url: "https://fixture.invalid/" });
+      await expect(test.call("import-cookies", test.request)).rejects.toThrow("flush failed");
+      expect(test.written).toEqual([]);
+      expect(test.events.some((event) => event.endsWith(":helper"))).toBe(false);
+      expect((await test.call("state") as { url: string }).url).toBe("https://fixture.invalid/");
+    } finally { await test.registry.dispose(); }
+  });
   it("counts refused writes without leaking their values", async () => {
     const test = await setup({ helper: "write" });
     try { expect(await test.call("import-cookies", test.request)).toEqual({ imported: 0, skipped: 1, skippedSites: ["selected.test"], profile: "default", reloaded: false }); }
     finally { await test.registry.dispose(); }
+  });
+  it("keeps a user-approved import pending beyond the registry's ordinary client timeout", async () => {
+    const gate = latch(); const test = await setup({ gate });
+    await test.call("open", { url: "https://fixture.invalid/" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const importing = test.call("import-cookies", test.request);
+    void importing.catch(() => undefined);
+    try {
+      while (!test.events.some((event) => event.startsWith("write:"))) await new Promise((resolve) => setImmediate(resolve));
+      await vi.advanceTimersByTimeAsync(31_000);
+      gate.release();
+      await expect(importing).resolves.toMatchObject({ imported: 1, profile: "default", reloaded: true });
+    } finally { gate.release(); vi.useRealTimers(); await test.registry.dispose(); }
   });
   it("holds profile mutation and shutdown behind the import, closing the helper first", async () => {
     const gate = latch(); const test = await setup({ gate });

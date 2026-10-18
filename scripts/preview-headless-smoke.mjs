@@ -148,11 +148,13 @@ try {
   await preview("close");
   await preview("import-sources");
   assert.equal(savedPageRequests, 2, "opening the owned profile must not restore saved pages");
+  await preview("open", { url: `${url}/check` });
   await checkImported("import-after-close.json", true);
   await preview("use-profile", { name: "untouched" });
   await preview("open", { url: `${url}/check` });
   await checkImported("import-other-before.json", false);
   assert.equal((await preview("import-cookies", request)).reloaded, false);
+  assert.equal(savedPageRequests, 2, "inactive helper must not open saved pages");
   assert.equal((await preview("profiles")).active, "untouched");
   assert.equal((await preview("state")).url, `${url}/check`);
   await checkImported("import-other-after.json", false);

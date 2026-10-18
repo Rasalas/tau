@@ -44,7 +44,7 @@ import {
 import { EVIDENCE_CALLER, previewSecretFocus, type PreviewEvidenceFrame } from "./evidence-frame.js";
 import { pickCrop, readAnnotationResult, readPickedElement } from "./picks.js";
 import { probeHttp, scanPorts } from "./ports.js";
-import { PreviewProfileStore, profilePartition } from "./profiles.js";
+import { PreviewProfileStore, normalizeProfileName, profilePartition } from "./profiles.js";
 import { PREVIEW_WINDOW_UNAVAILABLE, previewWindowUnavailable } from "./window-availability.js";
 import { pageCall, type PreviewActionResult } from "./page-script.js";
 import { POINTER_PATH, previewAgentCursor, previewInputOverlay, previewInputOverlayEnd, previewSecretNote, type PageCursorMark } from "./page-cursor.js";
@@ -56,7 +56,6 @@ import { PREVIEW_TOOL_GROUP, previewTools, type PreviewToolController } from "./
 import { defaultsFromSettings } from "./settings.js";
 import { DEFAULT_PREVIEW_DEFAULTS, fitViewport, readAppearance, readDefaults, readViewport, readZoom, stepZoom } from "./viewport.js";
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
-import { normalizeProfileName } from "./profiles.js";
 import type { CookieJar } from "./cookie-import.js";
 import { pageInput, previewFocusKind, readPreviewInput, type PreviewPageInput } from "./remote-input.js";
 import { pinnedWindowCalls } from "../_host-window/pinned-calls.js";
@@ -1081,12 +1080,18 @@ class PreviewController implements PreviewToolController {
       const partition = profilePartition(name);
       const active = profiles.active === name;
       const url = active ? this.view?.state().url : undefined;
-      if (active) await this.closeSurface();
       const options = { ...this.surfaceOptions(partition), headless: true, onChange: () => undefined };
       let helper: PreviewSurface | undefined;
       let result: Omit<CookieImportResult, "profile" | "reloaded"> | undefined;
       let reloaded = false;
       try {
+        if (active) {
+          try {
+            await this.stopRecording();
+            if (!this.view?.cookies) throw new Error("The owned Preview browser cannot save cookies.");
+            await this.view.cookies.flushStore();
+          } finally { await this.closeSurface(); }
+        }
         helper = await this.createSurface(options);
         if (helper?.state().surface !== "headless" || !helper.cookies) throw new Error("The owned Preview browser cannot import cookies.");
         const jar = helper.cookies;
@@ -1095,7 +1100,8 @@ class PreviewController implements PreviewToolController {
           cookieImportEnvironment((target) => {
             if (target !== partition) throw new Error("Not the selected Preview profile.");
             return jar;
-          }));
+          }, process.env, process.platform, () => this.context.services.noteSubprocess()));
+        if (result.imported === 0) await jar.flushStore();
       } finally {
         try { await helper?.destroy(); }
         finally {
@@ -1296,7 +1302,7 @@ export function createPreviewHostExtension(
       };
       context.registerCommand("import-sources", async () => await headless() ? listCookies("sources") : cookies.sources());
       context.registerCommand("import-sites", async (input) => await headless() ? listCookies("sites", input) : cookies.sites(input));
-      context.registerCommand("import-cookies", async (input) => await headless() ? controller.importHeadlessCookies(input) : cookies.import(input));
+      context.registerCommand("import-cookies", async (input) => await headless() ? controller.importHeadlessCookies(input) : cookies.import(input), { long: true });
       context.registerCommand("import-open-access", async () => {
         if (!(await headless())) return cookies.openAccess();
         if (process.platform === "darwin") {

@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { CookieImportResult, CookieImportSite, CookieImportSource } from "./protocol.js";
-import { fixtureKeyProvider, keychainKeyProvider, type CookieKeyProvider } from "./cookie-keys.js";
+import { fixtureKeyProvider, createKeychainKeyProvider, type CookieKeyProvider } from "./cookie-keys.js";
 import {
   CookieImportError,
   LINUX_FALLBACK_SECRET,
@@ -42,13 +42,13 @@ const IMPORT_ROOTS_VARIABLE = "TAU_IMPORT_ROOTS";
  * The machine's own browsers and keychain, or, when an isolated instance names
  * fixture roots, a stand-in home and keychain under the first of them.
  */
-export function cookieImportEnvironment(jar: CookieImportEnvironment["jar"], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): CookieImportEnvironment {
+export function cookieImportEnvironment(jar: CookieImportEnvironment["jar"], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, noteSubprocess?: () => void): CookieImportEnvironment {
   const root = env[IMPORT_ROOTS_VARIABLE]?.split(delimiter).find(Boolean);
   if (root) {
     const home = join(root, "browsers");
     return { paths: { platform, home, appData: join(home, "AppData", "Roaming") }, keys: fixtureKeyProvider(home), jar };
   }
-  return { paths: { platform, home: homedir(), ...(env.APPDATA ? { appData: env.APPDATA } : {}) }, keys: keychainKeyProvider, jar };
+  return { paths: { platform, home: homedir(), ...(env.APPDATA ? { appData: env.APPDATA } : {}) }, keys: createKeychainKeyProvider(noteSubprocess), jar };
 }
 
 const fields = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
