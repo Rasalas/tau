@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PARENT_LINK_ENTRY, type HostExtensionRegistry, type HostMcpTool, type HostTurnObserver, type RuntimeSessionInfo } from "tau/host-extension";
+import { PARENT_LINK_ENTRY, type HostExtensionRegistry, type HostMcpTool, type HostTurnObserver, type RuntimeSessionInfo, type HostThread } from "tau/host-extension";
 import type { UiFileDiff } from "tau";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { isGuideSession, registerGuides } from "./guide-host.js";
@@ -29,14 +29,20 @@ const detail = (number: number, headSha: string): PullRequestDetail => ({
   additions: 4, deletions: 0, changedFiles: 2, reviewers: [], labels: [], commits: [{ oid: "abcdef1234", headline: "First commit", committedAt: "" }],
 } as unknown as PullRequestDetail);
 
-interface Options { enabled?: boolean; model?: string; effort?: string; levels?: string[]; instructions?: string; stateDir?: string; spawnStatus?: string; service?: RequestService; headRef?: boolean; catalogWait?: Promise<void> }
+interface Options { enabled?: boolean; model?: string; effort?: string; levels?: string[]; instructions?: string; stateDir?: string; spawnStatus?: string; service?: RequestService; headRef?: boolean; catalogWait?: Promise<void>; writer?: string }
 
 async function harness(options: Options = {}) {
   const stateDir = options.stateDir ?? await mkdtemp(join(tmpdir(), "tau-guides-"));
   if (!options.stateDir) cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   const heads = new Map<number, string>([[42, "head-1"], [43, "head-1"]]);
   const events: GuideEvent[] = [];
-  const spawn = vi.fn(async (_input: unknown) => ({ threadId: "guide-thread", status: options.spawnStatus ?? "running" }));
+  let duringSpawn: (() => Promise<void>) | undefined;
+  const spawn = vi.fn(async (input: unknown) => {
+    const beforePrompt = (input as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
+    if (options.writer === "codex" && options.spawnStatus !== "pending") await beforePrompt({ sessionId: "guide-thread", backendKind: "codex", parentThreadId: "parent" } as HostThread);
+    await duringSpawn?.();
+    return { threadId: "guide-thread", status: options.spawnStatus ?? "running" };
+  });
   const stop = vi.fn(async (_input: unknown) => ({}));
   const discard = vi.fn(async (_input: unknown) => ({ detail: "" }));
   const notify = vi.fn(async (_input: unknown) => undefined);
@@ -68,7 +74,7 @@ async function harness(options: Options = {}) {
     },
   }, {
     stateDir,
-    settings: async () => ({ options: { "review-guides": options.enabled ?? true }, values: { "review-guide-model": options.model ?? "", "review-guide-effort": options.effort ?? "", "review-guide-instructions": options.instructions ?? "" } }),
+    settings: async () => ({ options: { "review-guides": options.enabled ?? true }, values: { "review-guide-runtime": options.writer ?? "", "review-guide-model": options.model ?? "", "review-guide-effort": options.effort ?? "", "review-guide-instructions": options.instructions ?? "" } }),
     thread: ((id: string) => id === "parent" ? { sessionId: "parent", cwd: "/repo" } : id === "guide-thread" ? { sessionId: id, cwd: "/wt", model: { provider: "anthropic", id: "haiku" } } : undefined) as never,
     runtimeChoices: async () => { catalogRead(); await options.catalogWait; return [{ backend: { kind: "pi", label: "Pi" }, enabled: true, readiness: { kind: "pi", label: "Pi", state: "ready" }, catalog: { kind: "pi", models: [{ provider: "test", id: "guide", name: "Guide" }], thinkingLevels: { "test/guide": options.levels ?? ["off", "low", "high"] } } }]; },
     registerTurnObserver: (value) => { observer = value; return () => undefined; },
@@ -94,7 +100,7 @@ async function harness(options: Options = {}) {
     return { registered, handlers, activeTools, find: (name: string) => registered.find((entry) => entry.name === name)! };
   };
   const run = (entry: HostMcpTool, params: unknown) => entry.execute("id", params as never, undefined as never, undefined as never, undefined as never);
-  return { stateDir, catalogRead, call, write, spawn, stop, discard, notify, fetchHead, events, heads, tool, guideTools, run, ended: (outcome: "completed" | "failed" = "completed") => observer!.runEnded!("guide-thread", outcome) };
+  return { beforeSpawnReturn: (callback: () => Promise<void>) => { duringSpawn = callback; }, stateDir, catalogRead, call, write, spawn, stop, discard, notify, fetchHead, events, heads, tool, guideTools, run, ended: (outcome: "completed" | "failed" = "completed") => observer!.runEnded!("guide-thread", outcome) };
 }
 
 const submission = { runId: "run-1", stops: [{ title: "The contract", summary: "Shape first.", excerpts: [{ path: "a.ts", side: "new", start: 1, end: 11, caption: "shape" }], notes: [{ path: "a.ts", line: 10, title: "why", body: "because" }], questions: ["Why?"] }] };
@@ -366,5 +372,80 @@ describe("storage", () => {
     expect(result.currentHeadSha).toBe("head-3");
     // One guide per request: another request has none.
     expect((await second.call<GuideResult>("guide-get", { url: OTHER })).guide).toBeNull();
+  });
+});
+
+describe("Codex guide writer", () => {
+  const session = { sessionId: "guide-thread", cwd: "/wt" };
+  it("keeps the Pi default and refuses an unsupported writer before fetch or spawn", async () => {
+    const h = await harness({ writer: "claude-code" });
+    expect(await h.write()).toMatchObject({ outcome: "failed", detail: expect.stringContaining("Choose Pi or Codex") });
+    expect(h.spawn).not.toHaveBeenCalled();
+    expect(h.fetchHead).not.toHaveBeenCalled();
+  });
+  it("uses Codex's runtime model with reading tools and run-specific MCP submission", async () => {
+    const h = await harness({ writer: "codex", model: "test/pi-model", effort: "high" });
+    await h.write();
+    const request = h.spawn.mock.calls[0]![0] as Record<string, unknown>;
+    expect(request.definition).toMatchObject({ runtime: "codex", tools: ["read", "grep", "find", "ls", GUIDE_DIFF_TOOL, GUIDE_SUBMIT_TOOL] });
+    expect(request.definition).not.toHaveProperty("access");
+    expect(request).not.toHaveProperty("model");
+    expect(request).not.toHaveProperty("thinkingLevel");
+    expect(await h.tool({ sessionId: "parent", cwd: "/repo" }, GUIDE_SUBMIT_TOOL)).toBeUndefined();
+    expect(await h.tool({ sessionId: "unrelated", cwd: "/wt" }, GUIDE_SUBMIT_TOOL)).toBeUndefined();
+    const diffTool = await h.tool(session, GUIDE_DIFF_TOOL);
+    expect(JSON.stringify(await h.run(diffTool, { runId: "run-1" }))).toContain("a.ts");
+    const submit = await h.tool(session, GUIDE_SUBMIT_TOOL);
+    await expect(h.run(submit, { ...submission, runId: "another-run" })).rejects.toThrow("over or was replaced");
+    await expect(h.run(h.guideTools("unrelated").find(GUIDE_SUBMIT_TOOL), submission)).rejects.toThrow("another thread");
+    await h.run(submit, submission);
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).guide?.stops[0]?.excerpts).toEqual([{ path: "a.ts", side: "new", start: 10, end: 11, caption: "shape" }]);
+    expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
+  });
+  it("admits a queued child before its MCP tools are offered, and refuses a replaced admission", async () => {
+    const h = await harness({ writer: "codex", spawnStatus: "pending" });
+    await h.write();
+    expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
+    const old = (h.spawn.mock.calls[0]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
+    h.heads.set(42, "head-2");
+    await h.write();
+    await expect(old({ sessionId: "old", backendKind: "codex", parentThreadId: "parent" } as HostThread)).rejects.toThrow("replaced or cancelled");
+    const admit = (h.spawn.mock.calls[1]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
+    await admit({ sessionId: session.sessionId, backendKind: "codex", parentThreadId: "parent" } as HostThread);
+    expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeTruthy();
+    await h.run((await h.tool(session, GUIDE_SUBMIT_TOOL)), { ...submission, runId: "run-2" });
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).guide?.headSha).toBe("head-2");
+  });
+  it("fails a queued admission after a push without offering tools or disturbing a newer run", async () => {
+    const h = await harness({ writer: "codex", spawnStatus: "pending" });
+    await h.write();
+    const admit = (h.spawn.mock.calls[0]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
+    h.heads.set(42, "head-2");
+    await expect(admit({ sessionId: session.sessionId, backendKind: "codex", parentThreadId: "parent" } as HostThread)).rejects.toThrow("head changed");
+    expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
+    expect(await h.call<GuideResult>("guide-get", { url: URL })).toMatchObject({ run: { state: "failed" } });
+  });
+
+  it("cleans up early completion without re-registering the ended thread after spawn returns", async () => {
+    const h = await harness({ writer: "codex" });
+    h.beforeSpawnReturn(async () => {
+      await h.run(await h.tool(session, GUIDE_SUBMIT_TOOL), submission);
+      h.ended();
+    });
+    expect(await h.write()).toMatchObject({ outcome: "started", guide: { headSha: "head-1" }, run: null });
+    await vi.waitFor(() => expect(h.discard).toHaveBeenCalledTimes(1));
+    h.ended();
+    expect(h.discard).toHaveBeenCalledTimes(1);
+  });
+  it("revokes tools after failure and rejects submission after a push", async () => {
+    const h = await harness({ writer: "codex" });
+    await h.write();
+    const submit = await h.tool(session, GUIDE_SUBMIT_TOOL);
+    h.heads.set(42, "head-2");
+    await expect(h.run(submit, submission)).rejects.toThrow("head changed");
+    h.ended("failed");
+    expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).guide).toBeNull();
+    await vi.waitFor(() => expect(h.discard).toHaveBeenCalled());
   });
 });

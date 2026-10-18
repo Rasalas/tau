@@ -14,6 +14,7 @@ import {
   type HostExtension,
   type HostExtensionContext,
   type HostMcpTool,
+  type HostThread,
   type RuntimeSessionInfo,
 } from "tau/host-extension";
 import {
@@ -602,6 +603,7 @@ export function createAgentsHostExtension(options: {
       const prompts = new Map<string, string>();
       /** The definition each queued agent was spawned with, until its thread is built. */
       const definitions = new Map<string, AgentDefinition>();
+      const beforePrompts = new Map<string, (thread: HostThread) => Promise<void>>();
       const runtimes = new Map<string, string>();
       /** The revision a queued agent's worktree starts from, for a spawn that names one. */
       const startPoints = new Map<string, string>();
@@ -690,6 +692,7 @@ export function createAgentsHostExtension(options: {
           const piRuntime = runtime === "pi";
           const started = await services.sessions.start({
             cwd: workspace?.path ?? agent.projectPath,
+            ...(beforePrompts.has(agent.id) ? { beforePrompt: beforePrompts.get(agent.id)! } : {}),
             prompt: definition && !piRuntime ? firstMessageWithPersona(definition, prompt) : prompt,
             title: agent.title,
             ...(requestedEfforts.has(agent.id) ? { thinkingLevel: requestedEfforts.get(agent.id)! } : {}),
@@ -730,6 +733,7 @@ export function createAgentsHostExtension(options: {
         } finally {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
+          beforePrompts.delete(agent.id);
           runtimes.delete(agent.id);
           startPoints.delete(agent.id);
           requestedEfforts.delete(agent.id);
@@ -770,6 +774,7 @@ export function createAgentsHostExtension(options: {
         } finally {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
+          beforePrompts.delete(agent.id);
           runtimes.delete(agent.id);
           requestedEfforts.delete(agent.id);
           if (--starting === 0) acceptedEarly.clear();
@@ -842,7 +847,7 @@ export function createAgentsHostExtension(options: {
         });
       };
 
-      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread", extra: { definition?: AgentDefinition; startAt?: string; thinkingLevel?: string } = {}) => {
+      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread", extra: { definition?: AgentDefinition; startAt?: string; thinkingLevel?: string; beforePrompt?: (thread: HostThread) => Promise<void> } = {}) => {
         const request = decodeSpawnRequest(input);
         const depth = await depthOf(parent.sessionId);
         const projectPath = await resolveProject(request.projectPath, parent.cwd);
@@ -857,10 +862,10 @@ export function createAgentsHostExtension(options: {
           ? inheritedModel ?? (parentModel ? `${parentModel.provider}/${parentModel.id}` : undefined)
           : undefined);
         const explicitModel = request.model ?? definition?.model;
-        if (nativeDelegation(parentRuntime) && runtime === parentRuntime && sameModel(explicitModel, modelOf(parentModel) ?? inheritedModel)) throw nativeDelegationError();
+        if (!extra.definition && nativeDelegation(parentRuntime) && runtime === parentRuntime && sameModel(explicitModel, modelOf(parentModel) ?? inheritedModel)) throw nativeDelegationError();
         const choice = await chooseMachine(request, definition, projectPath, model, runtime);
         if (request.runtime || definition?.runtime || explicitModel) model = await delegationModel(services, projectPath, runtime, model, choice.machine?.id);
-        if (nativeDelegation(parentRuntime) && runtime === parentRuntime && model === modelOf(parentModel)) throw nativeDelegationError();
+        if (!extra.definition && nativeDelegation(parentRuntime) && runtime === parentRuntime && model === modelOf(parentModel)) throw nativeDelegationError();
         if (runtime !== "pi" && definition?.access) {
           throw new Error(`"access" only applies on the pi runtime; the ${runtime} runtime cannot honour it.`);
         }
@@ -868,6 +873,7 @@ export function createAgentsHostExtension(options: {
         const requested = request.workspace ?? definition?.workspace;
         const repository = await isRepository(projectPath);
         if (choice.machine) {
+          if (extra.beforePrompt) throw new Error("A beforePrompt callback requires a child on this machine.");
           const where = choice.machine.name;
           if (request.workspace === "shared") throw new Error(`A thread on ${where} works in a worktree there; "shared" only works on this machine.`);
           if (!repository) throw new Error(`Only a Git repository's state can go to ${where}; run this one here with machine "local".`);
@@ -882,6 +888,7 @@ export function createAgentsHostExtension(options: {
         prompts.set(id, request.prompt);
         runtimes.set(id, runtime);
         if (definition) definitions.set(id, definition);
+        if (extra.beforePrompt) beforePrompts.set(id, extra.beforePrompt);
         if (extra.startAt) startPoints.set(id, extra.startAt);
         if (extra.thinkingLevel) requestedEfforts.set(id, extra.thinkingLevel);
         // A child writes by default, and two writers in one checkout collide;
@@ -916,7 +923,7 @@ export function createAgentsHostExtension(options: {
         admitting.add(id);
         // Never acknowledge a pending handle whose complete intent is only in RAM.
         try { await persistLinks(); } catch (error) {
-          book.forget(id); prompts.delete(id); definitions.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id); startPoints.delete(id); requestedEfforts.delete(id);
+          book.forget(id); prompts.delete(id); definitions.delete(id); beforePrompts.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id); startPoints.delete(id); requestedEfforts.delete(id);
           throw error;
         } finally { admitting.delete(id); }
         if (claimSlot(id)) await startAgent(book.linkFor(id)!);
@@ -1242,6 +1249,7 @@ export function createAgentsHostExtension(options: {
         if (link.status === "pending") {
           prompts.delete(link.id);
           definitions.delete(link.id);
+          beforePrompts.delete(link.id);
           runtimes.delete(link.id);
           requestedEfforts.delete(link.id);
           wanted.delete(link.id);
@@ -1770,8 +1778,10 @@ export function createAgentsHostExtension(options: {
           const startAt = typeof fields.startAt === "string" && /^[0-9a-f]{7,64}$/iu.test(fields.startAt) ? fields.startAt : undefined;
           if (fields.startAt !== undefined && !startAt) throw new HostCommandError("startAt must be a commit id.");
           const thinkingLevel = typeof fields.thinkingLevel === "string" && fields.thinkingLevel.trim() ? fields.thinkingLevel.trim() : undefined;
+          if (fields.beforePrompt !== undefined && typeof fields.beforePrompt !== "function") throw new HostCommandError("beforePrompt must be an in-process callback.");
+          const beforePrompt = fields.beforePrompt as ((thread: HostThread) => Promise<void>) | undefined;
           const source = typeof fields.source === "string" && fields.source ? fields.source.slice(0, 64) : "tau.review";
-          return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt: fields.prompt, title: fields.title, model: fields.model, workspace: "worktree" }, undefined, source, { definition, ...(startAt ? { startAt } : {}), ...(thinkingLevel ? { thinkingLevel } : {}) });
+          return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt: fields.prompt, title: fields.title, model: fields.model, workspace: "worktree" }, undefined, source, { definition, ...(startAt ? { startAt } : {}), ...(thinkingLevel ? { thinkingLevel } : {}), ...(beforePrompt ? { beforePrompt } : {}) });
         }, { long: true, callers: [REVIEW_KIT_ID] }),
       ];
 

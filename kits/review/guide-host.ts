@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { HostCommandError, PARENT_LINK_ENTRY, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo } from "tau/host-extension";
+import { HostCommandError, PARENT_LINK_ENTRY, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo, type HostThread } from "tau/host-extension";
 import { Type } from "typebox";
 import { decodeGuideStops, guideChangeOf, normalizeGuide } from "./guide-normalize.js";
 import { renderChangeList, renderFileDiff } from "./guide-diff.js";
 import {
-  GUIDE_AGENT, GUIDE_DIFF_TOOL, GUIDE_ENABLED_OPTION, GUIDE_EFFORT_VALUE, GUIDE_EVENT, GUIDE_GET_COMMAND, GUIDE_INSTRUCTIONS_VALUE, GUIDE_MAX_REQUESTS, GUIDE_MODEL_VALUE,
+  GUIDE_AGENT, GUIDE_DIFF_TOOL, GUIDE_ENABLED_OPTION, GUIDE_EFFORT_VALUE, GUIDE_EVENT, GUIDE_GET_COMMAND, GUIDE_INSTRUCTIONS_VALUE, GUIDE_MAX_REQUESTS, GUIDE_MODEL_VALUE, GUIDE_RUNTIME_VALUE,
   GUIDE_SUBMIT_TOOL, GUIDE_WRITE_COMMAND, guideKey,
   type GuideEvent, type GuideResult, type GuideRun, type GuideWriteResult,
 } from "./guide-protocol.js";
@@ -39,6 +39,7 @@ interface Active {
   startedAt: string;
   parentThreadId: string;
   title: string;
+  runtime: "pi" | "codex";
   threadId?: string;
 }
 
@@ -91,6 +92,7 @@ export function registerGuides(
     const read = await services.settings?.(cwd).catch(() => undefined);
     return {
       enabled: read?.options[GUIDE_ENABLED_OPTION] === true,
+      runtime: read?.values[GUIDE_RUNTIME_VALUE]?.trim() || "pi",
       model: read?.values[GUIDE_MODEL_VALUE]?.trim() ?? "",
       effort: read?.values[GUIDE_EFFORT_VALUE]?.trim() ?? "",
       instructions: read?.values[GUIDE_INSTRUCTIONS_VALUE]?.trim() ?? "",
@@ -144,6 +146,7 @@ export function registerGuides(
 
   const fail = (run: Active, detail: string) => {
     if (active.get(run.key)?.runId !== run.runId) return;
+    if (active.get(run.key)?.runId !== run.runId) return;
     active.delete(run.key);
     runs.set(run.key, { state: "failed", headSha: run.headSha, failedAt: new Date(now()).toISOString(), detail });
     services.log("review.guide-failed", `${run.ref.repo}#${run.ref.number} · ${detail}`);
@@ -170,6 +173,8 @@ export function registerGuides(
       const cwd = via.cwd ?? parent.cwd;
       const config = await settings(cwd);
       if (!config.enabled) return asked("failed", "Review guides are off. Turn them on in Settings → Source control.");
+      if (config.runtime !== "pi" && config.runtime !== "codex") return asked("failed", "Choose Pi or Codex to write review guides.");
+      const runtime = config.runtime;
       const provider = sources.get(ref.service);
       if (!provider.info.capabilities.guides || !provider.info.capabilities.files || !provider.requestHeadRef) return asked("failed", `${provider.info.name} does not support review guides.`);
       const project = await projectRepository(workspace, sources, cwd);
@@ -181,7 +186,7 @@ export function registerGuides(
       if (!detail.headSha) return asked("failed", "This host did not report the pull request's head commit.");
       const running = active.get(key);
       if (running?.headSha === detail.headSha) return asked("running", undefined);
-      const run: Active = { runId: newRunId(), key, ref, headSha: detail.headSha, startedAt: new Date(now()).toISOString(), parentThreadId: via.parentThreadId, title: detail.title };
+      const run: Active = { runId: newRunId(), key, ref, headSha: detail.headSha, startedAt: new Date(now()).toISOString(), parentThreadId: via.parentThreadId, title: detail.title, runtime };
       // A newer head replaces a run still reading the old one; its result would be for a commit already moved past.
       if (running) {
         active.delete(key);
@@ -197,7 +202,7 @@ export function registerGuides(
           settledReview(ref),
           reads.stackOf ? reads.stackOf(ref).catch(() => undefined) : Promise.resolve(undefined),
         ]);
-        const effort = await modelEffort(services, config.model, config.effort, cwd);
+        const effort = runtime === "pi" ? await modelEffort(services, config.model, config.effort, cwd) : undefined;
         if ((await reads.detail(ref, true)).headSha !== run.headSha) throw new Error("The request head changed. Write the guide again for the latest commit.");
         if (changes.files.length === 0) throw new Error("This pull request has no changed files.");
         if (active.get(key)?.runId !== run.runId) return asked("running");
@@ -206,13 +211,26 @@ export function registerGuides(
           settledReview: review, instructions: config.instructions,
           ...(stack && stack.size > 1 ? { stack: { position: stack.number, size: stack.size } } : {}),
         });
+        const beforePrompt = async (thread: HostThread) => {
+          try {
+            if (active.get(key)?.runId !== run.runId) throw new Error("This guide run was replaced or cancelled before its first prompt.");
+            if (thread.backendKind !== runtime || thread.parentThreadId !== run.parentThreadId) throw new Error("The guide writer started on another runtime or parent thread.");
+            if ((await reads.detail(ref, true)).headSha !== run.headSha) throw new Error("The request head changed. Write the guide again for the latest commit.");
+            if (active.get(key)?.runId !== run.runId) throw new Error("This guide run was replaced or cancelled before its first prompt.");
+            if (run.threadId && run.threadId !== thread.sessionId) throw new Error("This guide run already belongs to another thread.");
+            run.threadId = thread.sessionId;
+            threads.set(thread.sessionId, run);
+          } catch (error) { fail(run, message(error)); throw error; }
+        };
+        const { access: _access, ...codexDefinition } = GUIDE_DEFINITION;
+        const definition = runtime === "pi" ? GUIDE_DEFINITION : { ...codexDefinition, runtime };
         const started = await agentCall("spawn", {
           parentThreadId: via.parentThreadId, prompt, title: `Review guide for #${ref.number}`, startAt: run.headSha,
-          ...(config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition: GUIDE_DEFINITION,
+          ...(runtime === "pi" && config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition, beforePrompt,
         }) as { threadId: string; status?: string; error?: string };
         if (started.error) throw new Error(started.error);
-        // A queued agent has no thread yet; its first tool call says which thread it is.
-        if (started.status !== "pending") { run.threadId = started.threadId; threads.set(started.threadId, run); }
+        // Admission binds a queued child before its first prompt can list tools.
+        if (started.status !== "pending" && active.get(key)?.runId === run.runId) { run.threadId = started.threadId; threads.set(started.threadId, run); }
         const live = runs.get(key);
         if (live?.state === "running") runs.set(key, { ...live, ...(run.threadId ? { threadId: run.threadId } : {}) });
         services.log("review.guide-started", `${ref.repo}#${ref.number} · ${run.headSha.slice(0, 9)}`);
@@ -230,7 +248,10 @@ export function registerGuides(
     const run = [...active.values()].find((candidate) => candidate.runId === runId);
     if (!run) throw new Error("This run is over or was replaced by a newer one. Stop; there is nothing more to submit.");
     if (run.threadId && run.threadId !== session.sessionId) throw new Error("This run belongs to another thread.");
-    if (!run.threadId) { run.threadId = session.sessionId; threads.set(session.sessionId, run); }
+    if (!run.threadId) {
+      if (run.runtime !== "pi") throw new Error("The guide thread has not been admitted yet.");
+      run.threadId = session.sessionId; threads.set(session.sessionId, run);
+    }
     return run;
   };
 
@@ -357,7 +378,10 @@ export function registerGuides(
   }, { long: true, audit: { label: "started a review guide" } });
 
   const disposers = [
-    services.mcp.registerTools(agentTools),
+    services.mcp.registerTools((session) => [
+      ...agentTools(session),
+      ...([...active.values()].some((run) => run.runtime === "codex" && run.threadId === session.sessionId) ? guideTools(session) : []),
+    ]),
     services.registerRuntimeExtension("tau-review-guides", (pi, session) => {
       for (const tool of agentTools(session)) pi.registerTool(tool);
       // Only a guide agent lists the two tools of the run; they are registered on sub-agents so persona tool lists can name them.
@@ -383,5 +407,5 @@ export function registerGuides(
     }),
   ];
 
-  return { dispose: () => { for (const dispose of disposers.reverse()) dispose(); void store.idle(); } };
+  return { dispose: () => { active.clear(); for (const dispose of disposers.reverse()) dispose(); void store.idle(); } };
 }

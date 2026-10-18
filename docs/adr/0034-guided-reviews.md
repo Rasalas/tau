@@ -48,7 +48,8 @@ around a change. The run therefore starts a thread from the `pr-guide` definitio
   `submit_pull_request_guide { runId, stops }` is how the guide arrives, as
   structured arguments instead of free text. Both register in the runtime
   extension of a Pi thread whose persona is `pr-guide`; no other thread lists them.
-  They are not offered over MCP, so the guide agent runs on Pi (any model Pi has).
+  Codex writers receive the same two tools over their filtered MCP credential,
+  offered only after the host admits the exact child before its first prompt.
   The `runId` in its prompt names the run the call belongs to.
 - The seam Agents Kit gains for this (API 1.59.0) is small and generic: a `spawn`
   host command for callers that name an inline definition, a parent thread and a
@@ -101,8 +102,21 @@ commit, falls back to that ref if necessary, and verifies that the requested
 commit is present before spawning. The worktree always starts at that commit,
 never at the fallback ref's newer tip. Fresh request reads refuse a changed head
 before spawning or accepting a guide. Unsupported providers hide the tab and
-refuse `guide-write` before fetching or spawning. The writer still runs on Pi;
-other runtime writers require enforcement of the same tool and access limits.
+refuse `guide-write` before fetching or spawning. The writer is chosen explicitly in Review's extension settings: Pi by default,
+or Codex. Pi keeps its dedicated guide model and effort settings. Codex uses its
+normal runtime model, inheriting a Codex parent's model when compatible. Codex
+receives the reading/guide-tool allowlist without `access`: its existing backend
+uses that list to enforce a read-only sandbox, disable other native tools and
+filter the thread's MCP credential. Other runtimes remain refused.
+
+Agents Kit forwards an in-process `beforePrompt` callback to the existing
+`sessions.start` admission seam. Review binds the actual thread, parent and
+runtime there and rechecks the head, including after time in the queue. Only that
+thread can list or execute the run's MCP tools. The callback stays in memory;
+a restart loses guide runs, and their tools remain unavailable. Trusted kits may
+create a child in an explicit worktree on the parent's runtime/model; ordinary
+delegation still follows the native-subagent default. Early completion cannot
+reinsert an ended run after spawn returns.
 
 ## Consequences
 
