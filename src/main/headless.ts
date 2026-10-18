@@ -34,6 +34,8 @@ import { HostClientRegistry } from "./host-clients.js";
 import { hostAllowedOrigins } from "./host-origin.js";
 import { createProtocolServer, startSocketHostTransport, type SocketHostTransport, type SocketHostTransportOptions } from "./host-transport-socket.js";
 import { createWebClientServer } from "./host-web-server.js";
+import { hostHttpListener, type HostHttpRoute } from "./host-http-route.js";
+import type { ExternalMcpHttp } from "./external-mcp-http.js";
 import { isLoopbackHost, parseListen, rememberPort, rememberedPort, stickyListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
@@ -409,6 +411,7 @@ async function main(): Promise<void> {
     updates: () => updates,
     clientCalls,
     connections: () => connectionsService(),
+    externalMcp: () => externalMcp,
     connect: () => connect,
     service: () => service,
     machines: () => machines,
@@ -450,10 +453,31 @@ async function main(): Promise<void> {
   });
   localMethods = methods;
 
+  let externalMcp: ExternalMcpHttp | undefined;
+  let externalRoute: HostHttpRoute | undefined;
+  let mcpProxyUrl: string | undefined;
+  if (process.env.TAU_MCP_ORIGIN) {
+    const { ExternalMcpHttp } = await import("./external-mcp-http.js");
+    externalMcp = await ExternalMcpHttp.open({
+      userData, issuer: process.env.TAU_MCP_ORIGIN, version: hostVersion,
+      browserOrigins: process.env.TAU_MCP_BROWSER_ORIGINS?.split(",").filter(Boolean),
+      host: () => started.require(),
+      proxyUrl: () => {
+        const proxy = network?.state().listeners.find((listener) => listener.kind === "proxy");
+        return mcpProxyUrl ?? (proxy ? `http://${proxy.host}:${proxy.port}` : undefined);
+      },
+    });
+    externalRoute = (request, response, trust) => externalMcp!.handle(request, response, trust);
+    // An explicitly enabled HTTPS publication keeps its loopback proxy backend
+    // for this host's lifetime, including a desktop-supervised host.
+    if (!proxyListen) await networkContributions.services.holdProxy();
+  }
+
   const shutdown = createHostShutdown(
     async () => {
       // A host on its way out starts no window on the display.
       clientCalls.setWindowLauncher(undefined);
+      await externalMcp?.close();
       await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
     },
     async (code) => {
@@ -503,7 +527,7 @@ async function main(): Promise<void> {
   // A built client turns this host into something a browser can open. Without
   // one the host is exactly what it was: a socket and nothing else.
   const web = existsSync(join(webRoot, "index.html"))
-    ? createWebClientServer({ dir: webRoot, ...(tls ? { tls } : {}) })
+    ? createWebClientServer({ dir: webRoot, ...(tls ? { tls } : {}), route: externalRoute })
     : undefined;
   const transportOptions: SocketHostTransportOptions = {
     listen: listenOn,
@@ -522,7 +546,7 @@ async function main(): Promise<void> {
     allowNonLoopback: process.env.TAU_HOST_INSECURE === "1",
     allowedOrigins: () => [...staticOrigins, ...publishedOrigins],
     ...(tls ? { tls } : {}),
-    ...(web ? { attachTo: web.server } : {}),
+    ...(web ? { attachTo: web.server } : externalRoute ? { attachTo: createProtocolServer(tls, hostHttpListener(externalRoute, "loopback")) } : {}),
     clients,
     calls: clientCalls,
     logger: hostLog,
@@ -586,13 +610,14 @@ async function main(): Promise<void> {
   if (proxyListen) {
     const { host, port } = parseListen(proxyListen);
     if (!isLoopbackHost(host)) throw new Error(`TAU_HOST_PROXY_LISTEN must be a loopback address; ${host} is not. The proxy in front of it does the TLS.`);
-    const proxy = web ? createServer(web.handler("proxy")) : createProtocolServer();
+    const proxy = web ? createServer(web.handler("proxy")) : createProtocolServer(undefined, hostHttpListener(externalRoute, "proxy"));
     socket.attach(proxy, "proxy");
     await new Promise<void>((resolve, reject) => {
       proxy.once("error", reject);
       proxy.listen(port, host, () => resolve());
     });
     const address = proxy.address();
+    mcpProxyUrl = `http://${host}:${typeof address === "object" && address ? address.port : port}`;
     console.log(`tau-host proxy listener on http://${host}:${typeof address === "object" && address ? address.port : port}`);
   }
   // Settings → Connections: the listeners beyond loopback, off until the owner turns them on.
@@ -601,7 +626,7 @@ async function main(): Promise<void> {
   network = await HostNetworkAccess.open({
     userData,
     attach: socket.attach,
-    ...(web ? { web: web.handler } : {}),
+    web: (trust) => web?.handler(trust) ?? hostHttpListener(externalRoute, trust),
     logger: hostLog,
     bonjour: { announcer, serviceType: bonjourType, hostId, name: machineName },
     proxyHeld: () => networkContributions.proxyHeld,

@@ -3,6 +3,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import type { ListenerTrust } from "./host-local-files.js";
+import { hostHttpListener, type HostHttpRoute } from "./host-http-route.js";
 
 /** Everything the built client is made of; anything else is not served at all. */
 const CONTENT_TYPES: Record<string, string> = {
@@ -30,6 +31,7 @@ export interface WebClientServerOptions {
   tls?: { cert: string; key: string };
   /** What the server this builds may conclude about its peers; `loopback` by default. */
   trust?: ListenerTrust;
+  route?: HostHttpRoute;
 }
 
 export interface WebClientServer {
@@ -48,9 +50,9 @@ export interface WebClientServer {
 export function createWebClientServer(options: WebClientServerOptions): WebClientServer {
   const root = resolve(options.dir);
 
-  const handler = (_trust: ListenerTrust): RequestListener => (request, response) => {
+  const handler = (trust: ListenerTrust): RequestListener => hostHttpListener(options.route, trust, (request, response) => {
     void handle(request, response).catch(() => send(response, 500, "text/plain; charset=utf-8", "internal error"));
-  };
+  });
   const listener = handler(options.trust ?? "loopback");
   const server: Server = options.tls
     ? createHttpsServer({ cert: options.tls.cert, key: options.tls.key, minVersion: "TLSv1.2" }, listener)

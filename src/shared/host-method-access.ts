@@ -10,12 +10,14 @@ import { HOST_COMMAND_METADATA, type HostCommandName } from "./host-command-meta
  */
 export type MethodAccess = "read" | "write" | "owner";
 
-export const HOST_METHOD_ACCESS: Readonly<Record<string, MethodAccess>> = Object.fromEntries(
+// Enumeration compatibility for host consumers. Scalar client checks read the
+// canonical metadata directly, so their bundle need not build a second table.
+export const HOST_METHOD_ACCESS: Readonly<Record<string, MethodAccess>> = /* @__PURE__ */ (() => Object.fromEntries(
   Object.entries(HOST_COMMAND_METADATA).map(([name, declaration]) => [name, declaration.access]),
-);
+))();
 
 export function methodAccess(method: string): MethodAccess {
-  return HOST_METHOD_ACCESS[method] ?? "write";
+  return HOST_COMMAND_METADATA[method as HostCommandName]?.access ?? "write";
 }
 
 /**

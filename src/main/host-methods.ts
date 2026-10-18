@@ -149,6 +149,7 @@ export interface HostMethodDeps {
   /** Who else may connect (ADR 0023); absent where no socket listens. */
   connections?(): HostConnectionsService | undefined;
   connect?(): HostConnect | undefined;
+  externalMcp?(): Pick<import("./external-mcp-http.js").ExternalMcpHttp, "manage"> | undefined;
   /** The host's machine running it as a service; absent for a host in the window's process. */
   service?(): HostServiceManager | undefined;
   /** Other machines this host's agents reach (ADR 0027); absent for a host in the window's process. */
@@ -408,6 +409,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     }),
 
     ...createConnectionsMethods(() => deps.connections?.()),
+    "external-mcp-manage": bindHostCommand(HOST_COMMANDS["external-mcp-manage"], async ([input], context) => {
+      if (!isHostOwner(context.principal)) throw ownerRefusal();
+      const external = deps.externalMcp?.();
+      if (!external) throw Object.assign(new Error("Set TAU_MCP_ORIGIN to this machine's HTTPS origin before starting Tau."), { code: HOST_ERROR.unsupported });
+      return external.manage(input, context.principal);
+    }),
     ...createConnectMethods(() => deps.connect?.()),
     ...createHostServiceMethods(() => deps.service?.()),
     ...createMachineMethods(() => deps.machines?.()),
