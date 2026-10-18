@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PARENT_LINK_ENTRY, type HostExtensionRegistry, type HostMcpTool, type HostTurnObserver, type RuntimeSessionInfo, type HostThread } from "tau/host-extension";
 import type { UiFileDiff } from "tau";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
+import { createBitbucketProvider } from "./provider-bitbucket.js";
+import type { ProviderTools } from "./provider.js";
 import { isGuideSession, registerGuides } from "./guide-host.js";
 import { GUIDE_AGENT, GUIDE_DIFF_TOOL, GUIDE_EVENT, GUIDE_SUBMIT_TOOL, type GuideEvent, type GuideResult, type GuideWriteResult } from "./guide-protocol.js";
 import type { SourceControl } from "./provider-registry.js";
@@ -34,7 +36,7 @@ interface Options { enabled?: boolean; model?: string; effort?: string; levels?:
 async function harness(options: Options = {}) {
   const stateDir = options.stateDir ?? await mkdtemp(join(tmpdir(), "tau-guides-"));
   if (!options.stateDir) cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
-  const heads = new Map<number, string>([[42, "head-1"], [43, "head-1"]]);
+  const heads = new Map<number, string>([[42, options.service === "bitbucket" ? "a".repeat(40) : "head-1"], [43, "head-1"]]);
   const events: GuideEvent[] = [];
   let duringSpawn: (() => Promise<void>) | undefined;
   const spawn = vi.fn(async (input: unknown) => {
@@ -53,15 +55,15 @@ async function harness(options: Options = {}) {
   let runtime: ((pi: unknown, session: RuntimeSessionInfo) => void) | undefined;
   const service = options.service ?? "github";
   const host = service === "gitlab" ? "gitlab.com" : service === "forgejo" ? "codeberg.org" : service === "bitbucket" ? "bitbucket.org" : "github.com";
-  const requestUrl = (number: number) => `https://${host}/example/project/${service === "gitlab" ? "-/merge_requests" : service === "forgejo" ? "pulls" : "pull"}/${number}`;
+  const requestUrl = (number: number) => `https://${host}/example/project/${service === "gitlab" ? "-/merge_requests" : service === "forgejo" ? "pulls" : service === "bitbucket" ? "pull-requests" : "pull"}/${number}`;
   const provider = {
     info: { ...PROVIDERS[service], capabilities: { ...PROVIDERS[service].capabilities, conversations: false } }, repository: () => ({ host, repo: "example/project" }),
-    ...(options.headRef === false ? {} : { requestHeadRef: (ref: { number: number }) => `refs/${service === "gitlab" ? "merge-requests" : "pull"}/${ref.number}/head` }),
+    ...(options.headRef === false ? {} : service === "bitbucket" ? { requestHeadSource: createBitbucketProvider({} as ProviderTools, {}).requestHeadSource } : { requestHeadRef: (ref: { number: number }) => `refs/${service === "gitlab" ? "merge-requests" : "pull"}/${ref.number}/head` }),
     requestUrl: (target: { host: string; repo: string }, number: number) => `https://${target.host}/${target.repo}/pull/${number}`, threads: async () => [],
   };
   const sources = { forUrl: (url: string) => { const ref = parseRequestUrl(url); return ref ? { ref, provider } : undefined; }, detect: async () => service, get: () => provider } as unknown as SourceControl;
   const reads: PullRequestReads = {
-    detail: async (ref) => ({ ...detail(ref.number, heads.get(ref.number) ?? "head-1"), ref }),
+    detail: async (ref) => ({ ...detail(ref.number, heads.get(ref.number) ?? "head-1"), ...(service === "bitbucket" ? { headRepository: "fork/project", headRef: "feat/guide" } : {}), ref }),
     files: async () => structuredClone(files),
   };
   const workspace = async () => ({ root: "/repo", base: "main", remote: { name: "origin", url: `git@${host}:example/project.git` } });
@@ -115,7 +117,7 @@ describe("write", () => {
   });
 
   it("refuses an unsupported provider, a thread that is not open and another repository", async () => {
-    const unsupported = await harness({ service: "bitbucket" });
+    const unsupported = await harness({ service: "azure-devops" });
     expect((await unsupported.write()).detail).toContain("does not support");
     expect(unsupported.fetchHead).not.toHaveBeenCalled();
     expect(unsupported.spawn).not.toHaveBeenCalled();
@@ -519,5 +521,18 @@ describe("guide admission ownership", () => {
     const admit = (h.spawn.mock.calls[1]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
     await admit({ sessionId: "replacement", backendKind: "codex", parentThreadId: "parent" } as HostThread);
     expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ headSha: "head-2", threadId: "replacement" });
+  });
+});
+
+
+describe("Bitbucket guides through the registry", () => {
+  it("starts from the confirmed fork and stores a guide for the full head", async () => {
+    const h = await harness({ service: "bitbucket" });
+    expect((await h.write()).outcome).toBe("started");
+    expect(h.fetchHead).toHaveBeenCalledWith("/repo", "https://bitbucket.org/fork/project.git", "a".repeat(40), "refs/heads/feat/guide");
+    await h.run(h.guideTools().find(GUIDE_SUBMIT_TOOL), submission);
+    const result = await h.call<GuideResult>("guide-get", { url: "https://bitbucket.org/example/project/pull-requests/42" });
+    expect(result.guide?.headSha).toBe("a".repeat(40));
+    expect(result.guide?.stops[0]?.excerpts[0]).toMatchObject({ start: 10, end: 11 });
   });
 });

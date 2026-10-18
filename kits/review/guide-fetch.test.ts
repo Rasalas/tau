@@ -14,6 +14,7 @@ vi.mock("node:child_process", async (original) => {
   const actual = await original<typeof import("node:child_process")>();
   return { ...actual, execFile: vi.fn(actual.execFile) };
 });
+const actualProcess = await vi.importActual<typeof import("node:child_process")>("node:child_process");
 const roots: string[] = [];
 const noteSubprocess = vi.fn();
 const fetchGuideHead = createGuideFetch(noteSubprocess);
@@ -33,7 +34,8 @@ async function fixture(headRef: string) {
   git(source, "push", "-q", remote, `HEAD:${headRef}`);
   return { root, source, remote, local, sha };
 }
-function refuseShaFetch() {
+function refuseShaFetch(afterValidation = false) {
+  if (afterValidation) vi.mocked(execFile).mockImplementationOnce(actualProcess.execFile);
   vi.mocked(execFile).mockImplementationOnce((...args) => {
     const callback = args.at(-1) as (error: Error, out: string, stderr: string) => void;
     callback(new Error("Server refuses fetching by object id"), "", "Server refuses fetching by object id");
@@ -74,6 +76,19 @@ describe("fetching the exact guide head", () => {
     refuseShaFetch();
     await expect(fetchGuideHead(f.local, "origin", f.sha, headRef)).rejects.toThrow();
     expect(git(f.local, "rev-parse", "HEAD")).not.toBe(git(f.source, "rev-parse", "HEAD"));
+  });
+  it("validates and fetches the source branch from a separate fork remote", async () => {
+    const headRef = "refs/heads/feat/output";
+    const f = await fixture(headRef);
+    refuseShaFetch(true);
+    await fetchGuideHead(f.local, f.remote, f.sha, headRef);
+    expect(git(f.local, "rev-parse", `${f.sha}^{commit}`)).toBe(f.sha);
+    expect(noteSubprocess).toHaveBeenCalledTimes(4);
+  });
+  it.each(["refs/heads/../bad", "refs/heads/a.lock", "refs/heads/with space", "refs/heads/a@{b"])("rejects invalid source ref %s before fetching", async (headRef) => {
+    const f = await fixture("refs/pull/42/head");
+    await expect(fetchGuideHead(f.local, f.remote, f.sha, headRef)).rejects.toThrow();
+    expect(vi.mocked(execFile).mock.calls.some((call) => call[1]?.[0] === "fetch")).toBe(false);
   });
   it("rejects missing or option-shaped commit/ref facts before starting Git", async () => {
     await expect(fetchGuideHead("/unused", "origin", "--all", "refs/pull/42/head")).rejects.toThrow("valid head");

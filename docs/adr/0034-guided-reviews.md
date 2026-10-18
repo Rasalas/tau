@@ -95,12 +95,16 @@ automatic. When a run ends the host emits `pr-guide-changed`; every window shows
 a toast, and Push Kit tells a phone that is away (Review Kit becomes a caller of
 its `notify` command).
 
-GitHub, GitLab and Forgejo offer guides through the same provider seam. Each
+GitHub, GitLab, Forgejo and Bitbucket Cloud offer guides through the same provider seam. Each
 provider supplies its fork-aware head ref: `refs/pull/N/head` for GitHub and
 Forgejo, `refs/merge-requests/N/head` for GitLab. The fetch first asks for the exact
 commit, falls back to that ref if necessary, and verifies that the requested
 commit is present before spawning. The worktree always starts at that commit,
-never at the fallback ref's newer tip. Fresh request reads refuse a changed head
+never at the fallback ref's newer tip. Bitbucket Cloud instead supplies
+its confirmed source repository and branch. Forks are fetched from the fork's
+HTTPS repository, and Git validates the branch ref before fetching. An abbreviated
+Bitbucket head expands only from a unique full hash in the PR's fresh commit
+listing; missing, malformed or ambiguous identity facts refuse the guide. Fresh request reads refuse a changed head
 before spawning or accepting a guide. Unsupported providers hide the tab and
 refuse `guide-write` before fetching or spawning. The writer is chosen explicitly in Review's extension settings: Pi by default,
 or Codex. Pi keeps its dedicated guide model and effort settings. Codex uses its

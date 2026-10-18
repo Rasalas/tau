@@ -15,6 +15,7 @@ import {
   type PullRequestVerdict,
   type ReviewRequest,
 } from "./protocol.js";
+import { readBranchHead } from "./branch-head.js";
 import { readFileText } from "./provider-file.js";
 import type { GitCredential, ProviderTools, RepositoryTarget, SourceControlProvider } from "./provider.js";
 import { parseRemote } from "./pull-request-hosting.js";
@@ -147,6 +148,10 @@ export function parseBitbucketDetail(ref: PullRequestRef, pull: string, comments
   }
   const files = list(record(JSON.parse(diffstat)).values);
   const source = record(raw.source);
+  const head = text(record(source.commit).hash);
+  const matches = head && /^[a-f0-9]{12,39}$/iu.test(head) ? [...new Set(list(record(JSON.parse(commits)).values)
+    .map((commit) => text(commit.hash)).filter((hash): hash is string => typeof hash === "string" && /^[a-f0-9]{40}$/iu.test(hash) && hash.toLowerCase().startsWith(head.toLowerCase())))] : [];
+  const headSha = matches.length === 1 ? matches[0] : head;
   return {
     ref,
     ...(author ? { author } : {}),
@@ -155,7 +160,8 @@ export function parseBitbucketDetail(ref: PullRequestRef, pull: string, comments
     ...(state(raw.state) === "merged" && text(raw.updated_on) ? { mergedAt: text(raw.updated_on) } : {}),
     ...(state(raw.state) === "closed" && text(raw.updated_on) ? { closedAt: text(raw.updated_on) } : {}),
     ...(text(record(source.branch).name) ? { headRef: text(record(source.branch).name) } : {}),
-    ...(text(record(source.commit).hash) ? { headSha: text(record(source.commit).hash) } : {}),
+    ...(headSha ? { headSha } : {}),
+    ...(text(record(source.repository).full_name) ? { headRepository: text(record(source.repository).full_name) } : {}),
     title: text(raw.title) ?? `#${ref.number}`,
     body: typeof raw.description === "string" ? raw.description : "",
     state: state(raw.state),
@@ -292,6 +298,11 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
   return {
     kind,
     info: PROVIDERS.bitbucket,
+    requestHeadSource: (_ref, known) => {
+      const head = readBranchHead({ repository: known.headRepository, branch: known.headRef, sha: known.headSha });
+      if (!head) throw new HostCommandError("Bitbucket did not confirm the source repository, branch and full commit. Refresh the request and try again.");
+      return { repository: `https://${WEB_HOST}/${head.repository}.git`, ref: `refs/heads/${head.branch}` };
+    },
     missing: () => tools.findCommand("git") ? undefined : "Git is not installed or not on your PATH; Tau reads Bitbucket's credential from Git's credential helper.",
     repository: (remoteUrl) => {
       const found = parseRemote(remoteUrl);

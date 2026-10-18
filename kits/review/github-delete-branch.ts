@@ -1,6 +1,6 @@
 import type { MergeOutcome, PullRequestBranchHead, PullRequestRef } from "./protocol.js";
 import type { ProviderTools } from "./provider.js";
-import { readBranchHead } from "./branch-deletion.js";
+import { readBranchHead } from "./branch-head.js";
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const ASSOCIATIONS = "query($owner: String!, $name: String!, $branch: String!) { repository(owner: $owner, name: $name) { ref(qualifiedName: $branch) { name associatedPullRequests(states: OPEN, first: 1) { totalCount } } } }";

@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionContext } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { createBitbucketProvider, parseBitbucketDetail } from "./provider-bitbucket.js";
+import type { ProviderTools } from "./provider.js";
 import { createReviewHostExtension } from "./host.js";
 import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFileText, type PullRequestFiles, type PullRequestList, type PullRequestThread, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
 import type { HttpFetch } from "./provider.js";
@@ -30,7 +32,7 @@ async function answer(url: string, method: string): Promise<{ status: number; bo
   if (path.startsWith("/pullrequests/") && path.includes("/statuses")) return { status: 200, body: await fixture("bitbucket-statuses.json") };
   if (path.startsWith("/pullrequests/11/diffstat")) return { status: 200, body: await fixture("bitbucket-diffstat.json") };
   if (path === "/pullrequests/11/diff") return { status: 200, body: await fixture("bitbucket-pull.diff") };
-  if (path.startsWith("/src/c6ee5d86f36e/")) {
+  if (path.startsWith("/src/c6ee5d86f36e51221c2a8422a360f78dfda6ebaa/")) {
     if (path.includes("logo.png")) return { status: 200, body: "\u0089PNG\0\0" };
     if (path.includes("dump.sql")) return { status: 200, body: "x".repeat(2 * 1024 * 1024 + 1) };
     if (path.includes("gone.js")) return { status: 404, body: JSON.stringify({ type: "error", error: { message: "No such file or directory" } }) };
@@ -120,7 +122,7 @@ describe("the Bitbucket provider over its API", () => {
   it("reads a request with its reviewers, statuses, commits and line counts", async () => {
     const { invoke } = await harness();
     const detail = await invoke<PullRequestDetail>("pr-view", { url: URL_11 });
-    expect(detail).toMatchObject({ state: "merged", baseRef: "master", headSha: "c6ee5d86f36e", changedFiles: 5, additions: 136, deletions: 26, viewer: "Raul Gomis" });
+    expect(detail).toMatchObject({ state: "merged", baseRef: "master", headSha: "c6ee5d86f36e51221c2a8422a360f78dfda6ebaa", changedFiles: 5, additions: 136, deletions: 26, viewer: "Raul Gomis" });
     expect(detail.reviewers).toEqual([{ login: "Raul Gomis", verdict: "approved" }, { login: "Halyna Berezovska", verdict: "approved" }]);
     expect(detail.checks).toEqual([expect.objectContaining({ status: "passed" })]);
     expect(detail.commits).toHaveLength(2);
@@ -143,9 +145,9 @@ describe("the Bitbucket provider over its API", () => {
   it("reads a file at the head commit from the src endpoint, with the API credential", async () => {
     const { invoke, sent } = await harness();
     const file = await invoke<PullRequestFileText>("pr-file", { url: URL_11, path: "src/my dir/a.js" });
-    expect(file).toEqual({ path: "src/my dir/a.js", sha: "c6ee5d86f36e", text: "export const a = 1;\n" });
+    expect(file).toEqual({ path: "src/my dir/a.js", sha: "c6ee5d86f36e51221c2a8422a360f78dfda6ebaa", text: "export const a = 1;\n" });
     const read = sent.find((call) => call.url.includes("/src/"))!;
-    expect(read).toMatchObject({ url: `${API}/src/c6ee5d86f36e/src/my%20dir/a.js`, method: "GET" });
+    expect(read).toMatchObject({ url: `${API}/src/c6ee5d86f36e51221c2a8422a360f78dfda6ebaa/src/my%20dir/a.js`, method: "GET" });
     expect(read.headers.Authorization).toBe(`Basic ${Buffer.from("octo@example.com:token-1").toString("base64")}`);
     await expect(invoke("pr-file", { url: URL_11, path: "logo.png" })).rejects.toThrow("logo.png is a binary file.");
     await expect(invoke("pr-file", { url: URL_11, path: "dump.sql" })).rejects.toThrow("dump.sql is larger than 2 MB; Tau does not expand it.");
@@ -191,5 +193,32 @@ describe("the Bitbucket provider over its API", () => {
     const before = limited.sent.length;
     await expect(limited.invoke("pr-view", { url: URL_11, fresh: true })).rejects.toThrow(/Bitbucket's rate limit for bitbucket.org is reached; Tau asks again in 2 minutes/u);
     expect(limited.sent.length).toBe(before);
+  });
+});
+
+
+describe("Bitbucket guide source identity", () => {
+  const full = "a".repeat(40);
+  const ref = { service: "bitbucket" as const, host: "bitbucket.org", repo: "base/project", number: 42, url: "https://bitbucket.org/base/project/pull-requests/42" };
+  const provider = createBitbucketProvider({} as ProviderTools, {});
+  const parse = (hash: unknown, hashes: string[], repository: unknown = "fork/project") => parseBitbucketDetail(ref, JSON.stringify({ source: { repository: { full_name: repository }, branch: { name: "feat/output" }, commit: { hash } } }), "{}", JSON.stringify({ values: hashes.map((hash) => ({ hash })) }), [], "{}");
+  it("expands a unique abbreviated head and fetches from the fork instead of the base", () => {
+    const detail = parse(full.slice(0, 12), [full]);
+    expect(detail).toMatchObject({ headSha: full, headRepository: "fork/project", headRef: "feat/output" });
+    expect(provider.requestHeadSource!(ref, detail)).toEqual({ repository: "https://bitbucket.org/fork/project.git", ref: "refs/heads/feat/output" });
+  });
+  it("keeps a full head even if no commit listing is available", () => {
+    expect(parse(full, []).headSha).toBe(full);
+  });
+  it.each([
+    { hash: "a".repeat(12), hashes: [] },
+    { hash: "a".repeat(12), hashes: ["a".repeat(40), "a".repeat(12) + "b".repeat(28)] },
+    { hash: 123, hashes: [] },
+  ])("refuses an unresolved or malformed full head %j", ({ hash, hashes }) => {
+    expect(() => provider.requestHeadSource!(ref, parse(hash, hashes))).toThrow("source repository, branch and full commit");
+  });
+  it.each([undefined, 123, "../project", "https://elsewhere.test/repo", "owner/project/extra", "user:password@evil/repo"])("does not infer a missing or unsafe source repository %j", (repository) => {
+    const detail = parse(full, [], repository === undefined ? null : repository);
+    expect(() => provider.requestHeadSource!(ref, detail)).toThrow("source repository");
   });
 });

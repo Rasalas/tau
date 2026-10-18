@@ -213,7 +213,7 @@ export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
     kind: "bitbucket", name: "Bitbucket", noun: "pull request", short: "PR", sign: "#", repositoryUrl: plainUrl,
     capabilities: {
       ...EVERYTHING, merge: ["merge", "squash"], resolve: false, editComments: ["comment", "review-comment"], reviewers: false, labels: false, viewed: "local", publish: false,
-      autoMerge: false, revert: false, stacks: false, guides: false,
+      autoMerge: false, revert: false, stacks: false,
     },
   },
   "azure-devops": {
