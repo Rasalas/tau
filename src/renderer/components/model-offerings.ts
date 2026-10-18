@@ -60,8 +60,7 @@ function scoreField(field: string, token: string, base: number): number | undefi
   if (field === token) return base;
   const at = field.indexOf(token);
   if (at === 0) return base + 2;
-  if (at > 0 && /[\s\-./:()]/u.test(field[at - 1]!)) return base + 4;
-  if (at > 0) return base + 6;
+  if (at > 0) return base + (/[\s\-./:()]/u.test(field[at - 1]!) ? 4 : 6);
   return token.length >= 3 && looselyContains(field, token) ? base + 100 : undefined;
 }
 
