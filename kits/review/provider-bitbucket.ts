@@ -149,7 +149,8 @@ export function parseBitbucketDetail(ref: PullRequestRef, pull: string, comments
   const files = list(record(JSON.parse(diffstat)).values);
   const source = record(raw.source);
   const head = text(record(source.commit).hash);
-  const matches = head && /^[a-f0-9]{12,39}$/iu.test(head) ? [...new Set(list(record(JSON.parse(commits)).values)
+  const commitList = record(JSON.parse(commits));
+  const matches = head && commitList.next == null && /^[a-f0-9]{12,39}$/iu.test(head) ? [...new Set(list(commitList.values)
     .map((commit) => text(commit.hash)).filter((hash): hash is string => typeof hash === "string" && /^[a-f0-9]{40}$/iu.test(hash) && hash.toLowerCase().startsWith(head.toLowerCase())))] : [];
   const headSha = matches.length === 1 ? matches[0] : head;
   return {
@@ -174,7 +175,7 @@ export function parseBitbucketDetail(ref: PullRequestRef, pull: string, comments
     labels: [],
     checks,
     comments: timeline.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
-    commits: list(record(JSON.parse(commits)).values).flatMap((commit) => {
+    commits: list(commitList.values).flatMap((commit) => {
       const oid = text(commit.hash);
       const who = record(commit.author);
       const name = actor(who.user)?.login ?? text(who.raw)?.replace(/\s*<[^>]*>$/u, "");
@@ -272,12 +273,14 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
   const pages = async (path: string, action: string): Promise<string> => {
     const values: unknown[] = [];
     let next: string | undefined = path;
+    let remaining: unknown;
     for (let page = 0; next && page < MAX_PAGES; page += 1) {
       const answer = record(JSON.parse(await request(next, action)));
       values.push(...(Array.isArray(answer.values) ? answer.values : []));
-      next = text(answer.next);
+      remaining = answer.next;
+      next = text(remaining);
     }
-    return JSON.stringify({ values, size: values.length });
+    return JSON.stringify({ values, size: values.length, ...(remaining != null ? { next: remaining } : {}) });
   };
 
   const repoPath = (repo: string) => `repositories/${repo.split("/").map(encodeURIComponent).join("/")}`;
@@ -365,7 +368,7 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
       const [pull, commentList, commits, found, diffstat] = await Promise.all([
         request(pullPath(ref), `Reading ${noun(ref)}`),
         comments(ref, fresh),
-        request(`${pullPath(ref)}/commits?pagelen=${PAGE}`, `Reading the commits of ${noun(ref)}`),
+        pages(`${pullPath(ref)}/commits?pagelen=${PAGE}`, `Reading the commits of ${noun(ref)}`),
         checks(ref).catch(() => []),
         pages(`${pullPath(ref)}/diffstat?pagelen=100`, `Reading the files of ${noun(ref)}`).catch(() => "{}"),
       ]);

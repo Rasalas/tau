@@ -201,7 +201,7 @@ describe("Bitbucket guide source identity", () => {
   const full = "a".repeat(40);
   const ref = { service: "bitbucket" as const, host: "bitbucket.org", repo: "base/project", number: 42, url: "https://bitbucket.org/base/project/pull-requests/42" };
   const provider = createBitbucketProvider({} as ProviderTools, {});
-  const parse = (hash: unknown, hashes: string[], repository: unknown = "fork/project") => parseBitbucketDetail(ref, JSON.stringify({ source: { repository: { full_name: repository }, branch: { name: "feat/output" }, commit: { hash } } }), "{}", JSON.stringify({ values: hashes.map((hash) => ({ hash })) }), [], "{}");
+  const parse = (hash: unknown, hashes: string[], repository: unknown = "fork/project", next?: unknown) => parseBitbucketDetail(ref, JSON.stringify({ source: { repository: { full_name: repository }, branch: { name: "feat/output" }, commit: { hash } } }), "{}", JSON.stringify({ values: hashes.map((value) => ({ hash: value })), ...(next !== undefined ? { next } : {}) }), [], "{}");
   it("expands a unique abbreviated head and fetches from the fork instead of the base", () => {
     const detail = parse(full.slice(0, 12), [full]);
     expect(detail).toMatchObject({ headSha: full, headRepository: "fork/project", headRef: "feat/output" });
@@ -209,6 +209,31 @@ describe("Bitbucket guide source identity", () => {
   });
   it("keeps a full head even if no commit listing is available", () => {
     expect(parse(full, []).headSha).toBe(full);
+  });
+  it.each(["https://api.bitbucket.org/next", 123, ""])("refuses expansion while the commit listing has a continuation %j", (next) => {
+    expect(() => provider.requestHeadSource!(ref, parse(full.slice(0, 12), [full], "fork/project", next))).toThrow("full commit");
+    expect(parse(full, [full], "fork/project", next).headSha).toBe(full);
+  });
+  it.each([false, true])("reads every commit page before resolving an abbreviated head, ambiguous=%j", async (ambiguous) => {
+    const prefix = "c6ee5d86f36e";
+    const matching = `${prefix}${"a".repeat(28)}`;
+    const { invoke, sent } = await harness({ rewrite: (url, body) => {
+      if (!url.includes("/commits?")) return body;
+      return JSON.stringify(url.includes("page=2")
+        ? { values: [{ hash: ambiguous ? `${prefix}${"b".repeat(28)}` : "b".repeat(40) }] }
+        : { values: [{ hash: matching }], next: `${API}/pullrequests/11/commits?page=2` });
+    } });
+    const detail = await invoke<PullRequestDetail>("pr-detail", { url: URL_11, fresh: true });
+    expect(detail.headSha).toBe(ambiguous ? prefix : matching);
+    expect(detail.commits).toHaveLength(2);
+    expect(sent.filter((call) => call.url.includes("/commits?"))).toHaveLength(2);
+  });
+  it("refuses expansion when the commit page limit leaves more commits unread", async () => {
+    const { invoke, sent } = await harness({ rewrite: (url, body) => url.includes("/commits?")
+      ? JSON.stringify({ values: [{ hash: "c6ee5d86f36e" + "a".repeat(28) }], next: `${API}/pullrequests/11/commits?page=next` }) : body });
+    const detail = await invoke<PullRequestDetail>("pr-detail", { url: URL_11, fresh: true });
+    expect(detail.headSha).toBe("c6ee5d86f36e");
+    expect(sent.filter((call) => call.url.includes("/commits?"))).toHaveLength(20);
   });
   it.each([
     { hash: "a".repeat(12), hashes: [] },
