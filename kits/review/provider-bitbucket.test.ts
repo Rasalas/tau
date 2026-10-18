@@ -223,7 +223,7 @@ describe("Bitbucket guide source identity", () => {
         ? { values: [{ hash: ambiguous ? `${prefix}${"b".repeat(28)}` : "b".repeat(40) }] }
         : { values: [{ hash: matching }], next: `${API}/pullrequests/11/commits?page=2` });
     } });
-    const detail = await invoke<PullRequestDetail>("pr-detail", { url: URL_11, fresh: true });
+    const detail = await invoke<PullRequestDetail>("pr-view", { url: URL_11, fresh: true });
     expect(detail.headSha).toBe(ambiguous ? prefix : matching);
     expect(detail.commits).toHaveLength(2);
     expect(sent.filter((call) => call.url.includes("/commits?"))).toHaveLength(2);
@@ -231,7 +231,7 @@ describe("Bitbucket guide source identity", () => {
   it("refuses expansion when the commit page limit leaves more commits unread", async () => {
     const { invoke, sent } = await harness({ rewrite: (url, body) => url.includes("/commits?")
       ? JSON.stringify({ values: [{ hash: "c6ee5d86f36e" + "a".repeat(28) }], next: `${API}/pullrequests/11/commits?page=next` }) : body });
-    const detail = await invoke<PullRequestDetail>("pr-detail", { url: URL_11, fresh: true });
+    const detail = await invoke<PullRequestDetail>("pr-view", { url: URL_11, fresh: true });
     expect(detail.headSha).toBe("c6ee5d86f36e");
     expect(sent.filter((call) => call.url.includes("/commits?"))).toHaveLength(20);
   });
