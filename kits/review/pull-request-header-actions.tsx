@@ -8,6 +8,8 @@ import { checksRollup } from "./pull-request-logic.js";
 import { openPullRequest } from "./pull-request-open.js";
 import { METHOD_LABELS, MergeConfirm, outcomeText, useMergeConfirmation } from "./merge-controls.js";
 import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
+import { BranchDeleteConfirm, type BranchDeletionSelection } from "./branch-delete-confirm.js";
+import { readBranchHead } from "./branch-deletion.js";
 
 /** A step the view moves into the menu where its header has no room for it, a phone's. */
 export type HeaderMenuStep = Pick<MenuItem, "id" | "label" | "icon" | "disabled" | "description"> & { run(): void };
@@ -53,6 +55,10 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   const confirmation = useMergeConfirmation(methods, preferences);
   const [menu, setMenu] = useState(false);
   const [notice, setNotice] = useState<string>();
+  const [deletion, setDeletion] = useState<BranchDeletionSelection>();
+  const [deleted, setDeleted] = useState<string>();
+  const head = readBranchHead({ repository: detail.headRepository, branch: detail.headRef, sha: detail.headSha });
+  const branchKey = head ? `${detail.ref.url}:${head.repository}:${head.branch}:${head.sha}` : undefined;
   const primary = primaryControl(detail, checks, capabilities);
   const number = detail.ref.number;
   const armed = detail.autoMerge ? `Auto-merge${detail.autoMerge.method ? ` (${METHOD_LABELS[detail.autoMerge.method].toLowerCase()})` : ""}` : undefined;
@@ -105,6 +111,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   }
   sections.push({ items: [{ id: "link-thread", label: "Link to thread…", icon: <Link2 size={13} />, ...refused(writes.link) }] });
   if (detail.state === "merged" && capabilities.revert) sections.push({ items: [{ id: "revert", label: "Revert changes", icon: <RotateCcw size={13} />, ...refused(writes.action) }] });
+  if (!open && capabilities.deleteBranchAction && head && deleted !== branchKey) sections.push({ items: [{ id: "delete-branch", label: "Delete branch…", ...refused(writes.action) }] });
 
   const pick = (id: string) => {
     setMenu(false);
@@ -116,6 +123,7 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
     else if (id.startsWith("method:")) confirmation.pick(id.slice(7) as MergeMethod);
     else if (id === "link-thread") onPickThread();
     else if (id === "revert") confirmation.open("revert");
+    else if (id === "delete-branch" && head) setDeletion({ ref: detail.ref, head });
   };
 
   return (
@@ -140,6 +148,12 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
         {menu ? <Menu align="right" label={`More ${info.noun} actions`} sections={sections} onSelect={pick} onClose={() => setMenu(false)} /> : null}
       </span>
       {notice ? <span className="pr-error pr-head-notice" role="alert" title={notice}>{notice}</span> : null}
+      {deletion ? <BranchDeleteConfirm selection={deletion} client={client}
+        disabledReason={writes.action ? undefined : writes.reason ?? READ_ONLY_REASON}
+        onClose={() => setDeletion(undefined)} onDone={(result) => {
+          onDetail(result.detail); setDeleted(`${deletion.ref.url}:${deletion.head.repository}:${deletion.head.branch}:${deletion.head.sha}`); setDeletion(undefined);
+          actions.notify(`Deleted ${deletion.head.repository}:${deletion.head.branch}.`);
+        }} /> : null}
       {confirmation.kind ? (
         <MergeConfirm
           kind={confirmation.kind}

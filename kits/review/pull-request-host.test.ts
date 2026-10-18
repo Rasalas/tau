@@ -35,6 +35,12 @@ describe("pull request URLs", () => {
 });
 
 describe("gh fixtures", () => {
+  it("keeps a fork's head repository separate from the base repository", async () => {
+    const raw = JSON.parse(await fixture("gh-pr-view-discussed.json")) as object;
+    const detail = parseGitHubDetail(GITHUB, JSON.stringify({ ...raw, headRepository: { name: "forked" }, headRepositoryOwner: { login: "contributor" } }));
+    expect(detail.headRepository).toBe("contributor/forked");
+    expect(detail.ref.repo).toBe("acme/tau");
+  });
   it("reads a recorded `gh pr view` of a merged request", async () => {
     const detail = parseGitHubDetail(RECORDED, await fixture("gh-pr-view.json"));
     expect(detail).toMatchObject({

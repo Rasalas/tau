@@ -3640,6 +3640,17 @@ the runtimes Tau ships (`kits/usage/protocol.ts`):
 
 ### Reading saved pull requests offline
 
+GitHub requests also offer **Delete branch…** after closing or merging. The
+confirmation names the remote head repository, branch and commit, including a
+fork's repository. Review's `pr-action` command takes `action: "delete-branch"`
+and `seen: { repository, branch, sha }`, and returns `branch` with `branchDeleted`
+or `branchKept`. It reads current PR, repository, open-request and ref facts
+before deletion; missing or changed facts keep the branch. Local branches,
+worktrees and threads stay. This is separate from merge-time branch cleanup.
+GitHub's [delete-reference endpoint](https://docs.github.com/en/rest/git/refs#delete-a-reference)
+does not take an expected commit, so the checks and deletion are separate
+requests, with a remaining race if GitHub state changes between them.
+
 Review Kit keeps the last eight list queries and twelve opened requests in this
 client's storage for that machine. It saves request details, conversations, checks
 and diffs before later visits, shows them before a live read, and refreshes on

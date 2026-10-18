@@ -243,6 +243,8 @@ export function parseGitHubDetail(ref: PullRequestRef, output: string): PullRequ
     ...(text(raw.closedAt) ? { closedAt: text(raw.closedAt) } : {}),
     ...(text(raw.headRefName) ? { headRef: text(raw.headRefName) } : {}),
     ...(text(raw.headRefOid) ? { headSha: text(raw.headRefOid) } : {}),
+    ...(text(record(raw.headRepositoryOwner).login) && text(record(raw.headRepository).name)
+      ? { headRepository: `${text(record(raw.headRepositoryOwner).login)}/${text(record(raw.headRepository).name)}` } : {}),
   };
   const autoMerge = githubAutoMerge(raw.autoMergeRequest);
   return {

@@ -108,7 +108,7 @@ describe("steps on a request opened by its URL", () => {
   it("refuses auto-merge where the provider has none", async () => {
     const { invoke } = await harness();
     await expect(invoke("pr-action", { url: "https://bitbucket.org/acme/tau/pull-requests/3", action: "auto-merge" })).rejects.toThrow("Bitbucket does not let Tau merge automatically");
-    await expect(invoke("pr-action", { url: URL_7, action: "unknown" })).rejects.toThrow("Choose merge, auto-merge or revert.");
+    await expect(invoke("pr-action", { url: URL_7, action: "unknown" })).rejects.toThrow("Choose merge, auto-merge, revert or delete branch.");
   });
 });
 
@@ -136,5 +136,42 @@ describe("stacks through the kit's commands", () => {
     const { invoke } = await harness();
     await expect(invoke("pr-stack-action", { url: URL_7, action: "merge" })).rejects.toThrow("Refresh the stack before acting on it.");
     await expect(invoke("pr-stack-action", { url: URL_7, action: "split" })).rejects.toThrow("Choose to merge or to rebase the stack.");
+  });
+});
+
+describe("explicit branch deletion through the host registry", () => {
+  const seen = { repository: "fork/tau-fork", branch: "feat/output", sha: "a".repeat(40) };
+  async function closedHarness() {
+    let state = "CLOSED";
+    const base = JSON.parse(await fixture("gh-pr-view-discussed.json")) as object;
+    const result = await harness({ answer: ({ args }) => {
+      if (args[0] === "pr" && args[1] === "view") return JSON.stringify({ ...base, state, headRefName: seen.branch, headRefOid: seen.sha, headRepositoryOwner: { login: "fork" }, headRepository: { name: "tau-fork" } });
+      const path = args.at(-1)!;
+      if (path === "repos/fork/tau-fork") return JSON.stringify({ full_name: seen.repository, default_branch: "main" });
+      if (path.includes("/pulls?")) return "[]";
+      if (path.includes("/git/ref/")) return JSON.stringify({ ref: `refs/heads/${seen.branch}`, object: { type: "commit", sha: seen.sha } });
+      return undefined;
+    } });
+    return { ...result, reopen: () => { state = "OPEN"; } };
+  }
+  it("routes the confirmed identity to GitHub and refreshes the closed request", async () => {
+    const { invoke, calls } = await closedHarness();
+    const result = await invoke<PullRequestActionResult>("pr-action", { url: URL_7, action: "delete-branch", seen });
+    expect(result.detail.state).toBe("closed");
+    expect(result.branch).toEqual({ branchDeleted: seen.branch });
+    const deletedAt = calls.findIndex((call) => call.args.includes("DELETE"));
+    expect(calls.slice(deletedAt + 1).some((call) => call.args[0] === "pr" && call.args[1] === "view")).toBe(true);
+    expect(calls.filter((call) => call.args.includes("DELETE"))).toHaveLength(1);
+  });
+  it("rejects unconfirmed or changed identities, reopened requests, and unsupported providers before deletion", async () => {
+    const { invoke, calls, reopen } = await closedHarness();
+    await expect(invoke("pr-action", { url: URL_7, action: "delete-branch" })).rejects.toThrow("Confirm the head repository");
+    await expect(invoke("pr-action", { url: URL_7, action: "delete-branch", seen: { ...seen, repository: "../tau" } })).rejects.toThrow("Confirm the head repository");
+    await expect(invoke("pr-action", { url: URL_7, action: "delete-branch", seen: { ...seen, sha: "b".repeat(40) } })).rejects.toThrow("changed");
+    await invoke("pr-view", { url: URL_7 });
+    reopen();
+    await expect(invoke("pr-action", { url: URL_7, action: "delete-branch", seen })).rejects.toThrow("Close or merge");
+    await expect(invoke("pr-action", { url: "https://gitlab.com/acme/tau/-/merge_requests/3", action: "delete-branch", seen })).rejects.toThrow("GitLab does not let Tau delete a branch");
+    expect(calls.some((call) => call.args.includes("DELETE"))).toBe(false);
   });
 });

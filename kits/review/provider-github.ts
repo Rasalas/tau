@@ -9,6 +9,7 @@ import { parseGitHubList } from "./pull-request-list-json.js";
 import { createGitHubStacks } from "./github-stacks.js";
 import { createGitHubPipelines } from "./github-pipeline.js";
 import { createCheckProbe } from "./github-check-probe.js";
+import { deleteClosedBranch } from "./github-delete-branch.js";
 import { GITHUB_BRANCH_FIELDS, parseGitHubBranchRequest } from "./branch-request-json.js";
 import { authArgs, createArgs, createdUrl, draftArgs, editArgs, mergeArgs, SERVICES } from "./request-cli.js";
 
@@ -148,6 +149,7 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       return typeof raw.login === "string" && raw.login ? raw.login : undefined;
     },
     status: () => cliAuthStatus(tools, kind, "github.com"),
+    deleteBranch: (ref, seen) => deleteClosedBranch(tools, ref, seen),
 
     // `gh` finds the request of the branch the checkout has; none, no login or no CLI all answer undefined.
     current: async ({ cwd, host }) => {

@@ -22,6 +22,7 @@ import type { ChangedFileEntry, SourceControlProvider } from "./provider.js";
 import type { SourceControl } from "./provider-registry.js";
 import { diffFingerprint } from "./pull-request-json.js";
 import { LocalViewedStore } from "./pull-request-viewed.js";
+import { readBranchHead } from "./branch-deletion.js";
 import type { PipelineFacts } from "./pipeline.js";
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -287,9 +288,25 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
   context.registerCommand("pr-action", async (input): Promise<PullRequestActionResult> => {
     const { ref, provider } = target(input);
     const fields = record(input);
-    const action = (["merge", "auto-merge", "cancel-auto-merge", "revert"] as const).find((candidate) => candidate === fields.action) as PullRequestAction | undefined;
-    if (!action) throw new HostCommandError("Choose merge, auto-merge or revert.");
+    const action = (["merge", "auto-merge", "cancel-auto-merge", "revert", "delete-branch"] as const).find((candidate) => candidate === fields.action) as PullRequestAction | undefined;
+    if (!action) throw new HostCommandError("Choose merge, auto-merge, revert or delete branch.");
     const { capabilities, name } = provider.info;
+    if (action === "delete-branch") {
+      if (!capabilities.deleteBranchAction || !provider.deleteBranch) throw lacks(provider, "delete a branch after closing a request");
+      const seen = readBranchHead(fields.seen);
+      if (!seen) throw new HostCommandError("Confirm the head repository, branch and commit first.");
+      const known = await detail(ref, true);
+      if (known.state === "open") throw new HostCommandError("Close or merge the pull request before deleting its branch.");
+      if (known.headRepository?.toLowerCase() !== seen.repository.toLowerCase() || known.headRef !== seen.branch || known.headSha !== seen.sha) throw new HostCommandError("The request's repository, branch or commit changed. Refresh and confirm again.");
+      const branch = await provider.deleteBranch(ref, seen);
+      forget(ref);
+      services.log(branch.branchDeleted ? "request.branch-deleted" : "request.branch-kept", noun(ref, provider));
+      const updated = await detail(ref, true).catch((error: unknown) => {
+        services.log("request.branch-refresh-failed", error instanceof Error ? error.message : String(error));
+        return known;
+      });
+      return { detail: updated, branch };
+    }
     const deleteBranch = fields.deleteBranch === true && capabilities.deleteBranch;
     const method = methodOf(fields.method);
     // What the provider cannot do is refused before the host is asked anything.

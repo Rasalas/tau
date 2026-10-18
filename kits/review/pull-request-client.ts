@@ -11,6 +11,7 @@ import {
   type MergeMethod,
   type PullRequestAction,
   type PullRequestActionResult,
+  type PullRequestBranchHead,
   type PullRequestComment,
   type PullRequestDetail,
   type PullRequestFileText,
@@ -66,7 +67,7 @@ export interface PullRequestClient {
   /** `listMany` on another machine the window reaches, for projects whose threads run there; absent without a machine list. */
   listManyOn?(machine: string, input: { workspaces: readonly string[]; state: PullRequestListState; limit: number; search?: string }): Promise<PullRequestLists>;
   /** Merge, auto-merge or revert; `threadId` is the thread a revert is linked to. */
-  action(url: string, input: { action: PullRequestAction; method?: MergeMethod; deleteBranch?: boolean; threadId?: string }): Promise<PullRequestActionResult>;
+  action(url: string, input: { action: PullRequestAction; method?: MergeMethod; deleteBranch?: boolean; threadId?: string; seen?: PullRequestBranchHead }): Promise<PullRequestActionResult>;
   stack(url: string, fresh?: boolean): Promise<PullRequestStack | null>;
   stackAction(url: string, input: { action: StackAction; seen: PullRequestStack; method?: MergeMethod }): Promise<PullRequestDetail>;
   /** The threads that link a request. */
