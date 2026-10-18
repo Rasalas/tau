@@ -112,8 +112,10 @@ other writers use their runtime model and inherit a compatible parent's model.
 They receive the reading/guide-tool allowlist without an access override. Codex
 applies its read-only sandbox; Claude exposes only Read, Grep and Glob, disables
 user/project hooks and statusLine commands, and permits no other MCP servers.
+A restricted Claude thread refuses extra instance launch arguments before
+starting, so an inherited `--tools` or `--mcp-config` cannot widen its tools.
 Both use a filtered thread credential. Unrestricted Claude threads retain their
-normal settings and hooks. Other runtimes remain refused.
+normal settings, hooks and launch arguments. Other runtimes remain refused.
 
 Agents Kit forwards an in-process `beforePrompt` callback to the existing
 `sessions.start` admission seam. Review binds the actual thread, parent and

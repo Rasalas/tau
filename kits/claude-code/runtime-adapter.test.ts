@@ -180,6 +180,13 @@ describe("Claude Code runtime adapter", () => {
     expect(claudeQueryOptions({ ...plan, tools: ["tau_list_threads"] })).toMatchObject({ tools: [], strictMcpConfig: true });
   });
 
+  it.each([{ tools: "default" }, { "mcp-config": "/fixture/servers.json" }, { verbose: null }] as Record<string, string | null>[])("refuses extra launch arguments on a restricted thread: %j", (extraArgs) => {
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    expect(() => claudeQueryOptions({ ...plan, tools: ["read", "grep", "find", "ls"], extraArgs })).toThrow("restricted tools cannot use extra launch arguments");
+    expect(claudeQueryOptions({ ...plan, extraArgs })).toMatchObject({ extraArgs });
+    expect(claudeQueryOptions({ ...plan, tools: [], extraArgs: {} })).toMatchObject({ tools: [] });
+  });
+
   it("holds Bash to the SDK's sandbox in a project that limits its network, and switches WebFetch off", () => {
     const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
     expect(claudeQueryOptions(plan)).not.toHaveProperty("sandbox");

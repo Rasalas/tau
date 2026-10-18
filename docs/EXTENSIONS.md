@@ -3714,8 +3714,10 @@ submitting refuse a push during the run. Guides use Pi by default, with explicit
 settings. Pi keeps its guide model and effort; the others use their runtime
 model. Codex enforces the reading/guide-tool allowlist through its read-only
 sandbox. Restricted Claude threads expose only their named native tools, disable
-hooks and statusLine execution, and refuse other MCP servers. Unrestricted
-Claude threads keep their normal hooks. Both use filtered MCP credentials. Admission binds the actual child before its first prompt
+hooks and statusLine execution, and refuse other MCP servers. Restricted threads
+refuse nonempty instance launch arguments before starting, including custom MCP
+configurations or tool overrides. Unrestricted Claude threads keep their normal
+hooks and launch arguments. Both use filtered MCP credentials. Admission binds the actual child before its first prompt
 can list guide tools, including a queued child. Other runtimes remain refused.
 The normalizer, notifications and worktree cleanup are shared.
 

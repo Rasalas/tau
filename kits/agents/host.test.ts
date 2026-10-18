@@ -1767,7 +1767,7 @@ describe("Agents Kit spawn for another kit", () => {
     }
   });
 
-  it("admits a trusted kit's Codex worktree child before prompting while preserving native delegation defaults", async () => {
+  it.each(["codex", "claude-code"])("admits a trusted kit's %s worktree child before prompting while preserving native delegation defaults", async (runtime) => {
     const root = await mkdtemp(join(tmpdir(), "tau-guide-admission-"));
     const project = join(root, "project");
     const runGit: AgentGitRunner = async (_cwd, args) => {
@@ -1777,17 +1777,18 @@ describe("Agents Kit spawn for another kit", () => {
       return "";
     };
     const bench = await activated({ runGit }); bench.setProject(project);
-    bench.backends.set("parent", "codex"); bench.models.set("parent", { provider: "openai", id: "parent-model" });
+    if (runtime === "claude-code") bench.choices.push({ ...bench.choices.find((choice) => choice.backend.kind === "codex")!, backend: { kind: runtime, label: "Claude" }, readiness: { kind: runtime, label: "Claude", state: "ready" } });
+    bench.backends.set("parent", runtime); bench.models.set("parent", { provider: "openai", id: "parent-model" });
     const beforePrompt = vi.fn(async (thread: HostThread) => {
-      expect(thread.backendKind).toBe("codex");
+      expect(thread.backendKind).toBe(runtime);
       expect(thread.isStreaming()).toBe(false);
       expect(bench.started).toHaveLength(1);
     });
     try {
-      const { access: _access, ...codex } = definition;
-      expect(await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", startAt: "abc1234", beforePrompt, definition: { ...codex, runtime: "codex" } })).toMatchObject({ threadId: "child-1" });
+      const { access: _access, ...restricted } = definition;
+      expect(await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write it", startAt: "abc1234", beforePrompt, definition: { ...restricted, runtime } })).toMatchObject({ threadId: "child-1" });
       expect(beforePrompt).toHaveBeenCalledTimes(1);
-      expect(bench.started[0]).toMatchObject({ backend: "codex", tools: definition.tools, model: { provider: "openai", id: "parent-model" } });
+      expect(bench.started[0]).toMatchObject({ backend: runtime, tools: definition.tools, model: { provider: "openai", id: "parent-model" } });
       const parent = await bench.mcpThread("parent", project);
       await expect(parent.call("tau_spawn_thread", { prompt: "Same runtime" })).rejects.toThrow("native subagents");
       await expect(bench.invoke("spawn", { parentThreadId: "parent", prompt: "x", beforePrompt: "bad", definition })).rejects.toThrow("in-process callback");

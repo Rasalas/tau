@@ -195,6 +195,9 @@ const STDERR_TAIL_BYTES = 8 * 1024;
 export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
   assertClaudePermissionPolicySupported(plan.policy, { canAsk: plan.hooks?.canUseTool !== undefined });
   if (!UUID.test(plan.claudeSessionId)) throw new Error("Claude session ids must be UUIDs.");
+  if (plan.tools && Object.keys(plan.extraArgs ?? {}).length) {
+    throw new Error("Claude threads with restricted tools cannot use extra launch arguments. Remove the arguments from this runtime instance.");
+  }
   return {
     ...(plan.hooks?.canUseTool ? { canUseTool: plan.hooks.canUseTool } : {}),
     // The resume-compaction question is the one dialog the workbench answers; others are declined.

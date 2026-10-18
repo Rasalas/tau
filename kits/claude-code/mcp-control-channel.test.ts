@@ -47,10 +47,10 @@ function fakeCli(setServers: Answer = "answer") {
   return { spawn, spawns, stdin };
 }
 
-function open(cli: ReturnType<typeof fakeCli>, input: Partial<ClaudeSessionInput> = {}, mcpTimeoutMs?: number) {
+function open(cli: ReturnType<typeof fakeCli>, input: Partial<ClaudeSessionInput> = {}, mcpTimeoutMs?: number, extraArgs?: Record<string, string | null>) {
   // The real SDK with the fake CLI behind it: what reaches argv and stdin is what the SDK builds.
   const query = ((params: Parameters<ClaudeQuery>[0]) => sdkQuery({ ...params, options: { ...params.options, spawnClaudeCodeProcess: cli.spawn } })) as ClaudeQuery;
-  const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", resolveCommand: () => "/opt/cli", storePath: "/unused", query, env: { PATH: "/bin" }, ...(mcpTimeoutMs !== undefined ? { mcpTimeoutMs } : {}) });
+  const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", resolveCommand: () => "/opt/cli", storePath: "/unused", query, env: { PATH: "/bin" }, ...(extraArgs ? { extraArgs } : {}), ...(mcpTimeoutMs !== undefined ? { mcpTimeoutMs } : {}) });
   const unavailable: Array<[string[], string]> = [];
   const session = adapter.openSession({
     cwd: "/repo", claudeSessionId: SESSION, started: false, permissionLevel: "full", mcpServer,
@@ -110,6 +110,13 @@ describe("Tau's MCP server over the control channel", () => {
       expect(JSON.stringify(args)).not.toContain(TOKEN);
       expect(requests(cli, "mcp_set_servers")[0]!.request).toMatchObject({ servers: { tau: { headers: mcpServer.headers } } });
     } finally { await session.close(); }
+  });
+
+  it.each([{ tools: "default" }, { "mcp-config": "/fixture/servers.json" }] as Record<string, string | null>[])("refuses instance launch overrides before the real SDK can spawn: %j", (extraArgs) => {
+    const cli = fakeCli();
+    expect(() => open(cli, { tools: ["read", "grep", "find", "ls", "read_pull_request_diff", "submit_pull_request_guide"] }, undefined, extraArgs)).toThrow("restricted tools cannot use extra launch arguments");
+    expect(cli.spawns).toEqual([]);
+    expect(cli.stdin).toEqual([]);
   });
 
   it("registers nothing when the host has no endpoint", async () => {
