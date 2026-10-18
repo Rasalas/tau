@@ -83,6 +83,12 @@ describe("listing", () => {
 });
 
 describe("importing", () => {
+  it("does not report success when the owned jar cannot finish persisting", async () => {
+    const { environment } = await setup({ chrome });
+    const jar = environment.jar("persist:tau-preview");
+    environment.jar = () => ({ ...jar, flushStore: async () => { throw new Error("save failed"); } });
+    await expect(importCookies({ source: "chrome", profile: "Default", sites: ["github.com"], partition: "persist:tau-preview" }, environment)).rejects.toThrow("save failed");
+  });
   it("decrypts and writes only the chosen sites, after asking the keychain once", async () => {
     const { environment, asked, written, flushed } = await setup({ chrome });
     const result = await importCookies({ source: "chrome", profile: "Default", sites: ["github.com"], partition: "persist:tau-preview-work" }, environment);

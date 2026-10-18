@@ -17,7 +17,7 @@ import {
 } from "./cookie-read.js";
 import { listCookieSources, resolveBrowserProfile, type BrowserPaths } from "./cookie-sources.js";
 
-/** The part of Electron's `session.cookies` an import writes through. */
+/** The owned Preview cookie store an import writes through. */
 export interface CookieJar {
   set(cookie: CookieToWrite): Promise<void>;
   flushStore(): Promise<void>;
@@ -113,8 +113,8 @@ export async function importCookies(input: unknown, environment: CookieImportEnv
       skippedSites.add(siteOf(bareHost(cookie.host)));
     }
   }
-  // `set` lands in memory; flushing first means "done" survives a crash right after.
-  if (imported > 0) await jar.flushStore().catch(() => undefined);
+  // Report completion only once the owned store has finished persisting writes.
+  if (imported > 0) await jar.flushStore();
   return { imported, skipped, skippedSites: [...skippedSites].sort().slice(0, SKIPPED_SHOWN) };
 }
 

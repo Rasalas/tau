@@ -11,13 +11,13 @@ export class PreviewBrowserProcess {
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
   private sequence = 0;
   private stopped = false;
-  private closing: Promise<void> | undefined;
+  private closing: Promise<boolean> | undefined;
   readonly exited: Promise<void>;
 
   constructor(executable: string, profile: string) {
     this.child = spawn(executable, [
       "--headless=new", "--remote-debugging-pipe", `--user-data-dir=${profile}`,
-      "--no-startup-window", "--no-first-run", "--no-default-browser-check",
+      "--no-startup-window", "--restore-last-session", "--no-first-run", "--no-default-browser-check",
       "--disable-extensions", "--disable-background-networking", "--disable-default-apps",
       "--disable-sync", "--password-store=basic",
     ], { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"], windowsHide: true });
@@ -91,14 +91,19 @@ export class PreviewBrowserProcess {
     this.pending.clear();
   }
 
-  close(): Promise<void> { return this.closing ??= this.closeProcess(); }
+  async close(requireNormal = false): Promise<void> {
+    const normal = await (this.closing ??= this.closeProcess());
+    if (requireNormal && !normal) throw new Error("The Preview browser did not finish saving imported cookies.");
+  }
 
-  private async closeProcess(): Promise<void> {
-    if (this.child.exitCode !== null || this.child.signalCode !== null) return this.exited;
-    // Browser.close flushes the owned profile before terminating Chromium.
+  private async closeProcess(): Promise<boolean> {
+    if (this.child.exitCode !== null || this.child.signalCode !== null) { await this.exited; return false; }
+    // The acknowledgement only schedules shutdown. Wait for process exit too.
     await this.send("Browser.close", {}, undefined, 2_000).catch(() => undefined);
-    const terminate = setTimeout(() => this.child.kill("SIGTERM"), 2_000);
+    let forced = false;
+    const terminate = setTimeout(() => { forced = true; this.child.kill("SIGTERM"); }, 2_000);
     const kill = setTimeout(() => this.child.kill("SIGKILL"), 4_000);
     try { await this.exited; } finally { clearTimeout(terminate); clearTimeout(kill); }
+    return !forced && this.child.exitCode === 0 && this.child.signalCode === null;
   }
 }

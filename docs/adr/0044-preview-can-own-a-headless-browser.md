@@ -19,6 +19,14 @@ a runtime download or external encoder. The host keeps the existing ten-minute
 and 500-MB output caps; these do not promise a hard bound on Chromium's internal
 encoder queue. Missing native recording support gets a clear capability error.
 
-Importing another browser's cookies still requires the desktop implementation;
-browser login, retained profiles, screenshots, console errors and explicit
-downloads work headlessly.
+The user-driven cookie import dialog also works headlessly. Source browsers and
+keychain prompts belong to Preview's home machine. Imports serialize with profile
+changes, use an owned helper for the selected profile and verify each cookie
+through Chromium's root Storage commands. Normal helper shutdown persists the
+writes before completion. Owned profiles use `--restore-last-session` together
+with `--no-startup-window` to retain session cookies without opening saved pages.
+An active page is explicitly reopened on the same headless backend after the
+helper exits; an inactive profile import leaves the active page alone. Desktop
+imports keep their window-owned store and delayed keychain jobs. Browser login,
+retained profiles, screenshots, console errors and explicit downloads also work
+headlessly.

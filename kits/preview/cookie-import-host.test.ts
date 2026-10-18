@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createPreviewHostExtension } from "./host.js";
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
-import { PREVIEW_HOST_EXTENSION_ID } from "./protocol.js";
+import { EMPTY_PREVIEW_STATE, PREVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 
 const target = (reloaded: string[] = []) => ({
   profiles: async () => ({ profiles: ["default", "work"], active: "default" }),
@@ -11,19 +11,6 @@ const target = (reloaded: string[] = []) => ({
 });
 
 describe("the host's side of cookie import", () => {
-  it.each([true, false])("refuses cookie import for an explicitly selected headless browser, inProcess=%s", async (inProcess) => {
-    vi.stubEnv("TAU_PREVIEW_BROWSER", "/test/chromium");
-    const call = vi.fn(async () => ({ imported: 1, skipped: 0, skippedSites: [] }));
-    const registry = await activateHostKit(createPreviewHostExtension(async () => undefined, () => ({ inProcess, call })), {
-      stateDir: "",
-      findCommand: () => undefined,
-    });
-    try {
-      await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "import-cookies", { source: "chrome", profile: "Default", sites: ["example.test"], into: "default" }))
-        .rejects.toThrow("Cookie import requires the desktop Preview");
-      expect(call).not.toHaveBeenCalled();
-    } finally { await registry.dispose(); vi.unstubAllEnvs(); }
-  });
   it("names the partition, runs in-process imports directly and reloads the page in that profile", async () => {
     const calls: Array<{ command: string; input: unknown }> = [];
     const window: CookieImportWindow = {
@@ -97,7 +84,13 @@ describe("Preview Kit's import commands", () => {
         return { started: true };
       },
     });
-    registry = await activateHostKit(createPreviewHostExtension(async () => undefined, window), {
+    registry = await activateHostKit(createPreviewHostExtension(async () => ({
+      zoomFactor: () => 1, place: () => undefined, load: async () => undefined, navigate: () => undefined,
+      setZoom: () => undefined, setAppearance: async () => undefined, state: () => ({ ...EMPTY_PREVIEW_STATE }),
+      viewport: () => ({ width: 1, height: 1 }), evaluate: async () => undefined,
+      capture: async () => ({ base64: "", width: 1, height: 1 }), record: async () => ({ chunks: [], mimeType: "video/webm" }),
+      pressKey: () => undefined, destroy: () => undefined,
+    }), window), {
       stateDir: "",
       findCommand: () => undefined,
       registerTurnObserver: () => () => undefined,
@@ -107,5 +100,6 @@ describe("Preview Kit's import commands", () => {
     await expect(registry.invoke(PREVIEW_HOST_EXTENSION_ID, "import-cookies", { source: "firefox", profile: "p", sites: ["a.com"], into: "default" }))
       .resolves.toEqual({ imported: 2, skipped: 0, skippedSites: [], profile: "default", reloaded: false });
     expect(calls.map(({ command }) => command)).toEqual(["cookie-sources", "cookie-import-start"]);
+    await registry.dispose();
   });
 });
