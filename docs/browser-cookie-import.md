@@ -77,10 +77,11 @@ same backend. Session cookies remain session cookies, retained across these
 owned browser restarts by Chromium's session restore policy. Saved pages do not
 open automatically. This does not promise durability after a crash or power loss.
 
-**What never leaves the machine.** Cookie values, the keychain secret and the
-copies of the store. Nothing is sent to a client, a model or another machine; the dialog
-only receives counts and site names. No agent tool reads or imports cookies:
-an import starts only with a click on **Import** in this dialog. A kit that
+**What the import returns.** The dialog receives only counts and site names.
+Cookie values, the keychain secret and store copies stay on the home machine
+during the copy. The browser later sends cookies to their sites through normal
+requests. The import has no agent tool; it starts only with a click on **Import**
+in this dialog. A kit that
 wants one (the "your turn" handover, for instance) opens the dialog through the
 `tau.preview/cookie-import` service, with the site filled in; you still choose
 the browser and click Import.
