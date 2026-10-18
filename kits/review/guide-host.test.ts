@@ -39,7 +39,7 @@ async function harness(options: Options = {}) {
   let duringSpawn: (() => Promise<void>) | undefined;
   const spawn = vi.fn(async (input: unknown) => {
     const beforePrompt = (input as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
-    if (options.writer === "codex" && options.spawnStatus !== "pending") await beforePrompt({ sessionId: "guide-thread", backendKind: "codex", parentThreadId: "parent" } as HostThread);
+    if (options.spawnStatus !== "pending") await beforePrompt({ sessionId: "guide-thread", backendKind: options.writer ?? "pi", parentThreadId: "parent" } as HostThread);
     await duringSpawn?.();
     return { threadId: "guide-thread", status: options.spawnStatus ?? "running" };
   });
@@ -136,7 +136,7 @@ describe("write", () => {
     expect(input.prompt).toContain("run id is run-1");
     expect(input.prompt).toContain("<pr_title>Title 42</pr_title>");
     expect(input.prompt).toContain("Short stops.");
-    expect(h.events).toEqual([expect.objectContaining({ kind: "running", number: 42, parentThreadId: "parent" })]);
+    expect(h.events).toEqual([expect.objectContaining({ kind: "running", number: 42, parentThreadId: "parent" }), expect.objectContaining({ kind: "running", number: 42, parentThreadId: "parent" })]);
   });
 
   it.each(["gitlab", "forgejo"] as const)("writes and normalizes a %s guide while keeping the writer read-only", async (service) => {
@@ -447,5 +447,39 @@ describe("Codex guide writer", () => {
     expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
     expect((await h.call<GuideResult>("guide-get", { url: URL })).guide).toBeNull();
     await vi.waitFor(() => expect(h.discard).toHaveBeenCalled());
+  });
+});
+
+
+describe("guide admission ownership", () => {
+  it.each(["pi", "codex"])("refuses run-id-only ownership before %s admission", async (writer) => {
+    const h = await harness({ writer, spawnStatus: "pending" });
+    await h.write();
+    const intruder = h.guideTools("unrelated");
+    await expect(h.run(intruder.find(GUIDE_DIFF_TOOL), { runId: "run-1" })).rejects.toThrow("not been admitted");
+    await expect(h.run(intruder.find(GUIDE_SUBMIT_TOOL), submission)).rejects.toThrow("not been admitted");
+    const admit = (h.spawn.mock.calls[0]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
+    await admit({ sessionId: "guide-thread", backendKind: writer, parentThreadId: "parent" } as HostThread);
+    await h.run(h.guideTools().find(GUIDE_SUBMIT_TOOL), submission);
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).guide?.headSha).toBe("head-1");
+  });
+
+  it("cannot overwrite a queued replacement's displayed thread when an older spawn returns late", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const h = await harness({ writer: "codex" });
+    h.beforeSpawnReturn(() => held);
+    const first = h.write();
+    await vi.waitFor(async () => expect(await h.tool({ sessionId: "guide-thread", cwd: "/wt" }, GUIDE_SUBMIT_TOOL)).toBeTruthy());
+    h.spawn.mockImplementationOnce(async () => ({ threadId: "queued", status: "pending" }));
+    h.heads.set(42, "head-2");
+    await h.write();
+    release(); await first;
+    const queued = await h.call<GuideResult>("guide-get", { url: URL });
+    expect(queued.run).toMatchObject({ state: "running", headSha: "head-2" });
+    expect(queued.run).not.toHaveProperty("threadId");
+    const admit = (h.spawn.mock.calls[1]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
+    await admit({ sessionId: "replacement", backendKind: "codex", parentThreadId: "parent" } as HostThread);
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ headSha: "head-2", threadId: "replacement" });
   });
 });

@@ -220,6 +220,9 @@ export function registerGuides(
             if (run.threadId && run.threadId !== thread.sessionId) throw new Error("This guide run already belongs to another thread.");
             run.threadId = thread.sessionId;
             threads.set(thread.sessionId, run);
+            const live = runs.get(key);
+            if (live?.state === "running") runs.set(key, { ...live, threadId: thread.sessionId });
+            emit(run, "running");
           } catch (error) { fail(run, message(error)); throw error; }
         };
         const { access: _access, ...codexDefinition } = GUIDE_DEFINITION;
@@ -229,10 +232,6 @@ export function registerGuides(
           ...(runtime === "pi" && config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition, beforePrompt,
         }) as { threadId: string; status?: string; error?: string };
         if (started.error) throw new Error(started.error);
-        // Admission binds a queued child before its first prompt can list tools.
-        if (started.status !== "pending" && active.get(key)?.runId === run.runId) { run.threadId = started.threadId; threads.set(started.threadId, run); }
-        const live = runs.get(key);
-        if (live?.state === "running") runs.set(key, { ...live, ...(run.threadId ? { threadId: run.threadId } : {}) });
         services.log("review.guide-started", `${ref.repo}#${ref.number} · ${run.headSha.slice(0, 9)}`);
         return { outcome: "started", ...(await resultFor(ref, cwd)), ...(run.threadId ? { threadId: run.threadId } : {}) };
       } catch (error) {
@@ -248,10 +247,7 @@ export function registerGuides(
     const run = [...active.values()].find((candidate) => candidate.runId === runId);
     if (!run) throw new Error("This run is over or was replaced by a newer one. Stop; there is nothing more to submit.");
     if (run.threadId && run.threadId !== session.sessionId) throw new Error("This run belongs to another thread.");
-    if (!run.threadId) {
-      if (run.runtime !== "pi") throw new Error("The guide thread has not been admitted yet.");
-      run.threadId = session.sessionId; threads.set(session.sessionId, run);
-    }
+    if (!run.threadId) throw new Error("The guide thread has not been admitted yet.");
     return run;
   };
 
