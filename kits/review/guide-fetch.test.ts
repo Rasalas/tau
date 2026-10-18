@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchGuideHead } from "./guide-fetch.js";
+import { createGuideFetch } from "./guide-fetch.js";
 import { createGitHubProvider } from "./provider-github.js";
 import { createGitLabProvider } from "./provider-gitlab.js";
 import { createForgejoProvider } from "./provider-forgejo.js";
@@ -15,7 +15,9 @@ vi.mock("node:child_process", async (original) => {
   return { ...actual, execFile: vi.fn(actual.execFile) };
 });
 const roots: string[] = [];
-afterEach(async () => { vi.mocked(execFile).mockClear(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+const noteSubprocess = vi.fn();
+const fetchGuideHead = createGuideFetch(noteSubprocess);
+afterEach(async () => { vi.mocked(execFile).mockClear(); noteSubprocess.mockClear(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 async function fixture(headRef: string) {
   const root = await mkdtemp(join(tmpdir(), "tau-guide-fetch-")); roots.push(root);
@@ -46,6 +48,7 @@ describe("fetching the exact guide head", () => {
     await fetchGuideHead(f.local, "origin", f.sha, "refs/pull/42/head");
     expect(git(f.local, "rev-parse", `${f.sha}^{commit}`)).toBe(f.sha);
     expect(git(f.local, "rev-parse", "HEAD")).toBe(before);
+    expect(noteSubprocess).toHaveBeenCalledTimes(2);
   });
   it.each([
     [createGitHubProvider, "https://github.com/example/project/pull/42", "refs/pull/42/head"],
@@ -59,6 +62,7 @@ describe("fetching the exact guide head", () => {
     refuseShaFetch();
     await fetchGuideHead(f.local, "origin", f.sha, headRef);
     expect(git(f.local, "rev-parse", `${f.sha}^{commit}`)).toBe(f.sha);
+    expect(noteSubprocess).toHaveBeenCalledTimes(3);
   });
   it("refuses a moved fallback ref that no longer supplies the requested commit", async () => {
     const headRef = "refs/merge-requests/42/head";

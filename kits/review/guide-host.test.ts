@@ -29,7 +29,7 @@ const detail = (number: number, headSha: string): PullRequestDetail => ({
   additions: 4, deletions: 0, changedFiles: 2, reviewers: [], labels: [], commits: [{ oid: "abcdef1234", headline: "First commit", committedAt: "" }],
 } as unknown as PullRequestDetail);
 
-interface Options { enabled?: boolean; model?: string; effort?: string; levels?: string[]; instructions?: string; stateDir?: string; spawnStatus?: string; service?: RequestService; headRef?: boolean }
+interface Options { enabled?: boolean; model?: string; effort?: string; levels?: string[]; instructions?: string; stateDir?: string; spawnStatus?: string; service?: RequestService; headRef?: boolean; catalogWait?: Promise<void> }
 
 async function harness(options: Options = {}) {
   const stateDir = options.stateDir ?? await mkdtemp(join(tmpdir(), "tau-guides-"));
@@ -41,6 +41,7 @@ async function harness(options: Options = {}) {
   const discard = vi.fn(async (_input: unknown) => ({ detail: "" }));
   const notify = vi.fn(async (_input: unknown) => undefined);
   const fetchHead = vi.fn(async () => undefined);
+  const catalogRead = vi.fn();
   let observer: HostTurnObserver | undefined;
   let mcp: ((session: RuntimeSessionInfo) => HostMcpTool[] | Promise<readonly HostMcpTool[]>) | undefined;
   let runtime: ((pi: unknown, session: RuntimeSessionInfo) => void) | undefined;
@@ -69,7 +70,7 @@ async function harness(options: Options = {}) {
     stateDir,
     settings: async () => ({ options: { "review-guides": options.enabled ?? true }, values: { "review-guide-model": options.model ?? "", "review-guide-effort": options.effort ?? "", "review-guide-instructions": options.instructions ?? "" } }),
     thread: ((id: string) => id === "parent" ? { sessionId: "parent", cwd: "/repo" } : id === "guide-thread" ? { sessionId: id, cwd: "/wt", model: { provider: "anthropic", id: "haiku" } } : undefined) as never,
-    runtimeChoices: async () => [{ backend: { kind: "pi", label: "Pi" }, enabled: true, readiness: { kind: "pi", label: "Pi", state: "ready" }, catalog: { kind: "pi", models: [{ provider: "test", id: "guide", name: "Guide" }], thinkingLevels: { "test/guide": options.levels ?? ["off", "low", "high"] } } }],
+    runtimeChoices: async () => { catalogRead(); await options.catalogWait; return [{ backend: { kind: "pi", label: "Pi" }, enabled: true, readiness: { kind: "pi", label: "Pi", state: "ready" }, catalog: { kind: "pi", models: [{ provider: "test", id: "guide", name: "Guide" }], thinkingLevels: { "test/guide": options.levels ?? ["off", "low", "high"] } } }]; },
     registerTurnObserver: (value) => { observer = value; return () => undefined; },
     mcp: { registerTools: (offer) => { mcp = offer as typeof mcp; return () => undefined; }, gate: () => () => undefined, registerInstructions: () => () => undefined, connect: async () => undefined },
     registerRuntimeExtension: (_name, setup) => { runtime = setup as typeof runtime; return () => undefined; },
@@ -93,7 +94,7 @@ async function harness(options: Options = {}) {
     return { registered, handlers, activeTools, find: (name: string) => registered.find((entry) => entry.name === name)! };
   };
   const run = (entry: HostMcpTool, params: unknown) => entry.execute("id", params as never, undefined as never, undefined as never, undefined as never);
-  return { stateDir, call, write, spawn, stop, discard, notify, fetchHead, events, heads, tool, guideTools, run, ended: (outcome: "completed" | "failed" = "completed") => observer!.runEnded!("guide-thread", outcome) };
+  return { stateDir, catalogRead, call, write, spawn, stop, discard, notify, fetchHead, events, heads, tool, guideTools, run, ended: (outcome: "completed" | "failed" = "completed") => observer!.runEnded!("guide-thread", outcome) };
 }
 
 const submission = { runId: "run-1", stops: [{ title: "The contract", summary: "Shape first.", excerpts: [{ path: "a.ts", side: "new", start: 1, end: 11, caption: "shape" }], notes: [{ path: "a.ts", line: 10, title: "why", body: "because" }], questions: ["Why?"] }] };
@@ -160,6 +161,18 @@ describe("write", () => {
     h.heads.set(42, "head-2");
     await expect(h.run(h.guideTools().find(GUIDE_SUBMIT_TOOL), submission)).rejects.toThrow("head changed");
     expect((await h.call<GuideResult>("guide-get", { url: "https://codeberg.org/example/project/pulls/42" })).guide).toBeNull();
+  });
+
+  it("rechecks the head after waiting for the effort catalog, before spawning", async () => {
+    let release!: () => void;
+    const catalogWait = new Promise<void>((resolve) => { release = resolve; });
+    const h = await harness({ service: "gitlab", model: "test/guide", effort: "high", catalogWait });
+    const writing = h.write();
+    await vi.waitFor(() => expect(h.catalogRead).toHaveBeenCalled());
+    h.heads.set(42, "head-2");
+    release();
+    expect(await writing).toMatchObject({ outcome: "failed", detail: expect.stringContaining("head changed") });
+    expect(h.spawn).not.toHaveBeenCalled();
   });
 
   it("passes the configured effort to the guide run", async () => {

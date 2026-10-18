@@ -9,7 +9,7 @@ import {
   type GuideEvent, type GuideResult, type GuideRun, type GuideWriteResult,
 } from "./guide-protocol.js";
 import { buildGuidePrompt, GUIDE_DEFINITION } from "./guide-prompt.js";
-import { fetchGuideHead, type GuideFetch } from "./guide-fetch.js";
+import { createGuideFetch, type GuideFetch } from "./guide-fetch.js";
 import { modelEffort } from "./model-effort.js";
 import { GuideStore } from "./guide-store.js";
 import { projectRepository } from "./pull-request-list-host.js";
@@ -79,7 +79,7 @@ export function registerGuides(
   const { services } = context;
   const store = new GuideStore(services.stateDir);
   const now = options.now ?? Date.now;
-  const fetchHead = options.fetchHead ?? fetchGuideHead;
+  const fetchHead = options.fetchHead ?? createGuideFetch(() => services.noteSubprocess());
   const newRunId = options.runId ?? randomUUID;
   /** The run in progress, or the last failure, per request. */
   const runs = new Map<string, GuideRun>();
@@ -197,6 +197,7 @@ export function registerGuides(
           settledReview(ref),
           reads.stackOf ? reads.stackOf(ref).catch(() => undefined) : Promise.resolve(undefined),
         ]);
+        const effort = await modelEffort(services, config.model, config.effort, cwd);
         if ((await reads.detail(ref, true)).headSha !== run.headSha) throw new Error("The request head changed. Write the guide again for the latest commit.");
         if (changes.files.length === 0) throw new Error("This pull request has no changed files.");
         if (active.get(key)?.runId !== run.runId) return asked("running");
@@ -205,7 +206,6 @@ export function registerGuides(
           settledReview: review, instructions: config.instructions,
           ...(stack && stack.size > 1 ? { stack: { position: stack.number, size: stack.size } } : {}),
         });
-        const effort = await modelEffort(services, config.model, config.effort, cwd);
         const started = await agentCall("spawn", {
           parentThreadId: via.parentThreadId, prompt, title: `Review guide for #${ref.number}`, startAt: run.headSha,
           ...(config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition: GUIDE_DEFINITION,
