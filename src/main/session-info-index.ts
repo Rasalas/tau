@@ -113,8 +113,10 @@ export class SessionInfoIndex {
     const root = this.sessionsDir ?? join(getAgentDir(), "sessions");
     const direct = readFiles ? await SessionManager.listAll(this.sessionsDir) : undefined;
     const byPath = new Map(direct?.map((info) => [info.path, { ...info, allMessagesText: "" }]));
-    const listing = direct ? { paths: [...byPath.keys()], complete: true } : await this.files(root);
-    const files = listing.paths;
+    // The SDK's full read omits failures. Verify its directory and every file
+    // independently so a concurrent strict caller can trust either scan mode.
+    const listing = await this.files(root);
+    const files = direct ? [...new Set([...listing.paths, ...byPath.keys()])] : listing.paths;
     const retained = new Set(files);
     for (const path of this.cache.keys()) if (!retained.has(path)) { this.cache.delete(path); this.dirty = true; }
     const entries = await mapBounded(files, async (path): Promise<CachedInfo | undefined> => {

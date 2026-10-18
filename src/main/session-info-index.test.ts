@@ -31,27 +31,27 @@ function message(id: string, timestamp: number): string {
 }
 
 describe("SessionInfoIndex", () => {
-  it("distinguishes an empty store from unreadable folders and session files", async () => {
+  it.each([false, true])("distinguishes an empty store from unreadable folders and session files, full read %s", async (readFiles) => {
     const root = await directory();
-    expect((await new SessionInfoIndex(join(root, "missing")).list()).complete).toBe(true);
+    expect((await new SessionInfoIndex(join(root, "missing")).list(readFiles)).complete).toBe(true);
     const blocked = join(root, "not-a-directory");
     await writeFile(blocked, "fixture");
-    expect((await new SessionInfoIndex(blocked).list()).complete).toBe(false);
+    expect((await new SessionInfoIndex(blocked).list(readFiles)).complete).toBe(false);
     const broken = join(root, "broken.jsonl");
     await writeFile(broken, "invalid session\n");
     const index = new SessionInfoIndex(root);
-    expect((await index.list()).complete).toBe(false);
+    expect((await index.list(readFiles)).complete).toBe(false);
     await writeFile(broken, session("recovered"));
-    expect((await index.list()).complete).toBe(true);
+    expect((await index.list(readFiles)).complete).toBe(true);
   });
 
-  it("marks a failed nested Pi folder scan incomplete", async () => {
+  it.each([false, true])("marks a failed nested Pi folder scan incomplete, full read %s", async (readFiles) => {
     const root = await directory();
     const sessions = join(root, "sessions");
     await mkdir(sessions);
     await symlink(join(root, "missing"), join(sessions, "project"));
     vi.stubEnv("PI_CODING_AGENT_DIR", root);
-    expect((await new SessionInfoIndex().list()).complete).toBe(false);
+    expect((await new SessionInfoIndex().list(readFiles)).complete).toBe(false);
   });
 
   it("reads past a stamp collision and replaces the stale cache entry", async () => {

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostEvent, UiMessage } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
@@ -153,6 +154,26 @@ describe("machine backend host prerequisites", () => {
     await expect(refreshIndex({ requireComplete: true })).rejects.toThrow(/incomplete.*pi/);
     await rm(unreadable, { recursive: true });
     await expect(refreshIndex({ requireComplete: true })).resolves.toMatchObject({ index: { unavailableBackends: [] } });
+  });
+
+  it("refuses an incomplete full-file scan shared with a strict extension caller", async () => {
+    const { open, sessionsDir } = await fixture();
+    const { host, refreshIndex } = await open();
+    await refreshIndex({ requireComplete: true });
+    await writeFile(join(sessionsDir, "broken.jsonl"), "invalid session\n");
+    let started!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    vi.spyOn(SessionManager, "listAll").mockImplementationOnce(async () => { started(); await held; return []; });
+    const transcript = host.loadTranscript("missing").catch(() => undefined);
+    try {
+      await entered;
+      const refused = expect(refreshIndex({ requireComplete: true })).rejects.toThrow(/incomplete.*pi/);
+      release();
+      await refused;
+      await transcript;
+    } finally { release(); }
   });
 
   it("publishes a refreshed machine index to already connected clients when requested", async () => {
