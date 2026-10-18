@@ -11,3 +11,47 @@ it("rejects pending commands when the browser executable cannot start", async ()
   await expect(browser.send("Page.enable")).rejects.toThrow("closed");
   await browser.close();
 });
+
+it.skipIf(process.platform === "win32")("waits past the close acknowledgement for normal process exit before confirming persistence", async () => {
+  const { browser, remove } = await fakeBrowser("void 0");
+  try {
+    await browser.send("Browser.getVersion");
+    let closed = false;
+    const closing = browser.close(true).then(() => { closed = true; });
+    await browser.send("Probe.afterCloseAcknowledgement");
+    expect(closed).toBe(false);
+    await browser.send("Probe.releaseExit");
+    await closing;
+    await expect(browser.close(true)).resolves.toBeUndefined();
+  } finally { await browser.close(); await remove(); }
+});
+
+it.skipIf(process.platform === "win32").each(["process.exit(1)", "void 0"])("refuses persisted success after abnormal or forced shutdown: %s", async (shutdown) => {
+  const { browser, remove } = await fakeBrowser(shutdown);
+  try {
+    await browser.send("Browser.getVersion");
+    await expect(browser.close(true)).rejects.toThrow("did not finish saving");
+  } finally { await browser.close(); await remove(); }
+});
+
+async function fakeBrowser(shutdown: string) {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const root = await mkdtemp(join(tmpdir(), "tau-preview-close-test-"));
+  const executable = join(root, "fake-browser.cjs");
+  await writeFile(executable, `#!${process.execPath}
+const fs = require('node:fs');
+const input = new (require('node:net').Socket)({fd:3, readable:true, writable:false});
+let buffer = '';
+input.on('data', bytes => {
+  buffer += bytes;
+  let end;
+  while ((end = buffer.indexOf('\\0')) !== -1) {
+    const request = JSON.parse(buffer.slice(0,end)); buffer = buffer.slice(end+1);
+    fs.writeSync(4, JSON.stringify({id:request.id,result:{}})+'\\0');
+    if (request.method === 'Browser.close') { ${shutdown}; }
+    if (request.method === 'Probe.releaseExit') process.exit(0);
+  }
+});
+`, { mode: 0o700 });
+  return { browser: new PreviewBrowserProcess(executable, join(root, "profile")), remove: () => rm(root, { recursive: true, force: true }) };
+}

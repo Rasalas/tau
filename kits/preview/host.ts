@@ -21,6 +21,7 @@ import {
   type PreviewLiveFrame,
   type PreviewNoWindow,
   type PreviewProfiles,
+  type CookieImportResult,
   type PreviewRecording,
   type PreviewServer,
   type PreviewState,
@@ -43,7 +44,7 @@ import {
 import { EVIDENCE_CALLER, previewSecretFocus, type PreviewEvidenceFrame } from "./evidence-frame.js";
 import { pickCrop, readAnnotationResult, readPickedElement } from "./picks.js";
 import { probeHttp, scanPorts } from "./ports.js";
-import { PreviewProfileStore, profilePartition } from "./profiles.js";
+import { PreviewProfileStore, normalizeProfileName, profilePartition } from "./profiles.js";
 import { PREVIEW_WINDOW_UNAVAILABLE, previewWindowUnavailable } from "./window-availability.js";
 import { pageCall, type PreviewActionResult } from "./page-script.js";
 import { POINTER_PATH, previewAgentCursor, previewInputOverlay, previewInputOverlayEnd, previewSecretNote, type PageCursorMark } from "./page-cursor.js";
@@ -55,6 +56,7 @@ import { PREVIEW_TOOL_GROUP, previewTools, type PreviewToolController } from "./
 import { defaultsFromSettings } from "./settings.js";
 import { DEFAULT_PREVIEW_DEFAULTS, fitViewport, readAppearance, readDefaults, readViewport, readZoom, stepZoom } from "./viewport.js";
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
+import type { CookieJar } from "./cookie-import.js";
 import { pageInput, previewFocusKind, readPreviewInput, type PreviewPageInput } from "./remote-input.js";
 import { pinnedWindowCalls } from "../_host-window/pinned-calls.js";
 import { DeviceLayout, readPreviewViewer, type PreviewDeviceMetrics } from "./device-layout.js";
@@ -74,6 +76,8 @@ export interface PreviewRect {
  * kit's window half (`remote-surface.ts`).
  */
 export interface PreviewSurface {
+  /** Private writes to this owned headless profile, unavailable to page scripts. */
+  cookies?: CookieJar;
   /** A remote surface takes the state its window half reports between calls. */
   accept?(snapshot: unknown): void;
   /** Zoom of the window the panel is drawn in; the panel measures in CSS pixels. */
@@ -108,6 +112,8 @@ export interface PreviewRecordingChunks {
 }
 
 export interface PreviewSurfaceOptions {
+  /** Keeps a profile handoff on its original backend even if a window appears. */
+  headless?: boolean;
   /** Cancels an owned browser even while it is still being initialized. */
   signal?: AbortSignal;
   /** Persistent state and executable discovery for the host's own browser. */
@@ -446,17 +452,7 @@ class PreviewController implements PreviewToolController {
     if (this.view) return this.view;
     const { active } = await this.profiles.read();
     if (this.view) return this.view;
-    const created = await this.createSurface({
-      stateDir: this.context.services.stateDir,
-      findCommand: (name) => this.context.services.findCommand(name),
-      noteSubprocess: () => this.context.services.noteSubprocess(),
-      partition: profilePartition(active),
-      onChange: () => this.publish(),
-      onChord: (chord) => { void this.chord(chord).catch(() => undefined); },
-      workspaceRoot: () => this.workspaceRoot,
-      log: (label, detail) => this.context.services.log(label, detail),
-      callClient: (command, input) => this.windowCall(command, input),
-    });
+    const created = await this.createSurface(this.surfaceOptions(profilePartition(active)));
     if (!created) {
       this.available = false;
       throw new Error(NO_DESKTOP);
@@ -465,6 +461,20 @@ class PreviewController implements PreviewToolController {
     this.place();
     if (this.appearance !== "system") await created.setAppearance(this.appearance).catch(() => undefined);
     return created;
+  }
+
+  private surfaceOptions(partition: string): PreviewSurfaceOptions {
+    return {
+      stateDir: this.context.services.stateDir,
+      findCommand: (name) => this.context.services.findCommand(name),
+      noteSubprocess: () => this.context.services.noteSubprocess(),
+      partition,
+      onChange: () => this.publish(),
+      onChord: (chord) => { void this.chord(chord).catch(() => undefined); },
+      workspaceRoot: () => this.workspaceRoot,
+      log: (label, detail) => this.context.services.log(label, detail),
+      callClient: (command, input) => this.windowCall(command, input),
+    };
   }
 
   page(): Promise<PreviewSurface> {
@@ -1059,6 +1069,58 @@ class PreviewController implements PreviewToolController {
     return true;
   }
 
+  /** The helper owns only the selected profile; profile mutations wait for it. */
+  importHeadlessCookies(input: unknown): Promise<CookieImportResult> {
+    return this.changeBrowser(async () => {
+      const fields = input && typeof input === "object" ? input as Record<string, unknown> : {};
+      const name = normalizeProfileName(fields.into);
+      const profiles = await this.profiles.read();
+      if (!name || !profiles.profiles.includes(name)) throw new Error("[unknown-profile] That Preview profile is gone. Choose another one.");
+      if ((await this.openSurface()).state().surface !== "headless") throw new Error("The Preview browser changed. Open the import dialog again.");
+      const partition = profilePartition(name);
+      const active = profiles.active === name;
+      const url = active ? this.view?.state().url : undefined;
+      const options = { ...this.surfaceOptions(partition), headless: true, onChange: () => undefined };
+      let helper: PreviewSurface | undefined;
+      let result: Omit<CookieImportResult, "profile" | "reloaded"> | undefined;
+      let reloaded = false;
+      try {
+        if (active) {
+          try {
+            await this.stopRecording();
+            if (!this.view?.cookies) throw new Error("The owned Preview browser cannot save cookies.");
+            await this.view.cookies.flushStore();
+          } finally { await this.closeSurface(); }
+        }
+        helper = await this.createSurface(options);
+        if (helper?.state().surface !== "headless" || !helper.cookies) throw new Error("The owned Preview browser cannot import cookies.");
+        const jar = helper.cookies;
+        const { cookieImportEnvironment, importCookies } = await import("./cookie-import.js");
+        result = await importCookies({ source: fields.source, profile: fields.profile, sites: fields.sites, partition },
+          cookieImportEnvironment((target) => {
+            if (target !== partition) throw new Error("Not the selected Preview profile.");
+            return jar;
+          }, process.env, process.platform, () => this.context.services.noteSubprocess()));
+        if (result.imported === 0) await jar.flushStore();
+      } finally {
+        try { await helper?.destroy(); }
+        finally {
+          if (active) {
+            const restored = await this.createSurface({ ...this.surfaceOptions(partition), headless: true }).catch(() => undefined);
+            if (restored?.state().surface === "headless") {
+              this.view = restored;
+              this.place();
+              await restored.setAppearance(this.appearance).catch(() => undefined);
+              if (url && url !== "about:blank") reloaded = await restored.load(url, LOAD_TIMEOUT_MS).then(() => true, () => false);
+            } else await restored?.destroy();
+            this.publish();
+          }
+        }
+      }
+      return { ...result!, profile: name, reloaded: result!.imported > 0 && reloaded };
+    });
+  }
+
   /** Local servers for the address bar; a scan a moment old is answered again. */
   ports(cwd: unknown): Promise<PreviewServer[]> {
     const root = typeof cwd === "string" && cwd ? cwd : this.workspaceRoot;
@@ -1103,7 +1165,7 @@ const electronSurface: PreviewSurfaceFactory = async (options) => {
     return createHeadlessPreviewSurface(options, executable, options.stateDir);
   };
   // An explicit browser path also selects the host browser on a desktop machine.
-  if (process.env.TAU_PREVIEW_BROWSER) return headless();
+  if (options.headless || process.env.TAU_PREVIEW_BROWSER) return headless();
   if (process.type === "browser") {
     const { createElectronPreviewSurface } = await import("./view.js");
     return createElectronPreviewSurface(options) ?? headless();
@@ -1226,23 +1288,28 @@ export function createPreviewHostExtension(
         throw new HostCommandError(error instanceof Error ? error.message : String(error));
       }));
       // Only the panel's own dialog reaches these; no agent tool imports cookies.
-      // Cookies go into the view's sessions, so into the window that holds the view.
+      // Resolve the actual backend before choosing the machine and cookie jar.
       const importer = cookieWindow((command, input) => controller.windowCall(command, input));
-      const cookies = new CookieImportHost({
-        inProcess: importer.inProcess,
-        call: (command, input) => {
-          if (controller.state().surface === "headless" || process.env.TAU_PREVIEW_BROWSER) throw new Error("Cookie import requires the desktop Preview. Sign in directly in this browser to retain its login.");
-          return importer.call(command, input);
-        },
-      }, {
+      const cookies = new CookieImportHost(importer, {
         profiles: () => controller.profileList(),
         partition: profilePartition,
         reload: (profile) => controller.reloadIn(profile),
       });
-      context.registerCommand("import-sources", () => cookies.sources());
-      context.registerCommand("import-sites", (input) => cookies.sites(input));
-      context.registerCommand("import-cookies", (input) => cookies.import(input));
-      context.registerCommand("import-open-access", () => cookies.openAccess());
+      const headless = async () => (await controller.surface()).state().surface === "headless";
+      const listCookies = async (command: string, input?: unknown) => {
+        const { cookieImportEnvironment, runCookieImportCommand } = await import("./cookie-import.js");
+        return runCookieImportCommand(command, input, cookieImportEnvironment(() => { throw new Error("Listing cannot write cookies."); }));
+      };
+      context.registerCommand("import-sources", async () => await headless() ? listCookies("sources") : cookies.sources());
+      context.registerCommand("import-sites", async (input) => await headless() ? listCookies("sites", input) : cookies.sites(input));
+      context.registerCommand("import-cookies", async (input) => await headless() ? controller.importHeadlessCookies(input) : cookies.import(input), { long: true });
+      context.registerCommand("import-open-access", async () => {
+        if (!(await headless())) return cookies.openAccess();
+        if (process.platform === "darwin") {
+          context.services.noteSubprocess();
+          await new Promise<void>((resolve, reject) => execFile("/usr/bin/open", ["x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"], { timeout: 5_000 }, (error) => error ? reject(new Error("Could not open Full Disk Access settings.")) : resolve()));
+        }
+      });
       context.registerCommand("hold", (input) => controller.hold(input));
       context.registerCommand("cookie-import-settled", (input) => { cookies.settle(input); });
       context.registerCommand("evidence-frame", (input) => {

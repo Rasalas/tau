@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { access, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeChromiumStore } from "../kits/preview/cookie-fixtures.ts";
 import { pathToFileURL } from "node:url";
 import { startTestHost, stopTestHost } from "./tau-test-host.mjs";
 import { prepareFakePiAgentDir, startFakeModelServer } from "./fake-model-server.mjs";
@@ -13,11 +14,19 @@ const model = await startFakeModelServer();
 let typed = "";
 let recordedVideo;
 let videoProof;
+let savedPageRequests = 0;
 let slowResponse;
 let startedDownload;
 const downloadStarted = new Promise((resolve) => { startedDownload = resolve; });
 const fixture = createServer((request, response) => {
   const url = new URL(request.url, "http://fixture");
+  if (url.pathname === "/saved-page") savedPageRequests += 1;
+  if (url.pathname === "/import-check") {
+    response.setHeader("content-type", "application/json");
+    const cookies = request.headers.cookie ?? "";
+    response.end(JSON.stringify({ session: cookies.includes("import_session=synthetic-session"), persistent: cookies.includes("import_persistent=synthetic-persistent"), excluded: cookies.includes("unselected=") }));
+    return;
+  }
   if (url.pathname === "/video-proof") { videoProof = JSON.parse(url.searchParams.get("data")); response.end("ok"); return; }
   if (url.pathname === "/recorded.mp4") { response.setHeader("content-type", "video/mp4"); response.end(recordedVideo); return; }
   if (url.pathname === "/video-check") {
@@ -64,10 +73,25 @@ await new Promise((resolve) => fixture.listen(0, "127.0.0.1", resolve));
 const url = `http://127.0.0.1:${fixture.address().port}`;
 let client;
 let owned = false;
-const guard = setTimeout(() => { console.error("Headless Preview smoke timed out."); process.exitCode = 1; void cleanup(); }, 90_000);
+const guard = setTimeout(() => { console.error("Headless Preview smoke timed out."); process.exitCode = 1; void cleanup(); }, 120_000);
 const options = {
   env: { DISPLAY: "", WAYLAND_DISPLAY: "", WAYLAND_SOCKET: "" },
-  prepare: (env) => prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, model.baseUrl),
+  prepare: async (env) => {
+    await prepareFakePiAgentDir(env.PI_CODING_AGENT_DIR, model.baseUrl);
+    const home = join(env.TAU_IMPORT_ROOTS, "browsers");
+    const chrome = process.platform === "darwin" ? join(home, "Library", "Application Support", "Google", "Chrome") : join(home, ".config", "google-chrome");
+    const store = join(chrome, "Default", "Cookies");
+    if (await access(store).then(() => true, () => false)) return;
+    await mkdir(chrome, { recursive: true });
+    await writeFile(join(chrome, "Local State"), JSON.stringify({ profile: { info_cache: { Default: { name: "Synthetic source" } } } }));
+    const secret = process.platform === "darwin" ? "fixture-secret" : "peanuts";
+    await writeFile(join(home, "keychain.json"), JSON.stringify({ "Chrome Safe Storage": secret }));
+    writeChromiumStore(store, [
+      { host: "127.0.0.1", name: "import_session", value: "synthetic-session", httpOnly: true, sameSite: 1 },
+      { host: "127.0.0.1", name: "import_persistent", value: "synthetic-persistent", httpOnly: true, sameSite: 1, expires: Math.floor(Date.now()/1000)+3600 },
+      { host: "localhost", name: "unselected", value: "synthetic-excluded", sameSite: 1 },
+    ], { secret, platform: process.platform });
+  },
 };
 const preview = (command, input) => client.request("host-extension", ["tau.preview", command, input]);
 async function until(read, test) {
@@ -103,6 +127,37 @@ async function cleanup() {
 }
 try {
   let host = await start(true);
+  await preview("use-profile", { name: "imported" });
+  await preview("open", { url: `${url}/saved-page` });
+  assert.equal(savedPageRequests, 1);
+  const sources = await preview("import-sources");
+  assert.equal(sources[0].id, "chrome");
+  assert.deepEqual(await preview("import-sites", { source: "chrome", profile: "Default" }), [{ site: "127.0.0.1", cookies: 2 }, { site: "localhost", cookies: 1 }]);
+  const request = { source: "chrome", profile: "Default", sites: ["127.0.0.1"], into: "imported", partition: "persist:workbench" };
+  const imported = await preview("import-cookies", request);
+  assert.deepEqual(imported, { imported: 2, skipped: 0, skippedSites: [], profile: "imported", reloaded: true });
+  assert(!JSON.stringify(imported).includes("synthetic"));
+  assert.equal(savedPageRequests, 2, "only the explicit page restore may request the saved page");
+  const checkImported = async (destination, expected) => {
+    await preview("download", { url: `${url}/import-check`, destination });
+    assert.deepEqual(JSON.parse(await readFile(join(host.workspace, destination), "utf8")), { session: expected, persistent: expected, excluded: false });
+  };
+  await checkImported("import-active.json", true);
+  await preview("download", { url: `http://localhost:${fixture.address().port}/import-check`, destination: "unselected-site.json" });
+  assert.deepEqual(JSON.parse(await readFile(join(host.workspace, "unselected-site.json"), "utf8")), { session: false, persistent: false, excluded: false });
+  await preview("close");
+  await preview("import-sources");
+  assert.equal(savedPageRequests, 2, "opening the owned profile must not restore saved pages");
+  await preview("open", { url: `${url}/check` });
+  await checkImported("import-after-close.json", true);
+  await preview("use-profile", { name: "untouched" });
+  await preview("open", { url: `${url}/check` });
+  await checkImported("import-other-before.json", false);
+  assert.equal((await preview("import-cookies", request)).reloaded, false);
+  assert.equal(savedPageRequests, 2, "inactive helper must not open saved pages");
+  assert.equal((await preview("profiles")).active, "untouched");
+  assert.equal((await preview("state")).url, `${url}/check`);
+  await checkImported("import-other-after.json", false);
   await preview("use-profile", { name: "smoke" });
   await preview("open", { url: `${url}/login` });
   const state = await preview("state");
@@ -181,6 +236,14 @@ try {
   await preview("open", { url: `${url}/check` });
   await preview("download", { url: `${url}/download`, destination: "after-restart.txt" });
   assert.equal(await readFile(join(host.workspace, "after-restart.txt"), "utf8"), "authenticated");
+  const beforeProfileReturn = savedPageRequests;
+  await preview("use-profile", { name: "imported" });
+  assert.equal(savedPageRequests, beforeProfileReturn, "inactive imported profile must not restore an old page");
+  await checkImported("import-after-host-restart.json", true);
+  await preview("delete-profile", { id: "imported" });
+  await preview("use-profile", { name: "imported" });
+  await checkImported("import-after-delete.json", false);
+  await preview("use-profile", { name: "smoke" });
   await preview("delete-profile", { id: "smoke" });
   await preview("use-profile", { name: "smoke" });
   await preview("download", { url: `${url}/download`, destination: "after-delete.txt" });
@@ -192,5 +255,6 @@ try {
   const outside = join(host.workspace, "..", "outside.html");
   await writeFile(outside, "<title>Private content</title>");
   await assert.rejects(preview("open", { url: pathToFileURL(outside).href }), /workspace/u);
+  await writeFile("reports/preview-headless-cookies.json", JSON.stringify({ isolated: true, fixtureOnly: true, selectedSiteOnly: true, activeProfileReloaded: true, inactiveProfileUnchanged: true, sessionAndPersistentAfterHostRestart: true, normalCloseHandoff: true, noSavedPageAutoRestore: true, deletionClearedCookies: true, valuesAbsentFromResults: true }, null, 2));
   console.log("Headless Preview passed: real Tau host, no display, trusted input, live JPEG, console errors, authenticated downloads, no overwrite, retained and deleted profiles, restart, offline files, workspace confinement and decoded MP4 video across navigation with incremental fragments, restart and close.");
 } finally { clearTimeout(guard); await cleanup(); }

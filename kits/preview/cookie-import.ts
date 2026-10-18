@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { CookieImportResult, CookieImportSite, CookieImportSource } from "./protocol.js";
-import { fixtureKeyProvider, keychainKeyProvider, type CookieKeyProvider } from "./cookie-keys.js";
+import { fixtureKeyProvider, createKeychainKeyProvider, type CookieKeyProvider } from "./cookie-keys.js";
 import {
   CookieImportError,
   LINUX_FALLBACK_SECRET,
@@ -17,7 +17,7 @@ import {
 } from "./cookie-read.js";
 import { listCookieSources, resolveBrowserProfile, type BrowserPaths } from "./cookie-sources.js";
 
-/** The part of Electron's `session.cookies` an import writes through. */
+/** The owned Preview cookie store an import writes through. */
 export interface CookieJar {
   set(cookie: CookieToWrite): Promise<void>;
   flushStore(): Promise<void>;
@@ -42,13 +42,13 @@ const IMPORT_ROOTS_VARIABLE = "TAU_IMPORT_ROOTS";
  * The machine's own browsers and keychain, or, when an isolated instance names
  * fixture roots, a stand-in home and keychain under the first of them.
  */
-export function cookieImportEnvironment(jar: CookieImportEnvironment["jar"], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): CookieImportEnvironment {
+export function cookieImportEnvironment(jar: CookieImportEnvironment["jar"], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, noteSubprocess?: () => void): CookieImportEnvironment {
   const root = env[IMPORT_ROOTS_VARIABLE]?.split(delimiter).find(Boolean);
   if (root) {
     const home = join(root, "browsers");
     return { paths: { platform, home, appData: join(home, "AppData", "Roaming") }, keys: fixtureKeyProvider(home), jar };
   }
-  return { paths: { platform, home: homedir(), ...(env.APPDATA ? { appData: env.APPDATA } : {}) }, keys: keychainKeyProvider, jar };
+  return { paths: { platform, home: homedir(), ...(env.APPDATA ? { appData: env.APPDATA } : {}) }, keys: createKeychainKeyProvider(noteSubprocess), jar };
 }
 
 const fields = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -113,8 +113,8 @@ export async function importCookies(input: unknown, environment: CookieImportEnv
       skippedSites.add(siteOf(bareHost(cookie.host)));
     }
   }
-  // `set` lands in memory; flushing first means "done" survives a crash right after.
-  if (imported > 0) await jar.flushStore().catch(() => undefined);
+  // Report completion only once the owned store has finished persisting writes.
+  if (imported > 0) await jar.flushStore();
   return { imported, skipped, skippedSites: [...skippedSites].sort().slice(0, SKIPPED_SHOWN) };
 }
 

@@ -7,6 +7,7 @@ import { previewFileAllowed, savePreviewDownload } from "./headless-files.js";
 import type { PreviewSurface, PreviewSurfaceOptions } from "./host.js";
 import { EMPTY_PREVIEW_STATE, type PreviewState } from "./protocol.js";
 import { cdpInputCommands } from "./remote-input.js";
+import { headlessCookieJar } from "./headless-cookie-jar.js";
 
 /** The program is shared; user data is always Preview's own, never Chrome's. */
 export function previewBrowserCommand(find: (name: string) => string | undefined): string | undefined {
@@ -171,6 +172,7 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
   });
 
   const surface: PreviewSurface = {
+    cookies: headlessCookieJar((method, params) => browser.send(method, params), () => browser.close(true)),
     zoomFactor: () => 1,
     place(rect, _visible, device) {
       const nextWidth = Math.max(1, Math.round(device?.width ?? rect.width));

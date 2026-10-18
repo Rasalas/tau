@@ -19,23 +19,28 @@ const KEYCHAIN_TIMEOUT_MS = 5 * 60_000;
  * would let any program read the item through the same tool. Never runs
  * under test: the keychain is the user's.
  */
-export const keychainKeyProvider: CookieKeyProvider = {
-  secret({ service, account }) {
-    if (process.env.VITEST) return Promise.reject(new Error("The keychain is never read under test."));
-    return new Promise((resolve, reject) => {
-      execFile("/usr/bin/security", ["find-generic-password", "-w", "-s", service, "-a", account], { timeout: KEYCHAIN_TIMEOUT_MS, windowsHide: true }, (error, stdout) => {
-        const secret = typeof stdout === "string" ? stdout.replace(/\n$/u, "") : "";
-        if (!error && secret) return resolve(secret);
-        const code = (error as { code?: unknown } | null)?.code;
-        reject(code === ITEM_NOT_FOUND || (!error && !secret)
-          ? new CookieImportError("keychain-missing", `The keychain has no "${service}" item. Open the browser once, then try again.`)
-          : code === "ENOENT"
-            ? new CookieImportError("keychain-unavailable", "This Mac has no /usr/bin/security to ask the keychain with.")
-            : new CookieImportError("keychain-denied", `The keychain did not hand out "${service}". Choose Allow when macOS asks, then try again.`));
+export function createKeychainKeyProvider(noteSubprocess?: () => void): CookieKeyProvider {
+  return {
+    secret({ service, account }) {
+      if (process.env.VITEST) return Promise.reject(new Error("The keychain is never read under test."));
+      return new Promise((resolve, reject) => {
+        noteSubprocess?.();
+        execFile("/usr/bin/security", ["find-generic-password", "-w", "-s", service, "-a", account], { timeout: KEYCHAIN_TIMEOUT_MS, windowsHide: true }, (error, stdout) => {
+          const secret = typeof stdout === "string" ? stdout.replace(/\n$/u, "") : "";
+          if (!error && secret) return resolve(secret);
+          const code = (error as { code?: unknown } | null)?.code;
+          reject(code === ITEM_NOT_FOUND || (!error && !secret)
+            ? new CookieImportError("keychain-missing", `The keychain has no "${service}" item. Open the browser once, then try again.`)
+            : code === "ENOENT"
+              ? new CookieImportError("keychain-unavailable", "This Mac has no /usr/bin/security to ask the keychain with.")
+              : new CookieImportError("keychain-denied", `The keychain did not hand out "${service}". Choose Allow when macOS asks, then try again.`));
+        });
       });
-    });
-  },
-};
+    },
+  };
+}
+
+export const keychainKeyProvider = createKeychainKeyProvider();
 
 /**
  * A stand-in keychain for an isolated instance: `keychain.json` under the

@@ -38,9 +38,11 @@ to disk only every so often.
 
 ## Security
 
-The import runs in the process that owns the Tau window, on the machine the
-window runs on. A host elsewhere (a remote host, the browser client) only
-routes the request; it never sees a cookie value.
+The import runs on Preview's home machine. With a desktop view, its window
+process owns the cookie store. With an owned headless browser, the host reads
+the source and writes directly through that browser's private pipe. The client
+showing the dialog receives only counts and site names. A browser on a different
+machine cannot supply its sign-in through this dialog.
 
 **What is read.** Listing the browsers reads folder names, Chromium's
 `Local State` (profile names), Firefox's `profiles.ini` and whether a cookie
@@ -66,15 +68,20 @@ and are written nowhere but the Preview profile. A value whose host binding
 (cookie stores of schema 24 and later) does not match its host is skipped, not imported.
 
 **Where it goes.** Only into a Preview profile's own session partition
-(`persist:tau-preview`, `persist:tau-preview-<name>`); the window half refuses
-any other partition, so the workbench's own session can never receive a
-cookie. Electron keeps the partition under Tau's user data folder, as it does
-for cookies a site sets while you browse in the preview.
+(`persist:tau-preview`, `persist:tau-preview-<name>`). The selected profile is
+checked again before an import; client-supplied partitions are ignored.
+Electron keeps its partitions under Tau's user data folder. Headless Preview
+keeps its own Chromium profile under the kit's state directory. A headless
+helper closes normally before completion, then the active page reopens on the
+same backend. Session cookies remain session cookies, retained across these
+owned browser restarts by Chromium's session restore policy. Saved pages do not
+open automatically. This does not promise durability after a crash or power loss.
 
-**What never leaves the machine.** Cookie values, the keychain secret and the
-copies of the store. Nothing is sent to a host, a model or a server; the dialog
-only receives counts and site names. No agent tool reads or imports cookies:
-an import starts only with a click on **Import** in this dialog. A kit that
+**What the import returns.** The dialog receives only counts and site names.
+Cookie values, the keychain secret and store copies stay on the home machine
+during the copy. The browser later sends cookies to their sites through normal
+requests. The import has no agent tool; it starts only with a click on **Import**
+in this dialog. A kit that
 wants one (the "your turn" handover, for instance) opens the dialog through the
 `tau.preview/cookie-import` service, with the site filled in; you still choose
 the browser and click Import.
