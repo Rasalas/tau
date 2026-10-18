@@ -112,7 +112,9 @@ filter the thread's MCP credential. Other runtimes remain refused.
 Agents Kit forwards an in-process `beforePrompt` callback to the existing
 `sessions.start` admission seam. Review binds the actual thread, parent and
 runtime there and rechecks the head, including after time in the queue. Only that
-thread can list or execute the run's MCP tools. The callback stays in memory;
+thread can list or execute the run's MCP tools. Agents Kit reports pending
+cancellation and startup failures through `onStartFailed`, so Review clears the
+run even when no thread was admitted and another write can retry it. The callback stays in memory;
 a restart loses guide runs, and their tools remain unavailable. Trusted kits may
 create a child in an explicit worktree on the parent's runtime/model; ordinary
 delegation still follows the native-subagent default. Early completion cannot

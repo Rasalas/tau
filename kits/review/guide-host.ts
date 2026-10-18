@@ -41,6 +41,7 @@ interface Active {
   title: string;
   runtime: "pi" | "codex";
   threadId?: string;
+  jobId?: string;
 }
 
 export interface Guides {
@@ -190,7 +191,7 @@ export function registerGuides(
       // A newer head replaces a run still reading the old one; its result would be for a commit already moved past.
       if (running) {
         active.delete(key);
-        if (running.threadId) void agentCall("stop-agent", { threadId: running.threadId }).catch(() => undefined);
+        if (running.threadId || running.jobId) void agentCall("stop-agent", { threadId: running.threadId ?? running.jobId }).catch(() => undefined);
       }
       active.set(key, run);
       runs.set(key, { state: "running", headSha: run.headSha, startedAt: run.startedAt });
@@ -229,9 +230,11 @@ export function registerGuides(
         const definition = runtime === "pi" ? GUIDE_DEFINITION : { ...codexDefinition, runtime };
         const started = await agentCall("spawn", {
           parentThreadId: via.parentThreadId, prompt, title: `Review guide for #${ref.number}`, startAt: run.headSha,
-          ...(runtime === "pi" && config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition, beforePrompt,
+          ...(runtime === "pi" && config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition, beforePrompt, onStartFailed: (detail: string) => fail(run, detail),
         }) as { threadId: string; status?: string; error?: string };
         if (started.error) throw new Error(started.error);
+        run.jobId = started.threadId;
+        if (started.status === "pending" && active.get(key)?.runId !== run.runId) void agentCall("stop-agent", { threadId: started.threadId }).catch(() => undefined);
         services.log("review.guide-started", `${ref.repo}#${ref.number} · ${run.headSha.slice(0, 9)}`);
         return { outcome: "started", ...(await resultFor(ref, cwd)), ...(run.threadId ? { threadId: run.threadId } : {}) };
       } catch (error) {

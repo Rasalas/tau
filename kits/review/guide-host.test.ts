@@ -426,6 +426,30 @@ describe("Codex guide writer", () => {
     expect(await h.call<GuideResult>("guide-get", { url: URL })).toMatchObject({ run: { state: "failed" } });
   });
 
+  it.each([
+    { backendKind: "pi", parentThreadId: "parent" },
+    { backendKind: "codex", parentThreadId: "unrelated" },
+  ])("rejects admission with mismatched lineage %j", async (lineage) => {
+    const h = await harness({ writer: "codex", spawnStatus: "pending" });
+    await h.write();
+    const admit = (h.spawn.mock.calls[0]![0] as { beforePrompt: (thread: HostThread) => Promise<void> }).beforePrompt;
+    await expect(admit({ sessionId: session.sessionId, ...lineage } as HostThread)).rejects.toThrow("another runtime or parent");
+    expect(await h.tool(session, GUIDE_SUBMIT_TOOL)).toBeUndefined();
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ state: "failed" });
+  });
+
+  it.each(["pi", "codex"])("allows retry after a queued %s writer is cancelled or fails before admission", async (writer) => {
+    const h = await harness({ writer, spawnStatus: "pending" });
+    await h.write();
+    const fail = (h.spawn.mock.calls[0]![0] as { onStartFailed: (detail: string) => void }).onStartFailed;
+    fail("Queued writer cancelled");
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ state: "failed", detail: "Queued writer cancelled" });
+    expect(await h.write()).toMatchObject({ outcome: "started" });
+    expect(h.spawn).toHaveBeenCalledTimes(2);
+    fail("Late previous failure");
+    expect((await h.call<GuideResult>("guide-get", { url: URL })).run).toMatchObject({ state: "running", headSha: "head-1" });
+  });
+
   it("cleans up early completion without re-registering the ended thread after spawn returns", async () => {
     const h = await harness({ writer: "codex" });
     h.beforeSpawnReturn(async () => {

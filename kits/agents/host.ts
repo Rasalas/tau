@@ -604,6 +604,14 @@ export function createAgentsHostExtension(options: {
       /** The definition each queued agent was spawned with, until its thread is built. */
       const definitions = new Map<string, AgentDefinition>();
       const beforePrompts = new Map<string, (thread: HostThread) => Promise<void>>();
+      const startFailures = new Map<string, (detail: string) => void>();
+      const notifyStartFailed = (id: string, detail: string) => {
+        const callback = startFailures.get(id);
+        startFailures.delete(id);
+        if (!callback) return;
+        const failed = (error: unknown) => services.log("agents.start-failure-callback", error instanceof Error ? error.message : String(error));
+        try { void Promise.resolve(callback(detail)).catch(failed); } catch (error) { failed(error); }
+      };
       const runtimes = new Map<string, string>();
       /** The revision a queued agent's worktree starts from, for a spawn that names one. */
       const startPoints = new Map<string, string>();
@@ -723,6 +731,7 @@ export function createAgentsHostExtension(options: {
           guard.unref?.();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          notifyStartFailed(agent.id, message);
           // A thread that never started leaves no worktree behind.
           if (workspace?.branch) {
             await removeAgentWorktree({ parentCwd: agent.projectPath, worktree: { path: workspace.path, branch: workspace.branch }, runGit }).catch(() => undefined);
@@ -734,6 +743,7 @@ export function createAgentsHostExtension(options: {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
           beforePrompts.delete(agent.id);
+          startFailures.delete(agent.id);
           runtimes.delete(agent.id);
           startPoints.delete(agent.id);
           requestedEfforts.delete(agent.id);
@@ -775,6 +785,7 @@ export function createAgentsHostExtension(options: {
           wanted.delete(agent.id);
           definitions.delete(agent.id);
           beforePrompts.delete(agent.id);
+          startFailures.delete(agent.id);
           runtimes.delete(agent.id);
           requestedEfforts.delete(agent.id);
           if (--starting === 0) acceptedEarly.clear();
@@ -847,7 +858,7 @@ export function createAgentsHostExtension(options: {
         });
       };
 
-      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread", extra: { definition?: AgentDefinition; startAt?: string; thinkingLevel?: string; beforePrompt?: (thread: HostThread) => Promise<void> } = {}) => {
+      const spawn = async (parent: RuntimeSessionInfo, input: unknown, inheritedModel: string | undefined, spawnedBy = "tau_spawn_thread", extra: { definition?: AgentDefinition; startAt?: string; thinkingLevel?: string; beforePrompt?: (thread: HostThread) => Promise<void>; onStartFailed?: (detail: string) => void } = {}) => {
         const request = decodeSpawnRequest(input);
         const depth = await depthOf(parent.sessionId);
         const projectPath = await resolveProject(request.projectPath, parent.cwd);
@@ -873,7 +884,7 @@ export function createAgentsHostExtension(options: {
         const requested = request.workspace ?? definition?.workspace;
         const repository = await isRepository(projectPath);
         if (choice.machine) {
-          if (extra.beforePrompt) throw new Error("A beforePrompt callback requires a child on this machine.");
+          if (extra.beforePrompt || extra.onStartFailed) throw new Error("A start callback requires a child on this machine.");
           const where = choice.machine.name;
           if (request.workspace === "shared") throw new Error(`A thread on ${where} works in a worktree there; "shared" only works on this machine.`);
           if (!repository) throw new Error(`Only a Git repository's state can go to ${where}; run this one here with machine "local".`);
@@ -889,6 +900,7 @@ export function createAgentsHostExtension(options: {
         runtimes.set(id, runtime);
         if (definition) definitions.set(id, definition);
         if (extra.beforePrompt) beforePrompts.set(id, extra.beforePrompt);
+        if (extra.onStartFailed) startFailures.set(id, extra.onStartFailed);
         if (extra.startAt) startPoints.set(id, extra.startAt);
         if (extra.thinkingLevel) requestedEfforts.set(id, extra.thinkingLevel);
         // A child writes by default, and two writers in one checkout collide;
@@ -923,7 +935,7 @@ export function createAgentsHostExtension(options: {
         admitting.add(id);
         // Never acknowledge a pending handle whose complete intent is only in RAM.
         try { await persistLinks(); } catch (error) {
-          book.forget(id); prompts.delete(id); definitions.delete(id); beforePrompts.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id); startPoints.delete(id); requestedEfforts.delete(id);
+          book.forget(id); prompts.delete(id); definitions.delete(id); beforePrompts.delete(id); startFailures.delete(id); runtimes.delete(id); wanted.delete(id); expecting.delete(id); intentKeys.delete(id); startPoints.delete(id); requestedEfforts.delete(id);
           throw error;
         } finally { admitting.delete(id); }
         if (claimSlot(id)) await startAgent(book.linkFor(id)!);
@@ -1247,6 +1259,7 @@ export function createAgentsHostExtension(options: {
         save();
         await reported(parentThreadId, link.id);
         if (link.status === "pending") {
+          notifyStartFailed(link.id, "The queued agent was cancelled before it started.");
           prompts.delete(link.id);
           definitions.delete(link.id);
           beforePrompts.delete(link.id);
@@ -1266,6 +1279,7 @@ export function createAgentsHostExtension(options: {
         }
         if (!isBusyStatus(link.status)) return { threadId: handle, status: link.status, cancelled: false };
         if (!link.threadId) {
+          notifyStartFailed(link.id, "The agent was cancelled before it started.");
           changed(link.id, book.noteCancelled(link.id, Date.now()));
           return { threadId: handle, status: "cancelled", cancelled: true };
         }
@@ -1779,9 +1793,11 @@ export function createAgentsHostExtension(options: {
           if (fields.startAt !== undefined && !startAt) throw new HostCommandError("startAt must be a commit id.");
           const thinkingLevel = typeof fields.thinkingLevel === "string" && fields.thinkingLevel.trim() ? fields.thinkingLevel.trim() : undefined;
           if (fields.beforePrompt !== undefined && typeof fields.beforePrompt !== "function") throw new HostCommandError("beforePrompt must be an in-process callback.");
+          if (fields.onStartFailed !== undefined && typeof fields.onStartFailed !== "function") throw new HostCommandError("onStartFailed must be an in-process callback.");
+          const onStartFailed = fields.onStartFailed as ((detail: string) => void) | undefined;
           const beforePrompt = fields.beforePrompt as ((thread: HostThread) => Promise<void>) | undefined;
           const source = typeof fields.source === "string" && fields.source ? fields.source.slice(0, 64) : "tau.review";
-          return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt: fields.prompt, title: fields.title, model: fields.model, workspace: "worktree" }, undefined, source, { definition, ...(startAt ? { startAt } : {}), ...(thinkingLevel ? { thinkingLevel } : {}), ...(beforePrompt ? { beforePrompt } : {}) });
+          return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt: fields.prompt, title: fields.title, model: fields.model, workspace: "worktree" }, undefined, source, { definition, ...(startAt ? { startAt } : {}), ...(thinkingLevel ? { thinkingLevel } : {}), ...(beforePrompt ? { beforePrompt } : {}), ...(onStartFailed ? { onStartFailed } : {}) });
         }, { long: true, callers: [REVIEW_KIT_ID] }),
       ];
 

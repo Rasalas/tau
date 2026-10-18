@@ -1794,6 +1794,43 @@ describe("Agents Kit spawn for another kit", () => {
     } finally { await bench.registry().dispose(); await rm(root, { recursive: true, force: true }); }
   });
 
+  it("reports a queued kit job's cancellation before any thread is created", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-guide-queued-"));
+    const settingsPath = join(directory, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
+    const bench = await activated({ settingsPath });
+    const onStartFailed = vi.fn();
+    try {
+      const parent = await bench.mcpThread("parent");
+      await parent.call("tau_spawn_thread", { prompt: "Occupy capacity" });
+      const pending = await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write guide", definition, onStartFailed }) as { threadId: string; status: string };
+      expect(pending.status).toBe("pending");
+      expect(onStartFailed).not.toHaveBeenCalled();
+      await bench.invoke("stop-agent", { threadId: pending.threadId });
+      expect(onStartFailed).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("cancelled"));
+      expect(bench.started).toHaveLength(1);
+    } finally { await bench.registry().dispose(); await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("reports a queued kit job's startup failure before admission", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tau-guide-failed-start-"));
+    const settingsPath = join(directory, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ maxRunningAgents: 1 }));
+    const bench = await activated({ settingsPath, runGit: async () => { throw new Error("Fixture cannot create worktree"); } });
+    const onStartFailed = vi.fn();
+    try {
+      const parent = await bench.mcpThread("parent");
+      await parent.call("tau_spawn_thread", { prompt: "Occupy capacity" });
+      await bench.invoke("spawn", { parentThreadId: "parent", prompt: "Write guide", definition, onStartFailed });
+      // A queued retry uses sessions.start; reject before its admission callback.
+      bench.holdStarts(async () => { throw new Error("Fixture start failed before admission"); });
+      bench.threads.get("child-1")!.streaming = false;
+      await bench.notify("accepted", "child-1");
+      await bench.notify("ended", "child-1");
+      await vi.waitFor(() => expect(onStartFailed).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("start failed")));
+    } finally { await bench.registry().dispose(); await rm(directory, { recursive: true, force: true }); }
+  });
+
   it("retains a queued child's effort across restart", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tau-spawn-effort-"));
     const linksPath = join(directory, "links.json");

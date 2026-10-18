@@ -3727,7 +3727,9 @@ Review Kit's guided reviews (ADR 0034) are the first caller; the commands name
 An in-process kit may also pass `spawn.beforePrompt(thread)`. Agents Kit forwards
 it to `sessions.start`'s existing admission callback before the child's first
 prompt. It can bind a kit-owned result to the host-established thread or reject
-admission. The callback stays in memory for queued work and cannot cross machines
+admission. The companion `spawn.onStartFailed(detail)` reports cancellation or startup
+failure before admission, so the owning kit can clear a queued run and allow
+retry. These callbacks stay in memory for queued work and cannot cross machines
 or survive restart. A trusted kit's explicit worktree job can use its parent's
 runtime/model; ordinary delegation still uses native subagents by default.
 
