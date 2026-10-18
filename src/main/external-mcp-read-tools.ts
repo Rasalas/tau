@@ -65,7 +65,8 @@ export async function callExternalMcpReadTool(
         if (!thread) throw new McpOAuthError("access_denied");
         const page = await cancelRead(host.loadTranscript(thread.id, args.cursor ? asHostTranscriptCursor(args.cursor as string) : undefined), AbortSignal.any([signal, lease.signal]));
         if (page.sessionId !== thread.id) throw new McpOAuthError("access_denied");
-        result = { threadId: thread.id, messages: page.messages.slice(-32).map((message) => ({ role: message.role, text: message.text.slice(0, 4096), timestamp: message.timestamp })), truncated: page.messages.length > 32 || page.messages.some((message) => message.text.length > 4096), hasMore: page.hasMore, ...(page.olderCursor && page.olderCursor.length <= 4096 ? { olderCursor: page.olderCursor } : {}) };
+        const conversation = page.messages.filter((message) => message.kind !== "shell" && !message.excludedFromContext && (message.role === "user" || message.role === "assistant"));
+        result = { threadId: thread.id, messages: conversation.slice(-32).map((message) => ({ role: message.role, text: message.text.slice(0, 4096), timestamp: message.timestamp })), truncated: conversation.length > 32 || conversation.some((message) => message.text.length > 4096), hasMore: page.hasMore, ...(page.olderCursor && page.olderCursor.length <= 4096 ? { olderCursor: page.olderCursor } : {}) };
       }
     }
     signal.throwIfAborted();

@@ -201,6 +201,7 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
     ].filter(Boolean);
     return {
       id: value.tauEntryId ?? `bash-${value.timestamp ?? index}-${index}`,
+      kind: "shell",
       sourceEntryId: value.tauEntryId,
       ...clientIdentity,
       role: "assistant",

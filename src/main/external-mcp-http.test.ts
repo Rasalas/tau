@@ -13,6 +13,7 @@ import { hostHttpListener } from "./host-http-route.js";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
 import { HOST_CORE_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
 import { mcpChallenge } from "./external-mcp-policy.js";
+import { mapMessage } from "./host-messages.js";
 
 const issuer = "https://tau.fixture.test";
 const resource = `${issuer}/mcp`;
@@ -251,7 +252,13 @@ describe("external MCP HTTPS", () => {
     const path = waiting.headers.get("location")!;
     const id = new URL(path, issuer).searchParams.get("request_id")!;
     await f.manage({ action: "deny", requestId: id });
-    expect((await f.send(path)).status).toBe(403);
+    const denied = await f.send(path);
+    expect(denied.status).toBe(303);
+    const refusal = new URL(denied.headers.get("location")!);
+    expect(refusal.origin + refusal.pathname).toBe(new URL(callback).origin + new URL(callback).pathname);
+    expect(refusal.searchParams.get("error")).toBe("access_denied");
+    expect(refusal.searchParams.get("state")).toBe("client-state");
+    expect(refusal.searchParams.has("code")).toBe(false);
     const { tokens, requestId } = await f.login();
     await expect(f.manage({ action: "deny", requestId })).rejects.toThrow("invalid_request");
     await f.manage({ action: "remove", clientId: f.registered.id });
@@ -280,5 +287,31 @@ describe("external MCP HTTPS", () => {
     for (const resolve of finish) resolve({ sessionId: "thread-a", hasMore: false, messages: [] });
     const resumed = await next.callTool({ name: "tau_read_thread", arguments: { projectId: "a", threadId: "thread-a" } });
     expect(resumed.isError).not.toBe(true);
+  });
+
+  it("excludes real projected shell executions and internal notices from conversation reads", async () => {
+    const f = await fixture();
+    const { tokens } = await f.login();
+    const client = await f.sdk(tokens.access_token);
+    const shell = [false, true].map((excludeFromContext) => mapMessage({ role: "bashExecution", command: "cat fixture-secret", output: "SHELL_OUTPUT_MUST_NOT_EXPORT", exitCode: 0, excludeFromContext, timestamp: 1 }, 0)!);
+    f.loadTranscript.mockResolvedValueOnce({ sessionId: "thread-a", hasMore: false, messages: [
+      ...shell, { id: "n", role: "notice", text: "INTERNAL_NOTICE_MUST_NOT_EXPORT", timestamp: 1 },
+      { id: "u", role: "user", text: "Keep this conversation", timestamp: 1 },
+    ] });
+    const result = JSON.stringify(await client.callTool({ name: "tau_read_thread", arguments: { projectId: "a", threadId: "thread-a" } }));
+    expect(result).not.toContain("SHELL_OUTPUT_MUST_NOT_EXPORT");
+    expect(result).not.toContain("INTERNAL_NOTICE_MUST_NOT_EXPORT");
+    expect(result).toContain("Keep this conversation");
+  });
+
+  it("rejects JSON-RPC batches and requires the verified version header after initialize", async () => {
+    const f = await fixture();
+    const { tokens } = await f.login();
+    const headers = { authorization: `Bearer ${tokens.access_token}`, "content-type": "application/json", accept: "application/json, text/event-stream" };
+    const legacy = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "legacy", version: "1" } } };
+    const batch = await f.send("/mcp", { method: "POST", headers, body: JSON.stringify([legacy]) });
+    expect(batch.status).toBe(400);
+    const missingVersion = await f.send("/mcp", { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) });
+    expect(missingVersion.status).toBe(400);
   });
 });

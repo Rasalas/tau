@@ -19,6 +19,7 @@ const MAX_CONSENTS = 64;
 interface Consent {
   clientId: string;
   expiresAt: number;
+  denialRedirect: string;
   redirect?: string;
   denied?: true;
 }
@@ -235,7 +236,11 @@ export class ExternalMcpHttp {
     if (params.scope !== undefined && params.scope !== "tau:read") throw new McpOAuthError("invalid_scope");
     if (this.consents.size >= MAX_CONSENTS) throw new McpOAuthError("temporarily_unavailable");
     const id = this.auth.requestAuthorization({ clientId: string(params.client_id), redirectUri: string(params.redirect_uri, 2048), resource: string(params.resource, 2048), scope: params.scope, codeChallenge: string(params.code_challenge, 43), codeChallengeMethod: string(params.code_challenge_method), state: params.state });
-    this.consents.set(id, { clientId: params.client_id!, expiresAt: this.now() + REQUEST_LIFETIME });
+    const denial = new URL(params.redirect_uri!);
+    denial.searchParams.set("error", "access_denied");
+    denial.searchParams.set("iss", this.auth.issuer);
+    if (params.state !== undefined) denial.searchParams.set("state", params.state);
+    this.consents.set(id, { clientId: params.client_id!, expiresAt: this.now() + REQUEST_LIFETIME, denialRedirect: denial.href });
     response.writeHead(303, { location: `/oauth/consent?request_id=${encodeURIComponent(id)}` });
     response.end();
   }
@@ -245,7 +250,7 @@ export class ExternalMcpHttp {
     const id = string(params.request_id);
     const consent = this.consents.get(id);
     if (!consent) { reply(response, 410, { error: "expired_request" }); return; }
-    if (consent.denied) { reply(response, 403, { error: "access_denied" }); return; }
+    if (consent.denied) { response.writeHead(303, { location: consent.denialRedirect }); response.end(); return; }
     if (consent.redirect) { response.writeHead(303, { location: consent.redirect }); response.end(); return; }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8", refresh: `2;url=/oauth/consent?request_id=${encodeURIComponent(id)}` });
     response.end("<!doctype html><html lang=en><meta charset=utf-8><title>Allow access in Tau</title><h1>Waiting for the machine's owner</h1><p>The owner must approve this client's read access and choose its projects in Tau's command line. This page refreshes automatically. You may close it to cancel signing in.</html>");
@@ -282,9 +287,12 @@ export class ExternalMcpHttp {
     if (request.method !== "POST") { response.setHeader("allow", "POST"); reply(response, 405, { error: "method_not_allowed" }); return; }
     if (request.headers["mcp-protocol-version"] && request.headers["mcp-protocol-version"] !== "2025-11-25") throw new McpOAuthError("invalid_request");
     if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json") throw new McpOAuthError("invalid_request");
-    const body: unknown = JSON.parse(await readBody(request));
-    if (body && typeof body === "object" && (body as { method?: unknown }).method === "initialize"
-      && object((body as { params?: unknown }).params).protocolVersion !== "2025-11-25") throw new McpOAuthError("invalid_request");
+    // This wire version permits exactly one JSON-RPC message per HTTP POST.
+    // The SDK also accepts older batched versions, so reject them before it.
+    const body = object(JSON.parse(await readBody(request)));
+    if (body.method === "initialize") {
+      if (object(body.params).protocolVersion !== "2025-11-25") throw new McpOAuthError("invalid_request");
+    } else if (request.headers["mcp-protocol-version"] !== "2025-11-25") throw new McpOAuthError("invalid_request");
     const [{ Server }, { StreamableHTTPServerTransport }, { CallToolRequestSchema, ListToolsRequestSchema }] = await Promise.all([
       import("@modelcontextprotocol/sdk/server/index.js"), import("@modelcontextprotocol/sdk/server/streamableHttp.js"), import("@modelcontextprotocol/sdk/types.js"),
     ]);

@@ -64,6 +64,8 @@ export interface ClientTurnIdentity {
 
 export interface UiMessage {
   id: string;
+  /** Shell execution displayed in the transcript, distinct from conversation text. */
+  kind?: "shell";
   /** Persisted Pi session entry used for exact branch/fork operations. */
   sourceEntryId?: string;
   /** Stable renderer-to-runtime correlation id for this user turn. */

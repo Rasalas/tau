@@ -26,7 +26,10 @@ revocation cancels calls and prevents late results from reaching clients.
 External tools use a dedicated read-only host interface. They do not fabricate
 a runtime session, inherit a thread's tool providers, invoke generic host methods
 or receive workbench owner authority. The first HTTP release exposes selected
-local project names, thread summaries and bounded conversation text. Thread
+local project names, thread summaries and bounded conversation text. Host
+projection preserves shell-execution provenance so those records, including
+commands excluded from model context, never become exported conversation text.
+Thread
 control and the `tau:threads` scope remain unavailable until their execution
 ceilings can be enforced through actual runtime admission and resumed threads.
 
