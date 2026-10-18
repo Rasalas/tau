@@ -3700,8 +3700,14 @@ Local reviews retain their target and completed tip in `local-reviews.json`. A l
 
 ### Review guides across forges
 
-The Guide tab supports GitHub, GitLab and Forgejo when review guides are enabled.
-The provider's `requestHeadRef` supplies the fallback ref for fork commits. The
+The Guide tab supports GitHub, GitLab, Forgejo and Bitbucket Cloud when review
+guides are enabled.
+The provider's `requestHeadRef` supplies the fallback ref for fork commits.
+Bitbucket Cloud uses `requestHeadSource` with the confirmed source repository
+and branch instead. A fork is fetched from its own HTTPS Bitbucket repository.
+Abbreviated Bitbucket heads expand only when the PR's fresh commit list contains
+one matching full commit. Missing or ambiguous identity facts refuse the run.
+Git validates source branch refs before fetching. The
 fetch verifies that the exact requested commit is present; a moving fallback ref
 never changes the writer's `startAt`. Fresh head reads before starting and
 submitting refuse a push during the run. Guides use Pi by default, with an explicit Codex choice under Review's extension

@@ -178,7 +178,7 @@ export function registerGuides(
       if (config.runtime !== "pi" && config.runtime !== "codex") return asked("failed", "Choose Pi or Codex to write review guides.");
       const runtime = config.runtime;
       const provider = sources.get(ref.service);
-      if (!provider.info.capabilities.guides || !provider.info.capabilities.files || !provider.requestHeadRef) return asked("failed", `${provider.info.name} does not support review guides.`);
+      if (!provider.info.capabilities.guides || !provider.info.capabilities.files || (!provider.requestHeadRef && !provider.requestHeadSource)) return asked("failed", `${provider.info.name} does not support review guides.`);
       const project = await projectRepository(workspace, sources, cwd);
       if (project.host.toLowerCase() !== ref.host.toLowerCase() || project.repo.toLowerCase() !== ref.repo.toLowerCase()) {
         return asked("failed", `A guide is written from a checkout of ${ref.host}/${ref.repo}, and this thread's project is ${project.host}/${project.repo}. Write it from a thread in a checkout of that repository.`);
@@ -199,7 +199,8 @@ export function registerGuides(
       runs.set(key, { state: "running", headSha: run.headSha, startedAt: run.startedAt });
       emit(run, "running");
       try {
-        await fetchHead(project.git.root, project.git.remote?.name ?? "origin", run.headSha, provider.requestHeadRef(ref));
+        const source = provider.requestHeadSource?.(ref, detail);
+        await fetchHead(project.git.root, source?.repository ?? project.git.remote?.name ?? "origin", run.headSha, source?.ref ?? provider.requestHeadRef!(ref));
         const [changes, review, stack] = await Promise.all([
           reads.files(ref, true),
           settledReview(ref),

@@ -582,10 +582,10 @@ describe("the pull-request view's Guide tab", () => {
   });
 
   it("is not offered by a provider that cannot write one, or by a client without guides", async () => {
-    const { shared } = renderView(fakeClient({ guides: fakeGuideClient() }), undefined, false, { ...PARAMS, service: "bitbucket" });
+    const { shared } = renderView(fakeClient({ guides: fakeGuideClient() }), undefined, false, { ...PARAMS, service: "azure-devops" });
     await screen.findByRole("heading", { name: "Add the output helper" });
     switchOn(shared);
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Summary", "Timeline", "Code"]);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Summary", "Timeline"]);
     cleanup();
     const second = renderView(fakeClient());
     await screen.findByRole("heading", { name: "Add the output helper" });
@@ -593,7 +593,7 @@ describe("the pull-request view's Guide tab", () => {
     expect(screen.queryByRole("tab", { name: "Guide" })).toBeNull();
   });
 
-  it.each(["gitlab", "forgejo"] as const)("offers the Guide tab for %s when enabled", async (service) => {
+  it.each(["gitlab", "forgejo", "bitbucket"] as const)("offers the Guide tab for %s when enabled", async (service) => {
     const { shared } = renderView(fakeClient({ guides: fakeGuideClient() }), undefined, false, { ...PARAMS, service });
     await screen.findByRole("heading", { name: "Add the output helper" });
     switchOn(shared);

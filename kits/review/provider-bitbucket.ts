@@ -15,6 +15,7 @@ import {
   type PullRequestVerdict,
   type ReviewRequest,
 } from "./protocol.js";
+import { readBranchHead } from "./branch-head.js";
 import { readFileText } from "./provider-file.js";
 import type { GitCredential, ProviderTools, RepositoryTarget, SourceControlProvider } from "./provider.js";
 import { parseRemote } from "./pull-request-hosting.js";
@@ -147,6 +148,14 @@ export function parseBitbucketDetail(ref: PullRequestRef, pull: string, comments
   }
   const files = list(record(JSON.parse(diffstat)).values);
   const source = record(raw.source);
+  const head = text(record(source.commit).hash);
+  const commitList = record(JSON.parse(commits));
+  const hashes = list(commitList.values).map((commit) => text(commit.hash))
+    .filter((hash): hash is string => typeof hash === "string" && /^[a-f0-9]{40}$/iu.test(hash));
+  const complete = Array.isArray(commitList.values) && hashes.length === commitList.values.length && commitList.incomplete !== true && commitList.next == null;
+  const matches = head && complete && /^[a-f0-9]{12,39}$/iu.test(head)
+    ? [...new Set(hashes.filter((hash) => hash.toLowerCase().startsWith(head.toLowerCase())))] : [];
+  const headSha = matches.length === 1 ? matches[0] : head;
   return {
     ref,
     ...(author ? { author } : {}),
@@ -155,7 +164,8 @@ export function parseBitbucketDetail(ref: PullRequestRef, pull: string, comments
     ...(state(raw.state) === "merged" && text(raw.updated_on) ? { mergedAt: text(raw.updated_on) } : {}),
     ...(state(raw.state) === "closed" && text(raw.updated_on) ? { closedAt: text(raw.updated_on) } : {}),
     ...(text(record(source.branch).name) ? { headRef: text(record(source.branch).name) } : {}),
-    ...(text(record(source.commit).hash) ? { headSha: text(record(source.commit).hash) } : {}),
+    ...(headSha ? { headSha } : {}),
+    ...(text(record(source.repository).full_name) ? { headRepository: text(record(source.repository).full_name) } : {}),
     title: text(raw.title) ?? `#${ref.number}`,
     body: typeof raw.description === "string" ? raw.description : "",
     state: state(raw.state),
@@ -168,7 +178,7 @@ export function parseBitbucketDetail(ref: PullRequestRef, pull: string, comments
     labels: [],
     checks,
     comments: timeline.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
-    commits: list(record(JSON.parse(commits)).values).flatMap((commit) => {
+    commits: list(commitList.values).flatMap((commit) => {
       const oid = text(commit.hash);
       const who = record(commit.author);
       const name = actor(who.user)?.login ?? text(who.raw)?.replace(/\s*<[^>]*>$/u, "");
@@ -266,12 +276,16 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
   const pages = async (path: string, action: string): Promise<string> => {
     const values: unknown[] = [];
     let next: string | undefined = path;
+    let remaining: unknown;
+    let incomplete = false;
     for (let page = 0; next && page < MAX_PAGES; page += 1) {
       const answer = record(JSON.parse(await request(next, action)));
-      values.push(...(Array.isArray(answer.values) ? answer.values : []));
-      next = text(answer.next);
+      if (Array.isArray(answer.values)) values.push(...answer.values);
+      else incomplete = true;
+      remaining = answer.next;
+      next = text(remaining);
     }
-    return JSON.stringify({ values, size: values.length });
+    return JSON.stringify({ values, size: values.length, ...(remaining != null ? { next: remaining } : {}), ...(incomplete ? { incomplete } : {}) });
   };
 
   const repoPath = (repo: string) => `repositories/${repo.split("/").map(encodeURIComponent).join("/")}`;
@@ -292,6 +306,11 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
   return {
     kind,
     info: PROVIDERS.bitbucket,
+    requestHeadSource: (_ref, known) => {
+      const head = readBranchHead({ repository: known.headRepository, branch: known.headRef, sha: known.headSha });
+      if (!head) throw new HostCommandError("Bitbucket did not confirm the source repository, branch and full commit. Refresh the request and try again.");
+      return { repository: `https://${WEB_HOST}/${head.repository}.git`, ref: `refs/heads/${head.branch}` };
+    },
     missing: () => tools.findCommand("git") ? undefined : "Git is not installed or not on your PATH; Tau reads Bitbucket's credential from Git's credential helper.",
     repository: (remoteUrl) => {
       const found = parseRemote(remoteUrl);
@@ -354,7 +373,7 @@ export function createBitbucketProvider(tools: ProviderTools, env: Record<string
       const [pull, commentList, commits, found, diffstat] = await Promise.all([
         request(pullPath(ref), `Reading ${noun(ref)}`),
         comments(ref, fresh),
-        request(`${pullPath(ref)}/commits?pagelen=${PAGE}`, `Reading the commits of ${noun(ref)}`),
+        pages(`${pullPath(ref)}/commits?pagelen=${PAGE}`, `Reading the commits of ${noun(ref)}`),
         checks(ref).catch(() => []),
         pages(`${pullPath(ref)}/diffstat?pagelen=100`, `Reading the files of ${noun(ref)}`).catch(() => "{}"),
       ]);

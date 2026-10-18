@@ -9,7 +9,7 @@ import { openPullRequest } from "./pull-request-open.js";
 import { METHOD_LABELS, MergeConfirm, outcomeText, useMergeConfirmation } from "./merge-controls.js";
 import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 import { BranchDeleteConfirm, type BranchDeletionSelection } from "./branch-delete-confirm.js";
-import { readBranchHead } from "./branch-deletion.js";
+import { readBranchHead } from "./branch-head.js";
 
 /** A step the view moves into the menu where its header has no room for it, a phone's. */
 export type HeaderMenuStep = Pick<MenuItem, "id" | "label" | "icon" | "disabled" | "description"> & { run(): void };

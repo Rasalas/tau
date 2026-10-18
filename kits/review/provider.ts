@@ -87,6 +87,8 @@ export interface SourceControlProvider {
   requestUrl(target: RepositoryTarget, number: number): string;
   /** The forge-owned ref used to fetch a request head, including a fork. */
   requestHeadRef?(ref: PullRequestRef): string;
+  /** A source repository and branch when the forge has no fork-aware request ref. */
+  requestHeadSource?(ref: PullRequestRef, known: PullRequestDetail): { repository: string; ref: string };
   /** Whether the CLI or credential is signed in for the host; asked before a write. */
   signedIn(target: RepositoryTarget & { cwd: string }): Promise<boolean>;
   /** The signed-in login on a host, or undefined when it will not say. */

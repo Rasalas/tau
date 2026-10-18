@@ -1,6 +1,6 @@
 import type { PullRequestBranchHead } from "./protocol.js";
 
-/** A bounded confirmation, never a caller-selected API path. */
+/** A bounded branch identity for a confirmed operation or a provider fetch source. */
 export function readBranchHead(input: unknown): PullRequestBranchHead | undefined {
   if (!input || typeof input !== "object") return undefined;
   const { repository, branch, sha } = input as Partial<PullRequestBranchHead>;

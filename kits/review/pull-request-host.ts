@@ -22,7 +22,7 @@ import type { ChangedFileEntry, SourceControlProvider } from "./provider.js";
 import type { SourceControl } from "./provider-registry.js";
 import { diffFingerprint } from "./pull-request-json.js";
 import { LocalViewedStore } from "./pull-request-viewed.js";
-import { readBranchHead } from "./branch-deletion.js";
+import { readBranchHead } from "./branch-head.js";
 import type { PipelineFacts } from "./pipeline.js";
 
 const record = (input: unknown): Record<string, unknown> => input && typeof input === "object" ? input as Record<string, unknown> : {};
