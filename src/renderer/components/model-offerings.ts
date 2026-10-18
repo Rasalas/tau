@@ -96,12 +96,8 @@ export function searchScore(offering: Offering, query: string, providerName: (pr
   ].map(normalize);
   let score = 0;
   for (const token of tokens) {
-    let best: number | undefined;
-    fields.forEach((field, index) => {
-      const found = scoreField(field, token, index * 10);
-      if (found !== undefined && (best === undefined || found < best)) best = found;
-    });
-    if (best === undefined) return undefined;
+    const best = fields.reduce((score, field, index) => Math.min(score, scoreField(field, token, index * 10) ?? Infinity), Infinity);
+    if (best === Infinity) return undefined;
     score += best;
   }
   return offering.favourite ? score - 24 : score;

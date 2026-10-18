@@ -115,7 +115,6 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
           const key = modelKey(model);
           const startsGroup = !needle && (index === 0 || visible[index - 1]!.group !== group) && (group !== "shown" || favourites > 0);
           const isHidden = hidden.has(key);
-          const isFavourite = group === "favourite";
           const access = billingBadge(model);
           return (
             <div key={key} role="listitem" className="runtime-model-entry">
@@ -123,11 +122,11 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
               <div className={`runtime-model${isHidden ? " hidden" : ""}`}>
                 <button
                   type="button"
-                  className={`runtime-model-star${isFavourite ? " on" : ""}`}
-                  aria-label={isFavourite ? `Unfavourite ${model.name}` : `Favourite ${model.name}`}
-                  aria-pressed={isFavourite}
+                  className={`runtime-model-star${group === "favourite" ? " on" : ""}`}
+                  aria-label={group === "favourite" ? `Unfavourite ${model.name}` : `Favourite ${model.name}`}
+                  aria-pressed={group === "favourite"}
                   onClick={() => preferences.toggleFavouriteModel(offeringKey(backend.kind, model))}
-                ><Star size={12} fill={isFavourite ? "currentColor" : "none"} /></button>
+                ><Star size={12} fill={group === "favourite" ? "currentColor" : "none"} /></button>
                 <span className="runtime-model-name">
                   <TextField label={`Display name for ${model.name}`} value={value.names?.[key] ?? ""} placeholder={model.name} width="full" disabled={!setting.writable}
                     validate={(text) => text.trim() && !readModelName(text) ? "Use up to 120 characters on one line." : undefined}
@@ -141,8 +140,8 @@ function RuntimeModelList({ backend, models, catalog }: { backend: UiRuntimeBack
                 </span>
                 <span className="runtime-model-moves">
                   {needle || group === "hidden" ? null : <>
-                    <button type="button" aria-label={`Move ${model.name} up`} disabled={!setting.writable || arranged[at - 1]?.group !== group || isFavourite} onClick={() => move(at, -1)}><ArrowUp size={12} /></button>
-                    <button type="button" aria-label={`Move ${model.name} down`} disabled={!setting.writable || arranged[at + 1]?.group !== group || isFavourite} onClick={() => move(at, 1)}><ArrowDown size={12} /></button>
+                    <button type="button" aria-label={`Move ${model.name} up`} disabled={!setting.writable || arranged[at - 1]?.group !== group || group === "favourite"} onClick={() => move(at, -1)}><ArrowUp size={12} /></button>
+                    <button type="button" aria-label={`Move ${model.name} down`} disabled={!setting.writable || arranged[at + 1]?.group !== group || group === "favourite"} onClick={() => move(at, 1)}><ArrowDown size={12} /></button>
                   </>}
                 </span>
                 <Switch label={`Show ${model.name} in the model picker`} checked={!isHidden} disabled={!setting.writable} onChange={(checked) => setHidden(model, !checked)} />
