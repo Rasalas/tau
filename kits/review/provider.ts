@@ -4,6 +4,7 @@ import type {
   MergeOutcome,
   PendingReviewComment,
   ProviderInfo,
+  PullRequestBranchHead,
   PullRequestCheck,
   PullRequestDetail,
   PullRequestFile,
@@ -105,6 +106,8 @@ export interface SourceControlProvider {
   autoMerge?(target: RepositoryTarget, request: ReviewRequest, enable: boolean, method: MergeMethod | undefined, options?: MergeOptions): Promise<void>;
   /** Opens a request that reverts a merged one (`capabilities.revert`); the URL of the new one. */
   revert?(ref: PullRequestRef, known: PullRequestDetail): Promise<string | undefined>;
+  /** Delete only the confirmed remote head of a closed or merged request. */
+  deleteBranch?(ref: PullRequestRef, seen: PullRequestBranchHead): Promise<MergeOutcome>;
   edit(target: RepositoryTarget & { cwd: string }, request: ReviewRequest, input: { title?: string; body?: string }): Promise<void>;
   setDraft(target: RepositoryTarget & { cwd: string }, request: ReviewRequest, draft: boolean): Promise<void>;
 

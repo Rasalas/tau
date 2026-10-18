@@ -164,6 +164,8 @@ export interface ProviderCapabilities {
   revert: boolean;
   /** Delete the request's branch on the host once it merged. */
   deleteBranch: boolean;
+  /** Explicitly delete a closed or merged request's remote head branch. */
+  deleteBranchAction?: boolean;
   /** Requests stacked on one another, merged and rebased as one. */
   stacks: boolean;
   /** A review guide can be written for the request (ADR 0034); the head fetch is written for GitHub first. */
@@ -197,7 +199,7 @@ const EVERYTHING: ProviderCapabilities = {
 const plainUrl = (host: string, repo: string) => `https://${host}/${repo}`;
 
 export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
-  github: { kind: "github", name: "GitHub", noun: "pull request", short: "PR", sign: "#", checkout: (number) => `gh pr checkout ${number}`, repositoryUrl: plainUrl, capabilities: EVERYTHING },
+  github: { kind: "github", name: "GitHub", noun: "pull request", short: "PR", sign: "#", checkout: (number) => `gh pr checkout ${number}`, repositoryUrl: plainUrl, capabilities: { ...EVERYTHING, deleteBranchAction: true } },
   gitlab: {
     kind: "gitlab", name: "GitLab", noun: "merge request", short: "MR", sign: "!", checkout: (number) => `glab mr checkout ${number}`, repositoryUrl: plainUrl,
     // GitLab's API has no "request changes"; viewed marks are kept by the kit.
@@ -420,6 +422,8 @@ export interface PullRequestDetail {
   baseRef: string;
   headRef?: string;
   headSha?: string;
+  /** The head repository, including its owner; may differ from ref.repo for a fork. */
+  headRepository?: string;
   /** GitLab's position anchors for a new line comment. */
   diffRefs?: { base: string; head: string; start: string };
   additions: number;
@@ -466,11 +470,15 @@ export interface PullRequestStackMembership {
 export type StackAction = "merge" | "rebase";
 
 /** Steps on one request by its URL; the Changes panel's own steps act on the branch's request. */
-export type PullRequestAction = "merge" | "auto-merge" | "cancel-auto-merge" | "revert";
+/** The exact remote branch and commit named by an explicit deletion confirmation. */
+export interface PullRequestBranchHead { repository: string; branch: string; sha: string }
+
+export type PullRequestAction = "merge" | "auto-merge" | "cancel-auto-merge" | "revert" | "delete-branch";
 
 export interface PullRequestActionResult {
   detail: PullRequestDetail;
   merge?: MergeOutcome;
+  branch?: MergeOutcome;
   /** The request a revert opened. */
   created?: string;
 }

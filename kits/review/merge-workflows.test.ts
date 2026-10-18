@@ -257,3 +257,98 @@ describe("GitHub stacks", () => {
     expect(readOnly.rebased()).toBe(0);
   });
 });
+
+// The explicit action keeps merge-time cleanup's existing contract separate.
+describe("explicit deletion after closing a GitHub request", () => {
+  const ref = parseRequestUrl(OPEN.url)!;
+  const seen = { repository: "fork/tau-fork", branch: "feat/output", sha: "a".repeat(40) };
+  const head = { state: "CLOSED", headRefName: seen.branch, headRefOid: seen.sha, headRepository: { name: "tau-fork" }, headRepositoryOwner: { login: "fork" } };
+  const associations = (totalCount: unknown = 0) => ({ data: { repository: { ref: { name: seen.branch, associatedPullRequests: { totalCount } } } } });
+  function setup(change?: (call: Recorded, reads: number) => unknown) {
+    let reads = 0;
+    return fakeTools((call) => {
+      if (call.args[0] === "pr") reads++;
+      const custom = change?.(call, reads);
+      if (custom !== undefined) return JSON.stringify(custom);
+      if (call.args[0] === "pr") return JSON.stringify(head);
+      const path = call.args.at(-1)!;
+      if (path === "repos/fork/tau-fork") return JSON.stringify({ full_name: seen.repository, default_branch: "main" });
+      if (call.input?.includes("associatedPullRequests")) return JSON.stringify(associations());
+      if (path.includes("/pulls?")) return "[]";
+      if (path.includes("/git/ref/")) return JSON.stringify({ ref: `refs/heads/${seen.branch}`, object: { type: "commit", sha: seen.sha } });
+      return "";
+    });
+  }
+  it.each(["CLOSED", "MERGED"])("deletes only the confirmed fork branch when %s, after fresh PR and ref reads", async (state) => {
+    const { tools, calls } = setup((call) => call.args[0] === "pr" ? { ...head, state } : undefined);
+    const provider = createGitHubProvider(tools);
+    expect(provider.info.capabilities.deleteBranchAction).toBe(true);
+    expect(await provider.deleteBranch!(ref, seen)).toEqual({ branchDeleted: seen.branch });
+    expect(calls.at(-1)?.args).toEqual(["api", "--hostname", "github.com", "--method", "DELETE", "repos/fork/tau-fork/git/refs/heads/feat/output"]);
+    expect(calls.filter((call) => call.args[0] === "pr")).toHaveLength(2);
+    expect(calls.some((call) => call.args.at(-1)?.includes("repos/fork/tau-fork/pulls?state=open&base="))).toBe(true);
+    expect(calls.find((call) => call.input?.includes("associatedPullRequests"))?.input).toContain(JSON.stringify({ owner: "fork", name: "tau-fork", branch: "refs/heads/feat/output" }));
+    expect(calls.some((call) => call.args[0] === "push" || call.args[0] === "branch")).toBe(false);
+  });
+  it.each([
+    "open", "repository", "branch", "commit", "default", "missing-default", "missing-repository", "dependent", "third-repository-head", "missing-associations", "invalid-count", "wrong-associated-ref", "partial-errors", "bad-list", "moved-ref", "wrong-ref", "reopened", "changed-late",
+  ])("keeps the remote branch when safety facts fail: %s", async (kind) => {
+    const { tools, calls } = setup((call, reads) => {
+      const path = call.args.at(-1)!;
+      if (call.args[0] === "pr") {
+        if (kind === "open" || kind === "reopened" && reads === 2) return { ...head, state: "OPEN" };
+        if (kind === "repository") return { ...head, headRepositoryOwner: { login: "another" } };
+        if (kind === "branch") return { ...head, headRefName: "other" };
+        if (kind === "commit" || kind === "changed-late" && reads === 2) return { ...head, headRefOid: "b".repeat(40) };
+      }
+      if (path === "repos/fork/tau-fork") {
+        if (kind === "default") return { full_name: seen.repository, default_branch: seen.branch };
+        if (kind === "missing-default") return { full_name: seen.repository };
+        if (kind === "missing-repository") return { default_branch: "main" };
+      }
+      if (call.input?.includes("associatedPullRequests")) {
+        if (kind === "third-repository-head") return associations(1);
+        if (kind === "missing-associations") return {};
+        if (kind === "invalid-count") return associations("0");
+        if (kind === "wrong-associated-ref") return { data: { repository: { ref: { name: "other", associatedPullRequests: { totalCount: 0 } } } } };
+        if (kind === "partial-errors") return { ...associations(), errors: [{ message: "Partial data" }] };
+      }
+      if (path.includes("/pulls?")) {
+        if (kind === "dependent" && path.includes("base=")) return [{ number: 9 }];
+        if (kind === "bad-list") return {};
+      }
+      if (path.includes("/git/ref/")) {
+        if (kind === "moved-ref") return { ref: `refs/heads/${seen.branch}`, object: { type: "commit", sha: "b".repeat(40) } };
+        if (kind === "wrong-ref") return { ref: "refs/heads/other", object: { type: "commit", sha: seen.sha } };
+      }
+      return undefined;
+    });
+    expect(await createGitHubProvider(tools).deleteBranch!(ref, seen)).toHaveProperty("branchKept");
+    expect(calls.some((call) => call.args.includes("DELETE"))).toBe(false);
+  });
+  it.each([
+    { repository: "undefined/tau", owner: undefined, name: "tau" },
+    { repository: "123/tau", owner: 123, name: "tau" },
+    { repository: "fork/123", owner: "fork", name: 123 },
+  ])("does not coerce malformed repository facts to $repository", async ({ repository, owner, name }) => {
+    const { tools, calls } = fakeTools((call) => {
+      if (call.args[0] === "pr") return JSON.stringify({ ...head, headRepositoryOwner: { login: owner }, headRepository: { name } });
+      if (call.input?.includes("associatedPullRequests")) return JSON.stringify(associations());
+      const path = call.args.at(-1)!;
+      if (path === `repos/${repository}`) return JSON.stringify({ full_name: repository, default_branch: "main" });
+      if (path.includes("/pulls?")) return "[]";
+      if (path.includes("/git/ref/")) return JSON.stringify({ ref: `refs/heads/${seen.branch}`, object: { type: "commit", sha: seen.sha } });
+      return "";
+    });
+    expect(await createGitHubProvider(tools).deleteBranch!(ref, { ...seen, repository })).toHaveProperty("branchKept");
+    expect(calls).toHaveLength(1);
+  });
+  it("keeps the branch on unreadable facts or a refused deletion", async () => {
+    for (const failAt of ["pr", "/git/ref/", "DELETE"]) {
+      const { tools } = setup((call) => {
+        if (call.args.some((arg) => arg.includes(failAt))) throw new Error("GitHub refused this fixture operation");
+      });
+      expect(await createGitHubProvider(tools).deleteBranch!(ref, seen)).toEqual({ branchKept: "GitHub refused this fixture operation" });
+    }
+  });
+});

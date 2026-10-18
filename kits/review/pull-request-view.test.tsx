@@ -690,3 +690,64 @@ it("disables a merge confirmation that was opened before the machine disconnecte
   await within(dialog).findByText(OFFLINE_REASON);
   expect(confirm.disabled).toBe(true);
 });
+
+describe("explicit remote branch deletion from the request view", () => {
+  const seen = { repository: "fork/tau-fork", branch: "feat/output", sha: "a".repeat(40) };
+  const closed = (): PullRequestDetail => ({ ...parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json")), state: "closed", headRepository: seen.repository, headRef: seen.branch, headSha: seen.sha });
+  const openMenu = async () => fireEvent.click(await screen.findByRole("button", { name: "More pull request actions" }));
+  it.each(["closed", "merged"] as const)("confirms the exact remote identity for a %s request and hides the completed action", async (state) => {
+    const detail = { ...closed(), state };
+    const client = fakeClient({ view: vi.fn(async () => detail), action: vi.fn(async () => ({ detail, branch: { branchDeleted: seen.branch } })) });
+    const { workbench } = renderView(client);
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete branch…" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete remote branch?" });
+    expect(dialog.textContent).toContain(`${seen.repository}:${seen.branch}`);
+    expect(dialog.textContent).toContain(seen.sha);
+    expect(client.action).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete branch" }));
+    await waitFor(() => expect(client.action).toHaveBeenCalledWith(REF.url, { action: "delete-branch", seen }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(workbench.notify).toHaveBeenCalledWith(`Deleted ${seen.repository}:${seen.branch}.`);
+    await openMenu();
+    expect(screen.queryByRole("menuitem", { name: "Delete branch…" })).toBeNull();
+  });
+  it("cancels without a write, and keeps a refused deletion open for retry", async () => {
+    const detail = closed();
+    const action = vi.fn<PullRequestClient["action"]>().mockResolvedValueOnce({ detail, branch: { branchKept: "The remote branch moved." } }).mockResolvedValueOnce({ detail, branch: { branchDeleted: seen.branch } });
+    renderView(fakeClient({ view: vi.fn(async () => detail), action }));
+    await openMenu(); fireEvent.click(screen.getByRole("menuitem", { name: "Delete branch…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(action).not.toHaveBeenCalled();
+    await openMenu(); fireEvent.click(screen.getByRole("menuitem", { name: "Delete branch…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete branch" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("The remote branch moved.");
+    fireEvent.click(screen.getByRole("button", { name: "Delete branch" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(action).toHaveBeenCalledTimes(2);
+  });
+  it("disables deletion on a read-only device", async () => {
+    const client = fakeClient({ view: vi.fn(async () => closed()) });
+    renderView(client, undefined, true);
+    await openMenu();
+    expect((screen.getByRole("menuitem", { name: /^Delete branch/u }) as HTMLButtonElement).disabled).toBe(true);
+    expect(client.action).not.toHaveBeenCalled();
+  });
+  it("disables an already open deletion confirmation after going offline", async () => {
+    const cache = new PullRequestCache(memoryStorage());
+    const client = fakeClient({ cache, view: vi.fn(async () => closed()) });
+    renderView(client);
+    await openMenu(); fireEvent.click(screen.getByRole("menuitem", { name: "Delete branch…" }));
+    act(() => cache.setConnected(false));
+    const button = screen.getByRole("button", { name: "Delete branch" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(client.action).not.toHaveBeenCalled();
+  });
+  it.each(["open", "missing"])("omits deletion for an open request or missing head identity: %s", async (kind) => {
+    const detail = { ...closed(), ...(kind === "open" ? { state: "open" as const } : { headRepository: undefined }) };
+    renderView(fakeClient({ view: vi.fn(async () => detail) }));
+    await openMenu();
+    expect(screen.queryByRole("menuitem", { name: "Delete branch…" })).toBeNull();
+  });
+});
