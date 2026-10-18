@@ -3638,7 +3638,7 @@ the runtimes Tau ships (`kits/usage/protocol.ts`):
 | `tau.usage/limits-source` | `usage-limits { refresh? }` → `{ accounts: UsageLimitAccount[] }` | Shows the accounts' windows under Limits, in the juicebars and in `tau.usage/limits`, with the kit's name as the source. |
 | `tau.usage/threads-source` | `usage` → `{ backend, threads: BackendUsageThread[] }` | Counts the threads' tokens and cost under the runtime `backend` names. |
 
-### Reading saved pull requests offline
+### Deleting a closed request's branch
 
 GitHub requests also offer **Delete branch…** after closing or merging. The
 confirmation names the remote head repository, branch and commit, including a
@@ -3650,6 +3650,8 @@ worktrees and threads stay. This is separate from merge-time branch cleanup.
 GitHub's [delete-reference endpoint](https://docs.github.com/en/rest/git/refs#delete-a-reference)
 does not take an expected commit, so the checks and deletion are separate
 requests, with a remaining race if GitHub state changes between them.
+
+### Reading saved pull requests offline
 
 Review Kit keeps the last eight list queries and twelve opened requests in this
 client's storage for that machine. It saves request details, conversations, checks
