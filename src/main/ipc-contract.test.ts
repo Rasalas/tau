@@ -68,6 +68,12 @@ function clientMethods(): Set<string> {
   return new Set([...source.matchAll(/(?:call|callLong|commandCall|commandCallLong|runJob|isJobMethod)(?:<[^>]*>)?\("([a-z-]+)"/gu)].map((match) => match[1]!));
 }
 
+/** Owner commands sent by `tau mcp`, outside the renderer. */
+function mcpCliMethods(): Set<string> {
+  const source = read("../bin/tau-mcp.mjs");
+  return new Set([...source.matchAll(/session\.request\("([a-z-]+)"/gu)].map((match) => match[1]!));
+}
+
 describe("host protocol contract", () => {
   const methods = tableMethods();
 
@@ -75,13 +81,14 @@ describe("host protocol contract", () => {
     expect([...methods].sort()).toEqual(Object.keys(HOST_COMMANDS).filter((name) => !(name in HOST_TRANSPORT_COMMANDS)).sort());
   });
 
-  it("the host implements every method the client calls", () => {
-    const missing = [...clientMethods()].filter((method) => !methods.has(method)).sort();
+  it("the host implements every method the renderer and MCP CLI call", () => {
+    const client = new Set([...clientMethods(), ...mcpCliMethods()]);
+    const missing = [...client].filter((method) => !methods.has(method)).sort();
     expect(missing).toEqual([]);
   });
 
   it("every method in the table is reachable from the renderer or another protocol client", () => {
-    const client = clientMethods();
+    const client = new Set([...clientMethods(), ...mcpCliMethods()]);
     const unreachable = [...methods].filter((method) => !client.has(method) && !CLIENT_SIDE.has(method)).sort();
     expect(unreachable).toEqual([]);
   });

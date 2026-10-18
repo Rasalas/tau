@@ -90,6 +90,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   // Independent external-client credentials belong to host connection authority,
   // alongside device credentials; they never borrow a runtime or thread identity.
   "./external-mcp-authorization.js", "./external-mcp-policy.js",
+  "./external-mcp-http.js", "./external-mcp-read-tools.js", // Scoped external HTTP identity and bounded host reads.
+  "./host-http-route.js", // Shared route dispatch before static/protocol HTTP fallback.
   // Bonjour through the system's responder while Local network is on (API 1.13.0).
   "./host-discovery.js",   "./host-discovery-windows.js",
   "./host-network-contributions.js",

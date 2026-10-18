@@ -24,6 +24,7 @@ export const HOST_FACTORY_COMMAND_METADATA = {
   "connections-approve": OWNER,
   "connections-set-network": OWNER,
   "connect-status": OWNER,
+  "external-mcp-manage": OWNER,
   "connect-link": OWNER,
   "connect-remove": OWNER,
   "connect-configure": OWNER,

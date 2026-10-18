@@ -199,6 +199,9 @@ function whole(method: string, field: string, value: unknown): number {
 }
 
 export const HOST_FACTORY_COMMANDS = attachCommandMetadata(HOST_FACTORY_COMMAND_METADATA, {
+  "external-mcp-manage": command<unknown, [input: Record<string, unknown>]>()({
+    decode: (params) => [decodeObject("external-mcp-manage", params[0])] as const,
+  }),
   "connections-list": command<UiConnections>()({
     decode: (_params) => [] as const,
   }),

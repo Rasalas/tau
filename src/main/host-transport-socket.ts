@@ -1,4 +1,4 @@
-import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer as createHttpServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { Server as TlsServer, TLSSocket } from "node:tls";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -647,6 +647,6 @@ function createUpgradeServer(): Server {
 }
 
 /** A server for another listener with nothing but the protocol on it; `attach` it to a transport. */
-export function createProtocolServer(tls?: { cert: string; key: string }): Server {
-  return tls ? createTlsUpgradeServer(tls) : createUpgradeServer();
+export function createProtocolServer(tls?: { cert: string; key: string }, handler: RequestListener = upgradeOnly): Server {
+  return tls ? createHttpsServer({ cert: tls.cert, key: tls.key, minVersion: "TLSv1.2" }, handler) : createHttpServer(handler);
 }

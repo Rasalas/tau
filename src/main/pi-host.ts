@@ -17,6 +17,7 @@ import type {
   HostExtensionSummary,
   ThreadHostEvent,
   HostSnapshot,
+  ThreadIndexSnapshot,
   PreparedThreadCapability,
   ShellActionResult,
   UiComposerCommand,
@@ -821,6 +822,7 @@ export class PiHost {
 
   threadTitle(sessionId: string): string | undefined { return this.index.byId(sessionId)?.title; }
   threadPath(sessionId: string): string | undefined { return this.index.byId(sessionId)?.path; }
+  threadIndexSnapshot(): ThreadIndexSnapshot { return this.index.snapshot(); }
   bootstrap(): Promise<HostBootstrap> { return this.publication.bootstrap(); }
 
   /** Focused active detail endpoint; it never includes catalogs or project metadata. */

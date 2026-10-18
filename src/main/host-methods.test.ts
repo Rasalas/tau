@@ -7,12 +7,13 @@ import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 
-function methodsFor(host: PiHost) {
+function methodsFor(host: PiHost, externalMcp?: Parameters<typeof createHostMethods>[0]["externalMcp"]) {
   const unsupported = (): never => { throw new Error("not in this test"); };
   return createHostMethods({
     bootstrap: unsupported,
     requireHost: async () => host,
     host: () => host,
+    externalMcp,
     jobs: new HostJobRunner(() => undefined),
     platform: {
       copyText: unsupported, copyImage: unsupported, readImagePreview: unsupported,
@@ -22,6 +23,19 @@ function methodsFor(host: PiHost) {
     },
   });
 }
+
+it("keeps MCP grant management on the local owner's protocol channel", async () => {
+  const manage = vi.fn(async () => ({ clients: [] }));
+  const methods = methodsFor({} as PiHost, () => ({ manage }));
+  for (const principal of [
+    { kind: "workbench-client" as const, connection: "proxy" },
+    { kind: "workbench-client" as const, connection: "paired", local: true as const, pairedClient: "device" },
+    { kind: "host-extension" as const, contextId: "foreign" },
+  ]) await expect(invokeHostMethod(methods, "external-mcp-manage", [{ action: "status" }], principal)).rejects.toThrow("Only a connection");
+  expect(manage).not.toHaveBeenCalled();
+  await invokeHostMethod(methods, "external-mcp-manage", [{ action: "status" }], { kind: "workbench-client", connection: "local", local: true });
+  expect(manage).toHaveBeenCalledTimes(1);
+});
 
 it("requires a dedicated compact-and-send request so an older host cannot silently discard the prompt", async () => {
   const compactContext = vi.fn(async () => ({ version: 1, updates: [] }));
