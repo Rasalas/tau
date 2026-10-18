@@ -267,11 +267,12 @@ const CLAUDE_TOOL_NAMES: Readonly<Record<string, string>> = {
 /**
  * A thread restricted to some tools: Claude's own by their Pi names or its
  * own (`WebFetch`), nothing else built in, and no MCP server but Tau's, whose
- * endpoint filters Tau's tools. A name Claude does not have is dropped, as on Pi.
+ * endpoint filters Tau's tools. Hooks and statusLine commands are disabled for
+ * restricted threads. A name Claude does not have is dropped, as on Pi.
  */
-export function claudeToolOptions(tools: readonly string[]): Pick<Options, "tools" | "strictMcpConfig"> {
+export function claudeToolOptions(tools: readonly string[]): Pick<Options, "tools" | "strictMcpConfig" | "settings"> {
   const own = tools.flatMap((tool) => CLAUDE_TOOL_NAMES[tool] ?? (/^[A-Z][A-Za-z]*$/u.test(tool) ? [tool] : []));
-  return { tools: [...new Set(own)], strictMcpConfig: true };
+  return { tools: [...new Set(own)], strictMcpConfig: true, settings: { disableAllHooks: true } };
 }
 
 /**

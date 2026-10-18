@@ -97,6 +97,21 @@ describe("Tau's MCP server over the control channel", () => {
     await session.close();
   });
 
+  it("passes the guide's reading tools and disabled hooks to the real SDK without exposing its credential", async () => {
+    const cli = fakeCli();
+    const { session } = open(cli, { tools: ["read", "grep", "find", "ls", "read_pull_request_diff", "submit_pull_request_guide"] });
+    try {
+      await expect.poll(() => requests(cli, "mcp_set_servers").length).toBe(1);
+      const args = cli.spawns[0]!.args;
+      const flag = (name: string) => args.includes(name) ? args[args.indexOf(name) + 1] : args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
+      expect(flag("--tools")?.split(",")).toEqual(["Read", "Grep", "Glob"]);
+      expect(JSON.parse(flag("--settings")!)).toMatchObject({ disableAllHooks: true });
+      expect(args).toContain("--strict-mcp-config");
+      expect(JSON.stringify(args)).not.toContain(TOKEN);
+      expect(requests(cli, "mcp_set_servers")[0]!.request).toMatchObject({ servers: { tau: { headers: mcpServer.headers } } });
+    } finally { await session.close(); }
+  });
+
   it("registers nothing when the host has no endpoint", async () => {
     const cli = fakeCli();
     const { session } = open(cli, { mcpServer: undefined });

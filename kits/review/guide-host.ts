@@ -39,7 +39,7 @@ interface Active {
   startedAt: string;
   parentThreadId: string;
   title: string;
-  runtime: "pi" | "codex";
+  runtime: "pi" | "codex" | "claude-code";
   threadId?: string;
   jobId?: string;
   superseded?: boolean;
@@ -175,7 +175,7 @@ export function registerGuides(
       const cwd = via.cwd ?? parent.cwd;
       const config = await settings(cwd);
       if (!config.enabled) return asked("failed", "Review guides are off. Turn them on in Settings → Source control.");
-      if (config.runtime !== "pi" && config.runtime !== "codex") return asked("failed", "Choose Pi or Codex to write review guides.");
+      if (config.runtime !== "pi" && config.runtime !== "codex" && config.runtime !== "claude-code") return asked("failed", "Choose Pi, Codex or Claude to write review guides.");
       const runtime = config.runtime;
       const provider = sources.get(ref.service);
       if (!provider.info.capabilities.guides || !provider.info.capabilities.files || (!provider.requestHeadRef && !provider.requestHeadSource)) return asked("failed", `${provider.info.name} does not support review guides.`);
@@ -229,8 +229,8 @@ export function registerGuides(
             emit(run, "running");
           } catch (error) { fail(run, message(error)); throw error; }
         };
-        const { access: _access, ...codexDefinition } = GUIDE_DEFINITION;
-        const definition = runtime === "pi" ? GUIDE_DEFINITION : { ...codexDefinition, runtime };
+        const { access: _access, ...mcpDefinition } = GUIDE_DEFINITION;
+        const definition = runtime === "pi" ? GUIDE_DEFINITION : { ...mcpDefinition, runtime };
         const started = await agentCall("spawn", {
           parentThreadId: via.parentThreadId, prompt, title: `Review guide for #${ref.number}`, startAt: run.headSha,
           ...(runtime === "pi" && config.model ? { model: config.model } : {}), ...(effort ? { thinkingLevel: effort } : {}), source: "tau.review", definition, beforePrompt, onStartFailed: (reason: string) => fail(run, reason),
@@ -382,7 +382,7 @@ export function registerGuides(
   const disposers = [
     services.mcp.registerTools((session) => [
       ...agentTools(session),
-      ...([...active.values()].some((run) => run.runtime === "codex" && run.threadId === session.sessionId) ? guideTools(session) : []),
+      ...([...active.values()].some((run) => run.runtime !== "pi" && run.threadId === session.sessionId) ? guideTools(session) : []),
     ]),
     services.registerRuntimeExtension("tau-review-guides", (pi, session) => {
       for (const tool of agentTools(session)) pi.registerTool(tool);

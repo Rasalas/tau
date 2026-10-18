@@ -172,9 +172,10 @@ describe("Claude Code runtime adapter", () => {
     const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
     expect(claudeQueryOptions(plan)).not.toHaveProperty("tools");
     expect(claudeQueryOptions(plan)).not.toHaveProperty("strictMcpConfig");
+    expect(claudeQueryOptions(plan)).not.toHaveProperty("settings");
     const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: "secret", headers: { Authorization: "Bearer secret" } };
     const restricted = claudeQueryOptions({ ...plan, mcpServer, tools: ["read", "grep", "find", "ls", "WebFetch", "tau_spawn_thread", "unknown"] });
-    expect(restricted).toMatchObject({ tools: ["Read", "Grep", "Glob", "WebFetch"], strictMcpConfig: true, allowedTools: ["mcp__tau"] });
+    expect(restricted).toMatchObject({ tools: ["Read", "Grep", "Glob", "WebFetch"], strictMcpConfig: true, settings: { disableAllHooks: true }, allowedTools: ["mcp__tau"] });
     expect(restricted).not.toHaveProperty("mcpServers");
     expect(claudeQueryOptions({ ...plan, tools: ["tau_list_threads"] })).toMatchObject({ tools: [], strictMcpConfig: true });
   });
