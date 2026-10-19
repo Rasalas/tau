@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ExternalLink, GitPullRequest, GitPullRequestDraft, Link2, RefreshCw, X } from "lucide-react";
+import { ExternalLink, GitPullRequest, PanelRight, GitPullRequestDraft, Link2, RefreshCw, X } from "lucide-react";
 import { errorMessage, useClientEnvironment, useHostCapabilities, type DesktopExtensionContext, type WorkbenchActions } from "tau";
 import type { LinkDialogs } from "./link-dialog.js";
 import type { PullRequestClient } from "./pull-request-client.js";
@@ -8,6 +8,8 @@ import { providerInfo, type ChangesSectionProps, type MergeMethod, type ReviewRe
 import { RequestStateIcon } from "./request-state-icon.js";
 import { checksLabel, checksTone, requestStateLabel, type RequestClient, type RowRequests } from "./requests.js";
 import { openPullRequest } from "./pull-request-tab.js";
+import { openPullRequestInTau } from "./pull-request-open.js";
+import { usePullRequestTarget } from "./pull-request-target.js";
 import { openLocalPullRequest } from "./local-request-tab.js";
 import type { RequestPublishing } from "./publish-card.js";
 import { PublishForm } from "./publish-form.js";
@@ -149,7 +151,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       <div className="request-section" aria-label="Pull request">
         <div className="request-line">
           <GitPullRequest size={13} aria-hidden="true" />
-          {request ? <RequestSummary request={request} onOpen={() => openPullRequest(actions, request, cwd)} onBrowse={() => actions.openExternal(request.url)} /> : (
+          {request ? <RequestSummary request={request} onOpen={() => openPullRequest(actions, request, cwd)} onOpenInTau={() => openPullRequestInTau(actions, request, cwd)} onBrowse={() => actions.openExternal(request.url)} /> : (
             <small className="request-none">{status ? (branch ? `No ${short} for ${branch}` : `No ${short}`) : "Checking…"}</small>
           )}
           <span className="spacer" />
@@ -259,19 +261,26 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
   };
 }
 
-function RequestSummary({ request, onOpen, onBrowse }: { request: ReviewRequest; onOpen(): void; onBrowse(): void }) {
+/** The request line: its view, and the other place to open it. */
+export function RequestSummary({ request, onOpen, onOpenInTau, onBrowse }: { request: ReviewRequest; onOpen(): void; onOpenInTau(): void; onBrowse(): void }) {
+  const inBrowser = usePullRequestTarget() === "browser";
   const armed = request.state === "open" && request.autoMerge ? `auto-merge${request.autoMerge.method ? ` · ${request.autoMerge.method}` : ""}` : undefined;
   const state = requestStateLabel(request);
   const checks = checksLabel(request.checks);
   const { short, sign } = providerInfo(request.provider);
   return (
     <>
-      <button className="request-link" title={`${request.title} · opens the ${short} view`} onClick={onOpen}>
+      <button className="request-link" title={`${request.title} · opens ${inBrowser ? "it in the browser" : `the ${short} view`}`} onClick={onOpen}>
         {short} {sign}{request.number}
       </button>
       <button className="icon-button compact" aria-label={`Open ${short} ${sign}${request.number} in the browser`} title="Open in the browser" onClick={onBrowse}>
         <ExternalLink size={10} />
       </button>
+      {inBrowser ? (
+        <button className="icon-button compact" aria-label={`Open ${short} ${sign}${request.number} in Tau`} title="Open in Tau" onClick={onOpenInTau}>
+          <PanelRight size={10} />
+        </button>
+      ) : null}
       <RequestStateIcon state={state} size={12} />
       {checks ? <span className={`request-checks ${checksTone(request.checks)}`}>checks {checks}</span> : null}
       {armed ? <span className="request-state state-armed" title="The host merges it on its own once its requirements are met">{armed}</span> : null}

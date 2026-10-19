@@ -164,6 +164,20 @@ describe("the Pull Requests page", () => {
     await waitFor(() => expect(client.list).toHaveBeenLastCalledWith({ workspace: "/project", state: "merged", limit: 100 }));
   });
 
+  it("opens a row's page in the browser on a middle click or with ⌘ or Ctrl, instead of the view", async () => {
+    const client = listClient((input) => ({ service: "github", host: "github.com", repo: "cli/cli", viewer: "BagToad", entries: rows.filter((row) => input.state === "all" || row.state === input.state), truncated: false, limit: input.limit }));
+    const open = vi.fn();
+    const routes = actions();
+    render(<PullRequestListView params={{ workspace: "/project" }} handle={handle()} actions={routes} client={client} open={open} />);
+    const row = (await screen.findAllByRole("button", { name: /^#\d+ / }))[0]!;
+    const url = rows.find((entry) => row.getAttribute("aria-label")?.startsWith(`#${entry.ref.number} `))!.ref.url;
+    fireEvent.click(row, { metaKey: true });
+    fireEvent.click(row, { ctrlKey: true });
+    fireEvent(row, new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }));
+    expect(vi.mocked(routes.openExternal).mock.calls).toEqual([[url], [url], [url]]);
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it("loads more rows of the same question, and says when the host cannot be read", async () => {
     let fail = false;
     const client = listClient((input) => {

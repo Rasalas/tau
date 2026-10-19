@@ -12,7 +12,7 @@ import { PipelineMini, usePipelineFacts } from "./pipeline-view.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { checksRollup, checksSummary, checksUnfinished } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
-import { openPullRequest, openThreadPullRequests } from "./pull-request-open.js";
+import { openPullRequest, openThreadPullRequests, requestClicks, type RequestClick } from "./pull-request-open.js";
 import { STRIP_OPTION, StripDismissals, checksPulse, checksSettled, requestEndings, stripEnded, stripRequests, watchTally, watchedRequests, type RequestEnding, type StripRequest, type StripState, type WatchTone } from "./pull-request-strip-logic.js";
 import type { PullRequestWatch } from "./pr-watch-protocol.js";
 import { useChangeCount, usePresence, type Presence } from "./strip-motion.js";
@@ -178,10 +178,11 @@ function StripRow({ request, watch, client, actions, cwd, label, motion, childre
   const info = providerInfo(request.service);
   const where = request.repo ? `${request.host ? `${request.host}/` : ""}${request.repo}` : undefined;
   const open = (focus?: "checks") => openPullRequest(actions, { url: request.url, number: request.number, provider: request.service }, cwd, focus);
+  const clicks = requestClicks((click) => openPullRequest(actions, { url: request.url, number: request.number, provider: request.service }, cwd, undefined, undefined, click), () => open());
   const leaving = motion?.state === "leaving";
   return <div className={`review-pr-strip state-${request.state}${motion && motion.state !== "settled" ? ` ${motion.state}` : ""}`}
     {...(motion?.state === "arriving" ? { style: { "--arrive": motion.order } as CSSProperties } : {})} {...(leaving ? { inert: true, "aria-hidden": true } : {})}>
-    <button type="button" className="review-pr-strip-open" aria-label={label} draggable onDragStart={(event) => dragRequest(event, request)} onClick={() => open()}>
+    <button type="button" className="review-pr-strip-open" aria-label={label} draggable onDragStart={(event) => dragRequest(event, request)} {...clicks}>
       <RequestStateIcon state={request.state} size={14} className="review-pr-strip-glyph" />
       <span className="review-pr-strip-number" {...tooltipProps(request.title)}>{info.sign}{request.number}</span>
       <span className="review-pr-strip-service" {...tooltipProps(where ? `${info.name} · ${where}` : info.name)}><ServiceIcon service={request.service} /></span>
@@ -197,12 +198,13 @@ function StripRow({ request, watch, client, actions, cwd, label, motion, childre
 const endedAt = (at: number) => new Date(at).toLocaleString([], { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 /** The strip folded into the transcript: a centred line where the request merged or closed; a click opens its tab. */
-function RequestEndLine({ ending: { request, watched }, open }: { ending: RequestEnding; open(): void }) {
+function RequestEndLine({ ending: { request, watched }, open }: { ending: RequestEnding; open(click?: RequestClick): void }) {
+  const clicks = requestClicks(open, () => open());
   const info = providerInfo(request.service);
   const word = STATE_WORDS[request.state].toLowerCase();
   const at = request.endedAt!;
   return <div className={`review-request-end state-${request.state}`} role="note" aria-label={`${info.short} ${info.sign}${request.number} ${word}`}>
-    <button type="button" aria-label={`Open ${info.noun} ${info.sign}${request.number}, ${word}${request.title ? `: ${request.title}` : ""}`} {...tooltipProps(request.title)} draggable onDragStart={(event) => dragRequest(event, request)} onClick={open}>
+    <button type="button" aria-label={`Open ${info.noun} ${info.sign}${request.number}, ${word}${request.title ? `: ${request.title}` : ""}`} {...tooltipProps(request.title)} draggable onDragStart={(event) => dragRequest(event, request)} {...clicks}>
       <RequestStateIcon state={request.state} size={13} />
       <span>{info.short} {info.sign}{request.number} {word}{watched ? " · watch ended" : ""}</span>
       <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()}>{endedAt(at)}</time>
@@ -267,7 +269,7 @@ export default function PullRequestStrip({ snapshot, actions, parts }: RegionPro
     parts.endings.setRows(threadId, endings.map((ending) => ({
       id: ending.request.url,
       afterMessageId: ending.afterMessageId,
-      content: <RequestEndLine ending={ending} open={() => openPullRequest(actions, { url: ending.request.url, number: ending.request.number, provider: ending.request.service }, cwd)} />,
+      content: <RequestEndLine ending={ending} open={(click) => openPullRequest(actions, { url: ending.request.url, number: ending.request.number, provider: ending.request.service }, cwd, undefined, undefined, click)} />,
     })));
   }, [parts.endings, threadId, endingsKey, cwd]);
 
