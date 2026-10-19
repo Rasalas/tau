@@ -41,6 +41,8 @@ function makeIndex(options: {
   priceUsage?: ThreadIndexPort["priceUsage"];
   iconFor?: (path: string) => Promise<string | undefined>;
   externalTimeoutMs?: number;
+  parentLinksPath?: string;
+  legacyParentLinksPath?: string;
 } = {}) {
   const events: HostEvent[] = [];
   const updates: HostUpdate[] = [];
@@ -71,7 +73,7 @@ function makeIndex(options: {
     log: noop,
     fail: noop,
     errorMessage: (error) => String(error),
-  }, { externalTimeoutMs: options.externalTimeoutMs });
+  }, { externalTimeoutMs: options.externalTimeoutMs, parentLinksPath: options.parentLinksPath, legacyParentLinksPath: options.legacyParentLinksPath });
   return { index, events, updates, projects };
 }
 
@@ -486,10 +488,10 @@ describe("thread deletion", () => {
     const gone = shell({ id: "gone", path: "/sessions/gone.jsonl" });
     const kept = shell({ id: "kept", path: "/sessions/kept.jsonl" });
     const sweep = (index as unknown as {
-      sweep(infos: unknown[], previous: UiSession[], next: UiSession[]): Promise<void>;
+      sweep(previous: UiSession[], next: UiSession[]): Promise<void>;
     }).sweep.bind(index);
 
-    await sweep([], [gone, kept], [kept]);
+    await sweep([gone, kept], [kept]);
 
     expect(seen).toEqual(["gone"]);
   });
@@ -501,10 +503,10 @@ describe("thread deletion", () => {
     const { index } = makeIndex({ threadLifecycle, inTrash: (id) => id === "trashed" });
     const trashed = shell({ id: "trashed", path: "/sessions/trashed.jsonl" });
     const sweep = (index as unknown as {
-      sweep(infos: unknown[], previous: UiSession[], next: UiSession[]): Promise<void>;
+      sweep(previous: UiSession[], next: UiSession[]): Promise<void>;
     }).sweep.bind(index);
 
-    await sweep([], [trashed], []);
+    await sweep([trashed], []);
 
     expect(seen).toEqual([]);
   });
@@ -529,6 +531,92 @@ describe("threads of other runtimes", () => {
       await rm(root, { recursive: true, force: true });
     }
   }
+
+  it("keeps a delegated thread hidden after its runtime is released and the index rescans", () => inSessionsDir(async (sessionsDir) => {
+    const codex = backend("codex", [record("parent"), record("child")]);
+    const { index, updates } = makeIndex({ sessionsDir, backends: [codex.provider] });
+    try {
+      await index.rememberParent("child", "parent");
+      await index.refresh("changes");
+      expect(index.byId("child")?.parentThreadId).toBe("parent");
+      const published = updates.filter((update) => update.type === "thread-index");
+      expect(published.length).toBeGreaterThan(0);
+      for (const update of published) {
+        if (update.type === "thread-index") {
+          const child = update.index.sessions.find((session) => session.id === "child");
+          if (child) expect(child.parentThreadId).toBe("parent");
+        }
+      }
+    } finally { await index.dispose(); }
+  }));
+
+  it("restores a delegated thread's parent before publishing the first index after a restart", () => inSessionsDir(async (sessionsDir) => {
+    const parentLinksPath = join(sessionsDir, "thread-parents.json");
+    const codex = backend("codex", [record("parent"), record("child")]);
+    const first = makeIndex({ sessionsDir, backends: [codex.provider], parentLinksPath });
+    await first.index.rememberParent("child", "parent");
+    // Persistence must precede the child's first prompt, without relying on shutdown.
+    const restarted = makeIndex({ sessionsDir, backends: [codex.provider], parentLinksPath });
+    try {
+      await restarted.index.refresh("changes");
+      expect(restarted.index.byId("child")?.parentThreadId).toBe("parent");
+      for (const update of restarted.updates) {
+        if (update.type !== "thread-index") continue;
+        for (const child of update.index.sessions.filter((session) => session.id === "child")) {
+          expect(child.parentThreadId).toBe("parent");
+        }
+      }
+    } finally { await first.index.dispose(); await restarted.index.dispose(); }
+  }));
+
+  it("includes released external children in the lifecycle sweep so their subagent links survive", () => inSessionsDir(async (sessionsDir) => {
+    const codex = backend("codex", [record("parent"), record("child")]);
+    const sweep = vi.fn();
+    const threadLifecycle = new HostThreadLifecycleSet();
+    threadLifecycle.add({ sweep });
+    const { index } = makeIndex({ sessionsDir, backends: [codex.provider], threadLifecycle });
+    try {
+      await index.rememberParent("child", "parent");
+      await index.refresh("none");
+      expect(sweep).toHaveBeenCalledWith(expect.objectContaining({ sessions: expect.arrayContaining([
+        expect.objectContaining({ sessionId: "parent" }),
+        expect.objectContaining({ sessionId: "child", parentThreadId: "parent" }),
+      ]) }));
+    } finally { await index.dispose(); }
+  }));
+
+  it("migrates existing subagent links before the first publication and retains them when a provider disappears", () => inSessionsDir(async (sessionsDir) => {
+    const parentLinksPath = join(sessionsDir, "thread-parents.json");
+    const legacyParentLinksPath = join(sessionsDir, "agents-links.json");
+    await writeFile(legacyParentLinksPath, JSON.stringify({ version: 2, links: [
+      { threadId: "child", parentThreadId: "parent" },
+      { id: "pending", parentThreadId: "parent" },
+    ] }));
+    const records = [record("child")]; // Deleting the parent never promotes a child.
+    const codex = backend("codex", records);
+    const { index, updates } = makeIndex({ sessionsDir, backends: [codex.provider], parentLinksPath, legacyParentLinksPath });
+    try {
+      await index.refresh("changes");
+      expect(index.byId("child")?.parentThreadId).toBe("parent");
+      for (const update of updates) {
+        if (update.type !== "thread-index") continue;
+        for (const child of update.index.sessions.filter((session) => session.id === "child")) {
+          expect(child.parentThreadId).toBe("parent");
+        }
+      }
+      records.length = 0;
+      await index.refresh("none");
+      records.push(record("child"));
+      await index.refresh("none");
+      expect(index.byId("child")?.parentThreadId).toBe("parent");
+      await rm(legacyParentLinksPath);
+      const restarted = makeIndex({ sessionsDir, backends: [codex.provider], parentLinksPath });
+      try {
+        await restarted.index.refresh("none");
+        expect(restarted.index.byId("child")?.parentThreadId).toBe("parent");
+      } finally { await restarted.index.dispose(); }
+    } finally { await index.dispose(); }
+  }));
 
   it("shows what a thread cost before it is opened, from one listing per scan", () => inSessionsDir(async (sessionsDir) => {
     const codex = backend("codex", [record("priced", [tally(0.25), tally(0.5, "gpt-5.6-sol")]), record("unused"), record("empty", [])]);

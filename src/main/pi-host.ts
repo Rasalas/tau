@@ -498,9 +498,9 @@ export class PiHost {
         if (options.parent) this.index.linkParent(manager, options.parent);
         runtime = await this.runtimes.open(manager, { type: "session_start", reason: "new" }, { adopt: false, prepared: true });
       } else {
-        // Another backend keeps no Pi session file, so the link lives in the index only.
+        // Another backend keeps no Pi session file; persist its lineage before opening it.
         const threadId = randomUUID();
-        if (options.parent) this.index.rememberParent(threadId, options.parent.threadId);
+        if (options.parent) await this.index.rememberParent(threadId, options.parent.threadId);
         runtime = await this.runtimes.openExternal(backendKind, threadId, cwd, { resume: false, adopt: false, ...(options.tools ? { tools: options.tools } : {}) });
       }
       marks.mark("open");

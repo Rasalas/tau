@@ -466,7 +466,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     errorMessage: (error) => deps.errorMessage(error),
   }, {
     ...(options.sessionUsageCachePath ? { usageCachePath: options.sessionUsageCachePath, infoCachePath: join(dirname(options.sessionUsageCachePath), "session-info-cache.json") } : {}),
-    ...(options.sessionLineageCachePath ? { lineageCachePath: options.sessionLineageCachePath } : {}),
+    ...(options.sessionLineageCachePath ? {
+      lineageCachePath: options.sessionLineageCachePath,
+      parentLinksPath: join(dirname(options.sessionLineageCachePath), "thread-parents.json"),
+      legacyParentLinksPath: join(kitStateDir, "tau.agents", "agents-links.json"),
+    } : {}),
     ...(options.logger ? { logger: options.logger } : {}),
   });
   const extensionUi = new ExtensionUiCoordinator(

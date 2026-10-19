@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { HostEvent, ThreadIndexSnapshot, UiBackgroundTask, UiProject, UiQueuedMessage, UiSession, UiThreadGoal, UiThreadLimit, UiThreadUsage } from "../shared/contracts.js";
 import { HOST_PROTOCOL_VERSION, type HostUpdate } from "../shared/host-protocol.js";
 import type { HostLogger } from "./host-log.js";
@@ -24,6 +24,7 @@ import { SessionInfoIndex } from "./session-info-index.js";
 import type { UsageTally } from "./usage-pricing.js";
 import { ThreadRuntime, threadBackendKind } from "./thread-runtime.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
+import { readPersistedJson, writePersistedJson } from "./persisted-json.js";
 
 function settledLater(): { promise: Promise<void>; resolve(): void; reject(error: unknown): void } {
   let resolve!: () => void;
@@ -68,6 +69,10 @@ export interface ThreadIndexOptions {
   infoCachePath?: string;
   usageCachePath?: string;
   lineageCachePath?: string;
+  /** Durable parent links for runtimes without a Pi session file. */
+  parentLinksPath?: string;
+  /** The previous extension-owned link index, read once when migrating. */
+  legacyParentLinksPath?: string;
   logger?: HostLogger;
 }
 
@@ -93,8 +98,9 @@ export class ThreadIndex {
   private disposed = false;
   private externalTallies = new Map<string, readonly UsageTally[]>();
   private externalProjects = new Map<string, Pick<UiProject, "name" | "icon"> & { listed?: boolean }>();
-  /** The parent of a thread this host started or indexed, for its live shell. */
+  /** A missing provider, parent or trashed thread never erases a child's classification. */
   private readonly parents = new Map<string, string>();
+  private parentsLoaded?: Promise<void>;
   /** Deletions already announced, so the sweep does not repeat one the host made itself. */
   private readonly announcedDeletions = new Set<string>();
   /** Threads a restart cut a turn short in; survives a rescan, which reads files only. */
@@ -184,9 +190,49 @@ export class ThreadIndex {
     this.parents.set(manager.getSessionId(), parent.threadId);
   }
 
-  /** The same link for a thread without a Pi session file; it lasts as long as the index does. */
-  rememberParent(threadId: string, parentThreadId: string): void {
+  /** Persist before opening a delegated runtime so a restart cannot promote it to a conversation. */
+  async rememberParent(threadId: string, parentThreadId: string): Promise<void> {
+    await this.loadParents();
     this.parents.set(threadId, parentThreadId);
+    if (this.options.parentLinksPath) {
+      await writePersistedJson(this.options.parentLinksPath, 1, { parents: [...this.parents] }, { logger: this.options.logger });
+    }
+  }
+
+  private loadParents(): Promise<void> {
+    return this.parentsLoaded ??= (async () => {
+      if (!this.options.parentLinksPath) return;
+      let stored = await readPersistedJson<Array<[string, string]>>(this.options.parentLinksPath, {
+        expectedVersion: 1,
+        decode: (value) => {
+          const parents = (value as { parents?: unknown } | null)?.parents;
+          if (!Array.isArray(parents)) return undefined;
+          return parents.filter((pair): pair is [string, string] =>
+            Array.isArray(pair) && pair.length === 2 && typeof pair[0] === "string" && !!pair[0]
+            && typeof pair[1] === "string" && !!pair[1] && pair[0] !== pair[1]);
+        },
+        logger: this.options.logger,
+      });
+      if (!stored && this.options.legacyParentLinksPath) {
+        stored = await readPersistedJson<Array<[string, string]>>(this.options.legacyParentLinksPath, {
+          expectedVersion: 2,
+          decode: (value) => {
+            const links = (value as { links?: unknown } | null)?.links;
+            if (!Array.isArray(links)) return undefined;
+            return links.flatMap((link): Array<[string, string]> => {
+              const child = link?.threadId;
+              const parent = link?.parentThreadId;
+              return typeof child === "string" && !!child && typeof parent === "string" && !!parent && child !== parent ? [[child, parent]] : [];
+            });
+          },
+          logger: this.options.logger,
+        });
+        if (stored) await writePersistedJson(this.options.parentLinksPath, 1, { parents: stored.data }, { logger: this.options.logger });
+      }
+      for (const [child, parent] of stored?.data ?? []) {
+        if (!this.parents.has(child)) this.parents.set(child, parent);
+      }
+    })();
   }
 
   /**
@@ -220,7 +266,7 @@ export class ThreadIndex {
     this.usageCacheLoaded ??= this.usage.load().catch(() => undefined);
     this.lineageCacheLoaded ??= this.lineage.load().catch(() => undefined);
     const [{ infos: sessionInfos, stamps, models, complete }] = await Promise.all([
-      this.sessionInfos.list(readFiles), this.usageCacheLoaded, this.lineageCacheLoaded,
+      this.sessionInfos.list(readFiles), this.usageCacheLoaded, this.lineageCacheLoaded, this.loadParents(),
     ]);
     this.usage.retain(sessionInfos.map((info) => info.path));
     // Two lines per session file the cache has not answered yet, so the rail
@@ -258,6 +304,10 @@ export class ThreadIndex {
     };
     publishPartial();
     const external = await this.externalShells((provider, shells) => {
+      for (const session of shells) {
+        const parent = this.parentOf(session.id);
+        if (parent) session.parentThreadId = parent;
+      }
       for (const session of partial.values()) if (session.backendKind === provider.kind) partial.delete(session.id);
       for (const session of shells) partial.set(session.id, session);
       publishPartial();
@@ -275,7 +325,7 @@ export class ThreadIndex {
     if (this.disposed) return { previous, next: this.sessions, projectsChanged: false };
     this.sessions = next;
     this.scannedOnce = true;
-    await this.sweep(sessionInfos, previous, next);
+    await this.sweep(previous, next);
     return { previous, next, projectsChanged };
   }
 
@@ -342,27 +392,24 @@ export class ThreadIndex {
   }
 
   /** Extensions reconcile what they keep beside sessions; a missing file is deletion, eviction is not. */
-  private async sweep(sessionInfos: readonly SessionInfo[], previous: readonly UiSession[], next: readonly UiSession[]): Promise<void> {
+  private async sweep(previous: readonly UiSession[], next: readonly UiSession[]): Promise<void> {
     const nextIds = new Set(next.map((session) => session.id));
     const liveIds = this.liveThreadIds();
     const deleted = previous
       .filter((session) => !nextIds.has(session.id) && !liveIds.has(session.id) && !existsSync(session.path) && !this.port.inTrash?.(session.id))
       .map((session) => ({ sessionId: session.id, cwd: session.projectPath }));
-    for (const threadId of [...this.parents.keys()]) {
-      if (!nextIds.has(threadId) && !liveIds.has(threadId)) this.parents.delete(threadId);
-    }
     for (const session of deleted) {
       try { await this.announceDeleted(session.sessionId, session.cwd); }
       catch (error) { this.port.log("thread.deleted.failed", this.port.errorMessage(error)); }
     }
     for (const session of deleted) this.announcedDeletions.delete(session.sessionId);
     await this.port.threadLifecycle.sweep({
-      sessions: sessionInfos.map((info) => ({
-        sessionId: info.id,
-        path: info.path,
-        cwd: info.cwd,
-        ...(this.parents.get(info.id) ? { parentThreadId: this.parents.get(info.id)! } : {}),
-        ...(this.lineage.originOf(info.path) ? { origin: this.lineage.originOf(info.path)! } : {}),
+      sessions: next.map((session) => ({
+        sessionId: session.id,
+        path: session.path,
+        cwd: session.projectPath,
+        ...(session.parentThreadId ? { parentThreadId: session.parentThreadId } : {}),
+        ...(session.origin ? { origin: session.origin } : {}),
       })),
       liveThreads: this.port.liveThreads().map((thread) => this.port.hostThread(thread)),
       projectPaths: this.port.projectHistory.list().map((project) => project.path),
