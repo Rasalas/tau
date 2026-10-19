@@ -200,12 +200,18 @@ export async function prepareSend(
   host: HostApi,
   cwd: string | undefined,
   context: ComposerInlineContext,
+  /** Starts a failed upload again; false when the chip cannot be retried. */
+  retry: (chipId: string) => boolean = () => false,
 ): Promise<ComposerSendContribution | undefined> {
   const chips = store.beginSend(context.scope);
   if (chips.length === 0) return undefined;
   await Promise.all(chips.map((chip) => chip.uploading));
   // An upload that finished while the prompt waited updated the chip; read it again.
-  const current = chips.map((chip) => store.sendingChip(context.scope, chip.id) ?? chip);
+  const latest = () => chips.map((chip) => store.sendingChip(context.scope, chip.id) ?? chip);
+  // A failed upload gets one more try on send before the prompt is refused.
+  const retried = latest().filter((chip) => chip.error && retry(chip.id));
+  if (retried.length > 0) await Promise.all(retried.map((chip) => store.sendingChip(context.scope, chip.id)?.uploading));
+  const current = latest();
   const failed = current.find((chip) => chip.error || (chip.kind === "attachment" && !chip.payload.path));
   if (failed) throw new Error(`${failed.label} could not be attached. Remove it and try again.`);
 
@@ -251,15 +257,23 @@ const composerContext: DesktopExtension = {
 
     // Uploads the connection lost for good, started again once the host is back.
     const lost = new Map<string, () => void>();
+    // Every upload that failed, so sending can try it again.
+    const failedUploads = new Map<string, { scope: string; start: () => void }>();
     const upload = (scope: string, name: string, mimeType: string, size: number, read: (start: number, end: number) => Promise<Uint8Array>) => {
       const chip = store.add(scope, { kind: "attachment", payload: { name, mimeType, size } });
       const start = () => {
         lost.delete(chip.id);
         const uploading = storeWithRetry(host, { scope, name, mimeType, size }, read)
-          .then((stored) => store.update(scope, chip.id, { payload: { name, mimeType, size: stored.size, path: stored.path }, uploading: undefined }))
+          .then((stored) => {
+            failedUploads.delete(chip.id);
+            store.update(scope, chip.id, { payload: { name, mimeType, size: stored.size, path: stored.path }, uploading: undefined });
+          })
           .catch((error: unknown) => {
             const message = error instanceof Error ? error.message : String(error);
             store.update(scope, chip.id, { error: message, uploading: undefined });
+            // Drop retries of chips that were removed meanwhile.
+            for (const [id, entry] of failedUploads) if (!store.list(entry.scope).some((c) => c.id === id) && !store.sendingChip(entry.scope, id)) failedUploads.delete(id);
+            failedUploads.set(chip.id, { scope, start });
             if (TRANSIENT_UPLOAD_ERROR.test(message)) lost.set(chip.id, start);
           });
         store.update(scope, chip.id, { uploading, error: undefined });
@@ -376,7 +390,13 @@ const composerContext: DesktopExtension = {
       },
       hasContent: (scope) => store.has(scope),
       subscribe: store.subscribe,
-      prepareSend: (inline) => prepareSend(store, host, cwdFor(inline), inline),
+      prepareSend: (inline) => prepareSend(store, host, cwdFor(inline), inline, (id) => {
+        const failed = failedUploads.get(id);
+        if (!failed) return false;
+        failedUploads.delete(id);
+        failed.start();
+        return true;
+      }),
       settleSend: (scope, accepted) => store.settle(scope, accepted),
     });
   },

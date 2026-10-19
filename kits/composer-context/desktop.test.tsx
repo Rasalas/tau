@@ -209,6 +209,27 @@ describe("Composer Context desktop", () => {
     expect(sent?.attachments).toEqual([expect.objectContaining({ name: "spec.pdf", path: "/state/attachments/t1/spec.pdf" })]);
   });
 
+  it("tries a failed upload once more on send instead of refusing the prompt", async () => {
+    let refuse = true;
+    const { contribution } = activate(() => { if (refuse) throw new Error("The disk is full."); });
+    const pdf = new File(["%PDF-1.4"], "spec.pdf", { type: "application/pdf" });
+    act(() => { contribution.takeFiles!([pdf], inline()); });
+    await waitFor(() => expect(contribution.chips!.list(SCOPE)[0]?.state).toBe("failed"));
+    refuse = false;
+    const sent = await contribution.prepareSend!({ ...inline({ fileAttachments: true }), text: "" });
+    expect(sent?.attachments).toEqual([expect.objectContaining({ name: "spec.pdf", path: "/state/attachments/t1/spec.pdf" })]);
+  });
+
+  it("still refuses the prompt when the retry on send fails too", async () => {
+    const { contribution, labels } = activate(() => { throw new Error("The disk is full."); });
+    const pdf = new File(["%PDF-1.4"], "spec.pdf", { type: "application/pdf" });
+    act(() => { contribution.takeFiles!([pdf], inline()); });
+    await waitFor(() => expect(contribution.chips!.list(SCOPE)[0]?.state).toBe("failed"));
+    await expect(contribution.prepareSend!({ ...inline({ fileAttachments: true }), text: "" })).rejects.toThrow(/spec\.pdf could not be attached/u);
+    act(() => contribution.settleSend!(SCOPE, false));
+    expect(labels()).toEqual(["spec.pdf"]);
+  });
+
   it("turns @ into a file chip with its lines, and sends the file as a block before the text", async () => {
     const { contribution, invoke, labels } = activate();
     const trigger = contribution.triggers!.find((entry) => entry.char === "@")!;

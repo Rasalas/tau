@@ -1,18 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   branchMessagesWithClientMessageIds,
+  clientMessageDelivery,
   clientMessageFingerprint,
   clientMessageIdForMessage,
   CLIENT_MESSAGE_CANCEL_MARKER,
   CLIENT_MESSAGE_MARKER,
   unclaimedClientMessageIds,
 } from "../shared/client-message-correlation.js";
+import { mapMessage } from "./host-messages.js";
+import { branchRecords } from "./thread-projection.js";
 
-function marker(customType: string, clientMessageId: string, text?: string, knownSkillNames: Iterable<string> = []) {
+function marker(customType: string, clientMessageId: string, text?: string, knownSkillNames: Iterable<string> = [], delivery?: "steer" | "queued") {
   return {
     type: "custom",
     customType,
-    data: { clientMessageId, ...(text !== undefined ? { fingerprint: clientMessageFingerprint(text, knownSkillNames) } : {}) },
+    data: { clientMessageId, ...(text !== undefined ? { fingerprint: clientMessageFingerprint(text, knownSkillNames) } : {}), ...(delivery ? { delivery } : {}) },
   };
 }
 
@@ -35,6 +38,36 @@ describe("client message correlation", () => {
     expect(clientMessageIdForMessage(entries, second)).toBe("request-b");
     // A copied message with equal text/timestamp is not an identity match.
     expect(clientMessageIdForMessage(entries, { ...first })).toBeUndefined();
+  });
+
+  it("carries a marker's delivery onto its message, matched by fingerprint or by the persisted id", () => {
+    const byText = { role: "user", content: "steer me", timestamp: 1 };
+    const byId = { role: "user", content: "later", timestamp: 2, clientMessageId: "request-b" };
+    const plain = { role: "user", content: "plain", timestamp: 3 };
+    const entries = [
+      marker(CLIENT_MESSAGE_MARKER, "request-a", "steer me", [], "steer"),
+      marker(CLIENT_MESSAGE_MARKER, "request-b", undefined, [], "queued"),
+      marker(CLIENT_MESSAGE_MARKER, "request-c", "plain"),
+      { type: "message", id: "a", message: byText },
+      { type: "message", id: "b", message: byId },
+      { type: "message", id: "c", message: plain },
+    ];
+    expect(branchMessagesWithClientMessageIds(entries)).toEqual([
+      { ...byText, clientMessageId: "request-a", tauDelivery: "steer" },
+      { ...byId, tauDelivery: "queued" },
+      { ...plain, clientMessageId: "request-c" },
+    ]);
+    expect(clientMessageDelivery(entries, "request-a")).toBe("steer");
+    expect(clientMessageDelivery(entries, "request-c")).toBeUndefined();
+  });
+
+  it("reaches the transcript as the message's delivery", () => {
+    const entries = [
+      marker(CLIENT_MESSAGE_MARKER, "request-a", "steer me", [], "steer"),
+      { type: "message", id: "a", message: { role: "user", content: "steer me", timestamp: 1 } },
+    ];
+    const [record] = branchRecords(entries, []);
+    expect(mapMessage(record!.record, 0)).toMatchObject({ role: "user", clientMessageId: "request-a", delivery: "steer" });
   });
 
   it("does not resurrect a cancelled marker after a failed request", () => {

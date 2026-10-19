@@ -250,6 +250,20 @@ describe("the pieces the seam is built from", () => {
     expect(composerTrigger("x ^a", 4, ["^"])).toMatchObject({ kind: "extension", char: "^", query: "a" });
   });
 
+  it.each([
+    ["/tmp/build.sh", "/tmp/build.sh".length],
+    ["/etc/hosts", "/et".length],
+    ["  /etc/hosts", "  /etc".length],
+  ])("keeps the path in %j out of the slash menu", (text, caret) => {
+    expect(composerTrigger(text, caret)).toBeUndefined();
+  });
+
+  it("still opens the slash menu for a command and its argument", () => {
+    expect(composerTrigger("/mo", 3)).toMatchObject({ kind: "/", query: "mo" });
+    expect(composerTrigger("/mo rest", 3)).toMatchObject({ kind: "/", query: "mo" });
+    expect(composerTrigger("/model openai/gpt", 17)).toMatchObject({ kind: "arg", command: "model", query: "openai/gpt" });
+  });
+
   it("places context before plain text and after a skill's instruction", () => {
     expect(withInlineContext("do it", "")).toEqual({ text: "do it", skillDraft: undefined });
     expect(withInlineContext("do it", "<file/>")).toEqual({ text: "<file/>\n\ndo it" });

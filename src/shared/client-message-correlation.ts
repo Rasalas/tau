@@ -11,25 +11,27 @@ import { parseKnownSkillName, parseSkillEnvelope } from "./skill-envelope.js";
 export const CLIENT_MESSAGE_MARKER = "tau-client-message";
 export const CLIENT_MESSAGE_CANCEL_MARKER = "tau-client-message-cancel";
 
+/** How a user message reached a running thread: steered into the run, or sent from the queue. */
+export type MessageDelivery = "steer" | "queued";
+
 interface MarkerData {
   clientMessageId: string;
   fingerprint?: string;
+  delivery?: MessageDelivery;
 }
 
-interface PendingMarker {
-  clientMessageId: string;
-  fingerprint?: string;
-}
+type PendingMarker = MarkerData;
 
 function markerData(value: unknown, customType: string): MarkerData | undefined {
   if (!value || typeof value !== "object") return undefined;
   const entry = value as { type?: unknown; customType?: unknown; data?: unknown };
   if (entry.type !== "custom" || entry.customType !== customType || !entry.data || typeof entry.data !== "object") return undefined;
-  const data = entry.data as { clientMessageId?: unknown; fingerprint?: unknown };
+  const data = entry.data as { clientMessageId?: unknown; fingerprint?: unknown; delivery?: unknown };
   if (typeof data.clientMessageId !== "string" || data.clientMessageId.length === 0) return undefined;
   return {
     clientMessageId: data.clientMessageId,
     ...(typeof data.fingerprint === "string" && data.fingerprint.length > 0 ? { fingerprint: data.fingerprint } : {}),
+    ...(data.delivery === "steer" || data.delivery === "queued" ? { delivery: data.delivery } : {}),
   };
 }
 
@@ -172,11 +174,13 @@ export function matchClientMessageId(
 export function branchMessagesWithClientMessageIds(entries: readonly unknown[], knownSkillNames: Iterable<string> = []): unknown[] {
   const pending: PendingMarker[] = [];
   const cancelledIds = cancelledClientMessageIds(entries);
+  const deliveries = new Map<string, MessageDelivery>();
   const messages: unknown[] = [];
   for (const entry of entries) {
     const marker = markerData(entry, CLIENT_MESSAGE_MARKER);
     if (marker && !cancelledIds.has(marker.clientMessageId)) {
       pending.push(marker);
+      if (marker.delivery) deliveries.set(marker.clientMessageId, marker.delivery);
       continue;
     }
     const cancelled = markerData(entry, CLIENT_MESSAGE_CANCEL_MARKER);
@@ -193,9 +197,19 @@ export function branchMessagesWithClientMessageIds(entries: readonly unknown[], 
       ? persistedId ?? pending.find((candidate) => candidate.fingerprint === clientMessageFingerprint(value, knownSkillNames))?.clientMessageId
       : undefined;
     if (clientMessageId) removePending(pending, clientMessageId);
-    messages.push(clientMessageId ? { ...value, clientMessageId } : { ...value });
+    const delivery = clientMessageId ? deliveries.get(clientMessageId) : undefined;
+    messages.push(clientMessageId ? { ...value, clientMessageId, ...(delivery ? { tauDelivery: delivery } : {}) } : { ...value });
   }
   return messages;
+}
+
+/** The delivery a request's marker recorded, when it was steered or sent from the queue. */
+export function clientMessageDelivery(entries: readonly unknown[], clientMessageId: string): MessageDelivery | undefined {
+  for (const entry of entries) {
+    const marker = markerData(entry, CLIENT_MESSAGE_MARKER);
+    if (marker?.clientMessageId === clientMessageId) return marker.delivery;
+  }
+  return undefined;
 }
 
 /** Returns marker ids that have no matching persisted user message. */
@@ -259,10 +273,10 @@ export function clientMessageIdForMessage(entries: readonly unknown[], target: u
   return undefined;
 }
 
-export function clientMessageMarker(clientMessageId: string, fingerprint?: string): { customType: string; data: MarkerData } {
+export function clientMessageMarker(clientMessageId: string, fingerprint?: string, delivery?: MessageDelivery): { customType: string; data: MarkerData } {
   return {
     customType: CLIENT_MESSAGE_MARKER,
-    data: { clientMessageId, ...(fingerprint ? { fingerprint } : {}) },
+    data: { clientMessageId, ...(fingerprint ? { fingerprint } : {}), ...(delivery ? { delivery } : {}) },
   };
 }
 

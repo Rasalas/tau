@@ -162,6 +162,19 @@ describe("PiHost queue and limits", () => {
     await bench.host.queue.flush();
   });
 
+  it("marks a queued message of the user in its request marker", async () => {
+    const bench = await host();
+    const markers: Array<{ customType: string; data: { delivery?: string } }> = [];
+    const thread = bench.internals.threads.get("thread-1").runtime as ThreadRuntime;
+    thread.backend.capabilities.journal = { entries: () => [], appendCustomEntry: (customType: string, data: never) => { markers.push({ customType, data }); }, appendMessage: () => undefined } as never;
+    await bench.host.prompt("long job", [], "thread-1");
+    bench.host.queue.add("thread-1", { text: "then this", attachments: [] });
+    bench.settle();
+    await vi.waitFor(() => expect(bench.delivered.map((entry) => entry.text)).toEqual(["long job", "then this"]));
+    expect(markers.map((marker) => marker.data.delivery)).toEqual(["queued"]);
+    await bench.host.queue.flush();
+  });
+
   it("steers a wake into the running turn, and queues it when the user wants wakes queued", async () => {
     const bench = await host();
     const wake = { source: "pull-request", label: "PR #76 · checks finished" };

@@ -121,8 +121,15 @@ describe("TurnDelivery", () => {
     const { delivery, port } = makeDelivery(thread);
     await delivery.queued("steer", "wait", [], "session", "message");
     expect(sent).toEqual([{ text: "wait", delivery: "steer" }]);
-    expect(port.clientMessages.appendMarker).toHaveBeenCalled();
+    expect(port.clientMessages.appendMarker).toHaveBeenCalledWith(thread, "message", "wait", undefined, "steer");
     expect(port.turnObservers.accepted).toHaveBeenCalled();
+  });
+
+  it("marks a follow-up as queued in its request marker", async () => {
+    const { thread } = makeThread();
+    const { delivery, port } = makeDelivery(thread);
+    await delivery.queued("followUp", "later", [], "session", "message");
+    expect(port.clientMessages.appendMarker).toHaveBeenCalledWith(thread, "message", "later", undefined, "queued");
   });
 
   it("opens no turn observer for an extension command", async () => {
