@@ -223,7 +223,10 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
       let stats = await this.request("database-status") as SqliteDatabaseStats;
       const pagesBefore = stats.pageCount;
       let deferred = this.pendingWrites.size > 0;
-      if (!deferred && stats.autoVacuum !== INCREMENTAL) stats = await this.request("convert-incremental") as SqliteDatabaseStats;
+      // The one full VACUUM holds the store lock, so a file converts only when there is space to give back.
+      if (!deferred && stats.autoVacuum !== INCREMENTAL && (force ? stats.freePages > 0 : reclaimDue(stats, this.rules))) {
+        stats = await this.request("convert-incremental") as SqliteDatabaseStats;
+      }
       if (!deferred && (force ? stats.freePages > 0 : reclaimDue(stats, this.rules))) {
         const pages = Math.max(1, Math.floor(this.rules.stepBytes / stats.pageSize));
         while (stats.freePages > 0) {
