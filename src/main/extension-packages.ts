@@ -9,12 +9,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
 import type { HostExtension } from "./host-extensions.js";
-import type { BuildDiagnostic, ExtensionInspection, ExtensionSkip } from "../shared/contracts.js";
+import type { BuildDiagnostic, ExtensionInspection, ExtensionPackageSummary, ExtensionSkip } from "../shared/contracts.js";
 import { describeBuildError, packageBuilds } from "./package-builds.js";
 import { assertEngineRanges, describeIncompatibility, parseVersion, type ExtensionEngines, type ExtensionHostVersions } from "../shared/extension-compat.js";
 import { DEFAULT_PACKAGE_ISOLATION, isExtensionIsolation, isExtensionPermission, type ExtensionIsolation } from "../shared/extension-permissions.js";
 import { createWorkerHostExtension, type WorkerHostExtensionOptions } from "./host-extension-isolation.js";
-import { isPackageGranted, readExtensionGrants } from "./extension-grants.js";
+import { isPackageGranted, readExtensionGrants, type ExtensionGrant } from "./extension-grants.js";
 import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher, trustedPublishersPath } from "./extension-signature.js";
 import { readPackageGrantIdentity, type PackageGrantIdentity } from "./extension-grant-identity.js";
@@ -79,9 +79,14 @@ export interface ExtensionPackage {
   grantIdentity?: PackageGrantIdentity;
 }
 
+/** The folder a global package lives in: `~/.tau/extensions`, or below `TAU_PACKAGES_HOME`. */
+export function globalExtensionsDirectory(home = packagesHome()): string {
+  return join(tauHomeDir(home), "extensions");
+}
+
 export function extensionPackageDirectories(cwd: string, home = packagesHome()): Array<{ scope: "global" | "project"; directory: string }> {
   return [
-    { scope: "global", directory: join(tauHomeDir(home), "extensions") },
+    { scope: "global", directory: globalExtensionsDirectory(home) },
     { scope: "project", directory: join(cwd, ".tau", "extensions") },
   ];
 }
@@ -368,6 +373,30 @@ async function manifestIdentity(directory: string): Promise<{ id: string; name: 
   }
 }
 
+/** One package folder as the settings inspector lists it. */
+export function packageSummary(pkg: ExtensionPackage, grants: readonly ExtensionGrant[]): ExtensionPackageSummary {
+  return {
+    id: pkg.manifest.id,
+    name: pkg.manifest.name,
+    ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
+    ...(pkg.manifest.description ? { description: pkg.manifest.description } : {}),
+    ...(pkg.manifest.icon ? { icon: pkg.manifest.icon } : {}),
+    ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
+    permissions: pkg.manifest.permissions ?? [],
+    isolation: packageIsolation(pkg.manifest),
+    // A theme runs no code and asks for nothing: there is no grant to wait for.
+    granted: isThemeManifest(pkg.manifest) || isPackageGranted(pkg.manifest, grants, pkg.grantIdentity),
+    ...(pkg.manifest.source ? { source: { ...pkg.manifest.source } } : {}),
+    ...(pkg.installedFrom ? { installedFrom: pkg.installedFrom } : {}),
+    ...(pkg.signature ? { signature: { state: pkg.signature.state, label: describeSignature(pkg.signature) } } : {}),
+    scope: pkg.scope,
+    directory: pkg.directory,
+    desktop: Boolean(pkg.desktopEntry),
+    host: Boolean(pkg.hostEntry),
+    ...(isThemeManifest(pkg.manifest) ? { theme: true } : {}),
+  };
+}
+
 /** What the settings inspector shows about the package folders: no code is loaded. */
 export async function inspectExtensionPackages(cwd: string, agentDir: string, options: PackageScanOptions & { versions: ExtensionHostVersions; grantsFilePath?: string }): Promise<ExtensionInspection> {
   const [scan, grantsFile] = await Promise.all([
@@ -377,26 +406,7 @@ export async function inspectExtensionPackages(cwd: string, agentDir: string, op
   return {
     versions: options.versions,
     directories: extensionPackageDirectories(cwd, options.home),
-    packages: scan.packages.map((pkg) => ({
-      id: pkg.manifest.id,
-      name: pkg.manifest.name,
-      ...(pkg.manifest.version ? { version: pkg.manifest.version } : {}),
-      ...(pkg.manifest.description ? { description: pkg.manifest.description } : {}),
-      ...(pkg.manifest.icon ? { icon: pkg.manifest.icon } : {}),
-      ...(pkg.manifest.engines ? { engines: { ...pkg.manifest.engines } } : {}),
-      permissions: pkg.manifest.permissions ?? [],
-      isolation: packageIsolation(pkg.manifest),
-      // A theme runs no code and asks for nothing: there is no grant to wait for.
-      granted: isThemeManifest(pkg.manifest) || isPackageGranted(pkg.manifest, grantsFile.grants, pkg.grantIdentity),
-      ...(pkg.manifest.source ? { source: { ...pkg.manifest.source } } : {}),
-      ...(pkg.installedFrom ? { installedFrom: pkg.installedFrom } : {}),
-      ...(pkg.signature ? { signature: { state: pkg.signature.state, label: describeSignature(pkg.signature) } } : {}),
-      scope: pkg.scope,
-      directory: pkg.directory,
-      desktop: Boolean(pkg.desktopEntry),
-      host: Boolean(pkg.hostEntry),
-      ...(isThemeManifest(pkg.manifest) ? { theme: true } : {}),
-    })),
+    packages: scan.packages.map((pkg) => packageSummary(pkg, grantsFile.grants)),
     errors: scan.errors,
     skipped: scan.skipped,
   };

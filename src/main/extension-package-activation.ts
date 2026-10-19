@@ -1,8 +1,9 @@
 import { sep } from "node:path";
-import type { GlobalHostEvent, HostExtensionSummary, PackageBuildError } from "../shared/contracts.js";
+import type { ExtensionPackageSummary, GlobalHostEvent, HostExtensionSummary, PackageBuildError } from "../shared/contracts.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult, type LoadedHostPackage } from "./extension-packages.js";
 import type { HostExtension, HostExtensionRegistry } from "./host-extensions.js";
+import { approvePackageFolder, reviewPackageFolder, type PackageReview } from "./package-approval.js";
 
 export interface ExtensionPackageActivatorOptions {
   registry: HostExtensionRegistry;
@@ -15,6 +16,8 @@ export interface ExtensionPackageActivatorOptions {
   log(label: string, detail?: string): void;
   publish(event: GlobalHostEvent): void;
   grantsFilePath?: string;
+  /** The native consent dialog for a grant; undefined means no native window (ADR 0036). */
+  confirmGrant?: (pkg: ExtensionPackageSummary) => Promise<boolean | undefined>;
 }
 
 /**
@@ -87,6 +90,30 @@ export class ExtensionPackageActivator {
     await this.refresh();
   }
 
+  /**
+   * Reads a package folder below the global extension folder, compiles it
+   * without running it and applies the scan, so the folder shows up waiting
+   * for approval. Grants nothing.
+   */
+  async review(path: string): Promise<PackageReview> {
+    const review = await reviewPackageFolder(path, this.folderOptions());
+    await this.refresh();
+    return review;
+  }
+
+  /** The owner's yes for the folder `fingerprint` describes, confirmed natively; the package starts at once. */
+  async approve(path: string, fingerprint: string, owner: boolean): Promise<PackageReview> {
+    const { confirmGrant } = this.options;
+    const id = await approvePackageFolder(path, fingerprint, { ...this.folderOptions(), owner, ...(confirmGrant ? { confirm: confirmGrant } : {}) });
+    this.options.log("host-extension.granted", id);
+    await this.refresh();
+    return reviewPackageFolder(path, this.folderOptions());
+  }
+
+  private folderOptions() {
+    return { cwd: this.options.cwd(), agentDir: this.options.agentDir, ...(this.options.grantsFilePath ? { grantsFilePath: this.options.grantsFilePath } : {}) };
+  }
+
   /** Rows for packages the registry cannot know about, because their code was never loaded. */
   waitingSummaries(known: ReadonlySet<string>): HostExtensionSummary[] {
     return [...this.ungranted.values()]
@@ -107,6 +134,8 @@ export class ExtensionPackageActivator {
    * back to waiting for approval.
    */
   private async sync(force: boolean, only?: ReadonlySet<string>): Promise<{ buildErrors: PackageBuildError[]; awaitingApproval: Array<{ id: string; name: string }> }> {
+    // Only what was running can have changed its permissions; a new package waits on its install card.
+    const ranBefore = new Set(this.activeKeys.keys());
     let loaded: HostPackageLoadResult;
     try {
       loaded = await this.options.load(this.options.cwd());
@@ -178,9 +207,9 @@ export class ExtensionPackageActivator {
     const buildErrors = loaded.errors
       .filter((failure) => failure.diagnostics && (!only || (failure.id !== undefined && only.has(failure.id))))
       .map(({ path, message: text, diagnostics }) => ({ path, message: text, ...(diagnostics ? { diagnostics } : {}) }));
-    // Only a watched edit names its packages; one of them waiting now asked for something new.
+    // Only a watched edit names its packages; one that ran and waits now asked for something new.
     const awaitingApproval = only
-      ? loaded.ungranted.filter((pkg) => only.has(pkg.manifest.id)).map((pkg) => ({ id: pkg.manifest.id, name: pkg.manifest.name }))
+      ? loaded.ungranted.filter((pkg) => only.has(pkg.manifest.id) && ranBefore.has(pkg.manifest.id)).map((pkg) => ({ id: pkg.manifest.id, name: pkg.manifest.name }))
       : [];
     return { buildErrors, awaitingApproval };
   }

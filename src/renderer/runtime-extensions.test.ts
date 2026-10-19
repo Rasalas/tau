@@ -582,6 +582,25 @@ describe("replacing one extension", () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ id: "approval:x.other", title: "Other is waiting for approval" }));
   });
 
+  it("does not say a package waits for a changed approval when it never ran", async () => {
+    const registry = new ExtensionRegistry();
+    const { host: base, modules } = partialHost(["x.hello"]);
+    modules.set("x.hello", { default: { id: "x.hello", name: "Hello", activate: vi.fn() } });
+    const toast = vi.fn();
+    const h = {
+      ...base,
+      toast,
+      load: async (cwd: string, shared: Record<string, string[]>, only?: readonly string[]) => {
+        const result = await base.load(cwd, shared, only);
+        return { ...result, bundles: result.bundles.map((bundle) => ({ ...bundle, granted: false })) };
+      },
+    };
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    await runtime.resync(["x.hello"]);
+    expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({ id: "approval:x.hello" }));
+  });
+
   it("toasts a host half that did not compile, which the host reports with the change", async () => {
     const registry = new ExtensionRegistry();
     const { host: base } = partialHost(["x.hello"]);

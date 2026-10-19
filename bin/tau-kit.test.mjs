@@ -50,6 +50,20 @@ describe("tau kit", () => {
     expect(kitName("pr-title", "pr-title")).toBe("PR Title");
   });
 
+  it("adds the agents' recipe and a description on request, in at most 80 lines", () => {
+    const files = kitFiles({ id: "local.x", name: "X", apiVersion: "1.75.0", description: "Copies the branch.", agents: true });
+    expect(Object.keys(files)).toContain("AGENTS.md");
+    expect(JSON.parse(files["tau-extension.json"]).description).toBe("Copies the branch.");
+    for (const host of [true, false]) {
+      const guide = kitFiles({ id: "local.x", name: "X", apiVersion: "1.75.0", host, agents: true })["AGENTS.md"];
+      expect(guide.split("\n").length).toBeLessThanOrEqual(80);
+      expect(guide).toContain("^1.75.0");
+      expect(guide).toContain("tau_install_package");
+      // The names it teaches exist in the real API's types (the type-check test below builds them).
+      for (const name of ["registerRegion", "registerStatusItem", "registerCommand", "registerKeybinding", "copyText", "notify", "THREAD_BRANCH_SERVICE", "tooltipProps"]) expect(guide).toContain(name);
+    }
+  });
+
   it("writes a manifest for the running API, both halves, a command, styles, types and a README", async () => {
     const files = kitFiles({ id: "local.pr-title", name: "Pr title", apiVersion: "1.29.0" });
     expect(Object.keys(files).sort()).toEqual([".gitignore", "README.md", "desktop.tsx", "host.ts", "styles.css", "tau-extension.json", "tsconfig.json"]);

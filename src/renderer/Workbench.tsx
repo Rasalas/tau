@@ -831,7 +831,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {pageSidebar ? <div className="sidebar-slot"><LazyFeatureBoundary label="sidebar" frame={pageSidebarFrame}>
         <Suspense fallback={pageSidebarFrame(null)}><LazyPageSidebar registry={registry} store={pages} actions={actions} /></Suspense>
       </LazyFeatureBoundary></div> : null}
-      <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>{sidebarContributions.map((contribution) => <Part key={contribution.id} name={partName("sidebar", contribution.id)}><LazyFeatureBoundary
+      <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>{sidebarContributions.map((contribution) => <Part key={contribution.id} name={partName("sidebar", contribution.id)} extensionId={contribution.extensionId}><LazyFeatureBoundary
         label="sidebar"
         extensionId={contribution.extensionId}
         extensionName={contribution.extensionName}

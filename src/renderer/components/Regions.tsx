@@ -26,7 +26,7 @@ export function Region({ registry, placement, snapshot, actions, lookIn, turn, w
   const drawn = <>
     {lead}
     {regions.map((region) => (
-      <Part key={region.id} name={partName("region", region.id)}>
+      <Part key={region.id} name={partName("region", region.id)} extensionId={region.extensionId}>
       <LazyFeatureBoundary
         label={region.id}
         extensionId={region.extensionId}
@@ -61,7 +61,7 @@ export function StatusLine({ registry, snapshot, actions }: Omit<RegionHostProps
   const side = (align: "left" | "right") => items
     .filter((item) => (item.align ?? "left") === align)
     .map((item) => (
-      <Part key={item.id} name={partName("status", item.id)}>
+      <Part key={item.id} name={partName("status", item.id)} extensionId={item.extensionId}>
       <LazyFeatureBoundary
         label={item.id}
         extensionId={item.extensionId}

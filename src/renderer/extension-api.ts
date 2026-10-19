@@ -57,6 +57,8 @@ export { useOpenPage } from "./app-page-context";
 export { getClientStorage } from "../workbench/client-storage";
 export { useClientEnvironment } from "./client-environment";
 export type { ClientRelease } from "../shared/client-release";
+// The approval box's wording for a package's permissions and isolation, for a card that asks the same question (new after API 1.74.0).
+export { IN_PROCESS_WARNING, PERMISSION_NOTES, permissionTitle, workerDescription } from "../shared/extension-permissions";
 export { useHostCapabilities, useHostName, hostHasLocalFiles, hostIsReadOnly, READ_ONLY_REASON, useCommandAllowed, hostCommandAllowed } from "./use-host-capabilities";
 export { hostAvailable, hostConnectionState } from "./host-client-context";
 // Whether a package's own host half runs, and why not, to disable what calls it (K112).

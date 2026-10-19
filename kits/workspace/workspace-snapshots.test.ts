@@ -841,6 +841,33 @@ describe.each(["git", "filesystem"] as const)("%s snapshot contract", (backend) 
       .toMatchObject({ hunks: [], note: "Could not read this historical diff." });
   }));
 
+  it("leaves out what a .gitignore names, in its folder and below, and keeps it through a restore", async () => workspace(async (cwd) => {
+    await mkdir(join(cwd, "pkg", ".tau-types"), { recursive: true });
+    await mkdir(join(cwd, "pkg", "src"), { recursive: true });
+    await writeFile(join(cwd, "pkg", ".gitignore"), ".tau-types/\n*.log\n");
+    await writeFile(join(cwd, "pkg", "desktop.tsx"), "one\n");
+    await writeFile(join(cwd, "pkg", ".tau-types", "tau.d.ts"), "types\n");
+    await createWorkspaceSnapshot(cwd, { namespace: "contract/target", phase: "before" });
+    const target = await createWorkspaceSnapshot(cwd, { namespace: "contract/target", phase: "after" });
+    const before = await createWorkspaceSnapshot(cwd, { namespace: "contract/ignored", phase: "before" });
+    await writeFile(join(cwd, "pkg", "desktop.tsx"), "two\n");
+    await writeFile(join(cwd, "pkg", "src", "debug.log"), "noise\n");
+    await writeFile(join(cwd, "pkg", ".tau-types", "tau.d.ts"), "newer types\n");
+    await writeFile(join(cwd, "pkg", ".tau-types", "extra.d.ts"), "more types\n");
+    const after = await createWorkspaceSnapshot(cwd, { namespace: "contract/ignored", phase: "after" });
+    const summary = await diffWorkspaceSnapshots(cwd, before.id, after.id);
+    expect(summary.files.map((file) => file.path)).toEqual(["pkg/desktop.tsx"]);
+    await createWorkspaceSnapshot(cwd, { namespace: "contract/rollback", phase: "before" });
+    await createWorkspaceSnapshot(cwd, { namespace: "contract/rollback", phase: "after" });
+    await restoreWorkspaceSnapshot(cwd, target.id, {
+      target: { sessionId: "contract", turnId: "target" },
+      rollback: { sessionId: "contract", turnId: "rollback" },
+    });
+    expect(await readFile(join(cwd, "pkg", "desktop.tsx"), "utf8")).toBe("one\n");
+    expect(await readFile(join(cwd, "pkg", ".tau-types", "extra.d.ts"), "utf8")).toBe("more types\n");
+    expect(await readFile(join(cwd, "pkg", "src", "debug.log"), "utf8")).toBe("noise\n");
+  }));
+
   it("rolls back a failure after apply and preserves excluded folders", async () => workspace(async (cwd) => {
     await writeFile(join(cwd, "note.txt"), "before\n");
     if (backend === "git") await writeFile(join(cwd, ".gitignore"), "node_modules/\n");

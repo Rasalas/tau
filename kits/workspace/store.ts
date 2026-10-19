@@ -174,6 +174,9 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   /** Threads that run in the checkout only because their suggested worktree failed. */
   private readonly fellBack = new Set<string>();
 
+  /** Predicates for projects whose threads never get a worktree (a package folder is loaded from where it lies). */
+  private readonly inPlaceProjects = new Set<(cwd: string) => boolean>();
+
   /** Projects created here whose first thread has not been sent yet. */
   private readonly freshProjects = new Set<string>();
 
@@ -292,6 +295,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    * skips the global default.
    */
   private defaultWorkspaceMode(): WorkspaceMode {
+    if (this.staysInPlace()) return "current";
     const root = this.state.cwd;
     const own = root ? asMode(this.preferences.value(WORKSPACE_KIT_ID, projectWorkspaceModeKey(root))) : undefined;
     const fresh = this.state.workspaceId !== undefined && this.freshProjects.has(this.state.workspaceId);
@@ -322,12 +326,25 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     } catch { /* a project without the file simply has no answer */ }
   }
 
+  /** Whether the followed project is one whose threads always run in its folder. */
+  private staysInPlace(): boolean {
+    const root = this.state.cwd;
+    return root !== undefined && [...this.inPlaceProjects].some((match) => match(root));
+  }
+
+  registerInPlaceProjects(match: (cwd: string) => boolean): () => void {
+    this.inPlaceProjects.add(match);
+    if (this.state.draftPending && this.staysInPlace()) this.update({ worktreeSuggested: false, workspaceMode: "current" });
+    return () => { this.inPlaceProjects.delete(match); };
+  }
+
   workspaceMode(): WorkspaceMode {
     return this.state.draftPending ? this.state.workspaceMode : "current";
   }
 
   /** The choice is this draft's, and is remembered as the project's default. */
   setWorkspaceMode(mode: WorkspaceMode): void {
+    if (this.staysInPlace()) return;
     const root = this.state.cwd;
     if (root) this.preferences.setValue(WORKSPACE_KIT_ID, projectWorkspaceModeKey(root), mode);
     this.update({ workspaceMode: mode });
@@ -345,7 +362,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
    */
   private suggestWorktree(): void {
     const { draftPending, worktreeSuggested, workspaceMode, workspace } = this.state;
-    if (!this.busyCheckout || !draftPending || worktreeSuggested || workspaceMode !== "current" || !workspace?.isRepo) return;
+    if (this.staysInPlace() || !this.busyCheckout || !draftPending || worktreeSuggested || workspaceMode !== "current" || !workspace?.isRepo) return;
     this.update({ worktreeSuggested: true, workspaceMode: "worktree" });
   }
 
@@ -701,7 +718,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   async prepareThreadWorktree(event: ThreadWorktreeRequest): Promise<{ workspace?: { workspaceId: string; displayPath: string }; baseCommit?: string }> {
     await this.loadProjectDefaults();
     if (this.state.workspaceId) this.freshProjects.delete(this.state.workspaceId);
-    if ((!event.force && this.workspaceMode() !== "worktree") || !this.state.workspace?.isRepo || !hostAvailable()) return {};
+    if ((!event.force && (this.workspaceMode() !== "worktree" || this.staysInPlace())) || !this.state.workspace?.isRepo || !hostAvailable()) return {};
     this.update({ preparingWorktree: true });
     try {
       event.preparing("Setting up worktree…");

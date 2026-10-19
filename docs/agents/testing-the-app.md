@@ -292,6 +292,18 @@ Paste as Text) and the window's `before-input-event` (the ⌘Q hold) never see
 it; drive those from the main process (`webContents.sendInputEvent`, a menu
 item's `click`) or leave them to the unit tests.
 
+### The native package-grant dialog
+
+Allowing a package, from Settings → Extensions or from the card above the
+composer, opens a native confirmation dialog (ADR 0036) that CDP cannot click.
+A test instance answers it for you: start it with `TAU_TEST_GRANT_ANSWER=allow`
+(or `deny`) in the environment, for example `TAU_TEST_GRANT_ANSWER=allow node
+scripts/dev-instance.mjs start`. `dev-instance` sets `TAU_TEST_INSTANCE=1`, and
+the answer counts only when that mark is set and the app is not packaged
+(`app.isPackaged` is false), so an installed Tau never honours it. Without the
+variable the real dialog opens on the screen, and the card waits for it. The
+answer is the dialog's: a `deny` shows the card's buttons again with no grant.
+
 ## Keeping an instance alive across turns
 
 An isolated instance is meant to outlive a single verification pass. `dev-instance.mjs` writes `.tau-dev/instance.json` (pid, port, userData, workspace, log path) on every start; check that file, or run `npm run cdp -- pid`, before starting a second instance that would only duplicate a live one.

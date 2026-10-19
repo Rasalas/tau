@@ -20,6 +20,8 @@ import {
   type SettingsSectionProps,
   type WorkbenchActions,
 } from "tau";
+import { InstallFeed, createInstallRegion } from "./approval-card.js";
+import { registerCustomizeEntry } from "./customize-entry.js";
 import { DevelopSection } from "./develop.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_RETIRED_PAGE, parseInstallArguments, type PackageRow } from "./protocol.js";
 
@@ -439,6 +441,10 @@ export const packagesExtension: DesktopExtension = {
       },
     });
 
+    // The card for `tau_install_package`, on every profile: the phone answers it too.
+    plugin.registerRegion({ id: "packages.install-request", placement: "composer-above", order: 25, profiles: ["desktop", "web", "compact"], Component: createInstallRegion(new InstallFeed(plugin.host)) });
+
+    registerCustomizeEntry(plugin);
     plugin.registerSettingsSection({ id: "packages.extension", page: "extension", profiles: ["desktop", "web"], Component: createExtensionSection(plugin.host) });
 
     plugin.registerCommand({

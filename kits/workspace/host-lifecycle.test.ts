@@ -112,7 +112,11 @@ function services(overrides: Partial<HostExtensionServices> = {}): HostExtension
     refreshExtensionPackages: async () => undefined,
     listPackages: async () => [],
     installPackage: async () => { throw new Error("no installer in this test"); },
+    reviewPackage: async () => { throw new Error("no installer in this test"); },
+    approvePackage: async () => { throw new Error("no installer in this test"); },
     removePackage: async () => { throw new Error("no installer in this test"); },
+    newPackage: async () => { throw new Error("no installer in this test"); },
+    globalExtensionsDirectory: () => "/tmp/tau-extensions",
     updatePackages: async () => [],
     sessions: {
       list: async () => [],

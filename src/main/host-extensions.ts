@@ -8,6 +8,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 import { join } from "node:path";
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
+  ExtensionPackageSummary,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
   GlobalHostEvent,
@@ -47,6 +48,7 @@ import { authorizeReadPaths } from "./host-read-paths.js";
 import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
+import type { PackageReview } from "./package-approval.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy, type HostExecutionPolicyServices } from "./host-execution-policy.js";
 import { BIND_NETWORK_EXTENSION } from "./host-network-contributions.js";
@@ -69,6 +71,8 @@ export interface HostPlatform {
   callClient?(extensionId: string, command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown>;
   /** The id of the window on the host's machine a call with `{ window: "host" }` reaches now. */
   clientWindow?(extensionId: string): string | undefined;
+  /** Native consent for granting a package: the dialog's answer, or undefined where no native window can ask (ADR 0036). */
+  confirmExtensionGrant?(pkg: ExtensionPackageSummary): Promise<boolean | undefined>;
 }
 
 /**
@@ -1014,6 +1018,26 @@ export interface HostPackageBuilds {
   observe(listener: (build: PackageBuild) => void): () => void;
 }
 
+/** What `services.newPackage` is asked for. API 1.75.0. */
+export interface HostNewPackageSpec {
+  /** The folder name and the end of the id `local.<slug>`: lowercase words joined by dashes. */
+  slug: string;
+  displayName?: string;
+  description?: string;
+  /** Adds a host half; false by default. */
+  host?: boolean;
+}
+
+/** The package `services.newPackage` wrote. */
+export interface HostNewPackage {
+  directory: string;
+  id: string;
+  name: string;
+  apiVersion: string;
+  /** Relative to `directory`; a folder ends in a slash. */
+  files: string[];
+}
+
 /** Pi's project trust, as `services.projectTrust` offers it. */
 export interface HostProjectTrust {
   /** Whether Pi trusts the folder (the open workspace by default), or the nearest parent it has an answer for. */
@@ -1146,6 +1170,34 @@ export interface HostExtensionServices {
    * line per step of a fetch that may run for minutes.
    */
   installPackage(source: string, scope: PackageScope, progress?: (message: string) => void): Promise<InstalledPackage>;
+  /**
+   * Writes a package to start from (both `tau kit new` files, the extension
+   * API's types and an AGENTS.md recipe) as `<slug>` in the global extension
+   * folder, `~/.tau/extensions` or below `TAU_PACKAGES_HOME`, and nowhere else.
+   * It throws when the slug is not a name or the folder exists. Nothing is
+   * installed or approved. New in API 1.75.0; in-process only.
+   */
+  newPackage(spec: HostNewPackageSpec): Promise<HostNewPackage>;
+  /**
+   * Reads a package folder directly inside the global extension folder (a path
+   * relative to it works too), compiles each half without running it and
+   * scans it in, so it waits for approval. Throws for any other folder.
+   * Grants nothing (`packages`). New in API 1.75.0.
+   */
+  reviewPackage(path: string): Promise<PackageReview>;
+  /**
+   * Records the user's yes for the folder `fingerprint` (from `reviewPackage`)
+   * names and starts the package. Only an owner connection counts, and the
+   * grant needs the same native confirmation dialog as Settings → Extensions
+   * (ADR 0036): the call waits for it, a refusal throws, and only a host with
+   * no native window to ask accepts the owner alone. A folder that changed
+   * since the review, or while the dialog was open, is refused. Call it only
+   * from a `long`, `access: "owner"` command that the user's click reached,
+   * never from a tool (`packages`). New in API 1.75.0.
+   */
+  approvePackage(path: string, fingerprint: string): Promise<PackageReview>;
+  /** The folder `newPackage` writes to and a global install scans: `~/.tau/extensions`, or below `TAU_PACKAGES_HOME`. New in API 1.75.0; in-process only. */
+  globalExtensionsDirectory(): string;
   removePackage(source: string, scope: PackageScope): Promise<PackageRemoval>;
   /** Re-fetches one source, or every source both files list. */
   updatePackages(source?: string, progress?: (message: string) => void): Promise<InstalledPackage[]>;
@@ -1323,6 +1375,7 @@ export interface HostExtensionInvocationContext {
 // shape and the scope name; both are plain data, so they travel as types only.
 export type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 export type { PackageScope } from "./extension-sources.js";
+export type { PackageReview } from "./package-approval.js";
 export type {
   HostExecutionPolicy,
   HostExecutionPolicyChange,

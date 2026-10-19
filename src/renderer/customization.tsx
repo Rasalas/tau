@@ -181,8 +181,8 @@ function hasKeys(value: object | undefined): boolean {
 /**
  * Names the part it wraps in the document, for user styles and the picker. It
  * draws no box (`display: contents`), so style the part's own element as
- * `[data-tau-part="…"] > *`.
+ * `[data-tau-part="…"] > *`. `extensionId` marks whose part it is, for a screenshot that crops to a package.
  */
-export function Part({ name, children }: { name: string; children?: ReactNode }) {
-  return <tau-part data-tau-part={name}>{children}</tau-part>;
+export function Part({ name, extensionId, children }: { name: string; extensionId?: string; children?: ReactNode }) {
+  return <tau-part data-tau-part={name} data-tau-extension-id={extensionId}>{children}</tau-part>;
 }

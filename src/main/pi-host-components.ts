@@ -539,6 +539,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     describeProjects: (facts) => projects.add(facts),
     noteSubprocess: () => lifecycleMetrics.countSubprocess(),
     refreshExtensionPackages: () => packages?.refresh() ?? Promise.resolve(),
+    reviewExtensionPackage: (path) => packages?.review(path) ?? Promise.reject(new Error("Extension packages are off in safe mode.")),
+    approveExtensionPackage: (path, fingerprint, owner) => packages?.approve(path, fingerprint, owner) ?? Promise.reject(new Error("Extension packages are off in safe mode.")),
     prepareThread: (session, manager, prepareOptions) => deps.prepareThread(session, manager, prepareOptions),
     startThread: (startOptions) => deps.startThread(startOptions),
     importThread: async (request) => {
@@ -656,6 +658,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
     log: (label, detail) => deps.log(label, detail),
     publish: (event) => emit(event),
+    ...(platform.confirmExtensionGrant ? { confirmGrant: (pkg) => platform.confirmExtensionGrant!(pkg) } : {}),
     ...(options.grantsFilePath ? { grantsFilePath: options.grantsFilePath } : {}),
   });
   const attached = new AttachedThreadBackend(createAttachedSessionHost(port));

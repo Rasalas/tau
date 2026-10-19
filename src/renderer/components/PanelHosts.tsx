@@ -42,7 +42,7 @@ export const MountedPanel = memo(function MountedPanel({
       </Suspense>
     </LazyFeatureBoundary>;
   return <div className={active ? "panel active" : "panel"}>
-    {part ? <Part name={part}>{body}</Part> : body}
+    {part ? <Part name={part} extensionId={extensionId}>{body}</Part> : body}
   </div>;
 });
 

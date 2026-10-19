@@ -2043,6 +2043,7 @@ It also exports the renderer's shared state and presentation:
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
 | `hostConnectionState` | API 1.63.0: the active machine's current connection state outside React (`connected`, `reconnecting`, `resyncing`, `refused`), or `undefined` without a host client. Subscribe through `context.events.on("host-connection", …)` for changes. Treat every state except `connected` as unavailable for writes. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. API 1.63.0: a `host:` key opts into machine-scoped storage on desktop windows too. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
+| `permissionTitle(permission)`, `PERMISSION_NOTES`, `IN_PROCESS_WARNING`, `workerDescription(permissions)` | (new in API 1.75.0) the approval box's wording, as Settings → Extensions shows it, for a card that asks the same question. |
 | `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`, API 1.38.0: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
@@ -2229,7 +2230,11 @@ pinning the file tab, the last offer wins, and Files Kit is the kit that makes
 it. `openInEditor(relPath?, editorId?, { line?, column? }, workspace?)` opens a file in
 one of the machine's editors at a line (`workspace`, new in API 1.63.0, names the
 project it is in; without it the followed one), and `chooseEditor(id)` makes one the
-default.
+default. `registerInPlaceProjects(match)` (new in API 1.75.0) names projects by their
+path whose threads never get a worktree: the draft starts in the folder whatever
+Settings → New threads says, a worktree is neither suggested nor made, and a
+choice of one is ignored. Packages Kit names its customization project this way,
+because a package loads from the folder itself.
 
 Workspace Kit's host reads and writes the project's files for the kits built
 on it, and checks every path against the workspace (symlinks included):
@@ -4058,7 +4063,9 @@ them ([ADR 0042](adr/0042-the-user-customizes-every-part-by-name.md)). A name is
 a user style hides a part with `[data-tau-part="…"] { display: none }` and
 styles what it holds with `[data-tau-part="…"] > *`. A kit that draws another
 kit's component itself (Workspace Kit draws a page's `Summary` in the sidebar's
-foot) wraps it in `Part` from `tau`, so it is named there too. A contribution's
+foot) wraps it in `Part` from `tau`, so it is named there too; `Part`'s optional
+`extensionId` (new in API 1.75.0) adds `data-tau-extension-id`, which core sets
+from the contribution's owner. A contribution's
 id is therefore API: renaming one breaks the user's customizations of it.
 
 `context.registerCustomizations(layer)` hands core a set of changes:
@@ -4705,7 +4712,7 @@ A package's `permissions` array draws from a fixed list
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics, send them files; and take files their agents sent here (`services.blobs`). |
 | `native` | (API 1.17.0) load compiled code: a `.node` addon (by `require`, `import` or `process.dlopen`), a SQLite extension (`DatabaseSync#loadExtension`), the raw handles of `process.binding` and `process._linkedBinding`, and V8 flags (`v8.setFlagsFromString`). In a worker all of these are refused without it; see §6. Compiled code runs outside the worker's guards and caps and a crash in it stops the host, so grant it like `in-process`. An `in-process` package loads addons through `services.loadDependency` and needs no grant for it. |
-| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), and read the last build of each package half (`packageBuilds`, K112). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
+| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `newPackage`, `globalExtensionsDirectory`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), read the last build of each package half (`packageBuilds`, K112), and review a package folder in the global extension folder and record the user's allow for it (`reviewPackage`, `approvePackage`, API 1.75.0). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 **Permissions gate the host half.** A desktop half runs in the window with
 what the user can do there: every `WorkbenchActions` member is ungated,
@@ -4938,6 +4945,70 @@ registers a Pi tool; `typebox` in the example) come from the package's own
 `package.json` and `npm install`, for the types and for Tau's bundler alike.
 With `skipLibCheck`, a declaration of the API that refers to a package you did
 not install reads as `any` instead of failing.
+
+### A package started by an agent: `tau_new_package` and `services.newPackage` (API 1.75.0)
+
+A thread asked to change Tau starts a package instead of editing Tau's source.
+Every thread's system prompt (Pi's `before_agent_start`, every other runtime's
+MCP `instructions`; left out in Tau's own source checkout, where
+`kits/package.json` names `@tau/kits`) says so and names the two tools of
+Packages Kit. `tau_new_package` takes `name` (the folder: lowercase letters,
+digits and single dashes, at most 40 characters), and optionally
+`displayName`, `description` and `host` (a host half too; false by default).
+It writes `<global extension folder>/<name>` and answers
+`{ directory, id, name, apiVersion, files, next }`. It never writes anywhere
+else and never into an existing entry; the folder is `~/.tau/extensions`, or
+below `TAU_PACKAGES_HOME`, the one a global install scans.
+
+The package is what `tau kit new` writes (id `local.<name>`, `engines.api` the
+running version, `.tau-types/`) plus an `AGENTS.md`: a recipe of at most 80
+lines with the manifest fields, the region placements, commands, actions,
+`THREAD_BRANCH_SERVICE` and Tau's tokens and classes. It is not installed or
+approved; the agent installs it with `tau_install_package` and the user allows it.
+
+`services.newPackage({ slug, displayName?, description?, host? })` (`packages`
+permission, in-process only) is the host's half of that: it validates the slug,
+refuses an existing path, scaffolds with `bin/tau-kit.mjs` (the same code as
+the command line) and answers the same `{ directory, id, name, apiVersion, files }`.
+
+### The customization project: "Customize Tau…" (API 1.75.0)
+
+"Customize Tau…" (the palette, and a button at the top of Settings → Extensions)
+makes the one project "Tau customizations" the first time and takes the same one
+afterwards. Its folder is the global extension folder, `services.globalExtensionsDirectory()`
+(`packages` permission, in-process only; `~/.tau/extensions`, or below
+`TAU_PACKAGES_HOME`), so a package a thread writes there is the one that loads. The
+host half of Packages Kit answers `customization-folder` (the folder and how many
+packages it holds; creates nothing) and `customization-project` (creates the folder,
+admits it with `admitWorkspace`, names it with `rememberProjectName`, answers
+`{ directory, workspaceId }`); the kit therefore asks for `workspace:write` too.
+The window then opens a new thread's draft in it with "Change Tau: " in the composer,
+the cursor behind it, and sends nothing. Text already in that draft stays.
+
+Threads there never get a worktree (`registerInPlaceProjects` above) and their
+instructions take the stronger form: `customizeInstructionsFor(cwd, folder)` answers
+"you are in the customization project; every request here is a package" when `cwd`
+is the folder or inside it, and the plain section elsewhere. With no package
+installed, the button in Settings → Extensions says so in a sentence.
+
+### Seeing the result: `tau_window_screenshot` (API 1.75.0)
+
+After the user allowed the package, the agent calls `tau_window_screenshot`
+(Pi and MCP, read-only) to see how it renders. Without arguments it returns a PNG
+of Tau's own window on the host's machine; `extension` (a package id) crops it
+around the regions that package has on screen, plus `margin` pixels (48 by
+default). When none is on screen it returns the whole window and says "region
+not visible". Every part core draws for a contribution (`<tau-part>`, ADR 0042)
+carries `data-tau-extension-id`, the id of the package that registered it; that
+is how the crop finds them. A part that draws nothing has no box and is not found.
+
+The picture comes from the window half of Packages Kit (`kits/packages/window.ts`,
+the workbench `webContents.capturePage()`), reached with `callClient` on
+`{ window: "host" }`. It names no window and no screen, so it never shows another
+app and needs no Screen Recording permission. It does not include the Preview
+page or other native views, which sit above the page. A host without a Tau window
+(headless, or only a phone or browser attached) and a minimized window answer
+"No window: …" as an error result instead of a picture.
 
 ## 3. The workflow
 
@@ -5275,7 +5346,7 @@ the port — nothing that hands out a live object. From
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex`, `executionPolicy` (a provider is a live object) |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `clients.observe`, `clients.count` | |
-| `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `projectTrust`, `packageBuilds` |
+| `refreshExtensionPackages` | `listPackages`, `installPackage`, `newPackage`, `globalExtensionsDirectory`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `reviewPackage`, `approvePackage`, `projectTrust`, `packageBuilds` |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.import`, `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
 | `sessions.remove`, `sessions.restore`, `sessions.trash`, `sessions.purge` | |
@@ -5414,6 +5485,36 @@ and drives it through `installExtensionSource`, `listExtensionPackages` and
 `loadHostExtensionPackages` directly, including running its worker and
 invoking a command. Read it for the lowest-level API surface (no Electron, no
 UI) a package goes through.
+
+**Asking the user from a thread: `reviewPackage`, `approvePackage` (API 1.75.0,
+`packages`).** A package folder written straight into the global extension
+folder (`~/.tau/extensions/<name>`, or `TAU_PACKAGES_HOME`'s `.tau/extensions`)
+is scanned without `/install`. `services.reviewPackage(path)` takes such a
+folder (its name, or an absolute path; anything else, a nested folder or a link
+out of it throws), compiles each half without running it and scans it in, so
+it waits for approval. It answers `{ id, name, version?, description?,
+directory, permissions, isolation, desktop, host, granted, fingerprint,
+buildErrors }`; `buildErrors` is empty when the package builds, else each
+entry has the file and the esbuild diagnostics with line and column. It grants
+nothing. `services.approvePackage(path, fingerprint)` records the user's yes
+for the folder the fingerprint names (files, permissions, isolation) and starts
+it. Only an owner connection counts, and the grant goes through the same
+native confirmation dialog as Settings → Extensions (ADR 0036): the call waits
+for the answer, a cancelled, failed or timed-out dialog refuses, and only a
+host with no native window to ask accepts the owner's click alone. A folder
+that changed since the review, or while the dialog was open, is refused. Call
+it only from a command registered `access: "owner"` and `long: true` that the
+user's click reached, never from a tool. Neither is available to a
+worker. Tau's Packages kit uses them for `tau_install_package { path }`, a Pi
+and MCP tool for the agent: build errors come back as `{ status:
+"build_failed", id, errors: [{ file, line?, column?, message }] }`; otherwise a
+card above the thread's composer (permissions, isolation, **Allow and turn
+on**, **Not now**, **Details**) waits; **Allow and turn on** opens the native
+dialog and the card shows a waiting state until it is answered and the tool answers `{ status: "running"
+| "declined" | "ended", id, message }`. A package already allowed and
+unchanged answers `running` at once. A change to any file of an allowed
+package turns it off until it is allowed again, so the agent calls the tool
+again after editing.
 
 To test interactively in the running app, `/install <path to your package>`
 (`-l` for project scope), approve it in Settings → Extensions, and use it; no
