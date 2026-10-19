@@ -149,6 +149,13 @@ describe("the Preview on another device", () => {
     expect(await screen.findByText("Nothing open")).toBeTruthy();
     expect(invoke.mock.calls.some(([command]) => command === "live-frame")).toBe(false);
   });
+
+  it("says the page's browser stopped, not that the machine lacks Tau, and asks for no frames", async () => {
+    const { invoke } = setup({ state: { available: false, surface: "headless" } });
+    expect(await screen.findByText("The page's browser stopped")).toBeTruthy();
+    expect(screen.queryByText("The Preview needs Tau on the machine")).toBeNull();
+    expect(invoke.mock.calls.some(([command]) => command === "live-frame")).toBe(false);
+  });
 });
 
 describe("the page laid out for this device", () => {

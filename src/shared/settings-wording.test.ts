@@ -83,6 +83,7 @@ describe("how Settings and the app name things", () => {
       "src/renderer/settings/NearbyMachines.tsx",
       "src/renderer/settings/NearbyMachineList.tsx",
       "kits/tailscale/section.tsx",
+      "kits/devices/desktop.tsx",
     ];
     // The environment variables name it (TAU_HOST_LISTEN), which `\w` keeps whole.
     expect(textsMatching(host, { files })).toEqual([]);

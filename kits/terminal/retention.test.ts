@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RETAINED_LINES, Scrollback } from "./retention.js";
 
 const lines = (from: number, to: number) => Array.from({ length: to - from }, (_, index) => `line ${from + index}\n`).join("");
@@ -31,6 +31,21 @@ describe("Scrollback", () => {
     expect(scrollback.lineCount).toBe(RETAINED_LINES);
     expect(text.startsWith("line 7000\n")).toBe(true);
     expect(text.endsWith("line 11999\n")).toBe(true);
+  });
+
+  it("does not recount the merged chunk on every append after a reattach read it", () => {
+    const scrollback = new Scrollback(5_000, 10_000_000);
+    for (let start = 0; start < 4_000; start += 1_000) scrollback.append(lines(start, start + 1_000));
+    expect(scrollback.text().startsWith("line 0\n")).toBe(true);
+    const indexOf = vi.spyOn(String.prototype, "indexOf");
+    try {
+      for (let index = 0; index < 100; index += 1) scrollback.append("x\n");
+      expect(indexOf.mock.calls.length).toBeLessThan(1_000);
+    } finally { indexOf.mockRestore(); }
+    expect(scrollback.lineCount).toBe(4_100);
+    scrollback.append(lines(4_100, 5_100));
+    expect(scrollback.lineCount).toBe(5_000);
+    expect(scrollback.text().startsWith("line 100\n")).toBe(true);
   });
 
   it("caps one endless line by characters", () => {

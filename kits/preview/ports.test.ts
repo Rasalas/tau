@@ -1,9 +1,12 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 import {
   candidateServers,
   parseLsofCwds,
   parseLsofListeners,
   parseNetstatListeners,
+  probeHttp,
   scanPorts,
   splitAddress,
   type ProbeResult,
@@ -127,5 +130,33 @@ describe("port scan", () => {
     const run = vi.fn(async () => "");
     await expect(scanPorts({ workspaceRoot: "/w", platform: "linux", ownPids: new Set(), findCommand: () => undefined, run, probe: async () => "html" })).resolves.toEqual([]);
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("probing a server", () => {
+  async function serve(handle: Parameters<typeof createServer>[1]): Promise<{ server: Server; url: string; methods: string[] }> {
+    const methods: string[] = [];
+    const server = createServer((request, response) => { methods.push(request.method ?? ""); handle!(request, response); });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/`, methods };
+  }
+
+  it("asks with HEAD, so the server renders no page", async () => {
+    const { server, url, methods } = await serve((_request, response) => { response.writeHead(200, { "content-type": "text/html" }).end(); });
+    try {
+      await expect(probeHttp(url, 2_000)).resolves.toBe("html");
+      expect(methods).toEqual(["HEAD"]);
+    } finally { server.close(); }
+  });
+
+  it("asks again with GET when the server refuses HEAD", async () => {
+    const { server, url, methods } = await serve((request, response) => {
+      if (request.method === "HEAD") response.writeHead(405).end();
+      else response.writeHead(200, { "content-type": "text/html" }).end("<p>hi</p>");
+    });
+    try {
+      await expect(probeHttp(url, 2_000)).resolves.toBe("html");
+      expect(methods).toEqual(["HEAD", "GET"]);
+    } finally { server.close(); }
   });
 });

@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { HostCommandError, type HostCommandCall, type HostExtension, type HostExtensionContext, type MenuPoint, type NativeMenuEntry, type RuntimeExtensionFactory } from "tau/host-extension";
 import {
   EMPTY_PREVIEW_STATE,
+  browserExited,
   PREVIEW_HOST_EXTENSION_ID,
   PREVIEW_STATE_EVENT,
   type PreviewAppearance,
@@ -452,6 +453,8 @@ class PreviewController implements PreviewToolController {
   }
 
   private async openSurface(): Promise<PreviewSurface> {
+    // A headless browser that exited stays the view until the next use replaces it.
+    if (this.view && browserExited(this.view.state())) await this.dropSurface();
     if (this.view) return this.view;
     const { active } = await this.profiles.read();
     if (this.view) return this.view;
@@ -464,6 +467,16 @@ class PreviewController implements PreviewToolController {
     this.place();
     if (this.appearance !== "system") await created.setAppearance(this.appearance).catch(() => undefined);
     return created;
+  }
+
+  private async dropSurface(): Promise<void> {
+    const view = this.view;
+    this.view = undefined;
+    this.pickToken += 1;
+    this.mode = undefined;
+    this.liveCapture = undefined;
+    await this.stopRecording().catch(() => null);
+    await Promise.resolve(view?.destroy()).catch(() => undefined);
   }
 
   private surfaceOptions(partition: string): PreviewSurfaceOptions {

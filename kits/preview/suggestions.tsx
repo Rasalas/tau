@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Server } from "lucide-react";
 import type { PreviewServer } from "./protocol.js";
 import { previewKit } from "./store.js";
-
-const RESCAN_MS = 5_000;
 
 /** `localhost:8000` and what serves it. */
 export function serverLabel(server: PreviewServer): { address: string; detail: string } {
@@ -13,26 +11,38 @@ export function serverLabel(server: PreviewServer): { address: string; detail: s
 }
 
 /**
- * Local dev servers as one row of buttons under the address bar, scanned by
- * the host while the row is shown. Nothing found draws nothing.
+ * Local dev servers as one row of buttons under the address bar. The host
+ * scans when the row appears, when the address field takes focus and when the
+ * window shows again; a scan runs lsof and probes each server, so the row does
+ * not poll. Nothing found draws nothing.
  */
-export function PortSuggestions({ cwd, current, onOpen }: { cwd?: string; current: string; onOpen(url: string): void }) {
+export function PortSuggestions({ cwd, current, focused = false, onOpen }: { cwd?: string; current: string; focused?: boolean; onOpen(url: string): void }) {
   const [servers, setServers] = useState<PreviewServer[]>([]);
+  const scan = useRef<() => void>(() => undefined);
+  const wasFocused = useRef(focused);
 
   useEffect(() => {
     let live = true;
-    const scan = () => {
+    scan.current = () => {
+      if (document.hidden) return;
       void previewKit.ports({ ...(cwd ? { cwd } : {}) })
         .then((found) => { if (live && Array.isArray(found)) setServers(found); })
         .catch(() => undefined);
     };
-    scan();
-    const timer = setInterval(scan, RESCAN_MS);
+    scan.current();
+    const shows = () => scan.current();
+    document.addEventListener("visibilitychange", shows);
     return () => {
       live = false;
-      clearInterval(timer);
+      scan.current = () => undefined;
+      document.removeEventListener("visibilitychange", shows);
     };
   }, [cwd]);
+
+  useEffect(() => {
+    if (focused && !wasFocused.current) scan.current();
+    wasFocused.current = focused;
+  }, [focused]);
 
   const shown = servers.filter((server) => !current.startsWith(server.url));
   if (shown.length === 0) return null;

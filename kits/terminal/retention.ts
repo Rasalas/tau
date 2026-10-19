@@ -29,6 +29,8 @@ function afterNthNewline(text: string, n: number): number {
  */
 export class Scrollback {
   private chunks: string[] = [];
+  /** Newlines per chunk, so a trim never recounts the merged chunk `text()` leaves. */
+  private counts: number[] = [];
   private chars = 0;
   private lines = 0;
 
@@ -39,14 +41,16 @@ export class Scrollback {
 
   append(data: string): void {
     if (!data) return;
+    const lines = countNewlines(data);
     this.chunks.push(data);
+    this.counts.push(lines);
     this.chars += data.length;
-    this.lines += countNewlines(data);
+    this.lines += lines;
     this.trim();
   }
 
   text(): string {
-    if (this.chunks.length > 1) this.chunks = [this.chunks.join("")];
+    if (this.chunks.length > 1) { this.chunks = [this.chunks.join("")]; this.counts = [this.lines]; }
     return this.chunks[0] ?? "";
   }
 
@@ -57,12 +61,13 @@ export class Scrollback {
   private trim(): void {
     while (this.chunks.length > 1) {
       const head = this.chunks[0]!;
-      const headLines = countNewlines(head);
+      const headLines = this.counts[0]!;
       const excessLines = this.lines - this.maxLines;
       // A head that ends mid-line keeps its tail unless the character cap needs it gone.
       const pastLines = headLines < excessLines || (headLines === excessLines && head.endsWith("\n"));
       if (!pastLines && this.chars - head.length < this.maxChars) break;
       this.chunks.shift();
+      this.counts.shift();
       this.chars -= head.length;
       this.lines -= headLines;
     }
@@ -77,9 +82,11 @@ export class Scrollback {
     const code = head.charCodeAt(cut);
     if (code >= 0xdc00 && code <= 0xdfff) cut += 1;
     const dropped = head.slice(0, cut);
+    const droppedLines = countNewlines(dropped);
     this.chunks[0] = head.slice(cut);
+    this.counts[0] = this.counts[0]! - droppedLines;
     this.chars -= dropped.length;
-    this.lines -= countNewlines(dropped);
-    if (!this.chunks[0]) this.chunks.shift();
+    this.lines -= droppedLines;
+    if (!this.chunks[0]) { this.chunks.shift(); this.counts.shift(); }
   }
 }

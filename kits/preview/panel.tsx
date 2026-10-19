@@ -47,8 +47,10 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
   // React detaches the ref before an unmount effect runs, so the last measured
   // rectangle is what the closing `visible: false` report has to carry.
   const box = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  const sent = useRef("");
 
-  const report = useCallback((visible: boolean) => {
+  /** `changed` skips a report that repeats the last one, as most scrolls and resizes do. */
+  const report = useCallback((visible: boolean, changed = false) => {
     const element = surface.current;
     if (element) {
       const rect = element.getBoundingClientRect();
@@ -56,6 +58,9 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
     }
     const rect = box.current;
     const drawable = visible && !covered.current && rect.width > 0 && rect.height > 0;
+    const key = `${rect.x},${rect.y},${rect.width},${rect.height},${drawable}`;
+    if (changed && key === sent.current) return;
+    sent.current = key;
     reserveRegion(drawable
       ? { left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height }
       : undefined);
@@ -81,12 +86,14 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
       report(false);
       return undefined;
     }
-    const follow = () => report(true);
+    const follow = () => report(true, true);
     const observer = new ResizeObserver(follow);
     observer.observe(surface.current);
     window.addEventListener("resize", follow);
-    // The dock can move under the panel without resizing it.
-    window.addEventListener("scroll", follow, true);
+    // The dock can move under the panel without resizing it. Every scroll in the window lands here, so it measures once a frame.
+    let frame = 0;
+    const scrolled = () => { frame ||= requestAnimationFrame(() => { frame = 0; follow(); }); };
+    window.addEventListener("scroll", scrolled, true);
     // A modal, the palette or the settings sheet cannot be drawn over the view,
     // so the view leaves the window while one is up. Subscribing reports the
     // current answer at once, which is also this effect's first bounds report:
@@ -94,12 +101,13 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
     // resized under it stays hidden.
     const stopWatching = overlayWatch.subscribe((blocked) => {
       covered.current = blocked;
-      follow();
+      report(true);
     });
     return () => {
       observer.disconnect();
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", follow);
-      window.removeEventListener("scroll", follow, true);
+      window.removeEventListener("scroll", scrolled, true);
       stopWatching();
       report(false);
     };
@@ -151,7 +159,7 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
         </form>
         {held ? <span className="preview-held"><Hand size={11} aria-hidden="true" />you have control</span> : null}
       </div>
-      {active && (addressFocused || !state.url) ? <PortSuggestions cwd={cwd} current={state.url} onOpen={openUrl} /> : null}
+      {active && (addressFocused || !state.url) ? <PortSuggestions cwd={cwd} current={state.url} focused={addressFocused} onOpen={openUrl} /> : null}
       {active && addressFocused ? <RecentSuggestions entries={recent.entries} typed={draft} current={state.url} onOpen={openUrl} onForget={recent.forget} /> : null}
       <PreviewTools state={state} actions={actions} run={(work) => guard(work())} />
       {state.layoutFor ? <div className="preview-layout-note" role="status">

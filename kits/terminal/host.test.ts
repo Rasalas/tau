@@ -186,6 +186,13 @@ describe("terminal host commands", () => {
       await client.open({});
       // The user's own, or /bin/sh where that one is not on this machine.
       expect([defaultShell(), "/bin/sh"]).toContain(processes[1]!.options.file);
+      // A restart starts the shell its tab opened with, whatever Settings says now.
+      values = { shell: "/bin/sh" };
+      const first = await client.open({});
+      values = {};
+      processes[2]!.exit(0);
+      await client.restart({ id: first.id });
+      expect(processes[3]!.options.file).toBe("/bin/sh");
     } finally {
       await registry.dispose();
     }

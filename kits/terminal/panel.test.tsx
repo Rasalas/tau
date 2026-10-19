@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PanelProps, StageTab, StageTabHandle, WorkbenchActions } from "tau";
 import { createKitHarness, KitShell } from "../../src/renderer/test-support/kit-harness.js";
-import { TerminalPanel, placeOf } from "./panel.js";
+import { TerminalCloseQuestion, TerminalPanel, placeOf } from "./panel.js";
 import { TerminalStageTab } from "./stage-tab.js";
 import { connectTerminalHost, terminalServices, terminalStore } from "./store.js";
 import { addExcerptToPrompt, openTerminalFileLink, openTerminalLink, targetShell, toggleTerminal } from "./controller.js";
@@ -529,6 +529,50 @@ describe("TerminalPanel", () => {
       await waitFor(() => expect(screen.queryByRole("tab")).toBeNull());
       expect(fake.invoke).toHaveBeenCalledWith("kill", { id: "t1" });
       expect(screen.getByText("No terminal in this thread")).toBeTruthy();
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("asks in Tau's dialog instead of the browser's when one is drawn", async () => {
+    const fake = fakeHost();
+    const disconnect = connectTerminalHost(fake.host);
+    const confirm = vi.spyOn(window, "confirm");
+    try {
+      render(<><TerminalPanel {...panelProps()} /><TerminalCloseQuestion /><TerminalCloseQuestion /></>, { wrapper: KitShell });
+      fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+      await screen.findByRole("tab", { name: /shell 1/u });
+      fake.foreground.set("t1", "top");
+
+      fireEvent.click(screen.getByRole("button", { name: "Close tab shell 1" }));
+      expect(await screen.findAllByText("top is still running. Close the terminal anyway?")).toHaveLength(1);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByText("top is still running. Close the terminal anyway?")).toBeNull());
+      expect(fake.invoke).not.toHaveBeenCalledWith("kill", { id: "t1" });
+
+      fireEvent.click(screen.getByRole("button", { name: "Close tab shell 1" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Close anyway" }));
+      await waitFor(() => expect(fake.invoke).toHaveBeenCalledWith("kill", { id: "t1" }));
+      expect(confirm).not.toHaveBeenCalled();
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("says it is loading, or that the machine is not answering, instead of offering a shell it cannot open", async () => {
+    let answer: (list: UiTerminalSession[]) => void = () => undefined;
+    const pending: HostExtensionClient = { invoke: vi.fn((command: string) => command === "list" ? new Promise((resolve) => { answer = resolve; }) : Promise.resolve(undefined)), onEvent: () => () => undefined };
+    let disconnect = connectTerminalHost(pending);
+    try {
+      render(<TerminalPanel {...panelProps()} active={false} />, { wrapper: KitShell });
+      expect(screen.getByText("Loading shells…")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Open a terminal" })).toBeNull();
+      await act(async () => { answer([]); });
+      expect(screen.getByRole("button", { name: "Open a terminal" })).toBeTruthy();
+      disconnect();
+      disconnect = connectTerminalHost({ invoke: vi.fn(async () => { throw new Error("host unavailable"); }), onEvent: () => () => undefined });
+      expect(await screen.findByText("The machine is not answering")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Open a terminal" })).toBeNull();
     } finally {
       disconnect();
     }

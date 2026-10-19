@@ -380,6 +380,9 @@ export function createPreviewHostClient(invoke: (command: string, input?: unknow
 
 export const DEFAULT_MINI_PREFS: PreviewMiniPrefs = { corner: "bottom-right", width: 280 };
 
+/** Only a headless browser that exited reports itself unavailable; the next use starts another. */
+export const browserExited = (state: Pick<PreviewState, "available" | "surface">): boolean => state.surface === "headless" && !state.available;
+
 export const EMPTY_PREVIEW_STATE: PreviewState = {
   url: "",
   title: "",

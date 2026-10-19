@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Box, ChevronRight, Home, Maximize2, Power, RefreshCw, Settings2, Smartphone, X } from "lucide-react";
-import { Badge, Button, HelpTip, NumberField, SegmentedControl, Select, SettingRow, SettingsSection, Switch, TextField, useHostAvailability, type DesktopExtension, type PanelProps } from "tau";
+import { Badge, Button, HelpTip, NumberField, SegmentedControl, Select, SettingRow, SettingsSection, SettingsState, Switch, TextField, useHostAvailability, type DesktopExtension, type PanelProps } from "tau";
 import { DEFAULT_SETTINGS, DEVICE_KIT, type ActionInput, type Device, type DeviceSettings, type HubState, type FoldState, type Target } from "./protocol.js";
 
 import { FloatingDevice, FloatingDeviceView } from "./floating.js";
@@ -39,6 +39,7 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
   const [live, setLive] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [captureError, setCaptureError] = useState("");
   const [text, setText] = useState("");
   const [appId, setAppId] = useState("");
   const [latitude, setLatitude] = useState("0");
@@ -75,32 +76,38 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
       }
     } catch (reason) { setError(message(reason)); } finally { actionPending.current = false; captureRevision.current++; setCaptureEpoch((value) => value + 1); setBusy(false); }
   };
-  useEffect(() => { captureRevision.current++; pointer.current = undefined; setFrame(undefined); setFold(undefined); setFoldError(""); setCaptureReady(true); setVideoFallback(""); }, [selected, device?.booted]);
+  useEffect(() => { captureRevision.current++; pointer.current = undefined; setFrame(undefined); setFold(undefined); setFoldError(""); setCaptureReady(true); setVideoFallback(""); setCaptureError(""); }, [selected, device?.booted]);
   useEffect(() => { pointer.current = undefined; }, [active, availability.available]);
   useEffect(() => {
     if (!active || !availability.available || !selected || !device?.booted) return;
-    let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined;
+    // A hidden window waits for the visibility change; failures back off; posture changes rarely, so it is read less often than the screen.
+    let cancelled = false, hidden = false, failures = 0, foldAt = 0, timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => { if (!cancelled && live) timer = setTimeout(() => { void capture(); }, Math.min(650 * 2 ** failures, 10_000)); };
     const capture = async () => {
       if (actionPending.current) return;
-      if (document.hidden) { if (!cancelled && live) timer = setTimeout(() => { void capture(); }, 650); return; }
+      if (document.hidden) { hidden = true; return; }
       const revision = captureRevision.current;
       try {
         let status: FoldState | undefined;
-        if (device.platform === "android") {
+        if (device.platform === "android" && Date.now() - foldAt >= 3_000) {
+          foldAt = Date.now();
           try { status = await invoke<FoldState>("fold-state", selected); if (!cancelled && revision === captureRevision.current) setFoldError(""); }
           catch (reason) { if (!cancelled && revision === captureRevision.current) setFoldError(message(reason)); }
         }
         if (cancelled || revision !== captureRevision.current || actionPending.current) return;
         if (!videoSource || !captureReadyRef.current || !live) {
           const next = await invoke<{ dataUrl: string }>("frame", selected);
-          if (!cancelled && revision === captureRevision.current && !actionPending.current) { setFrame(next.dataUrl); setCaptureReady(true); if (status) setFold(status); }
+          if (!cancelled && revision === captureRevision.current && !actionPending.current) { setFrame(next.dataUrl); setCaptureReady(true); setCaptureError(""); if (status) setFold(status); }
         } else if (!cancelled && status && !actionPending.current) setFold(status);
+        failures = 0;
       }
-      catch (reason) { if (!cancelled && revision === captureRevision.current) setError(message(reason)); }
-      if (!cancelled && live) timer = setTimeout(() => { void capture(); }, 650);
+      catch (reason) { failures = Math.min(failures + 1, 4); if (!cancelled && revision === captureRevision.current) setCaptureError(message(reason)); }
+      schedule();
     };
+    const visible = () => { if (!document.hidden && hidden && !cancelled) { hidden = false; clearTimeout(timer); void capture(); } };
+    document.addEventListener("visibilitychange", visible);
     void capture();
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => { cancelled = true; clearTimeout(timer); document.removeEventListener("visibilitychange", visible); };
   }, [active, availability.available, selected, device?.booted, live, invoke, captureEpoch, videoSource]);
   const open = (next: Device) => {
     const target = targetOf(next);
@@ -144,6 +151,7 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
     </div>
     {!availability.available && <p className="devices-notice" role="status">{availability.reason}</p>}
     {error && <p role="alert" className="devices-error">{error}</p>}
+    {device && captureError && <p role="alert" className="devices-error">{captureError}</p>}
     {!device && <div className="devices-discovery">
       <div className="devices-section-label">Available devices <span>{hostDevices.length}</span></div>
       {hostDevices.map((entry) => <button className="devices-device-row" key={entry.id} aria-label={`${entry.name} · ${entry.platform} ${entry.version} · ${entry.booted ? "Running" : "Off"}`} onClick={() => open(entry)}>
@@ -204,26 +212,32 @@ export function DeviceSettingsPage({ invoke }: { invoke: Invoke }) {
   const [state, setState] = useState<HubState>();
   const [settings, setSettings] = useState<DeviceSettings>(structuredClone(DEFAULT_SETTINGS));
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [status, setStatus] = useState("");
-  useEffect(() => { let cancelled = false; invoke<HubState>("state").then((value) => { if (!cancelled) { setState(value); setSettings(value.settings); } }).catch((reason) => { if (!cancelled) setError(message(reason)); }); return () => { cancelled = true; }; }, [invoke]);
+  const [loadError, setLoadError] = useState(""), [attempt, setAttempt] = useState(0);
+  // Saving before the saved settings arrive would replace them with the defaults.
+  useEffect(() => { let cancelled = false; setLoadError(""); invoke<HubState>("state").then((value) => { if (!cancelled) { setState(value); setSettings(value.settings); } }).catch((reason) => { if (!cancelled) setLoadError(message(reason)); }); return () => { cancelled = true; }; }, [invoke, attempt]);
   const work = async (command: string, input?: unknown) => {
     setBusy(true); setError(""); setStatus("");
     try { const next = await invoke<HubState>(command, input); setState(next); setSettings(next.settings); setStatus(command === "configure" ? "Settings saved." : "Done."); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
   };
   const disabled = busy || !availability.available;
+  if (!state) return <div className="settings-page devices-settings">
+    {!availability.available && <p role="status">{availability.reason}</p>}
+    {loadError ? <SettingsState kind="error" title="The simulator settings did not load" description={loadError} onRetry={() => setAttempt((count) => count + 1)} /> : <SettingsState kind="loading" title="Loading simulator settings" rows={4} />}
+  </div>;
   return <div className="settings-page devices-settings">
     {!availability.available && <p role="status">{availability.reason}</p>}
     {error && <p role="alert" className="devices-error">{error}</p>}{status && <p className="devices-notice" role="status">{status}</p>}
     <SettingsSection title="Agent access">
       <SettingRow title="Allow agents to control simulators" description="Screenshots and input for agents. Off by default. Save to apply." help="Includes device power, location, accessibility and app permissions." control={<Switch label="Allow agents to control simulators" role="checkbox" checked={settings.agentControl} disabled={disabled} onChange={(agentControl) => setSettings({ ...settings, agentControl })} />} />
     </SettingsSection>
-    <SettingsSection title="Machines with simulators" headerAction={<Button variant="ghost" icon={<Smartphone size={14} />} disabled={disabled} onClick={() => setSettings({ ...settings, hosts: [...settings.hosts, { id: `ssh-${Date.now()}`, name: "Remote devices", ssh: "", remoteDirectory: "" }] })}>Add SSH host</Button>}>
+    <SettingsSection title="Machines with simulators" headerAction={<Button variant="ghost" icon={<Smartphone size={14} />} disabled={disabled} onClick={() => setSettings({ ...settings, hosts: [...settings.hosts, { id: `ssh-${Date.now()}`, name: "Remote devices", ssh: "", remoteDirectory: "" }] })}>Add SSH machine</Button>}>
       {settings.hosts.map((host, index) => {
         const change = (field: "name" | "ssh" | "remoteDirectory", value: string) => setSettings({ ...settings, hosts: settings.hosts.map((entry) => entry.id === host.id ? { ...entry, [field]: value } : entry) });
         const saved = state?.settings.hosts.some((entry) => JSON.stringify(entry) === JSON.stringify(host));
         return <div key={host.id} className="devices-host">
-          <SettingRow title={host.id === "local" ? "This machine" : "SSH host"} control={<div className="devices-field-actions"><TextField label={`Host ${index + 1} name`} value={host.name} disabled={disabled} onChange={(value) => change("name", value)} />{host.id !== "local" && <Button variant="ghost" disabled={disabled} aria-label={`Remove ${host.name}`} onClick={() => setSettings({ ...settings, hosts: settings.hosts.filter((entry) => entry.id !== host.id) })}>Remove</Button>}</div>} />
-          {host.id !== "local" && <><SettingRow title="SSH alias" description="A host from your SSH configuration." control={<TextField label={`Host ${index + 1} SSH alias`} mono placeholder="SSH config alias" value={host.ssh ?? ""} disabled={disabled} onChange={(value) => change("ssh", value)} />} /><SettingRow title="Tool directory" description="An absolute path on the remote host." control={<TextField label={`Host ${index + 1} tool directory`} mono placeholder="/path/to/tau-device-tools" value={host.remoteDirectory ?? ""} disabled={disabled} onChange={(value) => change("remoteDirectory", value)} />} /></>}
-          <SettingRow title="Simulator tools" description={host.id === "local" ? "Private tools for Tau. Requires Xcode or the Android SDK." : "Save this host before installing. Requires trusted, key-based SSH access."} control={<div className="devices-field-actions"><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "hub" }); }}>Install viewer</Button><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "agent" }); }}>Install input tools</Button></div>} />
+          <SettingRow title={host.id === "local" ? "This machine" : "SSH machine"} control={<div className="devices-field-actions"><TextField label={`Machine ${index + 1} name`} value={host.name} disabled={disabled} onChange={(value) => change("name", value)} />{host.id !== "local" && <Button variant="ghost" disabled={disabled} aria-label={`Remove ${host.name}`} onClick={() => setSettings({ ...settings, hosts: settings.hosts.filter((entry) => entry.id !== host.id) })}>Remove</Button>}</div>} />
+          {host.id !== "local" && <><SettingRow title="SSH alias" description="An alias from your SSH configuration." control={<TextField label={`Machine ${index + 1} SSH alias`} mono placeholder="SSH config alias" value={host.ssh ?? ""} disabled={disabled} onChange={(value) => change("ssh", value)} />} /><SettingRow title="Tool directory" description="An absolute path on the remote machine." control={<TextField label={`Machine ${index + 1} tool directory`} mono placeholder="/path/to/tau-device-tools" value={host.remoteDirectory ?? ""} disabled={disabled} onChange={(value) => change("remoteDirectory", value)} />} /></>}
+          <SettingRow title="Simulator tools" description={host.id === "local" ? "Private tools for Tau. Requires Xcode or the Android SDK." : "Save this machine before installing. Requires trusted, key-based SSH access."} control={<div className="devices-field-actions"><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "hub" }); }}>Install viewer</Button><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "agent" }); }}>Install input tools</Button></div>} />
         </div>;
       })}
     </SettingsSection>

@@ -1,6 +1,6 @@
 import { Terminal } from "lucide-react";
 import type { DesktopExtension, WorkbenchActions } from "tau";
-import { TerminalPanel } from "./panel.js";
+import { TerminalCloseQuestion, TerminalPanel } from "./panel.js";
 import { CompactTerminalPanel } from "./compact.js";
 import { restoreTerminalTab, TerminalStageTab, terminalTabParams } from "./stage-tab.js";
 import { connectTerminalFont, connectTerminalHost, createTerminalFontService, refreshTerminalSessions, terminalHostReconnected, terminalKit, terminalServices, terminalStore, useTerminalActivity } from "./store.js";
@@ -133,6 +133,8 @@ export const terminalExtension: DesktopExtension = {
     let panel = registerPanel();
     // Touch clients draw the same shells with a key bar: a phone as a sheet, a tablet beside the chat.
     const compactPanel = plugin.registerPanel({ id: TERMINAL_PANEL, label: "Terminal", Icon: Terminal, order: TERMINAL_PANEL_ORDER, profiles: ["compact"], width: "wide", maximizable: true, stageButton: true, useActivity: useTerminalActivity, Component: CompactTerminalPanel });
+    // The title bar is always drawn on a desktop or in a browser, so closes asked from a chord or the stage get Tau's dialog too.
+    const closeDialog = plugin.registerRegion({ id: "terminal.close-question", placement: "title-bar", profiles: ["desktop", "web"], Component: TerminalCloseQuestion });
     const stopPlacement = plugin.preferences.subscribe(() => {
       const next = placementNow();
       if (next === placement) return;
@@ -218,6 +220,7 @@ export const terminalExtension: DesktopExtension = {
       settings();
       stageTab();
       stopPlacement();
+      closeDialog();
       compactPanel();
       panel();
       for (const dispose of services) dispose();

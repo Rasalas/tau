@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import { AppWindow, ArrowLeft, ArrowRight, Bot, ClipboardPaste, CornerDownLeft, Delete, Globe, Monitor, MonitorOff, RotateCw, Send, Smartphone } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useHostCapabilities, type WorkbenchActions } from "tau";
-import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey, type PreviewState, type PreviewViewer } from "./protocol.js";
+import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, browserExited, type PreviewInput, type PreviewInputKey, type PreviewState, type PreviewViewer } from "./protocol.js";
 import type { ScreenInput, ScreenInputKey } from "./screen-protocol.js";
 import { SCREEN_INPUT_KEYS } from "./screen-protocol.js";
 import { activeThread, previewHold, previewView, screenService, useDrivenWindow, windowName, type PreviewView } from "./screen-store.js";
@@ -151,6 +151,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   const machine = hostMachineName.use();
   const hold = previewHold.use();
   const noWindow = view === "browser" && Boolean(state.noWindow);
+  const exited = browserExited(state);
   const mayNavigate = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "navigate");
   const mayOpen = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "open");
   const mayInput = useCommandAllowed(PREVIEW_HOST_EXTENSION_ID, "input");
@@ -187,9 +188,9 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
   }, [id]);
   const pageFrames = useMemo(() => browserSource(viewer), [viewer]);
   const source = useMemo<LiveFrameSource | undefined>(() => {
-    if (view === "browser") return state.url && !noWindow ? pageFrames : undefined;
+    if (view === "browser") return state.url && !noWindow && !exited ? pageFrames : undefined;
     return screen && threadId ? screenFrameSource(screen, threadId) : undefined;
-  }, [noWindow, pageFrames, screen, state.url, threadId, view]);
+  }, [exited, noWindow, pageFrames, screen, state.url, threadId, view]);
   const frames = useLiveFrames(source, stage, { active });
   const driven = useDrivenWindow(view === "screen" ? screen : undefined, threadId);
   const box = useStageBox(stage);
@@ -320,7 +321,9 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
     || (view === "browser" ? (state.loading ? "Loading…" : state.title || state.url) : windowName(driven) ?? "The window the agent drives")
     || "";
   const empty = view === "browser"
-    ? noWindow ? <NoDisplay state={state} machine={machine} /> : !state.available
+    ? noWindow ? <NoDisplay state={state} machine={machine} /> : exited
+      ? <Empty icon={<Globe size={20} />} title="The page's browser stopped" description={mayOpen ? "Type an address above, or ask the agent to open one, and the Preview starts it again." : "The Preview starts it again when an agent or the machine opens a page."} />
+      : !state.available
       ? <Empty icon={<Globe size={20} />} title="The Preview needs Tau on the machine" description="Open the Tau desktop app on that machine; the page is drawn there." />
       : <Empty icon={<Globe size={20} />} title="Nothing open" description={mayOpen ? "Type an address above, or ask the agent to open one." : "The page an agent or the machine opens shows here."} />
     : <Empty icon={<AppWindow size={20} />} title="No window yet" description="The window this thread's agent drives shows here once it has looked at one." />;

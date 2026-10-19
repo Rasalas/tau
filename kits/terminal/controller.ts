@@ -175,8 +175,38 @@ export async function restartTerminal(id: string): Promise<UiTerminalSession> {
   }
 }
 
+export type CloseConfirm = (message: string) => boolean | Promise<boolean>;
+
+/** The question a close asks before it interrupts a program, for the one dialog that shows it. */
+export interface CloseQuestion { message: string; answer(ok: boolean): void }
+let question: CloseQuestion | undefined;
+let askers: object[] = [];
+const questionListeners = new Set<() => void>();
+function ask(next: CloseQuestion | undefined): void {
+  question = next;
+  for (const listener of questionListeners) listener();
+}
+export const closeQuestion = {
+  subscribe(listener: () => void): () => void { questionListeners.add(listener); return () => { questionListeners.delete(listener); }; },
+  current: (): CloseQuestion | undefined => question,
+  /** The first mounted dialog asks; while none is, the browser's own confirm does. */
+  shownBy: (asker: object): boolean => askers[0] === asker,
+  mount(asker: object): () => void {
+    askers = [...askers, asker];
+    return () => { askers = askers.filter((entry) => entry !== asker); if (askers.length === 0) question?.answer(false); else ask(question); };
+  },
+};
+const askToClose: CloseConfirm = (message) => {
+  if (askers.length === 0) return window.confirm(message);
+  question?.answer(false);
+  return new Promise((resolve) => {
+    const asked: CloseQuestion = { message, answer: (ok) => { if (question === asked) ask(undefined); resolve(ok); } };
+    ask(asked);
+  });
+};
+
 /** Asks before interrupting what runs in the given shells; true means go ahead. */
-export async function confirmClose(ids: readonly string[], confirm: (message: string) => boolean = (message) => window.confirm(message)): Promise<boolean> {
+export async function confirmClose(ids: readonly string[], confirm: CloseConfirm = askToClose): Promise<boolean> {
   const running: string[] = [];
   for (const id of ids) {
     const answer = await terminalKit.foreground({ id }).catch(() => undefined);
@@ -184,11 +214,11 @@ export async function confirmClose(ids: readonly string[], confirm: (message: st
   }
   if (running.length === 0) return true;
   const names = [...new Set(running)].join(", ");
-  return confirm(running.length === 1 ? `${names} is still running. Close the terminal anyway?` : `${names} are still running. Close these terminals anyway?`);
+  return await confirm(running.length === 1 ? `${names} is still running. Close the terminal anyway?` : `${names} are still running. Close these terminals anyway?`);
 }
 
 /** Ends shells, asking first when a program in one of them would be interrupted. */
-export async function closeTerminals(ids: readonly string[], confirm?: (message: string) => boolean): Promise<boolean> {
+export async function closeTerminals(ids: readonly string[], confirm?: CloseConfirm): Promise<boolean> {
   refuseReadOnly();
   if (ids.length === 0 || !(await confirmClose(ids, confirm))) return false;
   const before = groupOf(terminalStore.getSnapshot().layout, ids[0]!);

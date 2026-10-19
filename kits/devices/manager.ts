@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { spawnOwnedProcess, type OwnedProcessInput } from "tau/host-extension";
 import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, TOOLS, type ActionInput, type Device, type DeviceHost, type DeviceSettings, type HubState, type FoldState, type Target } from "./protocol.js";
@@ -78,7 +79,7 @@ export class DeviceManager {
   private actions = new Map<string, Promise<unknown>>();
   private scales = new Map<string, number>();
   private load: Promise<void>;
-  constructor(readonly directory: string, private execute: Run = run, private request: typeof fetch = fetch, private launch: typeof spawn = spawn) {
+  constructor(readonly directory: string, private execute: Run = run, private request: typeof fetch = fetch, private launch: typeof spawn = spawn, private own: (input: OwnedProcessInput) => ChildProcess = spawnOwnedProcess) {
     this.tools = new Toolchain(directory, execute);
     this.load = readFile(join(directory, "settings.json"), "utf8").then((text) => { this.settings = validateSettings(JSON.parse(text)); }).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
     this.load.catch(() => undefined);
@@ -156,10 +157,10 @@ export class DeviceManager {
     const epoch = this.epoch(host.id);
     const localPort = await port(), remotePort = host.ssh ? await port() : localPort;
     const args = [host.ssh ? this.remoteEntry(host, "hub") : this.tools.entry("hub"), "--port", String(remotePort), "--host", "127.0.0.1", "--hide-sidebar", "--hide-boot-device"];
-    // The remote side watches the piped stdin, so the hub ends when Tau does.
+    // The remote side watches the piped stdin and the local hub is an owned process, so either ends when Tau does.
     const child = host.ssh
       ? this.launch("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3", "-L", `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`, "--", host.ssh, remoteHubCommand(args)], { stdio: ["pipe", "pipe", "pipe"] })
-      : this.launch(this.settings.node, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", EXPO_DEVICE_HUB_BASE_PATH: "" }, stdio: ["ignore", "pipe", "pipe"] });
+      : this.own({ command: this.settings.node, args, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", EXPO_DEVICE_HUB_BASE_PATH: "" } });
     let failure = "", spawnError: Error | undefined;
     child.on("error", (error) => { spawnError = error; });
     child.stdin?.on("error", () => undefined);

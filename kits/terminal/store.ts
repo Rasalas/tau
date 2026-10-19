@@ -78,6 +78,8 @@ export class TerminalStore {
   private holds = 0;
   /** Whether `sessions` is the host's answer yet; until then the stored layout is left alone. */
   private known = false;
+  /** The host did not answer for its list; cleared by the next answer. */
+  private unreachable = false;
   private focusSeq = 0;
 
   subscribe = (listener: () => void): (() => void) => {
@@ -94,6 +96,7 @@ export class TerminalStore {
 
   setSessions(sessions: UiTerminalSession[]): void {
     this.known = true;
+    this.unreachable = false;
     this.publish({ ...this.state, sessions, layout: this.reconciled(this.state.layout, sessions) });
   }
 
@@ -106,6 +109,17 @@ export class TerminalStore {
   /** Whether `sessions` is the host's answer yet. */
   isKnown(): boolean {
     return this.known;
+  }
+
+  /** The host's list could not be read: the panel says so instead of offering a shell it cannot open. */
+  markUnreachable(): void {
+    if (this.known || this.unreachable) return;
+    this.unreachable = true;
+    this.publish({ ...this.state }, false);
+  }
+
+  isUnreachable(): boolean {
+    return this.unreachable;
   }
 
   /** A shell is being opened; its tab is not placed yet. */
@@ -212,6 +226,7 @@ export function connectTerminalHost(host: HostExtensionClient): () => void {
       if (!disposed && revision === requested && isTerminalSessionList(list)) terminalStore.setSessions(list);
     } catch {
       // A disconnected home keeps the last known shells until it reconnects.
+      if (!disposed && revision === requested) terminalStore.markUnreachable();
     }
   };
   readSessions = refresh;
