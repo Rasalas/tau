@@ -223,7 +223,9 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
                 }
               } catch (error) {
                 // No readable links means no evidence for PR-based settlement; without Review Kit there are none to wait for.
-                if (!/is not installed|has no command/u.test(error instanceof Error ? error.message : "")) for (const id of asked) unread.add(id);
+                const code = (error as { code?: string }).code;
+                const absent = code === "unknown-extension" || code === "unknown-command" || (error instanceof Error && /^Host extension .+ is not active/u.test(error.message));
+                if (!absent) for (const id of asked) unread.add(id);
               }
             }
             // A past PR is not proof that follow-up work in the checkout landed.
