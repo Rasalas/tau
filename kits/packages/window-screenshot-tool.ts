@@ -25,7 +25,7 @@ export function windowScreenshotTools(context: HostExtensionContext): HostMcpToo
         shot = await services.callClient("screenshot", { ...(extension ? { extension } : {}), ...(typeof fields.margin === "number" ? { margin: fields.margin } : {}) }, { window: "host" }) as WindowScreenshot;
       } catch (error) {
         const why = error instanceof Error ? error.message : String(error);
-        return answer(`No window: this host has no Tau window to look at (a headless or remote host has none). ${why}`, true);
+        return answer(`No window: this machine has no Tau window to look at (a headless or remote machine has none). ${why}`, true);
       }
       if (!shot.available) return answer(`No window: ${shot.reason}`, true);
       const { image } = shot;

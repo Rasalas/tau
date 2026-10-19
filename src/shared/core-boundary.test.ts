@@ -95,6 +95,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   // Bonjour through the system's responder while Local network is on (API 1.13.0).
   "./host-discovery.js",   "./host-discovery-windows.js",
   "./host-network-contributions.js",
+  "./package-approval.js", // `services.reviewPackage` / `approvePackage`: a package folder checked and allowed (API 1.75.0).
+  "./native-grant-ask.js", // The native package-grant dialog, with the dev-only answer seam.
   "./new-package.js", // `services.newPackage`: a package to start from in the global extension folder (API 1.75.0).
   "./host-method-access.js",   "./host-pairing-terminal.js",   "./host-rate-limit.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",

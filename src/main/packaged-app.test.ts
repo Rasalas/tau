@@ -97,7 +97,7 @@ describe("esbuildBinaryPath", () => {
 describe("the esbuild redirect", () => {
   // The redirect only works if it runs before esbuild's own module body, and a
   // module evaluates its imports in source order.
-  const importers = ["desktop-extensions.ts", "extension-packages.ts", "host-extension-isolation.ts"];
+  const importers = ["desktop-extensions.ts", "extension-packages.ts", "host-extension-isolation.ts", "package-approval.ts"];
   const read = (name: string) => readFileSync(join(import.meta.dirname, name), "utf8");
   const redirectAt = (source: string) => Math.max(source.indexOf('from "./packaged-app.js"'), source.indexOf('import "./packaged-app.js"'));
 
