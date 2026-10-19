@@ -30,7 +30,9 @@ async function activate(reviews: Array<PackageReview | Error> = [review()]) {
     registerRuntimeExtension: (name, factory) => { runtime.push({ name, factory }); return () => undefined; },
     mcp: { registerTools: (tools) => { mcp.push(tools); return () => undefined; }, gate: () => () => undefined, connect: async () => undefined },
   }, (event) => events.push(event));
-  const tool = (threadId: string): HostMcpTool => (mcp[0]!({ sessionId: threadId, cwd: "/project" }) as HostMcpTool[])[0]!;
+  // The kit also registers tau_new_package and tau_window_screenshot; this suite drives the install tool.
+  const tool = (threadId: string): HostMcpTool =>
+    mcp.flatMap((provider) => provider({ sessionId: threadId, cwd: "/project" }) as HostMcpTool[]).find((entry) => entry.name === "tau_install_package")!;
   const call = async (threadId: string, path: unknown, signal?: AbortSignal) =>
     JSON.parse(((await tool(threadId).execute("c1", { path }, signal, undefined, undefined as never)) as { content: Array<{ text: string }> }).content[0]!.text) as Record<string, unknown>;
   const invoke = (command: string, input?: unknown) => kit.invoke(PACKAGES_EXTENSION_ID, command, input);
@@ -98,6 +100,23 @@ describe("tau_install_package", () => {
     await expect(invoke("allow-install", { id: card.id })).rejects.toThrow("not allowed");
     expect(await requests()).toHaveLength(1);
     await invoke("allow-install", { id: card.id });
+    expect(await pending).toMatchObject({ status: "running" });
+  });
+
+  it("keeps the card and refuses a second Allow while the native confirmation is open", async () => {
+    const { call, waitForCard, invoke, approvePackage, requests, kit } = await activate();
+    let answer: (value: PackageReview) => void = () => undefined;
+    approvePackage.mockImplementationOnce(() => new Promise<PackageReview>((resolve) => { answer = resolve; }));
+    const pending = call("t1", "hello");
+    const card = await waitForCard();
+    // The dialog may stay open for minutes, so the command is exempt from the 30 s command timeout.
+    expect(kit.longCommands()).toContain(`${PACKAGES_EXTENSION_ID}/allow-install`);
+    const allowing = invoke("allow-install", { id: card.id });
+    await vi.waitFor(() => expect(approvePackage).toHaveBeenCalledOnce());
+    await expect(invoke("allow-install", { id: card.id })).rejects.toThrow("already open");
+    expect(await requests()).toHaveLength(1);
+    answer(review({ granted: true }));
+    await allowing;
     expect(await pending).toMatchObject({ status: "running" });
   });
 

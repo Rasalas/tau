@@ -658,6 +658,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
     log: (label, detail) => deps.log(label, detail),
     publish: (event) => emit(event),
+    ...(platform.confirmExtensionGrant ? { confirmGrant: (pkg) => platform.confirmExtensionGrant!(pkg) } : {}),
     ...(options.grantsFilePath ? { grantsFilePath: options.grantsFilePath } : {}),
   });
   const attached = new AttachedThreadBackend(createAttachedSessionHost(port));

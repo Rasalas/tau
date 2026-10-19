@@ -28,13 +28,13 @@ const made = { directory: "/home/.tau/extensions/copy-branch", id: "local.copy-b
 
 async function harness(extensions = "/home/.tau/extensions") {
   const newPackage = vi.fn(async () => made);
-  let runtime: RuntimeExtensionFactory | undefined;
+  const runtimes = new Map<string, RuntimeExtensionFactory>();
   const providers: HostMcpToolProvider[] = [];
   const instructions: HostMcpInstructionsProvider[] = [];
   const services = {
     newPackage,
     globalExtensionsDirectory: () => extensions,
-    registerRuntimeExtension: (_name: string, factory: RuntimeExtensionFactory) => { runtime = factory; return () => { runtime = undefined; }; },
+    registerRuntimeExtension: (name: string, factory: RuntimeExtensionFactory) => { runtimes.set(name, factory); return () => { runtimes.delete(name); }; },
     mcp: {
       registerTools: (provider: HostMcpToolProvider) => { providers.push(provider); return () => undefined; },
       gate: () => () => undefined,
@@ -44,7 +44,9 @@ async function harness(extensions = "/home/.tau/extensions") {
   } as unknown as Partial<HostExtensionServices>;
   await activateHostKit(createPackagesHostExtension(), services);
   const session = (cwd: string): RuntimeSessionInfo => ({ sessionId: "t1", cwd });
-  return { newPackage, runtime: () => runtime!, providers, instructions, session };
+  // The packages kit also registers tau_install_package beside these; the tests look at this one's tools.
+  const own = async (info: RuntimeSessionInfo) => (await Promise.all(providers.map((provider) => provider(info)))).flat().filter((tool) => tool.name !== "tau_install_package");
+  return { newPackage, runtime: () => runtimes.get("tau-new-package")!, mcpTools: own, instructions, session };
 }
 
 /** The Pi side: the tools it registers and the system prompt its before_agent_start hook answers. */
@@ -60,12 +62,12 @@ function pi() {
 
 describe("tau_new_package", () => {
   it("is a tool in Pi and over MCP, and asks the host to write the package", async () => {
-    const { newPackage, runtime, providers, session } = await harness();
+    const { newPackage, runtime, mcpTools, session } = await harness();
     const cwd = await project();
     const fake = pi();
     runtime()(fake.api, session(cwd));
     expect(fake.tools.map((tool) => tool.name)).toEqual(["tau_new_package", "tau_window_screenshot"]);
-    const [mcpTool, shotTool] = await providers[0]!(session(cwd));
+    const [mcpTool, shotTool] = await mcpTools(session(cwd));
     expect(mcpTool!.name).toBe("tau_new_package");
     expect(shotTool!.name).toBe("tau_window_screenshot");
 
@@ -76,16 +78,16 @@ describe("tau_new_package", () => {
   });
 
   it("leaves out what was not given and defaults to the desktop half", async () => {
-    const { newPackage, providers, session } = await harness();
-    const [tool] = await providers[0]!(session("/p"));
+    const { newPackage, mcpTools, session } = await harness();
+    const [tool] = await mcpTools(session("/p"));
     await run(tool!, { name: "x" });
     expect(newPackage).toHaveBeenCalledWith({ slug: "x", host: false });
   });
 
   it("lets the host's refusal through", async () => {
-    const { newPackage, providers, session } = await harness();
+    const { newPackage, mcpTools, session } = await harness();
     newPackage.mockRejectedValueOnce(new Error("/h/.tau/extensions/x already exists"));
-    const [tool] = await providers[0]!(session("/p"));
+    const [tool] = await mcpTools(session("/p"));
     await expect(run(tool!, { name: "x" })).rejects.toThrow(/already exists/u);
   });
 });

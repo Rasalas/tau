@@ -1,9 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GlobalHostEvent } from "../shared/contracts.js";
-import { ExtensionPackageActivator } from "./extension-package-activation.js";
+import { ExtensionPackageActivator, type ExtensionPackageActivatorOptions } from "./extension-package-activation.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import type { HostPackageLoadResult } from "./extension-packages.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
@@ -14,7 +14,10 @@ async function scratch(): Promise<string> {
   dirs.push(dir);
   return dir;
 }
-afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
 
 /** One package folder as the scan would report it, with the hash of its compiled entry. */
 interface Installed {
@@ -24,7 +27,7 @@ interface Installed {
   hash: string;
 }
 
-async function harness() {
+async function harness(extra: Partial<ExtensionPackageActivatorOptions> = {}) {
   const grantsFilePath = join(await scratch(), "grants.json");
   const disk = new Map<string, Installed>();
   /** How often each package's `activate` ran; a restart is what this counts. */
@@ -81,6 +84,7 @@ async function harness() {
     log: () => undefined,
     publish: (event) => events.push(event),
     grantsFilePath,
+    ...extra,
   });
 
   const install = (entry: Installed) => { disk.set(entry.id, entry); };
@@ -273,5 +277,43 @@ describe("ExtensionPackageActivator", () => {
     // One announcement, and the unchanged package was never restarted for it.
     expect(events.filter((event) => event.type === "extension-packages-changed")).toHaveLength(1);
     expect(activations.get("acme.hello")).toBe(1);
+  });
+
+  describe("approve", () => {
+    /** A real package folder in a scratch global extension folder, which the approval reads from disk. */
+    async function folder() {
+      const home = await scratch();
+      vi.stubEnv("TAU_PACKAGES_HOME", home);
+      const dir = join(home, ".tau", "extensions", "hello");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "tau-extension.json"), JSON.stringify({ id: "acme.hello", name: "Hello", host: "./host.ts" }));
+      await writeFile(join(dir, "host.ts"), "export default { id: 'acme.hello', name: 'Hello', activate() {} };\n");
+    }
+
+    it("asks the native confirmation for the package and grants only on a yes", async () => {
+      const confirmGrant = vi.fn<NonNullable<ExtensionPackageActivatorOptions["confirmGrant"]>>(async () => false);
+      const { activator, grantsFilePath } = await harness({ confirmGrant });
+      await folder();
+      const { fingerprint } = await activator.review("hello");
+
+      await expect(activator.approve("hello", fingerprint, true)).rejects.toThrow("confirmation dialog");
+      expect(confirmGrant).toHaveBeenCalledWith(expect.objectContaining({ id: "acme.hello", name: "Hello", directory: expect.stringContaining("hello") }));
+      expect((await readExtensionGrants(grantsFilePath)).grants).toEqual([]);
+
+      confirmGrant.mockResolvedValueOnce(true);
+      await activator.approve("hello", fingerprint, true);
+      expect((await readExtensionGrants(grantsFilePath)).grants).toMatchObject([{ id: "acme.hello" }]);
+    });
+
+    it("does not open the dialog for a connection that is not the owner", async () => {
+      const confirmGrant = vi.fn(async () => true);
+      const { activator, grantsFilePath } = await harness({ confirmGrant });
+      await folder();
+      const { fingerprint } = await activator.review("hello");
+
+      await expect(activator.approve("hello", fingerprint, false)).rejects.toThrow("owner");
+      expect(confirmGrant).not.toHaveBeenCalled();
+      expect((await readExtensionGrants(grantsFilePath)).grants).toEqual([]);
+    });
   });
 });

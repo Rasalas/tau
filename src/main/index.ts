@@ -3,7 +3,7 @@ import { hostPowerState } from "./host-power-state.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
+import type { DesktopExtensionLoadResult as WorkbenchDesktopExtensions, ExtensionPackageSummary, HostBootstrap, HostEvent, WorkbenchBuildResult } from "../shared/contracts.js";
 import type { PiHost } from "./pi-host.js";
 import { startDesktop } from "./desktop-startup.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
@@ -13,6 +13,7 @@ import { validateImageDataUrl } from "./image-clipboard.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { confirmExtensionGrant } from "./extension-grants.js";
 import { connectNativeExtensionGrants } from "./native-extension-grants.js";
+import { nativeGrantAsk } from "./native-grant-ask.js";
 import { DesktopBundleStore, registerDesktopBundleScheme, serveDesktopBundles } from "./extension-bundle-server.js";
 import { SharedFileStore } from "./shared-files.js";
 import { rebuildWorkbench } from "./workbench-build.js";
@@ -178,6 +179,7 @@ const hostOptions = {
   runtimeCatalogsPath: join(app.getPath("userData"), "runtime-catalogs.json"),
   warmRuntimeCatalogs: true,
   platform: {
+    confirmExtensionGrant: (pkg: ExtensionPackageSummary) => confirmExtensionGrant(pkg, nativeGrantAsk({ app, dialog })),
     pickDirectory: async (options?: { buttonLabel?: string; message?: string; createDirectory?: boolean }) => {
       // A host-side timeout alone cannot tell a lost call from a dialog that never closed.
       hostLog.info("window.pick-directory.opened", { visible: mainWindow?.isVisible(), minimized: mainWindow?.isMinimized() });
@@ -611,7 +613,7 @@ async function startHostProcess(): Promise<void> {
 /** The kits' window halves: compiled here, called by the host over the protocol. */
 async function loadWindowHalves(): Promise<void> {
   if (!windowHost) return;
-  const stopGrants = connectNativeExtensionGrants(app.getPath("userData"), (pkg) => confirmExtensionGrant(pkg, (prompt) => dialog.showMessageBox({ ...prompt, noLink: true })));
+  const stopGrants = connectNativeExtensionGrants(app.getPath("userData"), (pkg) => confirmExtensionGrant(pkg, nativeGrantAsk({ app, dialog })));
   app.once("will-quit", stopGrants);
   // Core's own half answers even in safe mode: a host with no window has no folder picker.
   windowHost.extensions.register(WINDOW_SERVICES_ID, () => ({
@@ -712,7 +714,7 @@ function createLocalHostMethods(): HostMethodTable {
     host: () => host,
     jobs,
     platform: {
-      confirmExtensionGrant: (pkg) => confirmExtensionGrant(pkg, (prompt) => dialog.showMessageBox({ ...prompt, noLink: true })),
+      confirmExtensionGrant: (pkg) => confirmExtensionGrant(pkg, nativeGrantAsk({ app, dialog })),
       copyText: (text) => clipboard.writeText(text),
       copyImage: copyImageToClipboard,
       readImagePreview: rendererImagePreview,

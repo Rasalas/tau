@@ -43,7 +43,8 @@ const idOf = (input: unknown): string => {
  * `tau_install_package`: scans a package folder the agent wrote into the global
  * extension folder, hands build errors back at once, and otherwise waits for
  * the user's answer on a card above the thread's composer. The tool never
- * grants; the owner command behind the card's button does.
+ * grants; the owner command behind the card's button asks the host, which
+ * confirms in its native dialog before it records anything.
  */
 export class PackageInstalls {
   private readonly waiting = new Map<string, Waiting>();
@@ -117,6 +118,7 @@ export class PackageInstalls {
       if (!entry) throw new HostCommandError("This request ended.");
       if (entry.approving) throw new HostCommandError("Confirmation is already open.");
       entry.approving = true;
+      // The host asks for its native confirmation here and waits for the answer (ADR 0036).
       try {
         await context.services.approvePackage(entry.path, entry.fingerprint);
       } finally {
@@ -124,7 +126,7 @@ export class PackageInstalls {
       }
       entry.settle("running");
       return { running: true };
-    }, { access: "owner" });
+    }, { access: "owner", long: true });
     context.registerCommand("decline-install", (input) => {
       this.waiting.get(idOf(input))?.settle("declined");
       return { declined: true };
@@ -134,7 +136,7 @@ export class PackageInstalls {
       annotations: { readOnlyHint: false },
       name: INSTALL_TOOL,
       label: "Install package",
-      description: "Install a Tau extension package from a folder inside the global extension folder (the one tau_new_package creates). Builds it and returns build errors with file, line and column. Otherwise it asks the user in this thread to allow it and waits; only the user's click starts the package. Returns { status: running | declined | ended, id }.",
+      description: "Install a Tau extension package from a folder inside the global extension folder (the one tau_new_package creates). Builds it and returns build errors with file, line and column. Otherwise it asks the user in this thread to allow it and waits; only the user's confirmation starts the package. Returns { status: running | declined | ended, id }.",
       promptSnippet: `${INSTALL_TOOL}: install a package you wrote and ask the user to allow it`,
       parameters: Type.Object({ path: Type.String({ description: "The package folder: its name inside the global extension folder, or its absolute path." }) }),
       execute: async (_toolCallId: string, params: unknown, signal?: AbortSignal) => {

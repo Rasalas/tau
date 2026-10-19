@@ -8,6 +8,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 import { join } from "node:path";
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
+  ExtensionPackageSummary,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
   GlobalHostEvent,
@@ -70,6 +71,8 @@ export interface HostPlatform {
   callClient?(extensionId: string, command: string, input?: unknown, options?: HostClientCallOptions): Promise<unknown>;
   /** The id of the window on the host's machine a call with `{ window: "host" }` reaches now. */
   clientWindow?(extensionId: string): string | undefined;
+  /** Native consent for granting a package: the dialog's answer, or undefined where no native window can ask (ADR 0036). */
+  confirmExtensionGrant?(pkg: ExtensionPackageSummary): Promise<boolean | undefined>;
 }
 
 /**
@@ -1184,10 +1187,13 @@ export interface HostExtensionServices {
   reviewPackage(path: string): Promise<PackageReview>;
   /**
    * Records the user's yes for the folder `fingerprint` (from `reviewPackage`)
-   * names and starts the package. Only an owner connection counts (no native
-   * dialog: the click is the approval) and a folder that changed since the
-   * review is refused. Call it only from an `access: "owner"` command that the
-   * user's click reached, never from a tool (`packages`). New in API 1.75.0.
+   * names and starts the package. Only an owner connection counts, and the
+   * grant needs the same native confirmation dialog as Settings → Extensions
+   * (ADR 0036): the call waits for it, a refusal throws, and only a host with
+   * no native window to ask accepts the owner alone. A folder that changed
+   * since the review, or while the dialog was open, is refused. Call it only
+   * from a `long`, `access: "owner"` command that the user's click reached,
+   * never from a tool (`packages`). New in API 1.75.0.
    */
   approvePackage(path: string, fingerprint: string): Promise<PackageReview>;
   /** The folder `newPackage` writes to and a global install scans: `~/.tau/extensions`, or below `TAU_PACKAGES_HOME`. New in API 1.75.0; in-process only. */

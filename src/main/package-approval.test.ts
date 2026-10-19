@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readExtensionGrants } from "./extension-grants.js";
 import { approvePackageFolder, reviewPackageFolder } from "./package-approval.js";
 
@@ -101,31 +101,76 @@ describe("reviewPackageFolder", () => {
 });
 
 describe("approvePackageFolder", () => {
-  it("grants exactly what the user saw for the owner, with no native dialog", async () => {
+  const grantsOf = async (path: string) => (await readExtensionGrants(path)).grants;
+
+  it("asks the native dialog about exactly what the user saw, then grants for the owner", async () => {
     const { options, write } = await setup();
     await write("hello", GOOD);
     const { fingerprint } = await reviewPackageFolder("hello", options);
-    expect(await approvePackageFolder("hello", fingerprint, { ...options, owner: true })).toBe("acme.hello");
-    const { grants } = await readExtensionGrants(options.grantsFilePath);
+    const confirm = vi.fn(async () => true);
+    expect(await approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm })).toBe("acme.hello");
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm.mock.calls[0]![0]).toMatchObject({ id: "acme.hello", name: "Hello", permissions: ["sessions"], isolation: "worker", scope: "global", desktop: true, host: true });
+    const grants = await grantsOf(options.grantsFilePath);
     expect(grants).toHaveLength(1);
     expect(grants[0]).toMatchObject({ id: "acme.hello", permissions: ["sessions"], isolation: "worker" });
     expect((await reviewPackageFolder("hello", options)).granted).toBe(true);
   });
 
-  it("grants nothing for a connection that is not the owner", async () => {
+  it("grants nothing when the dialog is refused, and nothing falls back", async () => {
     const { options, write } = await setup();
     await write("hello", GOOD);
     const { fingerprint } = await reviewPackageFolder("hello", options);
-    await expect(approvePackageFolder("hello", fingerprint, { ...options, owner: false })).rejects.toThrow("owner");
-    expect((await readExtensionGrants(options.grantsFilePath)).grants).toEqual([]);
+    await expect(approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm: async () => false })).rejects.toThrow("confirmation dialog");
+    await expect(approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm: async () => { throw new Error("dialog failed"); } })).rejects.toThrow("confirmation dialog");
+    expect(await grantsOf(options.grantsFilePath)).toEqual([]);
   });
 
-  it("refuses a folder that changed after the card", async () => {
+  it("lets the owner's click stand where no native window can ask", async () => {
+    const { options, write } = await setup();
+    await write("hello", GOOD);
+    const { fingerprint } = await reviewPackageFolder("hello", options);
+    expect(await approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm: async () => undefined })).toBe("acme.hello");
+    expect(await grantsOf(options.grantsFilePath)).toHaveLength(1);
+  });
+
+  it("refuses a connection that is not the owner before any dialog opens", async () => {
+    const { options, write } = await setup();
+    await write("hello", GOOD);
+    const { fingerprint } = await reviewPackageFolder("hello", options);
+    const confirm = vi.fn(async () => true);
+    await expect(approvePackageFolder("hello", fingerprint, { ...options, owner: false, confirm })).rejects.toThrow("owner");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await grantsOf(options.grantsFilePath)).toEqual([]);
+  });
+
+  it("refuses a folder that changed after the card, before any dialog opens", async () => {
     const { options, write } = await setup();
     await write("hello", GOOD);
     const { fingerprint } = await reviewPackageFolder("hello", options);
     await write("hello", { ...GOOD, "host.ts": `${GOOD["host.ts"]}// sneaky\n` });
-    await expect(approvePackageFolder("hello", fingerprint, { ...options, owner: true })).rejects.toThrow("changed after");
-    expect((await readExtensionGrants(options.grantsFilePath)).grants).toEqual([]);
+    const confirm = vi.fn(async () => true);
+    await expect(approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm })).rejects.toThrow("changed after");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await grantsOf(options.grantsFilePath)).toEqual([]);
+  });
+
+  it("refuses a folder that changed while the dialog was open", async () => {
+    const { options, write } = await setup();
+    await write("hello", GOOD);
+    const { fingerprint } = await reviewPackageFolder("hello", options);
+    const confirm = async () => { await write("hello", { ...GOOD, "host.ts": `${GOOD["host.ts"]}// during\n` }); return true; };
+    await expect(approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm })).rejects.toThrow("changed after");
+    expect(await grantsOf(options.grantsFilePath)).toEqual([]);
+  });
+
+  it("does not ask again for a package the user already allowed", async () => {
+    const { options, write } = await setup();
+    await write("hello", GOOD);
+    const { fingerprint } = await reviewPackageFolder("hello", options);
+    await approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm: async () => true });
+    const confirm = vi.fn(async () => true);
+    await approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm });
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

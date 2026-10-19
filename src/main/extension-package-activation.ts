@@ -1,5 +1,5 @@
 import { sep } from "node:path";
-import type { GlobalHostEvent, HostExtensionSummary, PackageBuildError } from "../shared/contracts.js";
+import type { ExtensionPackageSummary, GlobalHostEvent, HostExtensionSummary, PackageBuildError } from "../shared/contracts.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult, type LoadedHostPackage } from "./extension-packages.js";
 import type { HostExtension, HostExtensionRegistry } from "./host-extensions.js";
@@ -16,6 +16,8 @@ export interface ExtensionPackageActivatorOptions {
   log(label: string, detail?: string): void;
   publish(event: GlobalHostEvent): void;
   grantsFilePath?: string;
+  /** The native consent dialog for a grant; undefined means no native window (ADR 0036). */
+  confirmGrant?: (pkg: ExtensionPackageSummary) => Promise<boolean | undefined>;
 }
 
 /**
@@ -99,9 +101,10 @@ export class ExtensionPackageActivator {
     return review;
   }
 
-  /** The owner's yes for the folder `fingerprint` describes; the package starts at once. */
+  /** The owner's yes for the folder `fingerprint` describes, confirmed natively; the package starts at once. */
   async approve(path: string, fingerprint: string, owner: boolean): Promise<PackageReview> {
-    const id = await approvePackageFolder(path, fingerprint, { ...this.folderOptions(), owner });
+    const { confirmGrant } = this.options;
+    const id = await approvePackageFolder(path, fingerprint, { ...this.folderOptions(), owner, ...(confirmGrant ? { confirm: confirmGrant } : {}) });
     this.options.log("host-extension.granted", id);
     await this.refresh();
     return reviewPackageFolder(path, this.folderOptions());

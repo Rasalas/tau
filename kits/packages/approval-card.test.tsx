@@ -69,23 +69,26 @@ describe("Allow-package card above the composer", () => {
     expect(screen.queryByRole("region", { name: "Allow Hello" })).toBeNull();
   });
 
-  it("Allow and turn on asks the host once and shows that it is working", async () => {
+  it("Allow and turn on asks the host once and waits for the confirmation dialog", async () => {
     let finish: (value: unknown) => void = () => undefined;
     const { draw, invoke } = setup([request()], true, () => new Promise((resolve) => { finish = resolve; }));
     draw();
     const allow = await screen.findByRole("button", { name: "Allow and turn on" });
     fireEvent.click(allow);
-    expect(await screen.findByRole("button", { name: "Allowing…" })).toHaveProperty("disabled", true);
+    expect(await screen.findByRole("button", { name: "Waiting for confirmation…" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("status").textContent).toContain("confirmation dialog");
+    expect(screen.getByRole("button", { name: "Not now" })).toHaveProperty("disabled", true);
     expect(invoke.mock.calls.filter((call) => call[1] === "allow-install")).toEqual([[PACKAGES_EXTENSION_ID, "allow-install", { id: "r1" }]]);
     await act(async () => finish({ running: true }));
   });
 
   it("Not now declines, and a refused Allow shows why and stays answerable", async () => {
-    const { draw, invoke } = setup([request()], true, (command) => { if (command === "allow-install") throw new Error("The package was not allowed."); return {}; });
+    const { draw, invoke } = setup([request()], true, (command) => { if (command === "allow-install") throw new Error("The package was not allowed in the confirmation dialog."); return {}; });
     draw();
     fireEvent.click(await screen.findByRole("button", { name: "Allow and turn on" }));
     expect((await screen.findByRole("alert")).textContent).toContain("not allowed");
     expect(screen.getByRole("button", { name: "Allow and turn on" })).toHaveProperty("disabled", false);
+    expect(screen.queryByRole("status")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "decline-install", { id: "r1" }));
   });

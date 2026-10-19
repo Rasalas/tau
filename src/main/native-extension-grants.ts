@@ -5,11 +5,12 @@ import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import type { ExtensionPackageSummary } from "../shared/contracts.js";
 import { confirmExtensionGrant } from "./extension-grants.js";
+import { nativeGrantAsk } from "./native-grant-ask.js";
 
 /** Loaded only in a window process when its own uplink asks for consent. */
 export async function confirmUplinkExtensionGrant(pkg: ExtensionPackageSummary): Promise<boolean> {
-  const { dialog } = await import("electron");
-  return confirmExtensionGrant(pkg, (prompt) => dialog.showMessageBox({ ...prompt, noLink: true }));
+  const electron = await import("electron");
+  return confirmExtensionGrant(pkg, nativeGrantAsk(electron));
 }
 
 /** A filesystem socket or named pipe, never a listener a browser can open. */

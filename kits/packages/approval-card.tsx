@@ -77,13 +77,14 @@ function InstallCard({ request, feed, actions, canManage }: { request: InstallRe
         ? <p className="install-warning" role="note"><AlertTriangle size={12} aria-hidden="true" />{IN_PROCESS_WARNING}</p>
         : <p className="install-quiet">{workerDescription(request.permissions)}</p>}
       {!canManage ? <p className="install-quiet">Allow it in this machine's own Tau window.</p> : null}
+      {busy === "allow" ? <p className="install-quiet" role="status">Waiting for the confirmation dialog. Nothing starts until you allow it there.</p> : null}
       {error ? <p className="install-error" role="alert">{error}</p> : null}
       <div className="install-actions">
         <button type="button" className="install-link" onClick={() => actions.openSettings(`extensions/${request.packageId}`)}>Details</button>
         <span className="install-spacer" />
         <button type="button" className="install-link" disabled={busy !== undefined || !canManage} onClick={() => void answer("decline-install")}>Not now</button>
         <button type="button" className="install-allow" disabled={busy !== undefined || !canManage} onClick={() => void answer("allow-install")}>
-          {busy === "allow" ? "Allowing…" : "Allow and turn on"}
+          {busy === "allow" ? "Waiting for confirmation…" : "Allow and turn on"}
         </button>
       </div>
     </section>

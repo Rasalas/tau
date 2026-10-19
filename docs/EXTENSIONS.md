@@ -5498,15 +5498,19 @@ buildErrors }`; `buildErrors` is empty when the package builds, else each
 entry has the file and the esbuild diagnostics with line and column. It grants
 nothing. `services.approvePackage(path, fingerprint)` records the user's yes
 for the folder the fingerprint names (files, permissions, isolation) and starts
-it. Only an owner connection counts and there is no native dialog: the click
-on the card is the approval. A folder that changed since the review is
-refused. Call it only from a command registered `access: "owner"`
-that the user's click reached, never from a tool. Neither is available to a
+it. Only an owner connection counts, and the grant goes through the same
+native confirmation dialog as Settings → Extensions (ADR 0036): the call waits
+for the answer, a cancelled, failed or timed-out dialog refuses, and only a
+host with no native window to ask accepts the owner's click alone. A folder
+that changed since the review, or while the dialog was open, is refused. Call
+it only from a command registered `access: "owner"` and `long: true` that the
+user's click reached, never from a tool. Neither is available to a
 worker. Tau's Packages kit uses them for `tau_install_package { path }`, a Pi
 and MCP tool for the agent: build errors come back as `{ status:
 "build_failed", id, errors: [{ file, line?, column?, message }] }`; otherwise a
 card above the thread's composer (permissions, isolation, **Allow and turn
-on**, **Not now**, **Details**) waits and the tool answers `{ status: "running"
+on**, **Not now**, **Details**) waits; **Allow and turn on** opens the native
+dialog and the card shows a waiting state until it is answered and the tool answers `{ status: "running"
 | "declined" | "ended", id, message }`. A package already allowed and
 unchanged answers `running` at once. A change to any file of an allowed
 package turns it off until it is allowed again, so the agent calls the tool

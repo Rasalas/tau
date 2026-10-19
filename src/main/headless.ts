@@ -283,6 +283,8 @@ async function main(): Promise<void> {
         callClient: (extensionId, command, input, options) => clientCalls.call(extensionId, command, input, options),
         clientWindow: (extensionId) => clientCalls.clientWindow(extensionId),
         pickDirectory: (options) => clientCalls.pickDirectory(options),
+        // The asking window's own uplink first, then a native window on this machine (ADR 0036).
+        confirmExtensionGrant: async (pkg) => await clientCalls.confirmExtensionGrant(pkg) ?? nativeGrants.confirm(pkg),
       },
       sessionUsageCachePath: join(userData, "session-usage.json"),
       sessionLineageCachePath: join(userData, "session-lineage.json"),

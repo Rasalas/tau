@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { build } from "esbuild";
-import type { PackageBuildError } from "../shared/contracts.js";
+import type { ExtensionPackageSummary, PackageBuildError } from "../shared/contracts.js";
 import { SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules.js";
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { MANIFEST_FILE, bundleHostExtension, globalExtensionsDirectory, isThemeManifest, listExtensionPackages, packageIsolation, packageSummary, type ExtensionPackage } from "./extension-packages.js";
@@ -137,18 +137,30 @@ export async function reviewPackageFolder(input: string, options: PackageFolderO
 export interface PackageApprovalOptions extends PackageFolderOptions {
   /** Whether the connection that asked is the host's owner. */
   owner: boolean;
+  /** The native consent dialog (ADR 0036): true or false is its answer, undefined means no native window is available. */
+  confirm?(pkg: ExtensionPackageSummary): Promise<boolean | undefined>;
 }
 
 /**
- * Records the owner's yes for exactly the folder `fingerprint` names: the click
- * on the card is the approval, so only an owner connection counts, never a
- * paired device, and a folder that changed since the card is refused.
+ * Records the owner's yes for exactly the folder `fingerprint` names. Only an
+ * owner connection counts, never a paired device. The grant goes through the
+ * same native dialog as Settings → Extensions; without a native window the
+ * owner's click stands (ADR 0036), but a cancelled, failed or timed-out dialog
+ * refuses. A folder that changed since the card, or while the dialog was open,
+ * is refused.
  */
 export async function approvePackageFolder(input: string, fingerprint: string, options: PackageApprovalOptions): Promise<string> {
   if (!options.owner) throw new HostCommandError("Only the host's owner can allow a package.");
-  const { pkg, grants } = await locate(input, options);
-  if (fingerprintOf(pkg) !== fingerprint) throw new HostCommandError("The package changed after it was shown to you. Ask the agent to install it again.");
+  const unchanged = async () => {
+    const found = await locate(input, options);
+    if (fingerprintOf(found.pkg) !== fingerprint) throw new HostCommandError("The package changed after it was shown to you. Ask the agent to install it again.");
+    return found;
+  };
+  const { pkg, grants } = await unchanged();
   if (isPackageGranted(pkg.manifest, grants, pkg.grantIdentity)) return pkg.manifest.id;
-  await grantPackage(pkg.manifest, true, options.grantsFilePath, pkg.grantIdentity);
-  return pkg.manifest.id;
+  const confirmed = await options.confirm?.(packageSummary(pkg, grants)).catch(() => false);
+  if (confirmed === false) throw new HostCommandError("The package was not allowed in the confirmation dialog, so it stays off.");
+  const latest = await unchanged();
+  await grantPackage(latest.pkg.manifest, true, options.grantsFilePath, latest.pkg.grantIdentity);
+  return latest.pkg.manifest.id;
 }
