@@ -77,4 +77,12 @@ describe("Review Kit styles", () => {
     expect(title).toMatch(/min-width:\s*0\b/u);
     expect(title).toMatch(/text-overflow:\s*ellipsis/u);
   });
+
+  it("gives the thread sheet's row actions a finger-sized target and its rows a taller one", async () => {
+    const action = await declarations(".thread-sheet-actions > button");
+    expect(action).toMatch(/width:\s*var\(--touch-target\)/u);
+    expect(action).toMatch(/height:\s*var\(--touch-target\)/u);
+    expect(await declarations(".thread-sheet-more")).toMatch(/width:\s*var\(--touch-target\)/u);
+    expect(await declarations(".thread-sheet-main")).toMatch(/min-height:\s*56px/u);
+  });
 });

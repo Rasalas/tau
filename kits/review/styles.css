@@ -1540,3 +1540,28 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .guide-bar button:disabled { opacity: .5; cursor: default; }
 
 .pr-cache-notice { flex: none; margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--muted); background: var(--stage); font: var(--text-xs)/1.5 var(--sans); }
+
+/* ------------------------------------ a thread's linked requests, in a sheet on a compact client */
+
+.thread-sheet-body, .thread-sheet-link { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.thread-sheet-add { display: flex; align-items: center; gap: 8px; min-height: var(--touch-target); padding: 0 14px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--raised); color: var(--ink); font: 500 var(--text-md) var(--sans); text-align: left; cursor: pointer; }
+.thread-sheet-add:disabled { color: var(--muted); }
+.thread-sheet-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.thread-sheet-item + .thread-sheet-item, .thread-sheet-list > li + li { border-top: 1px solid var(--line-soft); }
+.thread-sheet-row { display: flex; align-items: center; min-width: 0; }
+.thread-sheet-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: 56px; padding: 6px 4px; border: 0; background: transparent; color: var(--ink); font: var(--text-md) var(--sans); text-align: left; cursor: pointer; }
+.thread-sheet-list > li > .thread-sheet-main { width: 100%; }
+.thread-sheet-main:disabled { color: var(--muted); }
+.thread-sheet-lines { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.thread-sheet-title, .thread-sheet-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-sheet-meta { color: var(--muted); font-size: var(--text-xs); }
+.thread-sheet-watching { flex: none; color: var(--acid-text); }
+.thread-sheet-more, .thread-sheet-icon, .thread-sheet-actions > button { display: grid; place-items: center; flex: none; width: var(--touch-target); height: var(--touch-target); border: 0; border-radius: 12px; background: transparent; color: var(--muted); cursor: pointer; }
+.thread-sheet-more[aria-expanded="true"] { color: var(--ink); background: var(--hover); }
+.thread-sheet-actions { display: flex; justify-content: space-around; padding: 0 4px 6px 28px; }
+.thread-sheet-actions > button:active, .thread-sheet-more:active { background: var(--hover-strong); }
+.thread-sheet-actions > button:disabled { opacity: 0.4; }
+.thread-sheet-actions > button.destructive { color: var(--danger); }
+.thread-sheet-link-head { display: flex; align-items: center; gap: 4px; }
+.thread-sheet-link-head > input { flex: 1; min-width: 0; min-height: var(--touch-target); padding: 0 12px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--well); color: var(--ink); font: var(--text-md) var(--sans); }
+.thread-sheet-note { margin: 0; padding: 8px 4px; color: var(--muted); font-size: var(--text-sm); }
