@@ -18,6 +18,7 @@ import { isPackageGranted, readExtensionGrants, type ExtensionGrant } from "./ex
 import { listInstalledSources, packagesHome } from "./extension-sources.js";
 import { describeSignature, readTrustedPublishers, verifyExtensionSignature, type SignatureState, type TrustedPublisher, trustedPublishersPath } from "./extension-signature.js";
 import { readPackageGrantIdentity, type PackageGrantIdentity } from "./extension-grant-identity.js";
+import { ownPackagesFilePath } from "./own-packages.js";
 import { tauHomeDir } from "./app-identity.js";
 
 export const MANIFEST_FILE = "tau-extension.json";
@@ -249,6 +250,8 @@ export interface PackageScanOptions {
   versions?: ExtensionHostVersions;
   /** Where the Ed25519 keys a signature may be trusted against live. */
   publishersFilePath?: string;
+  /** The grants file; the record of packages the host wrote lies next to it. */
+  grantsFilePath?: string;
 }
 
 /** Reads one package folder, engines and signature included. */
@@ -269,7 +272,7 @@ async function readPackageFolder(
   // A hash that no longer matches means the folder changed after it was signed:
   // that is a broken package, not a weaker one, so it does not load at all.
   if (signature.state === "tampered") throw new PackageFolderError(describeSignature(signature), identity);
-  const grantIdentity = await readPackageGrantIdentity(packageDir, parsed.manifest, publishers);
+  const grantIdentity = await readPackageGrantIdentity(packageDir, parsed.manifest, publishers, ownPackagesFilePath(options.grantsFilePath));
   return { scope, directory: packageDir, ...parsed, signature, grantIdentity };
 }
 
@@ -398,7 +401,7 @@ export function packageSummary(pkg: ExtensionPackage, grants: readonly Extension
 }
 
 /** What the settings inspector shows about the package folders: no code is loaded. */
-export async function inspectExtensionPackages(cwd: string, agentDir: string, options: PackageScanOptions & { versions: ExtensionHostVersions; grantsFilePath?: string }): Promise<ExtensionInspection> {
+export async function inspectExtensionPackages(cwd: string, agentDir: string, options: PackageScanOptions & { versions: ExtensionHostVersions }): Promise<ExtensionInspection> {
   const [scan, grantsFile] = await Promise.all([
     listExtensionPackages(cwd, agentDir, options),
     readExtensionGrants(options.grantsFilePath),
@@ -615,7 +618,6 @@ export async function loadHostExtensionPackages(
   agentDir: string,
   options: PackageScanOptions & {
     cacheDir?: string;
-    grantsFilePath?: string;
     /** Overrides for the worker a package is isolated in (tests use smaller limits). */
     worker?: Omit<WorkerHostExtensionOptions, "id" | "name" | "permissions" | "file">;
   } = {},

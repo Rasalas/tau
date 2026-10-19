@@ -34,6 +34,8 @@ export interface ExtensionGrant {
   permissions: string[];
   /** The isolation the user approved; missing means the default, a worker. */
   isolation?: ExtensionIsolation;
+  /** The host wrote this package for the user (`tau_new_package`): an edit does not need a new grant, a change of permissions or isolation does. */
+  own?: boolean;
   grantedAt: number;
 }
 
@@ -76,7 +78,7 @@ export function isPackageGranted(
   const existing = grants.find((g) => g.id === manifest.id);
   if (!existing || !identity?.contentHash || !existing.contentHash) return false;
   if (existing.signer !== identity.signer) return false;
-  if (existing.contentHash !== identity.contentHash && !identity.trustedSigner) return false;
+  if (existing.contentHash !== identity.contentHash && !identity.trustedSigner && !(existing.own && identity.own)) return false;
   // Running inside the host process is a privilege of its own: a package that
   // leaves the worker after it was approved has to be approved again.
   if ((manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION) !== (existing.isolation ?? DEFAULT_PACKAGE_ISOLATION)) return false;
@@ -91,6 +93,7 @@ export async function grantPackage(
   granted: boolean,
   filePath = defaultGrantsFilePath(),
   identity?: PackageGrantIdentity,
+  own = false,
 ): Promise<void> {
   const file = await readExtensionGrants(filePath);
   const remaining = file.grants.filter((g) => g.id !== manifest.id);
@@ -101,6 +104,7 @@ export async function grantPackage(
       ...(manifest.version ? { version: manifest.version } : {}),
       permissions: [...(manifest.permissions ?? [])].sort(),
       isolation: manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION,
+      ...(own ? { own } : {}),
       grantedAt: Date.now(),
     });
   }

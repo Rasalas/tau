@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { globalExtensionsDirectory } from "./extension-packages.js";
 import { createNewPackage } from "./new-package.js";
 
@@ -37,6 +37,19 @@ describe("createNewPackage", () => {
     expect(manifest).toMatchObject({ id: "local.copy-branch", description: "Copies the branch.", engines: { api: "^1.75.0" }, desktop: "./desktop.tsx" });
     expect(manifest.host).toBeUndefined();
     expect(existsSync(join(directory, ".tau-types", "tau.d.ts"))).toBe(true);
+  });
+
+  it("records the folder as the host's own work, and not a refused or failed one", async () => {
+    const { home, types } = await fixture();
+    const record = vi.fn(async (_made: { id: string; directory: string }) => undefined);
+    const made = await createNewPackage({ slug: "mine" }, { home, types, record });
+    expect(record).toHaveBeenCalledWith({ id: "local.mine", directory: made.directory });
+    await expect(createNewPackage({ slug: "mine" }, { home, types, record })).rejects.toThrow("already exists");
+    await expect(createNewPackage({ slug: "Bad Name" }, { home, types, record })).rejects.toThrow("not a package name");
+    expect(record).toHaveBeenCalledOnce();
+    const failing = async () => { throw new Error("no record"); };
+    await expect(createNewPackage({ slug: "other" }, { home, types, record: failing })).rejects.toThrow("no record");
+    expect(existsSync(join(globalExtensionsDirectory(home), "other"))).toBe(false);
   });
 
   it("follows TAU_PACKAGES_HOME, as the install scan does", async () => {

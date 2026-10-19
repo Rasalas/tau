@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { AlertTriangle, Package } from "lucide-react";
 import {
-  IN_PROCESS_WARNING, PERMISSION_NOTES, errorMessage, permissionTitle, workerDescription,
+  IN_PROCESS_WARNING, capabilityQuestions, errorMessage, workerDescription,
   type HostExtensionClient, type RegionProps, type WorkbenchActions,
 } from "tau";
 import { INSTALL_REQUESTS_EVENT, readInstallRequests, type InstallRequest, type InstallRequestList } from "./install-protocol.js";
@@ -56,35 +56,33 @@ function InstallCard({ request, feed, actions, canManage }: { request: InstallRe
     catch (failure) { setError(errorMessage(failure)); }
     finally { setBusy(undefined); }
   };
+  const questions = capabilityQuestions(request.name, request);
   return (
     <section className="install-card" aria-label={`Allow ${request.name}`}>
       <header>
         <Package size={12} aria-hidden="true" />
-        <span className="install-title">Allow {request.name}?</span>
+        <span className="install-title">{request.name}</span>
         {request.version ? <span className="install-version">{`v${request.version}`}</span> : null}
       </header>
       {request.description ? <p>{request.description}</p> : null}
-      <p className="install-quiet">The agent wrote this package for Tau. It does not run until you allow what it asks for.</p>
-      {request.permissions.length > 0 ? (
-        <ul className="install-permissions" aria-label="Permissions it asks for">
-          {request.permissions.map((permission) => {
-            const note = PERMISSION_NOTES[permission as keyof typeof PERMISSION_NOTES];
-            return <li key={permission}><strong>{permissionTitle(permission)}</strong><code>{permission}</code>{note ? <small>{note}</small> : null}</li>;
-          })}
+      <p className="install-quiet">{request.previous ? "It changed what it asks for. It stays off until you answer." : "The agent wrote this package for Tau. It does not run until you answer."}</p>
+      {questions.length > 0 ? (
+        <ul className="install-questions" aria-label="What it asks for">
+          {questions.map((question) => <li key={question}>{question}</li>)}
         </ul>
-      ) : <p className="install-quiet">It asks for no permissions.</p>}
+      ) : <p className="install-quiet">It asks for nothing beyond its own folder.</p>}
       {request.isolation === "in-process"
         ? <p className="install-warning" role="note"><AlertTriangle size={12} aria-hidden="true" />{IN_PROCESS_WARNING}</p>
         : <p className="install-quiet">{workerDescription(request.permissions)}</p>}
       {!canManage ? <p className="install-quiet">Allow it in this machine's own Tau window.</p> : null}
-      {busy === "allow" ? <p className="install-quiet" role="status">Waiting for the confirmation dialog. Nothing starts until you allow it there.</p> : null}
+      {busy === "allow" ? <p className="install-quiet" role="status">Waiting for the confirmation dialog. Nothing is allowed until you confirm there.</p> : null}
       {error ? <p className="install-error" role="alert">{error}</p> : null}
       <div className="install-actions">
         <button type="button" className="install-link" onClick={() => actions.openSettings(`extensions/${request.packageId}`)}>Details</button>
         <span className="install-spacer" />
         <button type="button" className="install-link" disabled={busy !== undefined || !canManage} onClick={() => void answer("decline-install")}>Not now</button>
         <button type="button" className="install-allow" disabled={busy !== undefined || !canManage} onClick={() => void answer("allow-install")}>
-          {busy === "allow" ? "Waiting for confirmation…" : "Allow and turn on"}
+          {busy === "allow" ? "Waiting for confirmation…" : questions.length > 0 ? "Allow these" : "Allow"}
         </button>
       </div>
     </section>

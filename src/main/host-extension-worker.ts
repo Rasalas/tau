@@ -210,6 +210,8 @@ const UNAVAILABLE = new Set([
   "newPackage",
   "reviewPackage",
   "approvePackage",
+  "startOwnPackage",
+  "stopPackage",
   "globalExtensionsDirectory",
   "removePackage",
   "updatePackages",

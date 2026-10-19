@@ -305,6 +305,8 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     installPackage: async () => { throw new Error("no installer in this test"); },
     reviewPackage: async () => { throw new Error("no installer in this test"); },
     approvePackage: async () => { throw new Error("no installer in this test"); },
+    startOwnPackage: async () => { throw new Error("no installer in this test"); },
+    stopPackage: async () => { throw new Error("no installer in this test"); },
     removePackage: async () => { throw new Error("no installer in this test"); },
     newPackage: async () => { throw new Error("no installer in this test"); },
     globalExtensionsDirectory: () => "/tmp/tau-extensions",

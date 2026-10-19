@@ -15,7 +15,7 @@ afterEach(() => {
 
 const request = (overrides: Partial<InstallRequest> = {}): InstallRequest => ({
   id: "r1", threadId: "s1", status: "pending", packageId: "acme.hello", name: "Hello", version: "1.0.0", description: "Copies the branch name",
-  permissions: ["sessions", "native"], isolation: "worker", ...overrides,
+  permissions: ["sessions", "native"], isolation: "worker", desktop: false, ...overrides,
 });
 
 function setup(initial: InstallRequest[], canManage = true, answer: (command: string) => unknown = () => ({})) {
@@ -40,21 +40,48 @@ function setup(initial: InstallRequest[], canManage = true, answer: (command: st
 }
 
 describe("Allow-package card above the composer", () => {
-  it("shows the package, what it asks for and how it is isolated, from the data the host sends", async () => {
-    const { draw } = setup([request()]);
+  it("asks one concrete question per capability the package requests, and how it is isolated", async () => {
+    const { draw } = setup([request({ permissions: ["sessions", "native", "process", "network"] })]);
     draw();
     expect(await screen.findByRole("region", { name: "Allow Hello" })).toBeTruthy();
     expect(screen.getByText("Copies the branch name")).toBeTruthy();
-    expect(screen.getByText("Read and write threads")).toBeTruthy();
-    expect(screen.getByText("Load compiled code into Tau")).toBeTruthy();
+    const asked = screen.getAllByRole("listitem").map((item) => item.textContent);
+    expect(asked).toEqual([
+      "May Hello read and write your threads?",
+      "May Hello start programs on this machine?",
+      "May Hello reach the internet?",
+      "May Hello load compiled code into Tau's own process? A crash there stops Tau.",
+    ]);
     expect(screen.getByText(/runs in a process of its own/u)).toBeTruthy();
   });
 
-  it("warns about a package that runs in Tau's own process", async () => {
-    const { draw } = setup([request({ isolation: "in-process", permissions: [] })]);
+  it("asks about Tau's window for a window half, and nothing else when it requests nothing", async () => {
+    const { draw } = setup([request({ permissions: [], desktop: true })]);
+    draw();
+    await screen.findByRole("region", { name: "Allow Hello" });
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["May Hello do anything in Tau's window that you can?"]);
+  });
+
+  it("asks only about what is new once the user allowed the package before", async () => {
+    const { draw } = setup([request({ permissions: ["process", "network"], desktop: true, previous: { permissions: ["process"], isolation: "worker" } })]);
+    draw();
+    await screen.findByRole("region", { name: "Allow Hello" });
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["May Hello reach the internet?"]);
+    expect(screen.getByText(/It changed what it asks for/u)).toBeTruthy();
+  });
+
+  it("names a package with nothing to ask plainly, and offers Allow", async () => {
+    const { draw } = setup([request({ permissions: [] })]);
+    draw();
+    expect(await screen.findByText("It asks for nothing beyond its own folder.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
+  });
+
+  it("warns about a package that runs in Tau's own process, with the one honest question", async () => {
+    const { draw } = setup([request({ isolation: "in-process", permissions: ["network"] })]);
     draw();
     expect((await screen.findByRole("note")).textContent).toContain("runs inside Tau's own process");
-    expect(screen.getByText("It asks for no permissions.")).toBeTruthy();
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["May Hello run inside Tau's own process, where nothing limits what it reads, writes, reaches or starts?"]);
   });
 
   it("shows only the card of the thread on screen, and follows the host's list", async () => {
@@ -69,11 +96,11 @@ describe("Allow-package card above the composer", () => {
     expect(screen.queryByRole("region", { name: "Allow Hello" })).toBeNull();
   });
 
-  it("Allow and turn on asks the host once and waits for the confirmation dialog", async () => {
+  it("Allow these asks the host once and waits for the confirmation dialog", async () => {
     let finish: (value: unknown) => void = () => undefined;
     const { draw, invoke } = setup([request()], true, () => new Promise((resolve) => { finish = resolve; }));
     draw();
-    const allow = await screen.findByRole("button", { name: "Allow and turn on" });
+    const allow = await screen.findByRole("button", { name: "Allow these" });
     fireEvent.click(allow);
     expect(await screen.findByRole("button", { name: "Waiting for confirmation…" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("status").textContent).toContain("confirmation dialog");
@@ -85,9 +112,9 @@ describe("Allow-package card above the composer", () => {
   it("Not now declines, and a refused Allow shows why and stays answerable", async () => {
     const { draw, invoke } = setup([request()], true, (command) => { if (command === "allow-install") throw new Error("The package was not allowed in the confirmation dialog."); return {}; });
     draw();
-    fireEvent.click(await screen.findByRole("button", { name: "Allow and turn on" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Allow these" }));
     expect((await screen.findByRole("alert")).textContent).toContain("not allowed");
-    expect(screen.getByRole("button", { name: "Allow and turn on" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Allow these" })).toHaveProperty("disabled", false);
     expect(screen.queryByRole("status")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "decline-install", { id: "r1" }));
@@ -104,7 +131,7 @@ describe("Allow-package card above the composer", () => {
     const { draw } = setup([request()], false);
     draw();
     expect(await screen.findByText(/Allow it in this machine's own Tau window/u)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Allow and turn on" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Allow these" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Not now" })).toHaveProperty("disabled", true);
   });
 });

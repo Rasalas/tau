@@ -2043,7 +2043,7 @@ It also exports the renderer's shared state and presentation:
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
 | `hostConnectionState` | API 1.63.0: the active machine's current connection state outside React (`connected`, `reconnecting`, `resyncing`, `refused`), or `undefined` without a host client. Subscribe through `context.events.on("host-connection", …)` for changes. Treat every state except `connected` as unavailable for writes. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. API 1.63.0: a `host:` key opts into machine-scoped storage on desktop windows too. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
-| `permissionTitle(permission)`, `PERMISSION_NOTES`, `IN_PROCESS_WARNING`, `workerDescription(permissions)` | (new in API 1.75.0) the approval box's wording, as Settings → Extensions shows it, for a card that asks the same question. |
+| `permissionTitle(permission)`, `PERMISSION_NOTES`, `IN_PROCESS_WARNING`, `workerDescription(permissions)`, `capabilityQuestions(name, request)` | (new in API 1.75.0) the approval box's wording, as Settings → Extensions shows it, for a card that asks the same question; `capabilityQuestions` is the plain-words version ("May Copy Branch start programs on this machine?"), one question per capability a manifest really requests. |
 | `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`, API 1.38.0: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
@@ -4712,7 +4712,7 @@ A package's `permissions` array draws from a fixed list
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics, send them files; and take files their agents sent here (`services.blobs`). |
 | `native` | (API 1.17.0) load compiled code: a `.node` addon (by `require`, `import` or `process.dlopen`), a SQLite extension (`DatabaseSync#loadExtension`), the raw handles of `process.binding` and `process._linkedBinding`, and V8 flags (`v8.setFlagsFromString`). In a worker all of these are refused without it; see §6. Compiled code runs outside the worker's guards and caps and a crash in it stops the host, so grant it like `in-process`. An `in-process` package loads addons through `services.loadDependency` and needs no grant for it. |
-| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `newPackage`, `globalExtensionsDirectory`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), read the last build of each package half (`packageBuilds`, K112), and review a package folder in the global extension folder and record the user's allow for it (`reviewPackage`, `approvePackage`, API 1.75.0). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
+| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `newPackage`, `globalExtensionsDirectory`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), read the last build of each package half (`packageBuilds`, K112), and review a package folder in the global extension folder and record the user's allow for it (`reviewPackage`, `approvePackage`, API 1.75.0), start a package the host wrote in a Full access thread and turn one off (`startOwnPackage`, `stopPackage`). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 **Permissions gate the host half.** A desktop half runs in the window with
 what the user can do there: every `WorkbenchActions` member is ungated,
@@ -4964,7 +4964,7 @@ The package is what `tau kit new` writes (id `local.<name>`, `engines.api` the
 running version, `.tau-types/`) plus an `AGENTS.md`: a recipe of at most 80
 lines with the manifest fields, the region placements, commands, actions,
 `THREAD_BRANCH_SERVICE` and Tau's tokens and classes. It is not installed or
-approved; the agent installs it with `tau_install_package` and the user allows it.
+approved; the agent installs it with `tau_install_package`, which starts it at once at Full access and otherwise asks the user. The host notes the folder as the user's own work in an owner-only file next to the grants.
 
 `services.newPackage({ slug, displayName?, description?, host? })` (`packages`
 permission, in-process only) is the host's half of that: it validates the slug,
@@ -5511,14 +5511,33 @@ it only from a command registered `access: "owner"` and `long: true` that the
 user's click reached, never from a tool. Neither is available to a
 worker. Tau's Packages kit uses them for `tau_install_package { path }`, a Pi
 and MCP tool for the agent: build errors come back as `{ status:
-"build_failed", id, errors: [{ file, line?, column?, message }] }`; otherwise a
-card above the thread's composer (permissions, isolation, **Allow and turn
-on**, **Not now**, **Details**) waits; **Allow and turn on** opens the native
-dialog and the card shows a waiting state until it is answered and the tool answers `{ status: "running"
-| "declined" | "ended", id, message }`. A package already allowed and
-unchanged answers `running` at once. A change to any file of an allowed
-package turns it off until it is allowed again, so the agent calls the tool
-again after editing.
+"build_failed", id, errors: [{ file, line?, column?, message }] }`. A package
+`tau_new_package` wrote (the host keeps its own record of that, never a file in
+the folder) starts at once, with no card and no dialog, when the calling thread
+runs at Full access; a toast says "<Name> is on" with **Turn off**. Any other
+thread, and any package the host did not write, gets a card above the thread's
+composer instead. It asks what the manifest really requests, in plain words
+("May Copy Branch start programs on this machine?", "… reach the internet?",
+"… do anything in Tau's window that you can?", "… run inside Tau's own process,
+where nothing limits what it reads, writes, reaches or starts?"), only the items
+the package needs and, after an earlier yes, only what is new. **Allow these**
+opens the native dialog and the card shows a waiting state until it is answered.
+The tool answers `{ status: "running" | "declined" | "ended", id, message }`. A
+package already allowed and unchanged answers `running` at once. For a package
+the host wrote, edits to its files load live without a new yes; a change to its
+`permissions` or `isolation` turns it off until `tau_install_package` runs again
+(at Full access it starts at once, otherwise the card asks about the new items).
+For any other package a change to any file turns it off until it is allowed again.
+
+`services.startOwnPackage(path, fingerprint, threadId)` is the host's half
+(`packages`, in-process only). It starts the package only when the host wrote that
+folder, the level the Access Kit holds for `threadId` is Full access (a host without
+the Access Kit counts as Full) and the user did not turn the package off; it answers
+whether it did, and changes nothing otherwise. `services.stopPackage(id)` turns a
+package off; owner connections only. `reviewPackage` also answers `own` and, once the
+user allowed the package, `previous: { permissions, isolation }`. `capabilityQuestions(name,
+{ permissions, isolation, desktop, previous? })` (from `tau`) is the card's wording.
+The decision is ADR 0036's amendment of 2026-10-19.
 
 To test interactively in the running app, `/install <path to your package>`
 (`-l` for project scope), approve it in Settings → Extensions, and use it; no

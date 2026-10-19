@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionInspection, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { PackagesInstall, PackagesSources, createExtensionSection, followInstalls, packagesExtension } from "./desktop.js";
+import { PackagesInstall, PackagesSources, createExtensionSection, followInstalls, followStarts, packagesExtension } from "./desktop.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_RETIRED_PAGE, parseInstallArguments } from "./protocol.js";
 
 afterEach(cleanup);
@@ -124,6 +124,29 @@ describe("Packages kit", () => {
     expect(toast.mock.calls.map(([options]) => (options as { title: string }).title)).toEqual(["Installed My kit"]);
     emit({ command: "install", result: row, untrusted: true });
     expect(toast.mock.calls[1]?.[0]).toMatchObject({ title: "My kit: skipped, project not trusted" });
+    unbind();
+  });
+
+  it("says a package is on when it started without a card, and turns it off from the toast", async () => {
+    let emit: (payload: unknown) => void = () => undefined;
+    const invoke = vi.fn(async () => ({ off: true }));
+    const client = { invoke, onEvent: (_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; } };
+    const starts = followStarts(client);
+    const app = actions();
+    const toast = vi.fn();
+    const unbind = starts.bind({ ...app, toast } as unknown as WorkbenchActions);
+    emit({ threadId: "t1", packageId: "local.copy-branch", name: "Copy Branch", isolation: "worker" });
+    emit({ nonsense: true });
+    expect(toast).toHaveBeenCalledOnce();
+    const options = toast.mock.calls[0]?.[0] as { title: string; description?: string; actions: Array<{ label: string; run(): void }> };
+    expect(options.title).toBe("Copy Branch is on");
+    expect(options.description).toBeUndefined();
+    expect(options.actions.map((action) => action.label)).toEqual(["Turn off"]);
+    options.actions[0]?.run();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("turn-off", { id: "local.copy-branch" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Copy Branch is off."));
+    emit({ threadId: "t1", packageId: "local.x", name: "X", isolation: "in-process" });
+    expect(toast.mock.calls[1]?.[0]).toMatchObject({ title: "X is on", description: "It runs inside Tau's own process." });
     unbind();
   });
 

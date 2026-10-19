@@ -3,7 +3,10 @@ import type { ExtensionPackageSummary, GlobalHostEvent, HostExtensionSummary, Pa
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult, type LoadedHostPackage } from "./extension-packages.js";
 import type { HostExtension, HostExtensionRegistry } from "./host-extensions.js";
-import { approvePackageFolder, reviewPackageFolder, type PackageReview } from "./package-approval.js";
+import { HostCommandError } from "./host-extension-errors.js";
+import { markOwnPackageOff, ownPackagesFilePath } from "./own-packages.js";
+import { approvePackageFolder, reviewPackageFolder, startOwnPackageFolder, type PackageReview } from "./package-approval.js";
+import type { RuntimePermissionLevel } from "./runtime-adapters.js";
 
 export interface ExtensionPackageActivatorOptions {
   registry: HostExtensionRegistry;
@@ -83,9 +86,12 @@ export class ExtensionPackageActivator {
   async grant(id: string, granted: boolean): Promise<void> {
     const pkg = this.entries.get(id)?.package
       ?? this.ungranted.get(id)
-      ?? (await listExtensionPackages(this.options.cwd(), this.options.agentDir)).packages.find((candidate) => candidate.manifest.id === id);
+      ?? (await listExtensionPackages(this.options.cwd(), this.options.agentDir, this.options.grantsFilePath ? { grantsFilePath: this.options.grantsFilePath } : {})).packages.find((candidate) => candidate.manifest.id === id);
     if (!pkg) return;
-    await grantPackage(pkg.manifest, granted, this.options.grantsFilePath, pkg.grantIdentity);
+    const own = pkg.grantIdentity?.own === true;
+    await grantPackage(pkg.manifest, granted, this.options.grantsFilePath, pkg.grantIdentity, own && granted);
+    // Turning a package the host wrote off sticks until the user turns it on; no thread undoes it.
+    if (own) await markOwnPackageOff(ownPackagesFilePath(this.options.grantsFilePath), pkg.manifest.id, pkg.directory, !granted);
     this.options.log(granted ? "host-extension.granted" : "host-extension.revoked", id);
     await this.refresh();
   }
@@ -108,6 +114,22 @@ export class ExtensionPackageActivator {
     this.options.log("host-extension.granted", id);
     await this.refresh();
     return reviewPackageFolder(path, this.folderOptions());
+  }
+
+  /** Starts a package the host wrote when the thread runs at Full access; answers whether it did. */
+  async startOwn(path: string, fingerprint: string, access: RuntimePermissionLevel): Promise<boolean> {
+    const started = await startOwnPackageFolder(path, fingerprint, access, this.folderOptions());
+    if (started) {
+      this.options.log("host-extension.granted", `${path} · own package, Full access`);
+      await this.refresh();
+    }
+    return started;
+  }
+
+  /** The owner's "turn off" for a package; it stays installed. */
+  async stop(id: string, owner: boolean): Promise<void> {
+    if (!owner) throw new HostCommandError("Only the host's owner can turn a package off.");
+    await this.grant(id, false);
   }
 
   private folderOptions() {

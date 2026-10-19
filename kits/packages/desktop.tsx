@@ -23,6 +23,7 @@ import {
 import { InstallFeed, createInstallRegion } from "./approval-card.js";
 import { registerCustomizeEntry } from "./customize-entry.js";
 import { DevelopSection } from "./develop.js";
+import { PACKAGE_STARTED_EVENT, readPackageStarted, type PackageStarted } from "./install-protocol.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_RETIRED_PAGE, parseInstallArguments, type PackageRow } from "./protocol.js";
 
 /** What a command of the host half answers with. */
@@ -60,6 +61,41 @@ export function followInstalls(host: HostExtensionClient): { bind(actions: Workb
     bind(actions) {
       bound = actions;
       for (const result of waiting.splice(0)) announceInstall(host, actions, result);
+      return () => { if (bound === actions) bound = undefined; };
+    },
+  };
+}
+
+/** The toast for a package that started without a card (Full access): it says so and offers "Turn off". */
+export function followStarts(host: HostExtensionClient): { bind(actions: WorkbenchActions): () => void } {
+  let bound: WorkbenchActions | undefined;
+  const waiting: PackageStarted[] = [];
+  const announce = (actions: WorkbenchActions, started: PackageStarted) => (actions.toast ? actions.toast({
+    id: `package-on-${started.packageId}`,
+    type: "success",
+    title: `${started.name} is on`,
+    ...(started.isolation === "in-process" ? { description: "It runs inside Tau's own process." } : {}),
+    timeoutMs: 12_000,
+    actions: [{
+      label: "Turn off",
+      run: () => {
+        host.invoke("turn-off", { id: started.packageId }).then(
+          () => actions.notify(`${started.name} is off.`),
+          (error: unknown) => actions.notify(errorMessage(error), "error"),
+        );
+      },
+    }],
+  }) : actions.notify(`${started.name} is on.`));
+  host.onEvent(PACKAGE_STARTED_EVENT, (payload) => {
+    const started = readPackageStarted(payload);
+    if (!started) return;
+    if (bound) announce(bound, started);
+    else waiting.push(started);
+  });
+  return {
+    bind(actions) {
+      bound = actions;
+      for (const started of waiting.splice(0)) announce(actions, started);
       return () => { if (bound === actions) bound = undefined; };
     },
   };
@@ -430,13 +466,17 @@ export const packagesExtension: DesktopExtension = {
     });
 
     const installs = followInstalls(plugin.host);
+    const starts = followStarts(plugin.host);
     plugin.registerRegion({
       id: "packages.install-toasts",
       placement: "composer-above",
       order: 90,
       profiles: ["desktop", "web"],
       Component: function InstallToasts({ actions }: RegionProps) {
-        useEffect(() => installs.bind(actions), [actions]);
+        useEffect(() => {
+          const stops = [installs.bind(actions), starts.bind(actions)];
+          return () => { for (const stop of stops) stop(); };
+        }, [actions]);
         return null;
       },
     });

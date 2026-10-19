@@ -57,6 +57,7 @@ import {
   type HostExtensionSeam,
 } from "./host-ports.js";
 import { ExtensionPackageActivator } from "./extension-package-activation.js";
+import { ownPackagesFilePath, recordOwnPackage } from "./own-packages.js";
 import { watchingEnabled } from "./config-watcher.js";
 import { WorkspaceWatch } from "./workspace-watch.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
@@ -541,6 +542,9 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     refreshExtensionPackages: () => packages?.refresh() ?? Promise.resolve(),
     reviewExtensionPackage: (path) => packages?.review(path) ?? Promise.reject(new Error("Extension packages are off in safe mode.")),
     approveExtensionPackage: (path, fingerprint, owner) => packages?.approve(path, fingerprint, owner) ?? Promise.reject(new Error("Extension packages are off in safe mode.")),
+    startOwnExtensionPackage: (path, fingerprint, level) => packages?.startOwn(path, fingerprint, level) ?? Promise.reject(new Error("Extension packages are off in safe mode.")),
+    stopExtensionPackage: (id, owner) => packages?.stop(id, owner) ?? Promise.reject(new Error("Extension packages are off in safe mode.")),
+    recordOwnExtensionPackage: (made) => recordOwnPackage(ownPackagesFilePath(options.grantsFilePath), made),
     prepareThread: (session, manager, prepareOptions) => deps.prepareThread(session, manager, prepareOptions),
     startThread: (startOptions) => deps.startThread(startOptions),
     importThread: async (request) => {

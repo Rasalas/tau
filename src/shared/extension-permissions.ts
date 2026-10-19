@@ -78,6 +78,49 @@ export function permissionTitle(permission: string): string {
   return PERMISSION_TITLES[permission as ExtensionPermission] ?? permission;
 }
 
+/** Each permission as the end of the question "May <name> …" on an approval card. */
+const PERMISSION_QUESTIONS: Readonly<Record<ExtensionPermission, string>> = {
+  "workspace:read": "read the files in your projects?",
+  "workspace:write": "change the files in your projects?",
+  "workspace:switch": "open other projects?",
+  sessions: "read and write your threads?",
+  "runtime:extend": "give agents new tools and change how they behave?",
+  process: "start programs on this machine?",
+  network: "reach the internet?",
+  packages: "install and remove other Tau packages?",
+  machines: "work on your other machines?",
+  native: "load compiled code into Tau's own process? A crash there stops Tau.",
+};
+
+/** What a card asks about a package: what its manifest requests, and what the user allowed before, if anything. */
+export interface CapabilityRequest {
+  permissions: readonly string[];
+  isolation: ExtensionIsolation;
+  /** The package draws in Tau's window, with the host connection that window holds. */
+  desktop: boolean;
+  previous?: { permissions: readonly string[]; isolation: ExtensionIsolation };
+}
+
+/**
+ * The plain questions an approval card asks, one per capability the package
+ * really requests. Once the user allowed the package, only what is new is asked.
+ * A package in Tau's own process gets the one honest question, since no
+ * permission holds there.
+ */
+export function capabilityQuestions(name: string, request: CapabilityRequest): string[] {
+  const { previous } = request;
+  const questions: string[] = [];
+  if (request.isolation === "in-process" && previous?.isolation !== "in-process") {
+    questions.push(`May ${name} run inside Tau's own process, where nothing limits what it reads, writes, reaches or starts?`);
+  } else {
+    for (const permission of EXTENSION_PERMISSIONS) {
+      if (request.permissions.includes(permission) && !previous?.permissions.includes(permission)) questions.push(`May ${name} ${PERMISSION_QUESTIONS[permission]}`);
+    }
+  }
+  if (request.desktop && !previous) questions.push(`May ${name} do anything in Tau's window that you can?`);
+  return questions;
+}
+
 /** What the approval box says about a package that runs in the host process. */
 export const IN_PROCESS_WARNING = `It ${NETWORK_ADVISORY_NOTE}, so it can read and write files, reach the network, start programs and load compiled code whatever it asked for.`;
 
@@ -152,6 +195,8 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   newPackage: "packages",
   reviewPackage: "packages",
   approvePackage: "packages",
+  startOwnPackage: "packages",
+  stopPackage: "packages",
   globalExtensionsDirectory: "packages",
   removePackage: "packages",
   updatePackages: "packages",

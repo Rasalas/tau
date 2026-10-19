@@ -154,6 +154,12 @@ export interface ExtensionServicesPort {
   refreshExtensionPackages(): Promise<void>;
   reviewExtensionPackage(path: string): Promise<PackageReview>;
   approveExtensionPackage(path: string, fingerprint: string, owner: boolean): Promise<PackageReview>;
+  /** Starts a package the host wrote when `access` is Full access; answers whether it did. */
+  startOwnExtensionPackage(path: string, fingerprint: string, access: RuntimePermissionLevel): Promise<boolean>;
+  /** Turns an installed package off for the owner; it stays installed. */
+  stopExtensionPackage(id: string, owner: boolean): Promise<void>;
+  /** Notes a folder the scaffold wrote as the host's own work. */
+  recordOwnExtensionPackage(made: { id: string; directory: string }): Promise<void>;
   /** Opens a runtime for a session file an extension created; it stays off screen. */
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   /** Creates a thread for a project, indexes it and delivers its first prompt, all off screen. */
@@ -372,9 +378,11 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     refreshExtensionPackages: () => port.refreshExtensionPackages(),
     listPackages: () => listExtensionSources(installer()),
     installPackage: (source, scope, progress) => { port.noteSubprocess(); return installExtensionSource(source, scope, installer(progress)); },
-    newPackage: (spec) => createNewPackage(spec),
+    newPackage: (spec) => createNewPackage(spec, { record: (made) => port.recordOwnExtensionPackage(made) }),
     reviewPackage: (path) => port.reviewExtensionPackage(path),
     approvePackage: (path, fingerprint) => port.approveExtensionPackage(path, fingerprint, (() => { const principal = currentInvocationPrincipal(); return principal !== undefined && isHostOwner(principal); })()),
+    startOwnPackage: (path, fingerprint, threadId) => port.startOwnExtensionPackage(path, fingerprint, permissionLevelProvider?.(threadId) ?? "full"),
+    stopPackage: (id) => port.stopExtensionPackage(id, (() => { const principal = currentInvocationPrincipal(); return principal !== undefined && isHostOwner(principal); })()),
     globalExtensionsDirectory: () => globalExtensionsDirectory(),
     removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),
     updatePackages: (source, progress) => { port.noteSubprocess(); return updateExtensionSources(source, installer(progress)); },

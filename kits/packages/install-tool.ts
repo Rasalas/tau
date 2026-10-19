@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { relative } from "node:path";
 import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type PackageReview, type RuntimeSessionInfo } from "tau/host-extension";
-import { INSTALL_REQUESTS_EVENT, INSTALL_TOOL, type InstallRequest, type InstallRequestList } from "./install-protocol.js";
+import { INSTALL_REQUESTS_EVENT, INSTALL_TOOL, PACKAGE_STARTED_EVENT, type InstallRequest, type InstallRequestList, type PackageStarted } from "./install-protocol.js";
 
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
 
@@ -42,9 +42,10 @@ const idOf = (input: unknown): string => {
 /**
  * `tau_install_package`: scans a package folder the agent wrote into the global
  * extension folder, hands build errors back at once, and otherwise waits for
- * the user's answer on a card above the thread's composer. The tool never
- * grants; the owner command behind the card's button asks the host, which
- * confirms in its native dialog before it records anything.
+ * the user's answer on a card above the thread's composer. Only a package
+ * `tau_new_package` made, in a thread at Full access, starts without the card
+ * (the host checks both); every other grant is the owner command behind the
+ * card's button, which asks the host to confirm in its native dialog.
  */
 export class PackageInstalls {
   private readonly waiting = new Map<string, Waiting>();
@@ -69,6 +70,11 @@ export class PackageInstalls {
     }
     if (review.granted) return { status: "running", id: review.id, message: runningMessage(review) };
     if (signal?.aborted) return { status: "ended", id: review.id };
+    // At Full access the agent could write the grant itself, so a package it made starts without a card (ADR 0036).
+    if (review.own && await this.context.services.startOwnPackage(path, review.fingerprint, session.sessionId)) {
+      this.context.emit(PACKAGE_STARTED_EVENT, { threadId: session.sessionId, packageId: review.id, name: review.name, isolation: review.isolation } satisfies PackageStarted);
+      return { status: "running", id: review.id, message: runningMessage(review) };
+    }
     // A newer call for the same thread replaces the card it left.
     this.end(session.sessionId);
 
@@ -82,6 +88,8 @@ export class PackageInstalls {
       ...(review.description ? { description: review.description } : {}),
       permissions: review.permissions,
       isolation: review.isolation,
+      desktop: review.desktop,
+      ...(review.previous ? { previous: review.previous } : {}),
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let cancel = () => undefined as void;
@@ -131,13 +139,18 @@ export class PackageInstalls {
       this.waiting.get(idOf(input))?.settle("declined");
       return { declined: true };
     }, { access: "owner" });
+    // The toast's "Turn off" for a package that started without a card.
+    context.registerCommand("turn-off", async (input) => {
+      await context.services.stopPackage(idOf(input));
+      return { off: true };
+    }, { access: "owner" });
 
     const tools = (session: RuntimeSessionInfo): HostMcpTool[] => [{
       annotations: { readOnlyHint: false },
       name: INSTALL_TOOL,
       label: "Install package",
-      description: "Install a Tau extension package from a folder inside the global extension folder (the one tau_new_package creates). Builds it and returns build errors with file, line and column. Otherwise it asks the user in this thread to allow it and waits; only the user's confirmation starts the package. Returns { status: running | declined | ended, id }.",
-      promptSnippet: `${INSTALL_TOOL}: install a package you wrote and ask the user to allow it`,
+      description: "Install a Tau extension package from a folder inside the global extension folder (the one tau_new_package creates). Builds it and returns build errors with file, line and column. A package made with tau_new_package starts at once in a thread with Full access (the user sees a toast with Turn off). In any other thread, and for any package you did not make with tau_new_package, the user is asked in this thread what it may do, and only their confirmation starts it. Returns { status: running | declined | ended, id }.",
+      promptSnippet: `${INSTALL_TOOL}: install a package you wrote; it starts at once at Full access, else the user is asked`,
       parameters: Type.Object({ path: Type.String({ description: "The package folder: its name inside the global extension folder, or its absolute path." }) }),
       execute: async (_toolCallId: string, params: unknown, signal?: AbortSignal) => {
         const path = params && typeof params === "object" ? (params as { path?: unknown }).path : undefined;
@@ -157,5 +170,7 @@ export class PackageInstalls {
 }
 
 function runningMessage(review: PackageReview): string {
-  return `${review.name} is running. A change to any of its files turns it off until the user allows it again, so call ${INSTALL_TOOL} again after editing.`;
+  return review.own
+    ? `${review.name} is running. Edits to its files load live without asking again. A change to its permissions or isolation turns it off until you call ${INSTALL_TOOL} again (at Full access it starts at once, otherwise the user is asked about what is new).`
+    : `${review.name} is running. A change to any of its files turns it off until the user allows it again, so call ${INSTALL_TOOL} again after editing.`;
 }
