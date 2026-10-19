@@ -107,6 +107,28 @@ describe("Settings → Storage", () => {
     expect(missingSettingsRows({ rows: STORAGE_SETTINGS_ROWS })).toEqual([]);
   });
 
+  it("lists worktrees Tau has no record of apart, and removes one only on request", async () => {
+    const orphan = { path: "/w/orphan", repository: "/work/repo", repositoryName: "repo", branch: "left/over", modifiedAt: NOW - 5 * 86_400_000, sizeBytes: 2 * 1024 * 1024, dirtyFiles: 1, unpushedCommits: 0 };
+    const host = fakeHost({ ...report([tree({ path: "/w/known" })]), untracked: [orphan] });
+    const notices: string[] = [];
+    const Page = createStoragePage(host);
+    render(<Page onNotify={(message) => notices.push(message)} />);
+
+    const list = await screen.findByRole("list", { name: "Untracked worktrees" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText(/^Not tracked by Tau · 2(\.0)? MB$/u)).toBeTruthy();
+    expect(screen.getByText("1 uncommitted")).toBeTruthy();
+    expect(host.cleanUp).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove /w/orphan" }));
+    const alert = await screen.findByRole("alert");
+    host.setReport(report([tree({ path: "/w/known" })]));
+    fireEvent.click(within(alert).getByRole("button", { name: "Remove anyway" }));
+    await waitFor(() => expect(host.remove).toHaveBeenLastCalledWith("/w/orphan", true));
+    await waitFor(() => expect(notices).toEqual(["Removed /w/orphan; the branch left/over stays."]));
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Untracked worktrees" })).toBeNull());
+  });
+
   it("asks before removing a worktree with uncommitted work", async () => {
     const host = fakeHost(report([tree({ path: "/w/dirty", dirtyFiles: 2 })]));
     const notices: string[] = [];

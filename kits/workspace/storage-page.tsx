@@ -11,6 +11,7 @@ import type {
   UiSessionDatabase,
   UiStorageReport,
   UiStorageWorktree,
+  UiUntrackedWorktree,
   WorktreeCleanupRules,
 } from "./storage-protocol.js";
 import { NO_CLEANUP, rulesFor } from "./worktree-cleanup.js";
@@ -191,20 +192,65 @@ function removalWarning(answer: Extract<UiStorageRemoval, { removed: false }>): 
   return `${parts.join("; ")}. The branch is kept.`;
 }
 
+type Removable = Pick<UiStorageWorktree, "path" | "branch">;
+
+/** A Remove button's state: the first answer may name what the user has to confirm. */
+function useRemoval(tree: Removable, onRemove: (tree: Removable, confirm: boolean) => Promise<UiStorageRemoval | undefined>) {
+  const [confirming, setConfirming] = useState<Extract<UiStorageRemoval, { removed: false }>>();
+  const remove = async (confirm: boolean) => {
+    const answer = await onRemove(tree, confirm);
+    setConfirming(answer && !answer.removed ? answer : undefined);
+  };
+  return { confirming, cancel: () => setConfirming(undefined), remove };
+}
+
+function ConfirmRemoval({ confirming, busy, cancel, remove }: { confirming: Extract<UiStorageRemoval, { removed: false }> | undefined; busy: boolean; cancel(): void; remove(confirm: boolean): Promise<void> }) {
+  if (!confirming) return null;
+  return (
+    <div className="workspace-storage-confirm" role="alert">
+      <span>{removalWarning(confirming)}</span>
+      <Button onClick={cancel}>Cancel</Button>
+      <Button variant="danger" disabled={busy} onClick={() => void remove(true)}>Remove anyway</Button>
+    </div>
+  );
+}
+
+/** A worktree Git lists in the worktrees folder that Tau has no record of; only a manual Remove touches it. */
+function UntrackedRow({ tree, now, busy, onRemove }: { tree: UiUntrackedWorktree; now: number; busy: boolean; onRemove(tree: Removable, confirm: boolean): Promise<UiStorageRemoval | undefined> }) {
+  const removal = useRemoval(tree, onRemove);
+  return (
+    <li className="workspace-storage-row" data-path={tree.path}>
+      <div className="workspace-storage-main">
+        <span className="workspace-storage-name">
+          <FolderGit2 size={13} />
+          <strong>{tree.branch ?? tree.path.split(/[\\/]/u).pop()}</strong>
+          <small>{tree.repositoryName}</small>
+        </span>
+        <code className="workspace-storage-path" title={tree.path}>{tree.path}</code>
+        <span className="workspace-storage-facts">
+          <span>no thread</span>
+          <span>changed {formatAge(tree.modifiedAt, now)}</span>
+          {tree.dirtyFiles > 0 ? <span>{tree.dirtyFiles} uncommitted</span> : null}
+          {tree.unpushedCommits > 0 ? <span>{tree.unpushedCommits} unpushed</span> : null}
+        </span>
+      </div>
+      <span className="workspace-storage-size">{formatBytes(tree.sizeBytes)}</span>
+      <Button variant="ghost" aria-label={`Remove ${tree.path}`} disabled={busy} onClick={() => void removal.remove(false)}>Remove</Button>
+      <ConfirmRemoval confirming={removal.confirming} busy={busy} cancel={removal.cancel} remove={removal.remove} />
+    </li>
+  );
+}
+
 function WorktreeRow({ tree, now, titles, busy, onRemove }: {
   tree: UiStorageWorktree;
   now: number;
   titles: ThreadStore | undefined;
   busy: boolean;
-  onRemove(tree: UiStorageWorktree, confirm: boolean): Promise<UiStorageRemoval | undefined>;
+  onRemove(tree: Removable, confirm: boolean): Promise<UiStorageRemoval | undefined>;
 }) {
-  const [confirming, setConfirming] = useState<Extract<UiStorageRemoval, { removed: false }>>();
+  const removal = useRemoval(tree, onRemove);
   const threadNames = tree.threadIds.map((id) => titles?.getThread(id)?.title || "Untitled thread");
   const threadLabel = tree.threadIds.length === 0 ? "no thread" : tree.threadIds.length === 1 ? threadNames[0] : `${tree.threadIds.length} threads`;
-  const remove = async (confirm: boolean) => {
-    const answer = await onRemove(tree, confirm);
-    setConfirming(answer && !answer.removed ? answer : undefined);
-  };
   return (
     <li className="workspace-storage-row" data-path={tree.path} data-due={tree.verdict.remove || undefined}>
       <div className="workspace-storage-main">
@@ -223,14 +269,8 @@ function WorktreeRow({ tree, now, titles, busy, onRemove }: {
         <span className="workspace-storage-status"><Status tree={tree} /></span>
       </div>
       <span className="workspace-storage-size">{formatBytes(tree.sizeBytes)}</span>
-      <Button variant="ghost" aria-label={`Remove ${tree.path}`} disabled={busy} onClick={() => void remove(false)}>Remove</Button>
-      {confirming ? (
-        <div className="workspace-storage-confirm" role="alert">
-          <span>{removalWarning(confirming)}</span>
-          <Button onClick={() => setConfirming(undefined)}>Cancel</Button>
-          <Button variant="danger" disabled={busy} onClick={() => void remove(true)}>Remove anyway</Button>
-        </div>
-      ) : null}
+      <Button variant="ghost" aria-label={`Remove ${tree.path}`} disabled={busy} onClick={() => void removal.remove(false)}>Remove</Button>
+      <ConfirmRemoval confirming={removal.confirming} busy={busy} cancel={removal.cancel} remove={removal.remove} />
     </li>
   );
 }
@@ -273,7 +313,7 @@ export function createStoragePage(host: StorageHost) {
         onNotify(errorMessage(failure), "error");
       }
     };
-    const onRemove = async (tree: UiStorageWorktree, confirm: boolean) => {
+    const onRemove = async (tree: Removable, confirm: boolean) => {
       setBusy(true);
       try {
         const answer = await host.remove(tree.path, confirm);
@@ -367,6 +407,18 @@ export function createStoragePage(host: StorageHost) {
             </ul>
           </> : null}
         </SettingsSection>
+
+        {report?.untracked && report.untracked.length > 0 ? (
+          <SettingsSection
+            id="setting-workspace-storage-untracked"
+            title={`Not tracked by Tau · ${formatBytes(report.untracked.reduce((sum, tree) => sum + (tree.sizeBytes ?? 0), 0))}`}
+          >
+            <p className="workspace-storage-note">Worktrees in the worktrees folder that no thread uses and Tau has no record of. The rules never remove them; the branch stays.</p>
+            <ul className="workspace-storage-list" aria-label="Untracked worktrees">
+              {report.untracked.map((tree) => <UntrackedRow key={tree.path} tree={tree} now={now} busy={busy} onRemove={onRemove} />)}
+            </ul>
+          </SettingsSection>
+        ) : null}
       </div>
     );
   };

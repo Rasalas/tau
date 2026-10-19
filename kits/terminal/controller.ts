@@ -3,7 +3,7 @@ import {
   addGroup, detachPane, focusedPane, focusNext, groupOf, isStaged, moveToStage, paneIds, replacePane, returnFromStage, splitAt,
   type SplitDirection, type TerminalGroup,
 } from "./layout.js";
-import { classifyTerminalLink } from "./links.js";
+import { classifyTerminalLink, resolveTerminalPath, type TerminalFileLinkMatch } from "./links.js";
 import { needsFirstShell, threadScope, type ThreadScope } from "./scope.js";
 import { onTerminalEvent, terminalKit, terminalServices, terminalStore } from "./store.js";
 import {
@@ -313,4 +313,12 @@ export async function openTerminalLink(text: string, actions: WorkbenchActions |
     }
   }
   actions.openExternal(target.url);
+}
+
+/** A file path printed in a shell opens in a file tab, resolved against where the shell is. */
+export function openTerminalFileLink(link: Pick<TerminalFileLinkMatch, "path" | "line">, cwd: string | undefined, actions: WorkbenchActions | undefined = terminalServices.actions): boolean {
+  const path = resolveTerminalPath(link.path, cwd);
+  if (!path || !actions) return false;
+  actions.openFile(path, link.line ? { line: link.line } : undefined);
+  return true;
 }

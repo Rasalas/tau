@@ -4,11 +4,11 @@ import type { ILink, ITheme, Terminal } from "@xterm/xterm";
 import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, onTerminalReconnect, useTerminalFont, watchTerminalOutput } from "./store.js";
 import { unseenOutput } from "./output.js";
 import { terminalFontStack, type ResolvedTerminalFont } from "./font.js";
-import { classifyTerminalLink, findTerminalLinks, positionIn, wrappedLineAt } from "./links.js";
+import { classifyTerminalLink, findTerminalFileLinks, findTerminalLinks, positionIn, resolveTerminalPath, wrappedLineAt } from "./links.js";
 import { terminalKeyOutcome, terminalNavigation, type TerminalNavigation } from "./keys.js";
 import { terminalMenuChoice, terminalMenuSections } from "./context-menu.js";
 import { focusPane, isStaged } from "./layout.js";
-import { addExcerptToPrompt, openTerminalLink } from "./controller.js";
+import { addExcerptToPrompt, openTerminalFileLink, openTerminalLink } from "./controller.js";
 import { forGround } from "./palette.js";
 import { scrollDragAtWindowEdge } from "./edge-scroll.js";
 import { TERMINAL_DATA_EVENT, type TerminalDataEvent, type UiTerminalSession } from "./protocol.js";
@@ -82,6 +82,8 @@ function linkHint(text: string): string {
   const key = MAC ? "⌘" : "Ctrl";
   return target?.kind === "preview" ? `${key}-click to open in the Preview` : `${key}-click to open in the browser`;
 }
+
+const FILE_HINT = `${MAC ? "⌘" : "Ctrl"}-click to open the file`;
 
 function navigate(instance: Terminal, navigation: TerminalNavigation): void {
   if (navigation === "select-all") instance.selectAll();
@@ -199,15 +201,29 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
         provideLinks: (row, callback) => {
           const line = wrappedLineAt(row, (index) => instance.buffer.active.getLine(index));
           if (!line) return callback(undefined);
-          const found: ILink[] = findTerminalLinks(line.text)
-            .filter((match) => positionIn(line, match.start).y <= row && positionIn(line, match.end - 1).y >= row)
+          const urls = findTerminalLinks(line.text);
+          const cwd = () => sessionRef.current.currentCwd ?? sessionRef.current.cwd;
+          const within = (start: number, end: number) => positionIn(line, start).y <= row && positionIn(line, end - 1).y >= row;
+          const rangeOf = (start: number, end: number) => ({ start: positionIn(line, start), end: positionIn(line, end - 1) });
+          const found: ILink[] = urls
+            .filter((match) => within(match.start, match.end))
             .map((match) => ({
               text: match.url,
-              range: { start: positionIn(line, match.start), end: positionIn(line, match.end - 1) },
+              range: rangeOf(match.start, match.end),
               activate: (event, text) => { if (activatesLink(event)) void openTerminalLink(text); },
               hover: (_event, text) => { element.title = linkHint(text); },
               leave: () => { element.title = ""; },
             }));
+          for (const match of findTerminalFileLinks(line.text, urls)) {
+            if (!within(match.start, match.end) || !resolveTerminalPath(match.path, cwd())) continue;
+            found.push({
+              text: line.text.slice(match.start, match.end),
+              range: rangeOf(match.start, match.end),
+              activate: (event) => { if (activatesLink(event)) openTerminalFileLink(match, cwd()); },
+              hover: () => { element.title = FILE_HINT; },
+              leave: () => { element.title = ""; },
+            });
+          }
           callback(found.length > 0 ? found : undefined);
         },
       });

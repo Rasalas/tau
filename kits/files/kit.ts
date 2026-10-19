@@ -14,6 +14,8 @@ export interface WorkspaceStoreLike {
   chooseEditor(id: string): void;
   openInEditor(relPath?: string, editorOverride?: string, position?: { line?: number; column?: number }): Promise<void>;
   refresh(): Promise<void>;
+  /** Shows a project folder, opened, in the Files panel; absent from an older Workspace Kit. */
+  revealFolder?(relPath: string): void;
   registerFileEditor?(editor: (relPath: string, actions: WorkbenchActions) => void): () => void;
 }
 

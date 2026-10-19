@@ -10,7 +10,7 @@ export interface TerminalLinkMatch {
 const URL_PATTERN = /\bhttps?:\/\/[^\s"'`<>]+/giu;
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/u;
 
-/** Drops punctuation a sentence put after the URL and closing brackets it never opened. */
+/** Drops punctuation a sentence put after the URL (or a compiler's `file:3:1:`) and closing brackets it never opened. */
 function trimUrl(raw: string): string {
   let url = raw.replace(TRAILING_PUNCTUATION, "");
   for (const [open, close] of [["(", ")"], ["[", "]"], ["{", "}"]] as const) {
@@ -27,6 +27,84 @@ export function findTerminalLinks(text: string): TerminalLinkMatch[] {
     matches.push({ url, start: match.index, end: match.index + url.length });
   }
   return matches;
+}
+
+export interface TerminalFileLinkMatch {
+  /** The path as printed, without a trailing `:line:column`. */
+  path: string;
+  line?: number;
+  column?: number;
+  /** Offsets in the searched text, position included; `end` is exclusive. */
+  start: number;
+  end: number;
+}
+
+// Explicit paths (rooted, `~`, `./`, drive, UNC), or a bare `dir/file` made of plain name characters.
+const FILE_PATTERN = /(?<![\w.~/\\-])(?:~[\\/]|\.{1,2}[\\/]|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|(?<![\w.~/\\-])[\w.-]+(?:[\\/][\w.-]+)+(?::\d+){0,2}/gu;
+const POSITION = /:(\d+)(?::(\d+))?$/u;
+const EXPLICIT = /^(?:~[\\/]|\.{1,2}[\\/]|\/|[A-Za-z]:[\\/]|\\\\)/u;
+const EXTENSION = /\.[A-Za-z0-9_-]+$/u;
+
+/**
+ * File paths in terminal output, with a trailing `:line[:column]` split off.
+ * A bare `dir/name` needs an extension or a position, so `and/or` stays text.
+ * Spans overlapping `taken` (URLs) are skipped.
+ */
+export function findTerminalFileLinks(text: string, taken: ReadonlyArray<{ start: number; end: number }> = []): TerminalFileLinkMatch[] {
+  const matches: TerminalFileLinkMatch[] = [];
+  for (const match of text.matchAll(FILE_PATTERN)) {
+    const raw = trimUrl(match[0]);
+    if (raw.length === 0 || raw.startsWith("//") || /^[a-z][a-z\d+.-]*:\/\//iu.test(raw)) continue;
+    const start = match.index;
+    const end = start + raw.length;
+    if (taken.some((other) => start < other.end && other.start < end)) continue;
+    const position = POSITION.exec(raw);
+    // A drive letter's colon is not a position.
+    const hasPosition = position !== null && position.index > 1;
+    const path = hasPosition ? raw.slice(0, position.index) : raw;
+    if (!hasPosition && !EXPLICIT.test(path) && !EXTENSION.test(path)) continue;
+    const first = hasPosition ? Number(position[1]) : undefined;
+    const second = hasPosition && position[2] !== undefined ? Number(position[2]) : undefined;
+    // `file:12:3` is line 12, column 3; a lone number is the line.
+    matches.push({ path, ...(first ? { line: first } : {}), ...(second ? { column: second } : {}), start, end });
+  }
+  return matches;
+}
+
+const WINDOWS_ROOT = /^(?:[A-Za-z]:[\\/]|\\\\)/u;
+
+function homeOf(cwd: string): string | undefined {
+  return /^(?:\/Users|\/home)\/[^/]+/u.exec(cwd)?.[0] ?? /^[A-Za-z]:[\\/]Users[\\/][^\\/]+/u.exec(cwd)?.[0];
+}
+
+/**
+ * The absolute path (forward slashes) a printed path names when the shell is
+ * in `cwd`; `undefined` where that cannot be known: a relative path with no
+ * directory, `~` with no home to infer, a path that climbs above the root, or
+ * a backslash path in a POSIX shell.
+ */
+export function resolveTerminalPath(path: string, cwd: string | undefined): string | undefined {
+  const windows = WINDOWS_ROOT.test(path) || (cwd !== undefined && WINDOWS_ROOT.test(cwd));
+  if (path.includes("\\") && !windows) return undefined;
+  let joined = windows ? path.replace(/\\/gu, "/") : path;
+  const base = cwd === undefined ? undefined : windows ? cwd.replace(/\\/gu, "/") : cwd;
+  if (/^~\//u.test(joined)) {
+    const home = cwd === undefined ? undefined : homeOf(base!);
+    if (!home) return undefined;
+    joined = `${home}${joined.slice(1)}`;
+  } else if (!/^(?:\/|[A-Za-z]:\/)/u.test(joined)) {
+    if (!base) return undefined;
+    joined = `${base.replace(/\/+$/u, "")}/${joined}`;
+  }
+  const unc = joined.startsWith("//");
+  const drive = /^[A-Za-z]:/u.exec(joined)?.[0] ?? "";
+  const segments: string[] = [];
+  for (const segment of joined.slice(drive.length).split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment !== "..") segments.push(segment);
+    else if (segments.pop() === undefined) return undefined;
+  }
+  return `${unc ? "/" : ""}${drive}/${segments.join("/")}`;
 }
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::]"]);
