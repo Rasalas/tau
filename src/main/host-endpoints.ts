@@ -8,19 +8,25 @@ export type Interfaces = Record<string, NetworkInterfaceInfo[] | undefined>;
 
 export type AddressClass = "loopback" | "link-local" | "tailscale" | "lan";
 
-/** 100.64.0.0/10 (the CGNAT range Tailscale hands out) or Tailscale's fd7a:115c:a1e0::/48. */
-export function isTailscaleAddress(address: string): boolean {
+/** Tailscale's IPv6 prefix, or a CGNAT address on an identified Tailscale adapter. */
+export function isTailscaleAddress(address: string, interfaces: Interfaces = {}): boolean {
   const lower = address.toLowerCase();
   if (lower.startsWith("fd7a:115c:a1e0:")) return true;
-  const match = /^100\.(\d+)\.\d+\.\d+$/u.exec(address);
-  return match !== null && Number(match[1]) >= 64 && Number(match[1]) <= 127;
+  return isCgnatAddress(address)
+    && Object.entries(interfaces).some(([name, entries]) => entries?.some((entry) => !entry.internal && entry.address === address)
+      && (/^tailscale(?:\d+|ipv[46])?$/iu.test(name) || entries?.some((entry) => !entry.internal && /^fd7a:115c:a1e0:/iu.test(entry.address))));
 }
 
-export function classifyAddress(address: string): AddressClass {
+function isCgnatAddress(address: string): boolean {
+  const match = /^100\.(\d+)\.\d+\.\d+$/u.exec(address);
+  return isIP(address) === 4 && match !== null && Number(match[1]) >= 64 && Number(match[1]) <= 127;
+}
+
+export function classifyAddress(address: string, interfaces: Interfaces = {}): AddressClass {
   const lower = address.toLowerCase().replace(/^::ffff:/u, "");
   if (lower === "::1" || /^127\./u.test(lower)) return "loopback";
   if (/^169\.254\./u.test(lower) || /^fe[89ab][0-9a-f]:/u.test(lower)) return "link-local";
-  return isTailscaleAddress(lower) ? "tailscale" : "lan";
+  return isTailscaleAddress(lower, interfaces) ? "tailscale" : "lan";
 }
 
 /** Container, VM and CNI bridges: no other device reaches their addresses. */
@@ -66,7 +72,7 @@ export function listenerEndpoints(
   const bare = listener.host.replace(/^\[|\]$/gu, "");
   const endpoints: UiHostEndpoint[] = [];
   const add = (address: string, family: "IPv4" | "IPv6", name?: string): void => {
-    const kind = classifyAddress(address);
+    const kind = classifyAddress(address, interfaces);
     if (kind === "link-local") return;
     if (kind === "loopback") {
       if (options.loopback !== false) endpoints.push({ url: url(family === "IPv6" ? "::1" : "127.0.0.1"), label: "This machine", reachability: "loopback", kind: "loopback" });
@@ -90,6 +96,8 @@ export function listenerEndpoints(
       const ipv6Seen = new Set<string>();
       for (const entry of addresses ?? []) {
         if (entry.internal || !families.includes(entry.family)) continue;
+        if (/^(?:bridge\d|utun|tun|tap|wg|ipsec|ppp|vmnet|vboxnet|VirtualBox|VMware)/iu.test(name) && !isTailscaleAddress(entry.address, interfaces)) continue;
+        if (isCgnatAddress(entry.address) && !isTailscaleAddress(entry.address, interfaces)) continue;
         if (entry.family === "IPv6" && classifyAddress(entry.address) === "lan") {
           const scope = /^f[cd]/iu.test(entry.address) ? "ula" : "global";
           if (ipv6Seen.has(scope)) continue;
@@ -193,7 +201,7 @@ export class MagicDnsNames {
 
   /** The name of the first Tailscale address among `interfaces`. */
   async forInterfaces(interfaces: Interfaces): Promise<string | undefined> {
-    const address = Object.values(interfaces).flat().find((entry) => entry && !entry.internal && isTailscaleAddress(entry.address))?.address;
+    const address = Object.values(interfaces).flat().find((entry) => entry && !entry.internal && isTailscaleAddress(entry.address, interfaces))?.address;
     return address ? this.lookup(address) : undefined;
   }
 }

@@ -200,10 +200,12 @@ export const ENVIRONMENTS_EVENT = "environments";
 
 export const ENVIRONMENT_THREAD_LIMIT = 40;
 
-/** Addresses in the order a connection tries them: the one that worked last, then the nearest. */
+/** Addresses nearest first after the last success. A secure address rules out plaintext fallback. */
 export function orderEndpoints(endpoints: readonly PairingEndpoint[], lastUrl?: string): PairingEndpoint[] {
   const rank: Record<UiHostEndpointKind, number> = { loopback: 0, lan: 1, mdns: 2, tailscale: 3, magicdns: 4 };
+  const secure = lastUrl?.startsWith("https:") || endpoints.some((endpoint) => endpoint.url.startsWith("https:"));
   const sorted = endpoints
+    .filter((endpoint) => !secure || endpoint.url.startsWith("https:"))
     .map((endpoint, index) => ({ endpoint, index }))
     .sort((a, b) => (rank[a.endpoint.kind ?? "lan"] - rank[b.endpoint.kind ?? "lan"]) || a.index - b.index)
     .map((entry) => entry.endpoint);
@@ -218,9 +220,12 @@ const MAX_ENDPOINTS = 16;
  * Bonjour record). LAN addresses follow the machine; names, Tailscale
  * addresses and what the user typed stay until it is paired again, since a
  * machine reached one way may not list the others right now. `keep` is an
- * address that just worked.
+ * address that just worked. HTTPS credentials never follow a plaintext address.
  */
 export function refreshEndpoints(saved: readonly PairingEndpoint[], fresh: readonly PairingEndpoint[], keep?: string): PairingEndpoint[] {
+  const secure = keep?.startsWith("https:") || saved.some((endpoint) => endpoint.url.startsWith("https:"));
+  fresh = fresh.filter((endpoint) => !secure || endpoint.url.startsWith("https:"));
+  saved = saved.filter((endpoint) => !secure || endpoint.url.startsWith("https:"));
   if (fresh.length === 0) return [...saved];
   const urls = new Set(fresh.map((endpoint) => endpoint.url));
   const kept = saved.filter((endpoint) => !urls.has(endpoint.url) && (endpoint.kind !== "lan" || endpoint.url === keep));
