@@ -1,3 +1,4 @@
+import { terminalEnvironment } from "../_shared/child-environment.js";
 import { terminalMachineRouting } from "./machine-routing.js";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
@@ -129,7 +130,7 @@ export class TerminalSessions {
       file,
       args: shellArgs(file),
       cwd: input.cwd,
-      env: { ...process.env, ...this.shellEnvironment(file), TERM: "xterm-256color" } as Record<string, string>,
+      env: { ...terminalEnvironment(), ...this.shellEnvironment(file), TERM: "xterm-256color" },
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
     });

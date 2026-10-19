@@ -24,6 +24,9 @@ export const LOGIN_SHELL_ENV_NAMES = [
   "XDG_DATA_HOME",
   "EDITOR",
   "VISUAL",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
 ] as const;
 
 const LOCALE_NAMES = ["LANG", "LC_ALL", "LC_CTYPE"] as const;
