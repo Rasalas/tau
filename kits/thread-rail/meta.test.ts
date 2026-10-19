@@ -18,6 +18,7 @@ import {
   settlePatch,
   snoozePatch,
   snoozePresets,
+  settlingRequests,
   sweepPatches,
   createWorkingClock,
   unsettlePatch,
@@ -196,6 +197,25 @@ describe("the sweep", () => {
     expect(Object.keys(sweepPatches(threads, state({}, { onClosed: true }), new Set(), NOW, links))).toEqual(["merged", "closed"]);
     const again = state({ merged: { keptAt: NOW - 5, activityAt: NOW, settledForRequest: "https://example.test/pr/1" } });
     expect(sweepPatches(threads, again, new Set(), NOW, links)).toEqual({});
+  });
+
+  it("ignores a request that had already merged or closed when it was linked", () => {
+    const threads = [quiet("recorded", 0), quiet("followed", 0), quiet("both", 0), quiet("unlinkedTime", 0), quiet("openRecorded", 0)];
+    const recorded = { state: "merged" as const, url: "https://example.test/pr/1", linkedAt: 200, endedAt: 100 };
+    const followed = { state: "merged" as const, url: "https://example.test/pr/2", linkedAt: 100, endedAt: 200 };
+    const linked = new Map([
+      ["recorded", [recorded]],
+      ["followed", [followed]],
+      ["both", [recorded, followed]],
+      // Without both times the request counts, as before.
+      ["unlinkedTime", [{ state: "merged" as const, url: "https://example.test/pr/3" }]],
+      ["openRecorded", [recorded, { state: "open" as const, url: "https://example.test/pr/4", linkedAt: 300 }]],
+    ]);
+    const patches = sweepPatches(threads, state({}, { onClosed: true }), new Set(), NOW, linked);
+    expect(Object.keys(patches)).toEqual(["followed", "both", "unlinkedTime"]);
+    // The recorded request is not part of the key either.
+    expect(patches.both).toMatchObject({ settledForRequest: "https://example.test/pr/2" });
+    expect(settlingRequests([recorded, followed, { ...recorded, state: "closed" as const }])).toEqual([followed]);
   });
 
   it("waits for every linked request and never falls back to an unlinked branch", () => {

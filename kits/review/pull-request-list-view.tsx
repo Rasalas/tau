@@ -17,7 +17,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, Menu, Skeleton, Spinner, type MenuSection, type StageTabHandle, type WorkbenchActions } from "tau";
-import { listAcrossMachines, projectId, useProjects } from "./pull-request-lists.js";
+import { listAcrossMachines, projectId, useProjects, useThreadReader } from "./pull-request-lists.js";
+import { useProjectsInRailOrder, type ProjectOrderSource } from "./project-order.js";
 
 export { listAcrossMachines, projectsByMachine, type ProjectsByMachine } from "./pull-request-lists.js";
 import { REVIEWS_PAGE } from "./local-reviews.js";
@@ -236,7 +237,7 @@ const GROUPINGS: Array<{ value: Grouping; label: string }> = [{ value: "involvem
  * Requests page it lists every project, grouped by involvement or project; as
  * a thread's tab, its project's alone. A row opens the request.
  */
-export function PullRequestListView({ params, handle, actions, client, open, surface = "tab" }: {
+export function PullRequestListView({ params, handle, actions, client, open, surface = "tab", projectOrder }: {
   params: PullRequestsTabParams;
   /** The tab it draws in; the page has none. */
   handle?: Pick<StageTabHandle, "setTitle">;
@@ -244,12 +245,15 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
   client: PullRequestClient;
   open(entry: PullRequestListEntry, workspace?: string, focus?: "checks"): void;
   surface?: "tab" | "page";
+  /** The rail's project order for the project menu; absent, the order the projects came in. */
+  projectOrder?: ProjectOrderSource;
 }) {
   const onPage = surface === "page";
   const phone = useCompactProfile();
   const table = onPage && !phone;
   const Row = table ? PullRequestTableRow : PullRequestRow;
   const { projects, machines } = useProjects();
+  const menuProjects = useProjectsInRailOrder(projectOrder, projects, useThreadReader());
   // The page picks up where it was left; a thread's tab always starts from its own project.
   const [saved] = useState(() => onPage ? decodeSavedNarrowing(getClientStorage()?.get(NARROWING_KEY) ?? undefined) : undefined);
   const [scope, setScope] = useState<Scope>(() => {
@@ -378,7 +382,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     : arranged.groups;
   const projectItems: MenuSection[] = [{ items: [
     { id: "project:\u0001all", label: "All projects", selected: scope.kind === "all" },
-    ...projects.map((project) => ({ id: `project:${projectId(project)}`, label: project.name, hint: project.displayPath ?? project.path, selected: scope.kind === "project" && workspace === projectId(project) })),
+    ...menuProjects.map((project) => ({ id: `project:${projectId(project)}`, label: project.name, hint: project.displayPath ?? project.path, selected: scope.kind === "project" && workspace === projectId(project) })),
   ] }];
   const scopeLabel = scope.kind === "all" ? "All projects" : projectName(workspace) ?? "This project";
 

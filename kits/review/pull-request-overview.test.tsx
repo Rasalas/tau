@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StageTabHandle, UiFileDiff, WorkbenchActions } from "tau";
 import { readLinkInput } from "./link-dialog.js";
@@ -10,6 +10,7 @@ import type { PullRequestClient } from "./pull-request-client.js";
 import { hideWhitespace } from "./pull-request-diff.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
 import { listAcrossMachines, projectsByMachine, PullRequestListView } from "./pull-request-list-view.js";
+import { ProjectOrderSource } from "./project-order.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { LinkWatcher, worthShowing } from "./proactive-panels.js";
@@ -116,6 +117,32 @@ describe("the Pull Requests page", () => {
     expect(screen.getByRole("button", { name: /^!3 /u })).toBeTruthy();
   });
 
+
+  it("lists the project menu in the rail's order and follows a change of it", async () => {
+    const client = {
+      listMany: vi.fn(async () => ({ lists: [{ service: "github" as const, host: "github.com", repo: "cli/cli", entries: rows.slice(0, 1), truncated: false, limit: 100, workspaces: ["/a"] }], failures: [] })),
+    } as unknown as PullRequestClient;
+    const projects = ["a", "b", "c"].map((name, index) => ({ path: `/${name}`, workspaceId: `/${name}`, name, lastOpenedAt: index }));
+    let reversed = true;
+    const listeners = new Set<() => void>();
+    const source = new ProjectOrderSource();
+    source.set({
+      order: (list) => reversed ? [...list].reverse() : [...list],
+      subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    });
+    render(<TestThreadStore threads={[]} projects={projects}><PullRequestListView surface="page" params={{ scope: "all" }} actions={actions()} client={client} open={vi.fn()} projectOrder={source} /></TestThreadStore>);
+    const menu = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /^Projects:/u }));
+      const items = (await screen.findAllByRole("menuitemradio")).map((item) => item.textContent ?? "");
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+      return items;
+    };
+    const names = async () => (await menu()).map((label) => label.split("/")[0]!.trim());
+    expect(await names()).toEqual(["All projects", "c", "b", "a"]);
+    reversed = false;
+    act(() => { for (const listener of [...listeners]) listener(); });
+    expect(await names()).toEqual(["All projects", "a", "b", "c"]);
+  });
 
   it("reads the labels filter as checkboxes, since several labels can be on at once", async () => {
     const client = listClient((input) => ({ service: "github", host: "github.com", repo: "cli/cli", viewer: "BagToad", entries: rows.filter((row) => input.state === "all" || row.state === input.state), truncated: false, limit: input.limit }));

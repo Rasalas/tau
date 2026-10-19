@@ -225,14 +225,17 @@ export function registerThreadLinks(
   context.registerCommand("thread-requests", async (input) => {
     const ids = Array.isArray(record(input).threadIds) ? (record(input).threadIds as unknown[]).filter((id): id is string => typeof id === "string" && id.length > 0) : [];
     const queue = [...new Set(ids)];
-    const answer: Record<string, Array<{ url: string; state?: ThreadPullRequestLink["state"]; baseRef?: string }>> = {};
+    const answer: Record<string, Array<{ url: string; state?: ThreadPullRequestLink["state"]; baseRef?: string; linkedAt: number; endedAt?: number }>> = {};
     const worker = async () => {
       for (let threadId = queue.shift(); threadId !== undefined; threadId = queue.shift()) {
         // oxlint-disable-next-line no-await-in-loop -- a few at a time: each may ask a host
         await refresh(threadId, record(input).refresh === true).catch(() => undefined);
         // oxlint-disable-next-line no-await-in-loop
         const links = await store.list(threadId);
-        if (links.length > 0) answer[threadId] = links.map((entry) => ({ url: entry.url, ...(entry.state ? { state: entry.state } : {}), ...(entry.baseRef ? { baseRef: entry.baseRef } : {}) }));
+        if (links.length > 0) answer[threadId] = links.map((entry) => ({
+          url: entry.url, ...(entry.state ? { state: entry.state } : {}), ...(entry.baseRef ? { baseRef: entry.baseRef } : {}),
+          linkedAt: entry.linkedAt, ...(entry.endedAt !== undefined ? { endedAt: entry.endedAt } : {}),
+        }));
       }
     };
     await Promise.all(Array.from({ length: SETTLE_READS }, worker));
