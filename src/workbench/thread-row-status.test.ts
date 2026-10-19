@@ -13,6 +13,11 @@ describe("a thread row's state", () => {
     expect(threadRowStatus("a", activity)).toEqual({ activity: "waiting", label: "Question" });
   });
 
+  it("times a question from when it was asked, where the host said", () => {
+    expect(threadRowStatus("a", { ...idle, waitingThreadIds: ["a"], waitingSince: { a: 7 } })).toEqual({ activity: "waiting", label: "Question", startedAt: 7 });
+    expect(threadRowStatus("a", { ...idle, waitingThreadIds: ["a"], waitingSince: { b: 7 } })).toEqual({ activity: "waiting", label: "Question" });
+  });
+
   it("times a run from the start the store holds", () => {
     const activity = { ...idle, runningThreadIds: ["a"], runningStartedAt: { a: 1_000 } };
     expect(threadRowStatus("a", activity)).toEqual({ activity: "working", label: "Working", startedAt: 1_000 });

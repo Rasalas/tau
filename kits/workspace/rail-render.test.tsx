@@ -137,7 +137,8 @@ describe("rail render cost with a thousand threads", () => {
     const hand = <b data-testid="hand" />;
     const marked = timed(() => workspace.setThreadRowStatuses("tau.takeover", { "thread-40": { label: "Your turn", hint: "Sign in to staging", icon: hand } }));
     const status = (screen.getByText("Thread 40").closest("[data-rail-thread]") as HTMLElement).querySelector(".thread-status-age.status-waiting");
-    expect(status?.textContent).toBe("Your turn");
+    expect(status?.textContent).toMatch(/^Your turn/);
+    expect(status?.querySelector("time")).toBeTruthy();
     expect(status?.querySelector("[data-testid=hand]")).toBeTruthy();
     expect(marked.rows).toBe(1);
     const cleared = timed(() => workspace.setThreadRowStatuses("tau.takeover", {}));

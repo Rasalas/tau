@@ -36,6 +36,61 @@ describe("ThreadStatus elapsed time", () => {
   });
 });
 
+describe("ThreadStatus waiting time", () => {
+  it("counts from when the question was asked and moves on with the shared minute clock", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse("2026-09-01T12:02:10Z"));
+    const asked = Date.parse("2026-09-01T12:00:00Z");
+    const { container } = render(<>
+      <ThreadStatus activity="waiting" label="Question" startedAt={asked} />
+      <ThreadStatus activity="waiting" label="Question" startedAt={asked + 30_000} />
+    </>);
+    expect([...container.querySelectorAll("time")].map((time) => time.textContent)).toEqual(["2m", "1m"]);
+    expect(container.querySelector(".status-waiting svg")).toBeTruthy();
+    // The next minute turns at 12:03:00, 50 s from now.
+    act(() => { vi.advanceTimersByTime(49_000); });
+    expect(container.querySelector("time")?.textContent).toBe("2m");
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect([...container.querySelectorAll("time")].map((time) => time.textContent)).toEqual(["3m", "2m"]);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("runs no timer for a row that is not waiting and stops with the last waiting row", () => {
+    vi.useFakeTimers();
+    const idle = render(<ThreadStatus activity="ready" label="Ready" startedAt={0} />);
+    expect(vi.getTimerCount()).toBe(0);
+    idle.unmount();
+    render(<ThreadStatus activity="waiting" label="Question" startedAt={0} />).unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("falls back to the row's last update when the host did not time the question", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse("2026-09-01T15:00:00Z"));
+    const modifiedAt = Date.parse("2026-09-01T12:00:00Z");
+    const { container } = render(<ThreadRow
+      activity="waiting"
+      activityLabel="Question"
+      active={false}
+      age="3h"
+      session={{ ...session, modifiedAt }}
+      onSelect={() => {}}
+    />);
+    expect(container.querySelector(".thread-status-age")?.textContent).toBe("Question3h");
+    cleanup();
+    const { container: timed } = render(<ThreadRow
+      activity="waiting"
+      activityLabel="Question"
+      active={false}
+      age="3h"
+      startedAt={Date.parse("2026-09-01T14:58:00Z")}
+      session={{ ...session, modifiedAt }}
+      onSelect={() => {}}
+    />);
+    expect(timed.querySelector(".thread-status-age")?.textContent).toBe("Question2m");
+  });
+});
+
 describe("ThreadRow project mark", () => {
   it("renders the detected project image", () => {
     const icon = "data:image/svg+xml;base64,aWNvbg==";
@@ -177,9 +232,9 @@ describe("ThreadRow state and type", () => {
   const rule = (selector: string) => new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")} \\{([^}]*)\\}`, "u").exec(css)?.[1] ?? "";
 
   it("marks a question with a help glyph and a finished run with a check", () => {
-    const waiting = render(<ThreadRow activity="waiting" activityLabel="Question" active={false} age="now" session={session} onSelect={() => {}} />);
+    const waiting = render(<ThreadRow activity="waiting" activityLabel="Question" active={false} age="now" startedAt={Date.now()} session={session} onSelect={() => {}} />);
     const question = waiting.container.querySelector(".thread-status-age.status-waiting");
-    expect(question?.textContent).toBe("Question");
+    expect(question?.textContent).toBe("Questionnow");
     expect(question?.querySelector("svg.lucide-circle-help, svg.lucide-circle-question-mark")).toBeTruthy();
     waiting.unmount();
     const ready = render(<ThreadRow activity="ready" active={false} age="now" session={session} onSelect={() => {}} />);

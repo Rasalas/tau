@@ -166,7 +166,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(limited?.getAttribute("data-tooltip")).toContain("continues by itself at");
   });
 
-  it("names a question Question, without a frame, and times a run from the host's start, as a phone does", async () => {
+  it("names a question Question with the time since it was asked, without a frame, and times a run from the host's start, as a phone does", async () => {
     const shell = (id: string) => ({ id, path: `/sessions/${id}.jsonl`, title: `Thread ${id}`, modifiedAt: 2, projectPath: "/project", projectName: "project", messageCount: 2 });
     const organizing: DesktopExtension = {
       id: "test.organizer",
@@ -198,9 +198,9 @@ describe("Workspace Kit in the workbench", () => {
     });
     renderApp(client, { extensions: [workspaceExtension, organizing] });
     await screen.findByText("Thread asking");
-    act(() => client.emit({ type: "extension-ui-prompt", sessionId: "asking", prompt: { id: "q1", sessionId: "asking", kind: "confirm", title: "Write the file?" } }));
+    act(() => client.emit({ type: "extension-ui-prompt", sessionId: "asking", prompt: { id: "q1", sessionId: "asking", kind: "confirm", title: "Write the file?", askedAt: Date.now() - 134_000 } }));
     const asking = screen.getByText("Thread asking").closest(".thread-row") as HTMLElement;
-    await waitFor(() => expect(asking.querySelector(".thread-status-age.status-waiting")?.textContent).toBe("Question"));
+    await waitFor(() => expect(asking.querySelector(".thread-status-age.status-waiting")?.textContent).toBe("Question2m"));
     const busy = screen.getByText("Thread busy").closest(".thread-row")?.querySelector(".thread-status-age.status-working");
     expect(busy?.textContent).toMatch(/^Working2:1[45]$/u);
   });

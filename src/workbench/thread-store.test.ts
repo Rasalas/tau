@@ -8,6 +8,27 @@ const shell = (id: string, title = id) => ({
 
 afterEach(() => vi.useRealTimers());
 
+describe("ThreadStore open questions", () => {
+  it("times a wait from the first question on the thread and on every thread above it", () => {
+    const store = new ThreadStore();
+    store.applyThreadIndex({ projects: [], sessions: [shell("parent"), { ...shell("child"), parentThreadId: "parent" }], complete: true });
+    store.setAsking([{ sessionId: "child", askedAt: 3_000 }, { sessionId: "child", askedAt: 2_000 }, { sessionId: "other" }]);
+    expect(store.getActivity().waitingThreadIds).toEqual(["child", "other", "parent"]);
+    expect(store.getActivity().waitingSince).toEqual({ child: 2_000, parent: 2_000 });
+  });
+
+  it("keeps the activity snapshot while the same questions stay open, and clears the times when they are answered", () => {
+    const store = new ThreadStore();
+    store.setAsking([{ sessionId: "one", askedAt: 1_000 }]);
+    const before = store.getActivity();
+    store.setAsking([{ sessionId: "one", askedAt: 1_000 }]);
+    expect(store.getActivity()).toBe(before);
+    store.setAsking([]);
+    expect(store.getActivity().waitingThreadIds).toEqual([]);
+    expect(store.getActivity().waitingSince).toEqual({});
+  });
+});
+
 describe("ThreadStore selective navigation subscriptions", () => {
   it("publishes a completeness-only index change without rerendering shell subscriptions", () => {
     const store = new ThreadStore();

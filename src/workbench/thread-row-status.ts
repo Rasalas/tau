@@ -14,7 +14,7 @@ export interface ThreadRowStatus {
   label: string;
   /** What the state means, for the badge's tooltip. */
   hint?: string;
-  /** The host's start of the run, for `Working m:ss`; set while the thread runs. */
+  /** The host's start of the run, for `Working m:ss`, or of the wait, for `Question 2m`. */
   startedAt?: number;
   /** A kit mark's icon, drawn in place of the state's own. */
   icon?: unknown;
@@ -63,7 +63,10 @@ export function threadRowStatus(
   thread?: Pick<UiSession, "limit" | "turnError" | "background">,
 ): ThreadRowStatus {
   // A stalled question outranks every other state: nothing moves until it is answered.
-  if (activity.waitingThreadIds.includes(id)) return { activity: "waiting", label: THREAD_QUESTION_LABEL };
+  if (activity.waitingThreadIds.includes(id)) {
+    const askedAt = activity.waitingSince?.[id];
+    return { activity: "waiting", label: THREAD_QUESTION_LABEL, ...(askedAt === undefined ? {} : { startedAt: askedAt }) };
+  }
   if (activity.runningThreadIds.includes(id)) {
     const startedAt = activity.runningStartedAt[id];
     return { activity: "working", label: "Working", ...(startedAt === undefined ? {} : { startedAt }) };

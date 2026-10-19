@@ -963,7 +963,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return <RailThreadCard id={key} facts={facts} actions={actions} onClose={close} />;
   };
 
-  const renderRow = (session: UiSession, { activity: status, label, hint, icon }: RailStatus, compact = false) => (
+  const renderRow = (session: UiSession, { activity: status, label, hint, icon, startedAt }: RailStatus, compact = false) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
@@ -974,7 +974,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       activityIcon={icon}
       compact={(compact || compactRows) && status !== "settled"}
       modelProvider={!draftOnScreen && session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
-      startedAt={activityState.runningStartedAt[session.id]}
+      startedAt={startedAt ?? activityState.runningStartedAt[session.id]}
       onSelect={actions.switchSession}
       organizer={organizer}
       actions={actions}
