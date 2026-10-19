@@ -41,6 +41,19 @@ describe("reviewed update plan", () => {
     expect(f.update).not.toHaveBeenCalled();
   });
 
+  it("lists every machine at once, fills rows as reads settle and drops a machine that does not answer", async () => {
+    const f = fixture([machine("local"), machine("slow"), machine("rex")]);
+    f.readExtension.mockImplementation((id: string) => id === "slow" ? new Promise<UiRuntimeToolsState>(() => undefined) : Promise.resolve(f.states.get(id)!));
+    const lists: string[][] = [];
+    const plan = await buildUpdatePlan(f.environments, { timeoutMs: 5, changed: (steps) => lists.push(steps.filter((step) => step.kind === "tools").map((step) => `${step.machine}:${step.state}`)) });
+    expect(lists[0]).toEqual(["local:reading", "slow:reading", "rex:reading"]);
+    expect(lists.some((list) => list.includes("local:pending") && list.includes("slow:reading"))).toBe(true);
+    expect(plan.find((step) => step.kind === "tools" && step.machine === "slow")).toMatchObject({ state: "skipped", message: expect.stringContaining("Review again") });
+    expect(plan.find((step) => step.kind === "tools" && step.machine === "rex")?.state).toBe("pending");
+    await runUpdatePlan(plan, f.environments, { changed });
+    expect(f.update.mock.calls.map(([id]) => id)).toEqual(["rex", "local"]);
+  });
+
   it("shows offline, read-only and owner policy exclusions before starting", async () => {
     const f = fixture([machine("offline", { status: "offline" }), machine("viewer", { readOnly: true }), machine("restricted", { update: status({ devicesMayInstall: false }) })]);
     const plan = await buildUpdatePlan(f.environments);
@@ -191,6 +204,22 @@ describe("update plan settings", () => {
     view.unmount();
     render(<TestProviders><Section /></TestProviders>);
     expect(screen.getAllByText("done")).toHaveLength(4);
+  });
+
+  it("shows each machine as it answers and enables the run only after every read settled", async () => {
+    const f = fixture();
+    let answer!: () => void;
+    f.readExtension.mockImplementation((id: string) => id === "rex" ? new Promise<UiRuntimeToolsState>((resolve) => { answer = () => resolve(f.states.get(id)!); }) : Promise.resolve(f.states.get(id)!));
+    const Section = createUpdatePlanSection(f.environments);
+    render(<TestProviders><Section /></TestProviders>);
+    fireEvent.click(screen.getByRole("button", { name: "Review updates" }));
+    await screen.findByText("Reading agent tools…");
+    await screen.findByText("Pi 1.0.0 → 2.0.0");
+    expect(screen.getByRole("button", { name: "Run update plan" })).toHaveProperty("disabled", true);
+    await act(async () => { answer(); });
+    await waitFor(() => expect(screen.getAllByText("Pi 1.0.0 → 2.0.0")).toHaveLength(2));
+    expect(screen.queryByText("Reading agent tools…")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run update plan" })).toHaveProperty("disabled", false));
   });
 
   it("continues a running plan while Settings is closed and shows its error on return", async () => {

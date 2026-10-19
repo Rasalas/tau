@@ -7,7 +7,7 @@ export interface UpdateStep {
   kind: "tools" | "machine" | "app";
   tools?: UiRuntimeTool[];
   version?: string;
-  state: "pending" | "running" | "done" | "failed" | "skipped";
+  state: "reading" | "pending" | "running" | "done" | "failed" | "skipped";
   message?: string;
 }
 
@@ -16,31 +16,55 @@ const pending = (tool: UiRuntimeTool) => Boolean(tool.update && tool.installed &
 const readTools = (environments: PlatformEnvironments, machine: string) => environments.readExtension!(machine, ENVIRONMENTS_EXTENSION_ID, LOCAL_STATE) as Promise<UiRuntimeToolsState>;
 const unavailable = (machine: UiEnvironment) => machine.status !== "connected" ? "Disconnected" : machine.readOnly ? "Read only" : undefined;
 
-/** Reads only: the list is reviewed before any update request is sent. */
-export async function buildUpdatePlan(environments: PlatformEnvironments): Promise<UpdateStep[]> {
+interface PlanOptions {
+  /** Called with a fresh list whenever a machine's read settles. */
+  changed?(steps: UpdateStep[]): void;
+  /** How long one machine may take to answer before its row is dropped from the run. */
+  timeoutMs?: number;
+}
+
+/** A machine that does not answer in this time is listed as unread and left out of the run. */
+const READ_TIMEOUT_MS = 10_000;
+
+const withTimeout = <T,>(promise: Promise<T>, ms: number) => new Promise<T>((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error("Did not answer in time. Review again to include this machine.")), ms);
+  promise.then(resolve, reject).finally(() => clearTimeout(timer));
+});
+
+/** Reads only: the list is reviewed before any update request is sent. Rows appear as each machine answers. */
+export async function buildUpdatePlan(environments: PlatformEnvironments, options: PlanOptions = {}): Promise<UpdateStep[]> {
   const machines = environments.getSnapshot()?.environments;
   if (!machines) throw new Error("The machine list has not loaded yet.");
-  const tools = await Promise.all(machines.map(async (machine): Promise<UpdateStep | undefined> => {
-    const base = { machine: machine.id, label: `${machine.name}: agent tools`, kind: "tools" as const };
-    const reason = unavailable(machine);
-    if (reason) return { ...base, state: "skipped", message: reason };
-    if (!environments.readExtension || !environments.invokeExtension) return { ...base, state: "skipped", message: "This client cannot manage tools on this machine." };
-    try {
-      const state = await readTools(environments, machine.id);
-      if (state.blocked) return { ...base, state: "skipped", message: state.blocked };
-      const selected = state.tools.filter((tool) => pending(tool) || tool.state);
-      return selected.length ? { ...base, tools: selected, state: "pending", message: selected.map((tool) => `${tool.label} ${tool.installed ?? "unknown"} → ${tool.latest ?? "unknown"}`).join(", ") } : undefined;
-    } catch (error) {
-      return { ...base, state: "skipped", message: errorMessage(error) };
-    }
-  }));
   const updates = machines.filter((machine) => hostUpdatePending(machine.update)).map((machine): UpdateStep => {
     const reason = unavailable(machine) ?? (!environments.update ? "This client cannot update machines." : !machine.local && !machine.update!.devicesMayInstall ? "The owner does not allow this device to install updates." : undefined);
     const app = machine.local;
     return { machine: machine.id, kind: app ? "app" : "machine", label: `${machine.name}: ${app ? "Tau and this app, last" : "Tau"} → ${machine.update!.latest}`,
       version: machine.update!.latest, state: reason ? "skipped" : "pending", ...(reason ? { message: reason } : {}) };
   });
-  return [...tools.filter((step): step is UpdateStep => Boolean(step)), ...updates.filter((step) => step.kind === "machine"), ...updates.filter((step) => step.kind === "app")];
+  // One slot per machine, undefined once its read shows nothing to update.
+  const rows: (UpdateStep | undefined)[] = machines.map((machine) => {
+    const base = { machine: machine.id, label: `${machine.name}: agent tools`, kind: "tools" as const };
+    const reason = unavailable(machine);
+    if (reason) return { ...base, state: "skipped", message: reason };
+    if (!environments.readExtension || !environments.invokeExtension) return { ...base, state: "skipped", message: "This client cannot manage tools on this machine." };
+    return { ...base, state: "reading", message: "Reading agent tools…" };
+  });
+  const snapshot = () => [...rows.filter((step): step is UpdateStep => Boolean(step)), ...updates.filter((step) => step.kind === "machine"), ...updates.filter((step) => step.kind === "app")];
+  options.changed?.(snapshot());
+  await Promise.all(machines.map(async (machine, index) => {
+    const row = rows[index];
+    if (row?.state !== "reading") return;
+    try {
+      const state = await withTimeout(readTools(environments, machine.id), options.timeoutMs ?? READ_TIMEOUT_MS);
+      const selected = state.blocked ? [] : state.tools.filter((tool) => pending(tool) || tool.state);
+      rows[index] = state.blocked ? { ...row, state: "skipped", message: state.blocked }
+        : selected.length ? { ...row, tools: selected, state: "pending", message: selected.map((tool) => `${tool.label} ${tool.installed ?? "unknown"} → ${tool.latest ?? "unknown"}`).join(", ") } : undefined;
+    } catch (error) {
+      rows[index] = { ...row, state: "skipped", message: errorMessage(error) };
+    }
+    options.changed?.(snapshot());
+  }));
+  return snapshot();
 }
 
 interface RunOptions {
