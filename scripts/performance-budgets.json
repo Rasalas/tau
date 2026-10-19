@@ -1,11 +1,11 @@
 {
-  "initialJavascriptBytes": 802000,
+  "initialJavascriptBytes": 803000,
   "initialJavascriptGzipBytes": 275000,
   "initialCssBytes": 148000,
   "initialCssGzipBytes": 30000,
   "totalJavascriptBytes": 1900000,
-  "totalJavascriptGzipBytes": 559000,
-  "kitDesktopJavascriptBytes": 3330000,
+  "totalJavascriptGzipBytes": 561000,
+  "kitDesktopJavascriptBytes": 3360000,
   "buildTimeMs": 30000,
   "buildTimeReference": {
     "referenceMs": 266,
@@ -95,7 +95,7 @@
     "initialCssBytes": 148000,
     "initialCssGzipBytes": 30000,
     "totalJavascriptBytes": 2000000,
-    "totalJavascriptGzipBytes": 571000,
+    "totalJavascriptGzipBytes": 573000,
     "buildTimeMs": 20000
   }
 }
