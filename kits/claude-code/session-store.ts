@@ -744,6 +744,25 @@ export class ClaudeRuntimeSessionStore {
     await this.persist(tauThreadId);
   }
 
+  /**
+   * A new CLI session id for a thread whose old one never held a conversation:
+   * Claude can neither resume nor create it. Nothing is lost, since a session
+   * that was never confirmed has no turns on Claude's side.
+   */
+  async replaceUnstartedSession(tauThreadId: string, cwd: string): Promise<ClaudeRuntimeSessionRecord> {
+    await this.ensureRecord(tauThreadId, cwd);
+    const record = this.records.get(tauThreadId);
+    if (!record) throw new Error("Claude runtime session could not be persisted.");
+    if (record.started) throw new Error("This thread's Claude session has a conversation; it cannot be replaced.");
+    record.claudeSessionId = randomUUID();
+    record.attempted = false;
+    record.createFallbackUsed = false;
+    record.lastAttemptOutcome = "missing";
+    record.updatedAt = this.now();
+    await this.persist(tauThreadId);
+    return cloneRecord(record);
+  }
+
   async markCreateFallbackUsed(tauThreadId: string, cwd: string): Promise<void> {
     await this.ensureRecord(tauThreadId, cwd);
     const record = this.records.get(tauThreadId);

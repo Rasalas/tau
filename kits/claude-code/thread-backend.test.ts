@@ -918,6 +918,52 @@ describe("thread runtime backends", () => {
     expect(await store.get("tau-thread")).toMatchObject({ createFallbackUsed: true, started: true });
   });
 
+  describe("a session the CLI never saved a prompt for", () => {
+    const refused = (message: string) => [frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: [message], total_cost_usd: 0, usage: {} })];
+
+    it("starts under a new id when the CLI neither resumes the old one nor creates it again", async () => {
+      const { filePath, store } = await scratchStore();
+      const first = await store.ensure("tau-thread", WORKSPACE);
+      await store.markAttempted("tau-thread", WORKSPACE);
+      const { adapter, opened } = scriptedAdapter(filePath, (_content, _priority, input) => input.claudeSessionId !== first.claudeSessionId
+        ? turn("fresh")
+        : refused(input.started ? `No conversation found with session ID: ${input.claudeSessionId}` : `Session ID ${input.claudeSessionId} is already in use.`));
+      const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+      await backend.start("resume");
+      await expect(backend.prompt({ text: "hello", delivery: "prompt" })).resolves.toEqual({ assistantText: "fresh" });
+      expect(opened.map((input) => [input.claudeSessionId === first.claudeSessionId, input.started])).toEqual([[true, true], [true, false], [false, false]]);
+      expect(await store.get("tau-thread")).toMatchObject({ started: true, createFallbackUsed: false });
+      expect((await store.get("tau-thread"))?.claudeSessionId).not.toBe(first.claudeSessionId);
+    });
+
+    it("repairs a thread that was left with its one create fallback spent", async () => {
+      const { filePath, store } = await scratchStore();
+      const first = await store.ensure("tau-thread", WORKSPACE);
+      await store.markAttempted("tau-thread", WORKSPACE);
+      await store.markCreateFallbackUsed("tau-thread", WORKSPACE);
+      const { adapter, opened } = scriptedAdapter(filePath, (_content, _priority, input) => input.claudeSessionId !== first.claudeSessionId
+        ? turn("fresh")
+        : refused(`No conversation found with session ID: ${input.claudeSessionId}`));
+      const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+      await backend.start("resume");
+      await expect(backend.prompt({ text: "hello", delivery: "prompt" })).resolves.toEqual({ assistantText: "fresh" });
+      expect(opened.map((input) => input.started)).toEqual([true, false]);
+    });
+
+    it("leaves a session that held a conversation alone", async () => {
+      const { filePath, store } = await scratchStore();
+      const first = await store.ensure("tau-thread", WORKSPACE);
+      await store.markStarted("tau-thread", WORKSPACE);
+      await store.markCreateFallbackUsed("tau-thread", WORKSPACE);
+      const { adapter, opened } = scriptedAdapter(filePath, (_content, _priority, input) => refused(`No conversation found with session ID: ${input.claudeSessionId}`));
+      const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", onEvent: () => undefined });
+      await backend.start("resume");
+      await expect(backend.prompt({ text: "hello", delivery: "prompt" })).rejects.toThrow("No conversation found");
+      expect(opened).toHaveLength(1);
+      expect((await store.get("tau-thread"))?.claudeSessionId).toBe(first.claudeSessionId);
+    });
+  });
+
   it("sends images before the text and shows them on the user's row", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, sessions } = scriptedAdapter(filePath, () => turn("seen"));
