@@ -179,6 +179,25 @@ describe("SdkTurnTranslator", () => {
     ]);
   });
 
+  it("shows a hook's reason once, skips info lines, and ends a prompt the hook dropped without a reply", () => {
+    const reason = "Prompt dropped by a hook: Deploys are frozen until Monday.";
+    const translator = new SdkTurnTranslator(() => 42);
+    const { events } = run([
+      frame({ type: "system", subtype: "informational", content: "Started in the background: agent-1", level: "info", uuid: "u1" }),
+      frame({ type: "system", subtype: "informational", content: reason, level: "warning", prevent_continuation: true, uuid: "u2" }),
+      frame({ type: "result", subtype: "success", is_error: false, num_turns: 0, result: reason, total_cost_usd: 0, usage: {} }),
+    ], translator);
+    expect(events).toEqual([{ type: "assistant-end", message: { id: "claude-informational-u2", role: "notice", text: reason, timestamp: 42 } }]);
+    expect(translator.outcome).toMatchObject({ texts: [] });
+    expect(translator.outcome?.error).toBeUndefined();
+  });
+
+  it("still ignores an empty result a resumed session sends before the turn", () => {
+    const translator = new SdkTurnTranslator(() => 42);
+    run([frame({ type: "result", subtype: "success", is_error: false, num_turns: 0, result: "", total_cost_usd: 0, usage: {} })], translator);
+    expect(translator.outcome).toBeUndefined();
+  });
+
   it("names the limit a rejected usage window stopped the turn with", () => {
     const now = 1_000_000_000_000;
     const translator = new SdkTurnTranslator(() => now);

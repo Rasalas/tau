@@ -58,6 +58,7 @@ import { addUsage, SdkTurnTranslator } from "./sdk-events.js";
 import { ClaudeUsage } from "./sdk-usage.js";
 import type { ClaudeSdkSession, SendPriority, UserContent } from "./sdk-session.js";
 import { ClaudeBackgroundTasks } from "./background-tasks.js";
+import { LiveBashOutput } from "./bash-output-tail.js";
 import { ClaudeRuntimeSessionStore, usageTurnsOf, type ClaudeStoredGoal } from "./session-store.js";
 
 function derivedClaudeTitle(text: string): string | undefined {
@@ -135,6 +136,8 @@ export interface ClaudeThreadBackendOptions {
   onRateLimits?(infos: ReadonlyArray<Record<string, unknown>>): void;
   /** The user told the CLI's resume question never to ask again. */
   onResumeQuestionOff?(): void;
+  /** Where the CLI writes a running command's output; its own temp folder by default (tests). */
+  taskOutputRoot?: string | undefined;
 }
 
 interface LiveSession {
@@ -214,6 +217,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     this.store = options.store;
     this.options = options;
     this.now = options.now ?? Date.now;
+    this.bashOutput = new LiveBashOutput({ onOutput: (id, output) => this.report({ type: "tool-update", id, output }), ...("taskOutputRoot" in options ? { root: options.taskOutputRoot } : {}) });
     this.capabilities = {
       titles: { title: () => this.runtimeAdapter.nativeTitle?.(this.cwd, this.providerSessionId) ?? Promise.resolve(undefined) },
       ...(this.runtimeAdapter.complete ? { completions: {
@@ -277,6 +281,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private admittingPrompts = 0;
   private commandList: UiComposerCommand[] = [];
   private readonly background = new ClaudeBackgroundTasks(() => this.now());
+  private readonly bashOutput: LiveBashOutput;
   private readonly store: ClaudeRuntimeSessionStore;
   private readonly options: ClaudeThreadBackendOptions;
 
@@ -628,6 +633,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       return;
     }
     if (this.background.push(frame)) this.report({ type: "background" });
+    this.bashOutput.push(frame);
     for (const event of this.nativeAgents.push(frame)) this.handleEvent(event);
     // The exit path publishes one durable error on the parent. The provider's
     // failed assistant frame is not a second conversational reply.
@@ -826,6 +832,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     if (this.live === live) {
       this.options.cancelPrompts?.();
       this.live = undefined;
+      this.bashOutput.stop();
       for (const event of authentication ? this.nativeAgents.tracker.fail(error.message) : this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
       this.clearBackground();
     }
@@ -1014,6 +1021,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     const live = this.live;
     this.live = undefined;
     if (live && !live.session.closed) await live.session.close();
+    this.bashOutput.stop();
     for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
     this.clearBackground();
     await this.writes;
