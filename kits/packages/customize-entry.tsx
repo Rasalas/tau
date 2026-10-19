@@ -61,7 +61,7 @@ export async function startCustomization(
 const inProject = (thread: NonNullable<ReturnType<WorkbenchActions["activeThread"]>>, target: CustomizeTarget): boolean =>
   thread.workspaceId === target.workspaceId || (thread.cwd !== undefined && trimmed(thread.cwd) === trimmed(target.directory));
 
-/** The entry at the top of Settings → Extensions; with nothing installed it says what the button is for. */
+/** The entry at the top of Settings → Customize; with nothing installed it says what the button is for. */
 function CustomizeSection({ host, start }: { host: HostExtensionClient; start(): Promise<void> }) {
   const [empty, setEmpty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,7 +73,7 @@ function CustomizeSection({ host, start }: { host: HostExtensionClient; start():
     return () => { current = false; };
   }, [host]);
   return (
-    <SettingsSection title="Customize">
+    <SettingsSection title="Change Tau">
       <SettingRow
         id="setting-packages-customize"
         title="Customize Tau"
@@ -90,7 +90,7 @@ function CustomizeSection({ host, start }: { host: HostExtensionClient; start():
   );
 }
 
-/** The palette command, the Settings entry, and the rule that this project's threads never get a worktree. */
+/** The palette command, the entry on Settings → Customize, and the rule that this project's threads never get a worktree. */
 export function registerCustomizeEntry(plugin: DesktopExtensionContext): void {
   let bound: WorkbenchActions | undefined;
   const prefix = createPendingPrefix();
@@ -141,10 +141,10 @@ export function registerCustomizeEntry(plugin: DesktopExtensionContext): void {
   });
   plugin.registerSettingsSection({
     id: "packages.customize",
-    page: "extensions",
-    order: 5,
+    // Customize Kit's page draws it; the page is found once, so no row of its own.
+    page: "customize",
+    order: 1,
     profiles: ["desktop", "web"],
-    rows: [{ id: "setting-packages-customize", label: "Customize Tau", keywords: ["change", "button", "panel", "theme", "my own", "extension", "package"] }],
     Component: ({ onNotify }: SettingsSectionProps) => (
       <CustomizeSection
         host={plugin.host}

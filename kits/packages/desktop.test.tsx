@@ -150,7 +150,9 @@ describe("Packages kit", () => {
     const { registry } = createKitHarness(vi.fn(async () => ({})));
     registry.activate(packagesExtension);
     expect(registry.getSettingsPages()).toEqual([]);
-    expect(registry.getSettingsSections("extensions").map((section) => [section.id, Boolean(section.advanced)])).toEqual([["packages.customize", false], ["packages.install", false], ["packages.sources", true]]);
+    expect(registry.getSettingsSections("extensions").map((section) => [section.id, Boolean(section.advanced)])).toEqual([["packages.install", false], ["packages.sources", true]]);
+    // "Customize Tau…" joins the Customize page, found once by the page, not by a row of its own.
+    expect(registry.getSettingsSections("customize").map((section) => [section.id, section.rows])).toEqual([["packages.customize", undefined]]);
     // The page it had before still opens: its links land on Extensions.
     expect(registry.settingsPageReplacedBy(PACKAGES_RETIRED_PAGE)).toBe("extensions");
     const open = registry.getCommands().find((command) => command.id === "packages.install");
@@ -231,7 +233,7 @@ describe("Packages kit", () => {
     const sections = registry.getSettingsSections("extensions");
     render(<>{sections.map(({ id, Component }) => <Component key={id} cwd="/project" onNotify={vi.fn()} onChanged={vi.fn()} />)}</>);
     const rows = sections.flatMap((section) => section.rows ?? []);
-    expect(rows.length).toBe(5);
+    expect(rows.length).toBe(4);
     for (const row of rows) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 

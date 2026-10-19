@@ -8,7 +8,7 @@ markup, they keep working after Tau updates.
 
 ## Find a part
 
-- **Pick it.** Run "Customize a part…" from the command palette (or
+- **Pick it.** Run "Hide or move a part…" from the command palette (or
   Settings → Customize → Pick a part) and click what you want to change. Tau
   opens Settings → Customize at that part. Escape stops picking.
 - **Find it.** Settings → Customize lists every part by extension, with its

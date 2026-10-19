@@ -1,7 +1,7 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { Crosshair, Plus, Trash2 } from "lucide-react";
 import {
-  Button, DangerAction, DangerZone, Empty, READ_ONLY_REASON, SettingRow, SettingsPageAction, SettingsSection, Switch, TextField,
+  Button, DangerAction, DangerZone, Empty, READ_ONLY_REASON, SettingRow, SettingsPageAction, SettingsPageSections, SettingsSection, Switch, TextField,
   hostIsReadOnly, type CustomizablePart, type SettingsPageProps,
 } from "tau";
 import type { CustomizeEdit, CustomizeStore } from "./client-store.js";
@@ -56,7 +56,7 @@ export interface CustomizeSettingsProps extends SettingsPageProps {
 }
 
 /** Settings → Customize: every part with its switch, the user's styles and scripts, and a way back to Tau as shipped. */
-export function CustomizeSettings({ store, parts, subscribeParts, pick }: CustomizeSettingsProps) {
+export function CustomizeSettings({ store, parts, subscribeParts, pick, onNotify, onOpenSettings }: CustomizeSettingsProps) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   useSyncExternalStore(subscribeParts, () => parts().length);
   const readOnly = hostIsReadOnly();
@@ -95,6 +95,8 @@ export function CustomizeSettings({ store, parts, subscribeParts, pick }: Custom
     <>
       {pick ? <SettingsPageAction><Button icon={<Crosshair size={14} />} onClick={pick}>Pick a part</Button></SettingsPageAction> : null}
       {error ? <p className="customize-error" role="alert">{error}</p> : null}
+      {/* What other extensions attach to this page; Packages Kit's "Customize Tau…" comes first. */}
+      <SettingsPageSections page={CUSTOMIZE_SETTINGS_PAGE} onNotify={onNotify ?? (() => undefined)} {...(onOpenSettings ? { onOpenSettings } : {})} />
 
       <SettingsSection title="Parts">
         <SettingRow title="Find a part" description="Every part extensions draw here, by its name. Turn one off to hide it.">

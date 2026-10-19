@@ -190,13 +190,13 @@ describe("Customize Tau…", () => {
     expect(registered[0]!("/home/dev/project")).toBe(false);
   });
 
-  it("is a button at the top of Settings → Extensions, with a sentence while nothing is installed", async () => {
+  it("is a button at the top of Settings → Customize, with a sentence while nothing is installed", async () => {
     const invoke = vi.fn(async (_id: string, command: string): Promise<unknown> => command === "customization-project" ? PROJECT : command === "list" ? { packages: [] } : { directory: DIRECTORY, packages: 0 });
     const { registry } = createKitHarness(invoke);
     registry.activate(packagesExtension);
     const win = windowActions();
     const bind = registry.getRegions("composer-above").find((region) => region.id === "packages.customize-actions")!;
-    const section = registry.getSettingsSections("extensions").find((entry) => entry.id === "packages.customize")!;
+    const section = registry.getSettingsSections("customize").find((entry) => entry.id === "packages.customize")!;
     render(<><win.Screen region={bind as never} /><section.Component onNotify={vi.fn()} onChanged={vi.fn()} /></>);
 
     expect(await screen.findByText(/Nothing is installed yet/u)).toBeTruthy();
@@ -210,7 +210,7 @@ describe("Customize Tau…", () => {
     const invoke = vi.fn(async (_id: string, command: string): Promise<unknown> => command === "list" ? { packages: [] } : { directory: DIRECTORY, packages: 2 });
     const { registry } = createKitHarness(invoke);
     registry.activate(packagesExtension);
-    const section = registry.getSettingsSections("extensions").find((entry) => entry.id === "packages.customize")!;
+    const section = registry.getSettingsSections("customize").find((entry) => entry.id === "packages.customize")!;
     render(<section.Component onNotify={vi.fn()} onChanged={vi.fn()} />);
     await waitFor(() => expect(invoke).toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "list", undefined));
     // Both answers in, and the section has drawn them.

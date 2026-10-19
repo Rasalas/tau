@@ -2,7 +2,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkbenchActions } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
 import { customizeExtension } from "./desktop.js";
 import { CUSTOMIZE_CHANGED_EVENT, CUSTOMIZE_EXTENSION_ID, EMPTY_STATE, type CustomizeState } from "./protocol.js";
 import { readState } from "./store.js";
@@ -86,5 +86,19 @@ describe("Customize Kit desktop extension", () => {
     await settled();
     expect(calls.find(([command]) => command === "set")?.[1]).toMatchObject({ state: { hidden: ["region:usage.juicebars"] } });
     expect(registry.getRegions("thread-list-title").map((region) => region.id)).not.toContain("usage.juicebars");
+  });
+
+  it("offers one palette command and draws what other extensions attach to its page above its own sections", async () => {
+    const { registry } = world({});
+    registry.activate({ id: "test.entry", name: "Entry", activate(context) {
+      context.registerSettingsSection({ id: "test.entry", page: "customize", order: 1, Component: () => <p>Attached entry</p> });
+    } });
+    await settled();
+    expect(registry.getCommands().filter((command) => command.label.startsWith("Customize") || command.id.startsWith("customize.")).map((command) => [command.id, command.label])).toEqual([["customize.pick", "Hide or move a part…"]]);
+    const page = registry.getSettingsPages().find((entry) => entry.id === "customize")!;
+    const { container } = render(<WorkbenchShellContext.Provider value={{ registry }}><page.Component onNotify={() => undefined} /></WorkbenchShellContext.Provider>);
+    await screen.findByText("Attached entry");
+    const headings = [...container.querySelectorAll("h2")].map((heading) => heading.textContent);
+    expect(container.textContent!.indexOf("Attached entry")).toBeLessThan(container.textContent!.indexOf(headings[0]!));
   });
 });

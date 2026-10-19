@@ -4378,7 +4378,7 @@ else covers. `page` is one of:
 | `"extension"` | on every extension's own page after its settings; the component also gets `extensionId` and `cwd` and draws nothing for an extension it has nothing to say about (Packages Kit's Update and Remove) | 1.18.0 |
 | `"general"`, `"threads"` | the cards of those pages (below) and, without `card`, after the cards | 1.13.0, 1.61.0 |
 | `"inspector"` | Settings → Diagnostics, below core's sections (Signals) | 1.61.0 |
-| another extension's page id | wherever that page draws `SettingsPageSections` (below): `"notifications.settings"` takes Push's phone, `"workspace.source-control"` Review's settings, `"evidence"` (Screenshots) SnapShots, `"environments.machines"` Remote Work | 1.61.0 |
+| another extension's page id | wherever that page draws `SettingsPageSections` (below): `"notifications.settings"` takes Push's phone, `"workspace.source-control"` Review's settings, `"evidence"` (Screenshots) SnapShots, `"environments.machines"` Remote Work, `"customize"` Packages Kit's "Customize Tau…" at the top of Customize | 1.61.0 |
 
 The component gets `onNotify`, `onChanged` (reads the page's own data again
 after the section changed something it shows: a new endpoint in the address
@@ -4973,7 +4973,7 @@ the command line) and answers the same `{ directory, id, name, apiVersion, files
 
 ### The customization project: "Customize Tau…" (API 1.75.0)
 
-"Customize Tau…" (the palette, and a button at the top of Settings → Extensions)
+"Customize Tau…" (the palette, and a button at the top of Settings → Customize)
 makes the one project "Tau customizations" the first time and takes the same one
 afterwards. Its folder is the global extension folder, `services.globalExtensionsDirectory()`
 (`packages` permission, in-process only; `~/.tau/extensions`, or below
@@ -4989,7 +4989,11 @@ Threads there never get a worktree (`registerInPlaceProjects` above) and their
 instructions take the stronger form: `customizeInstructionsFor(cwd, folder)` answers
 "you are in the customization project; every request here is a package" when `cwd`
 is the folder or inside it, and the plain section elsewhere. With no package
-installed, the button in Settings → Extensions says so in a sentence.
+installed, the button in Settings → Customize says so in a sentence. Customize Kit
+owns that page and draws it with `SettingsPageSections page="customize"`; Packages
+Kit attaches its section there, and neither kit imports the other. The palette shows
+two commands: "Customize Tau…" and Customize Kit's "Hide or move a part…"
+(`customize.pick`).
 
 ### Seeing the result: `tau_window_screenshot` (API 1.75.0)
 

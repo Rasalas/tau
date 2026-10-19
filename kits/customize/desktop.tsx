@@ -88,7 +88,7 @@ export const customizeExtension: DesktopExtension = {
       Icon: Paintbrush,
       group: "app",
       order: 90,
-      keywords: ["hide", "css", "style", "script", "user script", "theme", "part", "juicebars"],
+      keywords: ["hide", "css", "style", "script", "user script", "theme", "part", "juicebars", "describe", "change", "extension", "package", "my own"],
       Component: (props) => (
         <CustomizeSettings
           {...props}
@@ -102,7 +102,7 @@ export const customizeExtension: DesktopExtension = {
 
     plugin.registerCommand({
       id: "customize.pick",
-      label: "Customize a part…",
+      label: "Hide or move a part…",
       group: "Extensions",
       access: "read",
       run: () => { picker.set(true); },
