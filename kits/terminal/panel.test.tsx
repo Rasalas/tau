@@ -6,7 +6,7 @@ import { createKitHarness, KitShell } from "../../src/renderer/test-support/kit-
 import { TerminalPanel, placeOf } from "./panel.js";
 import { TerminalStageTab } from "./stage-tab.js";
 import { connectTerminalHost, terminalServices, terminalStore } from "./store.js";
-import { addExcerptToPrompt, openTerminalLink, targetShell, toggleTerminal } from "./controller.js";
+import { addExcerptToPrompt, openTerminalFileLink, openTerminalLink, targetShell, toggleTerminal } from "./controller.js";
 import { EMPTY_LAYOUT, paneIds, stageGroup } from "./layout.js";
 import { pathInside } from "./panes.js";
 import { TERMINAL_COMMANDS, TERMINAL_LIST_EVENT, TERMINAL_PANEL, TERMINAL_STAGE_TAB, type UiTerminalSession } from "./protocol.js";
@@ -717,5 +717,16 @@ describe("terminal commands", () => {
     open.mockRejectedValueOnce(new Error("no preview here"));
     await openTerminalLink("http://127.0.0.1:8080", actions);
     expect(actions.openExternal).toHaveBeenLastCalledWith("http://127.0.0.1:8080/");
+  });
+
+  it("opens a printed file path in a file tab, from where the shell is", () => {
+    const openFile = vi.fn();
+    const actions = workbenchActions({ openFile });
+    expect(openTerminalFileLink({ path: "src/app.ts", line: 12 }, "/project/api", actions)).toBe(true);
+    expect(openFile).toHaveBeenLastCalledWith("/project/api/src/app.ts", { line: 12 });
+    expect(openTerminalFileLink({ path: "..\\lib\\x.ts" }, "C:\\work\\app", actions)).toBe(true);
+    expect(openFile).toHaveBeenLastCalledWith("C:/work/lib/x.ts", undefined);
+    expect(openTerminalFileLink({ path: "src/app.ts" }, undefined, actions)).toBe(false);
+    expect(openFile).toHaveBeenCalledTimes(2);
   });
 });
