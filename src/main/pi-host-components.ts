@@ -353,6 +353,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
         turns: turnEvents,
         turnObservers,
         refreshShell: (runtime, touch) => index.refreshShell(runtime, touch),
+        publishUsage: (runtime) => index.publishUsage(runtime),
         controls,
       });
     },

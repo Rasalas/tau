@@ -449,7 +449,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         if (!filter && frame.hello.lastSeq !== undefined && !reply.resync) session.lastSent = reply.missed.at(-1)?.seq ?? frame.hello.lastSeq;
         // Said here so a client that manages nothing never asks for the list it would be refused.
         const owner = isHostOwner(session.principal);
-        if (!send(socket, { type: "hello-reply", id: frame.id, reply: { ...reply, ...(readOnly ? { access: "read-only" as const } : {}), owner } })) return;
+        // The replayed pushes go out as the JSON recorded with them; `missed` is the reply's last key.
+        const { missed, ...answer } = reply;
+        const replyText = JSON.stringify({ type: "hello-reply", id: frame.id, reply: { ...answer, ...(readOnly ? { access: "read-only" as const } : {}), owner, missed: [] } });
+        if (!sendText(socket, `${replyText.slice(0, -"[]}}".length)}[${options.pushLog.pushesText(missed)}]}}`, "hello-reply")) return;
         followTopics(socket, session, frame.hello.subscription?.topics ?? []);
         if (authenticated.get(socket) !== session) return;
         if (!frame.hello.auxiliary && (frame.hello.lastSeq === undefined || reply.resync)) options.onSnapshotClient?.();
@@ -570,7 +573,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
       for (const [socket, session] of authenticated) {
         if (socket.readyState !== socket.OPEN || !(session.filter?.admits(push.event, scope) ?? true)) continue;
         if (scope === "writers" && readOnlySession(session)) continue;
-        event ??= JSON.stringify(push.event);
+        event ??= options.pushLog.eventText(push);
         // The first push after skipped ones says so, or the client would count a gap.
         const prev = session.lastSent === push.seq - 1 ? "" : `,"prev":${session.lastSent}`;
         const text = prev

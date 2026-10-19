@@ -1,4 +1,5 @@
-import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
+import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { CURRENT_SESSION_VERSION, parseSessionEntries, SessionManager, type FileEntry } from "@earendil-works/pi-coding-agent";
 import type { SessionLocks } from "./session-locks.js";
@@ -70,41 +71,54 @@ export function openSessionLocked(locks: SessionLocks, path: string, sessionDir?
   return locks.hold(path, "open", () => SessionManager.open(path, sessionDir, cwd));
 }
 
-function headerCwd(path: string): string | undefined {
-  let fd: number;
-  try { fd = openSync(path, "r"); } catch { return undefined; }
+async function headerCwd(path: string): Promise<string | undefined> {
+  let file: FileHandle;
+  try { file = await open(path, "r"); } catch { return undefined; }
   try {
-    const line = readHeaderLine(fd);
+    const buffer = Buffer.alloc(64 * 1024);
+    let text = "";
+    let line: string | undefined;
+    for (let offset = 0; offset < HEADER_SCAN_BYTES && line === undefined;) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+      if (bytesRead === 0) { line = text; break; }
+      text += buffer.toString("utf8", 0, bytesRead);
+      const end = text.indexOf("\n");
+      if (end >= 0) line = text.slice(0, end);
+      offset += bytesRead;
+    }
     const parsed = line ? JSON.parse(line) as { type?: unknown; id?: unknown; cwd?: unknown } : undefined;
     if (parsed?.type !== "session" || typeof parsed.id !== "string") return undefined;
     return typeof parsed.cwd === "string" ? parsed.cwd : "";
   } catch {
     return undefined;
   } finally {
-    closeSync(fd);
+    await file.close();
   }
 }
 
 /**
  * `SessionManager.continueRecent` without its unlocked open: the newest
  * session of `cwd` (every session of the folder, unless a shared sessions
- * folder is set), opened while this host holds it, or a new one.
+ * folder is set), opened while this host holds it, or a new one. Headers are
+ * read newest first, so a folder of many sessions costs its stats and a few reads.
  */
 export async function openRecentSession(locks: SessionLocks, cwd: string, sessionsDir: string | undefined): Promise<SessionManager> {
   const fresh = SessionManager.create(cwd, sessionsDir);
   const dir = fresh.getSessionDir();
   const wanted = resolve(cwd);
-  let newest: { path: string; mtime: number } | undefined;
   let names: string[] = [];
-  try { names = readdirSync(dir).filter((name) => name.endsWith(".jsonl")); } catch { /* no folder yet */ }
-  for (const name of names) {
+  try { names = (await readdir(dir)).filter((name) => name.endsWith(".jsonl")); } catch { /* no folder yet */ }
+  const stamped = await Promise.all(names.map(async (name) => {
     const path = join(dir, name);
-    const owner = headerCwd(path);
+    try { return { path, mtime: (await stat(path)).mtimeMs }; } catch { return undefined; }
+  }));
+  // Stable, so of equally new files the first listed wins, as before.
+  const newestFirst = stamped.filter((entry) => entry !== undefined).sort((a, b) => b.mtime - a.mtime);
+  for (const { path } of newestFirst) {
+    const owner = await headerCwd(path);
     if (owner === undefined) continue;
     if (sessionsDir !== undefined && (!owner || resolve(owner) !== wanted)) continue;
-    let mtime: number;
-    try { mtime = statSync(path).mtimeMs; } catch { continue; }
-    if (!newest || mtime > newest.mtime) newest = { path, mtime };
+    return openSessionLocked(locks, path, dir, cwd);
   }
-  return newest ? openSessionLocked(locks, newest.path, dir, cwd) : fresh;
+  return fresh;
 }

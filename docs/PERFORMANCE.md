@@ -2329,3 +2329,35 @@ The waiting badge in the thread rail shows how long a thread has waited, ticking
 On a phone, a thread's linked pull requests can be linked, unlinked, watched, copied and shared from a sheet. Its first CI build measured 3,311,525 bytes of desktop kit JavaScript against the then 3,300,000-byte cap; with the session database maintenance and the pull request target setting merged before it, the cap increases by 10,000 bytes to 3,320,000 as an explicit allowance; JavaScript, CSS and timing budgets stay unchanged.
 
 The second round of fixes and features from the 2026-10-19 comparison with T3 Code (PRs #422–#441: twenty tickets across the composer, transcript, review, preview, terminal, storage page and runtime kits) needs room in four budgets at once. Measured on main `e1a29ed0c`: 801,310 initial JavaScript bytes, 558,743 total gzipped JavaScript bytes, 3,328,041 desktop kit bytes, and 570,775 total gzipped bytes in the browser client. The first CI builds of the branches measured, among others, 802,021 initial bytes (#423), 559,261 total gzip bytes (#430) and 3,330,293–3,335,025 kit bytes (#435, #436, #440, #441), with ten branches not yet measured. The caps rise once for the whole round instead of per branch, so parallel branches stop conflicting on this file: initial JavaScript to 803,000 bytes, total gzipped JavaScript to 561,000, desktop kits to 3,360,000 and the browser client total to 573,000. This is an explicit allowance for the added behaviour, not a size improvement; CSS, initial gzip and timing budgets stay unchanged.
+
+## Host work between turns, 2026-10-20
+
+A review of the host's steady-state work found these repeated costs; none had a
+measured regression, so no budget changed.
+
+- **Recovery scan.** `refresh("changes")`, the 30-second scan, sent every client
+  the whole thread index after each pass, plus a partial index (`complete:
+  false`) at its start and after each runtime's listing, even when nothing had
+  changed. It now sends the shells that changed, as they change, and a full
+  index only when the projects, `complete` or the unavailable runtimes differ.
+  An unchanged scan sends nothing. Its shell updates now carry the workspace id
+  and marks the full index used to add.
+- **Push log.** Each push is serialized once; the socket sends and replays that
+  text. A push sent to one client only (`replay: false`) counts 16 bytes against
+  the 8 MB replay buffer instead of its size.
+- **Session info cache.** It is written compactly, 10 s after the last scan that
+  changed it, and on shutdown; it keeps the first 200 characters of a thread's
+  first prompt, more than its title reads, instead of the whole prompt.
+- **Project labels.** A scan asks a project's label provider (the Workspace
+  Kit's `git branch --show-current`) at most every 3 minutes per folder, and
+  again once a label provider is added. The open thread's project still asks on
+  each snapshot.
+- **Opening the newest session** stats the folder's files asynchronously and
+  reads headers newest first, instead of every header and stat synchronously.
+- **Usage reports.** A runtime's `usage` or `title` event updates those two
+  fields of the shell without mapping the transcript; the end of a turn the
+  runtime began itself counts its messages. A prompt's end maps the transcript
+  once, not twice; a snapshot and an older page map Pi's branch once.
+- **Lifecycle measurements** count IPC bytes only under
+  `TAU_MEASURE_LIFECYCLE_IPC=1`, which the host benchmark sets, and keep the
+  last 100 measurements.

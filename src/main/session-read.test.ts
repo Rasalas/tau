@@ -2,9 +2,15 @@ import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { open } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHeldElsewhereError, SessionLocks } from "./session-locks.js";
 import { openRecentSession, piRewritesOnOpen, readSessionFile } from "./session-read.js";
+
+vi.mock("node:fs/promises", async (original) => {
+  const fs = await original<typeof import("node:fs/promises")>();
+  return { ...fs, open: vi.fn(fs.open) };
+});
 
 const timestamp = "2026-09-27T00:00:00.000Z";
 const header = (id: string, cwd: string, version = 3) => JSON.stringify({ type: "session", version, id, timestamp, cwd });
@@ -68,6 +74,19 @@ describe("opening the newest session of a folder", () => {
     const manager = await openRecentSession(new SessionLocks(), project, dir);
     expect(manager.getSessionId()).toBe("new");
     expect(manager.getCwd()).toBe(project);
+  });
+
+  it("reads headers newest first and stops at the first session of the folder", async () => {
+    const project = join(dir, "project");
+    for (let index = 0; index < 20; index++) file(`old-${index}.jsonl`, `${header(`old-${index}`, project)}\n`, 1_000 + index);
+    file("other.jsonl", `${header("other", join(dir, "elsewhere"))}\n`, 3_000);
+    const newest = file("new.jsonl", `${header("new", project)}\n`, 2_000);
+    vi.mocked(open).mockClear();
+
+    const manager = await openRecentSession(new SessionLocks(), project, dir);
+    expect(manager.getSessionId()).toBe("new");
+    const headersRead = vi.mocked(open).mock.calls.map(([path]) => String(path)).filter((path) => path.endsWith(".jsonl"));
+    expect(headersRead).toEqual([join(dir, "other.jsonl"), newest]);
   });
 
   it("starts a new session when the folder has none, and refuses one another process holds", async () => {

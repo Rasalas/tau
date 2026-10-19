@@ -198,6 +198,32 @@ describe("ThreadIndex", () => {
     }
   });
 
+  it("publishes only the changed shells of a recovery scan, and nothing when none changed", async () => {
+    const sessionsDir = await mkdtemp(join(tmpdir(), "tau-index-recovery-"));
+    const { index, events, updates } = makeIndex({ sessionsDir });
+    const write = (id: string, text: string) => writeFile(join(sessionsDir, `${id}.jsonl`), [
+      JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-10-12T10:00:00Z", cwd: "/repo" }),
+      JSON.stringify({ type: "message", id: "u", parentId: null, message: { role: "user", content: text, timestamp: 1 } }),
+    ].join("\n"));
+    try {
+      await write("one", "Hello");
+      await write("two", "Hi");
+      await index.refresh("index");
+      events.length = 0;
+      updates.length = 0;
+      await index.refresh("changes");
+      expect(events).toEqual([]);
+      expect(updates).toEqual([]);
+      await appendFile(join(sessionsDir, "two.jsonl"), "\n" + JSON.stringify({ type: "message", id: "a", parentId: "u", message: { role: "assistant", content: [{ type: "text", text: "Hey" }], provider: "fixture", model: "fixture", timestamp: 2 } }));
+      await index.refresh("changes");
+      expect(events).toEqual([]);
+      expect(updates).toEqual([expect.objectContaining({ type: "thread-shell", update: { sessionId: "two", shell: expect.objectContaining({ id: "two", workspaceId: expect.any(String) }) } })]);
+    } finally {
+      await index.dispose();
+      await rm(sessionsDir, { recursive: true, force: true });
+    }
+  });
+
   it("publishes a remote project icon change even when its threads have not changed", async () => {
     const sessionsDir = await mkdtemp(join(tmpdir(), "tau-project-icon-"));
     const record: HostBackendThreadRecord = {
@@ -278,6 +304,29 @@ describe("ThreadIndex", () => {
     await flush();
     expect(updates).toHaveLength(1);
     await index.publishModelProvider(thread);
+    await flush();
+    expect(updates).toHaveLength(1);
+  });
+
+  it("publishes a runtime's usage and title report without reading its transcript", async () => {
+    const { index, updates } = makeIndex();
+    seed(index, [shell({ id: "session", path: "/session.jsonl", title: "Kept", messageCount: 9_000 })]);
+    const thread = piThread("session");
+    const transcript = vi.fn(async () => { throw new Error("a usage report read the transcript"); });
+    const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 15, costUsd: 0.01, turns: 1 };
+    Object.assign((thread as unknown as { backend: object }).backend, {
+      transcript,
+      catalogView: () => ({ thinkingLevel: "off", thinkingLevels: [], allTools: [], usage }),
+    });
+    await index.publishUsage(thread);
+    expect(transcript).not.toHaveBeenCalled();
+    expect(index.byId("session")).toMatchObject({ title: "Kept", messageCount: 9_000, usage, modifiedAt: 1 });
+    thread.adapterTitle = "Renamed";
+    await index.publishUsage(thread);
+    expect(index.byId("session")?.title).toBe("Renamed");
+    await flush();
+    expect(updates).toHaveLength(1);
+    await index.publishUsage(thread);
     await flush();
     expect(updates).toHaveLength(1);
   });

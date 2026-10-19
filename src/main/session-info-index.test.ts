@@ -77,7 +77,9 @@ describe("SessionInfoIndex", () => {
     const path = join(root, "one.jsonl");
     const file = join(root, "cache", "info.json");
     await writeFile(path, session("one") + message("hello", 1) + JSON.stringify({ type: "model_change", id: "model", provider: "fixture", modelId: "selected" }) + "\n");
-    const first = await new SessionInfoIndex(root, { file }).list();
+    const writer = new SessionInfoIndex(root, { file });
+    const first = await writer.list();
+    await writer.dispose();
     vi.mocked(createReadStream).mockClear();
     const restored = await new SessionInfoIndex(root, { file }).list();
     expect(restored.infos).toEqual(first.infos);
@@ -86,6 +88,30 @@ describe("SessionInfoIndex", () => {
     await appendFile(path, message("changed", 2));
     expect((await new SessionInfoIndex(root, { file }).list()).infos[0]?.messageCount).toBe(2);
     expect(createReadStream).toHaveBeenCalledOnce();
+  });
+
+  it("writes the cache compactly once scans pause, keeping only the prompt text a title reads", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const root = await directory();
+      const path = join(root, "one.jsonl");
+      const file = join(root, "cache", "info.json");
+      const prompt = `Rename   the\nwidget. ${"x".repeat(5_000)}`;
+      await writeFile(path, session("one") + JSON.stringify({ type: "message", id: "u", parentId: null, message: { role: "user", content: prompt, timestamp: 1 } }) + "\n");
+      const index = new SessionInfoIndex(root, { file });
+      await index.list();
+      await appendFile(path, message("more", 2));
+      await index.list();
+      const { readFile } = await import("node:fs/promises");
+      await expect(readFile(file, "utf8")).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await index.flush();
+      const written = await readFile(file, "utf8");
+      expect(written).not.toContain("\n");
+      const restored = (await new SessionInfoIndex(root, { file }).list()).infos[0]!;
+      expect(restored.messageCount).toBe(2);
+      expect(restored.firstMessage).toBe(`Rename the widget. ${"x".repeat(181)}`);
+    } finally { vi.useRealTimers(); }
   });
 
   it("ignores corrupt and newer-version caches without trusting their metadata", async () => {

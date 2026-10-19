@@ -38,6 +38,7 @@ function makeServices() {
     detailForSnapshot: (snapshot: import("../shared/contracts.js").HostSnapshot) => ({ detailOf: snapshot.sessionId }) as never,
     turnObservers: { toolEnded: vi.fn(), unpromptedEnded: vi.fn() },
     refreshShell: vi.fn(async () => undefined),
+    publishUsage: vi.fn(async () => undefined),
     controls: { publishGoal: vi.fn(), publishBackground: vi.fn() },
     turnSettled: vi.fn(),
   };
@@ -54,7 +55,8 @@ describe("handleBackendRuntimeEvent", () => {
     const thread = makeThread();
     const { services } = makeServices();
     handleBackendRuntimeEvent({ type: "title" }, thread, services);
-    expect(services.refreshShell).toHaveBeenCalledWith(thread, false);
+    expect(services.publishUsage).toHaveBeenCalledWith(thread);
+    expect(services.refreshShell).not.toHaveBeenCalled();
   });
   it("republishes background work and gives a turn the runtime began itself an outcome before its end goes out", () => {
     const thread = makeThread();
@@ -65,9 +67,12 @@ describe("handleBackendRuntimeEvent", () => {
     handleBackendRuntimeEvent({ type: "turn-started", unprompted: true }, thread, services);
     handleBackendRuntimeEvent({ type: "turn-settled", status: "error", error: "boom" }, thread, services);
     expect(services.turnObservers.unpromptedEnded).toHaveBeenCalledWith("thread-1", "failed");
+    // No prompt counts the messages of a turn the runtime began itself.
+    expect(services.refreshShell).toHaveBeenCalledExactlyOnceWith(thread, false);
     handleBackendRuntimeEvent({ type: "turn-started" }, thread, services);
     handleBackendRuntimeEvent({ type: "turn-settled", status: "completed" }, thread, services);
     expect(services.turnObservers.unpromptedEnded).toHaveBeenCalledTimes(1);
+    expect(services.refreshShell).toHaveBeenCalledTimes(1);
   });
   it("turns a streamed turn into host events and keeps the live state the Pi path keeps", async () => {
     const thread = makeThread();
@@ -108,7 +113,8 @@ describe("handleBackendRuntimeEvent", () => {
     expect(thread.adapterMessages).toEqual([user, assistant]);
     expect(thread.liveAssistant).toBeUndefined();
     expect(thread.adapterStreaming).toBe(false);
-    expect(services.refreshShell).toHaveBeenCalledWith(thread, false);
+    expect(services.publishUsage).toHaveBeenCalledWith(thread);
+    expect(services.refreshShell).not.toHaveBeenCalled();
     expect(services.clientTurns.settle).toHaveBeenCalledWith("thread-1");
 
     expect(events.map((event) => event.type)).toEqual([

@@ -99,6 +99,8 @@ export async function readPersistedJson<T>(
 
 export interface WritePersistedJsonOptions {
   logger?: PersistedJsonLogger;
+  /** One line instead of indented, for a cache nobody reads by hand. */
+  compact?: boolean;
 }
 
 // One write in flight per path at a time, across every caller of this module.
@@ -122,7 +124,7 @@ async function syncDirectory(dir: string): Promise<void> {
   }
 }
 
-async function writeOnce(path: string, version: number, data: Record<string, unknown>): Promise<void> {
+async function writeOnce(path: string, version: number, data: Record<string, unknown>, compact = false): Promise<void> {
   const guard = writeGuards.get(path);
   if (guard && "error" in guard) throw guard.error;
   if (guard && "version" in guard && guard.version > version) {
@@ -131,7 +133,7 @@ async function writeOnce(path: string, version: number, data: Record<string, unk
   const dir = dirname(path);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(dir, 0o700).catch(() => undefined);
-  const contents = JSON.stringify({ version, ...data }, null, 2);
+  const contents = JSON.stringify({ version, ...data }, null, compact ? undefined : 2);
   const temp = join(dir, `${basename(path)}.${randomUUID()}.tmp`);
   try {
     const handle = await open(temp, "wx", 0o600);
@@ -166,7 +168,7 @@ export function writePersistedJson<T extends Record<string, unknown>>(
   const previous = writeQueues.get(path) ?? Promise.resolve();
   const next = previous.catch(() => undefined).then(async () => {
     try {
-      await writeOnce(path, version, data);
+      await writeOnce(path, version, data, options.compact);
       writeFailures.delete(path);
     } catch (error) {
       if (!writeFailures.has(path)) {

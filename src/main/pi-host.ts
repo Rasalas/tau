@@ -843,7 +843,7 @@ export class PiHost {
       const rawMessages = this.projection.branchMessages(thread);
       result = localTranscriptPage(
         sessionId,
-        this.projection.messages(thread),
+        this.projection.messages(thread, rawMessages),
         taskProgressHistoryFromMessages(rawMessages),
         turnActivityHistoryFromMessages(rawMessages),
         true,

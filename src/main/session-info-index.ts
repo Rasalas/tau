@@ -6,7 +6,11 @@ import { getAgentDir, SessionManager, type FileEntry, type SessionHeader, type S
 import { SessionModelCollector, type SessionModel } from "./session-model-provider.js";
 import { type SessionFileStamp } from "./session-usage.js";
 
+import { visibleTitleText } from "./host-text.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
+
+const TITLE_SOURCE_CHARS = 200;
+const SAVE_DELAY_MS = 10_000;
 
 interface StrongStamp extends SessionFileStamp { dev: number; ino: number; ctimeMs: number }
 const sameStamp = (a: StrongStamp | undefined, b: StrongStamp) => a?.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs && a.dev === b.dev && a.ino === b.ino;
@@ -78,8 +82,16 @@ async function readInfo(path: string, stamp: SessionFileStamp): Promise<{ info: 
   return { model: collector.model(), info: {
     path, id: header.id, cwd: typeof header.cwd === "string" ? header.cwd : "",
     name, parentSessionPath: header.parentSession, created, modified, messageCount,
-    firstMessage: firstMessage || "(no messages)", allMessagesText: "",
+    firstMessage: titleSource(firstMessage) || "(no messages)", allMessagesText: "",
   } };
+}
+
+/**
+ * As much of the first prompt as its title reads: the visible text with its
+ * whitespace collapsed, of which `firstSentence` keeps at most 96 characters.
+ */
+function titleSource(text: string): string {
+  return visibleTitleText(text).replace(/\s+/gu, " ").trim().slice(0, TITLE_SOURCE_CHARS);
 }
 
 /** A stat-only recovery scan; a changed file alone pays for reading its entries. */
@@ -88,6 +100,9 @@ export class SessionInfoIndex {
 
   private restored?: Promise<void>;
   private dirty = false;
+  private saveTimer?: ReturnType<typeof setTimeout>;
+  private saving?: Promise<void>;
+  private disposed = false;
   constructor(private readonly sessionsDir?: string, private readonly options: { file?: string; logger?: PersistedJsonLogger } = {}) {}
 
   private restore(): Promise<void> {
@@ -96,11 +111,27 @@ export class SessionInfoIndex {
       ...(this.options.logger ? { logger: this.options.logger } : {}),
     }).then((read) => { for (const entry of read?.data ?? []) this.cache.set(entry.info!.path, entry); }, () => undefined) : Promise.resolve());
   }
-  private async persist(): Promise<void> {
+  /** Scans while an agent writes change a file each time; the cache is written once they pause, and on shutdown. */
+  private persistSoon(): void {
+    if (!this.dirty || !this.options.file || this.saveTimer || this.disposed) return;
+    this.saveTimer = setTimeout(() => { this.saveTimer = undefined; void this.flush(); }, SAVE_DELAY_MS);
+    this.saveTimer.unref?.();
+  }
+
+  async flush(): Promise<void> {
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = undefined; }
+    await this.saving;
     if (!this.dirty || !this.options.file) return;
     this.dirty = false;
-    try { await writePersistedJson(this.options.file, 1, { entries: [...this.cache.values()] }, this.options.logger ? { logger: this.options.logger } : {}); }
-    catch { this.dirty = true; }
+    this.saving = writePersistedJson(this.options.file, 1, { entries: [...this.cache.values()] }, {
+      compact: true, ...(this.options.logger ? { logger: this.options.logger } : {}),
+    }).catch(() => { this.dirty = true; });
+    await this.saving;
+  }
+
+  async dispose(): Promise<void> {
+    this.disposed = true;
+    await this.flush();
   }
 
   async list(readFiles = false): Promise<{
@@ -147,7 +178,7 @@ export class SessionInfoIndex {
       models.set(entry.info.id, entry.model);
     }
     infos.sort((a, b) => b.modified.getTime() - a.modified.getTime());
-    await this.persist();
+    this.persistSoon();
     return { infos, stamps, models, complete: complete && entries.every((entry) => entry?.info !== undefined) };
   }
 

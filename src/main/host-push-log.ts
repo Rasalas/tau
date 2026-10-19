@@ -11,20 +11,24 @@ import {
 import { hostPushScope, type HostPushFilter, type HostPushScope } from "./host-push-scope.js";
 
 const MAX_EVICTED_SCOPES = 1_024;
+/** What the slot of a push that is never replayed counts against the budget, so such slots stay bounded. */
+const RELAY_SLOT_BYTES = 16;
 
 /**
  * Numbers every push and keeps the latest ones up to a byte budget, so a
  * client that missed some while disconnected can replay them instead of
  * throwing its state away. The newest push is kept even when it alone is over.
  * A subscribed client replays only the pushes it would have been sent, and
- * needs a resync only when one of those fell out.
+ * needs a resync only when one of those fell out. Each kept push holds its
+ * JSON, which the socket sends and replays without serializing it again.
  */
 export class HostPushLog {
   readonly bootId = randomUUID();
+  /** Undefined for an evicted push and for one that is never replayed. */
   private buffer: Array<HostPush | undefined> = [];
+  private texts: Array<string | undefined> = [];
   private sizes: number[] = [];
   private scopes: HostPushScope[] = [];
-  private replayable: boolean[] = [];
   /** The newest evicted push per scope (`""` for pushes to everyone). */
   private readonly evicted = new Map<string, number>();
   /** Entries before this index are evicted (and cleared); the arrays are compacted in bulk. */
@@ -43,26 +47,47 @@ export class HostPushLog {
   record(event: HostPushEvent, options: { replay?: boolean } = {}): HostPush {
     this.seq += 1;
     const push: HostPush = { seq: this.seq, event };
-    const size = Buffer.byteLength(JSON.stringify(push));
-    this.buffer.push(push);
+    const replay = options.replay !== false;
+    const text = replay ? JSON.stringify(event) : undefined;
+    // `{"seq":N,"event":…}`, as the push travels.
+    const size = text === undefined ? RELAY_SLOT_BYTES : Buffer.byteLength(text) + 17 + String(this.seq).length;
+    this.buffer.push(replay ? push : undefined);
+    this.texts.push(text);
     this.sizes.push(size);
     this.scopes.push(hostPushScope(event));
-    this.replayable.push(options.replay !== false);
     this.bytes += size;
     while (this.bytes > this.capacityBytes && this.head < this.buffer.length - 1) {
       this.bytes -= this.sizes[this.head]!;
-      if (this.replayable[this.head]) this.forget(this.scopes[this.head], this.buffer[this.head]!.seq);
+      const evicted = this.buffer[this.head];
+      if (evicted) this.forget(this.scopes[this.head], evicted.seq);
       this.buffer[this.head] = undefined;
+      this.texts[this.head] = undefined;
       this.head += 1;
     }
     if (this.head * 2 > this.buffer.length) {
       this.buffer = this.buffer.slice(this.head);
+      this.texts = this.texts.slice(this.head);
       this.sizes = this.sizes.slice(this.head);
       this.scopes = this.scopes.slice(this.head);
-      this.replayable = this.replayable.slice(this.head);
       this.head = 0;
     }
     return push;
+  }
+
+  /** The push's event as JSON: the text recorded with it while it is kept. */
+  eventText(push: HostPush): string {
+    const index = this.head + push.seq - this.oldestSeq();
+    return (index >= this.head && this.buffer[index] === push ? this.texts[index] : undefined) ?? JSON.stringify(push.event);
+  }
+
+  /** Recorded pushes as a JSON array's items, from the texts kept with them. */
+  pushesText(pushes: readonly HostPush[]): string {
+    return pushes.map((push) => `{"seq":${push.seq},"event":${this.eventText(push)}}`).join(",");
+  }
+
+  /** Sequences are contiguous, so the oldest kept slot follows from the newest. */
+  private oldestSeq(): number {
+    return this.seq - (this.buffer.length - this.head) + 1;
   }
 
   private forget(scope: HostPushScope, seq: number): void {
@@ -82,14 +107,18 @@ export class HostPushLog {
     if (lastSeq === undefined) return { resync: false, missed: [] };
     if (lastSeq === this.seq) return { resync: false, missed: [] };
     if (lastSeq > this.seq) return { resync: true, missed: [] };
-    const oldest = this.buffer[this.head]?.seq;
-    if (oldest === undefined) return { resync: true, missed: [] };
+    if (this.head >= this.buffer.length) return { resync: true, missed: [] };
+    const oldest = this.oldestSeq();
     if (lastSeq < oldest - 1 && this.lostAny(lastSeq, filter)) return { resync: true, missed: [] };
     // Sequences are contiguous, so the first missed push sits at a known index.
     const from = this.head + Math.max(0, lastSeq - oldest + 1);
-    const missed = this.buffer.slice(from) as HostPush[];
-    const scopes = this.scopes.slice(from);
-    return { resync: false, missed: missed.filter((push, index) => this.replayable[from + index] && !(readOnly && scopes[index] === "writers") && (filter?.admits(push.event, scopes[index]) ?? true)) };
+    const missed: HostPush[] = [];
+    for (let index = from; index < this.buffer.length; index++) {
+      const push = this.buffer[index];
+      const scope = this.scopes[index];
+      if (push && !(readOnly && scope === "writers") && (filter?.admits(push.event, scope) ?? true)) missed.push(push);
+    }
+    return { resync: false, missed };
   }
 
   /** Whether a push after `lastSeq` that this client would have been sent was evicted. */
