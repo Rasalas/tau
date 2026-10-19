@@ -133,4 +133,37 @@ describe("markdown pipeline", () => {
     expect(safeUrl("file.ts:12")).toBe("./file.ts:12");
     expect(safeUrl("javascript:12")).toBe("");
   });
+
+  describe("Windows drive paths", () => {
+    const texts = (source: string): string => {
+      const found: string[] = [];
+      visit(parseMarkdown(source), "text", (node) => { found.push(node.value); });
+      return found.join("");
+    };
+
+    it("keeps the backslashes CommonMark would read as escapes in prose", () => {
+      expect(texts(String.raw`Saved to C:\Users\me\.t3\_build and (C:\.scratch) and C:/work\.config.`)).toBe(String.raw`Saved to C:\Users\me\.t3\_build and (C:\.scratch) and C:/work\.config.`);
+      expect(texts(String.raw`Escaped C:\\Users\\me`)).toBe(String.raw`Escaped C:\\Users\\me`);
+    });
+
+    it("still reads escapes outside a drive path", () => {
+      expect(texts(String.raw`See C:\x and \*this\* and Note:\*that\*.`)).toBe(String.raw`See C:\x and *this* and Note:*that*.`);
+    });
+
+    it("keeps a drive path as link and definition destination", () => {
+      const urls: string[] = [];
+      visit(parseMarkdown(String.raw`[a](C:\me\.t3\shot.png) [b][ref] [c](<C:\my dir\.x.md>) [d](C:\a&amp;b)` + "\n\n" + String.raw`[ref]: D:\docs\.notes\a.md`), (node) => {
+        if ("url" in node && typeof node.url === "string") urls.push(node.url);
+      });
+      expect(urls).toEqual([String.raw`C:\me\.t3\shot.png`, String.raw`C:\my dir\.x.md`, "C:\\a&b", String.raw`D:\docs\.notes\a.md`]);
+    });
+
+    it("draws a drive path link with its path in the href", () => {
+      expect(safeUrl("C:%5Cme%5C.t3%5Cshot.png")).toBe("C:%5Cme%5C.t3%5Cshot.png");
+      expect(safeUrl("c:/me/a.png")).toBe("c:/me/a.png");
+      expect(safeUrl("c:me")).toBe("");
+      const markup = renderToStaticMarkup(renderMarkdown(String.raw`[shot](C:\me\.t3\shot.png)`, {}));
+      expect(markup).toContain('href="C:%5Cme%5C.t3%5Cshot.png"');
+    });
+  });
 });

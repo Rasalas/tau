@@ -371,6 +371,35 @@ describe("TranscriptViewport turn navigation", () => {
   });
 });
 
+describe("text selection under the rail", () => {
+  const entries = ["One", "Two", "Three"].map((preview, index) => ({ messageId: `m${index}`, messageIndex: index * 2, turnNumber: index + 1, preview }));
+
+  it("lets the pointer through while a drag that began outside the rail is held", () => {
+    const view = render(<><p>Prose</p><TranscriptTurnNavigation entries={entries} transcriptId="t" onSelect={() => {}} /></>);
+    const navigation = view.getByRole("navigation", { name: "Transcript turns" });
+    fireEvent.mouseDown(view.getByText("Prose"), { button: 0, buttons: 1 });
+    expect(navigation.hasAttribute("data-selecting")).toBe(true);
+    fireEvent.mouseMove(window, { buttons: 1 });
+    expect(navigation.hasAttribute("data-selecting")).toBe(true);
+    fireEvent.mouseUp(window, { buttons: 0 });
+    expect(navigation.hasAttribute("data-selecting")).toBe(false);
+  });
+
+  it("ends the drag on a button-free move when the release happened outside the window", () => {
+    const view = render(<><p>Prose</p><TranscriptTurnNavigation entries={entries} transcriptId="t" onSelect={() => {}} /></>);
+    const navigation = view.getByRole("navigation", { name: "Transcript turns" });
+    fireEvent.mouseDown(view.getByText("Prose"), { button: 0, buttons: 1 });
+    fireEvent.mouseMove(window, { buttons: 0 });
+    expect(navigation.hasAttribute("data-selecting")).toBe(false);
+  });
+
+  it("keeps the rail live when the press starts on it", () => {
+    const view = render(<TranscriptTurnNavigation entries={entries} transcriptId="t" onSelect={() => {}} />);
+    fireEvent.mouseDown(view.getByRole("button", { name: /Jump to turn:/ }), { button: 0, buttons: 1 });
+    expect(view.getByRole("navigation", { name: "Transcript turns" }).hasAttribute("data-selecting")).toBe(false);
+  });
+});
+
 function navigationPreview(container: HTMLElement): HTMLElement | null {
   return container.querySelector(".transcript-turn-navigation-preview-text");
 }

@@ -743,6 +743,7 @@ tau-part { display: contents; }
   padding: 0; border: 0; transform: translateY(-50%);
   background: transparent; color: var(--muted); cursor: pointer; pointer-events: auto;
 }
+.transcript-turn-navigation[data-selecting] .transcript-turn-navigation-rail { pointer-events: none; }
 .transcript-turn-navigation-rail:focus-visible {
   outline: 1px solid var(--acid-line); outline-offset: 5px; border-radius: 2px;
 }
@@ -1079,6 +1080,13 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 }
 
 .md-table-scroll { overflow-x: auto; margin: 0 0 12px; }
+.md-table-scroll[data-wrap] th, .md-table-scroll[data-wrap] td { white-space: normal; overflow-wrap: anywhere; }
+.md-table-tools { display: flex; justify-content: flex-end; margin: -8px 0 12px; }
+.md-table-tools > button {
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;
+}
+.md-table-tools > button:hover, .md-table-tools > button[aria-pressed="true"] { background: var(--raised); color: var(--ink-2); }
 .markdown table { border-collapse: collapse; font-size: var(--text-sm); }
 .markdown th, .markdown td {
   border: 1px solid var(--line-card); padding: 6px 11px; text-align: left; vertical-align: top;

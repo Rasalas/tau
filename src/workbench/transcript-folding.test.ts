@@ -310,6 +310,13 @@ describe("detail levels", () => {
     expect(rows.map((row) => row.kind === "group" && row.open)).toEqual([false, true]);
   });
 
+  it("opens a lone call so it needs no summary tap above its own expander", () => {
+    const rows = deriveWorkRows(input({ tools: [work[0]], status: "running" }));
+    expect(rows.map((row) => row.kind === "group" && row.open)).toEqual([true]);
+    const split = deriveWorkRows(input({ tools: [...work, tool({ id: "3", name: "read", args: { path: "b.ts" } })], status: "running" }));
+    expect(split.map((row) => row.kind === "group" && row.open)).toEqual([false]);
+  });
+
   it("cycles the levels and validates a stored one", () => {
     expect(nextTranscriptDetail("focused")).toBe("detailed");
     expect(nextTranscriptDetail("detailed")).toBe("everything");
