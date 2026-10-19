@@ -77,8 +77,23 @@ export interface UiStorageWorktree {
   verdict: CleanupVerdict;
 }
 
+/** A linked worktree in a repository's worktrees folder that no record, thread or open workspace names. */
+export interface UiUntrackedWorktree {
+  path: string;
+  repository: string;
+  repositoryName: string;
+  branch?: string;
+  /** When the folder last changed. */
+  modifiedAt: number;
+  sizeBytes?: number;
+  dirtyFiles: number;
+  unpushedCommits: number;
+}
+
 export interface UiStorageReport {
   worktrees: UiStorageWorktree[];
+  /** Worktrees the rules never touch; the page offers a manual Remove. Absent from an older host. */
+  untracked?: UiUntrackedWorktree[];
   totalBytes: number;
   policy: CleanupPolicy;
   /** The repository the host has open, whose override the page offers. */
@@ -124,7 +139,7 @@ export interface WorktreeStorageHostCommands {
   "cleanup-policy": { input: CleanupPolicyPatch | undefined; output: CleanupPolicy };
   /** Removes what the rules say is due right now, re-checked one by one. */
   "cleanup-run": { input: { paths?: string[] } | undefined; output: UiCleanupResult };
-  /** Removes one worktree by hand; `confirm` accepts what the first answer named. */
+  /** Removes one worktree by hand, a listed untracked one too; `confirm` accepts what the first answer named. */
   "storage-remove": { input: { path: string; confirm?: boolean }; output: UiStorageRemoval };
 }
 

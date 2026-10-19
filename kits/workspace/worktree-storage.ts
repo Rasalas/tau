@@ -26,6 +26,7 @@ import type {
   UiStorageRemoval,
   UiStorageReport,
   UiStorageWorktree,
+  UiUntrackedWorktree,
 } from "./storage-protocol.js";
 
 const execFileAsync = promisify(execFile);
@@ -34,6 +35,9 @@ const POLICY_VERSION = 1;
 const FETCH_TTL_MS = 5 * 60_000;
 /** Deleted threads the index may still list while their hook runs. */
 const DELETED_MEMORY = 200;
+/** A worktree may exist a while before its record or thread does. */
+const UNTRACKED_GRACE_MS = 60 * 60_000;
+const UNTRACKED_LIMIT = 100;
 
 /** One worktree Tau made. The record is what makes it Tau's to remove. */
 export interface WorktreeRecord {
@@ -418,6 +422,41 @@ export class WorktreeStorage {
     };
   }
 
+  /**
+   * Linked worktrees inside a known repository's worktrees folder that no
+   * record, thread or open workspace names, past a grace period. Only what Git
+   * lists as a linked worktree counts; plain folders are left out.
+   */
+  private async untracked(threads: readonly WorktreeStorageThread[]): Promise<WorktreeRecord[]> {
+    const git = this.options.runGit;
+    const repositories = new Set(this.records.map((entry) => entry.repository));
+    const common = (await git(this.options.hostCwd(), ["rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(() => "")).trim();
+    if (common) repositories.add(dirname(resolve(this.options.hostCwd(), common)));
+    const recorded = new Set(await Promise.all(this.records.filter((entry) => !entry.removedAt).map((entry) => realOrSelf(entry.path))));
+    const host = await realOrSelf(this.options.hostCwd());
+    const found: WorktreeRecord[] = [];
+    for (const repository of repositories) {
+      try {
+        const parent = await realOrSelf(await worktreeParentOf(repository, (cwd, args) => git(cwd, args)));
+        const blocks = (await git(repository, ["worktree", "list", "--porcelain"])).split("\n\n").slice(1);
+        for (const block of blocks) {
+          const path = /^worktree (.+)$/mu.exec(block)?.[1];
+          if (!path) continue;
+          const real = await realOrSelf(path);
+          if (!isInside(parent, real) || recorded.has(real) || real === host) continue;
+          if ((await this.threadsIn(path, threads)).length > 0) continue;
+          const modifiedAt = await fileModifiedAt(path);
+          if (modifiedAt === undefined || this.now() - modifiedAt < UNTRACKED_GRACE_MS) continue;
+          const branch = /^branch refs\/heads\/(.+)$/mu.exec(block)?.[1];
+          found.push({ path: resolve(path), repository, ...(branch ? { branch } : {}), createdAt: modifiedAt });
+        }
+      } catch {
+        // A repository that moved or went away has nothing to list.
+      }
+    }
+    return found.slice(0, UNTRACKED_LIMIT);
+  }
+
   private async judge(entry: WorktreeRecord, threads: readonly WorktreeStorageThread[]) {
     const rules = rulesFor(this.policy, entry.repository);
     if (rules.onMerge) await this.fetchOnce(entry.repository);
@@ -451,11 +490,28 @@ export class WorktreeStorage {
         verdict,
       });
     }
+    const untracked: UiUntrackedWorktree[] = [];
+    for (const entry of await this.untracked(threads)) {
+      const facts = await this.inspect(entry, threads);
+      if (!facts.exists || !facts.linked) continue;
+      const sizeBytes = options.sizes === false ? undefined : await measure(entry.path);
+      untracked.push({
+        path: entry.path,
+        repository: entry.repository,
+        repositoryName: basename(entry.repository),
+        ...(facts.branch ?? entry.branch ? { branch: facts.branch ?? entry.branch } : {}),
+        modifiedAt: entry.createdAt,
+        ...(sizeBytes === undefined ? {} : { sizeBytes }),
+        dirtyFiles: facts.dirtyFiles,
+        unpushedCommits: facts.unpushedCommits,
+      });
+    }
     const common = (await this.options.runGit(this.options.hostCwd(), ["rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(() => "")).trim();
     const current = common ? dirname(resolve(this.options.hostCwd(), common)) : undefined;
     return {
       worktrees,
-      totalBytes: worktrees.reduce((sum, tree) => sum + (tree.sizeBytes ?? 0), 0),
+      untracked,
+      totalBytes: [...worktrees, ...untracked].reduce((sum, tree) => sum + (tree.sizeBytes ?? 0), 0),
       policy: this.policy,
       ...(current ? { currentRepository: { path: current, name: basename(current) } } : {}),
       generatedAt: this.now(),
@@ -530,7 +586,9 @@ export class WorktreeStorage {
   async removeByHand(path: string, confirm: boolean): Promise<UiStorageRemoval> {
     await this.load();
     const target = resolve(path);
-    const entry = this.records.find((candidate) => candidate.path === target && !candidate.removedAt);
+    const known = this.records.find((candidate) => candidate.path === target && !candidate.removedAt);
+    // A listed untracked worktree has no record to update after it goes.
+    const entry = known ?? (await this.untracked(await this.options.sessions())).find((candidate) => candidate.path === target);
     if (!entry) throw new HostCommandError("Tau did not make this worktree, so it is not removed from here.");
     const facts = await this.inspect(entry, await this.options.sessions());
     const verdict = evaluateWorktree(facts, rulesFor(this.policy, entry.repository), this.now());
@@ -541,8 +599,10 @@ export class WorktreeStorage {
       return { removed: false, confirm: confirmable, dirtyFiles: facts.dirtyFiles, unpushedCommits: facts.unpushedCommits };
     }
     await this.options.runGit(entry.repository, ["worktree", "remove", ...(confirmable.length > 0 ? ["--force"] : []), entry.path]);
-    entry.removedAt = this.now();
-    await this.save();
+    if (known) {
+      known.removedAt = this.now();
+      await this.save();
+    }
     this.options.removed(entry.repository);
     this.options.log("git.worktree.removed-by-hand", entry.path);
     return { removed: true };

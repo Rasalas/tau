@@ -324,4 +324,55 @@ describe("worktree storage", () => {
     expect((await again.list()).map((entry) => [entry.path, entry.repository, entry.branch])).toEqual([[path, repo, "persisted"]]);
     expect((await again.getPolicy()).projects[repo]).toEqual({ mode: "custom", rules: { afterDays: 3 } });
   });
+
+  describe("untracked worktrees", () => {
+    const later = () => Date.now() + 2 * 60 * 60_000;
+
+    it("lists a linked worktree no record, thread or workspace names, and removes it by hand keeping the branch", async () => {
+      const { repo, root, storage, threads, tauWorktree, removed } = await fixture(undefined, { now: later });
+      const recorded = await tauWorktree("recorded");
+      const used = await createWorktree(repo, "used");
+      const orphan = await createWorktree(repo, "orphan");
+      threads.push({ sessionId: "t", cwd: used, path: join(root, "session") });
+      await mkdir(join(root, "worktrees", "plain-folder"));
+
+      const report = await storage.report({ sizes: true });
+      expect(report.untracked).toEqual([expect.objectContaining({ path: orphan, branch: "orphan", repository: repo, sizeBytes: 1024, dirtyFiles: 0 })]);
+      expect(report.untracked).toHaveLength(1);
+      expect(report.worktrees.map((tree) => tree.path)).toEqual([recorded]);
+      expect(report.totalBytes).toBe(2 * 1024);
+
+      expect(await storage.removeByHand(orphan, false)).toEqual({ removed: true });
+      expect(existsSync(orphan)).toBe(false);
+      expect(git(repo, "branch", "--list", "orphan")).toContain("orphan");
+      expect(removed).toEqual([repo]);
+      expect((await storage.report({ sizes: false })).untracked).toEqual([]);
+    });
+
+    it("waits out a grace period, names uncommitted files first, and refuses what it did not list", async () => {
+      const { repo, root, storage } = await fixture();
+      const recent = await createWorktree(repo, "recent");
+      expect((await storage.report({ sizes: false })).untracked).toEqual([]);
+      await expect(storage.removeByHand(recent, true)).rejects.toThrow("Tau did not make this worktree");
+      await expect(storage.removeByHand(join(root, "elsewhere"), true)).rejects.toThrow("Tau did not make this worktree");
+
+      const late = new WorktreeStorage({ stateDir: join(root, "state"), runGit: storageGit, sessions: async () => [], threadOpen: () => false, hostCwd: () => repo, log: () => undefined, removed: () => undefined, now: later });
+      await writeFile(join(recent, "draft.txt"), "keep\n");
+      expect((await late.report({ sizes: false })).untracked).toEqual([expect.objectContaining({ path: recent, dirtyFiles: 1 })]);
+      expect(await late.removeByHand(recent, false)).toMatchObject({ removed: false, confirm: ["uncommitted"], dirtyFiles: 1 });
+      expect(existsSync(recent)).toBe(true);
+      expect(await late.removeByHand(recent, true)).toEqual({ removed: true });
+      expect(existsSync(recent)).toBe(false);
+    });
+
+    it("never lists a worktree the host has open, and a sweep leaves an unrecorded one alone", async () => {
+      const { repo, storage } = await fixture(undefined, { now: later });
+      const orphan = await createWorktree(repo, "open-here");
+      const open = new WorktreeStorage({ stateDir: join(repo, "..", "state"), runGit: storageGit, sessions: async () => [], threadOpen: () => false, hostCwd: () => orphan, log: () => undefined, removed: () => undefined, now: later });
+      expect((await open.report({ sizes: false })).untracked).toEqual([]);
+      await storage.setPolicy({ rules: { afterDays: 1, unchanged: true } });
+      expect((await storage.sweep()).removed).toEqual([]);
+      expect(existsSync(orphan)).toBe(true);
+    });
+  });
 });
