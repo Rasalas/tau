@@ -1,9 +1,9 @@
 import { linkedFileLocation } from "../../shared/linked-file-path";
 import { parsePromptLink } from "../../shared/prompt-links";
 import { openPromptLink } from "../PromptLinkHandler";
-import { Fragment, createContext, memo, useContext, useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { Fragment, createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import type { HLJSApi, LanguageFn } from "highlight.js";
-import { Check, Copy, WrapText } from "lucide-react";
+import { Check, Copy, Maximize2, Minimize2, WrapText } from "lucide-react";
 import { tooltipProps } from "./ui/Tooltip";
 import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
@@ -334,8 +334,11 @@ export function fragmentTarget(link: Element, fragment: string): Element | undef
 function FileLink({ href, children }: { href?: string; children?: ReactNode }) {
   const resources = useWorkspaceResources();
   const fragment = href?.startsWith("#") ?? false;
-  const local = href && !/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/|#|\?)/u.test(href);
+  const drive = href !== undefined && /^[A-Za-z]:(?:\/|%5C)/iu.test(href);
+  const local = href && (drive || !/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/|#|\?)/u.test(href));
   if (local && resources) return <LocalFileLink href={href} resources={resources}>{children}</LocalFileLink>;
+  // Without a workspace a drive path has nowhere to open: the browser would read `C:` as a scheme.
+  if (drive) return <span>{children}</span>;
   // A fragment stays in the document: the browser would open a window for it, and the route lives in the hash.
   return <a href={href} target={local || fragment ? undefined : "_blank"} rel="noreferrer noopener" onClick={fragment ? (event) => {
     event.preventDefault();
@@ -351,6 +354,36 @@ function LocalFileLink({ href, resources, children }: { href: string; resources:
     catch { resources.openFile(path); }
   });
   return <a href={href} className="md-file-ref" rel="noreferrer noopener" {...link.tooltip()} {...link.props}><MediaLinkContext.Provider value>{children}</MediaLinkContext.Provider></a>;
+}
+
+/** A table that scrolls sideways offers to wrap its cells to the width; one that fits offers nothing. */
+function MarkdownTable({ children }: { children?: ReactNode }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [wrapped, setWrapped] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const measure = () => {
+    const node = scrollRef.current;
+    if (node && !wrapped) setOverflows(node.scrollWidth > node.clientWidth);
+  };
+  // Streaming can widen a cell without resizing the table's box; wrapped cells never overflow, so the toggle stays while on.
+  useLayoutEffect(measure);
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (!node || wrapped || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    if (node.firstElementChild) observer.observe(node.firstElementChild);
+    return () => observer.disconnect();
+  }, [wrapped]);
+  const label = wrapped ? "Scroll table sideways" : "Wrap table cells";
+  return <>
+    <div ref={scrollRef} className="md-table-scroll" data-wrap={wrapped || undefined}><table>{children}</table></div>
+    {wrapped || overflows ? <div className="md-table-tools">
+      <button type="button" aria-pressed={wrapped} aria-label={label} {...tooltipProps(label)} onClick={() => setWrapped((value) => !value)}>
+        {wrapped ? <Maximize2 size={13} aria-hidden="true" /> : <Minimize2 size={13} aria-hidden="true" />}
+      </button>
+    </div> : null}
+  </>;
 }
 
 type CodeChild = ReactElement<{ className?: string; children?: ReactNode }>;
@@ -395,9 +428,7 @@ const COMPONENTS: MarkdownComponents = {
     const thread = href ? parseThreadLink(href) : undefined;
     return thread ? <ThreadLink target={thread}>{children}</ThreadLink> : <FileLink href={href}>{children}</FileLink>;
   },
-  table({ children }) {
-    return <div className="md-table-scroll"><table>{children}</table></div>;
-  },
+  table: MarkdownTable,
   // Task-list boxes: a native disabled checkbox cannot be themed, so draw our own.
   input({ type, checked }) {
     if (type !== "checkbox") return null;
