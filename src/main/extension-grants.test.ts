@@ -113,4 +113,20 @@ describe("extension-grants", () => {
     expect(isPackageGranted({ id: "local.mine", permissions: ["process", "network"] }, grants, edited)).toBe(false);
     expect(isPackageGranted({ id: "local.mine", permissions: ["process"], isolation: "in-process" }, grants, edited)).toBe(false);
   });
+
+  it("records the halves a grant covered, and asks again when a package gains one", async () => {
+    const file = join(await scratch(), "grants.json");
+    const window = { id: "acme.one", permissions: [], desktop: "./desktop.tsx" };
+    await grantPackage(window, true, file, identity);
+    const { grants } = await readExtensionGrants(file);
+    expect(grants[0]).toMatchObject({ desktop: true, host: false });
+    expect(isPackageGranted(window, grants, identity)).toBe(true);
+    expect(isPackageGranted({ ...window, host: "./host.ts" }, grants, identity)).toBe(false);
+    expect(isPackageGranted({ ...window, window: "./window.ts" }, grants, identity)).toBe(true);
+    expect(isPackageGranted({ id: "acme.one", permissions: [], host: "./host.ts" }, grants, identity)).toBe(false);
+    // Losing a half asks for nothing, and neither does a grant from before the halves were recorded.
+    await grantPackage({ ...window, host: "./host.ts" }, true, file, identity);
+    expect(isPackageGranted(window, (await readExtensionGrants(file)).grants, identity)).toBe(true);
+    expect(isPackageGranted({ ...window, host: "./host.ts" }, [{ id: "acme.one", permissions: [], contentHash: identity.contentHash, grantedAt: 1 }], identity)).toBe(true);
+  });
 });

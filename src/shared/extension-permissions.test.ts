@@ -32,4 +32,14 @@ describe("capabilityQuestions", () => {
     expect(capabilityQuestions("Copy Branch", { isolation: "in-process", desktop: true, permissions: ["process"], previous })).toHaveLength(1);
     expect(capabilityQuestions("Copy Branch", { ...worker, permissions: ["process"], previous })).toEqual([]);
   });
+
+  it("asks about a half the package gained since the user allowed it, and not about the ones it already had", () => {
+    const before = { permissions: [], isolation: "worker", desktop: false, host: true } as const;
+    expect(capabilityQuestions("Copy Branch", { ...worker, desktop: true, host: true, permissions: [], previous: before })).toEqual(["May Copy Branch do anything in Tau's window that you can?"]);
+    const windowOnly = { permissions: [], isolation: "worker", desktop: true, host: false } as const;
+    expect(capabilityQuestions("Copy Branch", { ...worker, desktop: true, host: true, permissions: [], previous: windowOnly })).toEqual(["May Copy Branch run code in a process of its own?"]);
+    expect(capabilityQuestions("Copy Branch", { ...worker, desktop: true, host: true, permissions: [], previous: { ...windowOnly, host: true } })).toEqual([]);
+    // A yes from before the halves were recorded says nothing about them.
+    expect(capabilityQuestions("Copy Branch", { ...worker, desktop: true, host: true, permissions: [], previous: { permissions: [], isolation: "worker" } })).toEqual([]);
+  });
 });

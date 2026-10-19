@@ -15,7 +15,7 @@ afterEach(() => {
 
 const request = (overrides: Partial<InstallRequest> = {}): InstallRequest => ({
   id: "r1", threadId: "s1", status: "pending", packageId: "acme.hello", name: "Hello", version: "1.0.0", description: "Copies the branch name",
-  permissions: ["sessions", "native"], isolation: "worker", desktop: false, ...overrides,
+  permissions: ["sessions", "native"], isolation: "worker", desktop: false, host: false, ...overrides,
 });
 
 function setup(initial: InstallRequest[], canManage = true, answer: (command: string) => unknown = () => ({})) {
@@ -68,6 +68,13 @@ describe("Allow-package card above the composer", () => {
     await screen.findByRole("region", { name: "Allow Hello" });
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["May Hello reach the internet?"]);
     expect(screen.getByText(/It changed what it asks for/u)).toBeTruthy();
+  });
+
+  it("asks about a half the package gained, with the window half of an earlier yes left out", async () => {
+    const { draw } = setup([request({ permissions: [], desktop: true, host: true, previous: { permissions: [], isolation: "worker", desktop: true, host: false } })]);
+    draw();
+    await screen.findByRole("region", { name: "Allow Hello" });
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["May Hello run code in a process of its own?"]);
   });
 
   it("names a package with nothing to ask plainly, and offers Allow", async () => {

@@ -206,6 +206,15 @@ describe("packages the host wrote", () => {
     expect(await grantsOf(options.grantsFilePath)).toEqual([]);
   });
 
+  it("remembers the halves of what was allowed, and a gained half needs a new yes", async () => {
+    const { options, write } = await ownSetup();
+    await write("hello", GOOD, { id: "acme.hello", name: "Hello", permissions: ["sessions"], desktop: "./desktop.tsx" });
+    await approvePackageFolder("hello", (await reviewPackageFolder("hello", options)).fingerprint, { ...options, owner: true, confirm: async () => true });
+    expect(await reviewPackageFolder("hello", options)).toMatchObject({ granted: true, desktop: true, host: false, previous: { desktop: true, host: false } });
+    await write("hello", GOOD, { id: "acme.hello", name: "Hello", permissions: ["sessions"], desktop: "./desktop.tsx", host: "./host.ts" });
+    expect(await reviewPackageFolder("hello", options)).toMatchObject({ granted: false, host: true, previous: { desktop: true, host: false } });
+  });
+
   it("starts at Full access with no dialog, and an edit keeps it running", async () => {
     const { options, write } = await ownSetup();
     const { fingerprint } = await reviewPackageFolder("hello", options);

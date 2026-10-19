@@ -28,8 +28,9 @@ export interface InstallRequest {
   isolation: "worker" | "in-process";
   /** The package draws in Tau's window. */
   desktop: boolean;
+  host: boolean;
   /** What the user allowed before; the card asks only about what is new. */
-  previous?: { permissions: string[]; isolation: "worker" | "in-process" };
+  previous?: { permissions: string[]; isolation: "worker" | "in-process"; desktop?: boolean; host?: boolean };
 }
 
 /** `install-requests`: what waits, and whether this connection may answer it. */

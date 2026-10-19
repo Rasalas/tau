@@ -102,7 +102,7 @@ describe("tau_install_package", () => {
     const pending = call("t1", "hello");
     const card = await waitForCard();
     expect(startOwnPackage).toHaveBeenCalledWith("hello", "f1", "t1");
-    expect(card).toMatchObject({ permissions: ["process", "network"], desktop: true, previous: { permissions: ["process"], isolation: "worker" } });
+    expect(card).toMatchObject({ permissions: ["process", "network"], desktop: true, host: true, previous: { permissions: ["process"], isolation: "worker" } });
     expect(events.some((event) => event.name === "package-started")).toBe(false);
     await invoke("allow-install", { id: card.id });
     expect(approvePackage).toHaveBeenCalledWith("hello", "f1");

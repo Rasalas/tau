@@ -89,6 +89,7 @@ export class PackageInstalls {
       permissions: review.permissions,
       isolation: review.isolation,
       desktop: review.desktop,
+      host: review.host,
       ...(review.previous ? { previous: review.previous } : {}),
     };
     let timer: ReturnType<typeof setTimeout> | undefined;

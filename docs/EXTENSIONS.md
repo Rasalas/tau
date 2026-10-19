@@ -5539,8 +5539,11 @@ folder, the level the Access Kit holds for `threadId` is Full access (a host wit
 the Access Kit counts as Full) and the user did not turn the package off; it answers
 whether it did, and changes nothing otherwise. `services.stopPackage(id)` turns a
 package off; owner connections only. `reviewPackage` also answers `own` and, once the
-user allowed the package, `previous: { permissions, isolation }`. `capabilityQuestions(name,
-{ permissions, isolation, desktop, previous? })` (from `tau`) is the card's wording.
+user allowed the package, `previous: { permissions, isolation, desktop?, host? }`. A grant records whether the
+package had a window half and a host half; one that gains a half is off until allowed
+again, and the card asks about the new half (a grant from before this does not say, so
+nothing is asked). `capabilityQuestions(name,
+{ permissions, isolation, desktop, host?, previous? })` (from `tau`) is the card's wording.
 The decision is ADR 0036's amendment of 2026-10-19.
 
 To test interactively in the running app, `/install <path to your package>`

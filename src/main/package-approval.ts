@@ -6,7 +6,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { build } from "esbuild";
 import type { ExtensionPackageSummary, PackageBuildError } from "../shared/contracts.js";
 import { SHARED_MODULE_SPECIFIERS } from "../shared/shared-modules.js";
-import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
+import { grantPackage, isPackageGranted, packageHalves, readExtensionGrants } from "./extension-grants.js";
 import { findOwnPackage, markOwnPackageOff, ownPackagesFilePath } from "./own-packages.js";
 import type { RuntimePermissionLevel } from "./runtime-adapters.js";
 import { MANIFEST_FILE, bundleHostExtension, globalExtensionsDirectory, isThemeManifest, listExtensionPackages, packageIsolation, packageSummary, type ExtensionPackage } from "./extension-packages.js";
@@ -32,7 +32,7 @@ export interface PackageReview {
   /** The host wrote this folder for the user (`newPackage`); only its own record says so, never a file in the folder. */
   own: boolean;
   /** What the user last allowed this package, when it ever was: a card asks only about what is new. */
-  previous?: { permissions: string[]; isolation: "worker" | "in-process" };
+  previous?: { permissions: string[]; isolation: "worker" | "in-process"; desktop?: boolean; host?: boolean };
   /** Names the folder's files, permissions and isolation as reviewed; `approvePackage` refuses a folder that changed since. */
   fingerprint: string;
   /** Entries that do not compile; empty when the package builds. */
@@ -133,11 +133,10 @@ export async function reviewPackageFolder(input: string, options: PackageFolderO
     directory: pkg.directory,
     permissions: [...(pkg.manifest.permissions ?? [])],
     isolation: packageIsolation(pkg.manifest),
-    desktop: summary.desktop,
-    host: summary.host,
+    ...packageHalves(pkg.manifest),
     granted: summary.granted === true,
     own: pkg.grantIdentity?.own === true,
-    ...(before ? { previous: { permissions: [...before.permissions], isolation: packageIsolation(before) } } : {}),
+    ...(before ? { previous: { permissions: [...before.permissions], isolation: packageIsolation(before), ...(before.desktop === undefined ? {} : { desktop: before.desktop }), ...(before.host === undefined ? {} : { host: before.host }) } } : {}),
     fingerprint: fingerprintOf(pkg),
     buildErrors: isThemeManifest(pkg.manifest) ? [] : await buildErrorsOf(pkg),
   };

@@ -98,12 +98,16 @@ export interface CapabilityRequest {
   isolation: ExtensionIsolation;
   /** The package draws in Tau's window, with the host connection that window holds. */
   desktop: boolean;
-  previous?: { permissions: readonly string[]; isolation: ExtensionIsolation };
+  /** The package has a half that runs apart from the window. */
+  host?: boolean;
+  /** `desktop` and `host` are missing for a yes given before they were recorded; nothing is asked about them then. */
+  previous?: { permissions: readonly string[]; isolation: ExtensionIsolation; desktop?: boolean; host?: boolean };
 }
 
 /**
  * The plain questions an approval card asks, one per capability the package
- * really requests. Once the user allowed the package, only what is new is asked.
+ * really requests. Once the user allowed the package, only what is new is asked,
+ * including a half it did not have then.
  * A package in Tau's own process gets the one honest question, since no
  * permission holds there.
  */
@@ -116,8 +120,9 @@ export function capabilityQuestions(name: string, request: CapabilityRequest): s
     for (const permission of EXTENSION_PERMISSIONS) {
       if (request.permissions.includes(permission) && !previous?.permissions.includes(permission)) questions.push(`May ${name} ${PERMISSION_QUESTIONS[permission]}`);
     }
+    if (request.host && previous?.host === false) questions.push(`May ${name} run code in a process of its own?`);
   }
-  if (request.desktop && !previous) questions.push(`May ${name} do anything in Tau's window that you can?`);
+  if (request.desktop && (!previous || previous.desktop === false)) questions.push(`May ${name} do anything in Tau's window that you can?`);
   return questions;
 }
 
