@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import {
   transcriptTurnNavigationHeight,
   transcriptTurnNavigationIndexFromPointer,
@@ -32,6 +32,30 @@ export function TranscriptTurnNavigation({
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
   }, [onWheel]);
+
+  // A drag that began outside the rail is a text selection; while it lasts the rail lets the pointer through.
+  useEffect(() => {
+    const node = navRef.current;
+    if (!node) return;
+    const release = () => {
+      delete node.dataset.selecting;
+      window.removeEventListener("mouseup", check);
+      window.removeEventListener("mousemove", check);
+    };
+    // A release outside the window can skip `mouseup`; the next button-free move counts instead.
+    const check = (event: globalThis.MouseEvent) => { if (event.buttons === 0) release(); };
+    const press = (event: globalThis.MouseEvent) => {
+      if (event.button !== 0 || (event.target instanceof Node && node.contains(event.target))) return;
+      node.dataset.selecting = "";
+      window.addEventListener("mouseup", check);
+      window.addEventListener("mousemove", check);
+    };
+    window.addEventListener("mousedown", press, true);
+    return () => {
+      window.removeEventListener("mousedown", press, true);
+      release();
+    };
+  }, []);
 
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const activeIndex = entries.findIndex((entry) => entry.messageId === activeMessageId);

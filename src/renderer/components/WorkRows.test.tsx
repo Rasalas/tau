@@ -125,20 +125,30 @@ describe("a running turn", () => {
     expect(view.container.querySelector(".work-live")).toBe(line);
   });
 
-  it("keeps completed calls collapsed after commentary during a focused turn", () => {
+  it("shows a lone completed call as its own row, with its output one tap away", () => {
     const disclosures = new WorkDisclosures();
-    const props = { id: "turn", tools: [run("rg", "rg -n verbosity src")], registry: registryWith(), detail: "focused" as const, status: "running" as const, streaming: false, disclosures };
+    const props = { id: "turn", tools: [run("1", "rg -n verbosity src", { output: "src/a.ts:1:verbosity" })], registry: registryWith(), detail: "focused" as const, status: "running" as const, streaming: false, disclosures };
     const view = render(<WorkGroup {...props} />);
-    expect(screen.queryByText("rg -n verbosity src")).toBeNull();
-    const summary = screen.getByRole("button", { name: "Ran 1 command" });
-    expect(summary.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(summary);
-    expect(screen.getByText("rg -n verbosity src")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ran 1 command" })).toBeNull();
+    const line = screen.getByRole("button", { name: /rg -n verbosity src/u });
+    expect(line.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("src/a.ts:1:verbosity")).toBeNull();
+    fireEvent.click(line);
+    expect(screen.getByText("src/a.ts:1:verbosity")).toBeTruthy();
     view.unmount();
     render(<WorkGroup {...props} />);
-    expect(screen.getByText("rg -n verbosity src")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Ran 1 command" }));
-    expect(screen.queryByText("rg -n verbosity src")).toBeNull();
+    expect(screen.getByText("src/a.ts:1:verbosity")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /rg -n verbosity src/u }));
+    expect(screen.queryByText("src/a.ts:1:verbosity")).toBeNull();
+  });
+
+  it("keeps several completed calls collapsed under one summary during a focused turn", () => {
+    render(<WorkGroup id="turn" tools={[run("1", "rg -n verbosity src"), run("2", "npm test")]} registry={registryWith()} detail="focused" status="running" streaming={false} />);
+    expect(screen.queryByText("npm test")).toBeNull();
+    const summary = screen.getByRole("button", { name: "Ran 2 commands" });
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(summary);
+    expect(screen.getByText("npm test")).toBeTruthy();
   });
 
   it("keeps execution code behind the live disclosure", () => {

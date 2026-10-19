@@ -299,7 +299,8 @@ function groupedRows(tools: readonly UiToolRun[], input: WorkGroupInput, key: st
   let run: UiToolRun[] = [];
   const flush = () => {
     if (run.length === 0) return;
-    rows.push(groupRow(`${key}:g${rows.length}`, run, input, input.detail !== "focused"));
+    // A lone call is its own row: a summary above its expander would cost two taps.
+    rows.push(groupRow(`${key}:g${rows.length}`, run, input, input.detail !== "focused" || run.length === 1));
     run = [];
   };
   for (const tool of tools) {
