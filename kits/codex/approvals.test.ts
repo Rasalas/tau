@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALLOW, ALLOW_SESSION, DENY, approvalDialog, elicitationForm, elicitationResult, pageElicitation, permissionLines, policyForLevel, refusal } from "./approvals.js";
+import { ALLOW, ALLOW_SESSION, DENY, SessionAllowance, allowedForSession, approvalDialog, elicitationForm, elicitationResult, pageElicitation, permissionLines, policyForLevel, refusal } from "./approvals.js";
 import { QUESTIONNAIRE_EXTRA } from "./protocol.js";
 
 describe("policyForLevel", () => {
@@ -104,5 +104,36 @@ describe("approvalDialog", () => {
     expect(refusal("mcpServer/elicitation/request")).toEqual({ action: "decline", content: null, _meta: null });
     expect(approvalDialog("item/tool/call", {})).toBeUndefined();
     expect(refusal("item/tool/call")).toBeUndefined();
+  });
+});
+
+describe("SessionAllowance", () => {
+  it("tags the dialogs a session allowance can answer", () => {
+    expect(approvalDialog("item/commandExecution/requestApproval", {})?.allowance).toBe("command");
+    expect(approvalDialog("execCommandApproval", {})?.allowance).toBe("command");
+    expect(approvalDialog("item/fileChange/requestApproval", {})?.allowance).toBe("file-change");
+    expect(approvalDialog("applyPatchApproval", {})?.allowance).toBe("file-change");
+    expect(approvalDialog("item/permissions/requestApproval", {})?.allowance).toBeUndefined();
+    expect(allowedForSession([{ value: ALLOW_SESSION }])).toBe(true);
+    expect(allowedForSession([{ value: ALLOW }])).toBe(false);
+    expect(allowedForSession([{ value: ALLOW_SESSION, typed: true }])).toBe(false);
+    expect(allowedForSession([{ cancelled: true }])).toBe(false);
+  });
+
+  it("keeps a kind until the level changes and drops an answer from before", () => {
+    const allowance = new SessionAllowance();
+    allowance.sync("ask");
+    allowance.add("command", allowance.current());
+    allowance.sync("ask");
+    expect(allowance.has("command")).toBe(true);
+    expect(allowance.has("file-change")).toBe(false);
+    const late = allowance.current();
+    allowance.sync("auto");
+    expect(allowance.has("command")).toBe(false);
+    allowance.add("command", late);
+    expect(allowance.has("command")).toBe(false);
+    allowance.add("command", allowance.current());
+    allowance.clear();
+    expect(allowance.has("command")).toBe(false);
   });
 });

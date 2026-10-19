@@ -315,6 +315,36 @@ describe("CodexThreadRuntimeBackend against the app-server stub", () => {
     expect((await sent(space)).find((message) => message.answered === "item/fileChange/requestApproval")?.result).toEqual({ decision: "acceptForSession" });
   });
 
+  it("answers later commands of the thread without asking after one was allowed for the session", async () => {
+    const space = await scratch();
+    const { backend, asked } = await open(space, { level: "ask", answer: () => ({ value: ALLOW_SESSION }) });
+    await backend.prompt({ text: "Run it [scenario:command]", delivery: "prompt" });
+    await backend.prompt({ text: "Run it again [scenario:command]", delivery: "prompt" });
+    expect(asked).toHaveLength(1);
+    const answers = (await sent(space)).filter((message) => message.answered === "item/commandExecution/requestApproval");
+    expect(answers.map((message) => message.result)).toEqual([{ decision: "acceptForSession" }, { decision: "acceptForSession" }]);
+  });
+
+  it("keeps a plain Allow to the one command and a command allowance off file changes", async () => {
+    const space = await scratch();
+    const choices = [ALLOW, ALLOW_SESSION, ALLOW];
+    const { backend, asked } = await open(space, { level: "ask", answer: () => ({ value: choices.shift() ?? ALLOW }) });
+    await backend.prompt({ text: "Run it [scenario:command]", delivery: "prompt" });
+    await backend.prompt({ text: "Run it [scenario:command]", delivery: "prompt" });
+    await backend.prompt({ text: "Write it [scenario:edit]", delivery: "prompt" });
+    expect(asked.map((prompt) => prompt.title)).toEqual(["Codex wants to run a command", "Codex wants to run a command", expect.stringContaining("Codex wants to edit")]);
+  });
+
+  it("asks again after the access level changed", async () => {
+    const space = await scratch();
+    const options: { level: RuntimePermissionLevel; answer: () => ExtensionUiAnswer } = { level: "ask", answer: () => ({ value: ALLOW_SESSION }) };
+    const { backend, asked } = await open(space, options);
+    await backend.prompt({ text: "Run it [scenario:command]", delivery: "prompt" });
+    options.level = "auto";
+    await backend.prompt({ text: "Run it [scenario:command]", delivery: "prompt" });
+    expect(asked).toHaveLength(2);
+  });
+
   it("interrupts the running turn on abort and closes its open tool", async () => {
     const space = await scratch();
     let approved!: () => void;

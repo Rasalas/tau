@@ -53,3 +53,16 @@ it("rejects aliases of the same home and nested overlays", async () => {
   await expect(prepareCodexHome({ CODEX_HOME: shared, TAU_CODEX_AUTH_HOME: alias })).rejects.toThrow("resolves");
   await expect(prepareCodexHome({ CODEX_HOME: shared, TAU_CODEX_AUTH_HOME: join(shared, "nested") })).rejects.toThrow("resolves");
 });
+
+it("keeps Finder metadata local to each home", async () => {
+  const root = await scratch();
+  const shared = join(root, "shared");
+  const auth = join(root, "auth");
+  await mkdir(shared); await mkdir(auth);
+  await writeFile(join(shared, ".DS_Store"), "shared Finder data");
+  await writeFile(join(auth, ".DS_Store"), "overlay Finder data");
+  await prepareCodexHome({ CODEX_HOME: shared, TAU_CODEX_AUTH_HOME: auth });
+  await prepareCodexHome({ CODEX_HOME: shared, TAU_CODEX_AUTH_HOME: auth });
+  expect(await readFile(join(auth, ".DS_Store"), "utf8")).toBe("overlay Finder data");
+  expect(await readFile(join(shared, ".DS_Store"), "utf8")).toBe("shared Finder data");
+});

@@ -37,8 +37,13 @@ export function policyForLevel(level: RuntimePermissionLevel, options: { network
   }
 }
 
+/** What "Allow for this session" covers: Codex itself applies it only to the exact command or patch. */
+export type AllowanceKind = "command" | "file-change";
+
 export interface ApprovalDialog {
   prompts: BackendPrompt[];
+  /** Set for a request a session allowance can answer. */
+  allowance?: AllowanceKind;
   /** One answer per prompt, in order; fewer when the user cancelled one. */
   resultFor(answers: readonly ExtensionUiAnswer[]): unknown;
 }
@@ -62,8 +67,9 @@ function decision(answer: ExtensionUiAnswer | undefined, words: { accept: string
 const V2_WORDS = { accept: "accept", session: "acceptForSession", decline: "decline", cancel: "cancel" };
 const LEGACY_WORDS = { accept: "approved", session: "approved_for_session", decline: "denied", cancel: "abort" };
 
-function approval(title: string, message: string, words: typeof V2_WORDS, wrap: (word: string) => unknown): ApprovalDialog {
+function approval(title: string, message: string, words: typeof V2_WORDS, wrap: (word: string) => unknown, allowance?: AllowanceKind): ApprovalDialog {
   return {
+    ...(allowance ? { allowance } : {}),
     prompts: [{ kind: "select", title, ...(message.trim() ? { message } : {}), options: [ALLOW, ALLOW_SESSION, DENY] }],
     resultFor: ([answer]) => wrap(decision(answer, words)),
   };
@@ -93,6 +99,47 @@ function questions(list: readonly Question[]): ApprovalDialog {
   };
 }
 
+/** True when the user's answer was "Allow for this session". */
+export function allowedForSession(answers: readonly ExtensionUiAnswer[]): boolean {
+  const [answer] = answers;
+  return !!answer && "value" in answer && !answer.typed && answer.value === ALLOW_SESSION;
+}
+
+/**
+ * The kinds the user allowed for the session. A change of access level ends
+ * it, and an answer given for an earlier epoch is dropped.
+ */
+export class SessionAllowance {
+  private kinds = new Set<AllowanceKind>();
+  private level: RuntimePermissionLevel | undefined;
+  private epoch = 0;
+
+  /** Called at each turn start with the turn's level. */
+  sync(level: RuntimePermissionLevel): void {
+    if (this.level !== undefined && this.level !== level) this.clear();
+    this.level = level;
+  }
+
+  /** Ends the allowance; the Codex session it belonged to is gone. */
+  clear(): void {
+    this.kinds = new Set();
+    this.epoch++;
+  }
+
+  has(kind: AllowanceKind): boolean {
+    return this.kinds.has(kind);
+  }
+
+  /** Token to hand back to `add`, taken when the request arrives. */
+  current(): number {
+    return this.epoch;
+  }
+
+  add(kind: AllowanceKind, epoch: number): void {
+    if (epoch === this.epoch) this.kinds.add(kind);
+  }
+}
+
 /**
  * The dialog for a request Codex sent, or undefined for one Tau does not
  * answer with a dialog. `changedPaths` names what a file change would touch.
@@ -103,12 +150,12 @@ export function approvalDialog(method: string, params: Record<string, unknown>, 
     case "item/commandExecution/requestApproval": {
       const command = typeof params.command === "string" ? displayCommand(params.command) : "";
       const cwd = typeof params.cwd === "string" ? `in ${params.cwd}` : "";
-      return approval("Codex wants to run a command", [command, cwd, reason].filter(Boolean).join("\n"), V2_WORDS, (word) => ({ decision: word }));
+      return approval("Codex wants to run a command", [command, cwd, reason].filter(Boolean).join("\n"), V2_WORDS, (word) => ({ decision: word }), "command");
     }
     case "item/fileChange/requestApproval": {
       const paths = changedPaths(String(params.itemId ?? ""));
       const root = typeof params.grantRoot === "string" ? `Write access under ${params.grantRoot} for the rest of the session` : "";
-      return approval(paths.length === 1 ? `Codex wants to edit ${paths[0]}` : "Codex wants to edit files", [paths.length > 1 ? paths.join("\n") : "", root, reason].filter(Boolean).join("\n"), V2_WORDS, (word) => ({ decision: word }));
+      return approval(paths.length === 1 ? `Codex wants to edit ${paths[0]}` : "Codex wants to edit files", [paths.length > 1 ? paths.join("\n") : "", root, reason].filter(Boolean).join("\n"), V2_WORDS, (word) => ({ decision: word }), "file-change");
     }
     case "item/permissions/requestApproval": {
       const requested = (params.permissions ?? {}) as Record<string, unknown>;
@@ -121,11 +168,11 @@ export function approvalDialog(method: string, params: Record<string, unknown>, 
       return Array.isArray(params.questions) && params.questions.length > 0 ? questions(params.questions as Question[]) : undefined;
     case "execCommandApproval": {
       const command = Array.isArray(params.command) ? params.command.map(String).join(" ") : "";
-      return approval("Codex wants to run a command", [command, reason].filter(Boolean).join("\n"), LEGACY_WORDS, (word) => ({ decision: word === "denied" ? { denied: { rejection: "The user declined." } } : word }));
+      return approval("Codex wants to run a command", [command, reason].filter(Boolean).join("\n"), LEGACY_WORDS, (word) => ({ decision: word === "denied" ? { denied: { rejection: "The user declined." } } : word }), "command");
     }
     case "applyPatchApproval": {
       const paths = Object.keys((params.fileChanges ?? {}) as Record<string, unknown>);
-      return approval("Codex wants to edit files", [paths.join("\n"), reason].filter(Boolean).join("\n"), LEGACY_WORDS, (word) => ({ decision: word === "denied" ? { denied: { rejection: "The user declined." } } : word }));
+      return approval("Codex wants to edit files", [paths.join("\n"), reason].filter(Boolean).join("\n"), LEGACY_WORDS, (word) => ({ decision: word === "denied" ? { denied: { rejection: "The user declined." } } : word }), "file-change");
     }
     case "mcpServer/elicitation/request": {
       // A form with fields is asked field by field (`elicitationForm`); this is the plain yes/no.
