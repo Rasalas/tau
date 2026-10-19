@@ -82,7 +82,20 @@ function mcpServerNames(config: Record<string, unknown> | undefined): string[] |
 }
 
 /** Starts `opencode serve` and waits for the line that names its address. */
-export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCodeServerHandle> {
+export async function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCodeServerHandle> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await startServerAttempt(input);
+    } catch (error) {
+      if (!(error instanceof StartupLockError) || attempt >= 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
+
+class StartupLockError extends Error {}
+
+function startServerAttempt(input: OpenCodeServeInput): Promise<OpenCodeServerHandle> {
   const password = randomBytes(24).toString("base64url");
   const configContent = mergedConfigContent(input.env.OPENCODE_CONFIG_CONTENT, input.config);
   const env: NodeJS.ProcessEnv = {
@@ -105,6 +118,7 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   });
   let output = "";
+  let stderrOutput = "";
   let closedByTau = false;
   let exited = false;
   const exit = new Promise<void>((resolve) => { child.once("close", () => resolve()); child.once("error", () => resolve()); });
@@ -164,6 +178,7 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
     let stderrLine = "";
     child.stderr!.on("data", (chunk: string) => {
       tail(chunk);
+      stderrOutput = `${stderrOutput}${chunk}`.slice(-OUTPUT_TAIL);
       stderrLine += chunk;
       const lines = stderrLine.split(/\r?\n/u);
       stderrLine = lines.pop() ?? "";
@@ -174,7 +189,7 @@ export function startOpenCodeServer(input: OpenCodeServeInput): Promise<OpenCode
       exited = true;
       const exitReason = () => new Error(`OpenCode's server exited${code !== null ? ` with code ${code}` : signal ? ` on ${signal}` : ""}.${output.trim() ? `\n${output.trim().slice(-2_000)}` : ""}`);
       const settle = (reason: Error) => {
-        if (!ready) return fail(reason);
+        if (!ready) return fail(code !== null && code !== 0 && reason.message !== AGENT_OOM_MESSAGE && /SQLITE_BUSY|database is locked/iu.test(stderrOutput) ? new StartupLockError(reason.message) : reason);
         input.onExit?.(closedByTau ? undefined : reason);
       };
       // A memory kill is told apart only for a server Tau did not close itself.

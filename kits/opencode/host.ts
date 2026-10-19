@@ -199,7 +199,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         const real = path ? await realpath(path).catch(() => path) : undefined;
         return runtimeUpdateCommand(OPENCODE_BACKEND_KIND, (real && packageUpdateCommand(real, lineOf(version).npm)) ?? "opencode upgrade", env);
       };
-      const compatibility = async (path: string | undefined, version: string | undefined): Promise<RuntimeCompatibility | undefined> => {
+      const compatibility = async (path: string | undefined, version: string | undefined, pnpmAllowBuild = false): Promise<RuntimeCompatibility | undefined> => {
         const found = versionCompatibility(policy, version);
         if (!found) return found;
         // A release of OpenCode 2 is moved to the tested one of its own line, not back to OpenCode 1.
@@ -207,7 +207,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         const verdict = found.recommendedVersion || found.status !== "supported" ? { ...found, recommendedVersion: line.recommended } : found;
         if (!path) return verdict;
         const real = await realpath(path).catch(() => path);
-        const install = packageInstallCommand(real, line.npm, line.recommended);
+        const install = packageInstallCommand(real, line.npm, line.recommended, pnpmAllowBuild);
         return install ? { ...verdict, installCommand: install } : verdict;
       };
       const cli = async (id: string): Promise<{ path: string; version?: string }> => {
@@ -313,7 +313,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
         }
         const { path, version } = await cli(id);
         const maintenance = await maintenanceOf(id);
-        const verdict = await compatibility(path, version);
+        const verdict = await compatibility(path, version, maintenance?.update?.args.includes(`--allow-build=${lineOf(version).npm}`));
         return {
           tool: "opencode",
           ...(version ? { installed: version } : {}),

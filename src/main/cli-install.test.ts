@@ -1,4 +1,4 @@
-import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -67,6 +67,19 @@ describe("detectCliInstall", () => {
     expect(unknown.update).toBeUndefined();
   });
 
+  it("updates a resolved WinGet package before considering native aliases", async () => {
+    const path = "C:/Users/me/.local/share/agent/bin/agent.exe";
+    const real = "C:/Users/me/AppData/Local/Microsoft/WinGet/Packages/Vendor.Tool_Source_123/agent.exe";
+    const install = await detectCliInstall(path, NATIVE, { ...system({ [path]: real }, { winget: "C:/bin/winget.exe" }), platform: "win32" });
+    expect(install.method).toBe("winget");
+    expect(install.update).toEqual({ executable: "C:/bin/winget.exe", args: ["upgrade", "--id", "Vendor.Tool", "--exact"] });
+    const link = await detectCliInstall("C:/Program Files/WinGet/Links/agent.exe", NATIVE, { ...system({}, {}), platform: "win32" });
+    expect(link.method).toBe("winget");
+    expect(link.update).toBeUndefined();
+    const other = await detectCliInstall(path, NATIVE, { ...system({ [path]: real }, {}), platform: "linux" });
+    expect(other.method).toBe("native");
+  });
+
   it("does not take a project's node_modules for a global install", () => {
     expect(npmGlobalPrefix("/work/app/node_modules/x/lib/node_modules/@openai/codex/bin/codex.js", "@openai/codex", "linux")).toBeUndefined();
     expect(npmGlobalPrefix("C:/Users/me/AppData/Roaming/npm/node_modules/@openai/codex/bin/codex.js", "@openai/codex", "win32")).toBe("C:/Users/me/AppData/Roaming/npm");
@@ -105,6 +118,29 @@ describe("cliMaintenance", () => {
     expect(answer.behind).toEqual({ source: "homebrew", latest: "0.159.0", newer: { source: "npm", latest: "0.159.1" } });
     expect(answer.switch?.steps.map((step) => cliCommandText(step))).toEqual(["brew uninstall --cask codex", "npm install -g @openai/codex@latest"]);
     expect(answer.switch?.restore.map((step) => cliCommandText(step))).toEqual(["brew install --cask codex"]);
+  });
+
+  it("compares the runtime cask against its own source", async () => {
+    dir = await mkdtemp(join(tmpdir(), "tau-cask-"));
+    const answer = await cliMaintenance({ tool: "grok", path: "/opt/homebrew/bin/grok", spec: { homebrew: { casks: ["grok-build"] } }, cacheFile: join(dir, "latest.json"), env: {},
+      fetch: registry({ "https://formulae.brew.sh/api/cask/grok-build.json": { version: "1.4.0,build" } }),
+      ...system({ "/opt/homebrew/bin/grok": "/opt/homebrew/Caskroom/grok-build/1.3.0/grok" }, { brew: "/opt/homebrew/bin/brew" }),
+    });
+    expect(answer.latest).toBe("1.4.0");
+    expect(answer.update?.args).toEqual(["upgrade", "--cask", "grok-build"]);
+  });
+
+  it.each(["9.15.0", "10.3.0", "10.4.0", "11.1.3", "unknown"])("pins the advertised pnpm release and gates build approval for %s", async (version) => {
+    dir = await mkdtemp(join(tmpdir(), "tau-pnpm-"));
+    const fake = join(dir, "pnpm");
+    await writeFile(fake, `#!/bin/sh\n[ "$1" = "--version" ] || exit 99\nprintf '%s' '${version}'\n`);
+    await chmod(fake, 0o755);
+    const answer = await cliMaintenance({ tool: "tool", path: "/home/me/pnpm/tool", spec: { npm: "@example/tool" }, cacheFile: join(dir, "latest.json"), env: {},
+      fetch: registry({ "https://registry.npmjs.org/@example/tool/latest": { version: "2.3.4" } }),
+      ...system({ "/home/me/pnpm/tool": "/home/me/pnpm/global/5/node_modules/@example/tool/bin/tool.js" }, { pnpm: fake }),
+    });
+    const allow = ["10.4.0", "11.1.3"].includes(version) ? ["--allow-build=@example/tool"] : [];
+    expect(answer.update?.args).toEqual(["add", "-g", ...allow, "@example/tool@2.3.4"]);
   });
 
   it("offers nothing to switch to while Homebrew is current, and asks nobody with updates off", async () => {

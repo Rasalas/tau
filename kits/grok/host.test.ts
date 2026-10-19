@@ -60,6 +60,25 @@ function caller(id: string): HostExtension & { call?: (command: string, input?: 
 
 describe("Grok host half", () => {
 
+  it("disables automatic updates for every probe but preserves the session environment", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-probe-env-"));
+    directories.push(dir);
+    const log = join(dir, "env.jsonl");
+    const { provider, root } = await harness({ env: { FAKE_GROK_ENV_LOG: log, GROK_DISABLE_AUTOUPDATER: "0" } });
+    await provider.newThreadCatalog!();
+    const probes = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; updater: string });
+    expect(probes.some((entry) => entry.args.includes("--version"))).toBe(true);
+    expect(probes.some((entry) => entry.args.includes("models"))).toBe(true);
+    expect(probes.some((entry) => entry.args.includes("agent"))).toBe(true);
+    expect(probes.every((entry) => entry.updater === "1")).toBe(true);
+    const backend = await provider.open("env-thread", root, { resume: false }, context());
+    try {
+      await backend.prompt({ text: "Hi", delivery: "prompt" });
+      const launches = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { updater: string });
+      expect(launches.at(-1)?.updater).toBe("0");
+    } finally { await backend.dispose(); }
+  });
+
   it("sends a configured custom model and shows the agent's validation error", async () => {
     const custom = "gateway/new-model";
     const { provider, root, sent } = await harness({ customModels: custom });

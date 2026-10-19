@@ -1,7 +1,10 @@
+import { execFile } from "node:child_process";
 import { realpath as fsRealpath, stat } from "node:fs/promises";
+import { promisify } from "node:util";
 import { compareVersions } from "../shared/runtime-version.js";
 import { commandLine } from "../shared/sign-in.js";
 import { homebrewLatestVersion, npmLatestVersion, type HomebrewKind } from "./cli-versions.js";
+import { commandInvocation } from "./platform-process.js";
 
 /**
  * How a CLI a runtime drives got onto the machine, and the command that
@@ -19,7 +22,7 @@ export interface CliPackageSpec {
   native?: { args: readonly string[]; paths: readonly string[] };
 }
 
-export type CliInstallMethod = "homebrew-formula" | "homebrew-cask" | "npm" | "pnpm" | "bun" | "native" | "unknown";
+export type CliInstallMethod = "homebrew-formula" | "homebrew-cask" | "npm" | "pnpm" | "bun" | "native" | "winget" | "unknown";
 
 /** A program and its arguments; run with `execFile`, shown with `cliCommandText`. */
 export interface CliCommand {
@@ -95,6 +98,12 @@ export async function detectCliInstall(path: string, spec: CliPackageSpec, optio
   const base = { path, realPath };
   const found = (name: string) => options.findCommand(name);
 
+  if (platform === "win32" && paths.some((candidate) => /\/winget\/(packages|links)\//u.test(candidate))) {
+    const id = /\/winget\/packages\/([^/_]+)_[^/]+\//iu.exec(realPath)?.[1];
+    const manager = found("winget");
+    return { ...base, method: "winget", label: "WinGet", ...(id ? { name: id } : {}),
+      ...(id && /^[a-z0-9][a-z0-9.-]*$/iu.test(id) && manager ? { update: { executable: manager, args: ["upgrade", "--id", id, "--exact"] } } : { note: "The WinGet package or executable could not be verified." }) };
+  }
   if (spec.native && spec.native.paths.some((fragment) => paths.some((candidate) => candidate.includes(fragment.toLowerCase())))) {
     return { ...base, method: "native", label: "its own installer", update: { executable: path, args: [...spec.native.args] } };
   }
@@ -106,7 +115,16 @@ export async function detectCliInstall(path: string, spec: CliPackageSpec, optio
   }
   if (npm && owns && paths.some((candidate) => candidate.includes("/pnpm/"))) {
     const pnpm = found("pnpm");
-    return { ...base, method: "pnpm", label: "pnpm", name: npm, ...(pnpm ? { update: { executable: pnpm, args: ["add", "-g", `${npm}@latest`] } } : { note: "pnpm is not on the PATH." }) };
+    let allow: string[] = [];
+    if (pnpm) {
+      try {
+        const invocation = commandInvocation(pnpm, ["--version"], { env: process.env });
+        const { stdout } = await promisify(execFile)(invocation.command, invocation.args, { timeout: 5_000, maxBuffer: 16_384, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments });
+        const version = String(stdout).trim();
+        if (/^\d+\.\d+\.\d+$/u.test(version) && compareVersions(version, "10.4.0") >= 0) allow = [`--allow-build=${npm}`];
+      } catch { /* Older or unavailable managers keep their existing command. */ }
+    }
+    return { ...base, method: "pnpm", label: "pnpm", name: npm, ...(pnpm ? { update: { executable: pnpm, args: ["add", "-g", ...allow, `${npm}@latest`] } } : { note: "pnpm is not on the PATH." }) };
   }
   const prefix = npm ? npmGlobalPrefix(realPath, npm, platform) : undefined;
   if (npm && prefix) {
@@ -137,7 +155,7 @@ export async function detectCliInstall(path: string, spec: CliPackageSpec, optio
 /** The command as a person would type it: `brew upgrade --cask codex`. */
 export function cliCommandText(command: CliCommand, platform: string = process.platform): string {
   const name = command.executable.split(/[\\/]/u).pop() ?? command.executable;
-  const short = /^(brew|npm|pnpm|bun)(\.cmd|\.exe)?$/iu.test(name) ? name.replace(/\.(cmd|exe)$/iu, "") : command.executable;
+  const short = /^(brew|npm|pnpm|bun|winget)(\.cmd|\.exe)?$/iu.test(name) ? name.replace(/\.(cmd|exe)$/iu, "") : command.executable;
   return commandLine(short, command.args, {}, platform === "win32" ? "win32" : "posix");
 }
 
@@ -219,6 +237,9 @@ export async function cliMaintenance(options: CliMaintenanceOptions): Promise<Ru
   const named = (kind === "cask" ? options.spec.homebrew?.casks : options.spec.homebrew?.formulae)?.includes(install.name ?? "") === true;
   const brewLatest = homebrew && named && install.name ? await homebrewLatestVersion(kind, install.name, latestOptions) : undefined;
   const latest = homebrew ? brewLatest : options.latest ?? npmLatest;
+  if (install.method === "pnpm" && install.update && npm && latest && /^\d+\.\d+\.\d+$/u.test(latest)) {
+    install.update = { ...install.update, args: install.update.args.map((arg) => arg === `${npm}@latest` ? `${npm}@${latest}` : arg) };
+  }
   const { method, label, path, realPath, note } = install;
   const answer: RuntimeToolMaintenance = {
     tool: options.tool,

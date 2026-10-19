@@ -232,14 +232,14 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         const [maintenance, real] = await Promise.all([maintenanceOf(id, path), realpath(path).catch(() => path)]);
         const installed = maintenance.installed;
         const verdict = versionCompatibility(policy, installed);
-        const install = verdict?.recommendedVersion ? packageInstallCommand(real, CLAUDE_NPM_PACKAGE, verdict.recommendedVersion) : undefined;
+        const install = verdict?.recommendedVersion ? packageInstallCommand(real, CLAUDE_NPM_PACKAGE, verdict.recommendedVersion, maintenance.update?.args.includes(`--allow-build=${CLAUDE_NPM_PACKAGE}`)) : undefined;
         // The native installer updates itself; a package manager's install is that manager's to update.
-        const command = maintenance.update ? cliCommandText(maintenance.update) : packageUpdateCommand(real, CLAUDE_NPM_PACKAGE) ?? "claude update";
+        const command = maintenance.update ? cliCommandText(maintenance.update) : maintenance.install.method === "winget" ? undefined : packageUpdateCommand(real, CLAUDE_NPM_PACKAGE) ?? "claude update";
         return {
           tool: "claude",
           ...(installed ? { installed } : {}),
           ...(maintenance.latest ? { latest: maintenance.latest } : {}),
-          updateCommand: runtimeUpdateCommand(CLAUDE_CODE_BACKEND_KIND, command, env),
+          ...(command ? { updateCommand: runtimeUpdateCommand(CLAUDE_CODE_BACKEND_KIND, command, env) } : {}),
           ...(verdict ? { compatibility: install ? { ...verdict, installCommand: install } : verdict } : {}),
         };
       };

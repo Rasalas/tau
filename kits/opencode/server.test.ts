@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { OpenCodeClient, OpenCodeHttpError, parseEventBlock } from "./client.js";
@@ -31,6 +34,26 @@ describe("a local OpenCode server", () => {
       await server.close();
     }
     expect(server.closed).toBe(true);
+  });
+
+  it.each([0, 2, 4])("retries only startup locks, with at most four attempts (%i locks)", async (locks) => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-start-lock-"));
+    const file = join(dir, "attempts");
+    try {
+      const result = startOpenCodeServer({ command: FAKE, cwd: dir, env: { ...process.env, FAKE_SERVE_ATTEMPTS: file, FAKE_SERVE_LOCKS: String(locks) } });
+      if (locks >= 4) await expect(result).rejects.toThrow("database is locked");
+      else { const server = await result; await server.close(); }
+      expect(Number(await readFile(file, "utf8"))).toBe(Math.min(locks + 1, 4));
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it("does not retry a configuration failure", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "tau-start-error-"));
+    const file = join(dir, "attempts");
+    try {
+      await expect(startOpenCodeServer({ command: FAKE, cwd: dir, env: { ...process.env, FAKE_SERVE_ATTEMPTS: file, FAKE_SERVE_FAIL: "other" } })).rejects.toThrow("Invalid configuration");
+      expect(await readFile(file, "utf8")).toBe("1");
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
   it("says why it did not start, with what the program printed", async () => {

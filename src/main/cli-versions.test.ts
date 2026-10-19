@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { npmLatestVersion, packageUpdateCommand } from "./cli-versions.js";
+import { npmLatestVersion, packageInstallCommand, packageUpdateCommand } from "./cli-versions.js";
 
 function registry(version: string | undefined, ok = true) {
   return vi.fn(async () => ({ ok, json: async () => ({ version }) }) as Response);
@@ -48,5 +48,13 @@ describe("packageUpdateCommand", () => {
     expect(packageUpdateCommand("/Users/me/.bun/install/global/node_modules/@openai/codex/bin/codex.js", "@openai/codex")).toBe("bun add -g @openai/codex@latest");
     expect(packageUpdateCommand("/Users/me/Library/pnpm/global/5/node_modules/@openai/codex/bin/codex.js", "@openai/codex")).toBe("pnpm add -g @openai/codex@latest");
     expect(packageUpdateCommand("/Users/me/.local/share/claude/versions/2.1.280", "@anthropic-ai/claude-code")).toBeUndefined();
+  });
+});
+
+describe("packageInstallCommand", () => {
+  it("carries pnpm build approval from the manager probe to a pinned install", () => {
+    const path = "/home/me/pnpm/global/5/node_modules/@example/tool/bin/tool.js";
+    expect(packageInstallCommand(path, "@example/tool", "2.3.4", true)).toBe("pnpm add -g --allow-build=@example/tool @example/tool@2.3.4");
+    expect(packageInstallCommand(path, "@example/tool", "2.3.4", false)).toBe("pnpm add -g @example/tool@2.3.4");
   });
 });
