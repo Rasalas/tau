@@ -1,105 +1,172 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkbenchActions } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { createKitHarness, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
 import { WORKSPACE_STORE_SERVICE } from "../workspace/protocol.js";
-import { startCustomization } from "./customize-entry.js";
+import { createPendingPrefix, startCustomization } from "./customize-entry.js";
 import { packagesExtension } from "./desktop.js";
 import { CUSTOMIZE_PROMPT_PREFIX, PACKAGES_EXTENSION_ID } from "./protocol.js";
 
 afterEach(cleanup);
 
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const DIRECTORY = "/home/.tau/extensions";
 const PROJECT = { directory: DIRECTORY, workspaceId: "ws1_customizations" };
 
-/** A window whose draft opens in the project it is told to, with a composer that remembers its text. */
-function windowActions(initialDraft = "") {
-  let draft = initialDraft;
-  let thread: { sessionId?: string; draftPending: boolean; workspaceId: string; cwd: string } | undefined;
-  const app = {
+type Thread = { sessionId?: string; draftPending: boolean; workspaceId: string; cwd: string };
+
+const session = (id: string, workspaceId: string, messageCount: number) =>
+  ({ id, title: id, path: `/sessions/${id}.jsonl`, modifiedAt: 1, projectPath: "/project", workspaceId, projectName: "project", messageCount });
+
+/**
+ * A window like the real one: what is on screen is live, but each actions object writes to the
+ * composer that was on screen when it was made. It starts on a used thread of another project;
+ * `opens` is what opening the customization project shows, as the host does: a page of its own
+ * with no messages yet (the project is not listed, so no draft can be made), or a thread already used.
+ */
+function windowActions(opens: "empty" | "used" = "empty") {
+  const drafts = new Map<string, string>();
+  const index = new ThreadStore();
+  const sessions = [session("s1", "ws_other", 3)];
+  const publish = () => index.applyThreadIndex({ projects: [], sessions: sessions as never });
+  publish();
+  let key = "s1";
+  let thread: Thread = { sessionId: "s1", draftPending: false, workspaceId: "ws_other", cwd: "/home/dev/project" };
+  const listeners = new Set<() => void>();
+  const changed = () => listeners.forEach((listener) => listener());
+  const newSession = vi.fn((request?: { workspace?: string }) => {
+    // The window lists a project once it has a used thread.
+    if (!sessions.some((entry) => entry.workspaceId === request?.workspace && entry.messageCount > 0)) return;
+    key = "draft";
+    thread = { draftPending: false, workspaceId: request?.workspace ?? "", cwd: DIRECTORY };
+    changed();
+  });
+  const actionsFor = (own: string) => ({
     notify: vi.fn(),
     closeSettings: vi.fn(),
     focusComposer: vi.fn(),
-    openWorkspace: vi.fn(async () => true),
-    newSession: vi.fn((options?: { workspace?: string }) => { thread = { draftPending: false, workspaceId: options?.workspace ?? "", cwd: DIRECTORY }; }),
+    openWorkspace: vi.fn(async () => {
+      if (thread.workspaceId === PROJECT.workspaceId) return true;
+      const id = opens === "empty" ? "s_empty" : "s_used";
+      sessions.push(session(id, PROJECT.workspaceId, opens === "empty" ? 0 : 2));
+      publish();
+      key = id;
+      thread = { sessionId: id, draftPending: false, workspaceId: PROJECT.workspaceId, cwd: DIRECTORY };
+      changed();
+      return true;
+    }),
+    newSession,
     activeThread: () => thread,
-    composerDraft: () => draft,
-    setComposerDraft: vi.fn((text: string) => { draft = text; }),
+    composerDraft: () => drafts.get(own) ?? "",
+    setComposerDraft: vi.fn((text: string) => { drafts.set(own, text); }),
     sendPrompt: vi.fn(),
+  });
+  const palette = actionsFor("s1");
+  const onScreen = new Map<string, ReturnType<typeof actionsFor>>([["s1", palette]]);
+  const current = () => { if (!onScreen.has(key)) onScreen.set(key, actionsFor(key)); return onScreen.get(key)!; };
+  return {
+    app: palette,
+    /** What the palette hands the command: the actions of the thread it was opened from. */
+    actions: palette as unknown as WorkbenchActions,
+    current,
+    draft: (name: string) => drafts.get(name) ?? "",
+    /** Draws the region with the actions of whatever is on screen, as the workbench does. */
+    Screen: ({ region }: { region: { Component: unknown } }) => {
+      const [, bump] = useState(0);
+      useEffect(() => { const listener = () => bump((n) => n + 1); listeners.add(listener); return () => { listeners.delete(listener); }; }, []);
+      const Region = region.Component as (props: { actions: WorkbenchActions; snapshot: never }) => null;
+      return <ThreadStoreContext.Provider value={index}><Region actions={current() as unknown as WorkbenchActions} snapshot={undefined as never} /></ThreadStoreContext.Provider>;
+    },
   };
-  return { app, actions: app as unknown as WorkbenchActions, draft: () => draft };
 }
 
 const host = (invoke = vi.fn(async (command: string): Promise<unknown> => command === "customization-project" ? PROJECT : { directory: DIRECTORY, packages: 0 })) => ({ invoke, onEvent: () => () => undefined });
 
+/** The command as registered, with the region mounted the way the workbench mounts it. */
+function mounted(win: ReturnType<typeof windowActions>) {
+  const invoke = vi.fn(async (_id: string, command: string): Promise<unknown> => command === "customization-project" ? PROJECT : command === "list" ? { packages: [] } : { directory: DIRECTORY, packages: 0 });
+  const { registry } = createKitHarness(invoke);
+  registry.activate(packagesExtension);
+  const region = registry.getRegions("composer-above").find((entry) => entry.id === "packages.customize-actions")!;
+  const command = registry.getCommands().find((entry) => entry.id === "packages.customize")!;
+  render(<win.Screen region={region} />);
+  return { invoke, run: () => command.run(win.actions) };
+}
+
 describe("Customize Tau…", () => {
-  it("opens a draft in the customization project with the prompt's start, and sends nothing", async () => {
-    const { app, actions, draft } = windowActions();
-    const client = host();
-    const onFolder = vi.fn();
-    await startCustomization(client, actions, onFolder);
-    expect(client.invoke).toHaveBeenCalledWith("customization-project");
-    expect(onFolder).toHaveBeenCalledWith(DIRECTORY);
-    expect(app.openWorkspace).toHaveBeenCalledWith("ws1_customizations");
-    expect(app.newSession).toHaveBeenCalledWith({ workspace: "ws1_customizations" });
-    expect(draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
+  it("puts the prompt's start into the empty page the project opens on, and sends nothing", async () => {
+    const win = windowActions("empty");
+    const { invoke, run } = mounted(win);
+    await run();
+    expect(invoke).toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "customization-project", undefined);
+    expect(win.app.openWorkspace).toHaveBeenCalledWith("ws1_customizations");
+    await waitFor(() => expect(win.draft("s_empty")).toBe(CUSTOMIZE_PROMPT_PREFIX));
     expect(CUSTOMIZE_PROMPT_PREFIX).toBe("Change Tau: ");
-    expect(app.focusComposer).toHaveBeenCalled();
-    expect(app.sendPrompt).not.toHaveBeenCalled();
+    // The thread it was started from keeps its composer, and no second page is made.
+    expect(win.draft("s1")).toBe("");
+    expect(win.app.newSession).not.toHaveBeenCalled();
+    expect(win.current().focusComposer).toHaveBeenCalled();
+    expect(win.app.sendPrompt).not.toHaveBeenCalled();
   });
 
-  it("takes the same project the second time", async () => {
-    const first = windowActions();
-    const second = windowActions();
-    const client = host();
-    await startCustomization(client, first.actions);
-    await startCustomization(client, second.actions);
-    expect(second.app.openWorkspace).toHaveBeenCalledWith("ws1_customizations");
-    expect(second.app.newSession).toHaveBeenCalledWith({ workspace: "ws1_customizations" });
-    expect(second.draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
+  it("opens a draft when the project opens on a thread already used, and leaves that thread alone", async () => {
+    const win = windowActions("used");
+    const { run } = mounted(win);
+    await run();
+    await waitFor(() => expect(win.draft("draft")).toBe(CUSTOMIZE_PROMPT_PREFIX));
+    expect(win.app.newSession).toHaveBeenCalledTimes(1);
+    expect(win.app.newSession).toHaveBeenCalledWith({ workspace: "ws1_customizations" });
+    expect(win.draft("s_used")).toBe("");
+    expect(win.draft("s1")).toBe("");
   });
 
-  it("asks again while the window does not list the project yet", async () => {
-    const { app, actions, draft } = windowActions();
-    const open = app.newSession.getMockImplementation()!;
-    app.newSession.mockImplementationOnce(() => undefined).mockImplementationOnce(() => undefined).mockImplementation(open);
-    await startCustomization(host(), actions);
-    expect(app.newSession.mock.calls.length).toBeGreaterThan(1);
-    expect(draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
+  it("tells the no-worktree rule about the folder before the project opens", async () => {
+    const win = windowActions();
+    const order: string[] = [];
+    win.app.openWorkspace.mockImplementationOnce(async () => { order.push("open"); return true; });
+    await startCustomization(host(), win.actions, createPendingPrefix(), (directory) => order.push(directory));
+    expect(order).toEqual([DIRECTORY, "open"]);
   });
 
-  it("uses a draft of the project that is already on screen instead of making another", async () => {
-    const { app, actions, draft } = windowActions();
-    await startCustomization(host(), actions);
-    expect(app.newSession).toHaveBeenCalledTimes(1);
-    await startCustomization(host(), actions);
-    expect(app.newSession).toHaveBeenCalledTimes(1);
-    expect(draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
+  it("takes the same page the second time and does not make another", async () => {
+    const win = windowActions("used");
+    const { run } = mounted(win);
+    await run();
+    await waitFor(() => expect(win.draft("draft")).toBe(CUSTOMIZE_PROMPT_PREFIX));
+    await run();
+    await wait(50);
+    expect(win.app.newSession).toHaveBeenCalledTimes(1);
+    expect(win.draft("draft")).toBe(CUSTOMIZE_PROMPT_PREFIX);
   });
 
-  it("writes through the window's current actions once the new draft has them", async () => {
-    const stale = windowActions();
-    const fresh = windowActions();
-    fresh.app.activeThread = stale.app.activeThread;
-    let current = stale.actions;
-    stale.app.newSession.mockImplementationOnce((options?: { workspace?: string }) => { stale.app.activeThread = () => ({ draftPending: false, workspaceId: options?.workspace ?? "", cwd: DIRECTORY }) as never; setTimeout(() => { current = fresh.actions; }, 40); });
-    await startCustomization(host(), stale.actions, undefined, () => current);
-    expect(fresh.draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
-    expect(stale.draft()).toBe("");
+  it("keeps what the user already typed on the page", async () => {
+    const win = windowActions("empty");
+    const { run } = mounted(win);
+    await run();
+    await waitFor(() => expect(win.draft("s_empty")).toBe(CUSTOMIZE_PROMPT_PREFIX));
+    win.current().setComposerDraft("Change Tau: make the sidebar wider");
+    await run();
+    await wait(50);
+    expect(win.draft("s_empty")).toBe("Change Tau: make the sidebar wider");
   });
 
-  it("keeps what the user already typed in the draft", async () => {
-    const { actions, draft } = windowActions("make the sidebar wider");
-    await startCustomization(host(), actions);
-    expect(draft()).toBe("make the sidebar wider");
+  it("says so when no page of the project shows up in time", async () => {
+    const win = windowActions();
+    win.app.openWorkspace.mockImplementation(async () => true);
+    const prefix = createPendingPrefix(30);
+    await startCustomization(host(), win.actions, prefix);
+    expect(prefix.getSnapshot()).toBeDefined();
+    await waitFor(() => expect(win.app.notify).toHaveBeenCalledWith("The draft did not open. Try Customize Tau again.", "warning"));
+    expect(prefix.getSnapshot()).toBeUndefined();
   });
 
   it("says why when the project cannot be made, and opens no draft", async () => {
     const { app, actions } = windowActions();
-    await startCustomization(host(vi.fn(async () => { throw new Error("EACCES: permission denied"); })), actions);
+    await startCustomization(host(vi.fn(async () => { throw new Error("EACCES: permission denied"); })), actions, createPendingPrefix());
     expect(app.notify).toHaveBeenCalledWith("EACCES: permission denied", "error");
-    expect(app.newSession).not.toHaveBeenCalled();
+    expect(app.openWorkspace).not.toHaveBeenCalled();
   });
 
   it("is a palette command, and tells the no-worktree rule about the folder", async () => {
@@ -114,12 +181,9 @@ describe("Customize Tau…", () => {
     registry.activate(packagesExtension);
     const command = registry.getCommands().find((entry) => entry.id === "packages.customize");
     expect(command?.label).toBe("Customize Tau…");
-
-    const { app, actions, draft } = windowActions();
-    await command?.run(actions);
+    expect(command?.group).toBe("Extensions");
+    await command?.run(windowActions().actions);
     expect(invoke).toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "customization-project", undefined);
-    expect(draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
-    expect(app.newSession).toHaveBeenCalledTimes(1);
     expect(registered).toHaveLength(1);
     expect(registered[0]!(DIRECTORY)).toBe(true);
     expect(registered[0]!(`${DIRECTORY}/`)).toBe(true);
@@ -130,16 +194,16 @@ describe("Customize Tau…", () => {
     const invoke = vi.fn(async (_id: string, command: string): Promise<unknown> => command === "customization-project" ? PROJECT : command === "list" ? { packages: [] } : { directory: DIRECTORY, packages: 0 });
     const { registry } = createKitHarness(invoke);
     registry.activate(packagesExtension);
-    const { app, actions, draft } = windowActions();
+    const win = windowActions();
     const bind = registry.getRegions("composer-above").find((region) => region.id === "packages.customize-actions")!;
     const section = registry.getSettingsSections("extensions").find((entry) => entry.id === "packages.customize")!;
-    render(<><bind.Component actions={actions} snapshot={undefined as never} /><section.Component onNotify={vi.fn()} onChanged={vi.fn()} /></>);
+    render(<><win.Screen region={bind as never} /><section.Component onNotify={vi.fn()} onChanged={vi.fn()} /></>);
 
     expect(await screen.findByText(/Nothing is installed yet/u)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Customize Tau…" }));
-    await waitFor(() => expect(draft()).toBe(CUSTOMIZE_PROMPT_PREFIX));
-    expect(app.closeSettings).toHaveBeenCalled();
-    expect(app.sendPrompt).not.toHaveBeenCalled();
+    await waitFor(() => expect(win.draft("s_empty")).toBe(CUSTOMIZE_PROMPT_PREFIX));
+    expect(win.app.closeSettings).toHaveBeenCalled();
+    expect(win.app.sendPrompt).not.toHaveBeenCalled();
   });
 
   it("drops the sentence once something is installed", async () => {

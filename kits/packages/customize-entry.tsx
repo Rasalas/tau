@@ -1,22 +1,46 @@
-import { useEffect, useState } from "react";
-import { Button, SettingRow, SettingsSection, errorMessage, type DesktopExtensionContext, type HostExtensionClient, type RegionProps, type SettingsSectionProps, type WorkbenchActions } from "tau";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Button, SettingRow, SettingsSection, errorMessage, useThreadStore, type DesktopExtensionContext, type HostExtensionClient, type RegionProps, type SettingsSectionProps, type WorkbenchActions } from "tau";
 import { WORKSPACE_STORE_SERVICE, type WorkspaceStoreApi } from "../workspace/protocol.js";
 import { CUSTOMIZE_PROMPT_PREFIX, type CustomizationFolder, type CustomizationProject } from "./protocol.js";
 
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const trimmed = (path: string) => path.replace(/[\\/]+$/u, "");
+
+/** Where the prefix goes: a fresh page of this project. */
+export interface CustomizeTarget { workspaceId: string; directory: string }
+
+interface Wish { target: CustomizeTarget; asked: boolean }
+
+/** The prefix waiting for its page; the composer-above region applies it, because only it holds the actions of the page on screen. */
+export function createPendingPrefix(expiryMs = 15_000) {
+  let wish: Wish | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const listeners = new Set<() => void>();
+  const set = (next: Wish | undefined, onExpire?: () => void) => {
+    wish = next;
+    clearTimeout(timer);
+    if (next) timer = setTimeout(() => { set(undefined); onExpire?.(); }, expiryMs);
+    for (const listener of [...listeners]) listener();
+  };
+  return {
+    offer: (target: CustomizeTarget, onExpire?: () => void) => set({ target, asked: false }, onExpire),
+    take: () => set(undefined),
+    /** True once per offer: the region may ask for a new draft only once. */
+    ask: (): boolean => { if (!wish || wish.asked) return false; wish.asked = true; return true; },
+    getSnapshot: () => wish,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+  };
+}
+export type PendingPrefix = ReturnType<typeof createPendingPrefix>;
 
 /**
  * "Customize Tau…": the customization project (made on the first call, the same one after),
- * a new thread's draft in it, and "Change Tau: " in the composer for the user to finish.
- * Nothing is sent.
+ * and "Change Tau: " in the composer of a fresh page in it, for the user to finish. Nothing is sent.
  */
 export async function startCustomization(
   host: HostExtensionClient,
   actions: WorkbenchActions,
+  prefix: PendingPrefix,
   onFolder: (directory: string) => void = () => undefined,
-  /** The window's current actions: the ones in hand write to the draft that was on screen before the new one. */
-  latest?: () => WorkbenchActions,
 ): Promise<void> {
   let project: CustomizationProject;
   try {
@@ -25,38 +49,17 @@ export async function startCustomization(
     actions.notify(errorMessage(error), "error");
     return;
   }
-  // The no-worktree rule has to know the folder before the draft is made.
+  // The no-worktree rule has to know the folder before the page is made.
   onFolder(project.directory);
   if (!await actions.openWorkspace(project.workspaceId)) {
     actions.notify("The customization project could not be opened.", "error");
     return;
   }
-  const inProject = () => {
-    const thread = actions.activeThread();
-    // A draft has no thread yet; `draftPending` only says its first prompt is on its way.
-    return thread !== undefined && thread.sessionId === undefined && (thread.workspaceId === project.workspaceId || (thread.cwd !== undefined && trimmed(thread.cwd) === trimmed(project.directory)));
-  };
-  // A draft of the project already on screen is the one to use.
-  if (!inProject()) {
-    const before = latest?.();
-    actions.newSession({ workspace: project.workspaceId });
-    // A project the window does not list yet gets no draft; ask again until the host's list has it.
-    for (let attempt = 1; attempt < 400 && !inProject(); attempt += 1) {
-      await wait(25);
-      if (attempt % 6 === 0 && !inProject()) actions.newSession({ workspace: project.workspaceId });
-    }
-    if (!inProject()) {
-      actions.notify("The draft did not open. Try Customize Tau again.", "warning");
-      return;
-    }
-    // The new draft's actions arrive with the next render.
-    if (latest) for (let attempt = 0; attempt < 40 && latest() === before; attempt += 1) await wait(25);
-  }
-  const current = latest?.() ?? actions;
-  // Text the user already typed into this draft stays as it is.
-  if (!current.composerDraft().trim()) current.setComposerDraft?.(CUSTOMIZE_PROMPT_PREFIX);
-  current.focusComposer();
+  prefix.offer({ workspaceId: project.workspaceId, directory: project.directory }, () => actions.notify("The draft did not open. Try Customize Tau again.", "warning"));
 }
+
+const inProject = (thread: NonNullable<ReturnType<WorkbenchActions["activeThread"]>>, target: CustomizeTarget): boolean =>
+  thread.workspaceId === target.workspaceId || (thread.cwd !== undefined && trimmed(thread.cwd) === trimmed(target.directory));
 
 /** The entry at the top of Settings → Extensions; with nothing installed it says what the button is for. */
 function CustomizeSection({ host, start }: { host: HostExtensionClient; start(): Promise<void> }) {
@@ -90,6 +93,7 @@ function CustomizeSection({ host, start }: { host: HostExtensionClient; start():
 /** The palette command, the Settings entry, and the rule that this project's threads never get a worktree. */
 export function registerCustomizeEntry(plugin: DesktopExtensionContext): void {
   let bound: WorkbenchActions | undefined;
+  const prefix = createPendingPrefix();
   let folder: string | undefined;
   const remember = (directory: string) => { folder = trimmed(directory); };
   // The folder is also asked up front, so a draft in an existing project already follows the rule.
@@ -103,19 +107,35 @@ export function registerCustomizeEntry(plugin: DesktopExtensionContext): void {
     label: "Customize Tau…",
     group: "Extensions",
     access: "write",
-    run: (app) => startCustomization(plugin.host, app, remember, () => bound ?? app),
+    run: (app) => startCustomization(plugin.host, app, prefix, remember),
   });
-  // The Settings button has no actions of its own; this region hands it the window's.
+  // Its actions are the draft on screen's: they fill the composer, and the Settings button borrows them.
   plugin.registerRegion({
     id: "packages.customize-actions",
     placement: "composer-above",
     order: 91,
     profiles: ["desktop", "web"],
     Component: function CustomizeActions({ actions }: RegionProps) {
+      const waiting = useSyncExternalStore(prefix.subscribe, prefix.getSnapshot);
       useEffect(() => {
         bound = actions;
         return () => { if (bound === actions) bound = undefined; };
       }, [actions]);
+      const threads = useThreadStore();
+      const index = useSyncExternalStore(threads.subscribe, threads.getSnapshot);
+      useEffect(() => {
+        const thread = waiting ? actions.activeThread() : undefined;
+        if (!waiting || !thread || !inProject(thread, waiting.target)) return;
+        // The project opens on an empty page of its own, or on a thread already used; only the second needs a draft.
+        if (thread.sessionId !== undefined && (threads.getThread(thread.sessionId)?.messageCount ?? 0) > 0) {
+          if (prefix.ask()) actions.newSession({ workspace: waiting.target.workspaceId });
+          return;
+        }
+        prefix.take();
+        // Text the user already typed into this draft stays as it is.
+        if (!actions.composerDraft().trim()) actions.setComposerDraft?.(CUSTOMIZE_PROMPT_PREFIX);
+        actions.focusComposer();
+      }, [waiting, actions, threads, index]);
       return null;
     },
   });
@@ -132,7 +152,7 @@ export function registerCustomizeEntry(plugin: DesktopExtensionContext): void {
           if (!bound) { onNotify("The chat is not ready yet. Try again in a moment.", "warning"); return; }
           const app = bound;
           app.closeSettings?.();
-          await startCustomization(plugin.host, app, remember, () => bound ?? app);
+          await startCustomization(plugin.host, app, prefix, remember);
         }}
       />
     ),
