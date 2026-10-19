@@ -614,6 +614,26 @@ describe("profiles", () => {
     } finally { finish.release(); await kit.registry.dispose(); }
   });
 
+  it("lets a corrected URL replace a navigation that never finishes", async () => {
+    const stalled = latch(), started = latch();
+    const browser = fakeSurface();
+    const load = browser.surface.load;
+    browser.surface.load = (url, timeout) => {
+      if (!url.includes("typo")) return load(url, timeout);
+      started.release();
+      return stalled.wait.then(() => load(url, timeout));
+    };
+    const kit = await activate(async () => browser.surface);
+    try {
+      const first = kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8000/typo" });
+      await started.wait;
+      await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "open", { url: "http://localhost:8001/" });
+      expect(browser.loaded).toEqual(["http://localhost:8001/"]);
+      stalled.release();
+      await first;
+    } finally { stalled.release(); await kit.registry.dispose(); }
+  });
+
   it("waits for concurrent closes before opening the next browser", async () => {
     const stopping = latch(), finish = latch();
     const create = vi.fn(async () => fakeSurface({ destroy: async () => { stopping.release(); await finish.wait; } }).surface);

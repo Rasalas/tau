@@ -117,6 +117,19 @@ Nothing Tau starts lands on the real screen. A unit an older Tau wrote shows
 as stale in the status; install again to replace it.
 macOS and Windows refuse the option: neither has a display that nobody sees.
 
+### A headless browser on a bare Linux host
+
+With no Tau window, Preview runs its own headless Chromium. Two things on a
+container or minimal server stop it:
+
+- **Root.** Chromium's sandbox cannot run as root. The preview says so; run the
+  host as a normal user, or set `TAU_PREVIEW_NO_SANDBOX=1` in the host's
+  environment to start the browser with `--no-sandbox`. The sandbox stays on
+  otherwise.
+- **Fonts.** Without fontconfig and a font, pages render no text. Before the
+  first start Preview runs `fc-match`, and when it finds nothing it names the
+  packages (`apt install fontconfig fonts-liberation` on Debian or Ubuntu).
+
 ### How a service and a window share the host
 
 The service runs the app's own binary on the app's own userData, so a Tau

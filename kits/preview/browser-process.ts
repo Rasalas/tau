@@ -1,6 +1,15 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 
+const ROOT_SANDBOX_SIGNATURE = /running as root without --no-sandbox/iu;
+export const ROOT_SANDBOX_MESSAGE = "Chromium's sandbox cannot run as root. Run the Tau host as a normal user, or set TAU_PREVIEW_NO_SANDBOX=1 to start the preview browser without its sandbox.";
+const GENERIC_HINT = "Check TAU_PREVIEW_BROWSER and Chromium's sandbox setup.";
+
+/** What to tell the user once the browser has failed, given what it printed. */
+export function browserFailureHint(diagnostics: string): string {
+  return ROOT_SANDBOX_SIGNATURE.test(diagnostics) ? ROOT_SANDBOX_MESSAGE : GENERIC_HINT;
+}
+
 type Event = { method: string; params: Record<string, unknown>; sessionId?: string };
 
 /** A private DevTools pipe to one owned Chromium process, never a listening port. */
@@ -12,6 +21,7 @@ export class PreviewBrowserProcess {
   private sequence = 0;
   private stopped = false;
   private closing: Promise<boolean> | undefined;
+  private diagnostics = "";
   readonly exited: Promise<void>;
 
   constructor(executable: string, profile: string) {
@@ -20,11 +30,12 @@ export class PreviewBrowserProcess {
       "--no-startup-window", "--restore-last-session", "--no-first-run", "--no-default-browser-check",
       "--disable-extensions", "--disable-background-networking", "--disable-default-apps",
       "--disable-sync", "--password-store=basic",
+      ...(process.env.TAU_PREVIEW_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
     ], { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"], windowsHide: true });
     this.input = this.child.stdio[3] as Writable;
     const output = this.child.stdio[4] as Readable;
-    // Drain diagnostics without logging page URLs or other browser data.
-    this.child.stderr?.resume();
+    // Keep only a short tail to explain a failed start; nothing is logged.
+    this.child.stderr?.on("data", (chunk: Buffer | string) => { this.diagnostics = (this.diagnostics + String(chunk)).slice(-4_096); });
     let buffer = "";
     output.setEncoding("utf8");
     output.on("data", (chunk: string) => {
@@ -47,13 +58,13 @@ export class PreviewBrowserProcess {
         } catch { this.fail(new Error("The preview browser sent an invalid response.")); }
       }
     });
-    const pipeClosed = () => this.fail(new Error("The preview browser pipe closed. Check TAU_PREVIEW_BROWSER and Chromium's sandbox setup."));
+    const pipeClosed = () => this.fail(new Error(`The preview browser pipe closed. ${browserFailureHint(this.diagnostics)}`));
     this.input.on("error", pipeClosed);
     output.on("error", pipeClosed);
-    this.child.on("error", () => this.fail(new Error("The preview browser could not start. Check TAU_PREVIEW_BROWSER and Chromium's sandbox setup.")));
+    this.child.on("error", () => this.fail(new Error(`The preview browser could not start. ${browserFailureHint(this.diagnostics)}`)));
     this.exited = new Promise((resolve) => {
       const finished = (code: number | null, signal: NodeJS.Signals | null) => {
-        this.fail(new Error(`The preview browser exited (${signal ?? code ?? "unknown status"}). Check TAU_PREVIEW_BROWSER and Chromium's sandbox setup.`));
+        this.fail(new Error(`The preview browser exited (${signal ?? code ?? "unknown status"}). ${browserFailureHint(this.diagnostics)}`));
         // A descendant can keep inherited pipes open after the browser exits.
         // Its close event must not delay failure reporting or host shutdown.
         this.input.destroy();

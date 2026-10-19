@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
-import { AppWindow, ArrowLeft, ArrowRight, Bot, CornerDownLeft, Delete, Globe, Monitor, MonitorOff, RotateCw, Send, Smartphone } from "lucide-react";
+import { AppWindow, ArrowLeft, ArrowRight, Bot, ClipboardPaste, CornerDownLeft, Delete, Globe, Monitor, MonitorOff, RotateCw, Send, Smartphone } from "lucide-react";
 import { Empty, errorMessage, getClientStorage, READ_ONLY_REASON, tooltipProps, useCommandAllowed, useHostCapabilities, type WorkbenchActions } from "tau";
 import { PREVIEW_HOST_EXTENSION_ID, PREVIEW_INPUT_KEYS, type PreviewInput, type PreviewInputKey, type PreviewState, type PreviewViewer } from "./protocol.js";
 import type { ScreenInput, ScreenInputKey } from "./screen-protocol.js";
@@ -295,6 +295,15 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
     setBusy(true);
     void send({ kind: "text", text }).finally(() => setBusy(false));
   };
+  // Read here, from the tap: the clipboard API wants a secure page and, on iOS, the user's say-so.
+  const paste = () => {
+    setError("");
+    if (!navigator.clipboard?.readText) { setError("This device will not let the page read its clipboard."); return; }
+    navigator.clipboard.readText().then(
+      (text) => (text ? send({ kind: "text", text }) : undefined),
+      () => setError("Could not read the clipboard."),
+    );
+  };
   const openAddress = (event: FormEvent) => {
     event.preventDefault();
     setEditing(false);
@@ -395,6 +404,7 @@ export default function RemotePreview({ active, actions, compact }: { active: bo
         <button type="submit" className="preview-remote-icon primary" aria-label="Send the text" {...tooltipProps("Send the text to the page")} disabled={!canDrive || !draft || busy}><Send size={18} /></button>
       </form>
       <div className="preview-remote-keys" role="toolbar" aria-label="Keys" data-sheet-drag="off">
+        <button type="button" className="preview-remote-key" aria-label="Paste" {...tooltipProps("Paste the clipboard into the focused field")} disabled={!canDrive} onClick={paste}><ClipboardPaste size={16} aria-hidden="true" /></button>
         {KEY_BAR.map((entry) => <button
           key={entry.key}
           type="button"
