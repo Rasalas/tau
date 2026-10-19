@@ -175,10 +175,25 @@ export async function approvePackageFolder(input: string, fingerprint: string, o
 }
 
 /** A grant for a package the host wrote also lifts the user's earlier "off". */
-async function grantAndClearOff(pkg: ExtensionPackage, grantsFilePath?: string): Promise<void> {
+async function grantAndClearOff(pkg: ExtensionPackage, grantsFilePath?: string, thread?: string): Promise<void> {
   const own = pkg.grantIdentity?.own === true;
-  await grantPackage(pkg.manifest, true, grantsFilePath, pkg.grantIdentity, own);
+  await grantPackage(pkg.manifest, true, grantsFilePath, pkg.grantIdentity, own ? { ...(thread ? { thread } : {}) } : undefined);
   if (own) await markOwnPackageOff(ownPackagesFilePath(grantsFilePath), pkg.manifest.id, pkg.directory, false);
+}
+
+/** The one check for starting a package without asking: the host wrote it, the user did not turn it off, the thread behind it has Full access. */
+export async function mayStartOwn(pkg: ExtensionPackage, access: RuntimePermissionLevel | undefined, grantsFilePath?: string): Promise<boolean> {
+  if (access !== "full" || pkg.grantIdentity?.own !== true) return false;
+  return !(await findOwnPackage(ownPackagesFilePath(grantsFilePath), pkg.manifest.id, pkg.directory))?.off;
+}
+
+/** A package that moved to new permissions or isolation starts again, as the thread that last started it decides. */
+export async function restartOwnPackage(pkg: ExtensionPackage, threadAccess: (threadId: string) => RuntimePermissionLevel | undefined, grantsFilePath?: string): Promise<boolean> {
+  const { grants } = await readExtensionGrants(grantsFilePath);
+  const thread = grants.find((grant) => grant.id === pkg.manifest.id)?.thread;
+  if (!thread || !(await mayStartOwn(pkg, threadAccess(thread), grantsFilePath))) return false;
+  await grantAndClearOff(pkg, grantsFilePath, thread);
+  return true;
 }
 
 /**
@@ -188,12 +203,10 @@ async function grantAndClearOff(pkg: ExtensionPackage, grantsFilePath?: string):
  * nothing, for any other thread, for a package the host did not write and for
  * one the user turned off.
  */
-export async function startOwnPackageFolder(input: string, fingerprint: string, access: RuntimePermissionLevel, options: PackageFolderOptions): Promise<boolean> {
-  if (access !== "full") return false;
+export async function startOwnPackageFolder(input: string, fingerprint: string, access: RuntimePermissionLevel, options: PackageFolderOptions, thread?: string): Promise<boolean> {
   const { pkg } = await locate(input, options);
-  if (pkg.grantIdentity?.own !== true) return false;
-  if ((await findOwnPackage(ownPackagesFilePath(options.grantsFilePath), pkg.manifest.id, pkg.directory))?.off) return false;
+  if (!(await mayStartOwn(pkg, access, options.grantsFilePath))) return false;
   if (fingerprintOf(pkg) !== fingerprint) throw new HostCommandError("The package changed after it was reviewed. Call tau_install_package again.");
-  await grantAndClearOff(pkg, options.grantsFilePath);
+  await grantAndClearOff(pkg, options.grantsFilePath, thread);
   return true;
 }

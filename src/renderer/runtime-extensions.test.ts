@@ -582,6 +582,30 @@ describe("replacing one extension", () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ id: "approval:x.other", title: "Other is waiting for approval" }));
   });
 
+  it("says a package the host wrote waits for its thread, with no way to Settings", async () => {
+    const registry = new ExtensionRegistry();
+    const { host: base, modules } = partialHost(["x.hello"]);
+    modules.set("x.hello", { default: { id: "x.hello", name: "Hello", activate: vi.fn() } });
+    const toast = vi.fn();
+    let granted = true;
+    const h = {
+      ...base,
+      toast,
+      load: async (cwd: string, shared: Record<string, string[]>, only?: readonly string[]) => {
+        const result = await base.load(cwd, shared, only);
+        return { ...result, bundles: result.bundles.map((bundle) => ({ ...bundle, granted })) };
+      },
+    };
+    const runtime = new RuntimeExtensions(registry, h);
+    await runtime.sync("/project");
+    granted = false;
+    await runtime.resync(["x.hello"], { awaitingApproval: [{ id: "x.hello", name: "Hello", own: true }] });
+    const shown = toast.mock.calls.at(-1)?.[0] as { id: string; title: string; description: string; actions?: unknown[] };
+    expect(shown).toMatchObject({ id: "approval:x.hello", title: "Hello is off", description: "What it asks for changed. It waits for the thread that builds it." });
+    expect(JSON.stringify(shown)).not.toMatch(/Settings/u);
+    expect(shown.actions).toBeUndefined();
+  });
+
   it("does not say a package waits for a changed approval when it never ran", async () => {
     const registry = new ExtensionRegistry();
     const { host: base, modules } = partialHost(["x.hello"]);

@@ -94,9 +94,9 @@ describe("extension-grants", () => {
   it("does not bind the content hash of a package the host wrote, while its record still matches", async () => {
     const manifest = { id: "local.mine", permissions: ["process"] };
     const file = join(await scratch(), "grants.json");
-    await grantPackage(manifest, true, file, identity, true);
+    await grantPackage(manifest, true, file, identity, { thread: "t1" });
     const { grants } = await readExtensionGrants(file);
-    expect(grants[0]).toMatchObject({ id: "local.mine", own: true });
+    expect(grants[0]).toMatchObject({ id: "local.mine", own: true, thread: "t1" });
     const edited = { contentHash: "edited-code" };
     expect(isPackageGranted(manifest, grants, { ...edited, own: true })).toBe(true);
     // Without the host's record, or for another grant, an edit still turns it off.
@@ -107,7 +107,7 @@ describe("extension-grants", () => {
 
   it("still binds permissions and isolation for a package the host wrote", async () => {
     const file = join(await scratch(), "grants.json");
-    await grantPackage({ id: "local.mine", permissions: ["process"] }, true, file, identity, true);
+    await grantPackage({ id: "local.mine", permissions: ["process"] }, true, file, identity, {});
     const { grants } = await readExtensionGrants(file);
     const edited = { contentHash: "edited-code", own: true };
     expect(isPackageGranted({ id: "local.mine", permissions: ["process", "network"] }, grants, edited)).toBe(false);

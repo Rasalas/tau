@@ -155,7 +155,7 @@ export interface ExtensionServicesPort {
   reviewExtensionPackage(path: string): Promise<PackageReview>;
   approveExtensionPackage(path: string, fingerprint: string, owner: boolean): Promise<PackageReview>;
   /** Starts a package the host wrote when `access` is Full access; answers whether it did. */
-  startOwnExtensionPackage(path: string, fingerprint: string, access: RuntimePermissionLevel): Promise<boolean>;
+  startOwnExtensionPackage(path: string, fingerprint: string, access: RuntimePermissionLevel, threadId: string): Promise<boolean>;
   /** Turns an installed package off for the owner; it stays installed. */
   stopExtensionPackage(id: string, owner: boolean): Promise<void>;
   /** Notes a folder the scaffold wrote as the host's own work. */
@@ -381,7 +381,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     newPackage: (spec) => createNewPackage(spec, { record: (made) => port.recordOwnExtensionPackage(made) }),
     reviewPackage: (path) => port.reviewExtensionPackage(path),
     approvePackage: (path, fingerprint) => port.approveExtensionPackage(path, fingerprint, (() => { const principal = currentInvocationPrincipal(); return principal !== undefined && isHostOwner(principal); })()),
-    startOwnPackage: (path, fingerprint, threadId) => port.startOwnExtensionPackage(path, fingerprint, permissionLevelProvider?.(threadId) ?? "full"),
+    startOwnPackage: (path, fingerprint, threadId) => port.startOwnExtensionPackage(path, fingerprint, permissionLevelProvider?.(threadId) ?? "full", threadId),
     stopPackage: (id) => port.stopExtensionPackage(id, (() => { const principal = currentInvocationPrincipal(); return principal !== undefined && isHostOwner(principal); })()),
     globalExtensionsDirectory: () => globalExtensionsDirectory(),
     removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),

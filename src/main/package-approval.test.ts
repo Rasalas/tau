@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionPackageSummary } from "../shared/contracts.js";
 import { readExtensionGrants } from "./extension-grants.js";
 import { markOwnPackageOff, ownPackagesFilePath, recordOwnPackage } from "./own-packages.js";
-import { approvePackageFolder, reviewPackageFolder, startOwnPackageFolder } from "./package-approval.js";
+import { approvePackageFolder, restartOwnPackage, reviewPackageFolder, startOwnPackageFolder } from "./package-approval.js";
+import { listExtensionPackages } from "./extension-packages.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -272,5 +273,52 @@ describe("packages the host wrote", () => {
     expect((await grantsOf(options.grantsFilePath))[0]).toMatchObject({ own: true });
     await write("hello", { ...GOOD, "host.ts": `${GOOD["host.ts"]}// edit\n` });
     expect((await reviewPackageFolder("hello", options)).granted).toBe(true);
+  });
+
+  describe("restart after a change of permissions", () => {
+    const widen = (write: (name: string, files: Record<string, string>, manifest?: object) => Promise<string>) =>
+      write("hello", GOOD, { id: "acme.hello", name: "Hello", permissions: ["sessions", "network"], desktop: "./desktop.tsx", host: "./host.ts" });
+    const packageOf = async (options: { cwd: string; agentDir: string; home: string; grantsFilePath: string }) =>
+      (await listExtensionPackages(options.cwd, options.agentDir, { home: options.home, trusted: () => false, grantsFilePath: options.grantsFilePath })).packages[0]!;
+
+    it("records the thread that started it, and starts again when that thread still has Full access", async () => {
+      const { options, write } = await ownSetup();
+      await startOwnPackageFolder("hello", (await reviewPackageFolder("hello", options)).fingerprint, "full", options, "t1");
+      expect((await grantsOf(options.grantsFilePath))[0]).toMatchObject({ own: true, thread: "t1" });
+      await widen(write);
+      expect((await reviewPackageFolder("hello", options)).granted).toBe(false);
+      const levels = vi.fn((_thread: string) => "full" as const);
+      expect(await restartOwnPackage(await packageOf(options), levels, options.grantsFilePath)).toBe(true);
+      expect(levels).toHaveBeenCalledWith("t1");
+      expect((await grantsOf(options.grantsFilePath))[0]).toMatchObject({ permissions: ["network", "sessions"], own: true, thread: "t1" });
+      expect((await reviewPackageFolder("hello", options)).granted).toBe(true);
+    });
+
+    it.each([["ask", "ask" as const], ["read-only", "read-only" as const], ["gone", undefined]])("stays off when the thread is %s", async (_name, level) => {
+      const { options, write } = await ownSetup();
+      await startOwnPackageFolder("hello", (await reviewPackageFolder("hello", options)).fingerprint, "full", options, "t1");
+      await widen(write);
+      expect(await restartOwnPackage(await packageOf(options), () => level, options.grantsFilePath)).toBe(false);
+      expect((await grantsOf(options.grantsFilePath))[0]).toMatchObject({ permissions: ["sessions"] });
+    });
+
+    it("stays off for a package the user allowed on a card, which names no thread", async () => {
+      const { options, write } = await ownSetup();
+      await approvePackageFolder("hello", (await reviewPackageFolder("hello", options)).fingerprint, { ...options, owner: true, confirm: async () => true });
+      await widen(write);
+      expect(await restartOwnPackage(await packageOf(options), () => "full", options.grantsFilePath)).toBe(false);
+    });
+
+    it("stays off for a package the user turned off, and for one the host did not write", async () => {
+      const { options, write, file, dir } = await ownSetup();
+      await startOwnPackageFolder("hello", (await reviewPackageFolder("hello", options)).fingerprint, "full", options, "t1");
+      await widen(write);
+      await markOwnPackageOff(file, "acme.hello", dir, true);
+      expect(await restartOwnPackage(await packageOf(options), () => "full", options.grantsFilePath)).toBe(false);
+      // A foreign package never had a thread on its grant.
+      const foreign = await setup();
+      await foreign.write("other", GOOD, { id: "acme.other", name: "Other", permissions: ["sessions"], desktop: "./desktop.tsx", host: "./host.ts" });
+      expect(await restartOwnPackage(await packageOf(foreign.options), () => "full", foreign.options.grantsFilePath)).toBe(false);
+    });
   });
 });

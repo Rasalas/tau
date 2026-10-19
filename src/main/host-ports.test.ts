@@ -181,12 +181,12 @@ describe("startOwnPackage", () => {
   it("passes the access level the Access Kit holds for the calling thread, which is Full without that kit", async () => {
     const { seam: built, startOwnExtensionPackage } = seam();
     await built.services.startOwnPackage("hello", "f1", "t1");
-    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "full");
+    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "full", "t1");
     built.services.setPermissionLevel((threadId) => (threadId === "t2" ? "read-only" : "ask"));
     await built.services.startOwnPackage("hello", "f1", "t1");
-    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "ask");
+    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "ask", "t1");
     await built.services.startOwnPackage("hello", "f1", "t2");
-    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "read-only");
+    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "read-only", "t2");
   });
 
   it("turns a package off as the owner only", async () => {

@@ -36,6 +36,8 @@ export interface ExtensionGrant {
   isolation?: ExtensionIsolation;
   /** The host wrote this package for the user (`tau_new_package`): an edit does not need a new grant, a change of permissions or isolation does. */
   own?: boolean;
+  /** The thread that last started an own package: its access level decides whether an edit to the permissions restarts it. */
+  thread?: string;
   grantedAt: number;
 }
 
@@ -93,7 +95,7 @@ export async function grantPackage(
   granted: boolean,
   filePath = defaultGrantsFilePath(),
   identity?: PackageGrantIdentity,
-  own = false,
+  own?: { thread?: string },
 ): Promise<void> {
   const file = await readExtensionGrants(filePath);
   const remaining = file.grants.filter((g) => g.id !== manifest.id);
@@ -104,7 +106,7 @@ export async function grantPackage(
       ...(manifest.version ? { version: manifest.version } : {}),
       permissions: [...(manifest.permissions ?? [])].sort(),
       isolation: manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION,
-      ...(own ? { own } : {}),
+      ...(own ? { own: true, ...(own.thread ? { thread: own.thread } : {}) } : {}),
       grantedAt: Date.now(),
     });
   }

@@ -5525,8 +5525,11 @@ opens the native dialog and the card shows a waiting state until it is answered.
 The tool answers `{ status: "running" | "declined" | "ended", id, message }`. A
 package already allowed and unchanged answers `running` at once. For a package
 the host wrote, edits to its files load live without a new yes; a change to its
-`permissions` or `isolation` turns it off until `tau_install_package` runs again
-(at Full access it starts at once, otherwise the card asks about the new items).
+`permissions` or `isolation` turns it off. If the thread that last started it
+(its id is on the grant) is still live and at Full access, the host starts it again by
+itself, through the same check as `startOwnPackage`; otherwise it stays off, the window
+says it waits for the thread that builds it, and `tau_install_package` asks again (at
+Full access it starts at once, otherwise the card asks about the new items).
 For any other package a change to any file turns it off until it is allowed again.
 The tool declares itself read-only (`readOnlyHint`), so the Access Kit's gate does not confirm the call at Ask before the card asks; `tau_new_package`, which writes files, stays under the normal Ask rule.
 

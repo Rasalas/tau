@@ -835,7 +835,7 @@ export type GlobalHostEvent =
     extensionIds?: string[];
     buildErrors?: PackageBuildError[];
     /** Of `extensionIds`, the packages that now wait for the user's approval: their permissions or isolation changed. */
-    awaitingApproval?: Array<{ id: string; name: string }>;
+    awaitingApproval?: Array<{ id: string; name: string; /** The host wrote it: it waits for the thread that builds it, not for Settings. */ own?: true }>;
     sessionId?: undefined;
   }
   /**

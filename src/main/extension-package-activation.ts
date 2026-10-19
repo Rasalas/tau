@@ -5,7 +5,7 @@ import { listExtensionPackages, packageIsolation, type ExtensionPackage, type Ho
 import type { HostExtension, HostExtensionRegistry } from "./host-extensions.js";
 import { HostCommandError } from "./host-extension-errors.js";
 import { markOwnPackageOff, ownPackagesFilePath } from "./own-packages.js";
-import { approvePackageFolder, reviewPackageFolder, startOwnPackageFolder, type PackageReview } from "./package-approval.js";
+import { approvePackageFolder, restartOwnPackage, reviewPackageFolder, startOwnPackageFolder, type PackageReview } from "./package-approval.js";
 import type { RuntimePermissionLevel } from "./runtime-adapters.js";
 
 export interface ExtensionPackageActivatorOptions {
@@ -21,6 +21,8 @@ export interface ExtensionPackageActivatorOptions {
   grantsFilePath?: string;
   /** The native consent dialog for a grant; undefined means no native window (ADR 0036). */
   confirmGrant?: (pkg: ExtensionPackageSummary) => Promise<boolean | undefined>;
+  /** The access level of a live thread, or undefined once it is gone; decides whether an own package restarts after an edit. */
+  threadLevel?: (threadId: string) => RuntimePermissionLevel | undefined;
 }
 
 /**
@@ -89,7 +91,7 @@ export class ExtensionPackageActivator {
       ?? (await listExtensionPackages(this.options.cwd(), this.options.agentDir, this.options.grantsFilePath ? { grantsFilePath: this.options.grantsFilePath } : {})).packages.find((candidate) => candidate.manifest.id === id);
     if (!pkg) return;
     const own = pkg.grantIdentity?.own === true;
-    await grantPackage(pkg.manifest, granted, this.options.grantsFilePath, pkg.grantIdentity, own && granted);
+    await grantPackage(pkg.manifest, granted, this.options.grantsFilePath, pkg.grantIdentity, own && granted ? {} : undefined);
     // Turning a package the host wrote off sticks until the user turns it on; no thread undoes it.
     if (own) await markOwnPackageOff(ownPackagesFilePath(this.options.grantsFilePath), pkg.manifest.id, pkg.directory, !granted);
     this.options.log(granted ? "host-extension.granted" : "host-extension.revoked", id);
@@ -117,8 +119,8 @@ export class ExtensionPackageActivator {
   }
 
   /** Starts a package the host wrote when the thread runs at Full access; answers whether it did. */
-  async startOwn(path: string, fingerprint: string, access: RuntimePermissionLevel): Promise<boolean> {
-    const started = await startOwnPackageFolder(path, fingerprint, access, this.folderOptions());
+  async startOwn(path: string, fingerprint: string, access: RuntimePermissionLevel, thread?: string): Promise<boolean> {
+    const started = await startOwnPackageFolder(path, fingerprint, access, this.folderOptions(), thread);
     if (started) {
       this.options.log("host-extension.granted", `${path} · own package, Full access`);
       await this.refresh();
@@ -130,6 +132,29 @@ export class ExtensionPackageActivator {
   async stop(id: string, owner: boolean): Promise<void> {
     if (!owner) throw new HostCommandError("Only the host's owner can turn a package off.");
     await this.grant(id, false);
+  }
+
+  /**
+   * An own package whose permissions or isolation moved starts again when the
+   * thread that last started it is live and at Full access. Any half counts: a
+   * window-only package never reaches the host load. Answers the ones that stay off.
+   */
+  private async restartOwn(only?: ReadonlySet<string>): Promise<Array<{ id: string; name: string; own: true }>> {
+    const { threadLevel, grantsFilePath } = this.options;
+    if (!threadLevel) return [];
+    const { grants } = await readExtensionGrants(grantsFilePath).catch(() => ({ grants: [] }));
+    const ids = new Set(grants.filter((grant) => grant.own && grant.thread && (!only || only.has(grant.id))).map((grant) => grant.id));
+    if (ids.size === 0) return [];
+    const scan = await listExtensionPackages(this.options.cwd(), this.options.agentDir, grantsFilePath ? { grantsFilePath } : {});
+    const waiting: Array<{ id: string; name: string; own: true }> = [];
+    for (const pkg of scan.packages) {
+      const { id } = pkg.manifest;
+      if (!ids.has(id) || !pkg.grantIdentity?.own || isPackageGranted(pkg.manifest, grants, pkg.grantIdentity)) continue;
+      // oxlint-disable-next-line no-await-in-loop -- one small file read per changed own package
+      if (await restartOwnPackage(pkg, threadLevel, grantsFilePath)) this.options.log("host-extension.granted", `${id} · own package restarted, Full access`);
+      else waiting.push({ id, name: pkg.manifest.name, own: true });
+    }
+    return waiting;
   }
 
   private folderOptions() {
@@ -155,11 +180,14 @@ export class ExtensionPackageActivator {
    * packages it was asked about: compile errors, and a reload that sent one
    * back to waiting for approval.
    */
-  private async sync(force: boolean, only?: ReadonlySet<string>): Promise<{ buildErrors: PackageBuildError[]; awaitingApproval: Array<{ id: string; name: string }> }> {
+  private async sync(force: boolean, only?: ReadonlySet<string>): Promise<{ buildErrors: PackageBuildError[]; awaitingApproval: Array<{ id: string; name: string; own?: true }> }> {
     // Only what was running can have changed its permissions; a new package waits on its install card.
     const ranBefore = new Set(this.activeKeys.keys());
     let loaded: HostPackageLoadResult;
+    let waitingOwn: Array<{ id: string; name: string; own: true }> = [];
     try {
+      // Before the load, so a package that restarts is read as granted by it and by the window's own load.
+      waitingOwn = await this.restartOwn(only).catch((error: unknown) => { this.options.log("host-extension.own-restart.failed", message(error)); return []; });
       loaded = await this.options.load(this.options.cwd());
     } catch (error) {
       this.options.log("host-extension.packages.failed", message(error));
@@ -230,9 +258,10 @@ export class ExtensionPackageActivator {
       .filter((failure) => failure.diagnostics && (!only || (failure.id !== undefined && only.has(failure.id))))
       .map(({ path, message: text, diagnostics }) => ({ path, message: text, ...(diagnostics ? { diagnostics } : {}) }));
     // Only a watched edit names its packages; one that ran and waits now asked for something new.
-    const awaitingApproval = only
-      ? loaded.ungranted.filter((pkg) => only.has(pkg.manifest.id) && ranBefore.has(pkg.manifest.id)).map((pkg) => ({ id: pkg.manifest.id, name: pkg.manifest.name }))
+    const hostWaiting = only
+      ? loaded.ungranted.filter((pkg) => only.has(pkg.manifest.id) && ranBefore.has(pkg.manifest.id)).map((pkg) => ({ id: pkg.manifest.id, name: pkg.manifest.name, ...(pkg.grantIdentity?.own ? { own: true as const } : {}) }))
       : [];
+    const awaitingApproval = [...hostWaiting, ...waitingOwn.filter((entry) => only && !hostWaiting.some((waiting) => waiting.id === entry.id))];
     return { buildErrors, awaitingApproval };
   }
 }

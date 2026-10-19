@@ -68,6 +68,8 @@ folder made again by hand does not match it, and no connection, renderer or
 package method writes it except the scaffold. A grant made for an own package is
 marked as such and no longer binds the content hash, as long as the record still
 matches; permissions and isolation stay bound, so a change there turns the package
-off until it is allowed (Ask) or started (Full) again. A package the user turned off
+off. The grant names the thread that last started it; if that thread is still live and
+at Full access the host starts the package again by itself, otherwise it stays off until
+it is allowed (Ask) or started (Full) again. A package the user turned off
 stays off for Full access threads until the user turns it on. Packages from npm, Git,
 hand-copied folders and anything else the host did not write are unchanged.
