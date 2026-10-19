@@ -37,7 +37,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           if (["starting", "running"].includes(job.status)) {
             job.status = "uncertain";
             if (job.lastRun) job.lastRun.outcome = "uncertain";
-          } else if (job.nextAt && Date.parse(job.nextAt) <= Date.now() && ["ready", "completed"].includes(job.status)) job.status = "held";
+          } else if (state.enabled && job.enabled && job.nextAt && Date.parse(job.nextAt) <= Date.now() && ["ready", "completed"].includes(job.status)) job.status = "held";
         }
         if (JSON.stringify(state) !== JSON.stringify(restored)) await writePersistedJson(file, 1, { ...state });
         let stopped = false;
@@ -51,13 +51,26 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           const current = state.jobs.find((entry) => entry.id === id);
           if (!state.enabled || !current?.enabled || current.secretRef !== job.secretRef) return 404;
           if (current.deliveries?.some((entry) => entry.slice(14) === delivery.id)) return 200;
-          try { const result = await run(id, true, delivery); return result.status === "running" || result.status === "completed" ? 202 : 409; }
+          try { const result = await run(id, { firedAt: Date.now(), delivery, secretRef: job.secretRef }); return result.status === "running" || result.status === "completed" ? 202 : 409; }
           catch { return 409; }
         }, () => { webhookProblem = undefined; context.emit("webhook-endpoint", { url: webhook.url }); });
         const timers = new Set<ReturnType<typeof setTimeout>>();
         const snapshot = () => structuredClone(state);
         const clearTimers = () => { for (const timer of timers) clearTimeout(timer); timers.clear(); };
         const expiring = new Set<string>();
+        const due = new Set<string>();
+        // Timers stop while the computer sleeps, so a long wait re-reads the wall clock every 30 seconds.
+        const wake = (id: string, at: number) => {
+          const timer = setTimeout(() => {
+            timers.delete(timer);
+            if (Date.now() < at) { wake(id, at); return; }
+            if (due.has(id)) return;
+            due.add(id);
+            void run(id, { firedAt: Date.now() }).catch((error: unknown) => services.log("scheduling.run", String(error))).finally(() => due.delete(id));
+          }, Math.max(0, Math.min(at - Date.now(), 30_000)));
+          timer.unref();
+          timers.add(timer);
+        };
         const arm = () => {
           clearTimers();
           void webhook.reconcile(!stopped && state.enabled && state.jobs.some((j) => j.enabled && j.config.schedule.kind === "webhook" && j.secretRef)).catch(() => { webhookProblem = "The webhook endpoint could not open. Check its saved port or restart Tau."; services.log("scheduling.webhook", webhookProblem); context.emit("webhook-endpoint", { problem: webhookProblem }); });
@@ -72,13 +85,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
               timers.add(timer);
             }
             if (!state.enabled || !job.enabled || !job.nextAt || !["ready", "completed"].includes(job.status)) continue;
-            const delay = Math.max(0, Date.parse(job.nextAt) - Date.now());
-            const timer = setTimeout(() => {
-              timers.delete(timer);
-              if (delay > 2_147_483_647) { arm(); return; }
-              void run(job.id, true).catch((error: unknown) => services.log("scheduling.run", String(error)));
-            }, Math.min(delay, 2_147_483_647));
-            timers.add(timer);
+            wake(job.id, Date.parse(job.nextAt));
           }
         };
         let pendingWrite: Promise<void> | undefined;
@@ -95,7 +102,9 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           state = next; if (!stopped) context.emit("state", snapshot()); arm();
         };
         context.registerCommand("list", snapshot, { access: "read" });
-        let busy = false;
+        let queue: Promise<unknown> = Promise.resolve();
+        let queued = 0;
+        const busy = () => queued > 0;
         const outcomes = new Map<string, { status: "completed" | "failed"; detail?: string }>();
         const flushOutcomes = async () => {
           const next = snapshot();
@@ -105,17 +114,21 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
             if (job.status === "running" && outcome) {
               expiring.delete(job.lastRun!.threadId!);
               job.status = outcome.status; job.lastRun!.outcome = outcome.status; job.lastRun!.detail = outcome.detail; changed = true;
-              if (job.nextAt && Date.parse(job.nextAt) <= Date.now()) job.status = "held";
+              if (next.enabled && job.enabled && job.nextAt && Date.parse(job.nextAt) <= Date.now()) job.status = "held";
             }
           }
           outcomes.clear();
           if (changed && !stopped) await save(next);
         };
         const mutate = async <T>(work: () => Promise<T>): Promise<T> => {
-          if (busy) throw new HostCommandError("Scheduling is busy. Try again after this operation finishes.");
-          busy = true;
-          try { return await work(); }
-          finally { try { await flushOutcomes(); } finally { busy = false; arm(); } }
+          if (queued >= 100) throw new HostCommandError("Scheduling is busy. Try again after the queued operations finish.");
+          queued++;
+          const turn = queue.then(async () => {
+            try { return await work(); }
+            finally { try { await flushOutcomes(); } finally { queued--; arm(); } }
+          });
+          queue = turn.catch(() => undefined);
+          return turn;
         };
         const expire = async (id: string, threadId: string) => {
           if (stopped || state.jobs.find((job) => job.id === id)?.status !== "running" || expiring.has(threadId)) return;
@@ -127,7 +140,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
             await services.sessions.abort(threadId);
           }
           catch { outcome.detail = "Maximum duration exceeded, but the thread could not be stopped. Inspect it before retrying."; }
-          if (!busy && !stopped) await mutate(async () => { await flushOutcomes(); });
+          if (!busy() && !stopped) await mutate(async () => { await flushOutcomes(); });
         };
         const lookup = (input: unknown, keys = ["id"]): Job => {
           const v = object(input, keys);
@@ -165,15 +178,18 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
               copy.nextAt = nextAt(copy.config, Date.now());
             } else copy.enabled = command === "enable";
             if (command === "enable" && copy.config.schedule.kind === "webhook" && !copy.secretRef) throw new HostCommandError("Save a private signature key before enabling this webhook.");
-            if (command === "enable" && copy.nextAt && Date.parse(copy.nextAt) <= Date.now()) copy.status = "held";
+            if (command === "enable" && repeats(copy.config.schedule)) copy.nextAt = nextAt(copy.config, Date.now());
+            if (command === "enable" && state.enabled && copy.nextAt && Date.parse(copy.nextAt) <= Date.now()) copy.status = "held";
             await save({ ...state, jobs: command === "delete" ? state.jobs.filter((j) => j.id !== job.id) : state.jobs.map((j) => j.id === job.id ? copy : j) });
             if (job.secretRef && (command === "delete" || copy.secretRef !== job.secretRef)) await secretStore?.delete({ service: SECRET_SERVICE, account: job.secretRef }).catch(() => services.log("scheduling.secrets", "An unused signature key could not be removed from the operating-system store."));
             return structuredClone(copy);
           }), { access: "owner" });
         }
         const replace = async (job: Job) => save({ ...state, jobs: state.jobs.map((j) => j.id === job.id ? job : j) });
-        const run = (id: string, scheduled = false, delivery?: WebhookDelivery) => mutate(async () => {
+        const run = (id: string, trigger?: { firedAt: number; delivery?: WebhookDelivery; secretRef?: string }) => mutate(async () => {
           const job = structuredClone(lookup({ id }));
+          const scheduled = trigger !== undefined, delivery = trigger?.delivery;
+          if (delivery && (!job.enabled || job.secretRef !== trigger?.secretRef)) throw new HostCommandError("This webhook changed before the delivery could start.");
           if (delivery && job.deliveries?.some((entry) => entry.slice(14) === delivery.id)) return job;
           if (["starting", "running"].includes(job.status)) throw new HostCommandError("This job is already running.");
           if (["held", "uncertain", "failed"].includes(job.status)) throw new HostCommandError("Resolve this job explicitly first.");
@@ -187,7 +203,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
               await replace(job); throw new HostCommandError(job.detail);
             }
           }
-          if (scheduled && job.nextAt && Date.now() - Date.parse(job.nextAt) > 60_000) {
+          if (trigger && job.nextAt && trigger.firedAt - Date.parse(job.nextAt) > 60_000) {
             job.status = "held"; await replace(job); return job;
           }
           try {
@@ -238,30 +254,31 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
         }, { access: "read" });
         context.registerCommand("resolve", async (input) => {
           const v = object(input, ["id", "decision", "acknowledgeDuplicateRisk"]);
-          const job = structuredClone(lookup(v, ["id", "decision", "acknowledgeDuplicateRisk"]));
-          if (!["held", "uncertain", "failed"].includes(job.status)) throw new HostCommandError("This job does not need a recovery decision.");
-          if (v.decision !== "skip" && v.decision !== "run") throw new HostCommandError("decision must be skip or run.");
-          if (job.lastRun?.threadId) {
-            const thread = services.thread(job.lastRun.threadId);
-            if (thread && !thread.isIdle()) throw new HostCommandError("The previous thread is still running or waiting. Finish or abort it first.");
-          }
-          if (job.status === "uncertain" && v.decision === "run" && v.acknowledgeDuplicateRisk !== true) throw new HostCommandError("Inspect existing threads first, then set acknowledgeDuplicateRisk: true to deliberately retry.");
-          if (v.decision === "run" && !state.enabled) throw new HostCommandError("Scheduling is off. Explicitly enable it first.");
-          await mutate(async () => {
+          const resolved = await mutate(async () => {
+            const job = structuredClone(lookup(v, ["id", "decision", "acknowledgeDuplicateRisk"]));
+            if (!["held", "uncertain", "failed"].includes(job.status)) throw new HostCommandError("This job does not need a recovery decision.");
+            if (v.decision !== "skip" && v.decision !== "run") throw new HostCommandError("decision must be skip or run.");
+            if (job.lastRun?.threadId) {
+              const thread = services.thread(job.lastRun.threadId);
+              if (thread && !thread.isIdle()) throw new HostCommandError("The previous thread is still running or waiting. Finish or abort it first.");
+            }
+            if (job.status === "uncertain" && v.decision === "run" && v.acknowledgeDuplicateRisk !== true) throw new HostCommandError("Inspect existing threads first, then set acknowledgeDuplicateRisk: true to deliberately retry.");
+            if (v.decision === "run" && !state.enabled) throw new HostCommandError("Scheduling is off. Explicitly enable it first.");
             if (job.status === "uncertain") job.enabled = false;
             job.status = "ready"; job.detail = undefined;
             job.nextAt = repeats(job.config.schedule) ? nextAt(job.config, Date.now()) : undefined;
             if (job.config.schedule.kind === "once") job.enabled = false;
             await replace(job);
+            return job;
           });
-          return v.decision === "run" ? run(job.id) : structuredClone(job);
+          return v.decision === "run" ? run(resolved.id) : structuredClone(resolved);
         }, { access: "owner" });
         context.registerCommand("set-enabled", (input) => mutate(async () => {
           const v = object(input, ["enabled"]);
           if (typeof v.enabled !== "boolean") throw new HostCommandError("enabled must be a boolean.");
           const next = snapshot(); next.enabled = v.enabled;
           if (v.enabled) for (const job of next.jobs) {
-            if (job.nextAt && Date.parse(job.nextAt) <= Date.now() && ["ready", "completed"].includes(job.status)) job.status = "held";
+            if (job.enabled && job.nextAt && Date.parse(job.nextAt) <= Date.now() && ["ready", "completed"].includes(job.status)) job.status = "held";
           }
           await save(next); return snapshot();
         }), { access: "owner" });
@@ -310,7 +327,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
             const current = state.jobs.find((j) => j.lastRun?.threadId === threadId && j.status === "running");
             // A fast turn can finish before start returns its thread id. Do not
             // wait here: a backend may be awaiting this observer itself.
-            if (busy) { if (outcomes.size < 100) outcomes.set(threadId, { status: outcome }); return; }
+            if (busy()) { if (outcomes.size < 100) outcomes.set(threadId, { status: outcome }); return; }
             if (!current) return;
             outcomes.set(threadId, { status: outcome });
             await mutate(async () => { await flushOutcomes(); });

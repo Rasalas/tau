@@ -16,7 +16,7 @@ const config = { name: "CI triage", workspace: "/project", backend: "pi", prompt
 function delivery(id = "delivery-1", timestamp = Date.now(), body = Buffer.from('{"event":"check"}')): WebhookDelivery {
   return { id, timestamp, body, signature: createHmac("sha256", SECRET).update(`${timestamp}\n${id}\n`).update(body).digest("hex") };
 }
-async function harness(existing?: { stateDir: string; store: SecretStore }) {
+async function harness(existing?: { stateDir: string; store: SecretStore }, firstStart?: Promise<void>) {
   const stateDir = existing?.stateDir ?? await mkdtemp(join(tmpdir(), "tau-webhooks-"));
   if (!existing) cleanups.push(() => rm(stateDir, { recursive: true, force: true }));
   const values = new Map<string, string>();
@@ -31,6 +31,7 @@ async function harness(existing?: { stateDir: string; store: SecretStore }) {
     workspaceRef: (path) => ({ workspaceId: `host:${path}`, displayPath: path }),
     thread: () => undefined,
     sessions: { start: async (options) => {
+      if (starts.length === 0) await firstStart;
       const sessionId = `thread-${starts.length + 1}`;
       await options.beforePrompt?.({ sessionId, appendEntry: () => undefined } as unknown as HostThread);
       starts.push(options); return { sessionId, cwd: options.cwd };
@@ -151,4 +152,25 @@ it("the unified Stop ends a pending private request without binding a key", asyn
   expect(await answer).toMatchObject({ details: { status: "ended" } });
   expect((await h.manage()).jobs[0]?.secretRef).toBeUndefined();
   await expect(h.call("save-secret", { id: request, value: SECRET })).rejects.toThrow("ended");
+});
+
+it("queues a signed delivery behind another job's pending start instead of refusing it", async () => {
+  let release!: () => void;
+  const h = await harness(undefined, new Promise<void>((resolve) => { release = resolve; }));
+  const timed = await h.call("create", { ...config, name: "Timed", schedule: { kind: "daily", time: "09:00", timezone: "UTC" } }) as Job;
+  const job = await h.call("create", config) as Job;
+  await h.call("set-webhook-secret", { id: job.id, value: SECRET });
+  await h.call("enable", { id: job.id }); await h.call("set-enabled", { enabled: true });
+  const pending = h.call("run", { id: timed.id });
+  await vi.waitFor(async () => expect((await h.manage()).jobs[0]!.status).toBe("starting"));
+  const get = h.store.get;
+  let verified!: () => void;
+  const reached = new Promise<void>((resolve) => { verified = resolve; });
+  h.store.get = async (item) => { const value = await get(item); verified(); return value; };
+  const response = h.post(job, delivery());
+  await reached; await new Promise((resolve) => setImmediate(resolve));
+  release();
+  expect((await response).status).toBe(202);
+  await pending;
+  expect(h.starts).toHaveLength(2);
 });

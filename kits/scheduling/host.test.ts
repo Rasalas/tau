@@ -142,17 +142,37 @@ it("holds overdue jobs when enabling and skips missed daily work instead of repl
   expect(await h.call("list")).toMatchObject({ jobs: [{ status: "held" }] });
   expect(h.threads).toEqual([]);
 });
-it("records a refused start, requires an explicit retry, and refuses concurrent mutations with a bounded busy error", async () => {
+it("records a refused start and requires an explicit retry", async () => {
   let release!: () => void;
   const h = await harness(undefined, async () => { await new Promise<void>((resolve) => { release = resolve; }); throw new Error("Runtime unavailable"); });
   const job = await h.call("create", config) as { id: string };
   await h.call("set-enabled", { enabled: true });
   const pending = h.call("run", { id: job.id });
   await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "starting" }] }));
-  await expect(h.call("delete", { id: job.id })).rejects.toThrow("busy");
   release(); await pending;
   expect(await h.call("list")).toMatchObject({ jobs: [{ status: "failed", lastRun: { detail: "Error: Runtime unavailable", outcome: "failed" } }] });
   await expect(h.call("run", { id: job.id })).rejects.toThrow("Resolve");
+});
+it("queues mutations behind a pending start and keeps a timer that fired on time from being held", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-03T08:59:00Z"));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let starts = 0;
+  const h = await harness(undefined, async (options) => { const n = ++starts; if (n === 1) await gate; return { sessionId: `thread-${n}`, cwd: options.cwd }; });
+  const manual = await h.call("create", config) as { id: string };
+  const daily = await h.call("create", config) as { id: string };
+  const removed = await h.call("create", config) as { id: string };
+  await h.call("enable", { id: daily.id }); await h.call("set-enabled", { enabled: true });
+  const pending = h.call("run", { id: manual.id });
+  await vi.waitFor(async () => expect((await h.call("list") as { jobs: { status: string }[] }).jobs[0]).toMatchObject({ status: "starting" }));
+  const deleting = h.call("delete", { id: removed.id });
+  await vi.advanceTimersByTimeAsync(3 * 60_000);
+  expect(starts).toBe(1);
+  release();
+  await expect(pending).resolves.toMatchObject({ status: "running" });
+  await expect(deleting).resolves.toMatchObject({ id: removed.id });
+  await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ id: manual.id, status: "running" }, { id: daily.id, status: "running", lastRun: { threadId: "thread-2" } }] }));
+  expect(starts).toBe(2);
 });
 
 it("refuses a second scheduler over the same host state instead of duplicating work", async () => {
@@ -160,6 +180,39 @@ it("refuses a second scheduler over the same host state instead of duplicating w
   const second = await harness(first.stateDir);
   expect(second.registry.isActive("tau.scheduling")).toBe(false);
   expect(first.registry.isActive("tau.scheduling")).toBe(true);
+});
+
+it("starts a run on time after the computer sleeps and holds one it slept through when it wakes", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-03T08:00:00Z"));
+  const h = await harness();
+  const job = await h.call("create", config) as { id: string };
+  await h.call("enable", { id: job.id }); await h.call("set-enabled", { enabled: true });
+  // Timers do not advance while the computer sleeps; the wall clock does.
+  vi.setSystemTime(new Date("2026-10-03T08:50:00Z"));
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "running", nextAt: "2026-10-04T09:00:00.000Z" }] }));
+  await h.end("thread-1");
+  vi.setSystemTime(new Date("2026-10-04T13:00:00Z"));
+  await vi.advanceTimersByTimeAsync(30_000);
+  await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "held", nextAt: "2026-10-04T09:00:00.000Z" }] }));
+  expect(h.threads).toHaveLength(1);
+});
+it("does not hold a disabled job and moves it to its next run when enabled again", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-05T08:00:00Z"));
+  const first = await harness();
+  const job = await first.call("create", config) as { id: string };
+  await first.call("enable", { id: job.id }); await first.call("set-enabled", { enabled: true });
+  await first.call("disable", { id: job.id });
+  await first.registry.deactivate("tau.scheduling");
+  vi.setSystemTime(new Date("2026-10-09T08:00:00Z"));
+  const h = await harness(first.stateDir);
+  expect(await h.call("list")).toMatchObject({ jobs: [{ enabled: false, status: "ready" }] });
+  await h.call("set-enabled", { enabled: false }); await h.call("set-enabled", { enabled: true });
+  await h.call("run", { id: job.id });
+  vi.setSystemTime(new Date("2026-10-09T10:00:00Z"));
+  await h.end("thread-1");
+  expect(await h.call("list")).toMatchObject({ jobs: [{ enabled: false, status: "completed", nextAt: "2026-10-09T09:00:00.000Z" }] });
+  await expect(h.call("enable", { id: job.id })).resolves.toMatchObject({ enabled: true, status: "completed", nextAt: "2026-10-10T09:00:00.000Z" });
 });
 
 it("does not reassign a persisted workspace to another host with the same path", async () => {
