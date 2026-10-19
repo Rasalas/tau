@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import type { HostExtensionContext, HostMcpTool } from "tau/host-extension";
 import { customizeInstructionsFor } from "./customize-instructions.js";
+import { windowScreenshotTools } from "./window-screenshot-tool.js";
 
 function toolResult(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], details: value };
@@ -40,10 +41,10 @@ export function newPackageTools(context: HostExtensionContext): HostMcpTool[] {
   }];
 }
 
-/** The tool and the customization instructions, for Pi and for every runtime reached over MCP. */
+/** The customize tools (a new package, a look at the result) and the instructions, for Pi and for every runtime reached over MCP. */
 export function registerNewPackage(context: HostExtensionContext): () => void {
   const { services } = context;
-  const tools = newPackageTools(context);
+  const tools = [...newPackageTools(context), ...windowScreenshotTools(context)];
   const disposers = [
     services.registerRuntimeExtension("tau-new-package", (pi, session) => {
       for (const tool of tools) pi.registerTool(tool);

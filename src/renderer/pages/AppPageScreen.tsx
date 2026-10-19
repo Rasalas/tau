@@ -35,7 +35,7 @@ export function PageSidebar({ registry, store, actions }: { registry: ExtensionR
     <nav className="settings-nav page-sidebar" aria-label={page.label} data-page-sidebar={page.id}>
       <button type="button" className="settings-back settings-back-top" onClick={store.close}><ChevronLeft size={15} /><span>Back to thread</span></button>
       <div className="page-sidebar-body">
-        <Part name={partName("page", page.id, "Sidebar")}>
+        <Part name={partName("page", page.id, "Sidebar")} extensionId={page.extensionId}>
           <LazyFeatureBoundary label={`${page.id} sidebar`} extensionId={page.extensionId} extensionName={page.extensionName} registry={registry} onNotify={actions.notify}>
             <Suspense fallback={<LazyFeatureFallback label={page.label} />}>
               <Sidebar {...props} params={state.views.at(-1)?.params ?? {}} />
@@ -147,7 +147,7 @@ export function AppPageScreen({ registry, store, actions, stacked = false, sideb
             {fill ? null : head}
             <SettingsPageActionSlot.Provider value={actionSlot}>
               {page ? (
-                <Part key={page.id} name={partName("page", page.id)}>
+                <Part key={page.id} name={partName("page", page.id)} extensionId={page.extensionId}>
                   <LazyFeatureBoundary
                     label={page.id}
                     extensionId={page.extensionId}

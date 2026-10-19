@@ -63,9 +63,10 @@ describe("tau_new_package", () => {
     const cwd = await project();
     const fake = pi();
     runtime()(fake.api, session(cwd));
-    expect(fake.tools.map((tool) => tool.name)).toEqual(["tau_new_package"]);
-    const [mcpTool] = await providers[0]!(session(cwd));
+    expect(fake.tools.map((tool) => tool.name)).toEqual(["tau_new_package", "tau_window_screenshot"]);
+    const [mcpTool, shotTool] = await providers[0]!(session(cwd));
     expect(mcpTool!.name).toBe("tau_new_package");
+    expect(shotTool!.name).toBe("tau_window_screenshot");
 
     const result = await run(mcpTool!, { name: "copy-branch", displayName: "Copy branch", description: "Copies it.", host: true });
     expect(newPackage).toHaveBeenCalledWith({ slug: "copy-branch", displayName: "Copy branch", description: "Copies it.", host: true });

@@ -4058,7 +4058,9 @@ them ([ADR 0042](adr/0042-the-user-customizes-every-part-by-name.md)). A name is
 a user style hides a part with `[data-tau-part="…"] { display: none }` and
 styles what it holds with `[data-tau-part="…"] > *`. A kit that draws another
 kit's component itself (Workspace Kit draws a page's `Summary` in the sidebar's
-foot) wraps it in `Part` from `tau`, so it is named there too. A contribution's
+foot) wraps it in `Part` from `tau`, so it is named there too; `Part`'s optional
+`extensionId` (new in API 1.75.0) adds `data-tau-extension-id`, which core sets
+from the contribution's owner. A contribution's
 id is therefore API: renaming one breaks the user's customizations of it.
 
 `context.registerCustomizations(layer)` hands core a set of changes:
@@ -4963,6 +4965,25 @@ approved; the agent installs it with `tau_install_package` and the user allows i
 permission, in-process only) is the host's half of that: it validates the slug,
 refuses an existing path, scaffolds with `bin/tau-kit.mjs` (the same code as
 the command line) and answers the same `{ directory, id, name, apiVersion, files }`.
+
+### Seeing the result: `tau_window_screenshot` (API 1.75.0)
+
+After the user allowed the package, the agent calls `tau_window_screenshot`
+(Pi and MCP, read-only) to see how it renders. Without arguments it returns a PNG
+of Tau's own window on the host's machine; `extension` (a package id) crops it
+around the regions that package has on screen, plus `margin` pixels (48 by
+default). When none is on screen it returns the whole window and says "region
+not visible". Every part core draws for a contribution (`<tau-part>`, ADR 0042)
+carries `data-tau-extension-id`, the id of the package that registered it; that
+is how the crop finds them. A part that draws nothing has no box and is not found.
+
+The picture comes from the window half of Packages Kit (`kits/packages/window.ts`,
+the workbench `webContents.capturePage()`), reached with `callClient` on
+`{ window: "host" }`. It names no window and no screen, so it never shows another
+app and needs no Screen Recording permission. It does not include the Preview
+page or other native views, which sit above the page. A host without a Tau window
+(headless, or only a phone or browser attached) and a minimized window answer
+"No window: …" as an error result instead of a picture.
 
 ## 3. The workflow
 

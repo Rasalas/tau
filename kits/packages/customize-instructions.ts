@@ -7,6 +7,7 @@ A request to change Tau itself (a button, panel, command, theme, shortcut, how i
 1. Call tau_new_package with a short name. It creates the package in the user's extension folder with the API's types and an AGENTS.md recipe; read that file, not Tau's source.
 2. Edit the files in that folder only.
 3. Call tau_install_package with the folder. The user approves it with one click; never approve it yourself.
+4. Once the user has allowed it, call tau_window_screenshot once with the package's id and look at the result; fix what looks wrong.
 </customizing_tau>`;
 
 /** Tau's own source checkout, or a worktree of it: `kits/package.json` names `@tau/kits` at the Git root of `cwd` (`cwd` itself outside Git). */

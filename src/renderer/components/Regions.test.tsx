@@ -50,7 +50,7 @@ describe("Region and StatusLine", () => {
       context.registerRegion({ id: "branch", placement: "thread-branch", Component: () => <button type="button">main ▾</button> });
     } });
     await screen.findByText("main ▾");
-    // Named for user styles (ADR 0042); the wrapper draws no box.
-    expect(view.container.querySelector(".line")!.innerHTML).toBe('<tau-part data-tau-part="region:branch"><button type="button">main ▾</button></tau-part>');
+    // Named for user styles (ADR 0042) and marked with its extension for the window screenshot; the wrapper draws no box.
+    expect(view.container.querySelector(".line")!.innerHTML).toBe('<tau-part data-tau-part="region:branch" data-tau-extension-id="kit"><button type="button">main ▾</button></tau-part>');
   });
 });

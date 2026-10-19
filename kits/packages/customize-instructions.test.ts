@@ -21,10 +21,11 @@ async function checkout(root: string, name = "@tau/kits", git: "dir" | "file" = 
 }
 
 describe("customize instructions", () => {
-  it("are short and name both tools", () => {
+  it("are short and name the tools", () => {
     expect(CUSTOMIZE_INSTRUCTIONS.split("\n").length).toBeLessThanOrEqual(12);
     expect(CUSTOMIZE_INSTRUCTIONS).toContain("tau_new_package");
     expect(CUSTOMIZE_INSTRUCTIONS).toContain("tau_install_package");
+    expect(CUSTOMIZE_INSTRUCTIONS).toContain("tau_window_screenshot");
   });
 
   it("recognise Tau's source checkout from any folder in it, and its worktrees", async () => {
