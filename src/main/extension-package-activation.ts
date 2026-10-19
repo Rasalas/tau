@@ -134,6 +134,8 @@ export class ExtensionPackageActivator {
    * back to waiting for approval.
    */
   private async sync(force: boolean, only?: ReadonlySet<string>): Promise<{ buildErrors: PackageBuildError[]; awaitingApproval: Array<{ id: string; name: string }> }> {
+    // Only what was running can have changed its permissions; a new package waits on its install card.
+    const ranBefore = new Set(this.activeKeys.keys());
     let loaded: HostPackageLoadResult;
     try {
       loaded = await this.options.load(this.options.cwd());
@@ -205,9 +207,9 @@ export class ExtensionPackageActivator {
     const buildErrors = loaded.errors
       .filter((failure) => failure.diagnostics && (!only || (failure.id !== undefined && only.has(failure.id))))
       .map(({ path, message: text, diagnostics }) => ({ path, message: text, ...(diagnostics ? { diagnostics } : {}) }));
-    // Only a watched edit names its packages; one of them waiting now asked for something new.
+    // Only a watched edit names its packages; one that ran and waits now asked for something new.
     const awaitingApproval = only
-      ? loaded.ungranted.filter((pkg) => only.has(pkg.manifest.id)).map((pkg) => ({ id: pkg.manifest.id, name: pkg.manifest.name }))
+      ? loaded.ungranted.filter((pkg) => only.has(pkg.manifest.id) && ranBefore.has(pkg.manifest.id)).map((pkg) => ({ id: pkg.manifest.id, name: pkg.manifest.name }))
       : [];
     return { buildErrors, awaitingApproval };
   }

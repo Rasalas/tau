@@ -259,7 +259,8 @@ export class RuntimeExtensions {
           try { this.registry.deactivate(previous.extension.id); } catch (error) { this.host.log("desktop-extension.deactivate.failed", String(error)); }
         }
         this.loaded = this.loaded.filter((entry) => entry !== previous);
-        this.announceWaiting(id, previous?.extension.name ?? id);
+        // A package that never ran has nothing that changed; its install card or Settings says so.
+        if (previous) this.announceWaiting(id, previous.extension.name);
         continue;
       }
       try {

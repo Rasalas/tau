@@ -226,6 +226,22 @@ describe("ExtensionPackageActivator", () => {
     expect(events).toContainEqual({ type: "extension-packages-changed", extensionIds: ["acme.hello"], awaitingApproval: [{ id: "acme.hello", name: "Hello" }] });
   });
 
+  it("does not report a package that never ran as having changed its permissions", async () => {
+    const { activator, events, install, approve } = await harness();
+    await activator.start();
+    events.length = 0;
+    install(hello);
+    await activator.refresh({ only: ["acme.hello"] });
+    expect(events).toContainEqual({ type: "extension-packages-changed", extensionIds: ["acme.hello"] });
+    // Allowed once and then turned off by an edit, it is waiting for a changed grant.
+    await approve("acme.hello");
+    await activator.refresh({ only: ["acme.hello"] });
+    install({ ...hello, permissions: ["workspace:read", "process"], hash: "6666666666666666" });
+    events.length = 0;
+    await activator.refresh({ only: ["acme.hello"] });
+    expect(events).toContainEqual({ type: "extension-packages-changed", extensionIds: ["acme.hello"], awaitingApproval: [{ id: "acme.hello", name: "Hello" }] });
+  });
+
   it("keeps the last good version running when a reload finds a broken package", async () => {
     const { activator, registry, activations, install, breakEntry, fixEntry, approve } = await harness();
     install(hello);
