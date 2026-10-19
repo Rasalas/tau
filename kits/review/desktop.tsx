@@ -30,6 +30,7 @@ import { RequestLinks } from "./request-links.js";
 import { createGuideRunWatcher } from "./guide-notify.js";
 import { createRequestSection } from "./request-section.js";
 import { LinkDialogs } from "./link-dialog.js";
+import { registerThreadLinkSheet } from "./thread-link-sheets.js";
 import { createPublishCardLayer, RequestPublishing } from "./publish-card.js";
 import { PendingReviewStore } from "./pending-review.js";
 import { createProactivePanels } from "./proactive-panels.js";
@@ -185,6 +186,7 @@ export const reviewExtension: DesktopExtension = {
     const settlement = new SettlementSource();
     const releaseSettlement = plugin.useService<SettlementService>(SETTLEMENT_SERVICE, (service) => { settlement.set(service); return () => settlement.set(undefined); });
     const watches = new PullRequestWatchFeed(plugin.host);
+    const releaseLinkSheet = registerThreadLinkSheet(plugin, { client, links, watches });
     const endings = plugin.registerTranscriptRows("review.request-endings", 40, { profiles: ["desktop", "web", "compact"] });
     const Strip = createPullRequestStrip({ watches, rows, links, preferences: plugin.preferences, client, host: plugin.host, settlement, endings });
     const releaseWatchMarks = markWatchingThreads(plugin, watches);
@@ -211,7 +213,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); untrackPullRequestTarget(); };
+    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseLinkSheet(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); untrackPullRequestTarget(); };
   },
 };
 
