@@ -1,6 +1,16 @@
 /** What the install tool's two halves agree on: the card waiting above a thread's composer. */
 export const INSTALL_TOOL = "tau_install_package";
 export const INSTALL_REQUESTS_EVENT = "install-requests";
+/** Published when a package starts without a card, for the toast with its "Turn off". */
+export const PACKAGE_STARTED_EVENT = "package-started";
+
+/** What `package-started` carries. */
+export interface PackageStarted {
+  threadId: string;
+  packageId: string;
+  name: string;
+  isolation: "worker" | "in-process";
+}
 
 export type InstallRequestStatus = "pending" | "running" | "declined" | "ended";
 
@@ -16,12 +26,24 @@ export interface InstallRequest {
   description?: string;
   permissions: string[];
   isolation: "worker" | "in-process";
+  /** The package draws in Tau's window. */
+  desktop: boolean;
+  host: boolean;
+  /** What the user allowed before; the card asks only about what is new. */
+  previous?: { permissions: string[]; isolation: "worker" | "in-process"; desktop?: boolean; host?: boolean };
 }
 
 /** `install-requests`: what waits, and whether this connection may answer it. */
 export interface InstallRequestList {
   requests: InstallRequest[];
   canManage: boolean;
+}
+
+export function readPackageStarted(value: unknown): PackageStarted | undefined {
+  const fields = value && typeof value === "object" ? value as Partial<PackageStarted> : {};
+  return typeof fields.packageId === "string" && typeof fields.name === "string" && typeof fields.threadId === "string"
+    ? { threadId: fields.threadId, packageId: fields.packageId, name: fields.name, isolation: fields.isolation === "in-process" ? "in-process" : "worker" }
+    : undefined;
 }
 
 export function readInstallRequests(value: unknown): InstallRequest[] {

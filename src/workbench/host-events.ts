@@ -4,7 +4,7 @@ import type { AppUpdatePhase, ExtensionUiAnswer, HostEvent, PackageBuildError, T
 /** What a package change says beyond which packages moved. */
 export interface PackagesChangeReport {
   buildErrors?: readonly PackageBuildError[];
-  awaitingApproval?: ReadonlyArray<{ id: string; name: string }>;
+  awaitingApproval?: ReadonlyArray<{ id: string; name: string; own?: true }>;
 }
 import type { HostUpdate } from "../shared/host-protocol";
 import type { HostClient } from "./host-client";

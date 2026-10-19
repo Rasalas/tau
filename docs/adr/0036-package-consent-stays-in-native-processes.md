@@ -48,3 +48,28 @@ package from executing in the renderer in either mode.
 The local channel trusts native processes running as the same OS user. It does
 not sandbox already approved code or isolate desktop contributions from
 their shared workbench. No extension API exports are added.
+
+Amended, 2026-10-19. A package `tau_new_package` wrote for the user is the user's
+own work, and a thread at Full access already runs any command as the user. That
+agent could write the grants file itself, so for it the card and the native dialog
+were friction, not a boundary. In such a thread `tau_install_package` grants an own
+package and starts it without either; the user sees a toast with "Turn off". The
+host decides this, not the tool: it needs the host's own record that the scaffold
+wrote that folder, and the level the Access Kit holds for the calling thread
+(`setPermissionLevel`) to be Full access. Read-only and Ask threads keep the boundary:
+the card and the native dialog, now worded as the concrete questions the manifest
+raises (start programs, reach the internet, read and change project files, act in
+Tau's window, run inside Tau's process), and only the new ones once the user allowed
+the package before.
+
+The record lives in an owner-only file next to the grants, keyed by package id,
+real folder and the folder's inode. Nothing in a package folder can state it, a
+folder made again by hand does not match it, and no connection, renderer or
+package method writes it except the scaffold. A grant made for an own package is
+marked as such and no longer binds the content hash, as long as the record still
+matches; permissions and isolation stay bound, so a change there turns the package
+off. The grant names the thread that last started it; if that thread is still live and
+at Full access the host starts the package again by itself, otherwise it stays off until
+it is allowed (Ask) or started (Full) again. A package the user turned off
+stays off for Full access threads until the user turns it on. Packages from npm, Git,
+hand-copied folders and anything else the host did not write are unchanged.

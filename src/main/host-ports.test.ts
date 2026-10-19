@@ -169,3 +169,29 @@ describe("package updates and project trust", () => {
     }
   });
 });
+
+describe("startOwnPackage", () => {
+  const seam = () => {
+    const startOwnExtensionPackage = vi.fn(async () => true);
+    const stopExtensionPackage = vi.fn(async () => undefined);
+    const port = { registerTurnObserver: () => () => undefined, log: () => undefined, startOwnExtensionPackage, stopExtensionPackage } as unknown as ExtensionServicesPort;
+    return { seam: createHostExtensionSeam(port), startOwnExtensionPackage, stopExtensionPackage };
+  };
+
+  it("passes the access level the Access Kit holds for the calling thread, which is Full without that kit", async () => {
+    const { seam: built, startOwnExtensionPackage } = seam();
+    await built.services.startOwnPackage("hello", "f1", "t1");
+    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "full", "t1");
+    built.services.setPermissionLevel((threadId) => (threadId === "t2" ? "read-only" : "ask"));
+    await built.services.startOwnPackage("hello", "f1", "t1");
+    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "ask", "t1");
+    await built.services.startOwnPackage("hello", "f1", "t2");
+    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "read-only", "t2");
+  });
+
+  it("turns a package off as the owner only", async () => {
+    const { seam: built, stopExtensionPackage } = seam();
+    await built.services.stopPackage("acme.hello");
+    expect(stopExtensionPackage).toHaveBeenCalledWith("acme.hello", false);
+  });
+});

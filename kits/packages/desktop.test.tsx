@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionInspection, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import { PackagesInstall, PackagesSources, createExtensionSection, followInstalls, packagesExtension } from "./desktop.js";
+import { PackagesInstall, PackagesSources, createExtensionSection, followInstalls, followStarts, packagesExtension } from "./desktop.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_RETIRED_PAGE, parseInstallArguments } from "./protocol.js";
 
 afterEach(cleanup);
@@ -127,6 +127,29 @@ describe("Packages kit", () => {
     unbind();
   });
 
+  it("says a package is on when it started without a card, and turns it off from the toast", async () => {
+    let emit: (payload: unknown) => void = () => undefined;
+    const invoke = vi.fn(async () => ({ off: true }));
+    const client = { invoke, onEvent: (_name: string, listener: (payload: unknown) => void) => { emit = listener; return () => undefined; } };
+    const starts = followStarts(client);
+    const app = actions();
+    const toast = vi.fn();
+    const unbind = starts.bind({ ...app, toast } as unknown as WorkbenchActions);
+    emit({ threadId: "t1", packageId: "local.copy-branch", name: "Copy Branch", isolation: "worker" });
+    emit({ nonsense: true });
+    expect(toast).toHaveBeenCalledOnce();
+    const options = toast.mock.calls[0]?.[0] as { title: string; description?: string; actions: Array<{ label: string; run(): void }> };
+    expect(options.title).toBe("Copy Branch is on");
+    expect(options.description).toBeUndefined();
+    expect(options.actions.map((action) => action.label)).toEqual(["Turn off"]);
+    options.actions[0]?.run();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("turn-off", { id: "local.copy-branch" }));
+    await waitFor(() => expect(app.notify).toHaveBeenCalledWith("Copy Branch is off."));
+    emit({ threadId: "t1", packageId: "local.x", name: "X", isolation: "in-process" });
+    expect(toast.mock.calls[1]?.[0]).toMatchObject({ title: "X is on", description: "It runs inside Tau's own process." });
+    unbind();
+  });
+
   it("rebuilds the packages from the palette without rebuilding Tau", async () => {
     const invoke = vi.fn(async () => ({ message: "Rebuilt the installed packages." }));
     const { registry } = createKitHarness(invoke);
@@ -150,7 +173,9 @@ describe("Packages kit", () => {
     const { registry } = createKitHarness(vi.fn(async () => ({})));
     registry.activate(packagesExtension);
     expect(registry.getSettingsPages()).toEqual([]);
-    expect(registry.getSettingsSections("extensions").map((section) => [section.id, Boolean(section.advanced)])).toEqual([["packages.customize", false], ["packages.install", false], ["packages.sources", true]]);
+    expect(registry.getSettingsSections("extensions").map((section) => [section.id, Boolean(section.advanced)])).toEqual([["packages.install", false], ["packages.sources", true]]);
+    // "Customize Tau…" joins the Customize page, found once by the page, not by a row of its own.
+    expect(registry.getSettingsSections("customize").map((section) => [section.id, section.rows])).toEqual([["packages.customize", undefined]]);
     // The page it had before still opens: its links land on Extensions.
     expect(registry.settingsPageReplacedBy(PACKAGES_RETIRED_PAGE)).toBe("extensions");
     const open = registry.getCommands().find((command) => command.id === "packages.install");
@@ -231,7 +256,7 @@ describe("Packages kit", () => {
     const sections = registry.getSettingsSections("extensions");
     render(<>{sections.map(({ id, Component }) => <Component key={id} cwd="/project" onNotify={vi.fn()} onChanged={vi.fn()} />)}</>);
     const rows = sections.flatMap((section) => section.rows ?? []);
-    expect(rows.length).toBe(5);
+    expect(rows.length).toBe(4);
     for (const row of rows) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 

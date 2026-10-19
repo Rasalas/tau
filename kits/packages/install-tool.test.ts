@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { HostCommandError, type HostMcpTool, type HostMcpToolProvider, type HostThreadLifecycle, type HostTurnObserver, type PackageReview, type RuntimeExtensionContribution } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createPackagesHostExtension } from "./host.js";
+import { newPackageTools } from "./new-package-tool.js";
 import type { InstallRequest } from "./install-protocol.js";
 import { PACKAGES_EXTENSION_ID } from "./protocol.js";
 
 const review = (overrides: Partial<PackageReview> = {}): PackageReview => ({
   id: "acme.hello", name: "Hello", version: "1.0.0", description: "Says hello", directory: "/home/.tau/extensions/hello",
-  permissions: ["sessions"], isolation: "worker", desktop: true, host: true, granted: false, fingerprint: "f1", buildErrors: [],
+  permissions: ["sessions"], isolation: "worker", desktop: true, host: true, granted: false, own: false, fingerprint: "f1", buildErrors: [],
   ...overrides,
 });
 
@@ -23,8 +24,11 @@ async function activate(reviews: Array<PackageReview | Error> = [review()]) {
     return next;
   });
   const approvePackage = vi.fn(async (_path: string, _fingerprint: string) => review({ granted: true }));
+  // The host answers true only for a package it wrote, in a thread at Full access.
+  const startOwnPackage = vi.fn(async (_path: string, _fingerprint: string, _threadId: string) => false);
+  const stopPackage = vi.fn(async (_id: string) => undefined);
   const kit = await activateHostKit(createPackagesHostExtension(), {
-    reviewPackage, approvePackage,
+    reviewPackage, approvePackage, startOwnPackage, stopPackage,
     registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
     registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
     registerRuntimeExtension: (name, factory) => { runtime.push({ name, factory }); return () => undefined; },
@@ -38,7 +42,7 @@ async function activate(reviews: Array<PackageReview | Error> = [review()]) {
   const invoke = (command: string, input?: unknown) => kit.invoke(PACKAGES_EXTENSION_ID, command, input);
   const requests = async () => ((await invoke("install-requests")) as { requests: InstallRequest[] }).requests;
   const waitForCard = async () => { await vi.waitFor(async () => { if ((await requests()).length === 0) throw new Error("no card yet"); }); return (await requests())[0]!; };
-  return { kit, call, invoke, requests, waitForCard, reviewPackage, approvePackage, runtime, lifecycles, observers, events };
+  return { kit, call, invoke, requests, waitForCard, reviewPackage, approvePackage, startOwnPackage, stopPackage, runtime, lifecycles, observers, events };
 }
 
 describe("tau_install_package", () => {
@@ -47,6 +51,15 @@ describe("tau_install_package", () => {
     const registered: Array<{ name: string }> = [];
     await runtime.find((entry) => entry.name === "tau-install-package")!.factory({ registerTool: (tool: never) => registered.push(tool) } as never, { sessionId: "t1", cwd: "/project" });
     expect(registered.map((tool) => tool.name)).toEqual(["tau_install_package"]);
+  });
+
+  it("declares itself read-only so Ask does not confirm the call before the card does, and tau_new_package stays a write", async () => {
+    const { runtime } = await activate();
+    const registered: Array<{ name: string; annotations?: { readOnlyHint?: boolean } }> = [];
+    await runtime.find((entry) => entry.name === "tau-install-package")!.factory({ registerTool: (tool: never) => registered.push(tool) } as never, { sessionId: "t1", cwd: "/project" });
+    expect(registered[0]!.annotations).toEqual({ readOnlyHint: true });
+    const newPackage = newPackageTools({ services: {} } as never)[0]!;
+    expect(newPackage.annotations).toEqual({ readOnlyHint: false });
   });
 
   it("hands build errors back with file, line and column and shows no card", async () => {
@@ -70,6 +83,52 @@ describe("tau_install_package", () => {
     const { call, requests } = await activate([review({ granted: true })]);
     expect(await call("t1", "hello")).toMatchObject({ status: "running", id: "acme.hello" });
     expect(await requests()).toEqual([]);
+  });
+
+  it("starts a package the host wrote at once when the host says the thread has Full access", async () => {
+    const { call, requests, approvePackage, startOwnPackage, events } = await activate([review({ own: true })]);
+    startOwnPackage.mockResolvedValueOnce(true);
+    const result = await call("t1", "hello");
+    expect(result).toMatchObject({ status: "running", id: "acme.hello" });
+    expect(String(result.message)).toContain("Edits to its files load live");
+    expect(startOwnPackage).toHaveBeenCalledWith("hello", "f1", "t1");
+    expect(await requests()).toEqual([]);
+    expect(approvePackage).not.toHaveBeenCalled();
+    expect(events.filter((event) => event.name === "package-started").map((event) => event.payload)).toEqual([{ threadId: "t1", packageId: "acme.hello", name: "Hello", isolation: "worker" }]);
+  });
+
+  it("shows the card with the concrete data when the host does not start an own package", async () => {
+    const { call, waitForCard, invoke, startOwnPackage, approvePackage, events } = await activate([review({ own: true, permissions: ["process", "network"], previous: { permissions: ["process"], isolation: "worker" } })]);
+    const pending = call("t1", "hello");
+    const card = await waitForCard();
+    expect(startOwnPackage).toHaveBeenCalledWith("hello", "f1", "t1");
+    expect(card).toMatchObject({ permissions: ["process", "network"], desktop: true, host: true, previous: { permissions: ["process"], isolation: "worker" } });
+    expect(events.some((event) => event.name === "package-started")).toBe(false);
+    await invoke("allow-install", { id: card.id });
+    expect(approvePackage).toHaveBeenCalledWith("hello", "f1");
+    expect(await pending).toMatchObject({ status: "running" });
+  });
+
+  it("asks the host to start only a package it wrote, never a foreign one", async () => {
+    const { call, waitForCard, invoke, startOwnPackage } = await activate([review({ own: false })]);
+    const pending = call("t1", "hello");
+    await invoke("decline-install", { id: (await waitForCard()).id });
+    await pending;
+    expect(startOwnPackage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a running own package running after an edit and says so", async () => {
+    const { call, startOwnPackage } = await activate([review({ own: true, granted: true })]);
+    expect(String((await call("t1", "hello")).message)).toContain("Edits to its files load live");
+    expect(startOwnPackage).not.toHaveBeenCalled();
+  });
+
+  it("turns a package off only for the owner", async () => {
+    const { kit, invoke, stopPackage } = await activate();
+    expect(await invoke("turn-off", { id: "acme.hello" })).toEqual({ off: true });
+    expect(stopPackage).toHaveBeenCalledWith("acme.hello");
+    await expect(kit.invoke(PACKAGES_EXTENSION_ID, "turn-off", { id: "acme.hello" }, { kind: "workbench-client", connection: "c1", pairedClient: "phone" })).rejects.toThrow();
+    expect(stopPackage).toHaveBeenCalledOnce();
   });
 
   it("waits on a card, never grants by itself, and returns running after the owner's Allow", async () => {

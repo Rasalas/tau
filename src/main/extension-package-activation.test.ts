@@ -7,6 +7,8 @@ import { ExtensionPackageActivator, type ExtensionPackageActivatorOptions } from
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import type { HostPackageLoadResult } from "./extension-packages.js";
 import { HostExtensionRegistry, type HostExtensionServices } from "./host-extensions.js";
+import { listExtensionPackages } from "./extension-packages.js";
+import { findOwnPackage, ownPackagesFilePath, recordOwnPackage } from "./own-packages.js";
 
 const dirs: string[] = [];
 async function scratch(): Promise<string> {
@@ -330,6 +332,78 @@ describe("ExtensionPackageActivator", () => {
       await expect(activator.approve("hello", fingerprint, false)).rejects.toThrow("owner");
       expect(confirmGrant).not.toHaveBeenCalled();
       expect((await readExtensionGrants(grantsFilePath)).grants).toEqual([]);
+    });
+  });
+
+  describe("a package the host wrote", () => {
+    async function ownFolder(grantsFilePath: string) {
+      const home = await scratch();
+      vi.stubEnv("TAU_PACKAGES_HOME", home);
+      const dir = join(home, ".tau", "extensions", "hello");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "tau-extension.json"), JSON.stringify({ id: "acme.hello", name: "Hello", host: "./host.ts" }));
+      await writeFile(join(dir, "host.ts"), "export default { id: 'acme.hello', name: 'Hello', activate() {} };\n");
+      await recordOwnPackage(ownPackagesFilePath(grantsFilePath), { id: "acme.hello", directory: dir });
+      return dir;
+    }
+
+    it("starts at Full access without the dialog, and not at any other level", async () => {
+      const confirmGrant = vi.fn(async () => true);
+      const { activator, grantsFilePath } = await harness({ confirmGrant });
+      await ownFolder(grantsFilePath);
+      const { fingerprint } = await activator.review("hello");
+
+      expect(await activator.startOwn("hello", fingerprint, "ask")).toBe(false);
+      expect((await readExtensionGrants(grantsFilePath)).grants).toEqual([]);
+      expect(await activator.startOwn("hello", fingerprint, "full")).toBe(true);
+      expect((await readExtensionGrants(grantsFilePath)).grants).toMatchObject([{ id: "acme.hello", own: true }]);
+      expect(confirmGrant).not.toHaveBeenCalled();
+    });
+
+    it("starts an own package again after a change of permissions when its thread has Full access, and not otherwise", async () => {
+      const levels = new Map<string, "full" | "ask">([["t1", "full"]]);
+      const { activator, grantsFilePath, events } = await harness({
+        threadLevel: (thread) => levels.get(thread),
+        load: async () => {
+          const grants = (await readExtensionGrants(grantsFilePath)).grants;
+          const { packages } = await listExtensionPackages("/project", "/agent", { home: process.env.TAU_PACKAGES_HOME!, trusted: () => false, grantsFilePath });
+          return { extensions: [], ungranted: packages.filter((pkg) => !isPackageGranted(pkg.manifest, grants, pkg.grantIdentity)), errors: [], skipped: [] };
+        },
+      });
+      const dir = await ownFolder(grantsFilePath);
+      const { fingerprint } = await activator.review("hello");
+      await activator.startOwn("hello", fingerprint, "full", "t1");
+      const widen = () => writeFile(join(dir, "tau-extension.json"), JSON.stringify({ id: "acme.hello", name: "Hello", permissions: ["network"], host: "./host.ts" }));
+
+      await widen();
+      await activator.refresh({ only: ["acme.hello"] });
+      expect((await readExtensionGrants(grantsFilePath)).grants).toMatchObject([{ id: "acme.hello", permissions: ["network"], thread: "t1", own: true }]);
+
+      levels.set("t1", "ask");
+      await writeFile(join(dir, "tau-extension.json"), JSON.stringify({ id: "acme.hello", name: "Hello", permissions: ["network", "process"], host: "./host.ts" }));
+      await activator.refresh({ only: ["acme.hello"] });
+      expect((await readExtensionGrants(grantsFilePath)).grants).toMatchObject([{ permissions: ["network"] }]);
+      // The window is told it waits for its thread, which has no Settings to go to.
+      expect(events.filter((event) => event.type === "extension-packages-changed").at(-1)).toMatchObject({ awaitingApproval: [{ id: "acme.hello", name: "Hello", own: true }] });
+    });
+
+    it("turns off for the owner only, and then no thread starts it again", async () => {
+      const { activator, grantsFilePath } = await harness();
+      const dir = await ownFolder(grantsFilePath);
+      const { fingerprint } = await activator.review("hello");
+      await activator.startOwn("hello", fingerprint, "full");
+
+      await expect(activator.stop("acme.hello", false)).rejects.toThrow("owner");
+      expect((await readExtensionGrants(grantsFilePath)).grants).toHaveLength(1);
+      await activator.stop("acme.hello", true);
+      expect((await readExtensionGrants(grantsFilePath)).grants).toEqual([]);
+      expect((await findOwnPackage(ownPackagesFilePath(grantsFilePath), "acme.hello", dir))?.off).toBe(true);
+      expect(await activator.startOwn("hello", fingerprint, "full")).toBe(false);
+
+      // The user turning it on in Settings lifts the mark and keeps edits from needing a new yes.
+      await activator.grant("acme.hello", true);
+      expect((await findOwnPackage(ownPackagesFilePath(grantsFilePath), "acme.hello", dir))?.off).toBe(false);
+      expect((await readExtensionGrants(grantsFilePath)).grants).toMatchObject([{ id: "acme.hello", own: true }]);
     });
   });
 });

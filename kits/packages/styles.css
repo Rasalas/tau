@@ -35,10 +35,8 @@
 .install-warning { display: flex; gap: 6px; align-items: flex-start; color: var(--warn); }
 .install-warning > svg { flex: none; margin-top: 3px; }
 .install-error { color: var(--danger); }
-.install-permissions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.install-permissions li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 12px; }
-.install-permissions li > code { color: var(--muted); }
-.install-permissions li > small { grid-column: 1 / -1; color: var(--warn); font-size: var(--text-xs); }
+.install-questions { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.install-questions li { font-weight: 500; }
 .install-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .install-spacer { flex: 1; }
 .install-link, .install-allow {

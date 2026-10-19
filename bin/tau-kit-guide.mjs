@@ -45,6 +45,6 @@ ${hostSection}
 
 1. Edit the files. Tau compiles on load, with no build step; a compile error shows as a toast with file and line.
 2. Install: call \`tau_install_package\` with this folder. Without that tool, tell the user to type \`/install <this folder>\` in the composer.
-3. Never approve the package yourself. The user allows it with one click ("Allow and turn on"); then it runs at once, and every save reloads it.
+3. Never approve the package yourself. A package made with \`tau_new_package\` starts at once in a thread with Full access and the user sees a toast; otherwise the user answers what it may do on a card, or allows it in Settings → Extensions. Once it runs, every save reloads it.
 `;
 }

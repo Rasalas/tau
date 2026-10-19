@@ -205,6 +205,9 @@ export class RuntimeExtensions {
     registry.setLoadingExtensions(true);
   }
 
+  /** Packages the host reported as its own in the report being applied. */
+  private ownWaiting = new Set<string>();
+
   list(): readonly RuntimeExtensionRecord[] {
     return this.loaded;
   }
@@ -218,6 +221,7 @@ export class RuntimeExtensions {
    */
   async resync(only?: readonly string[], report: PackagesChangeReport = {}): Promise<readonly RuntimeExtensionRecord[]> {
     for (const failure of report.buildErrors ?? []) this.reportBuildFailure(failure, "host-extension.build.failed");
+    this.ownWaiting = new Set((report.awaitingApproval ?? []).filter((waiting) => waiting.own).map((waiting) => waiting.id));
     for (const waiting of report.awaitingApproval ?? []) this.announceWaiting(waiting.id, waiting.name);
     if (this.cwd === undefined) return this.loaded;
     return only && only.length > 0 ? this.replace(this.cwd, only) : this.sync(this.cwd);
@@ -432,6 +436,17 @@ export class RuntimeExtensions {
   /** A package whose permissions changed runs no more until the user allows them again. */
   private announceWaiting(id: string, name: string): void {
     this.host.log("extension.awaiting-approval", id);
+    // A package the host wrote starts again by itself when the thread that builds it installs it at Full access.
+    if (this.ownWaiting.has(id)) {
+      this.host.toast({
+        id: `approval:${id}`,
+        type: "info",
+        title: `${name} is off`,
+        description: "What it asks for changed. It waits for the thread that builds it.",
+        timeoutMs: 15_000,
+      });
+      return;
+    }
     this.host.toast({
       id: `approval:${id}`,
       type: "warning",

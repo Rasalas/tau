@@ -34,6 +34,13 @@ export interface ExtensionGrant {
   permissions: string[];
   /** The isolation the user approved; missing means the default, a worker. */
   isolation?: ExtensionIsolation;
+  /** Whether the approved package had a window half and a host half; a grant from before this lacks them. */
+  desktop?: boolean;
+  host?: boolean;
+  /** The host wrote this package for the user (`tau_new_package`): an edit does not need a new grant, a change of permissions or isolation does. */
+  own?: boolean;
+  /** The thread that last started an own package: its access level decides whether an edit to the permissions restarts it. */
+  thread?: string;
   grantedAt: number;
 }
 
@@ -68,18 +75,34 @@ export async function writeExtensionGrants(grants: ExtensionGrantsFile, filePath
   await writePersistedJson(filePath, 1, { grants: grants.grants });
 }
 
+/** The entries a manifest names: the window's side, and the side that runs apart from it. */
+export interface PackageHalves {
+  desktop?: string;
+  window?: string;
+  host?: string;
+  pi?: string;
+}
+
+/** What the user approves by halves: code in Tau's window, and code that runs apart from it. */
+export function packageHalves(manifest: PackageHalves): { desktop: boolean; host: boolean } {
+  return { desktop: Boolean(manifest.desktop || manifest.window), host: Boolean(manifest.host || manifest.pi) };
+}
+
 export function isPackageGranted(
-  manifest: { id: string; permissions?: readonly string[]; isolation?: ExtensionIsolation },
+  manifest: { id: string; permissions?: readonly string[]; isolation?: ExtensionIsolation } & PackageHalves,
   grants: readonly ExtensionGrant[],
   identity?: PackageGrantIdentity,
 ): boolean {
   const existing = grants.find((g) => g.id === manifest.id);
   if (!existing || !identity?.contentHash || !existing.contentHash) return false;
   if (existing.signer !== identity.signer) return false;
-  if (existing.contentHash !== identity.contentHash && !identity.trustedSigner) return false;
+  if (existing.contentHash !== identity.contentHash && !identity.trustedSigner && !(existing.own && identity.own)) return false;
   // Running inside the host process is a privilege of its own: a package that
   // leaves the worker after it was approved has to be approved again.
   if ((manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION) !== (existing.isolation ?? DEFAULT_PACKAGE_ISOLATION)) return false;
+  // A half the user never saw has to be allowed too; an older grant did not record them.
+  const halves = packageHalves(manifest);
+  if ((halves.desktop && existing.desktop === false) || (halves.host && existing.host === false)) return false;
   const current = [...(manifest.permissions ?? [])].sort();
   const granted = [...(existing.permissions ?? [])].sort();
   if (current.length !== granted.length) return false;
@@ -87,10 +110,11 @@ export function isPackageGranted(
 }
 
 export async function grantPackage(
-  manifest: { id: string; version?: string; permissions?: readonly string[]; isolation?: ExtensionIsolation },
+  manifest: { id: string; version?: string; permissions?: readonly string[]; isolation?: ExtensionIsolation } & PackageHalves,
   granted: boolean,
   filePath = defaultGrantsFilePath(),
   identity?: PackageGrantIdentity,
+  own?: { thread?: string },
 ): Promise<void> {
   const file = await readExtensionGrants(filePath);
   const remaining = file.grants.filter((g) => g.id !== manifest.id);
@@ -101,6 +125,9 @@ export async function grantPackage(
       ...(manifest.version ? { version: manifest.version } : {}),
       permissions: [...(manifest.permissions ?? [])].sort(),
       isolation: manifest.isolation ?? DEFAULT_PACKAGE_ISOLATION,
+      // A manifest naming no half is a bare stub or a theme: nothing to remember.
+      ...(manifest.desktop || manifest.window || manifest.host || manifest.pi ? packageHalves(manifest) : {}),
+      ...(own ? { own: true, ...(own.thread ? { thread: own.thread } : {}) } : {}),
       grantedAt: Date.now(),
     });
   }

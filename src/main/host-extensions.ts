@@ -1196,6 +1196,19 @@ export interface HostExtensionServices {
    * never from a tool (`packages`). New in API 1.75.0.
    */
   approvePackage(path: string, fingerprint: string): Promise<PackageReview>;
+  /**
+   * Starts a package `newPackage` wrote, for the thread `threadId`, without
+   * asking, when that thread runs at Full access (the level the Access Kit
+   * holds, `setPermissionLevel`). Later edits to the folder keep it running; a
+   * change of permissions or isolation turns it off until it is started again.
+   * Answers false, and changes nothing, for any other level, for a package
+   * `newPackage` did not write (only the host's own record says so, never a
+   * file in the folder) and for one the user turned off. A folder that changed
+   * since the review throws. New in API 1.75.0 (`packages`, in-process only).
+   */
+  startOwnPackage(path: string, fingerprint: string, threadId: string): Promise<boolean>;
+  /** Turns a package off, as the owner's "Turn off" on a toast; owner connections only, it stays installed. New in API 1.75.0 (`packages`, in-process only). */
+  stopPackage(id: string): Promise<void>;
   /** The folder `newPackage` writes to and a global install scans: `~/.tau/extensions`, or below `TAU_PACKAGES_HOME`. New in API 1.75.0; in-process only. */
   globalExtensionsDirectory(): string;
   removePackage(source: string, scope: PackageScope): Promise<PackageRemoval>;

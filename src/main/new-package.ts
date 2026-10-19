@@ -39,8 +39,9 @@ const loadScaffold: ScaffoldLoader = () => import(new URL("../../bin/tau-kit.mjs
  * Writes a new package into the global extension folder, the one a global
  * install scans, and nowhere else: the folder name is a checked slug and an
  * existing entry is never touched. The package is not installed or approved.
+ * `record` notes it as the host's own work, which only this function does.
  */
-export async function createNewPackage(spec: NewPackageSpec, options: { home?: string; scaffold?: ScaffoldLoader; types?: string } = {}): Promise<NewPackage> {
+export async function createNewPackage(spec: NewPackageSpec, options: { home?: string; scaffold?: ScaffoldLoader; types?: string; record?: (made: { id: string; directory: string }) => Promise<void> } = {}): Promise<NewPackage> {
   const slug = spec.slug.trim();
   if (!PACKAGE_SLUG.test(slug) || slug.length > MAX_SLUG) {
     throw new Error(`"${spec.slug}" is not a package name: lowercase letters, digits and single dashes, starting with a letter, at most ${MAX_SLUG} characters (my-button).`);
@@ -58,6 +59,7 @@ export async function createNewPackage(spec: NewPackageSpec, options: { home?: s
   mkdirSync(root, { recursive: true });
   try {
     const written = kit.writeKit({ folder: directory, id: `local.${slug}`, name, ...(spec.description ? { description: spec.description } : {}), host: spec.host === true, agents: true, types });
+    await options.record?.({ id: `local.${slug}`, directory });
     return { directory, id: `local.${slug}`, name, apiVersion: written.apiVersion, files: written.files };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
