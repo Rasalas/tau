@@ -13,6 +13,7 @@ import {
   parseGitLabThreads,
   parseRequestUrl,
   parseUnifiedDiff,
+  unquoteGitPath,
 } from "./pull-request-json.js";
 import type { CliRunOptions } from "./request-cli.js";
 import { LINK_SEAMS } from "./test-seams.js";
@@ -144,6 +145,36 @@ describe("gh fixtures", () => {
       { kind: "added", newLine: 2, text: "is" },
     ]);
     expect(entries[2]!.diff.note).toBe("Binary file");
+  });
+
+  it("decodes the C-quoted names Git prints for non-ASCII and special characters", () => {
+    const entries = parseUnifiedDiff([
+      "diff --git \"a/docs/\\303\\244.md\" \"b/docs/\\303\\244.md\"",
+      "--- \"a/docs/\\303\\244.md\"",
+      "+++ \"b/docs/\\303\\244.md\"",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+      "diff --git \"a/\\346\\227\\245 \\\"q\\\".txt\" \"b/\\346\\227\\245 \\\"q\\\".txt\"",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ \"b/\\346\\227\\245 \\\"q\\\".txt\"",
+      "@@ -0,0 +1 @@",
+      "+x",
+      "diff --git \"a/old\\303\\244.ts\" \"b/new\\303\\266.ts\"",
+      "rename from \"old\\303\\244.ts\"",
+      "rename to \"new\\303\\266.ts\"",
+      "",
+    ].join("\n"));
+    expect(entries.map((entry) => entry.file.path)).toEqual(["docs/\u00e4.md", "\u65e5 \"q\".txt", "new\u00f6.ts"]);
+    expect(entries[2]!.file.previousPath).toBe("old\u00e4.ts");
+    expect(entries[0]!.diff.path).toBe("docs/\u00e4.md");
+  });
+
+  it("unquotes only quoted names and keeps unknown escapes", () => {
+    expect(unquoteGitPath("plain\\name")).toBe("plain\\name");
+    expect(unquoteGitPath("\"tab\\there\\\\n\"")).toBe("tab\there\\n");
+    expect(unquoteGitPath("\"odd\\qname\"")).toBe("odd\\qname");
   });
 });
 
