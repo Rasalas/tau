@@ -7,6 +7,7 @@ import { INSTRUCTIONS_OPTION, TEMPLATE_OPTION } from "./writing.js";
 import { DELETE_BRANCH_OPTION } from "./merge-controls.js";
 import { PROACTIVE_OPTION } from "./proactive-panels.js";
 import { STRIP_OPTION } from "./pull-request-strip-logic.js";
+import { PULL_REQUEST_TARGET_KEY, readPullRequestTarget, type PullRequestTarget } from "./pull-request-target.js";
 import { GUIDE_ENABLED_OPTION, GUIDE_INSTRUCTIONS_VALUE } from "./guide-protocol.js";
 
 const value = (key: string) => `values.${ID}.${key}`;
@@ -19,6 +20,10 @@ const FORMATS = [
   { value: "gitmoji", label: "Gitmoji" },
   { value: "plain", label: "Plain subject" },
 ] as const;
+const TARGETS: ReadonlyArray<{ value: PullRequestTarget; label: string }> = [
+  { value: "tau", label: "Tau" },
+  { value: "browser", label: "Browser" },
+];
 const COLORS: ReadonlyArray<{ value: DiffColorScheme; label: string }> = [
   { value: "red-green", label: "Red & green" },
   { value: "blue-orange", label: "Blue & orange" },
@@ -37,6 +42,7 @@ export const REVIEW_SETTINGS_ROWS = [
   { id: "setting-review-delete-branch", label: "Delete the branch after merging", keywords: ["merge", "branch", "cleanup"] },
   { id: "setting-review-proactive", label: "Proactive panels", keywords: ["open pull request", "changes panel", "automatic"] },
   { id: "setting-review-strip", label: "Show the pull request above the composer", keywords: ["strip", "composer", "pull request state"] },
+  { id: "setting-review-open-in", label: "Open pull requests in", keywords: ["browser", "tau", "link", "github", "gitlab", "forgejo", "bitbucket", "external", "pull request view"] },
   { id: "setting-review-guides", label: "Review guides", keywords: ["guide", "tour", "beta", "pull request", "agent"] },
   { id: "setting-review-guide-instructions", label: "Guide instructions", keywords: ["guide", "tour", "prompt", "taste"] },
   { id: "setting-review-colors", label: "Diff colours", keywords: ["colors", "red", "green", "blue", "orange", "colour blindness"] },
@@ -73,6 +79,7 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
   const deleteBranch = useSetting<boolean>(option(DELETE_BRANCH_OPTION), { defaultValue: false, scope: "both", read: readBoolean });
   const proactive = useSetting<boolean>(option(PROACTIVE_OPTION), { defaultValue: false, read: readBoolean });
   const strip = useSetting<boolean>(option(STRIP_OPTION), { defaultValue: true, read: readBoolean });
+  const target = useSetting<PullRequestTarget>(value(PULL_REQUEST_TARGET_KEY), { defaultValue: "tau", read: readPullRequestTarget, format: (next) => TARGETS.find((entry) => entry.value === next)?.label ?? next });
   const guides = useSetting<boolean>(option(GUIDE_ENABLED_OPTION), { defaultValue: false, read: readBoolean });
   const guideInstructions = useSetting<string>(value(GUIDE_INSTRUCTIONS_VALUE), { defaultValue: "", scope: "both", read: readString, format: (next) => (next ? `${next.slice(0, 40)}${next.length > 40 ? "…" : ""}` : "None") });
 
@@ -107,6 +114,9 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
         <SettingRow id="setting-review-strip" title="Show the pull request above the composer" description="The thread's pull or merge request, or the one it links, with its state."
           help="Its × hides it in that thread until the request or its state changes." setting={strip}
           control={toggle("Show the pull request above the composer", strip)} />
+        <SettingRow id="setting-review-open-in" title="Open pull requests in" description="Where a pull or merge request link opens: Tau's own view, or the request's page on its host in your browser."
+          help="Review guides open in Tau either way. The request line under Changes keeps both buttons." setting={target}
+          control={<SegmentedControl label="Open pull requests in" value={target.value} options={TARGETS} onChange={target.set} />} />
       </SettingsSection>
       <SettingsSection title="Review guides (beta)">
         <SettingRow id="setting-review-guides" title="Review guides" description="A Guide tab on GitHub, GitLab, Forgejo and Bitbucket Cloud requests: a tour of the change in reading order, written by a read-only agent that reads the head in a worktree of its own."

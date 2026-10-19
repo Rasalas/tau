@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { changesSinceTurn, type DesktopExtensionContext, type RegionProps, type UiWorkspaceChanges } from "tau";
 import { REVIEW_HOST_EXTENSION_ID, WORKSPACE_CHANGES_PANEL, type WorkspaceStoreApi } from "./protocol.js";
 import { parseRequestUrl } from "./pull-request-json.js";
-import { openPullRequest } from "./pull-request-open.js";
+import { openPullRequestInTau } from "./pull-request-open.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 
 /** Review Kit's option, off by default. */
@@ -54,7 +54,7 @@ export function createProactivePanels(plugin: DesktopExtensionContext, links: Th
         if (added.length === 0 || !enabled()) return;
         if (added.length > 1) { now().openPanel(WORKSPACE_CHANGES_PANEL); return; }
         const ref = parseRequestUrl(added[0]!);
-        if (ref) openPullRequest(now(), { url: ref.url, number: ref.number, provider: ref.service }, now().activeThread()?.cwd);
+        if (ref) openPullRequestInTau(now(), { url: ref.url, number: ref.number, provider: ref.service }, now().activeThread()?.cwd);
       };
       const stopLinks = links.subscribe(watch);
       const stopThread = plugin.events.on("active-thread-changed", (event) => { if (event.sessionId) links.ensure(event.sessionId); watch(); });

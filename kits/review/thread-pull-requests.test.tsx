@@ -48,6 +48,9 @@ it("shows only the thread's links as nested rows and opens requests or their che
     fireEvent.click(row, { [modifier]: true });
     expect(actions.openExternal).toHaveBeenLastCalledWith(child.url);
   }
+  vi.mocked(actions.openExternal).mockClear();
+  fireEvent(row, new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }));
+  expect(actions.openExternal).toHaveBeenCalledWith(child.url);
 });
 
 it("retains saved links when a provider fails and updates the list when links change", async () => {

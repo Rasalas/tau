@@ -4,7 +4,7 @@ import { Empty, Spinner, tooltipProps, useThreadStore, type StageTabHandle, type
 import type { PullRequestClient } from "./pull-request-client.js";
 import { providerInfo, type PullRequestDetail, type ThreadPullRequestLink } from "./protocol.js";
 import { parseRequestUrl } from "./pull-request-json.js";
-import { openPullRequest } from "./pull-request-open.js";
+import { openPullRequest, requestClicks } from "./pull-request-open.js";
 import { checksRollup, checksSummary, relativeTime } from "./pull-request-logic.js";
 import { RequestStateIcon } from "./request-state-icon.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
@@ -28,7 +28,7 @@ function RequestRows({ nodes, actions, workspace, onOpen, nested = false }: { no
       const open = (focus?: "checks") => onOpen ? onOpen(request, focus) : openPullRequest(actions, { url: request.url, number: request.number, provider: request.service }, workspace, focus);
       return <li key={request.url}>
         <div className="thread-pr-row">
-          <button type="button" className="pr-row" aria-label={`${info.short} ${info.sign}${request.number} ${request.title ?? request.repo}`} onClick={(event) => { if (event.metaKey || event.ctrlKey) actions.openExternal(request.url); else open(); }}>
+          <button type="button" className="pr-row" aria-label={`${info.short} ${info.sign}${request.number} ${request.title ?? request.repo}`} {...requestClicks((click) => openPullRequest(actions, { url: request.url, number: request.number, provider: request.service }, workspace, undefined, undefined, click), () => open())}>
             <span className="pr-row-glyphs">{state ? <RequestStateIcon state={state} size={16} /> : <GitPullRequest size={16} aria-label="State unavailable" />}</span>
             <span className="pr-row-lines">
               <span className="pr-row-line"><span className="pr-row-number">{info.sign}{request.number}</span><span className="pr-row-title" {...tooltipProps(request.title)}>{request.title ?? request.repo}</span></span>

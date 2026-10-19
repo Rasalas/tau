@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClientEnvironmentProvider, electronClientEnvironment, type ClientProfile } from "../../src/renderer/test-support/kit-harness.js";
 import type { WorkbenchActions } from "tau";
 import type { WorkspaceStoreApi } from "./protocol.js";
-import { createRequestSection, type LinkedParts } from "./request-section.js";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
+import { trackPullRequestTarget } from "./pull-request-target.js";
+import { createRequestSection, RequestSummary, type LinkedParts } from "./request-section.js";
 import type { RequestClient, RowRequests } from "./requests.js";
 
 afterEach(cleanup);
@@ -29,5 +32,26 @@ describe("the Changes panel's request step", () => {
     if (drawn) await waitFor(() => expect(status).toHaveBeenCalled());
     else expect(status).not.toHaveBeenCalled();
     expect(view.container.childElementCount > 0).toBe(drawn);
+  });
+});
+
+describe("the request line", () => {
+  const request = { url: "https://gitlab.com/acme/tau/-/merge_requests/9", number: 9, provider: "gitlab", title: "Fix", state: "open" } as never;
+  const line = () => { const open = vi.fn(); const openInTau = vi.fn(); const browse = vi.fn(); render(<RequestSummary request={request} onOpen={open} onOpenInTau={openInTau} onBrowse={browse} />); return { open, openInTau, browse }; };
+
+  it("offers Open in Tau beside Open in the browser only when links open in the browser", () => {
+    const { preferences } = createKitHarness();
+    const stop = trackPullRequestTarget(preferences);
+    const first = line();
+    expect(screen.queryByRole("button", { name: /in Tau$/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /in the browser$/ }));
+    expect(first.browse).toHaveBeenCalled();
+
+    act(() => preferences.setValue(REVIEW_HOST_EXTENSION_ID, "pull-request-target", "browser"));
+    fireEvent.click(screen.getByRole("button", { name: /in Tau$/ }));
+    expect(first.openInTau).toHaveBeenCalled();
+    expect(first.open).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /in the browser$/ })).toBeTruthy();
+    stop();
   });
 });

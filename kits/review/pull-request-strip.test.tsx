@@ -58,7 +58,7 @@ function setup({ branch, links = [], draftPending = false, empty = false, live, 
   let currentBranch = branch;
   const load = vi.fn(async () => currentBranch);
   const parts = { rows: new RowRequests(load), links: new ThreadLinkRows(client), preferences: preferences(), dismissals: new StripDismissals(memoryStorage), ...(live ? { client: live } : {}), ...(watches ? { watches } : {}), ...(endings ? { endings } : {}) };
-  const actions = { activeThread: () => ({ sessionId: "t1", cwd: "/work", draftPending }), openStageTab: vi.fn(() => "tab") } as unknown as WorkbenchActions;
+  const actions = { activeThread: () => ({ sessionId: "t1", cwd: "/work", draftPending }), openStageTab: vi.fn(() => "tab"), openExternal: vi.fn() } as unknown as WorkbenchActions;
   const snapshot = { sessionId: "t1", cwd: "/work", projectLabel: "fix/refresh-apps-without-socket", isStreaming: false, messages: empty ? [] : messages ?? [{ id: "m1" }] } as unknown as HostSnapshot;
   const view = render(<><RequestLinks actions={actions} /><PullRequestStrip snapshot={snapshot} actions={actions} parts={parts} /></>);
   const relink = (next: ThreadPullRequestLink[]) => { current = next; act(() => changed?.("t1")); };
@@ -144,6 +144,12 @@ describe("the pull-request strip", () => {
     expect(open.querySelector(".review-pr-strip-service")!.getAttribute("data-tooltip")).toBe("GitHub · github.com/acme/lakebed");
     fireEvent.click(open);
     expect(actions.openStageTab).toHaveBeenCalledWith("review.pull-request", { url: BRANCH.url, number: 224, service: "github", workspace: "/work" }, { key: BRANCH.url });
+    // A middle click or ⌘ or Ctrl goes to the host's page instead.
+    fireEvent(open, new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }));
+    fireEvent.click(open, { metaKey: true });
+    expect(actions.openExternal).toHaveBeenCalledTimes(2);
+    expect(actions.openExternal).toHaveBeenLastCalledWith(BRANCH.url);
+    expect(actions.openStageTab).toHaveBeenCalledTimes(1);
   });
 
   it("drags a linked request as typed composer context with ordinary URL fallbacks", async () => {

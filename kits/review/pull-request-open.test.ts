@@ -2,7 +2,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { REVIEWS_PAGE } from "./local-reviews.js";
 import { PULL_REQUEST_TAB, THREAD_PULL_REQUESTS_TAB } from "./protocol.js";
-import { openPullRequest, openPullRequests, openThreadPullRequests } from "./pull-request-open.js";
+import { openPullRequest, openPullRequestInTau, openPullRequests, openThreadPullRequests, opensInBrowser, requestClicks } from "./pull-request-open.js";
+import { trackPullRequestTarget } from "./pull-request-target.js";
+import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
 import { pullRequestTabParams } from "./pull-request-logic.js";
 import type { WorkbenchActions } from "tau";
 
@@ -51,5 +54,74 @@ describe("opening a pull request", () => {
     openPullRequests(actions, "/work");
     expect(actions.openPage).toHaveBeenLastCalledWith(REVIEWS_PAGE, { tab: "remote" });
     expect(actions.openStageTab).not.toHaveBeenCalled();
+  });
+});
+
+describe("opening pull requests in the browser", () => {
+  const tracked = (target?: string) => {
+    const { preferences } = createKitHarness();
+    if (target) preferences.setValue(REVIEW_HOST_EXTENSION_ID, "pull-request-target", target);
+    return { preferences, stop: trackPullRequestTarget(preferences) };
+  };
+
+  it("opens the request's own page instead of Tau's view, on a phone too", () => {
+    const { stop } = tracked("browser");
+    const actions = { openStageTab: vi.fn(() => "tab"), openPage: vi.fn(), openExternal: vi.fn() };
+    openPullRequest(actions, REQUEST, "/work", "checks");
+    document.body.dataset.profile = "compact";
+    openPullRequest(actions, REQUEST, "/work");
+    expect(actions.openExternal.mock.calls).toEqual([[REQUEST.url], [REQUEST.url]]);
+    expect(actions.openStageTab).not.toHaveBeenCalled();
+    expect(actions.openPage).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("opens a middle click or a ⌘ or Ctrl click in the browser whatever the setting, a guide included", () => {
+    const { stop } = tracked();
+    const actions = { openStageTab: vi.fn(() => "tab"), openExternal: vi.fn() };
+    for (const click of [{ button: 1 }, { button: 0, metaKey: true }, { button: 0, ctrlKey: true }]) openPullRequest(actions, REQUEST, "/work", "guide", undefined, click);
+    expect(actions.openExternal).toHaveBeenCalledTimes(3);
+    openPullRequest(actions, REQUEST, "/work", undefined, undefined, { button: 0 });
+    expect(actions.openStageTab).toHaveBeenCalledTimes(1);
+    expect([{ button: 0 }, undefined].map(opensInBrowser)).toEqual([false, false]);
+    stop();
+  });
+
+  it("gives a button handlers that browse on a middle click only", () => {
+    const browse = vi.fn();
+    const open = vi.fn();
+    const { onClick, onAuxClick } = requestClicks(browse, open);
+    onClick({ button: 0 } as never);
+    onAuxClick({ button: 2, preventDefault: vi.fn() } as never);
+    expect([browse.mock.calls.length, open.mock.calls.length]).toEqual([0, 1]);
+    onAuxClick({ button: 1, preventDefault: vi.fn() } as never);
+    expect(browse).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Tau's view for a guide and for the explicit Open in Tau", () => {
+    const { stop } = tracked("browser");
+    const actions = { openStageTab: vi.fn(() => "tab"), openExternal: vi.fn() };
+    openPullRequest(actions, REQUEST, undefined, "guide");
+    openPullRequestInTau(actions, REQUEST, "/work");
+    expect(actions.openStageTab).toHaveBeenCalledTimes(2);
+    expect(actions.openExternal).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("follows the setting while the kit is active, and returns to Tau when it stops", () => {
+    const { preferences, stop } = tracked();
+    const actions = { openStageTab: vi.fn(() => "tab"), openExternal: vi.fn() };
+    openPullRequest(actions, REQUEST);
+    expect(actions.openStageTab).toHaveBeenCalledTimes(1);
+    preferences.setValue(REVIEW_HOST_EXTENSION_ID, "pull-request-target", "browser");
+    openPullRequest(actions, REQUEST);
+    expect(actions.openExternal).toHaveBeenCalledTimes(1);
+    preferences.setValue(REVIEW_HOST_EXTENSION_ID, "pull-request-target", "somewhere");
+    openPullRequest(actions, REQUEST);
+    expect(actions.openStageTab).toHaveBeenCalledTimes(2);
+    preferences.setValue(REVIEW_HOST_EXTENSION_ID, "pull-request-target", "browser");
+    stop();
+    openPullRequest(actions, REQUEST);
+    expect(actions.openStageTab).toHaveBeenCalledTimes(3);
   });
 });

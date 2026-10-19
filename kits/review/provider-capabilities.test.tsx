@@ -175,7 +175,19 @@ describe("Settings → Source control", () => {
 
     fireEvent.click(screen.getByRole("switch", { name: "Split view" }));
     await waitFor(() => expect(updates).toContainEqual({ options: { [key("split-diff")]: true } }));
+
+    const openIn = screen.getByRole("radiogroup", { name: "Open pull requests in" });
+    expect(within(openIn).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Tau", "Browser"]);
+    expect(within(openIn).getByRole("radio", { name: "Tau" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(openIn).getByRole("radio", { name: "Browser" }));
+    await waitFor(() => expect(updates).toContainEqual({ values: { [key("pull-request-target")]: "browser" } }));
     await screen.findByText("Signed in as octo.");
     expect(missingSettingsRows({ rows: REVIEW_SETTINGS_ROWS })).toEqual([]);
+  });
+
+  it("names the open-in setting for the Settings search by its label, the browser and the hosts", () => {
+    const row = REVIEW_SETTINGS_ROWS.find((entry) => entry.id === "setting-review-open-in");
+    expect(row?.label).toBe("Open pull requests in");
+    expect(row?.keywords).toEqual(expect.arrayContaining(["review", "browser", "github", "gitlab", "forgejo", "bitbucket"]));
   });
 });
