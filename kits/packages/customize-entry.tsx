@@ -50,7 +50,7 @@ export async function startCustomization(
       return;
     }
     // The new draft's actions arrive with the next render.
-    for (let attempt = 0; latest && attempt < 40 && latest() === before; attempt += 1) await wait(25);
+    if (latest) for (let attempt = 0; attempt < 40 && latest() === before; attempt += 1) await wait(25);
   }
   const current = latest?.() ?? actions;
   // Text the user already typed into this draft stays as it is.
