@@ -15,6 +15,8 @@ export interface RailDragState {
   label?: string;
   /** Another kit's drop target under the pointer: a machine (design 2f). */
   target?: string;
+  /** The pointer is over something that takes the thread as a drop, the composer say. */
+  context?: boolean;
   x: number;
   y: number;
   /** Where the row was taken, and how wide it is, for the lifted card. */
@@ -25,6 +27,27 @@ export interface RailDragState {
 const DRAG_THRESHOLD = 6;
 /** How long after a drop the click it produces is swallowed. */
 const CLICK_GRACE_MS = 400;
+
+/** Drag contract of Composer Context: JSON of its `thread` chip payload; kits copy it, they do not import each other. */
+const THREAD_DRAG_TYPE = "application/x-tau-thread+json";
+
+/** The thread as a native drag would carry it, for a drop target outside the rail; none where `DataTransfer` cannot be built. */
+function threadTransfer(threadId: string, title: string): DataTransfer | undefined {
+  try {
+    const transfer = new DataTransfer();
+    transfer.setData(THREAD_DRAG_TYPE, JSON.stringify({ threadId, title }));
+    return transfer;
+  } catch { return undefined; }
+}
+
+/** Offers the thread to what is under the pointer the way the browser would; `true` when it takes it. */
+function offerThread(transfer: DataTransfer | undefined, type: "dragover" | "drop", x: number, y: number): boolean {
+  const element = transfer && document.elementFromPoint(x, y);
+  if (!element) return false;
+  const event = new DragEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer: transfer });
+  element.dispatchEvent(event);
+  return event.defaultPrevented;
+}
 
 /**
  * Where a thread dropped on `over` lands. A heading takes it to the top of its
@@ -69,6 +92,7 @@ export function useRailDrag(
   const [drag, setDrag] = useState<RailDragState>();
   const pressed = useRef<{ threadId: string; x: number; y: number; grab: RailDragState["grab"] } | undefined>(undefined);
   const dragging = useRef<RailDragState | undefined>(undefined);
+  const transfer = useRef<DataTransfer | undefined>(undefined);
   const suppressClickUntil = useRef(0);
   const latest = useRef({ organizer, sections, onTarget });
   latest.current = { organizer, sections, onTarget };
@@ -94,9 +118,11 @@ export function useRailDrag(
       if (!dragging.current && Math.hypot(event.clientX - start.x, event.clientY - start.y) < DRAG_THRESHOLD) return;
       const { organizer: current, sections: drawn } = latest.current;
       const at = { threadId: start.threadId, x: event.clientX, y: event.clientY, grab: start.grab };
+      if (!dragging.current) transfer.current = threadTransfer(start.threadId, drawn.flatMap((section) => section.threads).find((thread) => thread.id === start.threadId)?.title ?? "");
       const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-rail-drop]")?.dataset.railDrop;
-      if (target || !current) { set({ ...at, ...(target ? { target } : {}) }); return; }
-      const over = targetAt(event.clientX, event.clientY);
+      const over = target ? undefined : targetAt(event.clientX, event.clientY);
+      const context = !target && !over && offerThread(transfer.current, "dragover", event.clientX, event.clientY);
+      if (target || !current || context) { set({ ...at, ...(target ? { target } : {}), ...(context ? { context, label: "Add as context" } : {}) }); return; }
       const drop = over ? railDropAt(drawn, over, start.threadId) : dragging.current?.drop;
       const label = drop ? current.dropLabel(start.threadId, drop) : undefined;
       set({ ...at, ...(drop && label ? { drop, label } : {}) });
@@ -107,7 +133,8 @@ export function useRailDrag(
       if (!state) return;
       set(undefined);
       suppressClickUntil.current = Date.now() + CLICK_GRACE_MS;
-      if (state.target) latest.current.onTarget?.(state.threadId, state.target);
+      if (state.context) offerThread(transfer.current, "drop", state.x, state.y);
+      else if (state.target) latest.current.onTarget?.(state.threadId, state.target);
       else if (state.drop && state.label) latest.current.organizer?.drop(state.threadId, state.drop);
     };
     const key = (event: KeyboardEvent) => {

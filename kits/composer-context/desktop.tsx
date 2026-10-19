@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
-import { AlertCircle, FileText, GitPullRequest, Paperclip, Quote, X } from "lucide-react";
+import { AlertCircle, FileText, GitPullRequest, MessageSquare, Paperclip, Quote, X } from "lucide-react";
 import { THREAD_PULL_REQUESTS_SERVICE, type ThreadPullRequestsService } from "tau";
 import type {
   ComposerChipDetailProps,
@@ -14,12 +14,14 @@ import type {
 } from "tau";
 import { SentExcerptChip } from "./sent-excerpt.js";
 import { readPullRequestDrop } from "./pull-request-drop.js";
+import { readThreadDrop } from "./thread-drop.js";
 import { ChipStore, formatBytes, isVideo, requestNumberOf, selectFiles, serializeChips, shouldFoldPaste, type ChipEntry } from "./chips.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
   COMPOSER_CONTEXT_ID,
   EXCERPT_TAG,
   PULL_REQUEST_DRAG_TYPE,
+  THREAD_DRAG_TYPE,
   WORKSPACE_STORE_SERVICE,
   type Chip,
   type ChipInput,
@@ -28,6 +30,7 @@ import {
   type DescribedAttachment,
   type PullRequestSummary,
   type ReadFileResult,
+  type ThreadSnapshot,
   UPLOAD_CHUNK_BYTES,
 } from "./protocol.js";
 
@@ -103,13 +106,14 @@ export function parseFileQuery(query: string): { path: string; startLine?: numbe
   return { path: match[1]!, startLine, ...(endLine !== undefined && endLine >= startLine ? { endLine } : {}) };
 }
 
-const ICONS = { "file": FileText, "text-excerpt": Quote, "pull-request": GitPullRequest, "attachment": Paperclip } as const;
+const ICONS = { "file": FileText, "text-excerpt": Quote, "pull-request": GitPullRequest, "thread": MessageSquare, "attachment": Paperclip } as const;
 
 function chipTitle(chip: ChipEntry): string {
   switch (chip.kind) {
     case "file": return chip.payload.path;
     case "text-excerpt": return chip.payload.text.slice(0, 400);
     case "pull-request": return `${chip.payload.title}\n${chip.payload.url}`;
+    case "thread": return `${chip.payload.title}\nIts latest turns go with the message.`;
     case "attachment": return `${chip.payload.name} · ${formatBytes(chip.payload.size)}`;
   }
 }
@@ -228,10 +232,20 @@ export async function prepareSend(
     const answers = await host("describe-attachments", { paths: attachments.map((chip) => chip.payload.path!) });
     attachments.forEach((chip, index) => { if (answers[index]) described.set(chip.id, answers[index]!); });
   }
-  const prefix = serializeChips({ chips: current, files: fileResults, attachments: described, fileAttachments: context.fileAttachments });
+  const threadChips = current.filter((chip): chip is Extract<ChipEntry, { kind: "thread" }> => chip.kind === "thread");
+  const threads = new Map<string, ThreadSnapshot>();
+  // A snapshot fails loudly: sending without it would drop context the user asked for.
+  await Promise.all(threadChips.map(async (chip) => {
+    try { threads.set(chip.id, await host("snapshot-thread", { scope: context.scope, threadId: chip.payload.threadId, title: chip.payload.title })); }
+    catch (error) { throw new Error(`${chip.label} could not be attached: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
+  }));
+  const prefix = serializeChips({ chips: current, files: fileResults, attachments: described, threads, fileAttachments: context.fileAttachments });
   // A video goes as a path whatever the runtime: no runtime takes video input.
   const fileParts: UiPromptFileAttachment[] = context.fileAttachments
-    ? attachments.filter((chip) => !isVideo(chip.payload.mimeType)).map((chip) => ({ kind: "file", name: chip.payload.name, mimeType: chip.payload.mimeType || "application/octet-stream", path: chip.payload.path!, size: chip.payload.size }))
+    ? [
+      ...attachments.filter((chip) => !isVideo(chip.payload.mimeType)).map((chip) => ({ kind: "file" as const, name: chip.payload.name, mimeType: chip.payload.mimeType || "application/octet-stream", path: chip.payload.path!, size: chip.payload.size })),
+      ...[...threads.values()].map((snapshot) => ({ kind: "file" as const, name: snapshot.name, mimeType: "text/markdown", path: snapshot.path, size: snapshot.size })),
+    ]
     : [];
   return { context: prefix, attachments: fileParts };
 }
@@ -398,6 +412,20 @@ const composerContext: DesktopExtension = {
         return true;
       }),
       settleSend: (scope, accepted) => store.settle(scope, accepted),
+    });
+    // `drop` takes one type; the rail's thread drag is a second contribution of this kit.
+    context.registerComposerInline({
+      id: "composer-context.thread-drop",
+      profiles: ["desktop"],
+      drop: {
+        mimeType: THREAD_DRAG_TYPE,
+        take: (text, inline) => {
+          const payload = readThreadDrop(text);
+          if (!payload) return false;
+          store.add(inline.scope, { kind: "thread", payload });
+          return true;
+        },
+      },
     });
   },
 };
