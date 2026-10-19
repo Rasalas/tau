@@ -186,7 +186,7 @@ function createRailRows(store: RailStore, update: (settings: Partial<Record<keyo
         <SettingRow
           id="setting-thread-rail-inactive"
           title="Settle after a quiet spell"
-          description="Settling never deletes a thread."
+          description="Settling never deletes a thread. Threads with an open pull request stay until it merges or closes."
           disabledReason={readOnly}
           control={<Select
             label="Settle after a quiet spell"
