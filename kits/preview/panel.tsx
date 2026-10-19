@@ -108,10 +108,10 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
   const guard = (work: Promise<unknown>) => {
     void work.then(() => setError("")).catch((problem: unknown) => setError(errorMessage(problem)));
   };
-  const openUrl = (url: string) => {
+  const openUrl = (url: string, typed = false) => {
     editing.current = false;
     setDraft(url);
-    guard(previewKit.open({ url }));
+    guard(previewKit.open(typed ? { url, typed } : { url }));
   };
   const cwd = actions?.activeThread?.()?.cwd;
   const recent = useRecentPages(state.url);
@@ -138,7 +138,7 @@ export function PreviewPanel({ active, placement, actions }: PanelProps) {
         <button className="icon-button compact" aria-label="Back" {...tooltipProps("Back")} disabled={!state.canGoBack} onClick={() => guard(previewKit.navigate({ action: "back" }))}><ArrowLeft size={13} /></button>
         <button className="icon-button compact" aria-label="Forward" {...tooltipProps("Forward")} disabled={!state.canGoForward} onClick={() => guard(previewKit.navigate({ action: "forward" }))}><ArrowRight size={13} /></button>
         <button className="icon-button compact" aria-label="Reload" {...tooltipProps("Reload", { shortcut: pageChord("R") })} onClick={() => guard(previewKit.navigate({ action: "reload" }))}><RotateCw size={13} /></button>
-        <form onSubmit={(event) => { event.preventDefault(); openUrl(draft); }}>
+        <form onSubmit={(event) => { event.preventDefault(); openUrl(draft, true); }}>
           <input
             aria-label="Preview address"
             placeholder="localhost:3000"

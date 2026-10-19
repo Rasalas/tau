@@ -59,6 +59,7 @@ import { connectOpenCodeServer, startOpenCodeServer, type OpenCodeServeInput, ty
 import { OpenCodeServerSettings } from "./server-settings.js";
 import { OpenCodeSessionStore, type OpenCodeModelRef, type OpenCodeStoredModel } from "./session-store.js";
 import { OpenCodeThreadRuntimeBackend, type OpenCodeConnectInput } from "./thread-backend.js";
+import { registerSessionDatabase } from "../_shared/session-database.js";
 
 export { OPENCODE_BACKEND_KIND, OPENCODE_HOST_EXTENSION_ID };
 
@@ -166,6 +167,7 @@ export function createOpenCodeHostExtension(options: OpenCodeHostExtensionOption
       const env = options.env ?? process.env;
       const storePath = OpenCodeSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const store = new OpenCodeSessionStore({ filePath: storePath });
+      registerSessionDatabase(context, store.database);
       const activity = new TurnActivityStore({ directory: join(dirname(storePath), "opencode-activity") });
       const readVersion = options.readVersion ?? readOpenCodeVersion;
       const settings = new RuntimeInstanceSettings({

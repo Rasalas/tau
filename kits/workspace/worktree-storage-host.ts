@@ -1,6 +1,7 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import type { GitRunner } from "./git-command.js";
-import { STORAGE_CHANGED_EVENT } from "./storage-protocol.js";
+import { SESSION_DATABASE_COMMAND, SESSION_DATABASE_RECLAIM_COMMAND, type SessionDatabaseStatus } from "../_shared/session-database-protocol.js";
+import { SESSION_DATABASE_SOURCES, STORAGE_CHANGED_EVENT, type UiSessionDatabase } from "./storage-protocol.js";
 import { WorktreeStorage, storageGit, type WorktreeStorageOptions, type WorktreeStorageThread } from "./worktree-storage.js";
 import { rulesFor } from "./worktree-cleanup.js";
 
@@ -95,6 +96,15 @@ export function registerWorktreeStorage(
     },
   });
 
+  // A runtime kit that is off, or has no database yet, simply does not show.
+  const databases = async (command: string): Promise<{ databases: UiSessionDatabase[] }> => ({
+    databases: (await Promise.all(SESSION_DATABASE_SOURCES.map(async ({ extensionId, backend, label }) => {
+      const status = await context.invokeHostExtension(extensionId, command).catch(() => undefined) as SessionDatabaseStatus | undefined;
+      return status && status.sizeBytes > 0 ? [{ ...status, backend, label }] : [];
+    }))).flat(),
+  });
+  context.registerCommand("database-report", () => databases(SESSION_DATABASE_COMMAND), { access: "read" });
+  context.registerCommand("database-reclaim", () => databases(SESSION_DATABASE_RECLAIM_COMMAND), { long: true });
   context.registerCommand("storage-report", (input) => storage.report({ sizes: fields(input).sizes !== false }), { access: "read", long: true });
   context.registerCommand("cleanup-policy", (input) => input === undefined ? storage.getPolicy() : storage.setPolicy(input));
   context.registerCommand("cleanup-run", async (input) => {

@@ -41,6 +41,7 @@ import { createCursorRuntimeAdapter } from "./runtime-adapter.js";
 import { listCursorModels, openCursorSession } from "./session.js";
 import { CursorSessionStore, type CursorStoredModel } from "./session-store.js";
 import { CursorThreadRuntimeBackend, type CursorSessionInput, type CursorSessionLike } from "./thread-backend.js";
+import { registerSessionDatabase } from "../_shared/session-database.js";
 
 export { CURSOR_BACKEND_KIND, CURSOR_HOST_EXTENSION_ID };
 
@@ -97,6 +98,7 @@ export function createCursorHostExtension(options: CursorHostExtensionOptions = 
       const customModels = async () => customModelIds((await services.settings?.())?.values.customModels);
       const storePath = CursorSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const store = new CursorSessionStore({ filePath: storePath });
+      registerSessionDatabase(context, store.database);
       const activity = new TurnActivityStore({ directory: join(dirname(storePath), "cursor-activity") });
       const readVersion = options.readVersion ?? readCursorVersion;
       const readAbout = options.readAbout ?? readCursorAbout;

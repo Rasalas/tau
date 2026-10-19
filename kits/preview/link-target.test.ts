@@ -85,5 +85,6 @@ describe("Settings → Preview", () => {
     expect(defaultsFromSettings({ values: { "default-viewport": "iphone-se", "default-zoom": "1.5" }, options: { "recording-keys": true } }))
       .toMatchObject({ viewport: { mode: "fixed", width: 375 }, zoom: 1.5, recording: { showKeys: true, showClicks: false } });
     expect(defaultsFromSettings({ values: {}, options: {} })).toEqual(DEFAULT_PREVIEW_DEFAULTS);
+    expect(defaultsFromSettings({ values: { "search-engine": "brave", "search-url": "https://x.test/?q=%s" }, options: {} }).search).toEqual({ engine: "brave", custom: "https://x.test/?q=%s" });
   });
 });

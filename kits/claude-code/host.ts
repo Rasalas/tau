@@ -57,6 +57,7 @@ import { authBilling, claudeAuthAccount, describeAccount, probeBilling, probeNew
 import { createClaudeCodeRuntimeAdapter, sdkExtraArgs, type ClaudeCodeAgentRuntimeAdapter, type ClaudeCodeRuntimeOptions } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { ClaudeThreadRuntimeBackend } from "./thread-backend.js";
+import { registerSessionDatabase } from "../_shared/session-database.js";
 
 export { CLAUDE_CODE_BACKEND_KIND, CLAUDE_CODE_HOST_EXTENSION_ID };
 
@@ -147,6 +148,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       const env = options.env ?? process.env;
       const storePath = ClaudeRuntimeSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const store = options.adapter?.sessionStore ?? new ClaudeRuntimeSessionStore({ filePath: storePath });
+      registerSessionDatabase(context, store.database);
       const readVersion = options.readVersion ?? readClaudeVersion;
       const settings = new RuntimeInstanceSettings({
         file: join(services.stateDir, "settings.json"),

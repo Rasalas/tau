@@ -228,6 +228,29 @@ describe("Thread Rail host", () => {
     expect(state.threads.plain).toBeUndefined();
   });
 
+  it("keeps a quiet thread whose request is open or unreadable, and still settles one without Review Kit", async () => {
+    const sessions = [session("plain", "/project"), session("open", "/project"), session("unknown", "/project")];
+    const modified = Object.fromEntries(sessions.map((entry) => [`/sessions/${entry.sessionId}.jsonl`, NOW - 10 * DAY_MS]));
+    const linked = () => ({
+      open: [{ url: "https://example.test/pr/1", state: "open" }],
+      unknown: [{ url: "https://example.test/pr/2" }],
+    });
+    const quiet = await harness({ sessions, modified, review: () => ({}), linked });
+    await quiet.invoke("settings", { inactiveDays: 3, onMerged: false });
+    const state = await quiet.invoke("sweep");
+    expect(state.threads.plain).toMatchObject({ settledBy: "inactive" });
+    expect(state.threads.open).toBeUndefined();
+    expect(state.threads.unknown).toBeUndefined();
+
+    const broken = await harness({ sessions, modified, review: () => ({}), linked: () => { throw new Error("provider offline"); } });
+    await broken.invoke("settings", { inactiveDays: 3, onMerged: false });
+    expect((await broken.invoke("sweep")).threads).toEqual({});
+
+    const without = await harness({ sessions, modified });
+    await without.invoke("settings", { inactiveDays: 3, onMerged: false });
+    expect(Object.keys((await without.invoke("sweep")).threads).sort()).toEqual(["open", "plain", "unknown"]);
+  });
+
   it("refreshes and settles merged work when a turn ends, without waiting for the periodic sweep", async () => {
     const { invoke, observers } = await harness({
       sessions: [session("done", "/worktrees/done")],

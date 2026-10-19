@@ -1,4 +1,5 @@
 import type { PreviewAppearance, PreviewChord, PreviewDefaults, PreviewRecordingOptions, PreviewViewport } from "./protocol.js";
+import { DEFAULT_SEARCH, readSearch } from "./search.js";
 
 /** Chrome's zoom ladder. */
 export const ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5] as const;
@@ -31,6 +32,7 @@ export const DEFAULT_PREVIEW_DEFAULTS: PreviewDefaults = {
   zoom: 1,
   appearance: "system",
   recording: DEFAULT_RECORDING_OPTIONS,
+  search: DEFAULT_SEARCH,
 };
 
 const MIN_SIDE = 200;
@@ -101,6 +103,7 @@ export function viewportLabel(viewport: PreviewViewport): string {
 export function readDefaults(value: unknown): PreviewDefaults {
   const fields = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const recording = fields.recording && typeof fields.recording === "object" ? fields.recording as Record<string, unknown> : {};
+  const search = fields.search && typeof fields.search === "object" ? fields.search as Record<string, unknown> : {};
   return {
     viewport: readViewport(fields.viewport) ?? DEFAULT_PREVIEW_DEFAULTS.viewport,
     zoom: readZoom(fields.zoom) ?? DEFAULT_PREVIEW_DEFAULTS.zoom,
@@ -110,6 +113,7 @@ export function readDefaults(value: unknown): PreviewDefaults {
       showKeys: recording.showKeys === true,
       showClicks: recording.showClicks === true,
     },
+    search: readSearch(search.engine, search.custom),
   };
 }
 

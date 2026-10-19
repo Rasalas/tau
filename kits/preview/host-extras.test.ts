@@ -83,6 +83,29 @@ async function activate(made = surface(), config?: FakeConfig) {
   return { ...made, registry, observers, cleared, toolsOf, invoke, state };
 }
 
+describe("the address bar's search", () => {
+  it("searches only for what the address bar types, with the engine from Settings", async () => {
+    const kit = await activate();
+    const call = kit.toolsOf("t1");
+    await kit.invoke("open", { url: "react useEffect", typed: true });
+    await expect(kit.state()).resolves.toMatchObject({ url: "https://duckduckgo.com/?q=react%20useEffect" });
+    await kit.invoke("open", { url: "localhost:3000", typed: true });
+    await expect(kit.state()).resolves.toMatchObject({ url: "http://localhost:3000/" });
+
+    await kit.invoke("defaults", { search: { engine: "custom", custom: "https://example.com/find/%s" } });
+    await kit.invoke("open", { url: "foo bar", typed: true });
+    await expect(kit.state()).resolves.toMatchObject({ url: "https://example.com/find/foo%20bar" });
+
+    // Commands without `typed` and the agent's tools keep the old behaviour.
+    await expect(kit.invoke("open", { url: "foo bar" })).rejects.toThrow(/Not a URL/u);
+    await expect(kit.invoke("navigate", { url: "foo bar" })).rejects.toThrow(/Not a URL/u);
+    expect((await call("preview_open", { url: "foo bar" })).isError).toBe(true);
+    expect((await call("preview_navigate", { url: "foo bar" })).isError).toBe(true);
+    await call("preview_navigate", { url: "intranet" });
+    await expect(kit.state()).resolves.toMatchObject({ url: "http://intranet/" });
+  });
+});
+
 describe("the page's zoom, viewport and appearance", () => {
   it("resizes to a device and sets the colour scheme through the agent's tools", async () => {
     const kit = await activate();

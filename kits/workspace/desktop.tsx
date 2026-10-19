@@ -245,7 +245,7 @@ export const workspaceExtension: DesktopExtension = {
       group: "projects",
       Icon: HardDrive,
       order: 50,
-      keywords: ["worktrees", "cleanup", "disk space", "delete worktree"],
+      keywords: ["worktrees", "cleanup", "disk space", "delete worktree", "database", "reclaim"],
       rows: STORAGE_SETTINGS_ROWS,
       profiles: ["desktop", "web"],
       Component: createStoragePage({
@@ -253,6 +253,8 @@ export const workspaceExtension: DesktopExtension = {
         setPolicy: (patch) => storageCall("cleanup-policy", patch),
         cleanUp: (paths) => storageCall("cleanup-run", { paths }),
         remove: (path, confirm) => storageCall("storage-remove", { path, confirm }),
+        databases: async () => (await storageCall("database-report", undefined)).databases,
+        reclaimDatabases: async () => (await storageCall("database-reclaim", undefined)).databases,
         onChanged: (listener) => context.host.onEvent(STORAGE_CHANGED_EVENT, listener),
       }),
     });

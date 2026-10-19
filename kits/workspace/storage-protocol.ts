@@ -1,7 +1,9 @@
+import type { SessionDatabaseStatus } from "../_shared/session-database-protocol.js";
+
 /**
  * Workspace Kit's worktree storage contract: the cleanup rules, the storage
- * report and the `tau app` request. It imports nothing, so both halves read it
- * without pulling either one's code.
+ * report and the `tau app` request. It imports only a type, so both halves read
+ * it without pulling either one's code.
  */
 
 /** Cleanup rules. Every one is off by default. */
@@ -97,7 +99,26 @@ export type UiStorageRemoval =
   | { removed: true }
   | { removed: false; confirm: CleanupBlocker[]; dirtyFiles: number; unpushedCommits: number };
 
+/** Runtime kits that keep their threads in a session database and answer for it. */
+export const SESSION_DATABASE_SOURCES: ReadonlyArray<{ extensionId: string; backend: string; label: string }> = [
+  { extensionId: "tau.claude-code", backend: "claude-code", label: "Claude Code" },
+  { extensionId: "tau.antigravity", backend: "antigravity", label: "Antigravity" },
+  { extensionId: "tau.codex", backend: "codex", label: "Codex" },
+  { extensionId: "tau.opencode", backend: "opencode", label: "OpenCode" },
+  { extensionId: "tau.grok", backend: "grok", label: "Grok" },
+  { extensionId: "tau.cursor", backend: "cursor", label: "Cursor" },
+];
+
+export interface UiSessionDatabase extends SessionDatabaseStatus {
+  backend: string;
+  label: string;
+}
+
 export interface WorktreeStorageHostCommands {
+  /** The session databases that exist on this host, with their size and free space. */
+  "database-report": { input: undefined; output: { databases: UiSessionDatabase[] } };
+  /** Gives their free space back now, then reports. */
+  "database-reclaim": { input: undefined; output: { databases: UiSessionDatabase[] } };
   /** Every worktree Tau recorded, measured and judged by the rules: the dry run. */
   "storage-report": { input: { sizes?: boolean } | undefined; output: UiStorageReport };
   "cleanup-policy": { input: CleanupPolicyPatch | undefined; output: CleanupPolicy };

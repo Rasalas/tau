@@ -216,6 +216,32 @@ describe("the sweep", () => {
     expect(linkedRequestThreads(threads, state({}, { onMerged: false }), new Set(), NOW)).toEqual([]);
   });
 
+  it("keeps a quiet thread while a linked request is open or unreadable, and settles it once the request ended", () => {
+    const threads = ["plain", "open", "unknown", "merged", "closed", "unread"].map((id) => quiet(id, 9));
+    const linked = new Map([
+      ["open", [{ state: "open" as const, url: "https://example.test/pr/1" }]],
+      ["unknown", [{ state: "closed" as const, url: "https://example.test/pr/2" }, { url: "https://example.test/pr/3" }]],
+      ["merged", [{ state: "merged" as const, url: "https://example.test/pr/4" }]],
+      ["closed", [{ state: "closed" as const, url: "https://example.test/pr/5" }]],
+    ]);
+    const meta = state({}, { inactiveDays: 3, onMerged: false, onClosed: false });
+    const patches = sweepPatches(threads, meta, new Set(), NOW, linked, new Set(["unread"]));
+    expect(Object.keys(patches)).toEqual(["plain", "merged", "closed"]);
+    expect(patches.merged).toMatchObject({ settledBy: "inactive" });
+    // The merged rule claims the thread first, once.
+    const byMerge = sweepPatches(threads, state({}, { inactiveDays: 3, onClosed: true }), new Set(), NOW, linked, new Set(["unread"]));
+    expect(byMerge.merged).toEqual({ ...settlePatch(NOW, "pr-merged"), settledForRequest: "https://example.test/pr/4" });
+    expect(byMerge.closed).toMatchObject({ settledBy: "pr-closed" });
+    expect(byMerge.open).toBeUndefined();
+  });
+
+  it("asks about requests for the quiet-spell rule alone, but only for threads quiet long enough", () => {
+    const threads = [quiet("old", 9), quiet("fresh", 1)];
+    const off = { onMerged: false, onClosed: false };
+    expect(linkedRequestThreads(threads, state({}, off), new Set(), NOW)).toEqual([]);
+    expect(linkedRequestThreads(threads, state({}, { ...off, inactiveDays: 3 }), new Set(), NOW)).toEqual(["old"]);
+  });
+
 
 });
 

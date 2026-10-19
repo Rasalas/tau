@@ -352,10 +352,18 @@ function eligible(thread: SweepThread, state: RailState, running: ReadonlySet<st
   return !(meta?.keptAt !== undefined && (activity === undefined || activity <= meta.keptAt));
 }
 
+function quietLongEnough(thread: SweepThread, meta: ThreadMeta | undefined, inactiveDays: number | undefined, now: number): boolean {
+  const activity = lastActivity(thread, meta);
+  return inactiveDays !== undefined && activity !== undefined && activity < now - inactiveDays * DAY_MS;
+}
+
 /** The threads whose linked requests the sweep asks Review Kit about: every one a rule could settle. */
 export function linkedRequestThreads(threads: readonly SweepThread[], state: RailState, running: ReadonlySet<string>, now: number): string[] {
-  if (!state.settings.onMerged && !state.settings.onClosed) return [];
-  return threads.filter((thread) => eligible(thread, state, running, now)).map((thread) => thread.id);
+  const { inactiveDays, onMerged, onClosed } = state.settings;
+  const byRequest = Boolean(onMerged || onClosed);
+  if (!byRequest && inactiveDays === undefined) return [];
+  // The quiet-spell rule only needs the requests of threads it would settle.
+  return threads.filter((thread) => eligible(thread, state, running, now) && (byRequest || quietLongEnough(thread, state.threads[thread.id], inactiveDays, now))).map((thread) => thread.id);
 }
 
 /**
@@ -373,7 +381,8 @@ function requestsEnded(requests: readonly SweepRequest[], onMerged: boolean, onC
 /**
  * One pass of the rules: snoozes that ran out wake, and an idle thread settles
  * when its requests merged or closed (as the settings ask) or when it has been
- * quiet longer than the settings allow. A running thread is never touched.
+ * quiet longer than the settings allow. A running thread is never touched,
+ * and a quiet one stays while a linked request is open or unreadable (`unread`).
  */
 export function sweepPatches(
   threads: readonly SweepThread[],
@@ -381,6 +390,7 @@ export function sweepPatches(
   running: ReadonlySet<string>,
   now: number,
   linked: ReadonlyMap<string, readonly SweepRequest[]> = new Map(),
+  unread: ReadonlySet<string> = new Set(),
 ): Record<string, ThreadMetaPatch> {
   const patches: Record<string, ThreadMetaPatch> = {};
   for (const [id, meta] of Object.entries(state.threads)) {
@@ -396,8 +406,8 @@ export function sweepPatches(
       patches[thread.id] = { ...patches[thread.id], ...settlePatch(now, ended.reason), settledForRequest: ended.key };
       continue;
     }
-    const activity = lastActivity(thread, meta);
-    if (inactiveDays !== undefined && activity !== undefined && activity < now - inactiveDays * DAY_MS) {
+    const pending = unread.has(thread.id) || (linked.get(thread.id) ?? []).some((request) => request.state !== "merged" && request.state !== "closed");
+    if (!pending && quietLongEnough(thread, meta, inactiveDays, now)) {
       patches[thread.id] = { ...patches[thread.id], ...settlePatch(now, "inactive") };
     }
   }

@@ -1,5 +1,6 @@
-import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, useSetting, type SettingHandle } from "tau";
+import { SegmentedControl, Select, SettingRow, SettingsSection, Switch, TextField, useSetting, type SettingHandle } from "tau";
 import { PREVIEW_HOST_EXTENSION_ID as ID } from "./protocol.js";
+import { SEARCH_ENGINES, searchTemplateProblem } from "./search.js";
 import { PREVIEW_SETTINGS as KEYS } from "./settings.js";
 import { pageChord, pageModifier } from "./shortcut.js";
 import { FRAME_RATES, VIEWPORT_PRESETS, ZOOM_LEVELS, readAppearance, readFrameRate, readViewport, readZoom, viewportLabel } from "./viewport.js";
@@ -28,6 +29,7 @@ export const PREVIEW_SETTINGS_ROWS = [
   { id: "setting-preview-zoom", label: "Zoom", keywords: ["scale", "percent"] },
   { id: "setting-preview-appearance", label: "Appearance", keywords: ["dark mode", "light", "prefers-color-scheme"] },
   { id: "setting-preview-links", label: "Open links from a thread in", keywords: ["browser", "links", "system browser"] },
+  { id: "setting-preview-search", label: "Search with", keywords: ["search engine", "address bar", "duckduckgo", "google", "bing", "brave", "kagi", "startpage"] },
   { id: "setting-preview-frame-rate", label: "Frame rate", keywords: ["recording", "fps", "video"] },
   { id: "setting-preview-clicks", label: "Show clicks", keywords: ["recording", "pointer", "ring"] },
   { id: "setting-preview-keys", label: "Show key presses", keywords: ["recording", "keys", "keystrokes"] },
@@ -49,6 +51,12 @@ export function PreviewSettingsPage() {
   const zoom = useSetting<string>(value(KEYS.zoom), { defaultValue: "1", scope: "both", read: (raw) => (readZoom(raw) === undefined ? undefined : String(raw)), format: (next) => percent(Number(next)) });
   const appearance = useSetting<string>(value(KEYS.appearance), { defaultValue: "system", scope: "both", read: (raw) => readAppearance(raw), format: (next) => APPEARANCES.find((entry) => entry.value === next)?.label ?? next });
   const linkTarget = useSetting<string>(value(KEYS.linkTarget), { defaultValue: "system", read: readString, format: (next) => (next === "app" ? "Preview" : "Browser") });
+  const searchEngine = useSetting<string>(value(KEYS.searchEngine), {
+    defaultValue: "duckduckgo",
+    read: (raw) => (raw === "custom" || SEARCH_ENGINES.some((engine) => engine.id === raw) ? String(raw) : undefined),
+    format: (next) => SEARCH_ENGINES.find((engine) => engine.id === next)?.label ?? "Custom",
+  });
+  const searchUrl = useSetting<string>(value(KEYS.searchUrl), { defaultValue: "", read: readString });
   const frameRate = useSetting<string>(value(KEYS.frameRate), { defaultValue: "30", read: (raw) => (readFrameRate(raw) ? String(raw) : undefined), format: (next) => `${next} fps` });
   const clicks = useSetting<boolean>(option(KEYS.showClicks), { defaultValue: false, scope: "both", read: readBoolean });
   const keys = useSetting<boolean>(option(KEYS.showKeys), { defaultValue: false, scope: "both", read: readBoolean });
@@ -71,6 +79,14 @@ export function PreviewSettingsPage() {
     <SettingsSection title="Links">
       <SettingRow id="setting-preview-links" title="Open links from a thread in" description={`A web link in a reply or an agent's page opens here or in the system browser; ${pageModifier()}-click always takes the browser.`} setting={linkTarget}
         control={<SegmentedControl label="Open links in" value={linkTarget.value} options={LINK_TARGETS} onChange={linkTarget.set} />} />
+    </SettingsSection>
+    <SettingsSection title="Address bar">
+      <SettingRow id="setting-preview-search" title="Search with" description="Text in the address bar that is not a web address, host, local file or about: page opens a search. An agent's preview_navigate never searches." setting={searchEngine}
+        control={<Select label="Search with" width="md" value={searchEngine.value} onChange={searchEngine.set}
+          options={[...SEARCH_ENGINES.map((engine) => ({ value: engine.id, label: engine.label })), { value: "custom", label: "Custom" }]} />} />
+      {searchEngine.value === "custom" ? <SettingRow id="setting-preview-search-url" title="Search address" description="An https:// address with %s where the search text goes." setting={searchUrl}
+        control={<TextField label="Search address" mono width="lg" placeholder="https://example.com/search?q=%s" value={searchUrl.value}
+          validate={(text) => (text.trim() ? searchTemplateProblem(text) : undefined)} onCommit={(text) => searchUrl.set(text.trim())} />} /> : null}
     </SettingsSection>
     <SettingsSection title="Recording">
       <SettingRow id="setting-preview-frame-rate" title="Frame rate" description="Frames per second the recording asks for." setting={frameRate}
