@@ -12,7 +12,7 @@ export function createUpdatePlanSection(environments: PlatformEnvironments) {
     if (view.busy) return;
     view = { busy: true, started: false };
     changed();
-    try { view.steps = await buildUpdatePlan(environments); }
+    try { view.steps = await buildUpdatePlan(environments, { changed: (steps) => { view = { ...view, steps }; changed(); } }); }
     catch (error) { view.problem = errorMessage(error); }
     finally { view.busy = false; changed(); }
   };
@@ -36,7 +36,7 @@ export function createUpdatePlanSection(environments: PlatformEnvironments) {
             description={<span role={step.state === "failed" ? "alert" : "status"}>{step.message}</span>} />
         </li>)}
       </ol> : null}
-      {state.steps?.length === 0 ? <p className="settings-group-note">No available updates on the connected machines.</p> : null}
+      {state.steps?.length === 0 && !state.busy ? <p className="settings-group-note">No available updates on the connected machines.</p> : null}
       {state.steps?.some((step) => step.state === "pending") && !state.started ? <Button variant="primary" disabled={readOnly || state.busy} onClick={() => void run()}>Run update plan</Button> : null}
       {state.problem ? <p role="alert">{state.problem}</p> : null}
     </SettingsSection>;

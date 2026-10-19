@@ -18,7 +18,7 @@ import { DictationSettings } from "../../src/renderer/settings/DictationSettings
 import { PUSH_RELAY_URL } from "../../kits/push/protocol";
 import { Shell, type AppContext } from "./Shell";
 import { HostBook } from "./hosts";
-import { nativeRemoteActivities, installActivityKey, nativeActivities, nativeDictation, browseHosts, createSocketBridge, createNativeBrowserResources, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
+import { nativeRemoteActivities, installActivityKey, nativeActivities, nativeDictation, openNativeDocument, browseHosts, createSocketBridge, createNativeBrowserResources, deviceInfo, scanQrCode, secureStore, textScalePort, type DeviceInfo } from "./native";
 import { androidFontScale } from "./text-scale";
 import { linkRoute, readRoute } from "./routes";
 import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar, tapRoute } from "./push";
@@ -54,7 +54,7 @@ async function boot(): Promise<void> {
     bridge,
     ...(resources ? { resources } : {}),
     device,
-    environment: { ...webClientEnvironment("compact"), ...(appInfo ? { mobileApp: { platform: device.platform, version: appInfo.version } } : {}), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation, Settings: DictationSettings } } : {}) },
+    environment: { ...webClientEnvironment("compact"), ...(appInfo ? { mobileApp: { platform: device.platform, version: appInfo.version } } : {}), ...(isNative && device.platform === "android" ? { openDocument: openNativeDocument } : {}), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation, Settings: DictationSettings } } : {}) },
     wakes: nativeWakeSource(App, Network),
     scan: scanQrCode,
     browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),

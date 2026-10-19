@@ -1,8 +1,14 @@
 package de.tbuck.tau.plugin;
 
+import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.Intent;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.webkit.WebResourceResponse;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -12,10 +18,15 @@ import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The Tau app's own native side: the Keystore-backed store, pinned sockets,
@@ -115,6 +126,45 @@ public class TauNativePlugin extends Plugin {
         if (id == null || status == null || body == null || browserResources == null) { call.reject("A resource response is required."); return; }
         browserResources.respond(id, status, call.getObject("headers", new JSObject()), body);
         call.resolve();
+    }
+
+    private static final Pattern RESOURCE_URL = Pattern.compile("https://tau-resources\\.localhost/([0-9a-f-]{36})/resources/([0-9a-f]{64})");
+
+    /** Android's web view draws no PDF in a frame: read the resource over the workbench's connection and let the user pick a PDF app. */
+    @PluginMethod
+    public void openDocument(PluginCall call) {
+        String url = call.getString("url");
+        Matcher match = url == null ? null : RESOURCE_URL.matcher(url);
+        if (match == null || !match.matches() || !"application/pdf".equals(call.getString("mimeType")) || browserResources == null) { call.reject("A host PDF is required."); return; }
+        String name = call.getString("name", "document").replaceAll("[^A-Za-z0-9._-]", "_");
+        if (name.length() > 80) name = name.substring(name.length() - 80);
+        String fileName = name.toLowerCase().endsWith(".pdf") ? name : name + ".pdf";
+        // The read waits for a reply that arrives as another plugin call, so it cannot hold this call's thread.
+        new Thread(() -> {
+            try {
+                WebResourceResponse response = browserResources.load(match.group(1), match.group(2));
+                if (response.getStatusCode() != 200) { call.reject("The file could not be read from the machine."); return; }
+                File directory = new File(getContext().getCacheDir(), "open-document");
+                if (!directory.isDirectory() && !directory.mkdirs()) { call.reject("The file could not be prepared."); return; }
+                File[] old = directory.listFiles();
+                if (old != null) for (File file : old) file.delete();
+                File file = new File(directory, fileName);
+                try (InputStream in = response.getData(); FileOutputStream out = new FileOutputStream(file)) {
+                    byte[] buffer = new byte[16384];
+                    int read;
+                    while ((read = in.read(buffer)) > 0) out.write(buffer, 0, read);
+                }
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", file);
+                Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                view.setClipData(ClipData.newRawUri("", uri));
+                getActivity().startActivity(Intent.createChooser(view, "Open in…"));
+                call.resolve();
+            } catch (ActivityNotFoundException error) {
+                call.reject("No app on this device can open PDF files.");
+            } catch (Exception error) {
+                call.reject("The PDF could not be opened.");
+            }
+        }).start();
     }
 
     @PluginMethod

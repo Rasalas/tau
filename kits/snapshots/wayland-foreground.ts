@@ -14,6 +14,8 @@ export interface WaylandFrame { capture: SnapShotCapture; window?: WaylandWindow
 export type Runner = (executable: string, args: string[]) => Promise<string>;
 const MAX_PNG = 16 * 1024 * 1024;
 const GNOME_UUID = "snapshots@tau.tbuck.de";
+/** Keep in step with native/gnome/metadata.json; a test compares them. */
+export const GNOME_SHELL_VERSIONS = [45, 46, 47, 48, 49, 50, 51] as const;
 const MARKER = "X-Tau-SnapShots-Helper=true";
 
 export function waylandBackend(env: NodeJS.ProcessEnv): WaylandBackend | undefined {
@@ -183,7 +185,8 @@ export class WaylandForeground {
         for (const name of ["extension.js", "capture-service.js", "metadata.json"]) await rm(join(destination, name), { force: true });
       } else {
         const version = await this.run("gnome-shell", ["--version"]);
-        if (!/GNOME Shell (?:45|46|47|48|49|50)(?:\.|\s|$)/u.test(version)) throw new Error("This extension supports GNOME Shell 45 through 50.");
+        const major = Number(/GNOME Shell (\d+)(?:\.|\s|$)/u.exec(version)?.[1]);
+        if (!(GNOME_SHELL_VERSIONS as readonly number[]).includes(major)) throw new Error(`This extension supports GNOME Shell ${GNOME_SHELL_VERSIONS[0]} through ${GNOME_SHELL_VERSIONS.at(-1)}.`);
         for (const name of ["extension.js", "capture-service.js", "metadata.json"]) {
           const content = await regularFile(join(this.bundle, "gnome", name));
           if (!content) throw new Error("This build is missing the GNOME capture extension.");

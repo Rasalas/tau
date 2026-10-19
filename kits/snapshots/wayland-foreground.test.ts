@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { readFile, mkdtemp, mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 vi.mock("electron", () => ({ app: { getAppPath: () => "/app" }, nativeImage: {} }));
-const { WaylandForeground, decodeWaylandWindow, kdeDesktopEntry, readCapturePng, waylandBackend, windowPixelCrop } = await import("./wayland-foreground.js");
+const { GNOME_SHELL_VERSIONS, WaylandForeground, decodeWaylandWindow, kdeDesktopEntry, readCapturePng, waylandBackend, windowPixelCrop } = await import("./wayland-foreground.js");
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZ0AAAAASUVORK5CYII=", "base64");
@@ -120,4 +120,19 @@ it("uses Niri's exact ID capture and omits unreliable global accessibility coord
   expect(await capture.capture()).toMatchObject({ boundsReliable: false, capture: { title: "Niri doc", pid: 43 } });
   expect(take.mock.calls[0]![0]).toBe("/tmp/test-niri.sock");
   expect(await stat(take.mock.calls[0]![1]).catch(() => undefined)).toBeUndefined();
+});
+
+it("installs the GNOME extension on shell 51 and refuses an unlisted shell", async () => {
+  for (const [shell, installs] of [["51.0", true], ["52.0", false], ["5.1", false]] as const) {
+    const { capture, run } = await setup("gnome");
+    const defaultRun = run.getMockImplementation()!;
+    run.mockImplementation(async (executable, args) => executable === "gnome-shell" ? `GNOME Shell ${shell}` : defaultRun(executable, args));
+    if (installs) expect(await capture.setup("install")).toMatchObject({ status: "ready" });
+    else await expect(capture.setup("install")).rejects.toThrow(/GNOME Shell 45 through 51/u);
+  }
+});
+
+it("lists in the extension metadata exactly the shells the host accepts", async () => {
+  const metadata = JSON.parse(await readFile(new URL("./native/gnome/metadata.json", import.meta.url), "utf8")) as { "shell-version": string[] };
+  expect(metadata["shell-version"]).toEqual(GNOME_SHELL_VERSIONS.map(String));
 });

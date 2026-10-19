@@ -61,13 +61,18 @@ final class BrowserResources extends BridgeWebViewClient {
             || path == null || !path.matches("/[0-9a-f-]{36}/resources/[0-9a-f]{64}")) return response(404, Collections.emptyMap(), new byte[0]);
         String[] pieces = path.split("/");
         try { UUID.fromString(pieces[1]); } catch (IllegalArgumentException error) { return response(404, Collections.emptyMap(), new byte[0]); }
+        return load(pieces[1], pieces[3]);
+    }
+
+    /** One read of a resource through the workbench's connection; the web view and `openDocument` share it. */
+    WebResourceResponse load(String connection, String hash) {
         String id = UUID.randomUUID().toString();
-        Pending entry = new Pending(pieces[1]);
+        Pending entry = new Pending(connection);
         synchronized (pending) {
             if (pending.size() >= 16) return response(429, Collections.emptyMap(), new byte[0]);
             pending.put(id, entry);
         }
-        JSObject event = new JSObject(); event.put("id", id); event.put("connectionId", entry.connection); event.put("path", "/resources/" + pieces[3]);
+        JSObject event = new JSObject(); event.put("id", id); event.put("connectionId", entry.connection); event.put("path", "/resources/" + hash);
         try {
             request.accept(event);
             // WebView calls interception on a worker. The workbench and native
