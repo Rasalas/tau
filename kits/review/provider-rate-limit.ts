@@ -26,6 +26,16 @@ export function retryAtFrom(headers: { get(name: string): string | null }, now: 
   return undefined;
 }
 
+export function waitText(ms: number): string {
+  const seconds = Math.max(1, Math.ceil(ms / 1000));
+  return seconds > 90 ? `${Math.ceil(seconds / 60)} minutes` : `${seconds} seconds`;
+}
+
+/** The sentence a failed read ends with when the provider itself named when the limit resets; the diff error view reads it. */
+export function resetNote(retryAt: number | undefined, now: number): string {
+  return retryAt && retryAt > now ? ` The limit resets in about ${waitText(retryAt - now)}.` : "";
+}
+
 export class RateLimitError extends HostCommandError {
   constructor(message: string, readonly retryAt: number) { super(message); }
 }
@@ -44,9 +54,7 @@ export class RateLimitGate {
   check(name: string, kind: string, host: string, identity = ""): void {
     const entry = this.paused.get(this.key(kind, host, identity));
     if (!entry || entry.until <= this.now()) return;
-    const seconds = Math.ceil((entry.until - this.now()) / 1000);
-    const wait = seconds > 90 ? `${Math.ceil(seconds / 60)} minutes` : `${seconds} seconds`;
-    throw new RateLimitError(`${name}'s rate limit for ${host} is reached; Tau asks again in ${wait}.`, entry.until);
+    throw new RateLimitError(`${name}'s rate limit for ${host} is reached; Tau asks again in ${waitText(entry.until - this.now())}.`, entry.until);
   }
 
   record(kind: string, host: string, retryAt?: number, identity = ""): number {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, SquarePlus } from "lucide-react";
 import { DiffFindBar, useDiffFind, useDiffPresentation, errorMessage, READ_ONLY_REASON, tooltipProps, type WorkbenchActions } from "tau";
+import { DiffUnavailable } from "./diff-unavailable.js";
 import { githubHtml } from "./github-html.js";
 import { RequestMarkdown as Markdown, RequestMediaProvider } from "./request-markdown.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
@@ -266,7 +267,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
       >
         {shownTab === "changes" ? (
           data.filesError && !files ? (
-            <div className="pr-unavailable" role="alert"><strong>Could not load the diff</strong><p>{data.filesError}</p><button className="mini-button" onClick={() => void loadFiles(true)}>Retry</button></div>
+            <DiffUnavailable error={data.filesError} provider={providerInfo(params.service).name} onRetry={() => void loadFiles(true)} onOpen={() => actions.openExternal(params.url)} />
           ) : !files ? <p className="rvd-empty" role="status">Loading the diff…</p>
           : ordered.length === 0 ? <p className="rvd-empty">This {providerInfo(params.service).noun} has no file changes.</p>
           : (

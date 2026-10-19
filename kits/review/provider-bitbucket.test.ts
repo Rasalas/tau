@@ -189,7 +189,7 @@ describe("the Bitbucket provider over its API", () => {
     expect(list.entries.map((entry) => entry.ref.url)).toContain("https://bitbucket.org/atlassian/bitbucket-upload-file/pull-requests/27");
 
     const limited = await harness({ fail: (url) => url.includes("/pullrequests/11") ? { status: 429, headers: { "retry-after": "120" } } : undefined });
-    await expect(limited.invoke("pr-view", { url: URL_11 })).rejects.toThrow(/rate limit/u);
+    await expect(limited.invoke("pr-view", { url: URL_11 })).rejects.toThrow(/rate limit[\s\S]*The limit resets in about 2 minutes/u);
     const before = limited.sent.length;
     await expect(limited.invoke("pr-view", { url: URL_11, fresh: true })).rejects.toThrow(/Bitbucket's rate limit for bitbucket.org is reached; Tau asks again in 2 minutes/u);
     expect(limited.sent.length).toBe(before);

@@ -13,7 +13,7 @@ import { createAzureProvider } from "./provider-azure.js";
 import { createBitbucketProvider } from "./provider-bitbucket.js";
 import { createForgejoProvider } from "./provider-forgejo.js";
 import { createGitLabProvider } from "./provider-gitlab.js";
-import { isRateLimited, RateLimitError, RateLimitGate, retryAtFromCli, retryAtFrom } from "./provider-rate-limit.js";
+import { isRateLimited, RateLimitError, RateLimitGate, resetNote, retryAtFromCli, retryAtFrom } from "./provider-rate-limit.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { CliFailure, defaultCliRunner, explainCliFailure, remoteHost, serviceFor, SERVICES, type CliRunner } from "./request-cli.js";
 
@@ -139,8 +139,9 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
         return detail;
       };
       if (extra.host && error instanceof Error && isRateLimited(error.message)) {
-        const until = gate.record(kind, extra.host, error instanceof RateLimitError ? error.retryAt : retryAtFromCli(error.message, now()), extra.credentialIdentity);
-        throw new RateLimitError(explain(), until);
+        const stated = error instanceof RateLimitError ? error.retryAt : retryAtFromCli(error.message, now());
+        const until = gate.record(kind, extra.host, stated, extra.credentialIdentity);
+        throw new RateLimitError(`${explain()}${resetNote(stated, now())}`, until);
       }
       throw new HostCommandError(explain());
     }
@@ -161,10 +162,11 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
       throw new HostCommandError(`${init.action} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     const limited = answer.status === 429 || (answer.status === 403 && answer.headers.get("x-ratelimit-remaining") === "0");
-    if (limited) gate.record(kind, init.host, retryAtFrom(answer.headers, now()));
+    const stated = limited ? retryAtFrom(answer.headers, now()) : undefined;
+    if (limited) gate.record(kind, init.host, stated);
     if (answer.status < 200 || answer.status >= 300) {
       const detail = firstLine(await answer.text().catch(() => ""));
-      throw new HostCommandError(explainCliFailure(kind, init.action, new Error(`HTTP ${answer.status}${limited ? " rate limit" : ""}${detail ? `: ${detail}` : ""}`)));
+      throw new HostCommandError(`${explainCliFailure(kind, init.action, new Error(`HTTP ${answer.status}${limited ? " rate limit" : ""}${detail ? `: ${detail}` : ""}`))}${resetNote(stated, now())}`);
     }
     gate.succeeded(kind, init.host);
     return answer;

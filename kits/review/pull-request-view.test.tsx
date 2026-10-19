@@ -244,6 +244,31 @@ describe("the pull-request view", () => {
     expect(screen.queryByRole("button", { name: /^Comment on line/u })).toBeNull();
   });
 
+  it("says a rate limit stopped the diff, with its reset time, and offers Retry and Open on the provider", async () => {
+    const files = vi.fn()
+      .mockRejectedValueOnce(new Error("GitHub's rate limit for github.com is reached; Tau asks again in 5 minutes."))
+      .mockResolvedValue((await fakeClient().files(REF.url)));
+    const { workbench } = renderView(fakeClient({ files }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Code" }));
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("GitHub rate limit reached")).toBeTruthy();
+    expect(alert.textContent).toContain("Try again in about 5 minutes");
+    expect(within(alert).getByText(/asks again in 5 minutes/u).tagName).toBe("PRE");
+    fireEvent.click(within(alert).getByRole("button", { name: /Open on GitHub/u }));
+    expect(workbench.openExternal).toHaveBeenCalledWith(REF.url);
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await screen.findByRole("checkbox", { name: /Viewed|Changed/u });
+  });
+
+  it("keeps the plain message for a diff that failed for another reason", async () => {
+    renderView(fakeClient({ files: vi.fn(async () => { throw new Error("gh exploded"); }) }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Code" }));
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("Could not load the diff")).toBeTruthy();
+    expect(within(alert).getByText("gh exploded")).toBeTruthy();
+    expect(within(alert).getByRole("button", { name: /Open on GitHub/u })).toBeTruthy();
+  });
+
   it("on a phone keeps the header to the number, state, merge control and More, and moves the rest into More", async () => {
     document.body.dataset.profile = "compact";
     try {
