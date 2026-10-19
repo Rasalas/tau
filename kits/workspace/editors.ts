@@ -1,3 +1,4 @@
+import { childEnvironment } from "../_shared/child-environment.js";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -171,7 +172,7 @@ export function launchEditor(command: string, args: readonly string[], cwd: stri
   return new Promise((resolvePromise, reject) => {
     const invocation = commandInvocation(command, args);
     const viaShell = invocation.windowsVerbatimArguments === true;
-    const child = spawn(invocation.command, invocation.args, { cwd, detached: true, stdio: "ignore", windowsHide: viaShell, windowsVerbatimArguments: viaShell });
+    const child = spawn(invocation.command, invocation.args, { cwd, env: childEnvironment(), detached: true, stdio: "ignore", windowsHide: viaShell, windowsVerbatimArguments: viaShell });
     child.once("error", reject);
     child.once("spawn", () => {
       child.unref();

@@ -22,6 +22,7 @@ import { ManagedWorkbenchSource } from "./managed-workbench-source.js";
 import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, loadBundledKitWindowHalves, shippedHostExtensions } from "./bundled-kits.js";
 import { inspectExtensionPackages, loadHostExtensionPackages } from "./extension-packages.js";
 import { installShellEnvironment } from "./shell-environment.js";
+import { configureOutboundNetwork } from "./outbound-network.js";
 import { configureAppIdentity, installSingleInstance } from "./single-instance.js";
 import { appIdentity } from "./app-identity.js";
 import { appCommandLine } from "./command-line.js";
@@ -66,6 +67,8 @@ import { installEnvironmentSession } from "./environment-session.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, claimDataFolder, dataFolderBusyMessage, describeDataFolderOwner } from "./data-folder-lock.js";
 import { exposePiSessionLockExtension } from "./pi-session-lock-extension.js";
 import type { ProcessLock } from "./process-lock.js";
+
+configureOutboundNetwork();
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 /** The packaged launcher sets this when it hands execution to a built checkout. */

@@ -46,6 +46,7 @@ import { NO_BUNDLED_KITS, inspectBundledKits, loadBundledKitDesktopHalves, shipp
 import { loadHostExtensionPackages, inspectExtensionPackages } from "./extension-packages.js";
 import { loadDesktopExtensions } from "./desktop-extensions.js";
 import { installShellEnvironment } from "./shell-environment.js";
+import { configureOutboundNetwork } from "./outbound-network.js";
 import { PiHost } from "./pi-host.js";
 import { HostStart } from "./host-start.js";
 import { createHostShutdown } from "./host-shutdown.js";
@@ -75,6 +76,8 @@ import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 import { HostConnect } from "./host-connect.js";
 import { openConnectListener } from "./connect-listener.js";
 import { appIdentity, tauHomeDir } from "./app-identity.js";
+
+configureOutboundNetwork();
 
 /**
  * The host without a window: the same `PiHost` and the same method table,

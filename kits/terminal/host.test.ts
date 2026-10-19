@@ -505,3 +505,24 @@ describe("terminal home workspace", () => {
     }
   });
 });
+
+it("starts terminals without the host execution mode or launching multiplexer identities", () => {
+  const keys = ["ELECTRON_RUN_AS_NODE", "TMUX", "TMUX_PANE", "STY", "WINDOW", "ZELLIJ", "ZELLIJ_SESSION_NAME", "ZELLIJ_PANE_ID"];
+  const saved = { ...process.env };
+  const { spawn, processes } = fakePtys();
+  const sessions = new TerminalSessions(spawn, () => undefined);
+  try {
+    for (const key of keys) process.env[key] = "parent";
+    process.env.ZELLIJ_CONFIG_DIR = "/config";
+    sessions.open({ root: "/project", cwd: "/project" });
+    for (const key of keys) expect(processes[0].options.env).not.toHaveProperty(key);
+    expect(processes[0].options.env.ZELLIJ_CONFIG_DIR).toBe("/config");
+    expect(process.env.TMUX).toBe("parent");
+  } finally {
+    sessions.dispose();
+    for (const key of [...keys, "ZELLIJ_CONFIG_DIR"]) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  }
+});

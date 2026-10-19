@@ -225,3 +225,12 @@ describe.runIf(process.platform === "win32")("on a real Windows machine", () => 
     expect(envValue(env, "PATH", "win32")?.toLowerCase()).toContain("system32");
   }, 60_000);
 });
+
+it("imports missing CA trust paths while preserving explicit values", async () => {
+  const env = { PATH: "/usr/bin", SSL_CERT_DIR: "/explicit" } as NodeJS.ProcessEnv;
+  await installShellEnvironment({ env, platform: "linux", shell: "/bin/sh", run: async (_file, args) => {
+    for (const key of ["SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]) expect(args.join(" ")).toContain(`printenv ${key}`);
+    return answer({ PATH: "/usr/bin", SSL_CERT_FILE: "/shell/ca.pem", SSL_CERT_DIR: "/shell/certs", NODE_EXTRA_CA_CERTS: "/shell/extra.pem" });
+  } });
+  expect(env).toMatchObject({ SSL_CERT_FILE: "/shell/ca.pem", SSL_CERT_DIR: "/explicit", NODE_EXTRA_CA_CERTS: "/shell/extra.pem" });
+});

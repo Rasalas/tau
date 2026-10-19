@@ -58,7 +58,7 @@ describe("running a command in a terminal", () => {
     const running = runInTerminal(app, { command: "brew upgrade --cask codex", label: "Update Codex" });
     await vi.waitFor(() => expect(fake.typed).toHaveLength(1));
     expect(fake.invoke).toHaveBeenCalledWith("open", { workspaceId: "workspace-one", label: "Update Codex" });
-    expect(fake.typed).toEqual([{ id: "t1", data: "brew upgrade --cask codex; exit\r" }]);
+    expect(fake.typed).toEqual([{ id: "t1", data: " brew upgrade --cask codex; exit\r" }]);
     expect(app.openPanel).toHaveBeenCalledWith(TERMINAL_PANEL);
     expect(terminalStore.getSnapshot().layout.groups.some((group) => JSON.stringify(group.root).includes("t1"))).toBe(true);
     fake.exit("t1", 3);

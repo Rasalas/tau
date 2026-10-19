@@ -53,6 +53,7 @@ const HOST_FORBIDDEN_IMPORTS = ["git-coordinator", "workspace-git", "workspace-k
  * not. `test-support` is excluded from the walk, so harnesses are free.
  */
 const CORE_MODULE_ALLOWLIST = new Set<string>([
+  "./outbound-network.js", // Process-wide connection defaults for both host entry points.
   "./desktop-startup.js", "./compile-cache.js",
   "./event-loop-stalls.js", // Bounded host scheduling diagnostics, independent of runtime kits.
   "./host-preparation-queue.js", // Shared host admission for optional background preparation.

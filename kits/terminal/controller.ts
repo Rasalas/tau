@@ -154,8 +154,9 @@ export async function runInTerminal(actions: TerminalRunActions | undefined, req
   }
   actions?.openPanel(TERMINAL_PANEL);
   const ended = shellEnded(opened.id);
+  // A leading space requests history suppression where the shell supports it.
   // `exit` without a status leaves with the last command's in sh, bash, zsh and fish.
-  await terminalKit.input({ id: opened.id, data: `${request.command}; exit\r` });
+  await terminalKit.input({ id: opened.id, data: ` ${request.command}; exit\r` });
   const exitCode = await ended;
   return exitCode === undefined ? { id: opened.id } : { id: opened.id, exitCode };
 }
