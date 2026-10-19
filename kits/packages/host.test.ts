@@ -30,7 +30,7 @@ describe("Packages host extension", () => {
   it("registers install, remove, update and list, with the long ones as jobs", async () => {
     const registry = await activateHostKit(createPackagesHostExtension(), installer());
     const summary = registry.summaries().find((entry) => entry.id === PACKAGES_EXTENSION_ID);
-    expect(summary?.commands).toEqual(["builds", "install", "list", "rebuild", "remove", "trust", "update"]);
+    expect(summary?.commands).toEqual(["allow-install", "builds", "decline-install", "install", "install-requests", "list", "rebuild", "remove", "trust", "update"]);
     // A client runs these off the request path, so a clone or an npm install can report progress.
     expect(registry.longCommands()).toContain(`${PACKAGES_EXTENSION_ID}/install`);
     expect(registry.longCommands()).toContain(`${PACKAGES_EXTENSION_ID}/update`);

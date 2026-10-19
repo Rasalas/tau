@@ -131,6 +131,8 @@ function harness() {
     refreshExtensionPackages: async () => undefined,
     listPackages: async () => [],
     installPackage: async () => { throw new Error("no installer in this test"); },
+    reviewPackage: async () => { throw new Error("no installer in this test"); },
+    approvePackage: async () => { throw new Error("no installer in this test"); },
     removePackage: async () => { throw new Error("no installer in this test"); },
     updatePackages: async () => [],
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),

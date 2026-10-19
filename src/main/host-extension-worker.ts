@@ -207,6 +207,8 @@ const UNAVAILABLE = new Set([
   // progress callback to a command that may run for minutes.
   "listPackages",
   "installPackage",
+  "reviewPackage",
+  "approvePackage",
   "removePackage",
   "updatePackages",
   "projectTrust",

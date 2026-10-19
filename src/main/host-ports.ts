@@ -34,6 +34,8 @@ import {
 } from "./extension-installer.js";
 import { packagesHome } from "./extension-sources.js";
 import { packageBuilds } from "./package-builds.js";
+import type { PackageReview } from "./package-approval.js";
+import { currentInvocationPrincipal, isHostOwner } from "./host-invocation.js";
 import { McpEndpoint } from "./mcp-endpoint.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy } from "./host-execution-policy.js";
@@ -148,6 +150,8 @@ export interface ExtensionServicesPort {
   noteSubprocess(): void;
   /** Re-reads the workspace's extension packages and applies the user's grants. */
   refreshExtensionPackages(): Promise<void>;
+  reviewExtensionPackage(path: string): Promise<PackageReview>;
+  approveExtensionPackage(path: string, fingerprint: string, owner: boolean): Promise<PackageReview>;
   /** Opens a runtime for a session file an extension created; it stays off screen. */
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   /** Creates a thread for a project, indexes it and delivers its first prompt, all off screen. */
@@ -366,6 +370,8 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     refreshExtensionPackages: () => port.refreshExtensionPackages(),
     listPackages: () => listExtensionSources(installer()),
     installPackage: (source, scope, progress) => { port.noteSubprocess(); return installExtensionSource(source, scope, installer(progress)); },
+    reviewPackage: (path) => port.reviewExtensionPackage(path),
+    approvePackage: (path, fingerprint) => port.approveExtensionPackage(path, fingerprint, (() => { const principal = currentInvocationPrincipal(); return principal !== undefined && isHostOwner(principal); })()),
     removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),
     updatePackages: (source, progress) => { port.noteSubprocess(); return updateExtensionSources(source, installer(progress)); },
     packageBuilds: {

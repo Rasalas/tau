@@ -17,3 +17,36 @@
   border-left: 2px solid var(--danger); background: var(--inset);
   font: var(--text-2xs)/1.6 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/* The card above the composer that asks to allow a package the agent wrote; it and the composer read as one (like Takeover's). */
+.install-card {
+  max-width: var(--content-max, 780px); margin: 0 auto; padding: 12px 12px 10px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-bottom: 1px solid var(--line);
+  background: var(--field); font: var(--text-xs)/1.45 var(--sans); color: var(--ink);
+}
+.conversation-column:has(.install-card) .composer-zone { padding-top: 0; }
+.conversation-column:has(.install-card) .composer-frame { border-top-left-radius: 0; border-top-right-radius: 0; }
+.install-card > header { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.install-card > header > .install-version { margin-left: auto; color: var(--muted); font-weight: 400; }
+.install-card > p { margin: 0; overflow-wrap: anywhere; }
+.install-card code { font: var(--text-xs) var(--mono); }
+.install-quiet { color: var(--muted); }
+.install-warning { display: flex; gap: 6px; align-items: flex-start; color: var(--warn); }
+.install-warning > svg { flex: none; margin-top: 3px; }
+.install-error { color: var(--danger); }
+.install-permissions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.install-permissions li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 12px; }
+.install-permissions li > code { color: var(--muted); }
+.install-permissions li > small { grid-column: 1 / -1; color: var(--warn); font-size: var(--text-xs); }
+.install-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.install-spacer { flex: 1; }
+.install-link, .install-allow {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink-3); font: var(--text-xs) var(--sans); white-space: nowrap; cursor: pointer;
+}
+.install-link:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.install-allow { padding: 5px 12px; border-radius: var(--radius-pill); background: var(--acid); color: var(--acid-ink); font-weight: 600; }
+.install-allow:hover:not(:disabled) { background: var(--acid-strong); }
+:is(.install-link, .install-allow):disabled { opacity: .6; cursor: default; }
+body[data-profile="compact"] :is(.install-link, .install-allow) { min-height: 44px; }

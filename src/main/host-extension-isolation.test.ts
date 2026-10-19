@@ -303,6 +303,8 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     refreshExtensionPackages: async () => undefined,
     listPackages: async () => [],
     installPackage: async () => { throw new Error("no installer in this test"); },
+    reviewPackage: async () => { throw new Error("no installer in this test"); },
+    approvePackage: async () => { throw new Error("no installer in this test"); },
     removePackage: async () => { throw new Error("no installer in this test"); },
     updatePackages: async () => [],
     sessions: {

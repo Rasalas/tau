@@ -5,10 +5,12 @@
   "icon": "Package",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.61.0"
+    "api": "^1.75.0"
   },
   "permissions": [
-    "packages"
+    "packages",
+    "sessions",
+    "runtime:extend"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
