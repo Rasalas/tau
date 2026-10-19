@@ -8,6 +8,7 @@ import type { LinkDialogs } from "./link-dialog.js";
 import type { RowRequests } from "./requests.js";
 import type { ReviewDetailStore } from "./review-detail-store.js";
 import { useCompactProfile } from "./compact-profile.js";
+import type { ProjectOrderSource } from "./project-order.js";
 import { threadPullRequestsParams } from "./thread-request-tree.js";
 
 const PullRequestListView = lazy(() => import("./pull-request-list-view.js"));
@@ -21,7 +22,7 @@ export interface PullRequestsPageParts {
   client: PullRequestClient;
   chips: () => ComposerContextChips | undefined;
   rows: RowRequests;
-  shared: PullRequestViewShared & { dialogs: LinkDialogs };
+  shared: PullRequestViewShared & { dialogs: LinkDialogs; projectOrder?: ProjectOrderSource };
   /** What the review view (1e) tells the page's sidebar. */
   sidebar: ReviewDetailStore;
 }
@@ -53,6 +54,7 @@ export function PullRequestsPage({ params, navigate, actions, parts }: PageProps
             params={start}
             actions={actions}
             client={parts.client}
+            {...(parts.shared.projectOrder ? { projectOrder: parts.shared.projectOrder } : {})}
             open={(entry, workspace, focus) => {
               const row = document.activeElement;
               if (row instanceof HTMLElement && pane.current?.contains(row)) opened.current = row;

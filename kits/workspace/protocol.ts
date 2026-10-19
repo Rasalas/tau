@@ -509,6 +509,19 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
  */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 
+/**
+ * Workspace Kit's service for the order the rail lists projects in, which a kit with its own
+ * project list (the pull request page's menu) follows. Review Kit copies the id and the shape.
+ */
+export const PROJECT_ORDER_SERVICE = "tau.workspace/project-order";
+
+export interface ProjectOrderService {
+  /** `projects` in the rail's order, from the threads the rail would list. */
+  order<T extends UiProject>(projects: readonly T[], threads: readonly UiSession[]): T[];
+  /** Called when the rail's grouping or sort setting changes. */
+  subscribe(listener: () => void): () => void;
+}
+
 /** What the kit knows about the project the workbench is showing. */
 export interface WorkspaceKitState {
   /** The project the store follows: the draft's project while a new thread is pending, else the thread's. */

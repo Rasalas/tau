@@ -14,6 +14,7 @@ import { openPullRequest, openPullRequests } from "./pull-request-open.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import type { PullRequestsTabParams } from "./pull-request-list-view.js";
 import { pullRequestTabParams, requestLabel, type PullRequestTabParams } from "./pull-request-logic.js";
+import type { ProjectOrderSource } from "./project-order.js";
 import { PullRequestView, type PullRequestViewShared } from "./pull-request-view.js";
 import type { RequestClient, RowRequests } from "./requests.js";
 
@@ -36,7 +37,7 @@ export function registerPullRequestTab(
   rows: RowRequests,
   chips: () => ComposerContextChips | undefined,
   client: PullRequestClient,
-  shared: PullRequestViewShared & { dialogs: LinkDialogs },
+  shared: PullRequestViewShared & { dialogs: LinkDialogs; projectOrder?: ProjectOrderSource },
   reviews: { store: LocalReviewsStore; host: HostExtensionClient },
 ): () => void {
   const sidebar = new ReviewDetailStore();
@@ -88,6 +89,7 @@ export function registerPullRequestTab(
             handle={handle}
             actions={actions}
             client={client}
+            {...(shared.projectOrder ? { projectOrder: shared.projectOrder } : {})}
             open={(entry, workspace, focus) => openPullRequest(actions, { url: entry.ref.url, number: entry.ref.number, provider: entry.ref.service }, workspace, focus)}
           />
         </Suspense>

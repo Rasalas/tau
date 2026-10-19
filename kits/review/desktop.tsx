@@ -15,6 +15,7 @@ import { trackPullRequestTarget } from "./pull-request-target.js";
 import { createReviewSettingsSections, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
+  PROJECT_ORDER_SERVICE,
   REVIEW_COMPACT_PANEL,
   REVIEW_HOST_EXTENSION_ID,
   REVIEW_OVERLAY,
@@ -24,6 +25,7 @@ import {
   type ComposerContextChips,
   type WorkspaceStoreApi,
 } from "./protocol.js";
+import { ProjectOrderSource, type ProjectOrderService } from "./project-order.js";
 import { workspaceChangesReader } from "./workspace.js";
 import { createRequestBadge, createRequestCardSection } from "./request-badge.js";
 import { RequestLinks } from "./request-links.js";
@@ -94,7 +96,9 @@ export const reviewExtension: DesktopExtension = {
     const links = new ThreadLinkRows(client);
     // A thread's requests, for any package: a public contract, unlike the kit's protocol.
     plugin.provideService(THREAD_PULL_REQUESTS_SERVICE, threadPullRequestsService(links));
-    const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs() };
+    const projectOrder = new ProjectOrderSource();
+    const releaseProjectOrder = plugin.useService<ProjectOrderService>(PROJECT_ORDER_SERVICE, (service) => { projectOrder.set(service); return () => projectOrder.set(undefined); });
+    const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs(), projectOrder };
     let chips: ComposerContextChips | undefined;
     // The rest of the kit's settings are sections of Source control; the model picker stays here.
     plugin.registerOptions([...COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"), ...GUIDE_OPTIONS]);
@@ -213,7 +217,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseLinkSheet(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); untrackPullRequestTarget(); };
+    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseProjectOrder(); releaseStore(); releaseWatchMarks(); releaseLinkSheet(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); untrackPullRequestTarget(); };
   },
 };
 

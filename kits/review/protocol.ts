@@ -5,6 +5,8 @@ import { GIT_HOST_SERVICES, type GitHostService } from "../_git-hosts/hosts.js";
 export const REVIEW_HOST_EXTENSION_ID = "tau.review";
 export const WORKSPACE_HOST_EXTENSION_ID = "tau.workspace";
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
+/** Workspace Kit's rail order of projects, copied from its protocol. */
+export const PROJECT_ORDER_SERVICE = "tau.workspace/project-order";
 export const WORKSPACE_CHANGES_PANEL = "changes";
 export const REVIEW_DIFF_PANEL = "review.diff";
 export const REVIEW_OVERLAY = "review.workspace";

@@ -127,3 +127,24 @@ export function groupThreads(
   else list.sort((left, right) => right.active - left.active);
   return list.map(({ key, label, threads: grouped }) => ({ key, label, threads: grouped }));
 }
+
+/**
+ * `projects` in the order the rail lists their groups. A flat rail has no groups,
+ * so its projects are ordered as the folder groups would be. Projects without a thread keep their order, last.
+ */
+export function orderProjects<T extends UiProject>(
+  projects: readonly T[],
+  threads: readonly UiSession[],
+  order: RailOrder,
+  projectOf: (session: UiSession) => UiProject | undefined,
+): T[] {
+  const rank = new Map<UiProject, number>();
+  groupThreads(threads, order.grouping === "none" ? "repository_path" : order.grouping, order.projectSort, projectOf).forEach((group, index) => {
+    for (const session of group.threads) {
+      const project = projectOf(session);
+      if (project && !rank.has(project)) rank.set(project, index);
+    }
+  });
+  const at = (project: T) => rank.get(project) ?? Number.POSITIVE_INFINITY;
+  return projects.slice().sort((left, right) => at(left) === at(right) ? 0 : at(left) < at(right) ? -1 : 1);
+}

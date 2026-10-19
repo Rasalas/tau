@@ -337,6 +337,19 @@ export interface SweepRequest {
   url: string;
   /** The branch it targets; a merged request's work landed there. */
   baseRef?: string;
+  /** When the thread linked it. */
+  linkedAt?: number;
+  /** When it merged or closed, as its host says. */
+  endedAt?: number;
+}
+
+/**
+ * The requests whose outcome the thread waits on. One that had already merged or
+ * closed when it was linked records work the thread did, such as merging what it was asked to.
+ */
+export function settlingRequests(requests: readonly SweepRequest[]): SweepRequest[] {
+  return requests.filter((request) => request.state === "open" || request.state === undefined
+    || request.linkedAt === undefined || request.endedAt === undefined || request.endedAt >= request.linkedAt);
 }
 
 function lastActivity(thread: SweepThread, meta: ThreadMeta | undefined): number | undefined {
@@ -369,9 +382,10 @@ export function linkedRequestThreads(threads: readonly SweepThread[], state: Rai
 /**
  * Whether a thread's stored requests all ended, and how.
  * One still open, or one whose state is unknown,
- * keeps the thread active.
+ * keeps the thread active; one linked after it ended does not count.
  */
-function requestsEnded(requests: readonly SweepRequest[], onMerged: boolean, onClosed: boolean): { reason: "pr-merged" | "pr-closed"; key: string } | undefined {
+function requestsEnded(all: readonly SweepRequest[], onMerged: boolean, onClosed: boolean): { reason: "pr-merged" | "pr-closed"; key: string } | undefined {
+  const requests = settlingRequests(all);
   if (requests.length === 0 || requests.some((request) => request.state !== "merged" && request.state !== "closed")) return undefined;
   const key = [...new Set(requests.map((request) => request.url))].sort().join(" ");
   if (requests.some((request) => request.state === "merged")) return onMerged ? { reason: "pr-merged", key } : undefined;

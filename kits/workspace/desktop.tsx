@@ -14,6 +14,7 @@ import {
 import {
   CLONE_PROGRESS_EVENT,
   HEAD_CHANGED_EVENT,
+  PROJECT_ORDER_SERVICE,
   WORKSPACE_HEAD_TOPIC,
   WORKSPACE_CLONE_TOPIC,
   WORKSPACE_CHECKPOINT_TOPIC,
@@ -27,6 +28,7 @@ import {
 import { outsideThreadItems } from "./rail-external.js";
 import { addProjectMenu } from "./add-project-menu.js";
 import { threadBranchService } from "./branch-service.js";
+import { projectOrderService } from "./project-order.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { WorkspaceFollower } from "./dock.js";
 import { WorktreeSuggestionPill } from "./branch-menu.js";
@@ -91,6 +93,7 @@ export const workspaceExtension: DesktopExtension = {
     });
     // The branch on screen, for any package: a public contract, unlike the store.
     context.provideService(THREAD_BRANCH_SERVICE, threadBranchService(store));
+    context.provideService(PROJECT_ORDER_SERVICE, projectOrderService(context.preferences));
 
     context.registerSidebar({ id: "workspace.sidebar", order: 10, profiles: ["desktop"], Component: bind(WorkspaceSidebar) });
     // The phone's thread list draws the rail's row marks; a core without that list lacks the method.

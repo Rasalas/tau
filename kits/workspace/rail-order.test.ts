@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiProject, UiSession } from "tau";
-import { groupThreads, readRailOrder, sortThreads } from "./rail-order.js";
+import { groupThreads, orderProjects, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
 
 const thread = (id: string, patch: Partial<UiSession> = {}): UiSession => ({
   id, path: `/s/${id}.jsonl`, title: id, modifiedAt: 0, projectPath: "/repo", projectName: "repo", messageCount: 1, ...patch,
@@ -82,5 +82,31 @@ describe("groupThreads", () => {
       thread("new-repo", { projectName: "new", modifiedAt: 10, createdAt: 40 }),
     ]);
     expect(groupThreads(sorted, "repository", "activity", () => undefined).map((group) => group.label)).toEqual(["new", "old"]);
+  });
+});
+
+describe("orderProjects", () => {
+  const projects: UiProject[] = [
+    { path: "/alpha", name: "alpha", lastOpenedAt: 1 },
+    { path: "/beta", name: "beta", lastOpenedAt: 9 },
+    { path: "/gamma", name: "gamma", lastOpenedAt: 5 },
+    { path: "/empty", name: "empty", lastOpenedAt: 99 },
+  ];
+  const projectOf = (session: UiSession) => projects.find((project) => project.path === session.projectPath);
+  const threads = [
+    thread("a", { projectPath: "/alpha", projectName: "alpha", createdAt: 30 }),
+    thread("b", { projectPath: "/beta", projectName: "beta", createdAt: 10 }),
+    thread("g", { projectPath: "/gamma", projectName: "gamma", createdAt: 20 }),
+  ];
+  const names = (order: Partial<RailOrder>) => orderProjects(projects, threads, { grouping: "repository", projectSort: "activity", preview: 6, ...order }, projectOf).map((project) => project.name);
+
+  it("lists projects as the rail orders their groups, those without a thread last", () => {
+    expect(names({})).toEqual(["alpha", "gamma", "beta", "empty"]);
+    expect(names({ projectSort: "opened" })).toEqual(["beta", "gamma", "alpha", "empty"]);
+    expect(names({ projectSort: "name" })).toEqual(["alpha", "beta", "gamma", "empty"]);
+  });
+
+  it("orders a flat rail's projects too", () => {
+    expect(names({ grouping: "none", projectSort: "opened" })).toEqual(["beta", "gamma", "alpha", "empty"]);
   });
 });

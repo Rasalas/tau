@@ -70,3 +70,10 @@ export function useProjects(): { projects: readonly UiProject[]; machines: Proje
 }
 
 export const projectId = (project: UiProject) => project.workspaceId ?? project.path;
+
+/** The threads the window lists, read when called; none outside a workbench. */
+export function useThreadReader(): () => readonly UiSession[] {
+  let store: ThreadStore | undefined;
+  try { store = useThreadStore(); } catch { store = undefined; }
+  return () => store?.getSnapshot().threads ?? [];
+}

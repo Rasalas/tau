@@ -248,6 +248,21 @@ describe("Thread Rail host", () => {
     expect(state.threads.plain).toBeUndefined();
   });
 
+  it("does not settle on a request that had already merged when the thread linked it", async () => {
+    const sessions = [session("recorded", "/project"), session("followed", "/project")];
+    const { invoke } = await harness({
+      sessions,
+      review: () => ({}),
+      linked: () => ({
+        recorded: [{ url: "https://example.test/pr/1", state: "merged", linkedAt: 200, endedAt: 100 }],
+        followed: [{ url: "https://example.test/pr/2", state: "merged", linkedAt: 100, endedAt: 200 }],
+      }),
+    });
+    const state = await invoke("sweep");
+    expect(state.threads.recorded).toBeUndefined();
+    expect(state.threads.followed).toMatchObject({ settledBy: "pr-merged" });
+  });
+
   it("keeps a quiet thread whose request is open or unreadable, and still settles one without Review Kit", async () => {
     const sessions = [session("plain", "/project"), session("open", "/project"), session("unknown", "/project")];
     const modified = Object.fromEntries(sessions.map((entry) => [`/sessions/${entry.sessionId}.jsonl`, NOW - 10 * DAY_MS]));

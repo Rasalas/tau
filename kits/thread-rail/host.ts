@@ -28,6 +28,7 @@ import {
   snoozePatch,
   sweepPatches,
   unsettlePatch,
+  settlingRequests,
   type SweepRequest,
   type SweepThread,
 } from "./meta.js";
@@ -218,6 +219,8 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
                       url: link.url,
                       ...(link.state === "open" || link.state === "closed" || link.state === "merged" ? { state: link.state } : {}),
                       ...(typeof link.baseRef === "string" && link.baseRef ? { baseRef: link.baseRef } : {}),
+                      ...(typeof link.linkedAt === "number" ? { linkedAt: link.linkedAt } : {}),
+                      ...(typeof link.endedAt === "number" ? { endedAt: link.endedAt } : {}),
                     }]
                     : []);
                   if (known.length > 0) linked.set(id, known);
@@ -243,7 +246,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
               const cwd = threads.find((thread) => thread.id === id)?.cwd;
               if (!cwd) { keepActive(id); return; }
               // The merged requests' bases, not the branch the worktree started from, say where the work landed.
-              const targets = [...new Set((linked.get(id) ?? []).flatMap((request) => request.state === "merged" && request.baseRef ? [request.baseRef] : []))].sort();
+              const targets = [...new Set(settlingRequests(linked.get(id) ?? []).flatMap((request) => request.state === "merged" && request.baseRef ? [request.baseRef] : []))].sort();
               const key = [cwd, ...targets].join("\n");
               let checked = integration.get(key);
               if (!checked) {
