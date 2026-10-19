@@ -310,6 +310,32 @@ describe("Claude Code host half", () => {
     await expect(backends[0]!.open("t", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full" } as never)).rejects.toThrow("It drops tool results. Install 2.2.1.");
   });
 
+  it("offers no update for a limited-support warning an update cannot clear", async () => {
+    const policy = { "claude-code": { ranges: [{ range: "<3.0.0", status: "unsafe", message: "Known problems." }] } };
+    const versionAt = async (installed: string) => {
+      const root = await mkdtemp(join(tmpdir(), "tau-claude-latest-"));
+      directories.push(root);
+      const backends: HostRuntimeBackendProvider[] = [];
+      await activateHostKit(createClaudeCodeHostExtension({
+        fetch: async () => ({ ok: true, json: async () => ({ version: "2.1.300" }) }) as Response,
+        env: { TAU_VERSION_POLICY: JSON.stringify(policy) },
+        readVersion: async () => installed,
+      }), {
+        stateDir: join(root, "state"),
+        sessionsDir: join(root, "sessions"),
+        findCommand: () => "/usr/local/bin/claude",
+        noteSubprocess: () => undefined,
+        skills: () => [],
+        registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
+      });
+      return backends[0]!.version!();
+    };
+    const latest = await versionAt("2.1.300");
+    expect(latest).toMatchObject({ installed: "2.1.300", latest: "2.1.300", compatibility: { status: "unsafe" } });
+    expect(latest).not.toHaveProperty("updateCommand");
+    await expect(versionAt("2.1.280")).resolves.toMatchObject({ installed: "2.1.280", latest: "2.1.300", updateCommand: expect.any(String) });
+  });
+
   describe("signing in from the window", () => {
     const STUB = fileURLToPath(new URL("./fixtures/stub-cli.mjs", import.meta.url));
     type Flow = { flowId: string; phase: string; terminal?: { command: string }; prompt?: { id: string }; message?: string };

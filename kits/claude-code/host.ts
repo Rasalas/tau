@@ -13,6 +13,7 @@ import {
   cliMaintenance,
   commandInvocation,
   commandLine,
+  compareVersions,
   executableFingerprint,
   packageInstallCommand,
   packageUpdateCommand,
@@ -237,11 +238,13 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
         const install = verdict?.recommendedVersion ? packageInstallCommand(real, CLAUDE_NPM_PACKAGE, verdict.recommendedVersion, maintenance.update?.args.includes(`--allow-build=${CLAUDE_NPM_PACKAGE}`)) : undefined;
         // The native installer updates itself; a package manager's install is that manager's to update.
         const command = maintenance.update ? cliCommandText(maintenance.update) : maintenance.install.method === "winget" ? undefined : packageUpdateCommand(real, CLAUDE_NPM_PACKAGE) ?? "claude update";
+        // On the latest release an update cannot clear the warning, so none is offered.
+        const stuck = verdict && verdict.status !== "supported" && !install && installed && maintenance.latest && compareVersions(installed, maintenance.latest) >= 0;
         return {
           tool: "claude",
           ...(installed ? { installed } : {}),
           ...(maintenance.latest ? { latest: maintenance.latest } : {}),
-          ...(command ? { updateCommand: runtimeUpdateCommand(CLAUDE_CODE_BACKEND_KIND, command, env) } : {}),
+          ...(command && !stuck ? { updateCommand: runtimeUpdateCommand(CLAUDE_CODE_BACKEND_KIND, command, env) } : {}),
           ...(verdict ? { compatibility: install ? { ...verdict, installCommand: install } : verdict } : {}),
         };
       };
