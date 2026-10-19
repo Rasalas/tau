@@ -151,12 +151,12 @@ describe("the web client at 400 px", () => {
     const client = renderHome();
     const list = await screen.findByRole("list", { name: "Threads" });
     client.emit(running("t-c"));
-    client.emit({ type: "extension-ui-prompt", sessionId: "t-b", prompt: { id: "q1", sessionId: "t-b", kind: "confirm", title: "Delete the branch?" } });
+    client.emit({ type: "extension-ui-prompt", sessionId: "t-b", prompt: { id: "q1", sessionId: "t-b", kind: "confirm", title: "Delete the branch?", askedAt: Date.now() - 134_000 } });
     await waitFor(() => expect(within(list).getAllByRole("listitem")[0].textContent).toContain("Ship the web client"));
     const rows = within(list).getAllByRole("listitem");
     expect(rows.map((row) => row.dataset.status)).toEqual(["waiting", "running", "done"]);
-    // One word for a question on every client, the desktop rail's too.
-    expect(rows[0].querySelector(".thread-status-age")?.textContent).toBe("Question");
+    // One word for a question on every client, the desktop rail's too, and how long it has waited.
+    expect(rows[0].querySelector(".thread-status-age")?.textContent).toBe("Question2m");
     // The desktop rail's triplet: a question in amber behind a help glyph.
     expect(rows[0].querySelector(".thread-status-age.status-waiting > svg")).toBeTruthy();
     expect(within(rows[0]).getByRole("button", { name: "Open thread Ship the web client" }).getAttribute("aria-description")).toBe("Waiting for an answer");
@@ -1019,13 +1019,13 @@ describe("the compact client on a tablet", () => {
     // `t-a` is the thread the host holds open.
     const client = renderCompactClient();
     const sidebar = await screen.findByRole("navigation", { name: "Thread list" });
-    client.emit({ type: "extension-ui-prompt", sessionId: "t-a", prompt: { id: "q2", sessionId: "t-a", kind: "confirm", title: "Write the file?" } });
+    client.emit({ type: "extension-ui-prompt", sessionId: "t-a", prompt: { id: "q2", sessionId: "t-a", kind: "confirm", title: "Write the file?", askedAt: Date.now() - 134_000 } });
     const row = () => within(sidebar).getByRole("button", { name: "Open thread Rename the store" }).closest("li") as HTMLElement;
     await waitFor(() => expect(row().dataset.status).toBe("waiting"));
     expect(row().dataset.active).toBe("true");
     // The row has no hover actions, so the stylesheet leaves its state visible after the tap (see ThreadRow.test).
     expect(row().querySelector(".thread-row-actions")).toBeNull();
-    expect(row().querySelector(".thread-status-age.status-waiting")?.textContent).toBe("Question");
+    expect(row().querySelector(".thread-status-age.status-waiting")?.textContent).toBe("Question2m");
   });
 
   it("stays one screen wide on a phone turned sideways", async () => {

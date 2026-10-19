@@ -452,7 +452,7 @@ export default function App() {
   }, [client, platform, threadStore, switchSession, setNotice]);
   // A sub-agent's question waits on every thread above it: it is answered from any of them (design 1c).
   useEffect(() => {
-    threadStore.setWaiting(uiPrompts.flatMap((entry) => [entry.sessionId, ...threadStore.ancestorsOf(entry.sessionId)]));
+    threadStore.setAsking(uiPrompts);
   }, [threadStore, uiPrompts]);
 
   // A prompt must never be unanswerable. Workspace-level questions (project trust

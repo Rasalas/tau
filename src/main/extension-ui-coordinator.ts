@@ -32,7 +32,8 @@ export class ExtensionUiCoordinator {
     return () => { this.decorators.delete(decorator); };
   }
 
-  ask(prompt: ExtensionUiPrompt, thread?: ThreadRuntime): Promise<ExtensionUiAnswer> {
+  ask(asked: ExtensionUiPrompt, thread?: ThreadRuntime): Promise<ExtensionUiAnswer> {
+    const prompt = asked.askedAt === undefined ? { ...asked, askedAt: Date.now() } : asked;
     const typed = prompt.kind === "input" ? this.typedAnswers.get(prompt.sessionId) : undefined;
     if (typed) {
       this.typedAnswers.delete(prompt.sessionId);

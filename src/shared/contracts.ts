@@ -598,6 +598,8 @@ export interface ExtensionUiPrompt {
   lines?: string[];
   /** Wall-clock deadline when the extension passed a timeout. */
   expiresAt?: number;
+  /** When the host first asked (ms); clients time the wait from it. */
+  askedAt?: number;
   /** The question is answered outside Tau — Pi owns the runtime and asks in its terminal. */
   answerElsewhere?: boolean;
   /** What host extensions attached for their desktop halves, keyed by extension id. */

@@ -7,6 +7,8 @@ export interface ThreadActivitySnapshot {
   runningToolName?: string;
   unreadThreadIds: readonly string[];
   waitingThreadIds: readonly string[];
+  /** When each waiting thread was first asked, where the host said; absent for one it did not time. */
+  waitingSince?: Readonly<Record<string, number>>;
   /** Threads with a run in flight, whether or not they are the one on screen. */
   runningThreadIds: readonly string[];
   /** Threads whose last delivery the host refused or whose last turn failed; cleared when one starts again. */
@@ -33,6 +35,8 @@ export interface ThreadStoreSnapshot {
   unreadThreadIds: readonly string[];
   /** Threads stalled on an extension question; they cannot continue until answered. */
   waitingThreadIds: readonly string[];
+  /** When each waiting thread was first asked, where the host said; absent for one it did not time. */
+  waitingSince?: Readonly<Record<string, number>>;
   /** Threads with a run in flight, whether or not they are the one on screen. */
   runningThreadIds: readonly string[];
   /** Derived: refused deliveries, then the threads the index says failed their last turn. */
@@ -60,7 +64,7 @@ export const EMPTY_SNAPSHOT: ThreadStoreSnapshot = {
 };
 
 const ACTIVITY_KEYS = [
-  "activeThreadId", "isStreaming", "runningToolName", "unreadThreadIds", "waitingThreadIds",
+  "activeThreadId", "isStreaming", "runningToolName", "unreadThreadIds", "waitingThreadIds", "waitingSince",
   "runningThreadIds", "failedThreadIds", "interruptedThreadIds", "limitedThreadIds", "runningStartedAt",
 ] as const satisfies ReadonlyArray<keyof ThreadActivitySnapshot>;
 
@@ -357,11 +361,24 @@ export class ThreadStore {
     return above;
   }
 
-  setWaiting(threadIds: readonly string[]): void {
+  setWaiting(threadIds: readonly string[], since: Readonly<Record<string, number>> = {}): void {
     const next = [...new Set(threadIds)].sort();
     const current = [...this.snapshot.waitingThreadIds].sort();
-    if (next.length === current.length && next.every((id, index) => id === current[index])) return;
-    this.publish({ ...this.snapshot, waitingThreadIds: next });
+    const known = this.snapshot.waitingSince ?? {};
+    const sameSince = Object.keys(since).length === Object.keys(known).length && Object.keys(since).every((id) => known[id] === since[id]);
+    if (sameSince && next.length === current.length && next.every((id, index) => id === current[index])) return;
+    this.publish({ ...this.snapshot, waitingThreadIds: next, waitingSince: sameSince ? known : { ...since } });
+  }
+
+  /** Open questions wait on their thread and every thread above it, since the first of them was asked. */
+  setAsking(prompts: readonly { sessionId: string; askedAt?: number }[]): void {
+    const since: Record<string, number> = {};
+    const ids = prompts.flatMap(({ sessionId, askedAt }) => {
+      const waiting = [sessionId, ...this.ancestorsOf(sessionId)];
+      if (askedAt !== undefined) for (const id of waiting) since[id] = Math.min(since[id] ?? askedAt, askedAt);
+      return waiting;
+    });
+    this.setWaiting(ids, since);
   }
 
   markRead(threadId: string): void {

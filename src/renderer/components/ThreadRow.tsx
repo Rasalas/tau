@@ -7,6 +7,8 @@ import { MiddleTruncate } from "./ui/MiddleTruncate";
 import { tooltipProps } from "./ui/Tooltip";
 import { ProjectIcon } from "./ProjectIcon";
 import type { ThreadActivity } from "../../workbench/thread-row-status";
+import { threadAge } from "../../workbench/thread-supervision";
+import { useMinuteClock } from "../use-minute-clock";
 
 export { projectHue, projectInitial } from "./ProjectIcon";
 
@@ -70,7 +72,7 @@ export function showsThreadStatus(activity: ThreadActivity): boolean {
   return activity === "working" || activity === "tool" || activity === "waiting" || activity === "background" || activity === "ready" || activity === "interrupted" || activity === "failed" || activity === "limited" || activity === "offline";
 }
 
-/** A row's state badge, the same on every client: `Working 2:14` with a spinner, `? Question` in amber, and the rest. */
+/** A row's state badge, the same on every client: `Working 2:14` with a spinner, `? Question 2m` in amber, and the rest. */
 export function ThreadStatus({ activity, label, hint, icon, startedAt }: { activity: ThreadActivity; label: string; hint?: string; icon?: ReactNode; startedAt: number }) {
   const working = activity === "working" || activity === "tool";
   const [now, setNow] = useState(() => Date.now());
@@ -79,6 +81,8 @@ export function ThreadStatus({ activity, label, hint, icon, startedAt }: { activ
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [working]);
+  // A waiting row counts minutes from when it was asked, or from its last update where the host did not say.
+  useMinuteClock(activity === "waiting");
   return (
     <span className={`thread-status-age status-${activity}`} {...tooltipProps(hint)}>
       {working ? <i /> : null}
@@ -91,6 +95,7 @@ export function ThreadStatus({ activity, label, hint, icon, startedAt }: { activ
       {activity === "ready" ? <Check size={13} aria-hidden="true" /> : null}
       {label}
       {working ? <time>{elapsedLabel(now - startedAt)}</time> : null}
+      {activity === "waiting" ? <time dateTime={new Date(startedAt).toISOString()}>{threadAge(startedAt, Date.now())}</time> : null}
     </span>
   );
 }
