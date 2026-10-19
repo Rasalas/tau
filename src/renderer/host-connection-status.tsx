@@ -96,7 +96,7 @@ export function HostConnectionStatus({ pendingConversation = false }: { pendingC
   return <VersionSkewNotice />;
 }
 
-/** Keeps one grace period across link repair; unconfirmed conversation data needs an immediate warning. */
+/** Keeps one grace period across link repair and unconfirmed conversation data: a resync that settles quickly draws nothing. */
 function ConnectionRepairNotice({ client, state, link, pendingConversation }: {
   client: HostClient | undefined;
   state: "connected" | "reconnecting" | "resyncing";
@@ -109,7 +109,7 @@ function ConnectionRepairNotice({ client, state, link, pendingConversation }: {
     timers.after(CONNECTION_NOTICE_DELAY_MS, () => setVisibleFor(client));
     return () => timers.close();
   }, [client]);
-  if (!client || (!pendingConversation && visibleFor !== client)) return null;
+  if (!client || visibleFor !== client) return null;
   const offline = state === "reconnecting" && link?.phase === "offline";
   const waiting = state === "reconnecting" && (link?.phase === "waiting" || offline);
   return <div className={`host-connection-status connection-repair conversation-sync ${state}`} role="status" aria-label={pendingConversation ? "Conversation not up to date" : undefined}>

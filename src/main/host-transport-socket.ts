@@ -217,7 +217,10 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
   };
 
   const largeSends = new WeakMap<WebSocket, number>();
-  const sendText = (socket: WebSocket, text: string): boolean => {
+  /** What a frame carries, for the log line of a socket that falls behind. */
+  const pushKind = (event: unknown) => `push:${String((event as { type?: unknown } | null)?.type ?? "unknown")}`;
+  const frameKind = (frame: HostServerFrame) => frame.type === "push" ? pushKind(frame.push.event) : frame.type;
+  const sendText = (socket: WebSocket, text: string, kind?: string): boolean => {
     if (socket.readyState !== socket.OPEN) return false;
     const bytes = Buffer.byteLength(text);
     // Keep the allowance for one large frame until that send drains. A small
@@ -227,6 +230,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     const allowance = large ?? (bytes > HOST_PUSH_BUFFER_BYTES ? Math.min(bytes, HOST_TRANSPORT_MAX_FRAME_BYTES) : 0);
     const limit = HOST_PUSH_BUFFER_BYTES + allowance;
     if (bytes > HOST_TRANSPORT_MAX_FRAME_BYTES || socket.bufferedAmount + bytes > limit) {
+      options.logger?.warn("host-transport-socket.resync-required", { kind, bytes, buffered: socket.bufferedAmount, limit });
       forget(socket);
       socket.close(1013, "resync required");
       return false;
@@ -237,7 +241,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
     } else socket.send(text);
     return true;
   };
-  const send = (socket: WebSocket, frame: HostServerFrame): boolean => sendText(socket, JSON.stringify(frame));
+  const send = (socket: WebSocket, frame: HostServerFrame): boolean => sendText(socket, JSON.stringify(frame), frameKind(frame));
   /** A paired device's access as it stands now: a new preset applies to its next request and push. */
   const readOnlySession = (session: { connection: string; principal: HostInvocationPrincipal }): boolean =>
     session.principal.kind === "workbench-client" && session.principal.pairedClient !== undefined && (access.accessOf?.(session.connection) ?? "read-only") === "read-only";
@@ -572,7 +576,7 @@ export async function startSocketHostTransport(options: SocketHostTransportOptio
         const text = prev
           ? `{"type":"push","push":{"seq":${push.seq}${prev},"event":${event}}}`
           : (frame ??= `{"type":"push","push":{"seq":${push.seq},"event":${event}}}`);
-        if (sendText(socket, text)) session.lastSent = push.seq;
+        if (sendText(socket, text, pushKind(push.event))) session.lastSent = push.seq;
       }
     },
     sendCall: (connection, call) => {

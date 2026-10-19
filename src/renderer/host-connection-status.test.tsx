@@ -48,6 +48,9 @@ describe("host connection status", () => {
     vi.useFakeTimers();
     const link = clientWithMovableState(undefined, { link: { phase: "open", attempts: 0 } });
     const view = render(<HostClientProvider client={link.client}><HostConnectionStatus pendingConversation /></HostClientProvider>);
+    // A resync that settles within the grace period draws nothing.
+    expect(screen.queryByRole("status")).toBeNull();
+    act(() => { vi.advanceTimersByTime(5_000); });
     expect(screen.getByRole("status").textContent).toContain("Syncing conversation…");
 
     link.set("reconnecting");

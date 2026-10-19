@@ -210,10 +210,12 @@ describe("socket host transport", () => {
     let relay!: (event: HostPushEvent) => void;
     let connection!: string;
     const follow = vi.fn((_id: string, topics: readonly string[], emit: (event: HostPushEvent) => void) => { if (topics.length) relay = emit; });
+    const warn = vi.fn();
     transport = await startSocketHostTransport({
       listen: "127.0.0.1:0", methods, pushLog, hostVersion: "test", capabilities: [], token: TOKEN,
       calls: { attach: (id) => { connection = id; }, detach: () => undefined },
       onTopicsSubscribed: follow,
+      logger: { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() },
     });
     const writes = vi.spyOn(WebSocket.prototype, "send");
     const slow = await hello(transport.port, TOKEN);
@@ -239,6 +241,7 @@ describe("socket host transport", () => {
     else if (route === "subscribe") slow.socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "subscribe", params: [{ threads: [], topics: ["test/new"] }] } }));
     else slow.socket.send(JSON.stringify({ type: "request", request: { id: "r", method: "ping", params: [] } }));
     expect(await ending).toEqual({ code: 1013, reason: "resync required" });
+    expect(warn).toHaveBeenCalledWith("host-transport-socket.resync-required", expect.objectContaining({ buffered: 8 * 1024 * 1024 - 1, ...(route === "push" || route === "relay" ? { kind: "push:event-log" } : {}) }));
     expect(follow).toHaveBeenCalledTimes(3);
     expect(writes.mock.calls.slice(before).filter((_call, offset) => writes.mock.contexts[before + offset] === peer)).toEqual([]);
     buffered.mockRestore();
