@@ -16,6 +16,7 @@ import {
 import { dirname, join, relative as relativePath, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import type { ChangeStatus, DiffLoadOptions, UiChangedFile, UiFileDiff, UiWorkspaceChanges } from "tau/host-extension";
+import { isIgnored, parseGitignore, type IgnoreRule } from "../_shared/gitignore.js";
 import { isTurnSnapshotId } from "./turn-checkpoint-codec.js";
 import { assertWorkspacePath } from "./workspace-paths.js";
 import { describe, proposeMessage, parseUnifiedDiff } from "./git-diff.js";
@@ -67,6 +68,12 @@ interface FilesystemSnapshotManifest {
   omittedFileCount: number;
   omittedBytes: number;
   omissionReasons: string[];
+}
+
+/** The rules of `directory`'s own `.gitignore` after its parents'; what they name is neither captured nor restored. */
+async function withFolderRules(inherited: readonly IgnoreRule[], directory: string, relative: string): Promise<readonly IgnoreRule[]> {
+  const text = await readFile(join(directory, ".gitignore"), "utf8").catch(() => undefined);
+  return text === undefined ? inherited : [...inherited, ...parseGitignore(text, relative)];
 }
 
 function filesystemWorkspaceKey(cwd: string): string {
@@ -243,7 +250,8 @@ async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection
     omittedBytes += Math.max(0, bytes);
     if (!omissionReasons.includes(reason) && omissionReasons.length < 8) omissionReasons.push(reason);
   };
-  const walk = async (directory: string, relative: string): Promise<void> => {
+  const walk = async (directory: string, relative: string, inherited: readonly IgnoreRule[]): Promise<void> => {
+    const rules = await withFolderRules(inherited, directory, relative);
     if (fileCount >= FILESYSTEM_MAX_FILES) {
       recordOmission("file-count limit (20,000 files)");
       return;
@@ -269,6 +277,7 @@ async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection
       if (entry.name === "." || entry.name === ".." || (relative === "" && FILESYSTEM_IGNORED_DIRECTORIES.has(entry.name))) continue;
       const path = join(directory, entry.name);
       const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (isIgnored(rules, child, entry.isDirectory())) continue;
       if (entry.isDirectory()) {
         const info = await lstat(path).catch(() => undefined);
         if (!info) {
@@ -276,7 +285,7 @@ async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection
         } else {
           directories[child.replaceAll("\\", "/")] = { mode: info.mode & 0o7777 };
         }
-        await walk(path, child);
+        await walk(path, child, rules);
         continue;
       }
       if (entry.isSymbolicLink()) {
@@ -349,7 +358,7 @@ async function collectFilesystemFiles(cwd: string): Promise<FilesystemCollection
       totalBytes += bytes.length;
     }
   };
-  await walk(await realpath(cwd).catch(() => resolve(cwd)), "");
+  await walk(await realpath(cwd).catch(() => resolve(cwd)), "", []);
   return { files, directories, complete, omittedFileCount, omittedBytes, omissionReasons };
 }
 
@@ -492,21 +501,23 @@ async function filesystemPaths(cwd: string): Promise<{ files: Set<string>; direc
   const files = new Set<string>();
   const directories = new Set<string>();
   const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
-  const walk = async (directory: string, relative: string): Promise<void> => {
+  const walk = async (directory: string, relative: string, inherited: readonly IgnoreRule[]): Promise<void> => {
+    const rules = await withFolderRules(inherited, directory, relative);
     const entries = await readdir(directory, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.name === "." || entry.name === ".." || (relative === "" && FILESYSTEM_IGNORED_DIRECTORIES.has(entry.name))) continue;
       const path = join(directory, entry.name);
       const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (isIgnored(rules, child, entry.isDirectory())) continue;
       if (entry.isDirectory()) {
         directories.add(child);
-        await walk(path, child);
+        await walk(path, child, rules);
       } else {
         files.add(child);
       }
     }
   };
-  await walk(canonicalCwd, "");
+  await walk(canonicalCwd, "", []);
   return { files, directories };
 }
 
