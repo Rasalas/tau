@@ -29,6 +29,22 @@ describe("Settings → Preview", () => {
 
     fireEvent.click(screen.getByRole("switch", { name: "Show clicks" }));
     await waitFor(() => expect(updates).toContainEqual({ options: { [key("recording-clicks")]: true } }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Search with" }), { target: { value: "kagi" } });
+    await waitFor(() => expect(updates).toContainEqual({ values: { [key("search-engine")]: "kagi" } }));
+    expect(screen.queryByRole("textbox", { name: "Search address" })).toBeNull();
     expect(missingSettingsRows({ rows: PREVIEW_SETTINGS_ROWS })).toEqual([]);
+  });
+
+  it("asks for a custom search address and refuses one that is not https with %s", async () => {
+    const { updates } = renderKitSettingsPage(PreviewSettingsPage, { host: { values: { [key("search-engine")]: "custom" } } });
+    const field = await screen.findByRole("textbox", { name: "Search address" });
+    fireEvent.change(field, { target: { value: "http://example.com/?q=%s" } });
+    fireEvent.blur(field);
+    expect(await screen.findByText("Use an https:// address.")).toBeTruthy();
+    expect(updates).not.toContainEqual({ values: { [key("search-url")]: "http://example.com/?q=%s" } });
+
+    fireEvent.change(field, { target: { value: "https://example.com/?q=%s" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(updates).toContainEqual({ values: { [key("search-url")]: "https://example.com/?q=%s" } }));
   });
 });

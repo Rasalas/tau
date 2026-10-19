@@ -53,6 +53,7 @@ import type { ScreenAction } from "./screen-protocol.js";
 import { PreviewHistory } from "./history.js";
 import { PreviewMiniState } from "./mini-state.js";
 import { PREVIEW_TOOL_GROUP, previewTools, type PreviewToolController } from "./agent-tools.js";
+import { resolveTypedInput } from "./search.js";
 import { defaultsFromSettings } from "./settings.js";
 import { DEFAULT_PREVIEW_DEFAULTS, fitViewport, readAppearance, readDefaults, readViewport, readZoom, stepZoom } from "./viewport.js";
 import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.js";
@@ -619,12 +620,13 @@ class PreviewController implements PreviewToolController {
     this.context.emit(PREVIEW_STATE_EVENT, state);
   }
 
-  async open(url: unknown): Promise<PreviewState> {
-    return this.changeBrowser(() => this.loadSurface(url));
+  /** `typed` is the address bar; the agent's tools pass a URL and never search. */
+  async open(url: unknown, typed = false): Promise<PreviewState> {
+    return this.changeBrowser(() => this.loadSurface(url, typed));
   }
 
-  private async loadSurface(url: unknown): Promise<PreviewState> {
-    const resolved = normalizePreviewUrl(url, this.workspaceRoot);
+  private async loadSurface(url: unknown, typed = false): Promise<PreviewState> {
+    const resolved = normalizePreviewUrl(typed && typeof url === "string" ? resolveTypedInput(url, this.defaults.search) : url, this.workspaceRoot);
     const surface = await this.openSurface();
     await surface.load(resolved, LOAD_TIMEOUT_MS);
     this.publish();
@@ -1227,7 +1229,7 @@ export function createPreviewHostExtension(
       await loadDefaults();
       const stopConfig = context.services.observeConfigChanges((change) => { if (change.kind === "config") void loadDefaults().catch(() => undefined); });
       const stopLifecycle = context.services.registerThreadLifecycle({ beforeWorkspace: async (cwd) => { workspace = cwd; await loadDefaults().catch(() => undefined); } });
-      context.registerCommand("open", (input) => controller.open((input as { url?: unknown } | undefined)?.url));
+      context.registerCommand("open", (input) => controller.open((input as { url?: unknown } | undefined)?.url, (input as { typed?: unknown } | undefined)?.typed === true));
       context.registerCommand("navigate", (input) => controller.navigate(input));
       context.registerCommand("close", () => controller.close());
       context.registerCommand("bounds", (input) => { controller.setBounds(readPreviewBounds(input)); });

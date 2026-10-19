@@ -76,11 +76,12 @@ describe("the page's chords", () => {
 describe("defaults", () => {
   it("reads Settings' strings and falls back field by field", () => {
     expect(readDefaults(undefined)).toEqual(DEFAULT_PREVIEW_DEFAULTS);
-    expect(readDefaults({ viewport: "iphone-se", zoom: "1.25", appearance: "dark", recording: { frameRate: "60", showKeys: true } })).toEqual({
+    expect(readDefaults({ viewport: "iphone-se", zoom: "1.25", appearance: "dark", recording: { frameRate: "60", showKeys: true }, search: { engine: "bing", custom: "x" } })).toEqual({
       viewport: { mode: "fixed", width: 375, height: 667, preset: "iphone-se" },
       zoom: 1.25,
       appearance: "dark",
       recording: { frameRate: 60, showKeys: true, showClicks: false },
+      search: { engine: "bing", custom: "x" },
     });
     expect(readDefaults({ zoom: "huge", appearance: "sepia", recording: { frameRate: 24 } })).toEqual(DEFAULT_PREVIEW_DEFAULTS);
   });
