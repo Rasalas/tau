@@ -82,6 +82,8 @@ export interface UiMessage {
   thinking?: string;
   images?: readonly UiMessageImage[];
   timestamp: number;
+  /** On a user message: it was steered into a running turn, or sent from the queue (API 1.75.0). */
+  delivery?: "steer" | "queued";
   /** True when the entry was executed locally and excluded from model context (e.g. !! command). */
   excludedFromContext?: boolean;
   /** Why the runtime stopped this answer, in the provider's words; the answer's text may be empty. */

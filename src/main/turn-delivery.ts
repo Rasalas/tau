@@ -90,7 +90,7 @@ export class TurnDelivery {
         preparedTurnId = randomUUID();
         this.port.turnObservers.accepted(thread.threadId, preparedTurnId, { deferBefore: true, expectsInput: false });
       }
-      let markerActive = this.port.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
+      let markerActive = this.port.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint, delivery === "steer" ? "steer" : "queued");
       try {
         await thread.backend.prompt({ text, delivery, ...(identity ? { identity } : {}), prepared: resolvedPrepared, attachments });
         this.port.turnsInFlight.resetContinuations(thread.threadId);

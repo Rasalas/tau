@@ -9,6 +9,22 @@ import { WorkbenchShellContext } from "../workbench-context";
 
 afterEach(cleanup);
 
+describe("Delivery marks on user messages", () => {
+  const sent = (delivery?: "steer" | "queued") => ({ id: "m", role: "user" as const, text: "hello", timestamp: 0, ...(delivery ? { delivery } : {}) });
+
+  it.each([["steer", "Steered the running turn"], ["queued", "Sent from the queue"]] as const)("marks a %s message with an icon and names it in the tooltip", (delivery, label) => {
+    render(<Message message={sent(delivery)} />);
+    const mark = screen.getByRole("img", { name: label });
+    expect(mark.getAttribute("title")).toBe(label);
+    expect(mark.textContent).toBe("");
+  });
+
+  it("draws no mark on a message sent the usual way", () => {
+    const view = render(<Message message={sent()} />);
+    expect(view.container.querySelector(".message-delivery")).toBeNull();
+  });
+});
+
 describe("Long user messages", () => {
   const message = (text: string) => ({ id: "long", role: "user" as const, text, timestamp: 0 });
 

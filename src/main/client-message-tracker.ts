@@ -3,9 +3,11 @@ import {
   branchMessagesWithClientMessageIds,
   clientMessageCancelMarker,
   clientMessageFingerprint,
+  clientMessageDelivery,
   clientMessageIdForMessage,
   clientMessageMarker,
   matchClientMessageId,
+  type MessageDelivery,
   CLIENT_MESSAGE_CANCEL_MARKER,
   CLIENT_MESSAGE_MARKER,
 } from "../shared/client-message-correlation.js";
@@ -22,12 +24,12 @@ export class ClientMessageTracker {
     private readonly emit: (event: HostEvent) => void,
   ) {}
 
-  appendMarker(thread: ThreadRuntime, clientMessageId: string | undefined, correlationText?: string, preparedFingerprint?: string): boolean {
+  appendMarker(thread: ThreadRuntime, clientMessageId: string | undefined, correlationText?: string, preparedFingerprint?: string, delivery?: MessageDelivery): boolean {
     if (!clientMessageId) return false;
     const fingerprint = preparedFingerprint ?? (correlationText === undefined
       ? undefined
       : clientMessageFingerprint(correlationText, this.skillNames(thread)));
-    thread.appendJournalEntry(CLIENT_MESSAGE_MARKER, clientMessageMarker(clientMessageId, fingerprint).data);
+    thread.appendJournalEntry(CLIENT_MESSAGE_MARKER, clientMessageMarker(clientMessageId, fingerprint, delivery).data);
     thread.pendingClientMessageIds.push(clientMessageId);
     if (fingerprint) thread.pendingClientMessageFingerprints.set(clientMessageId, fingerprint);
     return true;
@@ -135,7 +137,10 @@ export class ClientMessageTracker {
     const clientMessageId = directId
       ?? clientMessageIdForMessage(thread.entries, message, this.skillNames(thread))
       ?? fingerprintId;
-    if (clientMessageId) this.forget(thread, clientMessageId);
-    return directId || !clientMessageId ? message : { ...value, clientMessageId };
+    if (!clientMessageId) return message;
+    this.forget(thread, clientMessageId);
+    const delivery = clientMessageDelivery(thread.entries, clientMessageId);
+    if (directId && !delivery) return message;
+    return { ...value, clientMessageId, ...(delivery ? { tauDelivery: delivery } : {}) };
   }
 }

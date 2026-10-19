@@ -120,6 +120,7 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
     clientMessageId?: string;
     tauClientTurnId?: string;
     tauClientMessageId?: string;
+    tauDelivery?: unknown;
   };
 
   const clientTurnId = value.clientTurnId ?? value.tauClientTurnId;
@@ -148,6 +149,7 @@ export function mapMessage(message: unknown, index: number, options: MessageMapp
       ...(presentation ? skillFields(presentation) : {}),
       images,
       timestamp: value.timestamp ?? Date.now(),
+      ...(value.tauDelivery === "steer" || value.tauDelivery === "queued" ? { delivery: value.tauDelivery } : {}),
     };
   }
 

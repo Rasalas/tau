@@ -56,3 +56,16 @@ describe("ClientMessageTracker.correlateStart", () => {
     expect(events).toEqual([]);
   });
 });
+
+describe("ClientMessageTracker delivery marks", () => {
+  it("gives a live user message the delivery its request marker recorded", () => {
+    const tracker = new ClientMessageTracker(new ClientTurnLedger(), () => new Set(), () => ({}), () => undefined);
+    const thread = stubThread();
+    tracker.appendMarker(thread, "steered", "turn left", undefined, "steer");
+    tracker.appendMarker(thread, "typed", "plain");
+    const steered = tracker.decorateUserEvent(thread, { ...piUserMessage("turn left"), clientMessageId: "steered" });
+    expect(steered).toMatchObject({ clientMessageId: "steered", tauDelivery: "steer" });
+    expect(tracker.decorateUserEvent(thread, piUserMessage("plain"))).toMatchObject({ clientMessageId: "typed" });
+    expect(tracker.decorateUserEvent(thread, piUserMessage("plain"))).not.toHaveProperty("tauDelivery");
+  });
+});

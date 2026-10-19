@@ -1,4 +1,4 @@
-import { FileText, Sparkles } from "lucide-react";
+import { FileText, ListEnd, Redo2, Sparkles } from "lucide-react";
 import { useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { messageSkills } from "../../shared/prepared-prompt";
@@ -43,6 +43,11 @@ function SkillChip({ name }: { name: string }) {
     <span>Skill</span>
   </span>;
 }
+
+const DELIVERY_MARKS = {
+  steer: { Icon: Redo2, label: "Steered the running turn" },
+  queued: { Icon: ListEnd, label: "Sent from the queue" },
+} as const;
 
 const idle = () => () => undefined;
 const unversioned = () => 0;
@@ -96,6 +101,7 @@ export function UserMessage({
   const [localExpanded, setLocalExpanded] = useState(false);
   const expanded = controlledExpanded ?? localExpanded;
   const contentId = `message-content-${message.id}`;
+  const mark = message.delivery ? DELIVERY_MARKS[message.delivery] : undefined;
 
   const toggleExpanded = () => {
     const nextExpanded = !expanded;
@@ -148,7 +154,12 @@ export function UserMessage({
             {expanded ? "Show less" : "Show more"}
           </button>
         ) : null}
-        <div className="message-user-meta">
+        <div className={`message-user-meta${mark ? " marked" : ""}`}>
+          {mark ? (
+            <span className="message-delivery" role="img" aria-label={mark.label} title={mark.label} data-delivery={message.delivery}>
+              <mark.Icon size={12} strokeWidth={2} aria-hidden="true" />
+            </span>
+          ) : null}
           {turn ? <TurnActions turn={turn} /> : null}
           <time
             dateTime={new Date(message.timestamp).toISOString()}

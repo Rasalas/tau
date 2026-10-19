@@ -1075,7 +1075,9 @@ export class PiHost {
   /** A queued message is prepared when it leaves, against the thread as it is then. */
   private async deliverQueued(sessionId: string, message: QueuedMessage): Promise<void> {
     const prepared = message.skillDraft ? await this.preparePrompt(message.text, sessionId, message.skillDraft) : undefined;
-    await this.prompt(message.skillDraft ? message.text : message.text.trim(), message.attachments, sessionId, undefined, prepared);
+    // A wake is not the user's message; the user's own carry a "sent from the queue" mark.
+    const identity = message.wake ? undefined : { clientTurnId: randomUUID(), clientMessageId: randomUUID() };
+    await this.prompt(message.skillDraft ? message.text : message.text.trim(), message.attachments, sessionId, identity, prepared, identity ? { delivery: "queued" } : {});
   }
 
   async newSession(
@@ -1472,7 +1474,7 @@ export class PiHost {
     sessionId?: string,
     clientMessageIdOrPreflight?: ClientTurnRequest | PromptPreflight,
     prepared?: PreparedPrompt,
-    options: { hidden?: boolean } = {},
+    options: { hidden?: boolean; delivery?: "queued" } = {},
   ): Promise<void> {
     const id = typeof clientMessageIdOrPreflight === "function" ? undefined : clientIdentityForRequest(clientMessageIdOrPreflight)?.clientMessageId;
     return this.promptReceipts.run(sessionId ?? this.active?.threadId ?? "", id, () => this.deliverPrompt(text, attachments, sessionId, clientMessageIdOrPreflight, prepared, options));
@@ -1572,7 +1574,7 @@ export class PiHost {
         if (!wasStreaming) await this.turnObservers.prepare(thread.threadId, preparedTurnId);
       }
       if (identity) this.clientTurns.enqueue(thread.threadId, identity, resolvedPrepared.sourceFingerprint);
-      markerActive = this.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint);
+      markerActive = this.clientMessages.appendMarker(thread, clientMessageId, text, resolvedPrepared.sourceFingerprint, options.delivery);
       const run = thread.backend.prompt({
         text,
         delivery: "prompt",
