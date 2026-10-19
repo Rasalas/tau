@@ -326,6 +326,8 @@ export class ThreadStore {
   }
 
   setActiveThread(activeThreadId: string, isStreaming?: boolean): void {
+    // The tools that ran belong to the thread left.
+    if (activeThreadId !== this.snapshot.activeThreadId) this.runningTools.clear();
     this.publish({ ...this.snapshot, activeThreadId, runningToolName: undefined });
     if (isStreaming !== undefined) this.setThreadRunningHint(activeThreadId, isStreaming);
   }

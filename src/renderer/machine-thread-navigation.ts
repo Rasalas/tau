@@ -14,3 +14,23 @@ export async function machineThreadPath(machine: string, sessionId: string, clie
   // Core's externalThreadPath in src/main/pi-host-support.ts defines this virtual path.
   return `tau-thread:machine:${id}`;
 }
+
+/**
+ * Opens a thread of another machine: on screen when this host can run it, else
+ * as a look into it beside the thread it was asked from. Asked from a thread
+ * the user has left by the time the machine answers, it does neither.
+ */
+export async function openMachineThread(machine: string, sessionId: string, ports: {
+  client: HostClient | undefined;
+  threads?: Pick<ThreadStore, "getThread">;
+  /** The thread or draft on screen, read now. */
+  scope(): string | undefined;
+  switchSession(path: string): Promise<unknown>;
+  lookIn(): void;
+}): Promise<void> {
+  const from = ports.scope();
+  const path = await machineThreadPath(machine, sessionId, ports.client, ports.threads);
+  if (ports.scope() !== from) return;
+  if (path) await ports.switchSession(path);
+  else ports.lookIn();
+}

@@ -2,7 +2,7 @@ import type { HostClient } from "./host-client";
 import type { SubmissionController, SubmissionEnvironment, SubmissionInput } from "./submission-controller";
 import type { HostBootstrap, HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiMessage, SubmissionResult, HostEvent } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
-import { draftKey, draftKeyOwner, writeNewThreadDraft } from "./draft-store";
+import { draftKey, draftKeyOwner, readComposerDraft, writeNewThreadDraft } from "./draft-store";
 import { createDraftKey, ComposerScopeStore } from "./composer-scope-store";
 import { HostSessionState } from "./host-session-state";
 import {
@@ -264,9 +264,11 @@ export class WorkbenchSession {
     const pendingDraft = inheritDraft ? this.scopes.getSnapshot(currentScope).draft : "";
     this.applyActionResult(result);
     const detail = result.updates.find((update) => update.type === "thread-detail");
-    if (pendingDraft && detail?.type === "thread-detail") {
-      this.scopes.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
-    }
+    if (!pendingDraft || detail?.type !== "thread-detail") return;
+    // A thread with a draft of its own keeps it; the carried text stays where it was typed.
+    const destination = draftKey(detail.detail.sessionId);
+    if (this.scopes.getSnapshot(createDraftKey(destination)).draft || readComposerDraft(this.options.storage, destination)) return;
+    this.scopes.setDraft(createDraftKey(destination), pendingDraft);
   };
 
   prepareThreadDetail = (sessionId: string): boolean => this.history.prepareActionDetail(sessionId);

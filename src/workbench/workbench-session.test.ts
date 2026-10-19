@@ -3,7 +3,7 @@ import { HOST_PROTOCOL_VERSION } from "../shared/host-protocol";
 import { createNewThreadRequestId, type HostSnapshot, type UiMessage } from "../shared/contracts";
 import { createMemoryStorage } from "./client-storage";
 import { createDraftKey } from "./composer-scope-store";
-import { draftKey, type NewThreadDraft } from "./draft-store";
+import { draftKey, writeComposerDraft, type NewThreadDraft } from "./draft-store";
 import type { NewThreadSubmissionRecovery } from "./app-state";
 import { WorkbenchSession } from "./workbench-session";
 
@@ -225,6 +225,21 @@ describe("WorkbenchSession", () => {
     expect(session.scopes.getSnapshot(createDraftKey(draftKey("destination"))).draft).toBe("latest typed text");
     session.applyHostResult({ version: HOST_PROTOCOL_VERSION, updates: [detail("another", { messages: [], isStreaming: false })] }, false);
     expect(session.scopes.getSnapshot(createDraftKey(draftKey("another"))).draft).toBe("");
+  });
+
+  it("leaves a destination thread's own draft, typed or saved, where the carried text would land", () => {
+    const storage = createMemoryStorage();
+    const session = new WorkbenchSession({ storage });
+    session.newThread.begin(pending);
+    session.scopes.setDraft(createDraftKey(draftKey(undefined, pending)), "carried text");
+    session.scopes.setDraft(createDraftKey(draftKey("typed")), "typed there");
+    writeComposerDraft(storage, draftKey("saved"), "saved there");
+
+    session.applyHostResult({ version: HOST_PROTOCOL_VERSION, updates: [detail("typed", { messages: [], isStreaming: false })] });
+    expect(session.scopes.getSnapshot(createDraftKey(draftKey("typed"))).draft).toBe("typed there");
+    session.newThread.begin(pending);
+    session.applyHostResult({ version: HOST_PROTOCOL_VERSION, updates: [detail("saved", { messages: [], isStreaming: false })] });
+    expect(session.scopes.getSnapshot(createDraftKey(draftKey("saved"))).draft).toBe("");
   });
 
   it("turns a rejected notification promise into a session notice", async () => {

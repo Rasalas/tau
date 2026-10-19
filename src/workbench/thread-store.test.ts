@@ -314,3 +314,15 @@ describe("the threads above one", () => {
     expect(store.ancestorsOf("a")).toEqual(["b"]);
   });
 });
+
+describe("ThreadStore running tools", () => {
+  it("forgets the tools of the thread it left, so its tool name does not come back", () => {
+    const store = new ThreadStore();
+    store.setActiveThread("a");
+    store.toolStarted("a-tool", "bash");
+    store.setActiveThread("b");
+    store.toolStarted("b-tool", "read");
+    store.toolEnded("b-tool");
+    expect(store.getSnapshot().runningToolName).toBeUndefined();
+  });
+});

@@ -39,3 +39,26 @@ describe("Edit from here", () => {
     expect(navigateThreadTree).not.toHaveBeenCalled();
   });
 });
+
+describe("the thread tree", () => {
+  it("fills the modal with the answer to its latest opening, not a late one for another thread", async () => {
+    const replies: Record<string, (tree: unknown) => void> = {};
+    const threadTree = vi.fn((sessionId: string) => new Promise((resolve) => { replies[sessionId] = resolve; }));
+    let shown = "A";
+    const { result } = renderHook(() => useThreadTree({
+      client: { threadTree } as unknown as HostClient,
+      sessionId: () => shown,
+      requireHost: () => true,
+      applyActionResult: () => true,
+      seedComposer: vi.fn(),
+      composerRef: createRef<HTMLTextAreaElement>(),
+    }));
+    act(() => result.current.openThreadTree());
+    act(() => result.current.closeThreadTree());
+    shown = "B";
+    act(() => result.current.openThreadTree());
+    const treeOfB = { entries: [{ id: "b" }] };
+    await act(async () => { replies.B!(treeOfB); replies.A!({ entries: [{ id: "a" }] }); });
+    expect(result.current.threadTreeModal?.tree).toBe(treeOfB);
+  });
+});

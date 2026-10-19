@@ -98,6 +98,30 @@ describe("workbench submission", () => {
     expect(accepted).toHaveBeenCalledOnce();
   });
 
+  it("sends a message meant for a thread the user has left to that thread, leaving the one on screen alone", async () => {
+    const preparePrompt = vi.fn(async () => undefined);
+    const sendPrompt = vi.fn(async () => {});
+    const steer = vi.fn(async () => {});
+    const unsettle = vi.fn();
+    const session = new WorkbenchSession({
+      storage: createMemoryStorage(),
+      submission: {
+        client: () => ({ preparePrompt, sendPrompt, steer }) as unknown as HostClient,
+        environment: { command: () => undefined, unsettle } as unknown as SubmissionEnvironment,
+      },
+    });
+    session.applySnapshot(snapshot);
+    await expect(session.submit({ text: "for A", threadId: "A" })).resolves.toEqual({ accepted: true });
+    expect(preparePrompt).toHaveBeenCalledWith("for A", "A", undefined);
+    expect(sendPrompt).toHaveBeenCalledExactlyOnceWith("for A", [], "A", expect.objectContaining({ clientMessageId: expect.any(String) }), undefined);
+    expect(unsettle).toHaveBeenCalledExactlyOnceWith("A");
+    session.threads.setThreadRunning("A", true);
+    await expect(session.submit({ text: "steer A", threadId: "A", delivery: "steer" })).resolves.toEqual({ accepted: true });
+    expect(steer).toHaveBeenCalledExactlyOnceWith("steer A", [], "A", expect.anything(), undefined);
+    expect(session.view.getOptimisticMessages()).toEqual([]);
+    expect(session.turn.current()).toBeUndefined();
+  });
+
   it("reconciles an existing thread's live echo during its run before any detail arrives", async () => {
     const h = harness();
     h.session.newThread.set(undefined);

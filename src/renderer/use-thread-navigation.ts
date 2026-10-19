@@ -28,7 +28,7 @@ export interface ThreadNavigationPorts {
   threads: ThreadStore;
   history: TranscriptHistoryController;
   scopes: ComposerScopeStore;
-  workbench: Pick<WorkbenchSession, "applyActionResult" | "applySnapshot" | "applyHostResult">;
+  workbench: Pick<WorkbenchSession, "applyActionResult" | "applySnapshot" | "applyHostResult" | "applyHostUpdate">;
   stage: StageState;
   setStage: Dispatch<SetStateAction<StageState>>;
   requireHost(what: string): boolean;
@@ -66,7 +66,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     activeDraftKey, client, closeNewThreadPicker, composerRef, detachPendingDelivery, drafts,
     history, inheritSelection, newThread, requireHost, scopes, showThread, storage, threads, view, workbench, stage, setStage,
   } = ports;
-  const { applyActionResult, applySnapshot, applyHostResult } = workbench;
+  const { applyActionResult, applySnapshot, applyHostResult, applyHostUpdate } = workbench;
   const notify = view.setNotice;
 
   /** The draft on screen is left: it stays in the list with what it holds, unless it is empty or being sent. */
@@ -125,8 +125,14 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       leavePendingNewThread(pending);
       return true;
     }
+    const from = activeDraftKey();
     try {
       const result = await client!.openProject(workspace);
+      // The user went elsewhere while the host opened it: the list learns of it, the screen stays.
+      if (activeDraftKey() !== from) {
+        result.updates.forEach((update) => { if (update.type === "thread-index" || update.type === "thread-shell") applyHostUpdate(update); });
+        return false;
+      }
       if (pending) leavePendingNewThread(pending, pendingInFlight);
       applyHostResult(result, options?.inheritDraft ?? !pendingInFlight);
       return true;
@@ -134,7 +140,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       notify(errorMessage(error), "error");
       return false;
     }
-  }, [activeDraftKey, applyHostResult, client, detachPendingDelivery, leavePendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
+  }, [activeDraftKey, applyHostResult, applyHostUpdate, client, detachPendingDelivery, leavePendingNewThread, moveDraftToProject, newThread, notify, requireHost, scopes, threads, view]);
 
   /**
    * A new thread's draft in `project`. A draft with something in
