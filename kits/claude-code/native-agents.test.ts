@@ -115,3 +115,11 @@ it("keeps a child's replies and tool calls as steps its view lists", () => {
     { id: "tool:bash", kind: "tool", text: "Bash", detail: "npm test" },
   ] } } });
 });
+
+it("keeps a subagent's model after a notice the CLI stamps as synthetic", () => {
+  const agents = new ClaudeNativeAgents();
+  agents.push({ type: "assistant", message: { content: [{ type: "tool_use", id: "call", name: "Agent", input: { description: "Review" } }] } });
+  agents.push({ type: "assistant", parent_tool_use_id: "call", message: { id: "one", model: "claude-haiku-4-5", content: [{ type: "text", text: "Working" }] } });
+  const notice = agents.push({ type: "assistant", parent_tool_use_id: "call", message: { id: "two", model: "<synthetic>", content: [{ type: "text", text: "You've hit your limit" }] } });
+  expect(notice.at(-1)).toMatchObject({ tool: { args: { model: "claude-haiku-4-5" } } });
+});

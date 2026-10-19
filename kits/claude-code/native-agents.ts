@@ -65,7 +65,8 @@ export class ClaudeNativeAgents {
       if (!this.owns(parent) && frame.type === "assistant") events.push(...this.tracker.update(parent, { title: string(frame.task_description) ?? string(frame.subagent_type) ?? "Subagent" }));
       if (!this.owns(parent)) return events;
       if (frame.type === "assistant") {
-        if (string(message.model)) events.push(...this.tracker.update(parent, { model: string(message.model) }));
+        // The CLI stamps its own notices (a usage limit, an API error) "<synthetic>".
+        if (string(message.model) && message.model !== "<synthetic>") events.push(...this.tracker.update(parent, { model: string(message.model) }));
         const text = contentText(content);
         if (text) events.push(...this.tracker.text(parent, string(message.id) ?? this.streamingMessage.get(parent) ?? "reply", text));
         for (const block of content) {

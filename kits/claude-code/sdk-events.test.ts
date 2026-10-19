@@ -207,9 +207,63 @@ describe("SdkTurnTranslator", () => {
     ], translator);
     expect(translator.outcome).toMatchObject({ error: "You've hit your limit", limit: { resetsAt: now + 3_600_000 } });
 
-    const blocked = new SdkTurnTranslator(() => now);
-    run([frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors: ["blocked"], terminal_reason: "blocking_limit", total_cost_usd: 0, usage: {} })], blocked);
-    expect(blocked.outcome).toMatchObject({ error: "blocked", limit: {} });
+  });
+
+  it("takes a blocking_limit with an allowed window for a full context, and with a rejected one for a usage limit", () => {
+    const now = 1_000_000_000_000;
+    const ended = frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 189, errors: ["Prompt is too long"], terminal_reason: "blocking_limit", total_cost_usd: 0, usage: {} });
+    const full = new SdkTurnTranslator(() => now);
+    run([frame({ type: "rate_limit_event", rate_limit_info: { status: "allowed", rateLimitType: "five_hour" } }), ended], full);
+    expect(full.outcome?.error).toBe("Prompt is too long\nThe context window is full. Compact the conversation or start a new thread.");
+    expect(full.outcome).not.toHaveProperty("limit");
+
+    const bare = new SdkTurnTranslator(() => now);
+    run([ended], bare);
+    expect(bare.outcome).not.toHaveProperty("limit");
+
+    const limited = new SdkTurnTranslator(() => now);
+    run([frame({ type: "rate_limit_event", rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt: now / 1000 + 3600 } }), ended], limited);
+    expect(limited.outcome).toMatchObject({ error: "Prompt is too long", limit: { resetsAt: now + 3_600_000 } });
+  });
+
+  describe("the update a newer model writes before a tool call", () => {
+    const plan = "Planning the check";
+    const update = "Found it: the memory file is the cause.";
+    const tool = { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } };
+    const thought = (thinking: string) => ({ type: "thinking", thinking });
+    // The SDK reports one snapshot per completed content block, all under the message id.
+    const snapshots = (model: string, blocks: unknown[]) => blocks.map((block) => frame({ type: "assistant", parent_tool_use_id: null, message: { id: "msg-1", model, role: "assistant", content: [block] } }));
+    const rows = (messages: SDKMessage[]) => {
+      let count = 0;
+      const translator = new SdkTurnTranslator(() => 42, () => `a${count++}`);
+      const latest = new Map<string, { text: string; thinking?: string }>();
+      for (const event of run(messages, translator).events) {
+        if (event.type === "assistant-end") latest.set(event.message.id, { text: event.message.text, ...(event.message.thinking ? { thinking: event.message.thinking } : {}) });
+      }
+      return [...latest.values()];
+    };
+
+    it.each(["claude-opus-5-5", "claude-fable-5-1"])("shows the second of two thoughts before a tool call from %s as text", (model) => {
+      expect(rows(snapshots(model, [thought(plan), thought(update), tool]))).toEqual([{ text: "", thinking: plan }, { text: update }]);
+    });
+
+    it("does the same when one message carries all of its blocks", () => {
+      const message = frame({ type: "assistant", parent_tool_use_id: null, message: { id: "msg-1", model: "claude-opus-5-5", role: "assistant", content: [thought(plan), thought(update), tool] } });
+      expect(rows([message])).toEqual([{ text: update, thinking: plan }]);
+    });
+
+    it.each([
+      ["a model before 5.1", "claude-opus-5", [thought(plan), thought(update), tool]],
+      ["an older model", "claude-sonnet-4-6", [thought(plan), thought(update), tool]],
+      ["a lone thought", "claude-opus-5-5", [thought(plan), tool]],
+      ["an empty second thought", "claude-opus-5-5", [thought(plan), thought(" \n "), tool]],
+      ["an empty first thought", "claude-opus-5-5", [thought(" \n "), thought(update), tool]],
+      ["a text block between", "claude-opus-5-5", [thought(plan), thought(update), { type: "text", text: "Now." }, tool]],
+    ] as const)("keeps thoughts as thoughts for %s", (_name, model, blocks) => {
+      const kept = rows(snapshots(model, [...blocks]));
+      expect(kept.every((row) => row.text !== update)).toBe(true);
+      expect(kept.some((row) => row.thinking === update || row.thinking === plan)).toBe(true);
+    });
   });
 
   it("bounds tool output to the host's limit and sums usage", () => {
