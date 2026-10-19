@@ -59,6 +59,13 @@ export function parseFoldState(payload: unknown): FoldState {
   }
   return { supported: fold.supported, posture: fold.posture, hingeAngle: fold.hingeAngle };
 }
+/** Remote hub command: it stops when the ssh session's stdin reaches EOF, even if Tau was killed. */
+export function remoteHubCommand(args: string[]): string {
+  const script = `exec 3<&0\nenv EXPO_DEVICE_HUB_BASE_PATH= node ${args.map(quote).join(" ")} </dev/null &\nhub=$!\n{ cat <&3; kill "$hub"; } >/dev/null 2>&1 &\nwatcher=$!\nwait "$hub"\nstatus=$?\nkill "$watcher" 2>/dev/null\nexit "$status"`;
+  return `sh -c ${quote(script)}`;
+}
+/** What a running hub depends on; the display name is not part of it. */
+const hubKey = (host: DeviceHost, node: string): string => host.ssh ? JSON.stringify([host.ssh, host.remoteDirectory]) : JSON.stringify([node]);
 interface RunningHub { origin: string; child: ChildProcess; devices: Device[] }
 export class DeviceManager {
   readonly tools: Toolchain;
@@ -66,12 +73,12 @@ export class DeviceManager {
   private hubs = new Map<string, RunningHub>();
   private starting = new Map<string, Promise<RunningHub>>();
   private closed = false;
-  private generation = 0;
+  private epochs = new Map<string, number>();
   private agentHosts = new Map<string, DeviceHost>();
   private actions = new Map<string, Promise<unknown>>();
   private scales = new Map<string, number>();
   private load: Promise<void>;
-  constructor(readonly directory: string, private execute: Run = run, private request: typeof fetch = fetch) {
+  constructor(readonly directory: string, private execute: Run = run, private request: typeof fetch = fetch, private launch: typeof spawn = spawn) {
     this.tools = new Toolchain(directory, execute);
     this.load = readFile(join(directory, "settings.json"), "utf8").then((text) => { this.settings = validateSettings(JSON.parse(text)); }).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
     this.load.catch(() => undefined);
@@ -83,10 +90,18 @@ export class DeviceManager {
     const pending = join(this.directory, "settings.pending.json");
     await writeFile(pending, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
     await renameReplacing(pending, join(this.directory, "settings.json"));
-    this.generation++;
-    for (const hub of this.hubs.values()) stop(hub.child);
-    this.hubs.clear(); this.scales.clear();
+    const previous = this.settings;
     this.settings = settings;
+    // Restart only hubs whose own host changed; saving the same settings keeps every hub running.
+    const kept = new Map(settings.hosts.map((host) => [host.id, hubKey(host, settings.node)]));
+    for (const host of previous.hosts) {
+      if (kept.get(host.id) === hubKey(host, previous.node)) continue;
+      this.epochs.set(host.id, this.epoch(host.id) + 1);
+      const hub = this.hubs.get(host.id);
+      if (hub) stop(hub.child);
+      this.hubs.delete(host.id); this.starting.delete(host.id);
+      for (const key of this.scales.keys()) if (key.startsWith(`${host.id}/`)) this.scales.delete(key);
+    }
     return this.state();
   }
   async state(checkLatest = false): Promise<HubState> {
@@ -97,6 +112,7 @@ export class DeviceManager {
     await this.load;
     if (!this.settings.agentControl) throw new Error('Agent device control is off. Ask the user to enable it with request_takeover: target="settings", settingsPage="devices.settings". They must turn on "Allow agents to control simulators" and save.');
   }
+  private epoch(id: string): number { return this.epochs.get(id) ?? 0; }
   private host(id: string): DeviceHost {
     const host = this.settings.hosts.find((entry) => entry.id === id);
     if (!host) throw new Error("This device machine was removed. Refresh the device list.");
@@ -137,21 +153,23 @@ export class DeviceManager {
   }
   private async startHub(host: DeviceHost): Promise<RunningHub> {
     if (!host.ssh && !await this.tools.installed("hub")) throw new Error("Install the device viewer tools in Settings → Simulators first.");
-    const generation = this.generation;
+    const epoch = this.epoch(host.id);
     const localPort = await port(), remotePort = host.ssh ? await port() : localPort;
     const args = [host.ssh ? this.remoteEntry(host, "hub") : this.tools.entry("hub"), "--port", String(remotePort), "--host", "127.0.0.1", "--hide-sidebar", "--hide-boot-device"];
+    // The remote side watches the piped stdin, so the hub ends when Tau does.
     const child = host.ssh
-      ? spawn("ssh", ["-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=10", "-L", `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`, "--", host.ssh, ["env", "EXPO_DEVICE_HUB_BASE_PATH=", "node", ...args].map(quote).join(" ")], { stdio: ["ignore", "pipe", "pipe"] })
-      : spawn(this.settings.node, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", EXPO_DEVICE_HUB_BASE_PATH: "" }, stdio: ["ignore", "pipe", "pipe"] });
+      ? this.launch("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3", "-L", `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`, "--", host.ssh, remoteHubCommand(args)], { stdio: ["pipe", "pipe", "pipe"] })
+      : this.launch(this.settings.node, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", EXPO_DEVICE_HUB_BASE_PATH: "" }, stdio: ["ignore", "pipe", "pipe"] });
     let failure = "", spawnError: Error | undefined;
     child.on("error", (error) => { spawnError = error; });
+    child.stdin?.on("error", () => undefined);
     child.stdout?.resume();
     child.stderr?.on("data", (chunk: Buffer) => { failure = (failure + chunk.toString()).slice(-4000); });
     const hub: RunningHub = { origin: `http://127.0.0.1:${localPort}`, child, devices: [] };
     try {
       const deadline = Date.now() + 30_000;
       while (Date.now() < deadline) {
-        if (this.closed || generation !== this.generation || spawnError || child.exitCode !== null) throw new Error(spawnError?.message || failure || "Device hub stopped before it was ready.");
+        if (this.closed || epoch !== this.epoch(host.id) || spawnError || child.exitCode !== null) throw new Error(spawnError?.message || failure || "Device hub stopped before it was ready.");
         try {
           const response = await this.request(`${hub.origin}/api/devices`, { signal: AbortSignal.timeout(1500) });
           if (response.ok) { this.hubs.set(host.id, hub); return hub; }
@@ -309,7 +327,7 @@ export class DeviceManager {
     return this.hostRun(host, host.ssh ? "node" : this.settings.node, [entry, ...args, ...target], signal);
   }
   dispose(): void {
-    this.closed = true; this.generation++;
+    this.closed = true;
     for (const hub of this.hubs.values()) stop(hub.child);
     this.hubs.clear();
     for (const host of this.agentHosts.values()) {

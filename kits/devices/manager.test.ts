@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { copyFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DeviceManager, validateSettings } from "./manager.js";
+import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { DeviceManager, remoteHubCommand, validateSettings } from "./manager.js";
 import { DEFAULT_SETTINGS, TOOLS, type DeviceSettings } from "./protocol.js";
 import { quote, type Run } from "./process.js";
 import { Toolchain } from "./toolchain.js";
@@ -128,6 +132,73 @@ describe("device operations through the real loopback transport", () => {
       await manager.action({ ...target, action: "tap", x: 300, y: 600 });
       expect(vi.mocked(execute).mock.calls.at(-1)![1].slice(1, 4)).toEqual(["click", "100", "200"]);
       await expect(manager.action({ ...target, action: "tap", x: 10, y: 20 }, undefined, true)).rejects.toThrow("off");
+    } finally { manager.dispose(); }
+  });
+});
+
+describe("device hub lifetime", () => {
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const until = async (check: () => boolean) => { for (let i = 0; i < 100 && !check(); i++) await new Promise((r) => setTimeout(r, 50)); return check(); };
+  it("stops the remote hub when the ssh session's stdin closes", async () => {
+    const path = await directory();
+    await writeFile(join(path, "node"), `#!/bin/sh\necho $$ > "${path}/hub.pid"\nexec sleep 30\n`, { mode: 0o755 });
+    const child = spawn("sh", ["-c", remoteHubCommand(["entry's.js", "--port", "1"])], { env: { ...process.env, PATH: `${path}:${process.env.PATH}` }, stdio: ["pipe", "ignore", "ignore"] });
+    const exited = new Promise((resolve) => child.on("close", resolve));
+    let pid = 0;
+    try {
+      expect(await until(() => existsSync(join(path, "hub.pid")) && readFileSync(join(path, "hub.pid"), "utf8").trim() !== "")).toBe(true);
+      pid = Number(readFileSync(join(path, "hub.pid"), "utf8"));
+      expect(alive(pid)).toBe(true);
+      child.stdin!.end();
+      await exited;
+      expect(await until(() => !alive(pid))).toBe(true);
+    } finally { child.kill(); if (pid && alive(pid)) process.kill(pid, "SIGKILL"); }
+  });
+  it("ends the remote session when the hub exits by itself", async () => {
+    const path = await directory();
+    await writeFile(join(path, "node"), "#!/bin/sh\nexit 3\n", { mode: 0o755 });
+    const child = spawn("sh", ["-c", remoteHubCommand([])], { env: { ...process.env, PATH: `${path}:${process.env.PATH}` }, stdio: ["pipe", "ignore", "ignore"] });
+    const code = await new Promise((resolve) => child.on("close", resolve));
+    expect(code).toBe(3);
+    child.kill();
+  });
+  it("starts an ssh hub with a piped stdin and the watching remote command", async () => {
+    const launched: { command: string; args: string[]; options: { stdio: unknown } }[] = [];
+    const launch = ((command: string, args: string[], options: { stdio: unknown }) => {
+      launched.push({ command, args, options });
+      return Object.assign(new EventEmitter(), { exitCode: 1, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true });
+    }) as unknown as typeof spawn;
+    const manager = new DeviceManager(await directory(), vi.fn(), fetch, launch);
+    await manager.configure({ ...settings(), hosts: [...settings().hosts, { id: "mac", name: "Mac", ssh: "device-mac", remoteDirectory: "/tmp/tools" }] });
+    await expect(manager.discover("mac")).rejects.toThrow();
+    expect(launched[0].command).toBe("ssh");
+    expect(launched[0].options.stdio).toEqual(["pipe", "pipe", "pipe"]);
+    expect(launched[0].args).toContain("-T");
+    expect(launched[0].args.at(-1)).toMatch(/^sh -c '.*cat <&3.*kill/s);
+    manager.dispose();
+  });
+  async function running() {
+    const path = await directory();
+    const manager = new DeviceManager(path, vi.fn(async () => ({ stdout: "", stderr: "" })));
+    await manager.configure({ ...settings(), node: process.execPath });
+    const hubEntry = manager.tools.entry("hub");
+    await mkdir(join(hubEntry, ".."), { recursive: true });
+    await copyFile(new URL("./fixtures/fake-hub.mjs", import.meta.url), hubEntry);
+    await writeFile(join(manager.tools.root("hub"), ".complete"), TOOLS.hub.version);
+    await manager.discover("local");
+    const pid = () => (manager as unknown as { hubs: Map<string, { child: { pid: number } }> }).hubs.get("local")?.child.pid;
+    return { manager, pid };
+  }
+  it("keeps running hubs when saved settings do not change them", async () => {
+    const { manager, pid } = await running();
+    try {
+      const before = pid();
+      expect(before).toBeGreaterThan(0);
+      await manager.configure({ ...settings(), node: process.execPath });
+      await manager.configure({ ...settings(), node: process.execPath, agentControl: true, hosts: [{ id: "local", name: "This Mac" }, { id: "mac", name: "Mac", ssh: "device-mac", remoteDirectory: "/tmp/tools" }] });
+      expect(pid()).toBe(before);
+      await manager.configure({ ...settings(), node: "/usr/bin/other-node" });
+      expect(pid()).toBeUndefined();
     } finally { manager.dispose(); }
   });
 });
