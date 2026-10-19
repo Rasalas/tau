@@ -837,7 +837,7 @@ context.useService<ComposerContextChips>("tau.composer-context/chips", (chips) =
 | `chips()` | The chips of the draft on screen, in the order they were added. |
 | `subscribe(listener)` | Called on any change to any draft's chips. |
 
-The four kinds and what each becomes when the prompt is sent, always in this
+The five kinds and what each becomes when the prompt is sent, always in this
 order and before the user's text:
 
 | `kind` | `payload` | Sent as |
@@ -845,6 +845,7 @@ order and before the user's text:
 | `file` | `{ path, startLine?, endLine? }`, workspace-relative, lines 1-based | `<file path="…" lines="a-b">…</file>`, read at send time, 200 KB at most |
 | `text-excerpt` | `{ source, text, comment?, messageId? }` | `<excerpt>` … `</excerpt>` around `From <source>:`, the text as a `>` quote, then `My comment on this excerpt: <comment>` when the user wrote one in the chip's popover; `messageId` (the transcript message the text was taken from) becomes the tag's `message` attribute |
 | `pull-request` | `{ number, title, url, branch? }` | `Pull request [#n](url): title` |
+| `thread` | `{ threadId, title }`, a thread of this host | `Thread [title](tau://thread?thread=id) as context: …`, then a Markdown snapshot of its latest turns (20 at most, 48 KB, 6,000 characters a message) written beside the draft's attachments at send time: attached as a `kind: "file"` for a runtime that opens files, otherwise inline as a `<file>` block. A thread that cannot be read refuses the send and keeps the chip |
 | `attachment` | `{ name, mimeType, size, path? }`, `path` on the host | a `kind: "file"` attachment for a runtime that opens files; otherwise the text inline (200 KB at most) or, for anything else, a sentence naming the path |
 
 Review's request strip and ended-request lines also offer the `pull-request`
@@ -853,6 +854,14 @@ payload as JSON under `application/x-tau-pull-request+json`, alongside
 drop through the generic `drop` hook and adds the same chip to the active draft.
 It uses the existing persistence and send path. Kits copy this MIME contract
 along with the payload type; they do not import each other.
+
+A thread row dragged out of Workspace Kit's rail (Active, Working and the other
+sections alike) is offered to whatever is under the pointer as a native drop would
+be, under `application/x-tau-thread+json` (JSON of the `thread` payload): a
+`dragover` that something cancels shows "Add as context", and letting go sends it
+the `drop`. Composer Context claims it through a second `drop` contribution and adds
+the `thread` chip. Over the rail the drag still sorts; the rows of other machines' threads
+are not draggable. No new core seam.
 
 Composer Context fills `chips`, so its chips sit in the text; a click on an
 excerpt opens it in full with a field for the user's comment on it. Once sent,

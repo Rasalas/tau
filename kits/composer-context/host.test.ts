@@ -10,7 +10,7 @@ import { COMPOSER_CONTEXT_ID, EMBED_TEXT_BYTES } from "./protocol.js";
 const scratch: string[] = [];
 afterEach(async () => { await Promise.all(scratch.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 
-async function setup(findCommand: (name: string) => string | undefined = () => undefined) {
+async function setup(findCommand: (name: string) => string | undefined = () => undefined, extra: Record<string, unknown> = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-composer-context-"));
   scratch.push(root);
   const project = join(root, "project");
@@ -26,6 +26,7 @@ async function setup(findCommand: (name: string) => string | undefined = () => u
     findCommand,
     log: () => undefined,
     registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
+    ...extra,
   });
   const invoke = (command: string, input: unknown) => registry.invoke(COMPOSER_CONTEXT_ID, command, input);
   return { invoke, project, state, lifecycles };
@@ -88,6 +89,35 @@ describe("Composer Context host", () => {
     expect(described[1]?.truncated).toBe(true);
     expect(described[1]?.text).toHaveLength(EMBED_TEXT_BYTES);
     expect(described[2]).toEqual({ path: join(project, "README.md") });
+  });
+
+  it("snapshots an open thread from its transcript, under the draft's folder", async () => {
+    const open = { sessionName: () => "Fix login", transcript: async () => [{ role: "user", text: "why?" }, { role: "assistant", text: "because" }] };
+    const { invoke, state } = await setup(undefined, { thread: (id?: string) => id === "t9" ? open : undefined });
+    const snapshot = await invoke("snapshot-thread", { scope: "session:t1", threadId: "t9", title: "stale" }) as { name: string; path: string; size: number; text: string; turns: number; total: number };
+    expect(snapshot).toMatchObject({ name: "thread-Fix login.md", turns: 1, total: 1 });
+    expect(snapshot.path.startsWith(state)).toBe(true);
+    expect(snapshot.path).toMatch(/attachments[/\\]t1[/\\][0-9a-f]{8}-thread-Fix login\.md$/u);
+    expect(snapshot.text).toContain("# Fix login");
+    expect(snapshot.text).toContain("### You\n\nwhy?\n\n### Assistant\n\nbecause");
+    expect(await readFile(snapshot.path, "utf8")).toBe(snapshot.text);
+    expect(snapshot.size).toBe(Buffer.byteLength(snapshot.text));
+  });
+
+  it("snapshots a thread that is not open from its session file, and refuses an unknown or empty one", async () => {
+    const entries = [{ type: "message", message: { role: "user", content: "hello" } }, { type: "message", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } }];
+    const sessions = {
+      list: async () => [{ sessionId: "old", path: "/s/old.jsonl", cwd: "/p" }, { sessionId: "blank", path: "/s/blank.jsonl", cwd: "/p" }],
+      open: (path: string) => ({ entries: () => path.endsWith("old.jsonl") ? entries : [] }),
+    };
+    const { invoke } = await setup(undefined, { thread: () => undefined, sessions });
+    const old = await invoke("snapshot-thread", { scope: "new:/p:draft-1", threadId: "old", title: "Old chat" }) as { name: string; path: string; text: string };
+    expect(old.name).toBe("thread-Old chat.md");
+    expect(old.path).toMatch(/attachments[/\\]draft-1[/\\]/u);
+    expect(old.text).toContain("### You\n\nhello\n\n### Assistant\n\nhi");
+    await expect(invoke("snapshot-thread", { scope: "s", threadId: "nope", title: "x" })).rejects.toThrow(/not on this host/u);
+    await expect(invoke("snapshot-thread", { scope: "s", threadId: "blank", title: "x" })).rejects.toThrow(/no messages/u);
+    await expect(invoke("snapshot-thread", { scope: "s", threadId: "", title: "x" })).rejects.toThrow(/No thread/u);
   });
 
   it("lists the project's files best match first, without a Git repository too", async () => {

@@ -12,7 +12,9 @@ import {
   type PullRequestSummary,
   type ReadFileRequest,
   type ReadFileResult,
+  type ThreadSnapshot,
 } from "./protocol.js";
+import { buildSnapshot, messagesOfEntries, type SnapshotMessage } from "./thread-snapshot.js";
 
 const record = (input: unknown): Record<string, unknown> =>
   input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -168,6 +170,30 @@ export function createComposerContextHostExtension(): HostExtension {
         services.log("composer-context.stored", `${bytes.length} bytes`);
         return { path, size: bytes.length };
       }, { long: true });
+
+      // Writes the thread's latest turns as Markdown beside the draft's attachments; works for a thread that is not open.
+      context.registerCommand("snapshot-thread", async (input): Promise<ThreadSnapshot> => {
+        const fields = record(input);
+        const threadId = text(fields.threadId);
+        if (!threadId) throw new HostCommandError("No thread to attach.");
+        const live = services.thread(threadId);
+        let messages: SnapshotMessage[];
+        if (live) messages = await live.transcript();
+        else {
+          const known = (await services.sessions.list()).find((session) => session.sessionId === threadId);
+          if (!known) throw new HostCommandError("That thread is not on this host any more.");
+          messages = messagesOfEntries(services.sessions.open(known.path).entries());
+        }
+        const title = live?.sessionName() || text(fields.title);
+        const { markdown, turns, total } = buildSnapshot(title, messages, new Date());
+        if (turns === 0) throw new HostCommandError("That thread has no messages yet.");
+        const folder = join(attachmentsRoot, attachmentFolder(text(fields.scope)));
+        await mkdir(folder, { recursive: true });
+        const name = `thread-${safeFileName(title).replace(/\.md$/u, "")}.md`;
+        const path = join(folder, `${randomUUID().slice(0, 8)}-${name}`);
+        await writeFile(path, markdown, { mode: 0o600 });
+        return { name, path, size: Buffer.byteLength(markdown), text: markdown, turns, total };
+      });
 
       context.registerCommand("read-files", async (input) => {
         const fields = record(input);
